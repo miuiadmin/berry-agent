@@ -1456,8 +1456,9 @@ export function startSchedulerClock(
  * **不进投影**——人面命令（/goal）与模型工具（goal_update/todo）在 goal 件
  * 内闭包消费全量 GoalService（danger 件 dangerFace 从不 provide 先例同律）。
  */
-// （'list' 消费位 = 宿主 TUI /goal show|wake|approve 尾参 goal id 活体补全
-// ——tui-entry goalRows 注入经 scope 'goal' 面取；wf_3c8b00b8 A-6 扩键）
+// （'list' 消费位 = 宿主 TUI /goal show|wake|approve|abandon 尾参 goal id
+// 活体补全——tui-entry goalRows 注入经 scope 'goal' 面取；wf_3c8b00b8 A-6
+// 扩键 + abandon 开面批随迁）
 export type GoalHostServiceFace = Pick<
   GoalService,
   'wake' | 'goalScopeFor' | 'depositFor' | 'recordTurn' | 'attachGoalJobsFace' | 'detachGoalJobsFace' | 'list'

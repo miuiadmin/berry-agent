@@ -511,8 +511,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // /plugins 尾参位活体源（activated ∪ skipped——failed 不入可操作面；
       // 结构子集形直赋——取值器每查询现取，与 rewind 位同族）
       ...(pluginLoadReport !== undefined ? { pluginReport: () => pluginLoadReport.report() } : {}),
-      // /goal show|wake|approve 尾参 goal id 位活体源（service.list() 全量行
-      // ——/goal list 同一读面；A-6 组γ；goal 件缺席 = 该活体位诚实缺席）
+      // /goal show|wake|approve|abandon 尾参 goal id 位活体源（service.list()
+      // 全量行——/goal list 同一读面；A-6 组γ + abandon 开面批；goal 件缺席 =
+      // 该活体位诚实缺席）
       ...(goalFace !== undefined
         ? { goalRows: () => goalFace.service.list().map((row) => ({ id: row.id, objective: row.objective })) }
         : {}),

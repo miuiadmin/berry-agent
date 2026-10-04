@@ -150,16 +150,17 @@ describe('activate（建行守卫 + 挂钟注册编舞）', () => {
 
   it('单 active 撞席拒；他会话不撞', async () => {
     const { service } = openService();
-    await service.activate({ sessionId: 's1', objective: 'a', schedule: 'every:1h' });
-    // 撞席指路文案诚实化（1664154 文案批漏网姊妹位——sweep10 laneE 件2）：
-    // 不承诺 /goal 不存在的终态动词（动词闭集 = create/list/show/wake/approve
-    // ——「放弃」非用户动词，abandon 经 goal update 工具由模型在目标会话触达）；
-    // 新锚与 scheduler /tick rm 守卫文案同族（scheduler/service.ts 同批定谳形）
+    const first = await service.activate({ sessionId: 's1', objective: 'a', schedule: 'every:1h' });
+    // 撞席指路翻档（03 §10.5 第十一轮收官呈拍批定形①）：abandon 人面动词已
+    // 开面——「『放弃』非用户动词」旧定谳随批废止，指路 /goal abandon 正道
+    // （含 incumbent id 可直达；模型通道 goal update 双通道并存——定形注③）
     const err = await expectCode(
       service.activate({ sessionId: 's1', objective: 'b', schedule: 'every:1h' }),
       'GOAL_TRANSITION_INVALID',
     );
-    expect(err.message).toContain('在目标会话中让模型放弃它');
+    expect(err.message).toContain('/goal abandon');
+    expect(err.message).toContain(first.id);
+    expect(err.message).not.toContain('让模型放弃'); // 旧指路句翻档（变更证据形）
     await expect(service.activate({ sessionId: 's2', objective: 'b', schedule: 'every:1h' })).resolves.toBeDefined();
   });
 
@@ -294,23 +295,52 @@ describe('complete（完成否决律机器面）', () => {
     expect(calls).toContain(`terminal:${goal.id}`); // 第三腿照拍（防御吞不吞第三腿）
   });
 
-  it('abandon 同律：disable 抛防御吞、终态照落（两终态动词对称）', async () => {
+  it('abandon 同律：remove 抛防御吞、终态照落（03 §10.5 定形注②——abandon=remove 摘钟，complete 对称腿）', async () => {
     const { service, calls } = openService({ onTerminal: (g) => calls.push(`terminal:${g.id}`) });
     const throwing: GoalJobsFace = {
       async register() {
         return { ok: true, message: 'ok' };
       },
-      async disable() {
+      async disable() {},
+      async enable() {},
+      async remove() {
         throw new Error('scheduler 炸了');
       },
-      async enable() {},
-      async remove() {},
     };
     await service.attachGoalJobsFace(throwing);
     const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
     const done = await service.abandon(goal.id, '收工');
     expect(done).toMatchObject({ status: 'abandoned' });
     expect(calls).toContain(`terminal:${goal.id}`);
+    expect(warn).toHaveBeenCalled(); // 摘钟腿炸吞 warn 不回滚终态不阻第三腿
+  });
+});
+
+describe('abandon 终态摘钟（03 §10.5 第十一轮收官呈拍批定形②——GoalJobsFace.remove 生产消费位首次接线）', () => {
+  it('abandon 走 remove：摘钟动词被调 + disable 不再被调（两断言并立——修前红：现行走 disable）', async () => {
+    const { service, face, calls } = openService();
+    await service.attachGoalJobsFace(face);
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'every:5m' });
+    await service.abandon(goal.id, '方向变了');
+    expect(calls).toContain(`remove:${goal.id}`);
+    expect(calls).not.toContain(`disable:${goal.id}`);
+    expect(service.get(goal.id)).toMatchObject({ status: 'abandoned', endingNote: '方向变了' });
+  });
+
+  it('complete 仍 disable 行留史（分工律：complete=停用保留 / abandon=移除摘钟——remove 不被调）', async () => {
+    const { service, session, face, calls } = openService({
+      statMap: { '/ws/out.txt': { exists: true, size: 10 } },
+    });
+    await service.attachGoalJobsFace(face);
+    const goal = await service.activate({ sessionId: 's1', objective: '写文档', schedule: 'every:10m' });
+    session.push('s1', 'todo/write', {
+      items: [
+        { status: 'completed', content: '产出文档', noFollowUp: true, gate: { kind: 'files', paths: ['out.txt'] } },
+      ],
+    });
+    await service.complete(goal.id, '已产出');
+    expect(calls).toContain(`disable:${goal.id}`);
+    expect(calls).not.toContain(`remove:${goal.id}`);
   });
 });
 

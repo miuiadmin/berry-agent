@@ -161,7 +161,7 @@ describe('liveCommandArgumentItems 会话 id 位（/export|/resume 首参——2
   });
 });
 
-describe('liveCommandArgumentItems goal id 位（/goal show|wake|approve <goalId>——A-6 组γ）', () => {
+describe('liveCommandArgumentItems goal id 位（/goal show|wake|approve|abandon <goalId>——A-6 组γ + 03 §10.5 abandon 开面补全四处之一）', () => {
   /** goal 清单取值器速记（结构子集形——id + objective 两键） */
   function goalDeps(rows: readonly { id: string; objective: string }[]): LiveCompletionDeps {
     return { goalRows: () => rows };
@@ -172,8 +172,8 @@ describe('liveCommandArgumentItems goal id 位（/goal show|wake|approve <goalId
     { id: 'goal-xyz789', objective: '短目标' },
   ];
 
-  it('三动词同位同源：全 id replacement 尾空格 + detail = objective 40 截形（对齐 /goal list 行判据）', () => {
-    for (const verb of ['show', 'wake', 'approve']) {
+  it('四动词同位同源：全 id replacement 尾空格 + detail = objective 40 截形（对齐 /goal list 行判据）', () => {
+    for (const verb of ['show', 'wake', 'approve', 'abandon']) {
       const items = liveCommandArgumentItems('goal', '', [verb], goalDeps(rows)) as unknown as {
         label: string;
         detail?: string;

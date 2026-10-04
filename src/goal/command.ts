@@ -1,11 +1,13 @@
 /**
  * /goal 命令处理器（04 §12——/goal wake 手动起闹的纯程序面；list/show 观察面）。
  *
- * 形态律与 /tick 同族（tick.ts 先例）：五动词 argv → 人读文本；服务面守卫错
+ * 形态律与 /tick 同族（tick.ts 先例）：六动词 argv → 人读文本；服务面守卫错
  * （BaseError）折文本不抛（命令面是用户面不是异常面）；唤醒裁决（WakeDecision）
  * 渲染落地/拒因。真正把唤醒消息投进会话的编舞归宿主装配（批 12）——本面只
  * 裁决与呈现。create（U10——03 §10.5 U10 落码定形注①）是创建唯一写面：
- * 恒人面命令，模型工具面零创建位（防自激励环入口）。
+ * 恒人面命令，模型工具面零创建位（防自激励环入口）。abandon（03 §10.5
+ * 第十一轮收官呈拍批定形①）是人面放弃动词——无人值守域停止权恒属用户，
+ * 与模型工具 goal update 双通道并存（service 单漏斗不变）。
  */
 import { BaseError, type SessionEvent } from '../contracts/index.js';
 import { foldGoalTodos, openGoalItems } from './fold.js';
@@ -19,10 +21,11 @@ export const GOAL_USAGE = [
   '/goal show <goalId> —— 单个 goal 详情（任务清单 + 唤醒记录）',
   '/goal wake <goalId> —— 手动唤醒（无进展与预算计数清零，恢复定时运行）',
   '/goal approve <goalId> —— 批准写入权限申请（批准后写入工具可用）',
+  '/goal abandon <goalId> [reason...] —— 放弃目标（终态收口：关联定时任务移除，理由记入终态回执）',
 ].join('\n');
 
 /** 子动词名集（补全面单源——static-completions SUBVERBS_BY_COMMAND 消费） */
-export const GOAL_SUBVERBS = ['create', 'list', 'show', 'wake', 'approve'] as const;
+export const GOAL_SUBVERBS = ['create', 'list', 'show', 'wake', 'approve', 'abandon'] as const;
 
 /** 命令装配依赖 */
 export interface GoalCommandDeps {
@@ -131,6 +134,19 @@ export async function runGoalCommand(
         if (!goalId) return `缺 goalId。\n${GOAL_USAGE}`;
         await deps.service.approve(goalId);
         return `已批准 goal「${goalId}」的写入权限申请——写入工具即刻可用。`;
+      }
+      case 'abandon': {
+        // 人面放弃（03 §10.5 第十一轮收官呈拍批定形①——无人值守域停止权恒属
+        // 用户；守卫复用 service 既有：幽灵 id GOAL_NOT_FOUND / 已终态
+        // GOAL_TRANSITION_INVALID，折文本同面——approve 先例）
+        const goalId = rest[0];
+        if (!goalId) return `缺 goalId。\n${GOAL_USAGE}`;
+        // reason 全文 join 复原入 endingNote（与模型通道 reason 同位语义——
+        // 定形注①）；仅空白 = 不传（service 缺省 'abandoned'——create 的
+        // objective trim 判同律）
+        const reason = rest.slice(1).join(' ').trim();
+        await deps.service.abandon(goalId, reason === '' ? undefined : reason);
+        return `已放弃 goal「${goalId}」（关联定时任务已移除，不再续跑）。`;
       }
       case 'list': {
         const rows = deps.service.list();

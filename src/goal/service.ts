@@ -4,7 +4,8 @@
  * 编舞总览：
  *  - 生命周期：activate（单 active 撞席守卫 + 挂钟注册）/ resume（重绑锚 +
  *    复活挂钟）/ complete（完成否决律机器面：open 项在或 gate 未全绿即拒）/
- *    abandon（终态同笔停摆）；
+ *    abandon（终态同笔摘钟——GoalJobsFace.remove 删挂钟行，03 §10.5 第
+ *    十一轮收官呈拍批定形②）；
  *  - 续跑触发：wake 双道（clock/manual）——重绑护栏（关闭后旧唤醒不落地）+
  *    wakeGate 双帽（停滞判定帽 + 唤醒预算帽 §4）+ 停滞硬停（连续无进展即
  *    停摆报告）+ 归因轮身份 durable 落账（goal_wakes 表——跨进程可审计）；
@@ -104,7 +105,7 @@ export interface GoalService {
   resume(goalId: string, opts?: { sessionId?: string }): Promise<GoalRow>;
   /** 终态 completed（机器否决：open 项在/gate 未全绿/缺 evidence 即拒——响亮列原因） */
   complete(goalId: string, evidence: string): Promise<GoalRow>;
-  /** 终态 abandoned（同笔停摆挂钟） */
+  /** 终态 abandoned（同笔摘钟——GoalJobsFace.remove 删挂钟行；complete 维持 disable 行留史） */
   abandon(goalId: string, reason?: string): Promise<GoalRow>;
   /** 唤醒裁决（重绑护栏 + wakeGate 双帽 + 停滞硬停 + 归因落账） */
   wake(goalId: string, opts: { trigger: 'clock' | 'manual'; attribution: string }): Promise<WakeDecision>;
@@ -448,14 +449,14 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       if (req.objective.length === 0 || bytes > OBJECTIVE_MAX_BYTES) {
         throw new BaseError('GOAL_GOAL_INVALID', `objective 不能为空且不超过 16KiB（当前 ${bytes} 字节）`);
       }
-      if (dao.activeFor(req.sessionId)) {
-        // 撞席指路文案诚实化（1664154 批漏网姊妹位）：不承诺 /goal 不存在的
-        // 终态动词（动词闭集 = create/list/show/wake/approve——「放弃」非用户
-        // 动词）；abandon 经 goal update 工具由模型在目标会话触达（scheduler
-        // /tick rm 守卫文案同族定谳形——scheduler/service.ts）
+      const incumbent = dao.activeFor(req.sessionId);
+      if (incumbent) {
+        // 撞席指路翻档（03 §10.5 第十一轮收官呈拍批定形①）：abandon 人面动词
+        // 已开面——「『放弃』非用户动词」旧定谳随批废止，指路 /goal abandon
+        // 正道（含 incumbent id 可直达；模型通道 goal update 双通道并存——定形注③）
         throw new BaseError(
           'GOAL_TRANSITION_INVALID',
-          `会话 ${req.sessionId} 已有 active goal——先完成当前目标，或在目标会话中让模型放弃它，再建新的`,
+          `会话 ${req.sessionId} 已有 active goal——先完成当前目标，或 /goal abandon ${incumbent.id} 放弃后再建新的`,
         );
       }
       const ts = now();
@@ -580,11 +581,17 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       dao.update(goalId, { status: 'abandoned', endedAt: now(), endingNote: reason ?? 'abandoned' }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
       clearDepositEntries(goalId); // 终态清沉淀缓存与在飞位（sweep10 laneE 件4——死键不驻留）
-      // 终态同笔停摆——防御吞（complete 同律：迁移已落库，停摆腿炸不回滚终态）
+      // 终态同笔摘钟（03 §10.5 第十一轮收官呈拍批定形②——GoalJobsFace.remove
+      // 生产消费位首次接线）：abandon 删挂钟行而非 disable 停摆——放弃态无复活
+      // 语义（enable 复活链只辖停滞硬停/停靠-唤醒两态，终态复活无门系本件
+      // resume/wake 终态守卫执法）；审计不缺腿（goal_wakes 归因行携 goalId 可
+      // 查 + goals 行 endingNote 收口账在）。complete 维持 disable 行留史
+      // （「行即账」审计面）——两终态动词分工律。防御吞（complete 对称腿：
+      // 迁移已落库，摘钟腿炸不回滚终态不阻第三腿，warn 留痕人工收口）
       try {
-        await jobsFace?.disable(goalId);
+        await jobsFace?.remove(goalId);
       } catch (error) {
-        warn(`goal 终态停摆失败（防御吞——迁移已落库）：${error instanceof Error ? error.message : String(error)}`);
+        warn(`goal 终态摘钟失败（防御吞——迁移已落库）：${error instanceof Error ? error.message : String(error)}`);
       }
       notifyTerminal(goalId); // 第三腿（06 §4——失败/放弃边界同拍，failure 候选审阅窗由此入）
       return dao.get(goalId)!;

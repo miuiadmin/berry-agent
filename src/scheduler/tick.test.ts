@@ -281,11 +281,11 @@ describe('rm 内置 goal 挂钟行守卫（真 service——H2）', () => {
       expect(err).toBeInstanceOf(BaseError);
       expect((err as BaseError).code).toBe('SCHEDULER_JOB_INVALID');
     }
-    // 行不删——终态走 disable 行留史（complete/abandon 同笔停摆、enable 可复
-    // 活）；abandon 经 goal update 工具由模型在目标会话触达（/goal 动词闭集
-    // = create/list/show/wake/approve——无终态动词）。挂账立题：/goal abandon
-    // 用户动词与 goalJobs.remove 消费位需规范先行（scheduler/service.ts 守卫
-    // 注同形——本注为 1664154 勘正后的现状描述残谎改写〔sweep10 laneE 件3〕）
+    // 行不删——/tick rm 对 goal 挂钟行恒不受理（摘钟走 GoalJobsFace.remove
+    // 单漏斗非本门）；终态分工（03 §10.5 第十一轮收官呈拍批定形②）：
+    // complete = disable 行留史（「行即账」审计面）/ abandon = remove 摘钟
+    // 删行（消费位 = goal/service.ts abandon 腿——remove 悬空设计位转活）。
+    // /goal abandon 用户动词已开面（双通道并存——模型工具 goal update 同漏斗）
     expect(getRow('goal-g1')).toBeDefined();
   });
 
@@ -294,12 +294,14 @@ describe('rm 内置 goal 挂钟行守卫（真 service——H2）', () => {
     service.addBuiltinJob({ name: 'goal-g2', schedule: 'every:10m', prompt: 'p', enabled: true });
     service.setJobEnabled('goal-g2', false); // 终态停摆形（行留史——resume 复活前常态）
     const out = await runTickCommand(['rm', 'goal-g2'], deps(service, fakeEngine()));
-    // BaseError 折文本（命令道不抛）。指路文案诚实化（第九轮 F1）：/goal 动词
-    // 闭集 = create/list/show/wake/approve——停止/删除两动词皆不存在，旧文案
-    // 「请在 /goal 里停止或删除该目标」是不存在动词的承诺；新锚锁真路径
-    // 「在目标会话中让模型放弃该目标」+ 不含旧承诺形（修前红 = 旧文案无新锚）
+    // BaseError 折文本（命令道不抛）。指路文案翻档（03 §10.5 第十一轮收官
+    // 呈拍批定形①③——/goal abandon 用户动词开面）：旧锚「在目标会话中让
+    // 模型放弃该目标」废止，新锚指 /goal abandon 用户正道；分工句翻档 =
+    // complete 停用保留 / abandon 移除摘钟（变更证据形——勿断言整句）
     expect(out).toContain('SCHEDULER_JOB_INVALID');
-    expect(out).toContain('在目标会话中让模型放弃该目标');
+    expect(out).toContain('/goal abandon');
+    expect(out).toContain('自动移除'); // abandon = 摘钟删行（旧「放弃…保留记录」半句成事实错误）
+    expect(out).not.toContain('在目标会话中让模型放弃');
     expect(out).not.toContain('停止或删除该目标');
     expect(getRow('goal-g2')).toBeDefined(); // rm 不受理——行不删
     // 修前损害形锁 absent：删行后 enable 对无行静默 no-op 全瘫；治本后照常复活

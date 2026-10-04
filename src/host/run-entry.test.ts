@@ -214,10 +214,12 @@ async function seedAssembly(
   };
 }
 
-/** goal 种子：建 durable 会话（首事件落行）→ 激活 goal（可选即弃） */
+/** goal 种子：建 durable 会话（首事件落行）→ 激活 goal（可选即弃/即完——终态
+ * 分工 03 §10.5 定形注②：complete = disable 行留史〔终态 gated 唤醒路径的行
+ * 在场承载〕；abandon = remove 摘钟〔行不在〕） */
 async function seedGoal(
   dataDir: string,
-  opts: { cap?: number; abandon?: boolean } = {},
+  opts: { cap?: number; abandon?: boolean; complete?: boolean } = {},
 ): Promise<{ readonly id: string; readonly sessionId: string }> {
   const ws = tmpDir('run-ws-');
   const seed = await seedAssembly(dataDir);
@@ -230,6 +232,7 @@ async function seedGoal(
     ...(opts.cap !== undefined ? { budgetMessagesCap: opts.cap } : {}),
   });
   if (opts.abandon) await seed.goalService.abandon(goal.id, '测试即弃');
+  if (opts.complete) await seed.goalService.complete(goal.id, '测试完成');
   await seed.shutdown();
   return { id: goal.id, sessionId: goal.sessionId };
 }
@@ -491,7 +494,9 @@ describe('runRunEntry --tick settle 落账（律 3 乙案侧：claim-then-advanc
 
   it('goal wake 未落地（修前红）：gated 结局照记 + 不动 last_fire_at（此前零 settle 行永 due）', async () => {
     const dataDir = tmpDir('run-data-');
-    const goal = await seedGoal(dataDir, { abandon: true }); // 激活即弃 → inactive
+    // 终态分工（03 §10.5 定形注②）随迁：complete = disable 行留史——终态行
+    // 在场的 gated 唤醒路径由此承载（abandon 摘钟后行不在，另测锁新形态）
+    const goal = await seedGoal(dataDir, { complete: true }); // 激活即完 → inactive（行留史）
     const run = await rigRun({ message: '', flags: { tick: `goal-${goal.id}` }, dataDir });
     await expect(run.entry).resolves.toBe(0); // 零跑零账退 0
     expect(run.err.text).toContain('未唤醒');
@@ -773,11 +778,21 @@ describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿�
 describe('runRunEntry --tick goal 挂钟行', () => {
   it('wake 不落（终态 goal）：诚实零跑退 0 + stderr 说明', async () => {
     const dataDir = tmpDir('run-data-');
-    const goal = await seedGoal(dataDir, { abandon: true }); // 激活即弃 → inactive
+    // 终态分工（03 §10.5 定形注②）随迁：complete = disable 行留史——终态
+    // gated 唤醒路径由 complete 承载（abandon 摘钟行不在，见下测新形态锁）
+    const goal = await seedGoal(dataDir, { complete: true }); // 激活即完 → inactive（行留史）
     const run = await rigRun({ message: '', flags: { tick: `goal-${goal.id}` }, dataDir });
     await expect(run.entry).resolves.toBe(0); // 零跑零账——诚实零跑
     expect(run.err.text).toContain('未唤醒');
     expect(run.out.lines).toEqual([]); // text 档零产物（无 assistant 输出）
+  });
+
+  it('abandon 摘钟后行不在：--tick 找不到任务退 2（配置漂移档——03 §10.5 定形注② remove 删行新形态）', async () => {
+    const dataDir = tmpDir('run-data-');
+    const goal = await seedGoal(dataDir, { abandon: true }); // 激活即弃 → 挂钟行已摘
+    const run = await rigRun({ message: '', flags: { tick: `goal-${goal.id}` }, dataDir });
+    await expect(run.entry).resolves.toBe(2); // 行缺席档（旧形：disable 行留史 → gated 未唤醒退 0）
+    expect(run.err.text).toContain('找不到任务'); // 变更证据形——勿断言整句
   });
 
   it('wake 落地：续接 goal 绑定会话 + recordTurn 记账落行（cap=1 首 run 即刹停——驱动 onRunSettled 回执）', async () => {

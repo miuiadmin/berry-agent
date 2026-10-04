@@ -217,12 +217,13 @@ describe('commandArgumentItems 命令参数补全源（R6 批 10j）', () => {
     expect(commandArgumentItems('doors', '', []).map((i) => i.label)).toEqual(['list', 'open', 'close']);
   });
 
-  it('goal 首参子动词五枚（A-6 组γ——修前红位：goal 不在 SUBVERBS_BY_COMMAND 静态面零补全）', () => {
+  it('goal 首参子动词六枚（A-6 组γ + 03 §10.5 abandon 开面——修前红位：goal 不在 SUBVERBS_BY_COMMAND 静态面零补全）', () => {
     const all = commandArgumentItems('goal', '', []);
-    expect(all.map((i) => i.label)).toEqual(['create', 'list', 'show', 'wake', 'approve']);
-    // 无参动词无尾空格、带参动词尾空格（create/show/wake/approve 带尾参）
+    expect(all.map((i) => i.label)).toEqual(['create', 'list', 'show', 'wake', 'approve', 'abandon']);
+    // 无参动词无尾空格、带参动词尾空格（create/show/wake/approve/abandon 带尾参）
     expect(all.find((i) => i.label === 'list')?.replacement).toBe('list');
     expect(all.find((i) => i.label === 'wake')?.replacement).toBe('wake ');
+    expect(all.find((i) => i.label === 'abandon')?.replacement).toBe('abandon ');
   });
 
   it('深位枚举：approval preset 预设名（safety 单源）；doors open 能力名', () => {

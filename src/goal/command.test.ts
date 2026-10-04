@@ -55,6 +55,7 @@ function fakeService(
     wakeImpl?: (goalId: string) => WakeDecision;
     approveImpl?: (goalId: string) => GoalRow;
     activateImpl?: (req: ActivateGoalRequest) => GoalRow;
+    abandonImpl?: (goalId: string, reason?: string) => GoalRow;
   } = {},
 ): GoalService {
   const rows = options.rows ?? [];
@@ -71,7 +72,8 @@ function fakeService(
     async complete(goalId) {
       return byId(goalId);
     },
-    async abandon(goalId) {
+    async abandon(goalId, reason) {
+      if (options.abandonImpl !== undefined) return options.abandonImpl(goalId, reason);
       return byId(goalId);
     },
     async wake(goalId) {
@@ -265,6 +267,39 @@ describe('/goal approve', () => {
   });
 });
 
+describe('/goal abandon（03 §10.5 第十一轮收官呈拍批定形①——人面放弃动词，与模型 goal update 双通道并存）', () => {
+  it('缺 goalId 折 usage；reason 全文 join 透传（空白 = undefined 缺省）；回执述摘钟', async () => {
+    const service = fakeService({ rows: [row({ id: 'g-1' })] });
+    expect(await runGoalCommand(['abandon'], { service, eventsFor: NO_EVENTS })).toBe(`缺 goalId。\n${GOAL_USAGE}`);
+    const seen: Array<[string, string | undefined]> = [];
+    const recorder = fakeService({
+      rows: [row({ id: 'g-1' })],
+      abandonImpl: (goalId, reason) => {
+        seen.push([goalId, reason]);
+        return row({ id: goalId, status: 'abandoned', endingNote: reason ?? 'abandoned' });
+      },
+    });
+    const text = await runGoalCommand(['abandon', 'g-1', '方向', '变了'], { service: recorder, eventsFor: NO_EVENTS });
+    expect(seen).toEqual([['g-1', '方向 变了']]); // 全文 join 复原入 endingNote（/tick add prompt 同律）
+    expect(text).toContain('已放弃 goal「g-1」');
+    expect(text).toContain('关联定时任务已移除'); // 摘钟语义入回执（变更证据形——勿断言整句；话术平实化后锚新短语）
+    await runGoalCommand(['abandon', 'g-1'], { service: recorder, eventsFor: NO_EVENTS });
+    expect(seen[1]).toEqual(['g-1', undefined]); // 无 reason 透传 undefined（service 缺省 endingNote 'abandoned'）
+  });
+
+  it('服务面守卫错折文本不抛（BaseError 码直呈——approve 同面）', async () => {
+    const refused = fakeService({
+      rows: [row({ id: 'g-1' })],
+      abandonImpl: () => {
+        throw new BaseError('GOAL_TRANSITION_INVALID', 'goal「g-1」已终态（completed）——不可再变更');
+      },
+    });
+    expect(await runGoalCommand(['abandon', 'g-1'], { service: refused, eventsFor: NO_EVENTS })).toBe(
+      'GOAL_TRANSITION_INVALID：goal「g-1」已终态（completed）——不可再变更',
+    );
+  });
+});
+
 describe('/goal create（U10 生产创建入口——03 §10.5 U10 落码定形注）', () => {
   it('位参形全链：objective join 复原全文 + 会话锚透传 + 通用回执「挂钟行已排」（未申报无帽零尾行）', async () => {
     const seen: ActivateGoalRequest[] = [];
@@ -363,18 +398,18 @@ describe('/goal create（U10 生产创建入口——03 §10.5 U10 落码定形�
   });
 
   it('服务面守卫错折文本不抛：单 active 撞席/挂钟坏串回执（GOAL_TRANSITION_INVALID 码直呈）', async () => {
-    // 撞席文案随 service.ts 诚实化随迁（sweep10 laneE 件2——镜像真身守卫文
-    // 案，不承诺 /goal 不存在的终态动词；真路径锚「在目标会话中让模型放弃它」）
+    // 撞席镜像随 service.ts 翻档（03 §10.5 第十一轮收官呈拍批定形①）：指路
+    // /goal abandon 正道（真身锁在 service.test——本面只锁命令层折文本透传）
     const clash = fakeService({
       activateImpl: () => {
         throw new BaseError(
           'GOAL_TRANSITION_INVALID',
-          '会话 s1 已有 active goal——先完成当前目标，或在目标会话中让模型放弃它，再建新的',
+          '会话 s1 已有 active goal——先完成当前目标，或 /goal abandon g-1 放弃后再建新的',
         );
       },
     });
     expect(await runGoalCommand(['create', 'every:60s', '目标'], { service: clash, eventsFor: NO_EVENTS }, 's1')).toBe(
-      'GOAL_TRANSITION_INVALID：会话 s1 已有 active goal——先完成当前目标，或在目标会话中让模型放弃它，再建新的',
+      'GOAL_TRANSITION_INVALID：会话 s1 已有 active goal——先完成当前目标，或 /goal abandon g-1 放弃后再建新的',
     );
     const badClock = fakeService({
       activateImpl: () => {

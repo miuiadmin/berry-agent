@@ -94,6 +94,7 @@ const VERB_META: Readonly<Record<string, readonly [string, boolean]>> = {
   'goal show': ['单个 goal 详情（任务清单 + 唤醒记录）<goalId>', true],
   'goal wake': ['手动唤醒（无进展与预算计数清零）<goalId>', true],
   'goal approve': ['批准写入权限申请 <goalId>', true],
+  'goal abandon': ['放弃目标（关联定时任务移除，理由入终态回执）<goalId> [reason]', true],
 };
 
 /**
