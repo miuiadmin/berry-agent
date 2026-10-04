@@ -203,6 +203,14 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
                   );
                 }
               });
+              // 错误体读取中途连接中断（RST——代理/网关回 502 头+部分错误体后斩线）：
+              // 'end' 永不至——与 200 路 terminate 同形补挂 close/error 两监听；reject
+              // 经已落定 Promise 幂等无害（'end' 先至则后两监听 no-op）——不留悬挂
+              // Promise（本件头注承诺位）
+              res.on('close', () =>
+                reject(new SdkError('SDK_TRANSPORT', `SSE 建流 → 连接中断（HTTP ${res.statusCode ?? 0}）`)),
+              );
+              res.on('error', (err: Error) => reject(new SdkError('SDK_TRANSPORT', `SSE 建流 → ${err.message}`)));
               return;
             }
             liveStreams.add(res);

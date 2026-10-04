@@ -151,6 +151,16 @@ async function startFace(): Promise<{ transport: SdkTransport; log: FaceLog; clo
         res.end('<html><body>bad gateway upstream</body></html>');
         return;
       }
+      if (sessionId === 's-gateway-cut') {
+        // 错误体读取中途连接中断谱（sweep10 件1）：代理/网关回 502 状态行 +
+        // 部分错误体后斩 socket——'end' 永不至；修前非 200 分支只挂 data/end
+        // 两监听 → reject 永不发生（openLive 悬挂——本件头注「不留悬挂
+        // Promise」的违背位；200 路 terminate 有 end/close/error 三监听对照）
+        res.writeHead(502, { 'content-type': 'text/html; charset=utf-8' });
+        res.write('<html><body>bad g');
+        setTimeout(() => res.socket?.destroy(), 20);
+        return;
+      }
       if (sessionId === 's-cut-live') {
         // 建立期断连谱（idx 21）：200 + hello 后斩 socket，replay-end 永不至
         res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
@@ -352,6 +362,17 @@ describe('httpSdkTransport 直连 HTTP 传输', () => {
       name: 'SdkError',
       code: 'SDK_TRANSPORT',
       message: expect.stringContaining('bad gateway upstream') as unknown,
+    });
+  });
+
+  it('SSE 建流失败错误体读取中途断连：502 头+部分体后斩 socket → 限期 reject SDK_TRANSPORT（不悬挂）（sweep10 件1）', async () => {
+    const { transport } = await face();
+    // 修前：非 200 分支只挂 data/end——'end' 永不至即 reject 永不发生（悬挂）；
+    // withDeadline 超期以裸 Error 落定 → 不匹配 SdkError 断言即红
+    const pending = transport.openLive({ sessionId: 's-gateway-cut' }, () => {});
+    await expect(withDeadline(pending)).rejects.toMatchObject({
+      name: 'SdkError',
+      code: 'SDK_TRANSPORT',
     });
   });
 
