@@ -15,6 +15,7 @@
  *   直调（环账与 undo 编排归模型）。
  */
 import type { CellBuffer, InputEvent, KeyEvent, Region, Renderable } from '../../engine/index.js';
+import { splitGraphemes } from '../../engine/index.js';
 import { EditorModel } from './editor-model.js';
 import { EditorView } from './editor-view.js';
 import { Keymap } from '../keys/registry.js';
@@ -110,22 +111,22 @@ export class Editor implements Renderable {
       case 'key':
         return this.handleKey(event);
       case 'text': {
-        // jump 待靶态：首字符为跳转靶（kitty / legacy 可打印均走 text 事件）。
-        // legacy 轨 textRun 同 chunk 连续可打印合并单 text 事件——首码点作靶后
-        // 余码点经 insertText 补入正文，不随靶消费丢字（码点切分保代理对完整）
-        if (this.jumpPending !== null && event.text.length > 0) {
-          const cps = [...event.text];
-          this.model.jumpToChar(cps[0]!, this.jumpPending);
-          this.jumpPending = null;
-          if (cps.length > 1) this.model.insertText(cps.slice(1).join(''));
-          return true;
-        }
+        // jump 待靶态：首字素为跳转靶（BMP 可打印走 text 事件；astral 可打印
+        // 走 ime 提交路——见 ime 分支注）。legacy 轨 textRun 同 chunk 连续可打印
+        // 合并单 text 事件——首字素作靶后余字素经 insertText 补入正文，不随靶
+        // 消费丢字（字素切分保组合字素完整——肤质修饰 / ZWJ 家族不劈不产悬空残段）
+        if (this.consumeJumpTarget(event.text)) return true;
         this.model.insertText(event.text);
         return true;
       }
       case 'ime':
         if (event.committed) {
           this.model.setPreedit(null);
+          // kitty 轨 astral 可打印（emoji 等 UTF-16 长 2）经 input.ts plain 判据
+          // （text.length === 1）恒 false → dispatchImeText 走 ime 提交路到达；
+          // 两态契约「下一可打印字符为靶」对 astral 同生效——首字素作跳靶、余
+          // 字素补入正文（与 text 路同语义；非 committed 预编辑不消费待靶态）
+          if (this.consumeJumpTarget(event.text)) return true;
           this.model.insertText(event.text);
         } else {
           this.model.setPreedit(event.text);
@@ -141,6 +142,23 @@ export class Editor implements Renderable {
       case 'mouse':
         return false; // 主屏零鼠标（07 屏模型注）——到达即吞不消费（副屏选区路不经本件）
     }
+  }
+
+  /**
+   * jump 待靶态消费可打印文本（text / ime 提交两路同语义）：首字素整体作
+   * jumpToChar 靶、余字素经 insertText 补入正文（合并事件的余字素不随靶消费
+   * 丢字）。字素切分（splitGraphemes）保组合字素完整——码点切分会把肤质修饰
+   * 形「emoji+修饰符」（2 码点 1 字素）劈成「靶+悬空残段」，残段插入正文即
+   * 文本污染。返回是否已按待靶态消费（false = 非待靶态或空文本——调用方走
+   * 普通插入）。
+   */
+  private consumeJumpTarget(text: string): boolean {
+    if (this.jumpPending === null || text.length === 0) return false;
+    const graphemes = splitGraphemes(text);
+    this.model.jumpToChar(graphemes[0]!, this.jumpPending);
+    this.jumpPending = null;
+    if (graphemes.length > 1) this.model.insertText(graphemes.slice(1).join(''));
+    return true;
   }
 
   /** 键事件路（release 相不动作；ctrl+c 显式透传；dispatch 走册单源——批 10j 迁册） */

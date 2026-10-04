@@ -227,6 +227,46 @@ describe('Editor jump 词向两态', () => {
     // 首字符未入文（文本仅长 +2）、余字符完整入文（修前余字符丢——11 字不变）
     expect(editor.getText()).toBe('foo cdbar baz');
   });
+
+  it('jump 待靶态组合字素整素作靶（肤质修饰不劈不产悬空残段）', () => {
+    // legacy 轨 textRun 同 chunk 连续可打印合并单 text 事件且不按字素切分——
+    // 组合字素（emoji+肤质修饰）作为首输入到达时，码点切分把「👍🏽」（2 码点
+    // 1 字素）劈成「靶+残段」：残段（悬空肤质修饰符）被 insertText 插入正文
+    // 产生文本污染（修前 'hi👍🏽!' 变 'hi🏽👍🏽!'——修饰符凭空插到靶位前）。
+    const editor = new Editor();
+    editor.setText('hi👍🏽!');
+    editor.model.moveHome(); // 光标归首——前向跳可命中靶（setText 光标归尾）
+    expect(editor.handleEvent(key(']', { ctrl: true }))).toBe(true);
+    expect(editor.handleEvent(text('👍🏽'))).toBe(true); // 单事件整字素（2 码点 1 字素）
+    // 整字素作靶：正文不变（修前悬空修饰符插入 → 'hi🏽👍🏽!'）
+    expect(editor.getText()).toBe('hi👍🏽!');
+    // 光标落靶字素首列（'hi' 后）
+    expect(editor.model.getCursor().col).toBe(2);
+  });
+
+  it('kitty 轨 astral 可打印走 ime 提交路：待靶态仍消费跳靶（真解码器全链）', () => {
+    // input.ts plain 判据 text.length === 1 使 astral 码点（UTF-16 长 2）恒
+    // false → dispatchImeText → ime committed 事件到达 editor。修前 ime 分支
+    // 不查 jumpPending：emoji 被当普通提交插入正文 + 待靶态残留误吃下一普通
+    // 字符（修前 'x' 被吃作靶、正文不见 x）。
+    const decoder = new InputDecoder();
+    const editor = new Editor();
+    editor.setText('a👉b');
+    editor.model.moveHome(); // 光标归首——前向跳可命中靶（setText 光标归尾）
+    const pump = (): void => {
+      for (const ev of decoder.take()) editor.handleEvent(ev);
+    };
+    expect(editor.handleEvent(key(']', { ctrl: true }))).toBe(true);
+    // kitty CSI u 携 astral 文本（👉 = U+1F449 = 128073）→ ime committed 路
+    decoder.feed('\x1b[128073;;128073u');
+    pump();
+    // emoji 被 jump 消费：不入正文、光标落靶位（'a' 后）
+    expect(editor.getText()).toBe('a👉b');
+    expect(editor.model.getCursor().col).toBe(1);
+    // 待靶态已清：紧随普通 'x' 不被误吃（正常入文）
+    editor.handleEvent(text('x'));
+    expect(editor.getText()).toBe('ax👉b');
+  });
 });
 
 describe('Editor IME 与粘贴', () => {
