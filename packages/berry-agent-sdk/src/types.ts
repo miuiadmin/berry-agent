@@ -82,7 +82,11 @@ export interface SdkLiveHandle {
   readonly sessionId: string;
   /** 订阅序首帧的快照高水位（衔接界标前的 durable 水位——对账起点参考） */
   readonly highWaterSeq: number;
-  /** 退订（幂等）：stdio 形仅记客户端口径〔线协议无退订动词——close 整连接即退〕、HTTP 形关 SSE 流 */
+  /**
+   * 退订（幂等）：stdio 形仅记客户端口径〔线协议无退订动词——只摘本订阅
+   * 条目（多订阅互不连坐），线级退订归 transport.close 整连接收口〕、HTTP 形
+   * 关 SSE 流
+   */
   close(): Promise<void>;
 }
 
@@ -99,13 +103,17 @@ export interface SdkTransport {
    * 无应答档（interrupt——受理经事件流可观察）。
    *
    * 错误呈现位两形分立：stdio 形 interrupt 失败（missing 会话）的 error 帧无主
-   * 在飞——传输吸收位路由诊断面/订阅面（onFrame 可观察，不入事务——防串味
-   * 下一事务，见 stdio 件 deliver 吸收位注）；HTTP 形错误不走 SSE 帧——随
-   * POST 应答（非 2xx + 线面错误体）到达，传输还原投形 SdkError 抛出（结构
-   * 化码原码透传——与 request 档共腿还原）。
+   * 在飞——传输吸收位路由诊断面/订阅面（onFrame 可观察——按帧会话锚路由、
+   * 该会话在订才可观察，不入事务——防串味下一事务，见 stdio 件 deliver 吸收
+   * 位注）；HTTP 形错误不走 SSE 帧——随 POST 应答（非 2xx + 线面错误体）到
+   * 达，传输还原投形 SdkError 抛出（结构化码原码透传——与 request 档共腿还原）。
    */
   send(req: SdkRequest): Promise<void>;
-  /** 直播档建立：重放帧与直播帧入 onFrame；replay-end 后 resolve 订阅柄 */
+  /**
+   * 直播档建立：重放帧与直播帧入 onFrame；replay-end 后 resolve 订阅柄。
+   * 多会话并发订阅两形同支：stdio 形按帧 sessionId 路由各会话监听面（与
+   * HTTP 形每 SSE 流独立帧循环对齐——同会话重订阅覆写最新，close 只退本订阅）。
+   */
   openLive(params: SdkLiveParams, onFrame: SdkFrameListener): Promise<SdkLiveHandle>;
   /** 整连接收口（幂等）：stdio 形收线子进程、HTTP 形关连接池面 */
   close(): Promise<void>;
@@ -150,7 +158,7 @@ export interface SdkClient {
   interrupt(sessionId: string): Promise<void>;
   /** 审批应答（跨入口竞速回执——applied / superseded） */
   decide(approvalId: string, answer: ApprovalAskAnswer, note?: string): Promise<'applied' | 'superseded'>;
-  /** 直播订阅（= hello 动词承载位——重放→衔接→直播；帧全量入 onFrame） */
+  /** 直播订阅（= hello 动词承载位——重放→衔接→直播；帧全量入 onFrame）；多会话并发订阅两传输同支（stdio 形按 sessionId 路由——与 HTTP 形对齐） */
   subscribe(params: SdkLiveParams, onFrame: SdkFrameListener): Promise<SdkLiveHandle>;
   /** 整连接收口（幂等） */
   close(): Promise<void>;

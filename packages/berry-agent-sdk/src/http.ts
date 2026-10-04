@@ -193,6 +193,10 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
               res.on('end', () => {
                 try {
                   const frame = errorFrameOf(res.statusCode ?? 0, Buffer.concat(chunks).toString('utf8'), 'SSE 建流');
+                  // 会话锚诚实化（sweep10 件3）：非 200 线面错误体不含会话锚（宿主
+                  // face sendError 形恒 {kind,code,message} 三字段）——err.sessionId
+                  // 恒缺席、不虚构补锚；流内 200 路保码帧恒携（彼路 reject 第三参
+                  // 透传 frame.sessionId）。两路如需同构另立题
                   reject(new SdkError(frame.code, frame.message));
                 } catch (err) {
                   // 非帧形错误体：errorFrameOf 抛 SDK_TRANSPORT（携错误体截段）——直接投形拒绝

@@ -12,11 +12,13 @@
  * 即毒丸化 fail-loud 拒用传输（此后一切事务面携 SDK_PROTOCOL_MISMATCH 拒）。
  *
  * 帧归属纪律：线协议无请求 id ⇒ 事务串行链（一次一事务——前一事务应答落定
- * 才发下一笔）；在队帧〔event/heartbeat/ask/重放 entries/replay-end〕入当前
- * 订阅监听面。订阅建立 = hello 帧（取快照高水位）→ replay-end（衔接界标即
- * resolve 位；界标帧本身也入监听面——重放段全量承诺）两段同事务。无应答档
- * （interrupt）失败形的无主 error 帧经吸收位路由诊断面/订阅面——不入事务
- * （防串味下一事务，见 deliver 吸收位注）。
+ * 才发下一笔）；在队帧〔event/heartbeat/ask/重放 entries/replay-end〕按帧
+ * 会话锚路由各该会话的订阅监听面（多订阅并发正形——对齐 HTTP 形每 SSE 流
+ * 独立帧循环；无锚帧广播全部订阅者，见 dispatch 注）。订阅建立 = hello 帧
+ * （取快照高水位）→ replay-end（衔接界标即 resolve 位；界标帧本身也入监听
+ * 面——重放段全量承诺）两段同事务。无应答档（interrupt）失败形的无主 error
+ * 帧经吸收位路由诊断面/订阅面——不入事务（防串味下一事务，见 deliver 吸收
+ * 位注）。
  *
  * 终局纪律（03 §10.6 传输腿错误面定形补笔①）：子进程终局（exit/error/close）
  * → 在飞事务 fail-loud 拒绝（SDK_TRANSPORT 含退出码）并清 inflight——串行链
@@ -73,7 +75,13 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
 
   // —— 入站环：分帧（跨 chunk 安全）→ 解码（fail-loud 坏行跳过不崩）→ 归属 ——
   let remainder = '';
-  let liveListener: SdkFrameListener | undefined;
+  /**
+   * 订阅路由账（多订阅正形——sweep10 件2）：会话锚 → 监听面。修前单槽
+   * liveListener 被 openLive 无条件覆写——双订阅改道（A 的帧投 B）/订阅失败
+   * 死柄残占（reject 前槽已被覆写）/close 连坐（清柄波及他会话）三形；升
+   * Map 按 sessionId 路由，对齐 HTTP 形每 SSE 流独立帧循环的能力面。
+   */
+  const liveListeners = new Map<string, SdkFrameListener>();
   /** 在队事务（串行链保证至多一笔）——expect 帧族命中即 resolve；终局兜底走 reject（fail-loud） */
   let inflight:
     | {
@@ -108,6 +116,24 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
   const sessionAnchorOf = (req: SdkRequest): string | undefined =>
     'sessionId' in req && typeof req.sessionId === 'string' ? req.sessionId : undefined;
 
+  /**
+   * 订阅面帧路由（多订阅正形）：按帧会话锚投递。直播/重放/心跳/ask 帧族恒携
+   * sessionId（channels 协议件定形——event/entries/replay-end/heartbeat/ask
+   * 五帧族必携位、ack/hello 同携），携锚帧只投该会话订阅者（修前单槽三形所
+   * 修位）；无锚帧广播全部订阅者——现实形即连接级 error 帧（wire-core
+   * emitError 连接级缺席纪律：连接级错误波及全部在订会话，广播即语义正形；
+   * 防御位残余的 sessions/decide-result 应答帧同族——无会话归属可依，广播
+   * 优于静默丢）。
+   */
+  const dispatch = (frame: SdkWireFrame): void => {
+    const anchor = 'sessionId' in frame ? frame.sessionId : undefined;
+    if (typeof anchor === 'string') {
+      liveListeners.get(anchor)?.(frame);
+      return;
+    }
+    for (const listener of liveListeners.values()) listener(frame);
+  };
+
   const deliver = (frame: SdkWireFrame): void => {
     // 无主 error 帧吸收（B1）：吸收位 armed 且帧不属在队事务（无事务/携异会话
     // 锚）——warn + 订阅面路由，不入事务；一枚即解除（send 再调再武装）
@@ -122,7 +148,7 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
         `无主 error 帧吸收（不入事务）：code=${frame.code}` +
           (frame.sessionId !== undefined ? ` sessionId=${frame.sessionId}` : ''),
       );
-      liveListener?.(frame); // 订阅在场面：interrupt 错误经事件流可观察（types.ts send 契约）
+      dispatch(frame); // 订阅在场面：interrupt 错误经事件流可观察（types.ts send 契约——按帧会话锚路由，该会话在订才可观察）
       return;
     }
     if (inflight !== undefined && inflight.expect.has(frame.kind)) {
@@ -131,7 +157,7 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
       done.resolve(frame);
       return;
     }
-    liveListener?.(frame); // 直播/重放/心跳帧——订阅面
+    dispatch(frame); // 直播/重放/心跳帧——订阅面（按帧会话锚路由）
   };
 
   child.stdout!.setEncoding('utf8');
@@ -258,9 +284,17 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
     child.kill();
   });
 
-  /** 订阅收口（stdio 形：线无退订动词——记客户端口径，监听面回置空） */
-  const liveClose = async (): Promise<void> => {
-    liveListener = undefined;
+  /**
+   * 订阅收口工厂（stdio 形：线无退订动词——记客户端口径，只摘本订阅条目）。
+   * 携双锚（会话 id + 本订阅监听面引用）：同会话重订阅覆写后，旧柄 close 只在
+   * 槽位仍是自己的监听面时摘账（身份比对——不误删覆写后的新订阅条目，语义位
+   * 对齐 http.ts liveClose 以流对象身份锚定摘账）；他会话条目零牵连（修前
+   * 单槽连坐形：close B 清空 A 的帧路）。
+   */
+  const liveCloseOf = (sessionId: string, onFrame: SdkFrameListener): (() => Promise<void>) => {
+    return async (): Promise<void> => {
+      if (liveListeners.get(sessionId) === onFrame) liveListeners.delete(sessionId);
+    };
   };
 
   // —— 收口（幂等）：收线 + 监听解挂；终局 = 子进程退出码 ——
@@ -296,7 +330,12 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
               reject(gate);
               return;
             }
-            liveListener = onFrame;
+            // 多订阅路由账入账（同会话重订阅 = 覆写最新——与 HTTP 形每流独立并存同义）
+            liveListeners.set(params.sessionId, onFrame);
+            /** 失败回滚：仅当槽位仍是自己的监听面（覆写形不误删后来者的条目——修前死柄残占） */
+            const rollback = (): void => {
+              if (liveListeners.get(params.sessionId) === onFrame) liveListeners.delete(params.sessionId);
+            };
             let highWaterSeq = -1;
             // 订阅两段同事务：hello（快照高水位）→ replay-end（衔接界标即建立点）
             // 两段同携会话锚（同事务同锚——无主帧判据跨段一致）
@@ -305,7 +344,11 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
               anchor: params.sessionId,
               resolve: (frame) => {
                 if (frame.kind === 'error') {
-                  reject(new SdkError((frame as { code: string }).code, (frame as { message: string }).message));
+                  // 订阅失败即回滚自己条目（修前：reject 后槽位仍指本订阅监听面——
+                  // 先行订阅者的帧路被无主死柄占用）。sessionId 第三参透传（wire-core
+                  // emitError 纪律：会话域错误帧恒携请求 sessionId——修前缺席）
+                  rollback();
+                  reject(new SdkError(frame.code, frame.message, frame.sessionId));
                   return;
                 }
                 highWaterSeq = (frame as { highWaterSeq: number }).highWaterSeq;
@@ -314,12 +357,25 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
                   anchor: params.sessionId,
                   resolve: (marker) => {
                     onFrame(marker); // 界标帧入监听面（重放段全量承诺）后再立柄
-                    resolve({ sessionId: params.sessionId, highWaterSeq, close: liveClose });
+                    resolve({
+                      sessionId: params.sessionId,
+                      highWaterSeq,
+                      close: liveCloseOf(params.sessionId, onFrame),
+                    });
                   },
-                  reject, // 建立期终局兜底（replay-end 前）——订阅建立 Promise 不得悬挂
+                  reject: (err) => {
+                    // 建立期终局兜底（replay-end 前）——订阅建立 Promise 不得悬挂，
+                    // 入账同步回滚
+                    rollback();
+                    reject(err);
+                  },
                 };
               },
-              reject,
+              reject: (err) => {
+                // 建立期终局兜底（hello 段）——同律回滚入账
+                rollback();
+                reject(err);
+              },
             };
             child.stdin!.write(
               encodeWireLine({
@@ -335,7 +391,7 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
     close: async () => {
       if (closed) return;
       closed = true;
-      liveListener = undefined;
+      liveListeners.clear(); // 整连接收口——全部订阅条目一并清（单订阅条目归 liveCloseOf）
       child.stdin!.end(); // 收线（EOF——serve 优雅退出序）
       await exitedPromise;
     },

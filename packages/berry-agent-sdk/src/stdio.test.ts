@@ -32,7 +32,12 @@ rl.on('line', (line) => {
       out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: '', highWaterSeq: 0 });
       return;
     }
-    if (req.sessionId === 's-missing') { out({ kind: 'error', code: 'SESSION_NOT_FOUND', message: '无此会话' }); return; }
+    if (req.sessionId === 's-missing') {
+      // 会话域错误帧恒携请求 sessionId（对齐宿主 wire-core emitError 纪律——
+      // handleHello/handleGetEntries/handleInterrupt 三位同携）
+      out({ kind: 'error', code: 'SESSION_NOT_FOUND', message: '会话 ' + req.sessionId + ' 不存在', sessionId: req.sessionId });
+      return;
+    }
     out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: req.sessionId, highWaterSeq: 3 });
     out({ kind: 'entries', sessionId: req.sessionId, entries: [{ type: 'user/message', seq: 1, time: 1, data: {} }], lastSeq: 2 });
     out({ kind: 'replay-end', sessionId: req.sessionId, lastReplayedSeq: 2 });
@@ -48,8 +53,10 @@ rl.on('line', (line) => {
     out({ kind: 'sessions', sessions: [] });
   } else if (req.verb === 'interrupt') {
     // 无应答档失败形：missing 会话异步回无主 error 帧（对齐宿主 wire-core
-    // handleInterrupt——SESSION_NOT_FOUND 携 sessionId；成功形静默无帧）
-    if (req.sessionId === 's-missing') {
+    // handleInterrupt——SESSION_NOT_FOUND 携 sessionId；成功形静默无帧）。
+    // s-ghost = 可订阅但 interrupt 失败的会话（多订阅锚路由后，吸收路由的
+    // onFrame 可观察性须同会话在订——跨会话投递即 sweep10 件2 所修改道形）
+    if (req.sessionId === 's-missing' || req.sessionId === 's-ghost') {
       out({ kind: 'error', code: 'SESSION_NOT_FOUND', message: '会话 ' + req.sessionId + ' 不存在', sessionId: req.sessionId });
     }
   }
@@ -105,6 +112,39 @@ rl.on('line', (line) => {
   if (!sawHello) process.exit(5); // 请求帧先于握手——违约自毁
   if (req.verb === 'prompt') {
     out({ kind: 'ack', sessionId: req.sessionId ?? 's-1', messageId: req.messageId, duplicate: false, highWaterSeq: 1 });
+  }
+});
+`;
+
+/**
+ * 应答机变体（sweep10 件2 多订阅三形锁用）：连接级握手 + 任意会话可订阅
+ * （hello→replay-end 两帧即建立、无重放无延迟直播）；getEntries 应答前置投
+ * 一发该会话的直播 event 帧（携带请求会话锚——直播帧触发器：事务应答与订阅
+ * 面投递在线序上交错，deliver 逐行处理保序）。s-missing 同主应答机（hello
+ * 即错——订阅失败形）。
+ */
+const MULTI_SUB_SCRIPT = `
+const rl = require('node:readline').createInterface({ input: process.stdin });
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+rl.on('line', (line) => {
+  let req; try { req = JSON.parse(line); } catch { return; }
+  if (req.verb === 'hello') {
+    if (req.sessionId === undefined) {
+      out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: '', highWaterSeq: 0 });
+      return;
+    }
+    if (req.sessionId === 's-missing') {
+      out({ kind: 'error', code: 'SESSION_NOT_FOUND', message: '会话 ' + req.sessionId + ' 不存在', sessionId: req.sessionId });
+      return;
+    }
+    out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: req.sessionId, highWaterSeq: 1 });
+    out({ kind: 'replay-end', sessionId: req.sessionId, lastReplayedSeq: 0 });
+    return;
+  }
+  if (req.verb === 'getEntries') {
+    out({ kind: 'event', seq: 1, sessionId: req.sessionId, event: { type: 'turn_end', turn: 1, stopReason: 'end_turn' } });
+    out({ kind: 'entries', sessionId: req.sessionId, entries: [], lastSeq: 0 });
+    return;
   }
 });
 `;
@@ -241,9 +281,11 @@ describe('spawnServeTransport stdio 传输', () => {
     const transport = rig();
     try {
       const seen: string[] = [];
-      const handle = await transport.openLive({ sessionId: 's-1' }, (frame) => seen.push(frame.kind));
+      // s-ghost = 可订阅但 interrupt 失败的会话——多订阅按会话锚路由后，错误帧
+      // 只投该会话在订者（跨会话投递即件2 所修改道形），可观察性锁在同会话在订形
+      const handle = await transport.openLive({ sessionId: 's-ghost' }, (frame) => seen.push(frame.kind));
       const client = createSdkClient(transport);
-      await client.interrupt('s-missing');
+      await client.interrupt('s-ghost');
       const frame = await withDeadline(client.getEntries({ sessionId: 's-1' }));
       expect(frame.kind).toBe('entries');
       // 吸收路由进订阅监听面（types.ts send 契约：错误帧走 onFrame 面）
@@ -330,6 +372,63 @@ describe('spawnServeTransport stdio 传输', () => {
       // ack 到手即证明 hello 先行（若请求帧先到，应答机 exit(5) 自毁——prompt 永挂）
       const ack = await withDeadline(client.prompt({ messageId: 'm-1', content: 'x' }));
       expect(ack).toMatchObject({ kind: 'ack', messageId: 'm-1' });
+    } finally {
+      await transport.close();
+    }
+  });
+});
+
+describe('多订阅会话锚路由（sweep10 件2——修前三形锁：改道/死柄/连坐）', () => {
+  it('双订阅各自收自己会话帧（修前：单槽覆写——A 的帧投 B，改道形）', async () => {
+    const transport = spawnServeTransport({ args: ['-e', MULTI_SUB_SCRIPT] });
+    try {
+      const aSeen: string[] = [];
+      const bSeen: string[] = [];
+      await transport.openLive({ sessionId: 's-a' }, (frame) => aSeen.push(frame.kind));
+      await transport.openLive({ sessionId: 's-b' }, (frame) => bSeen.push(frame.kind));
+      // 触发 s-a 直播帧（应答机 getEntries 前置投 event）——修前 liveListener
+      // 已被 B 覆写：A 的帧投 B、A 自己收不到（与 HTTP 形每流独立的能力漂移位）
+      const client = createSdkClient(transport);
+      await client.getEntries({ sessionId: 's-a' });
+      expect(aSeen).toEqual(['replay-end', 'event']); // 修前红：A 收不到自己的帧
+      expect(bSeen).toEqual(['replay-end']); // 修前红：B 吃到 A 的帧（改道）
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it('订阅失败回滚自己条目：B 失败后 A 仍收自己会话帧（修前：死柄残占）+ reject 携会话锚（件3：修前 undefined）', async () => {
+    const transport = spawnServeTransport({ args: ['-e', MULTI_SUB_SCRIPT] });
+    try {
+      const aSeen: string[] = [];
+      await transport.openLive({ sessionId: 's-a' }, (frame) => aSeen.push(frame.kind));
+      // B 订阅失败（hello 应答 error 帧）——reject 须携会话锚（wire-core
+      // emitError 纪律：会话域错误帧恒携请求 sessionId；修前缺第三参恒 undefined）
+      await expect(transport.openLive({ sessionId: 's-missing' }, () => {})).rejects.toMatchObject({
+        name: 'SdkError',
+        code: 'SESSION_NOT_FOUND',
+        sessionId: 's-missing',
+      });
+      // 修前：openLive 无条件覆写单槽后失败——槽位残占死柄，A 的帧投无主
+      const client = createSdkClient(transport);
+      await client.getEntries({ sessionId: 's-a' });
+      expect(aSeen).toEqual(['replay-end', 'event']); // 修前红：A 的帧路被死柄占
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it('close 只清自己订阅条目：close B 后 A 仍收帧（修前：连坐清空全局槽）', async () => {
+    const transport = spawnServeTransport({ args: ['-e', MULTI_SUB_SCRIPT] });
+    try {
+      const aSeen: string[] = [];
+      const bHandle = await transport.openLive({ sessionId: 's-b' }, () => {});
+      await transport.openLive({ sessionId: 's-a' }, (frame) => aSeen.push(frame.kind));
+      // 修前：liveClose 清全局单槽——close B 连坐斩断 A 的帧路
+      await bHandle.close();
+      const client = createSdkClient(transport);
+      await client.getEntries({ sessionId: 's-a' });
+      expect(aSeen).toEqual(['replay-end', 'event']); // 修前红：A 帧路被 B 的 close 连坐
     } finally {
       await transport.close();
     }
