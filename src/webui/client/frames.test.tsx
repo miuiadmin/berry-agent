@@ -672,16 +672,39 @@ describe('frames 失败持有档与终态清行（E1/E2——TUI tui-backend 持
 });
 
 describe('frames 审批投影复位与乐观回显撤回（修复批锁）', () => {
-  it('loadedApprovals 整段重置——异口已决条目随复拉出清（applyAsked 只增不减径仅留活体帧）', () => {
+  it('loadedApprovals keyed 对账——异口已决条目连续两拍未见随复拉出清（E4 同族两拍律——第九轮 laneE2）', () => {
     let state = initialAppState;
     state = applyAsked(state, { approvalId: 'ap-1', sessionId: 's-1', summary: '留' });
     state = applyAsked(state, { approvalId: 'ap-2', sessionId: 's-1', summary: '异口已决' });
-    // 复拉现行清单仅剩一条 → 幻影条目出清、在场条目保留
+    // 复拉现行清单仅剩一条：在场条目刷新、未见条目首拍保位（陈响应窗护住
+    // 活动审批的代价——异口已决条目迟一拍出清）
     state = loadedApprovals(state, [{ approvalId: 'ap-1', sessionId: 's-1', summary: '留' }]);
-    expect(state.approvals).toHaveLength(1);
-    expect(state.approvals[0]?.approvalId).toBe('ap-1');
-    // 清单归空（全部已决）→ 整段重置至空
-    expect(loadedApprovals(state, []).approvals).toHaveLength(0);
+    expect(state.approvals.map((a) => a.approvalId)).toEqual(['ap-1', 'ap-2']);
+    // 次拍仍未见（服务端现行清单确无——已决/已撤）→ 出清
+    state = loadedApprovals(state, [{ approvalId: 'ap-1', sessionId: 's-1', summary: '留' }]);
+    expect(state.approvals.map((a) => a.approvalId)).toEqual(['ap-1']);
+    // 清单归空（全部已决）→ 同两拍律整段归空
+    state = loadedApprovals(state, []);
+    state = loadedApprovals(state, []);
+    expect(state.approvals).toHaveLength(0);
+  });
+
+  it('asked 帧与复拉清单交错窗对账：首拍未见保位、在场刷新即清 miss 账（修前红：陈响应整体覆盖吞 asked 刚建的活动审批）', () => {
+    // 场景：run 到达工具审批 → asked 镜像帧入账 → 周期拍的清单响应早于服务
+    // 端登记发出（fetch 窗竞速）——不含刚建的审批。修前：后到的清单响应
+    // 整体覆盖 state.approvals 吞卡，审批面板丢卡至下一拍（挂起等人审批的
+    // 零信号窗）；修后：首拍保位（E4 律——两拍皆缺才撤）
+    let state = applyAsked(initialAppState, { approvalId: 'ap-live', sessionId: 's-1', summary: '等人点' });
+    state = loadedApprovals(state, []);
+    expect(state.approvals.map((a) => a.approvalId)).toEqual(['ap-live']); // 修前红：被吞
+    // 在场拍：清单确认在场——刷新形态 + miss 账清（后续未见重新起算非连击）
+    state = loadedApprovals(state, [{ approvalId: 'ap-live', sessionId: 's-1', summary: '刷新形' }]);
+    expect(state.approvals[0]?.summary).toBe('刷新形');
+    state = loadedApprovals(state, []);
+    expect(state.approvals.map((a) => a.approvalId)).toEqual(['ap-live']); // miss 账已清——首拍重新起算
+    // 连续第二拍未见 → 撤
+    state = loadedApprovals(state, []);
+    expect(state.approvals).toHaveLength(0);
   });
 
   it('echoKeyOf 与 message_end 落稿键同源；droppedMessage 按键撤回不误伤后续帧', () => {

@@ -570,7 +570,7 @@ describe('WebUiRoot新建会话腿失败处置（全文件唯一裸调用腿收�
 });
 
 describe('WebUiRoot审批清单投影复拉（服务端现行 pending 清单即真源）', () => {
-  it('复拉整段重置：异口已决条目随复拉出清，幻影卡不驻留（修前红：applyAsked 只增不减）', async () => {
+  it('复拉 keyed 对账：异口已决条目连续两拍未见随复拉出清，幻影卡不驻留（E4 同族两拍律——第九轮 laneE2 件2）', async () => {
     // 两条现行 pending（审批栏跨会话全量呈现——清单不按会话过滤）
     const kept = { approvalId: 'ap-1', sessionId: 's-1', summary: '仍在场的审批' };
     const decided = { approvalId: 'ap-2', sessionId: 's-1', summary: '异口已决的审批' };
@@ -585,15 +585,18 @@ describe('WebUiRoot审批清单投影复拉（服务端现行 pending 清单即�
     await screen.findByText('仍在场的审批');
     await screen.findByText('异口已决的审批');
     // 异口决出（另一标签/TUI 先答——服务端 GET /approvals 只回现行未决）→
-    // 断线重连 onopen 复拉，现行清单仅剩一条
+    // 断线重连 onopen 复拉，现行清单仅剩一条：首拍未见保位（陈响应窗护住
+    // asked 帧刚建活动审批的代价——两拍皆缺才撤）
     apiMock.listApprovals.mockResolvedValue([kept]);
     FakeEventSource.instances[0]!.open();
-    // 已决条目随复拉出清（现红：增量合并不移除已消失条目，幻影卡永挂
-    // 直至本口点选得 superseded 回执）
+    expect(screen.getByText('异口已决的审批')).toBeDefined(); // 首拍保位
+    // 次拍仍未见 → 已决条目随复拉出清（修前旧形 applyAsked 只增不减的幻影卡
+    // 永挂已修；两拍律下迟一拍出清）
+    FakeEventSource.instances[0]!.open();
     await waitFor(() => {
       expect(screen.queryByText('异口已决的审批')).toBeNull();
     });
-    // 现行清单条目保留（整段重置不误伤在场项）
+    // 现行清单条目保留（keyed 对账不误伤在场项）
     expect(screen.getByText('仍在场的审批')).toBeDefined();
   });
 });

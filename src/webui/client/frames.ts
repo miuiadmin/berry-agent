@@ -84,6 +84,13 @@ export interface AppState {
   /** 状态行文案（null = 闲态不呈现） */
   readonly status: string | null;
   readonly approvals: readonly ClientApprovalEntry[];
+  /**
+   * 审批清单复拍未见账（第九轮 laneE2 件2——E4 同族两拍律的审批面）：
+   * approvalId → 连续未见拍数。keyed 对账半边：本地已有、复拉清单未见的
+   * 审批记 1 拍；连续 2 拍未见才撤（陈响应窗护住 asked 帧刚建的活动审批
+   * ——fetch 早于服务端登记发出的响应只陈一拍）。清单确认在场即清账重起算。
+   */
+  readonly approvalMissTicks: Readonly<Record<string, number>>;
   readonly notices: readonly ViewNotice[];
   readonly todo: readonly ViewTodo[] | null;
   /** 视图键序发生器（无时间戳载荷的稳定键兜底） */
@@ -163,6 +170,7 @@ export const initialAppState: AppState = {
   messages: [],
   status: null,
   approvals: [],
+  approvalMissTicks: {},
   notices: [],
   todo: null,
   seq: 0,
@@ -581,20 +589,46 @@ export function dismissNotice(state: AppState, id: number): AppState {
   return { ...state, notices: state.notices.filter((n) => n.id !== id) };
 }
 
-/** decide 应答后本地出清（applied 与 superseded 同出清——异口已答） */
+/** decide 应答后本地出清（applied 与 superseded 同出清——异口已答）；未见账随行出清（条目已撤——账不滞留） */
 export function appliedDecide(state: AppState, approvalId: string): AppState {
-  return { ...state, approvals: state.approvals.filter((a) => a.approvalId !== approvalId) };
+  const { [approvalId]: _tick, ...missTicks } = state.approvalMissTicks;
+  return { ...state, approvals: state.approvals.filter((a) => a.approvalId !== approvalId), approvalMissTicks: missTicks };
 }
 
 /**
- * 审批清单投影落座（正确性层——整段重置，服务端现行 pending 清单即真源；
- * 与 loadedMessages 同模式）。异口已决条目随复拉出清：applyAsked 的 dedupe
- * 追加只适用于活体 asked 帧，投影复拉若同径只增不减——已决审批挂成幻影卡
- * 直至本口点选得 superseded 回执。
+ * 审批清单投影落座（正确性层——keyed 对账，服务端现行 pending 清单即真源）。
+ *
+ * E4 同族两拍律（第九轮 laneE2 件2）：asked 镜像帧与复拉清单响应的交错窗
+ * 无对账——后到的清单响应整体覆盖会把 asked 帧刚建的活动审批吞掉（周期拍
+ * fetch 早于服务端登记发出、响应晚于 asked 帧到达的竞速窗；messages 位 E4
+ * 同族竞速在审批面修前缺位）。对账形：清单确认在场的直接刷新；「本地已有、
+ * 清单未见」的记 missing 一拍，连续两拍未见才撤——陈响应只陈一拍（服务端
+ * 在 asked 帧发射前已登记，下一拍现行清单必含），两拍皆缺即真不在（异口
+ * 已决条目随复拉出清的既有语义，代价是迟一拍消卡）。applyAsked 的增量
+ * 合并径只留给活体 asked 帧（首拍保位的活动审批不与清单新条目重复推）。
  */
 export function loadedApprovals(state: AppState, entries: readonly ClientApprovalEntry[]): AppState {
+  const listed = new Map(entries.map((e) => [e.approvalId, e]));
+  const kept: ClientApprovalEntry[] = [];
+  // 未见账每次按当次清单重建（在场即清——miss 连击只对连续未见起算）
+  const missTicks: Record<string, number> = {};
+  for (const local of state.approvals) {
+    const fresh = listed.get(local.approvalId);
+    if (fresh !== undefined) {
+      kept.push(fresh); // 清单确认在场——刷新清单侧最新形态（真源）
+      continue;
+    }
+    const ticks = (state.approvalMissTicks[local.approvalId] ?? 0) + 1;
+    if (ticks >= 2) continue; // 连续第二拍未见——撤（真不在场：异口已决/已撤销）
+    kept.push(local); // 首拍未见——保（陈响应窗护住 asked 刚建的活动审批）
+    missTicks[local.approvalId] = ticks;
+  }
+  // 清单新增（本地未见——他会话/外部口新建）直接进入
+  for (const e of entries) {
+    if (!state.approvals.some((a) => a.approvalId === e.approvalId)) kept.push(e);
+  }
   // 浅拷贝脱离调用方引用（api 层每响应新建——防御位）
-  return { ...state, approvals: [...entries] };
+  return { ...state, approvals: [...kept], approvalMissTicks: missTicks };
 }
 
 /**
