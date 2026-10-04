@@ -60,9 +60,14 @@ export interface ViewNotice {
 
 /**
  * run 收尾行角色名（收尾行的瞬时追加位专用——非对话角色，投影真源永不含
- * 此角色；Transcript 据此分派居中分隔线呈现形。07 §4.1 收尾行条款 webui 腿：
- * 成功形「─ 用时 X · HH:MM ─」〔≤60s 耗时段缺席〕/ 取消形「⏹ 对话已取消——
- * HH:MM」；瞬时追加行 = 不落投影、重拉即清、回放不可见）。
+ * 此角色；Transcript 据此分派居中分隔线呈现形。07 §4.1 收尾行措辞细则 webui
+ * 腿现行形（V-0 注⑥翻档后——时刻段退役、时长门废，旧形「─ 用时 X · HH:MM ─」
+ * 〔≤60s 耗时段缺席〕已退役勿复引）：成功形「── 用时 X · 工具 N 次 · 重试
+ * M ──」〔零计数段缺席；双零即纯对话轮整行缺席；部分观察计数段加注「（自
+ * 本次接入起算）」——2026-10-04 第十轮定形注〕/ 取消形「⏹ 对话已取消——
+ * HH:MM」〔取消回执非记账行——时刻段保留形维持〕/ failed 终态无收尾行〔错误
+ * 块本体呈现〕；瞬时追加行 = 不落投影、重拉即清、回放不可见。整行组形单源
+ * runCloseLine（段形知识在 contracts durations）。
  */
 export const RUN_CLOSE_ROLE = 'run_close';
 
@@ -343,12 +348,16 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
       // 帧腿与本地推播共用同帽同形（pushedNotice——单源执法位）
       return pushedNotice(state, env.payload.message, env.payload.level);
     case 'status': {
-      // 终态 status 信封 = run 已收口的权威供数（服务端 SSE 受理尾快照补帧
-      // ——第八轮 laneF F2 客户端半边）：断连窗丢 agent_end 的重连观众由此
-      // 复位 run 账（runActive 恒挂 → 打断键伪使能——runInFlight 首信号），
-      // 连线形与 agent_end 折叠位幂等双清；非终态 status（在飞档位/收据）
-      // 只更新状态行——中途附着 run 在飞时的补位信号（App runInFlight 三
-      // 信号之一）不误伤
+      // 终态 status 信封到达即复位 run 账（客户端复位位的真实语义——与
+      // agent_end 折叠位构成两信号之一，连线形幂等双清不复活；runActive
+      // 恒挂 → 打断键伪使能——runInFlight 首信号的收账位）。发射侧诚实注
+      // （第九轮卡③——服务端孪生句已随 c0ebfd3 勘正，本位同簇）：受理尾
+      // 快照补帧现行 setStatus 生产者全集仅切档回执 + 插件 ctx.ui 透传，
+      // 无 run 终态 setStatus 生产者——末次帧恰为终态词的形现产线不可达，
+      // 本腿暂为机制防御位（frames.test 直驱终态信封所锁即机制位；run 终态
+      // setStatus 生产者两案呈拍中，落定后本腿自然接通）；非终态 status
+      //（在飞档位/档位切换回执——isReceiptStatus 词面单源）只更新状态行
+      //——中途接入 run 在飞时的补位信号（App runInFlight 三信号之一）不误伤
       if (isTerminalStatus(env.payload.status)) {
         return {
           ...state,
@@ -888,6 +897,14 @@ export function isTerminalStatus(status: string): boolean {
  * ctx.ui.setStatus（开放词汇不可闭集分类——维持进度型缺省计入在飞，保守向：
  * 宁可伪使能不可漏使能）+ 客户端本造进度行（工具执行/重试呈现，frames 内
  * 直写非 setStatus 帧）。
+ *
+ * 已知边界（前缀碰撞——闭集词面前缀匹配的结构性例外）：插件 ctx.ui.setStatus
+ * 开放词汇若恰以「思考级别：」/「沙箱模式：」前缀开头会被误分类为回执——run
+ * 在飞时该插件状态行驻留使打断键漏使能（「宁可伪使能不可漏使能」保守向的反
+ * 向例外形，仅此碰撞形漏）；闭集扩面前缀位在册（回执单源 host/session-tier-
+ * copy.ts 新增回执前缀时必同步扩本表——漏扩是误计入向，与本边界误排除向对
+ * 偶）。挂账注：如需彻底方案（词汇位显式标记回执/进度而非词面嗅探）另立题
+ * ——现状闭集前缀位维持。
  */
 export function isReceiptStatus(status: string): boolean {
   return status.startsWith('思考级别：') || status.startsWith('沙箱模式：');

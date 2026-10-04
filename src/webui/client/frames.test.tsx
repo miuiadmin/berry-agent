@@ -381,11 +381,13 @@ describe('frames 审批与通知', () => {
     expect(state.status).toBe('跑');
   });
 
-  it('status 终态信封复位 run 账（laneF F2 客户端半边——受理尾快照补帧的收账位：断连窗丢 agent_end 的重连观众）', () => {
-    // 形位：观众见 agent_start（runActive=true）→ 断连窗丢 agent_end →
-    // 重连受理尾补发末次 status 帧原帧复播——终态词直达即复位 run 账
-    //（服务端受理尾快照 laneF 件的客户端收账；修前红：终态信封只改
-    // status 行、runActive 恒挂——打断键伪使能首信号）
+  it('status 终态信封复位 run 账（客户端复位机制位——与 agent_end 折叠位两信号之一；发射侧产线形呈拍中〔卡③〕）', () => {
+    // 形位：终态词 status 信封直达即复位 run 账（本用例直驱信封所锁 = 客户端
+    // 机制位；修前红：终态信封只改 status 行、runActive 恒挂——打断键伪使能
+    // 首信号）。发射侧诚实注（第九轮卡③——同服务端 c0ebfd3 勘正孪生）：
+    // 受理尾快照现行 setStatus 生产者仅切档回执 + 插件透传，末次帧恰为终态
+    // 词的形现产线不可达；run 终态 setStatus 生产者两案呈拍中，落定后本
+    // 机制位自然接通
     let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }));
     expect(state.runActive).toBe(true);
     state = applyEnvelope(state, { kind: 'status', sessionId: 's-1', payload: { status: '⏹ 已中止' } });
@@ -399,7 +401,8 @@ describe('frames 审批与通知', () => {
     state = applyEnvelope(state, { kind: 'status', sessionId: 's-1', payload: { status: '✗ 失败 · 渠道未配置' } });
     expect(state.runActive).toBe(false);
     expect(state.status).toBe('✗ 失败 · 渠道未配置');
-    // 非终态 status（在飞档/收据）不清 run 账——中途附着补位信号不误伤
+    // 非终态 status（在飞档/档位切换回执——isReceiptStatus 词面单源）不清
+    // run 账——中途接入补位信号不误伤
     state = applyEnvelope(state, display({ type: 'agent_start' }));
     state = applyEnvelope(state, { kind: 'status', sessionId: 's-1', payload: { status: '⚙ bash 慢命令 …' } });
     expect(state.runActive).toBe(true);
