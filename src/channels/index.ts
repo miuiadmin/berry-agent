@@ -70,7 +70,7 @@ export type { FileMentionSourceOptions, AutocompleteSources, AutocompleteItem } 
 // ——tui-entry /status 表格列值散拷贝收敛走本源）
 export { readGitHead, gitHeadCompactLabel } from './tui/status/footer.js';
 export type { GitHeadInfo } from './tui/status/footer.js';
-// 高度帽公式（R3 批 10j——host 装配 maxVisibleLines 单源）
+// 高度帽公式（R3 批 10j 引入；第六轮批 D2 起 host 装配注入已撤——backend 构造期/resize 现值单源；本转发位留 SDK 公开面）
 export { editorHeightCap } from './tui/index.js';
 // fuzzy 子序列过滤（R6 批 10j——host 命令名补全源消费）
 export { fuzzyFilter } from './tui/index.js';

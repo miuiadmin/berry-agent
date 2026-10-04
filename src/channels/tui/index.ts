@@ -28,7 +28,7 @@ export { FileMentionSource } from './autocomplete/file-mentions.js';
 export type { FileMentionSourceOptions } from './autocomplete/file-mentions.js';
 export type { AutocompleteSources } from './autocomplete/autocomplete.js';
 export type { AutocompleteItem } from './autocomplete/provider.js';
-// 高度帽公式（R3 批 10j——host 装配位 maxVisibleLines 注入单源）
+// 高度帽公式（R3 批 10j 引入；第六轮批 D2 起 host 装配注入已撤——backend 构造期/resize 现值单源，真源注 height-cap.ts；导出维持 SDK 公开面转发）
 export { editorHeightCap } from './editor/height-cap.js';
 // fuzzy 子序列过滤（R6 批 10j——命令名 / @ 文件段两源装配消费）
 export { fuzzyFilter } from './autocomplete/fuzzy.js';
