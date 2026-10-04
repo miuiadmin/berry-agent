@@ -16,9 +16,15 @@
  * （replay-end 界标前）流内 error 帧保码拒绝（真实 face 开流即 200——核级
  * 失败只能走帧，与 stdio 形同语义）、非 2xx 与流终结两路同样 fail-loud
  * reject，已建立后流错误只诊断。
+ *
+ * 收口语义两传输对齐（sweep11 L2-1）：close() 不只销毁在场 SSE 流——在飞
+ * 请求档（roundTrip/openLive 请求已发出、应答未达或读取中的窗口）同步逐一
+ * 销毁句柄并以 SDK_TRANSPORT「连接已收口」fail-loud 拒绝，与 stdio 形终局
+ * 纪律（stdio 头注：子进程终局 → 在飞事务 fail-loud 拒绝防整链静默挂死）
+ * 对齐——收口后零悬挂 Promise。
  */
 import { request as httpRequest } from 'node:http';
-import type { IncomingMessage } from 'node:http';
+import type { ClientRequest, IncomingMessage } from 'node:http';
 
 import { decodeWireLine, isSdkRequest } from '../../../src/channels/sdk/jsonl.js';
 import { SDK_PROTOCOL_VERSION } from '../../../src/channels/sdk/protocol.js';
@@ -56,6 +62,18 @@ interface HttpResult {
   readonly body: string;
 }
 
+/**
+ * 在飞请求档（sweep11 L2-1）：请求句柄 + 拒绝对——roundTrip/openLive 发起
+ * 即入账、事务落定即出账，使 close() 对建流前期（应答未达）/应答读取期
+ * 两窗的 req 句柄结构上可达（销毁 + fail-loud 拒绝）。
+ */
+interface InflightRequest {
+  /** 未落定请求的句柄（close() 收口逐一销毁） */
+  readonly req: ClientRequest;
+  /** 事务拒绝对（出账包一层——见 roundTrip/openLive 的在飞档登记位） */
+  readonly reject: (err: SdkError) => void;
+}
+
 /** 直连 HTTP 传输 */
 export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
   if ((options.socketPath === undefined) === (options.host === undefined)) {
@@ -64,10 +82,33 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
   const warn = options.onWarn ?? (() => {});
   /** 在场 SSE 流账（close 时逐一收口） */
   const liveStreams = new Set<IncomingMessage>();
+  /**
+   * 在飞请求账（sweep11 L2-1）：修前 close() 只销毁 liveStreams（SSE 200
+   * 应答后入册）——建流前期（请求已发出、应答未达）req 句柄未保存、未
+   * abort、无 timeout，close() 结构性够不到：在飞 Promise 悬挂（调用方无
+   * 超时兜底可依，与 stdio 形 close 兜底拒一切在飞的终局纪律漂移）。修形
+   * 发起即入账、事务落定（resolve/reject 任一先到）即出账——close() 逐一
+   * 销毁句柄并 SDK_TRANSPORT 拒绝。
+   */
+  const inflightRequests = new Set<InflightRequest>();
 
   /** 单次请求（socketPath XOR host/port——Node 语义自动取舍） */
   const roundTrip = (method: 'GET' | 'POST', path: string, body?: string): Promise<HttpResult> =>
-    new Promise<HttpResult>((resolve, reject) => {
+    new Promise<HttpResult>((resolve0, reject0) => {
+      // 在飞档（L2-1）：发起即入账、事务落定即出账——resolve/reject 包一层
+      // 使任一落定路（应答 end/错误/close() 收口拒）先到先摘账（Promise 幂等）
+      let entry: InflightRequest | undefined;
+      const settleRemove = (): void => {
+        if (entry !== undefined) inflightRequests.delete(entry);
+      };
+      const resolve = (result: HttpResult): void => {
+        settleRemove();
+        resolve0(result);
+      };
+      const reject = (err: SdkError): void => {
+        settleRemove();
+        reject0(err);
+      };
       const req = httpRequest(
         {
           socketPath: options.socketPath,
@@ -91,6 +132,8 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
           );
         },
       );
+      entry = { req, reject };
+      inflightRequests.add(entry);
       req.on('error', (err: Error) =>
         reject(new SdkError('SDK_TRANSPORT', `${method} ${path} 传输失败：${err.message}`)),
       );
@@ -165,7 +208,21 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
     },
 
     openLive: (params: SdkLiveParams, onFrame: SdkFrameListener) =>
-      new Promise<SdkLiveHandle>((resolve, reject) => {
+      new Promise<SdkLiveHandle>((resolve0, reject0) => {
+        // 在飞档（L2-1）：与 roundTrip 同律——发起即入账、事务落定即出账
+        //（resolve = replay-end 建立位；reject 含建流失败各路 + close() 收口拒）
+        let entry: InflightRequest | undefined;
+        const settleRemove = (): void => {
+          if (entry !== undefined) inflightRequests.delete(entry);
+        };
+        const resolve = (handle: SdkLiveHandle): void => {
+          settleRemove();
+          resolve0(handle);
+        };
+        const reject = (err: SdkError): void => {
+          settleRemove();
+          reject0(err);
+        };
         const query = new URLSearchParams({ sessionId: params.sessionId });
         if (params.after !== undefined) query.set('after', String(params.after));
         // 布尔词面 = 宿主解码位字面（只认 'true'/'false'，其余 400 SDK_DECODE）——'1'/'0' 形恒被拒
@@ -286,12 +343,23 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
             });
           },
         );
+        entry = { req, reject };
+        inflightRequests.add(entry);
         req.on('error', (err: Error) => reject(new SdkError('SDK_TRANSPORT', `SSE 建流传输失败：${err.message}`)));
         req.end();
       }),
 
-    // 整连接收口（幂等）：在场 SSE 流逐一销毁（请求档无长连——keep-alive 由 agent 自理）
+    // 整连接收口（幂等）：在场 SSE 流逐一销毁（请求档无长连——keep-alive 由
+    // agent 自理）+ 在飞请求 fail-loud（L2-1：建流前期/应答读取期窗修前结构
+    // 性够不到——对齐 stdio 形终局纪律不留悬挂 Promise）。先拒后毁：拒绝词面
+    // 「连接已收口」确定性先到——destroy 异步触发的传输错事件（ECONNRESET
+    // 等）落在已落定 Promise 上即 no-op，不抢词面。
     close: async () => {
+      for (const entry of [...inflightRequests]) {
+        entry.reject(new SdkError('SDK_TRANSPORT', '连接已收口'));
+        entry.req.destroy();
+      }
+      inflightRequests.clear();
       for (const res of liveStreams) res.destroy();
       liveStreams.clear();
     },

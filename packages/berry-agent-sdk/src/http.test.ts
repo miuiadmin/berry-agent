@@ -427,6 +427,49 @@ describe('httpSdkTransport 直连 HTTP 传输', () => {
     await transport.close();
     await transport.close();
   });
+
+  it('close 在飞请求 fail-loud：挂死 daemon 形（收连接永不应答）close 即拒 SDK_TRANSPORT 连接收口（sweep11 L2-1）', async () => {
+    // 挂死 daemon 形：server 接受连接、收下请求、永不应答——建流前期
+    // （httpRequest 已发出、应答未达）修前 req 句柄不保存不入账：close() 只
+    // 销毁 liveStreams（SSE 200 应答后入册），结构性够不到本窗——openLive/
+    // roundTrip 双档 Promise 悬挂（无 abort 无 timeout，调用方无兜底可依）。
+    // 修形对齐 stdio 形终局纪律（stdio close 兜底拒一切在飞）：close() 逐一
+    // 销毁在飞句柄并 SDK_TRANSPORT「连接已收口」拒绝。限期锚：修前悬挂以
+    // 裸超时错落定 → 不匹配 SdkError 断言即红。
+    const server = createServer(() => {
+      /* 收下连接但永不应答（挂死形） */
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const transport = httpSdkTransport({ host: '127.0.0.1', port, token: TOKEN });
+    try {
+      // 双档同时在飞：直播档（openLive 建流前期）+ 请求档（roundTrip 应答未达）。
+      // 限期锚先行建立（两档 Promise 恒有观测面——红跑形迟到拒绝不炸测程）
+      const pendingLive = transport.openLive({ sessionId: 's-1' }, () => {});
+      const client = createSdkClient(transport);
+      const pendingPrompt = client.prompt({ messageId: 'm-1', content: 'x' });
+      const settledLive = withDeadline(pendingLive, 200);
+      const settledPrompt = withDeadline(pendingPrompt, 200);
+      // 红跑卫生锚：首断言失败即早退——次档限期锚的迟到落定须有观测面（不炸测程）
+      settledPrompt.catch(() => {});
+      await transport.close(); // 收口——在飞双档必须落定（不悬挂）
+      await expect(settledLive).rejects.toMatchObject({
+        name: 'SdkError',
+        code: 'SDK_TRANSPORT',
+        message: expect.stringContaining('连接已收口') as unknown,
+      });
+      await expect(settledPrompt).rejects.toMatchObject({
+        name: 'SdkError',
+        code: 'SDK_TRANSPORT',
+        message: expect.stringContaining('连接已收口') as unknown,
+      });
+    } finally {
+      // 收口测试自有 server：连接或残留（修前形 close 不销毁在飞句柄）——
+      // 主动斩尽防 server.close 回调悬挂拖死测程
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 });
 
 describe('liveClose 流账纪律（单订阅收口工厂——idx 24）', () => {
