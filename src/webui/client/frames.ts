@@ -745,6 +745,28 @@ export function isTerminalStatus(status: string): boolean {
   return status === '⏹ 已中止' || status === '✗ 失败' || status.startsWith('✗ 失败 · ');
 }
 
+/**
+ * 回执型状态行判据（第九轮 laneE2 件1——run 在飞信号的排除半边之二）：档位
+ * 切换回执（思考级别/沙箱模式）是驻留型 status 非 run 进度——runInFlight 第
+ * 二信号不得计入。修前形：切档后闲态打断键伪使能驻留至下一 run；SSE 受理尾
+ * 快照补帧（laneF 笔7）使重连/新开页观众复活陈回执同形伪使能。
+ *
+ * 闭集词面前缀匹配（词面清单与来源——客户端树隔离不 import host 件，改回执
+ * 模板必同步本表；词面形锁见 frames.test 词面→布尔表）：
+ * - 「思考级别：」← thinkingLevelReceipt（host/session-tier-copy.ts 回执
+ *   单源；tui-entry /thinking 选档与 webui 桥 PUT 应答尾两发射位同文，经
+ *   通道核 setStatus 扇出到达 SPA）
+ * - 「沙箱模式：」← sandboxModeReceipt（同上单源；/sandbox 选档与 PUT）
+ *
+ * 盘点注：webui 可见 setStatus 生产者全集 = 上述两族回执 + 插件面
+ * ctx.ui.setStatus（开放词汇不可闭集分类——维持进度型缺省计入在飞，保守向：
+ * 宁可伪使能不可漏使能）+ 客户端本造进度行（工具执行/重试呈现，frames 内
+ * 直写非 setStatus 帧）。
+ */
+export function isReceiptStatus(status: string): boolean {
+  return status.startsWith('思考级别：') || status.startsWith('沙箱模式：');
+}
+
 /** 会话清单落座（成功即撤失败旗——失败行只随最新一次装载结果呈现；total 随批落座，缺席 = 不披露） */
 export function loadedSessions(state: AppState, sessions: readonly ClientSessionSummary[], total?: number): AppState {
   return { ...state, sessions, sessionsTotal: total, sessionsFailed: false };

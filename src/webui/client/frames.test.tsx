@@ -26,6 +26,7 @@ import {
   echoKeyOf,
   echoedUserMessage,
   initialAppState,
+  isReceiptStatus,
   loadedApprovals,
   loadedMessages,
   loadedSessions,
@@ -401,6 +402,21 @@ describe('frames 审批与通知', () => {
     state = applyEnvelope(state, { kind: 'status', sessionId: 's-1', payload: { status: '⚙ bash 慢命令 …' } });
     expect(state.runActive).toBe(true);
     expect(state.status).toBe('⚙ bash 慢命令 …');
+  });
+
+  it('isReceiptStatus 闭集分类：档位切换回执 true / 进度型与终态 false（run 在飞信号排除半边之二——第九轮 laneE2）', () => {
+    // 回执词面真源 = host/session-tier-copy.ts 回执拼装单源（客户端树隔离
+    // 不 import host 件——本词面即形锁，改回执模板前缀必同步 isReceiptStatus）；
+    // 两发射位（TUI /thinking //sandbox 选档与 webui 桥 PUT 应答尾）经通道核
+    // setStatus 扇出同文到达 SPA
+    expect(isReceiptStatus('思考级别：high（下一轮对话起生效；该级别是否生效随模型能力）')).toBe(true);
+    expect(isReceiptStatus('沙箱模式：danger（即刻生效于后续工具调用）')).toBe(true);
+    // 进度型（客户端本造：工具执行/重试呈现）非回执——仍计入在飞信号
+    expect(isReceiptStatus('⚙ bash …')).toBe(false);
+    expect(isReceiptStatus('重试中 第 2/3 次 …')).toBe(false);
+    // 终态非回执（排除归 isTerminalStatus 管——两判据分立）
+    expect(isReceiptStatus('⏹ 已中止')).toBe(false);
+    expect(isReceiptStatus('✗ 失败 · 渠道未配置')).toBe(false);
   });
 
   it('pushedNotice 与 notify 帧腿同帽 5——本地推播第 6 条滚动出清最旧（修前五处直追数组绕帽）', () => {

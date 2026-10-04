@@ -30,6 +30,7 @@ import {
   echoedUserMessage,
   failedSessions,
   initialAppState,
+  isReceiptStatus,
   isTerminalStatus,
   loadedApprovals,
   loadedMessages,
@@ -450,15 +451,17 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
 
   /**
    * run 在飞判据（打断键使能面——Composer canInterrupt 供血，界面美化役
-   * 批⑧）：活体窗开（agent_start→agent_end）或流式尾巴在飞或状态行在呈，
-   * 三信号任一即真；闲态禁打断键（诚实呈「无 run 可打断」，修前恒可点的
+   * 批⑧）：活体窗开（agent_start→agent_end）或流式尾巴在飞或进度型状态行
+   * 在呈，三信号任一即真；闲态禁打断键（诚实呈「无 run 可打断」，修前恒可点的
    * 无效键）。中途附着（页面加载时 run 已在飞、无 agent_start）由流式尾巴/
-   * 状态行信号补位覆盖。终态状态行（⏹ 已中止 / ✗ 失败——E2 连带面）是
-   * run 已收口的呈现，不计入在飞信号（修前终态文案误当在飞——打断键伪使能）。
+   * 状态行信号补位覆盖。终态状态行（⏹ 已中止 / ✗ 失败——E2 连带面）与回执型
+   * 状态行（档位切换回执——第九轮 laneE2 件1：驻留型 status 非 run 进度，
+   * isReceiptStatus 闭集分类）是「已收口/非进度」的呈现，不计入在飞信号
+   * （修前两者皆误当在飞——打断键伪使能）。
    */
   const runInFlight =
     state.runActive ||
-    (state.status !== null && !isTerminalStatus(state.status)) ||
+    (state.status !== null && !isTerminalStatus(state.status) && !isReceiptStatus(state.status)) ||
     state.messages.some((m) => m.streaming);
 
   return (

@@ -343,6 +343,53 @@ describe('WebUiRoot主面活体环', () => {
     });
   });
 
+  it('档位切换回执不计入 run 在飞信号：回执状态行在呈打断键仍禁（修前红：切档回执驻留被当在飞——闲态打断键伪使能）', async () => {
+    primeMain();
+    apiMock.interrupt.mockResolvedValue(undefined);
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    const es = FakeEventSource.instances[0]!;
+    // 档位切换回执（通道核 setStatus 扇出——真实词面 host/session-tier-copy.ts
+    // 回执单源，TUI 选档与 PUT 应答尾两发射位同文）：驻留型 status 非 run 进度，
+    // 状态行照常呈现（回执本体不撤）但不驱动打断键
+    act(() => {
+      es.emit({
+        kind: 'status',
+        sessionId: 's-1',
+        payload: { status: '思考级别：high（下一轮对话起生效；该级别是否生效随模型能力）' },
+      });
+    });
+    await screen.findByText('思考级别：high（下一轮对话起生效；该级别是否生效随模型能力）');
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: '打断' }) as HTMLButtonElement).disabled).toBe(true); // 修前红：回执计入在飞
+    });
+    // 沙箱回执同律
+    act(() => {
+      es.emit({
+        kind: 'status',
+        sessionId: 's-1',
+        payload: { status: '沙箱模式：danger（即刻生效于后续工具调用）' },
+      });
+    });
+    await screen.findByText('沙箱模式：danger（即刻生效于后续工具调用）');
+    expect((screen.getByRole('button', { name: '打断' }) as HTMLButtonElement).disabled).toBe(true);
+    // 对照面：进度型 status（工具执行中——客户端本造）仍计入在飞（第二信号
+    // 不误伤——中途附着 run 的补位信号维持）
+    act(() => {
+      es.emit({
+        kind: 'display',
+        sessionId: 's-1',
+        payload: { type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} },
+      });
+    });
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: '打断' }) as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
   it('submit 失败撤回乐观回显：未被受理的消息不驻留正文（修前红：catch 只推通知无撤回——幻影驻留至刷新）', async () => {
     primeMain();
     // 桩拟真实服务端失败形（Once 形——不污染后续用例的 submit 桩）
