@@ -19,7 +19,12 @@
  * 会话可写根授予（04 §7 补钉①）：create 成功即自动将产物 canonical 路径记入
  * 该会话的授予集（fence 组合归装配——writableRoots provider 并入
  * grantedRoots(sessionId)；数据目录 carve-out 在 safety 面恒优先，本件不管
- * fence 执法只记账）；releaseSession 随会话关闭 / Job 终态回收。
+ * fence 执法只记账）；releaseSession 的生产接线仅 Job 终态位（issue 编排
+ * settle 尾）——交互会话授予随会话持久存续（进程内存表，与 sessions 行
+ * 同寿；进程重启表自空）。诚实边界（sweep10 laneE 件5 勘正——旧句「随会话
+ * 关闭回收」不实）：交互会话无删除编排（存储面 deleteSession 零生产消费；
+ * retire 是收口非终局——retire→reopen 竞窗在案，retire 位不得接线），
+ * 「会话删除编排 + 授予回收接线」立题挂账需规范先行。
  *
  * git 元数据白名单（04 §8 桥条款——冷读挂账 #4 词面单源锚）：本件自身的 git
  * 调用是「工具内置受控路径」（封闭动词面则——不在 carve-out 拦截面）；
@@ -127,7 +132,11 @@ export interface WorktreeService {
   grant(req: { sessionId: string; path: string }): Promise<void>;
   /** 会话授予集读（fence 组合装配面消费——writableRoots provider 并入） */
   grantedRoots(sessionId: string): string[];
-  /** 会话授予回收（会话关闭 / Job 终态；返回被释放的路径集） */
+  /**
+   * 会话授予回收（返回被释放的路径集）。生产接线现状：仅 Job 终态位（issue
+   * 编排 settle 尾）——交互会话授予随会话持久存续（头注诚实边界注——会话
+   * 删除编排接线立题挂账需规范先行）。
+   */
   releaseSession(sessionId: string): string[];
 }
 

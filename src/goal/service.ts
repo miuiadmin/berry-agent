@@ -401,6 +401,19 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
     }
   }
 
+  /**
+   * 终态清账（sweep10 laneE 件4——daemon 长跑无界增长族收口，与
+   * parkedForBudget 清账同笔位）：轮间沉淀缓存与在飞位按 goalId 同笔清。
+   * 终态后条目即死键——depositFor 取值面经 activeFor 门（终态行永不再命中）
+   * 且终态行不复活（resume 拒终态），故清账无行为观测位（纯内存卫生——量
+   * 级 = 每终态 goal 至多一条 ≤2KiB 文本）；在飞位防御同清（终态瞬间在飞
+   * 单发的登记位同笔摘——其迟到落地写回死键条目无害：行已终态永不再读）。
+   */
+  function clearDepositEntries(goalId: string): void {
+    depositCache.delete(goalId);
+    depositInFlight.delete(goalId);
+  }
+
   /** 单漏斗挂钟注册（activate 与 attach 冲洗共用；回执 {ok:false} 上抛响亮） */
   async function registerClock(goal: GoalRow): Promise<void> {
     if (jobsFace === null) {
@@ -546,6 +559,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       }
       dao.update(goalId, { status: 'completed', endedAt: now(), endingNote: evidence }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
+      clearDepositEntries(goalId); // 终态清沉淀缓存与在飞位（sweep10 laneE 件4——死键不驻留）
       // 终态同笔停摆（行留史）——防御吞（第三腿同律：迁移已落库，停摆腿炸
       // 不回滚终态不阻第三腿，warn 留痕人工收口）
       try {
@@ -565,6 +579,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       }
       dao.update(goalId, { status: 'abandoned', endedAt: now(), endingNote: reason ?? 'abandoned' }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
+      clearDepositEntries(goalId); // 终态清沉淀缓存与在飞位（sweep10 laneE 件4——死键不驻留）
       // 终态同笔停摆——防御吞（complete 同律：迁移已落库，停摆腿炸不回滚终态）
       try {
         await jobsFace?.disable(goalId);
