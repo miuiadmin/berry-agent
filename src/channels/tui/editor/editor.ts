@@ -111,10 +111,12 @@ export class Editor implements Renderable {
       case 'key':
         return this.handleKey(event);
       case 'text': {
-        // jump 待靶态：首字素为跳转靶（BMP 可打印走 text 事件；astral 可打印
-        // 走 ime 提交路——见 ime 分支注）。legacy 轨 textRun 同 chunk 连续可打印
-        // 合并单 text 事件——首字素作靶后余字素经 insertText 补入正文，不随靶
-        // 消费丢字（字素切分保组合字素完整——肤质修饰 / ZWJ 家族不劈不产悬空残段）
+        // jump 待靶态：首字素为跳转靶（kitty 轨 BMP 可打印走 text 事件、astral
+        // 可打印走 ime 提交路——见 ime 分支注；legacy 轨 astral 仍走 text 事件
+        // ——textRun 逐码点累积无 plain 判据，两分支 consumeJumpTarget 同语义）。
+        // legacy 轨 textRun 同 chunk 连续可打印合并单 text 事件——首字素作靶后
+        // 余字素经 insertText 补入正文，不随靶消费丢字（字素切分保组合字素完整
+        // ——肤质修饰 / ZWJ 家族不劈不产悬空残段）
         if (this.consumeJumpTarget(event.text)) return true;
         this.model.insertText(event.text);
         return true;

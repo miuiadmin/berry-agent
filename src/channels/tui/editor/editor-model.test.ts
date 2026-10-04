@@ -291,26 +291,45 @@ describe('EditorModel 移动族', () => {
     expect(m.getCursor()).toEqual({ line: 0, col: 0 }); // 首行行首——既有语义 no-op（无 wrap）
   });
 
-  it('jumpToChar 落位字素边界校准：组合字素中段命中吸到所属字素终点', () => {
+  it('jumpToChar 落位字素边界校准：中段命中向向分立吸位（backward 起点 / forward 终点）', () => {
     // 修前红实证位（wf laneC ②）：indexOf/lastIndexOf 原始命中下标直写
     // cursorCol——全模型唯一不经字素边界函数的落位原语（模型头注「一切
     // 移动/删除原语经字素边界函数」承诺被破）。靶是组合字素（旗 = 1F3F3
     // FE0F 200D 1F308，字素区间 [1,7)）中段码点时光标落字素内，其上
     // deleteForward 经 nextGraphemeBoundary 定界撕裂字素误删邻字（🌈 与 b
-    // 双删 + 悬空 ZWJ 残留）。修后命中非边界位吸到所属字素终点（光标停
-    // 完整字素后——语义与视觉列一致）。
+    // 双删 + 悬空 ZWJ 残留）。修后命中非边界位向向分立校准（对称语义：
+    // back=跳到字符前 / forward=跳到字符后）：backward 吸所属字素起点、
+    // forward 吸所属字素终点——两落位皆完整字素边界，其上删除原语不撕裂。
     const flag = 'a\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}b'; // a + 旗（6 码元单字素）+ b——长 8
     const m = modelWith(flag);
     m.jumpToChar('\u{1F308}', 'backward'); // 命中 idx 5——旗字素中段
-    expect(m.getCursor().col).toBe(7); // 修前 5（字素内）——修后吸到字素终点
-    m.deleteForward(); // 光标已在完整字素边界——整字素定界不撕裂
-    expect(m.getText()).toBe('a\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}'); // 删 b：恰一个完整字素（修前撕裂旗留悬空 ZWJ）
-    expect(m.getCursor().col).toBe(7);
-    // forward 向同律：命中变体选择符（FE0F，idx 3）亦为旗字素中段——吸到终点
+    expect(m.getCursor().col).toBe(1); // 修前 5（字素内）——修后吸旗字素起点（跳到字符前）
+    m.deleteForward(); // 光标已在完整字素边界（旗首）——整字素定界不撕裂
+    expect(m.getText()).toBe('ab'); // 删旗字素整素（d5fb44d 校准恒吸终点形下删的是 b——随起点形翻档）
+    expect(m.getCursor().col).toBe(1);
+    // forward 向同律：命中变体选择符（FE0F，idx 3）亦为旗字素中段——吸终点
     const m2 = modelWith(flag);
     m2.moveHome(); // modelWith 光标在行尾——forward 搜索前归首
     m2.jumpToChar('\u{FE0F}', 'forward');
     expect(m2.getCursor().col).toBe(7);
+  });
+
+  it('jumpToChar backward 中段命中吸起点：重复反向跳恒前进（停滞防回归）', () => {
+    // 修前红实证位（wf laneG——d5fb44d 校准自带新缺陷）：backward 命中组合
+    // 字素中段校准到所属字素终点 gEnd 后，下轮 from = gEnd-1 仍落同字素内、
+    // lastIndexOf 必再命中同位——col 恒 gEnd 永久停滞，更早合法出现被永久
+    // 遮蔽（探针场景：'🇸 zz 🇺🇸' 三连 backward col 恒 10、0 位独立 🇸 不可
+    // 达）。修后 backward 校准吸字素起点 gStart（与 forward 吸 gEnd 对称：
+    // back=跳到字符前 / forward=跳到字符后）——from = gStart-1 结构性跳过
+    // 已消费字素，连续反向跳恒前进；gStart 亦字素边界，deleteForward 安全
+    // 性不变。
+    const m = modelWith('🇸 zz 🇺🇸'); // 独立 🇸 [0,2)；🇺🇸 旗字素 [6,10)——旗内 🇸 命中 idx 8（中段）
+    m.jumpToChar('🇸', 'backward');
+    expect(m.getCursor().col).toBe(6); // 修前 10（吸旗尾 = 起点位，原地不动）——修后吸旗首
+    m.jumpToChar('🇸', 'backward');
+    expect(m.getCursor().col).toBe(0); // 修前恒 10（停滞）——修后退达独立 🇸 起点（更早出现可达）
+    m.jumpToChar('🇸', 'backward');
+    expect(m.getCursor().col).toBe(0); // 行首光标前无出现——no-op（既有语义，无 wrap）
   });
 });
 

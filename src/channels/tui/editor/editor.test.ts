@@ -215,8 +215,8 @@ describe('Editor jump 词向两态', () => {
 
   it('多字符 text 事件（legacy 轨游程合并形）：首字符为靶、余字符完整入文不丢', () => {
     // legacy 轨 input.ts textRun 同 chunk 连续可打印合并单 text 事件——快打/
-    // 忙帧攒批真实可达（kitty 轨逐事件无此形）。首码点作跳靶后余码点须经
-    // insertText 补入正文（修前余码点无去向——丢字跑红实证）。
+    // 忙帧攒批真实可达（kitty 轨逐事件无此形）。首字素作跳靶后余字素须经
+    // insertText 补入正文（修前余字素无去向——丢字跑红实证）。
     const editor = new Editor();
     editor.handleEvent(text('foo bar baz'));
     editor.model.moveHome();

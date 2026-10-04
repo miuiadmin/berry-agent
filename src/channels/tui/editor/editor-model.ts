@@ -794,7 +794,8 @@ export class EditorModel {
   /**
    * jump 词向：跳到指定字符的下 / 上一处出现（多行搜索、跳过光标当前位）。
    * 无匹配光标不动。落位经字素边界校准（模型头注「一切移动 / 删除原语经
-   * 字素边界函数」承诺——原始命中落组合字素中段时吸到所属字素终点）。
+   * 字素边界函数」承诺——原始命中落组合字素中段时向向分立吸位：backward
+   * 吸所属字素起点、forward 吸所属字素终点）。
    */
   jumpToChar(ch: string, direction: 'forward' | 'backward'): void {
     this.lastAction = null;
@@ -814,16 +815,21 @@ export class EditorModel {
         this.state.cursorLine = li;
         // 字素边界校准：indexOf/lastIndexOf 的原始命中可落组合字素（ZWJ 旗 /
         // 肤质修饰簇等）中段码点——不校准则光标落字素内，其上 deleteForward
-        // 经 nextGraphemeBoundary 定界会撕裂字素误删邻字。校准形：idx 非字素
-        // 边界时吸到所属字素终点（光标停完整字素后——与视觉列一致）。判据：
-        // 所属字素（起点 = prevGraphemeBoundary(idx)、终点 = nextGrapheme-
-        // Boundary(起点)）越过 idx 即中段命中；idx 恰为边界时前字素终点恰等
-        // idx、idx = 0 恒为边界——两形皆不校准。
+        // 经 nextGraphemeBoundary 定界会撕裂字素误删邻字。校准形向向分立
+        // （对称语义：back=跳到字符前 / forward=跳到字符后）：backward 吸所属
+        // 字素起点 gStart、forward 吸所属字素终点 gEnd——两落位皆完整字素
+        // 边界（其上删除原语不撕裂）。backward 若吸 gEnd，下轮 from = gEnd-1
+        // 仍落同字素内、lastIndexOf 必再命中同位——col 恒 gEnd 永久停滞、
+        // 更早合法出现被遮蔽；吸 gStart 则 from = gStart-1 结构性跳过已消费
+        // 字素（连续反向跳恒前进）。判据：所属字素（起点 = prevGrapheme-
+        // Boundary(idx)、终点 = nextGraphemeBoundary(起点)）越过 idx 即中段
+        // 命中；idx 恰为边界时前字素终点恰等 idx、idx = 0 恒为边界——两形
+        // 皆不校准。
         if (idx > 0) {
           const gStart = prevGraphemeBoundary(line, idx);
           const gEnd = nextGraphemeBoundary(line, gStart);
           if (gEnd > idx) {
-            this.setCursorCol(gEnd);
+            this.setCursorCol(isForward ? gEnd : gStart);
             return;
           }
         }
