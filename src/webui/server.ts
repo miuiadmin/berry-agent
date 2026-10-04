@@ -14,14 +14,19 @@
  *
  * 件内维持位（§10.4 改形注②-⑦语义全保）：
  * - **backend**：UiBackend 第四实装（claim 桥）。审批腿**进程作用域语义**
- *   （定形注④——与 SDK 腿「连接作用域无订阅即 cancel」分立）：开面在场即
- *   持应答能力、不采无连接即时 cancel；败腿/撤销经 signal abort 清槽
+ *   （定形注④——与 SDK 腿「连接作用域无订阅者即 unavailable」分立〔edf2e83
+ *   语义迁后词：SDK 腿无订阅者/连接收口两路 2026-09-13 由误答 cancel 改判
+ *   unavailable，原句「无订阅即 cancel」陈化随迁〕）：开面在场即持应答
+ *   能力、不采无连接即时落值（cancel/unavailable 皆不采——纯 webui 无
+ *   浏览器时 ask 挂起至 run 打断/会话收口）；败腿/撤销经 signal abort 清槽
  *   （abort 恒后于竞速落定——UiCore finish 内序，不构成抢答）。
  * - **SSE 信封三族**：分档判据注②（终结型两型 + asked 镜像 → session 族，
  *   其余活体 → display 族）；连接即当下（v1 无重放游标——正确性层 = 客户端
  *   onopen 恒重拉投影）；受理尾补发一帧最近 status 信封快照（订阅建流即
- *   对齐——03 §10.6 ② 2026-10-04 注：断连窗丢 agent_end 的重连观众复位
- *   status 账；词汇零新增原帧复播，closed 空流恒静默不破）；全局连接帽 16
+ *   对齐——03 §10.6 ② 2026-10-04 注：断连窗丢 agent_end 的重连观众状态行
+ *   当前值对齐+打断键使能面供数，run 账终态复位半边系呈拍缺口〔卡③——
+ *   run 终态 setStatus 生产者缺席〕；词汇零新增原帧复播，closed 空流恒静默
+ *   不破）；全局连接帽 16
  *   件侧自记账（面级 openStreams 不暴露
  *   计数）超帽 503；背压 shedding 判据 = display 的 update 两型（session/
  *   notify/status 镜像帧不弃）。
@@ -264,8 +269,9 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       });
     },
     // 状态行更新（last-writer-wins 天然——多写者扇出覆盖）；emit 时随写最近
-    // status 信封缓存（受理尾快照的当前值源——断连窗丢 agent_end 的重连观
-    // 众由此复位 status/runActive 账）
+    // status 信封缓存（受理尾快照的当前值源——现行效力 = 状态行当前值对齐
+    // + 打断键使能面供数；「末次终态形随播复位 run 账」呈拍缺口，勘正注详
+    // events 受理尾——第九轮深扫卡③）
     setStatus: (sessionId: string, status: string) => {
       const frame: WebuiEnvelope = { kind: 'status', sessionId, payload: { status } };
       // 写位生命周期门（清理面①）：迟到 status 的会话已闭/缺席 → 删旧不写
@@ -657,9 +663,14 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       res.on('close', () => deregister(entry));
       // 受理尾 status 快照补发（订阅建流即对齐——03 §10.6 ② 2026-10-04 注
       // webui SSE 面同律）：断连窗丢 agent_end 的重连观众由此收当前 status
-      // 信封（词汇零新增——setStatus 既有 session-scoped status 帧原帧复播；
-      // run 已收口时末次终态形随播）。从未 setStatus 诚实零帧；closed 会话
-      // 不补发（空流形恒静默既有律——不造假帧）
+      // 信封（词汇零新增——setStatus 既有 session-scoped status 帧原帧复播）。
+      // 现行效力 = 状态行当前值对齐 + 打断键使能面供数两桩（第九轮深扫卡③
+      // 勘正：「run 已收口时末次终态形随播复位 run 账」结构性不成立——全库
+      // setStatus 生产者仅切档回执〔host webui-bridge/tui-entry 两装配位〕
+      // + 插件 ctx.ui 透传位，无 run 终态 setStatus 生产者，末次帧恰为终态
+      // 词的形在现产线不可达；run 终态 setStatus 生产者两案呈拍中〔卡③〕，
+      // 落定前不留虚假承诺句）。从未 setStatus 诚实零帧；closed 会话不补发
+      // （空流形恒静默既有律——不造假帧）
       if (deps.sessions.sessionStateOf(sessionId) !== 'closed') {
         const snapshot = lastStatusFrame.get(sessionId);
         if (snapshot !== undefined) stream.write(snapshot);

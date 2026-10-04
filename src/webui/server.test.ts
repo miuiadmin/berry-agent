@@ -1013,9 +1013,12 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
   });
 
   it('status 快照终态形与静默分账：run 已收口（末次 setStatus 终态词）重连收终态形；closed 空流恒静默不破', async () => {
-    // 「run 已收口时发终态形」：末次 setStatus 即缓存帧原帧复播（终态词直达
-    // 重连观众——打断键使能面的服务端权威供数）；closed 会话流恒静默既有律
-    // 不破——即便缓存在册（同进程历史帧）也不得向空流形造帧
+    // 机制位锁（卡③勘正注）：末次 setStatus 即缓存帧原帧复播——终态词直达
+    // 重连观众（打断键使能面的服务端权威供数）。本例直驱 setStatus 只锁
+    // 机制位：现产线无 run 终态 setStatus 生产者（全库生产者仅切档回执 +
+    // 插件 ctx.ui 透传位），「run 已收口末次帧恰为终态词」的产线形两案
+    // 呈拍中（第九轮卡③）。closed 会话流恒静默既有律不破——不得向空流
+    // 形造帧
     const r1 = await openSse(port, 's-1', token);
     webui!.backend.setStatus!('s-1', '⏹ 已中止');
     expect(await r1.next()).toEqual({ kind: 'status', sessionId: 's-1', payload: { status: '⏹ 已中止' } });
