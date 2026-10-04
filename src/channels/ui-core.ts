@@ -176,12 +176,17 @@ export class UiCore {
 
   /**
    * 审批 ask（07 §4.3 提问队列条款——与阻塞三件同队同收口律）：
-   * 多后端竞速先答先得（跨入口单漏斗——decide durable 单漏斗在
-   * ApprovalService 不变）；收口两语义分立（对齐 04 §9 run 信号透传
-   * ask 链）——会话关闭 / run 打断 → `'cancel'`（用户主动终止）；降级
-   * 到底（全部后端无 approval capability）→ `'unavailable'`（呈现面
-   * 结构性无人可答——ApprovalService 侧落 timeout 源；2026-09-13 真模型
-   * 实测批修，修前误答 'cancel' 错标用户主动取消）；`always` + 草案 →
+   * 多后端竞速真裁决先答先得（跨入口单漏斗——decide durable 单漏斗在
+   * ApprovalService 不变）；**unavailable 腿不落定竞速**（第八轮 C1 定谳）：
+   * 瞬时 fail-closed 腿（SDK 面该会话零订阅者即创建时立即 'unavailable'）
+   * 只投「结构性无人」票——修前 Promise.race 被该腿整场毒化，混合观众形
+   * （serve --port / daemon 双挂——真观众在另一腿挂起待答）后答 decide 恒
+   * superseded；全腿皆 unavailable 才收口 'unavailable'（fail-closed 不变
+   * ——单腿 headless 零观众语义同旧）。收口两语义分立（对齐 04 §9 run 信号
+   * 透传 ask 链）——会话关闭 / run 打断 → `'cancel'`（用户主动终止）；降级
+   * 到底（全部后端无 approval capability）→ `'unavailable'`（呈现面结构性
+   * 无人可答——ApprovalService 侧落 timeout 源；2026-09-13 真模型实测批修，
+   * 修前误答 'cancel' 错标用户主动取消）；`always` + 草案 →
    * onApprovalAlways 回写；无草案 always 防御收口视同 approve（零草案
    * 零副作用）。
    */
@@ -194,9 +199,27 @@ export class UiCore {
       (signal) => {
         const direct = this.capable('approval');
         if (direct.length > 0) {
-          return Promise.race(direct.map((b) => b.askApproval!(sessionId, request, { signal }))).then((answer) =>
-            this.settleApprovalAlways(answer, request),
-          );
+          // 竞速重排（第八轮 C1）：真裁决（approve/reject/always/cancel）先答
+          // 先得 + 败腿经内部 signal 撤销（ask 编舞 finish 位统一传播）；
+          // 'unavailable' 是腿级「无人可答」证词不是裁决——计票不计胜负，
+          // 票满（全腿无人）才 fail-closed。腿抛错仍立即拒出（呈现异常折
+          // 保守值 cancel——与旧 race 同语义）
+          return new Promise<ApprovalAskAnswer>((resolve, reject) => {
+            let noAudienceVotes = 0;
+            for (const b of direct) {
+              b.askApproval!(sessionId, request, { signal }).then(
+                (answer) => {
+                  if (answer === 'unavailable') {
+                    noAudienceVotes += 1;
+                    if (noAudienceVotes === direct.length) resolve('unavailable');
+                    return;
+                  }
+                  resolve(this.settleApprovalAlways(answer, request));
+                },
+                (cause) => reject(cause),
+              );
+            }
+          });
         }
         // notify 化到底：呈现摘要后自报结构性无人（fail-closed——04 §9 无应答
         // 者语义，ApprovalService 落 unavailable/timeout；与打断路保守值 'cancel'

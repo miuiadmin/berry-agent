@@ -198,6 +198,34 @@ describe('ask 编舞单元边界', () => {
     expect(await p).toBe('reject');
     expect(b1.approvalAsks[0]?.signal?.aborted).toBe(true);
   });
+
+  it('瞬时 fail-closed 腿不毒化竞速：unavailable 只投票不落定——真观众后答仍胜（第八轮 C1 修前红：混合观众形 SDK 腿零订阅者）', async () => {
+    // 形位=serve --port / daemon 双挂：真观众腿（浏览器 SSE 在场，挂起待答）
+    // + SDK 腿（该会话零 /v1/events 订阅者——backend.ts 无观众即创建时立即
+    // resolve 'unavailable'，与下方即时已决 promise 同形）
+    const spectator = fakeBackend('web');
+    const zeroAudience = fakeBackend('sdk');
+    zeroAudience.backend.askApproval = (): Promise<ApprovalAskAnswer> => Promise.resolve('unavailable');
+    const ui = makeCore([spectator.backend, zeroAudience.backend]);
+    const p = ui.askApproval('s1', { summary: '写文件' });
+    // 修前红：Promise.race 被瞬时 'unavailable' 腿整场毒化——观众腿被撤销、
+    // decide 后答恒 superseded（serve-entry「审批跨入口竞速」同形实锤）
+    spectator.approvalAsks[0]?.resolve('approve');
+    expect(await p).toBe('approve');
+    // 落定出队收口（落定时 controller.abort 统一达所有腿——胜腿收 abort 是
+    // settled 守卫下的无害 no-op，产线 SDK/webui 后端同律）
+    expect(ui.pending('s1')).toEqual([]);
+  });
+
+  it('全腿皆 unavailable → fail-closed unavailable（混合形保单腿 headless 语义——全腿结构性无人仍立即收口）', async () => {
+    const a = fakeBackend('sdk-a');
+    a.backend.askApproval = (): Promise<ApprovalAskAnswer> => Promise.resolve('unavailable');
+    const b = fakeBackend('sdk-b');
+    b.backend.askApproval = (): Promise<ApprovalAskAnswer> => Promise.resolve('unavailable');
+    const ui = makeCore([a.backend, b.backend]);
+    const p = ui.askApproval('s1', { summary: '写文件' });
+    expect(await p).toBe('unavailable');
+  });
 });
 
 describe('widget 槽与状态面观察位', () => {
