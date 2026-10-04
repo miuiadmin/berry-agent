@@ -328,7 +328,13 @@ function closeChild(
       if (exitOf() !== undefined) resolve();
       else addWaiter(resolve);
     });
-    const raced = await Promise.race([exited.then(() => true), delay(graceMs).then(() => false)]);
+    // 宽限钟可清形（第十一轮深扫 L2-3）：race 落定即 cancel——子进程自退
+    // （正常路径）时 3s 宽限钟不留武装至帽尽的死钟；超时腿自胜时 cancel 对
+    // 已发钟为 no-op（与 channel-models-fetch rejectAfter 可清形同族——其参照
+    // plugin-install / plugin-market withTimeoutMs 单源形）
+    const graceLeg = delay(graceMs);
+    const raced = await Promise.race([exited.then(() => true), graceLeg.promise.then(() => false)]);
+    graceLeg.cancel();
     if (!raced) {
       logger.warn(`LSP 实例宽限尽未退（${server}）——树杀兜底`);
       child.kill();
@@ -336,9 +342,16 @@ function closeChild(
   })();
 }
 
-/** 延时助手（宽限钟） */
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * 延时腿（宽限钟）——可清形：返回 {promise, cancel}，race 对腿先落定时
+ * 调用方 cancel 清钟（句柄经返回体外露，不再埋在 Promise 构造器内）。
+ */
+function delay(ms: number): { promise: Promise<void>; cancel: () => void } {
+  let timer: NodeJS.Timeout | undefined;
+  const promise = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return { promise, cancel: () => clearTimeout(timer) };
 }
 
 function errText(err: unknown): string {

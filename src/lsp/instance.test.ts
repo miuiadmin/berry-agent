@@ -415,6 +415,18 @@ describe('协议化关停 close', () => {
     expect(child.killed).toBe(false); // 自退场景不树杀
     vi.useRealTimers();
   });
+
+  it('宽限钟清账：子进程自退（正常路径）后零 pending 定时器——修前红：3s 宽限死钟仍武装（L2-3 与 channel-models rejectAfter 同族）', async () => {
+    // 假钟只假 setTimeout/clearTimeout——握手钟/请求钟在响应到达时已各自
+    // clearTimeout，vi.getTimerCount 唯一残位即 delay 宽限钟（清账直接观测）
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const child = new FakeLspChild();
+    defaultScript(child); // shutdown 应答 + exit 通知即自退——exited 腿先胜
+    const inst = await connectLspInstance('s', CONFIG, 'file:///ws', { spawn: fakeSpawn(child) });
+    await inst.close();
+    expect(child.killed).toBe(false); // 自退场景（raced=true 腿）——不树杀
+    expect(vi.getTimerCount()).toBe(0); // 宽限钟已清——修前为 1（delay 句柄不外露无 clearTimeout）
+  });
 });
 
 describe('wire 层（经实例消费面间接覆盖）', () => {
