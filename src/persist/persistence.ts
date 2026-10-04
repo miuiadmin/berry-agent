@@ -35,8 +35,8 @@ export interface PersistenceOptions {
   /** 告警面（透传 Store/WriteBehind：权限修复/毒丸/撕裂尾） */
   readonly warn?: (message: string) => void;
   /**
-   * durable 事件活体镜像观察者（03 §146 `session/event` 钩子的发射位——
-   * host 装配根注入 dispatch.emit 桥；载荷 `{sessionId, event}`）。
+   * durable 事件活体镜像观察者（03 §2.4 钩子主表 `session/event` 行的发射位
+   * ——host 装配根注入 dispatch.emit 桥；载荷 `{sessionId, event}`）。
    * 每条 append（含合成补形）写入内存日志后回调；种子前缀不重放（历史上
    * 首写时已发过）。观察者异常隔离不影响提交（发射侧 try/catch 兜底 +
    * dispatch.emit 监听器互隔离双保险）。
@@ -271,8 +271,9 @@ export class Persistence {
           : undefined,
       onAppend: (event) => {
         writeBehind.enqueue({ sessionId, event, registration });
-        // 活体镜像（03 §146——写入后即发；观察者异常隔离不影响提交，append
-        // 热路径零 I/O 律不破坏：观察者是内存分派桥非 I/O 面）
+        // 活体镜像（03 §2.4 钩子主表 session/event 行——写入后即发；观察者
+        // 异常隔离不影响提交，append 热路径零 I/O 律不破坏：观察者是内存
+        // 分派桥非 I/O 面）
         try {
           this.onDurableEvent({ sessionId, event });
         } catch {
@@ -292,6 +293,27 @@ export class Persistence {
     const gone = this.store.deleteSession(sessionId);
     this.registrations.delete(sessionId);
     return gone;
+  }
+
+  /**
+   * 会话退役出册（05 retire 清账律——第十一轮深扫定形注）：retire 收口后
+   * 进程级登记面的死键清账——registrations 登记快照与 store 侧 per-session
+   * 写序游标（cursors）同笔出册，防逐会话单调滞留（修前仅 deleteSession
+   * 物理删路出册；retire 路 durable 面保留 → 两键成死键，daemon tick 用户
+   * 行高频 retire 下进程级累积）。
+   *
+   * 调用序律：**排干屏障之后**执行（drainSessionNow / flush 后）——在飞写笔
+   * 事务成功即回写游标键，排干前出册会被在队写复活；排干后无在飞写，键即
+   * 终清（此后迟到写笔经 loadSession 重附着属合法复活登记，非死键）。
+   *
+   * 与 deleteSession 分立：彼系物理删路的 flush + 三删 + 出册（既有不变）；
+   * 此系 retire 路纯内存出册（durable 面不动）。幂等——重复调用零副作用
+   * （deleteSession 后再 retireEntries 的 double-delete 同键无害）。
+   */
+  retireEntries(sessionId: string): void {
+    this.ensureOpen();
+    this.registrations.delete(sessionId);
+    this.store.retireCursor(sessionId);
   }
 
   /** flush 屏障透传（05 §4——审批落账/压缩对/turn 收口等关键事务点调用） */

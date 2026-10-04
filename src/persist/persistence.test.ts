@@ -177,6 +177,27 @@ describe('删除与退出序', () => {
     expect(await p.deleteSession(log.sessionId)).toBe(false);
   });
 
+  it('retireEntries：retire 路登记面死键出册（registrations 经 stageSessionTitle 在册判据观测）+ durable 面保留 + 幂等（05 retire 清账律——第十一轮修前红：面不存在即 TypeError）', async () => {
+    const p = open();
+    const log = p.createSession({ origin: 'conversation' });
+    oneTurn(log, 'retire turn');
+    await p.flush();
+    // 在册基线：attach 登记在场 → 改题受理 true
+    expect(p.stageSessionTitle(log.sessionId, '改题')).toBe(true);
+    // retire 路出册（修前红锚：面不存在 → TypeError；修后真清账）
+    p.retireEntries(log.sessionId);
+    // registrations 出册可观测：活体登记缺席 → stageSessionTitle 诚实 miss
+    //（修前缺陷形：retire 后登记键成死键仍滞留——判据恒 true）
+    expect(p.stageSessionTitle(log.sessionId, '再改')).toBe(false);
+    // durable 面保留（retire 非删除路）：行/事件可读、open 可复续不受影响
+    expect(p.store.getSessionRow(log.sessionId)).toBeDefined();
+    expect(p.store.loadEvents(log.sessionId)).toHaveLength(2);
+    const reopened = p.loadSession(log.sessionId);
+    expect(reopened.log.events()).toHaveLength(2); // 复续重附着合法复活（非死键）
+    // 幂等：重复出册零副作用（double-delete 无害——deleteSession 路同键）
+    expect(() => p.retireEntries(log.sessionId)).not.toThrow();
+  });
+
   it('close：flush + checkpoint 收卷（close 后数据完整、再读拒用）', async () => {
     const path = join(dir, 'exit.db');
     const p = Persistence.open({

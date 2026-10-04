@@ -958,6 +958,22 @@ export class Store implements WriteTarget {
     return gone;
   }
 
+  /**
+   * 会话退役游标出册（05 retire 清账律——第十一轮深扫定形注）：retire 收口
+   * （durable 面保留——行/事件不删、open 可复续）后的 per-session 写序游标
+   * 死键清账，防进程级单调滞留（daemon tick 用户行逐会话 retire 高频累积；
+   * 修前仅 deleteSession 物理删路出册，retire 路键成死键）。经
+   * Persistence.retireEntries 同笔调用（排干屏障后——在飞写笔事务成功即回写
+   * 游标键，排干前出册会被在队写复活）。续写安全性：游标缺席后首遇自
+   * sessions.last_seq 重新初始化（cursorFor 既有 seeded 续写衔接形）——排干
+   * 后 last_seq 已含全部在队事件，续写 seq 连续性断言不破。幂等——缺席键
+   * 零动作（deleteSession 路同键 double-delete 无害）。
+   */
+  retireCursor(sessionId: string): void {
+    this.ensureOpen();
+    this.cursors.delete(sessionId);
+  }
+
   // ── session_fts 面（对账三档：写入档在写路径 / 删除档在 deleteSession）──────
 
   /** 会话内全文检索（首发口径：查询面限定 session_id——06 §10 引此为源） */

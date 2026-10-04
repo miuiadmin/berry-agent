@@ -490,6 +490,22 @@ describe('sessions 行面', () => {
     expect(store.searchSessionFts('s-del', 'findme')).toHaveLength(0);
     expect(store.deleteSession('s-del')).toBe(false);
   });
+
+  it('retireCursor：retire 路游标出册后续写自 sessions.last_seq 重初始化（连续性断言不破——05 retire 清账律，第十一轮修前红：面不存在即 TypeError）', () => {
+    const store = open({ dbPath: join(dir, 'retire-cursor.db') });
+    const events = makeEvents('a', 'b'); // seq 0..3
+    store.writeEvents(writesFor('s-retire', events.slice(0, 2))); // 0..1 落库（游标推进到 1）
+    // retire 路出册（修前红锚：面不存在 → TypeError；修后真清账——durable 行保留）
+    store.retireCursor('s-retire');
+    // 续写 seq 2：游标缺席自 sessions.last_seq（=1）重初始化——期望 seq 恰 2，
+    // 连续性断言通过（retire→迟到写笔单追加者律的结构性前提）
+    expect(() => store.writeEvents(writesFor('s-retire', [events[2]!]))).not.toThrow();
+    expect(store.loadEvents('s-retire')).toHaveLength(3);
+    // durable 面保留（retire 非删除路——行在场）
+    expect(store.getSessionRow('s-retire')).toBeDefined();
+    // 幂等：缺席/在场键再删均零副作用（double-delete 无害——deleteSession 路同键）
+    expect(() => store.retireCursor('s-retire')).not.toThrow();
+  });
 });
 
 describe('首问快照物化（05 §9 档案列 first_question_summary——v13 专列承载 + title 显式题分家）', () => {
