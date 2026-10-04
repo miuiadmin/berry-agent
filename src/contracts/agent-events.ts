@@ -30,8 +30,10 @@
  * durable）。
  *
  * agent_end 载荷扩（E-0 非新型）：可选 `durationMs/usage/cost` run 累计值
- * ——driver 结算账供源（A-3），可选带出形零迁移；消费端在场必用（收尾行
- * 耗时段唯一真源），缺席回退本地观察账。
+ * ——供源两分立（04 §2 E-0 第十一轮深扫勘正注）：durationMs 已兑现——driver
+ * 富化位补值（A-3 唯一真源），消费端在场必用（收尾行耗时段），缺席回退本地
+ * 观察账；usage/cost 预留位——driver 结算账供源未落（A-3 半兑现态）、现零
+ * 生产零消费，供源兑现另立题待消费端真进场再落。
  *
  * context_usage 单发型（E-4 批——V-4 底栏供数链落码批，07 §4.1 注⑪⑥b）：
  * turn 收口随发 `{usedTokens?, maxTokens?}`——usedTokens = loop 终值 usage
@@ -72,9 +74,9 @@ export type AgentEvent =
       errorMessage?: string;
       /** run 累计时长（毫秒——driver 结算账供源，A-3 唯一真源；缺席回退消费端本地观察账） */
       durationMs?: number;
-      /** run 累计用量（driver 结算账——可选带出形零迁移） */
+      /** run 累计用量（预留位——driver 结算账供源未落〔A-3 半兑现态〕、现零生产零消费；供源兑现另立题待消费端真进场再落〔04 §2 E-0 第十一轮深扫勘正注〕） */
       usage?: Usage;
-      /** run 累计货币额（driver 结算账——可选带出形零迁移） */
+      /** run 累计货币额（预留位——driver 结算账供源未落〔A-3 半兑现态〕、现零生产零消费；供源兑现另立题待消费端真进场再落） */
       cost?: { total: number; currency?: string };
     }
   | { type: 'turn_start'; turn: number }
