@@ -4,7 +4,7 @@
  * 单向 DAG（02 §4.1 memory 席 deps = contracts + context + session + persist）。
  * 批 18c-1 域 = 表族三迁移槽 + 入库单点 DAO（secret 扫描 + 版本链拍照）+
  * 合并三分支纯函数 + 效用综合分；18c-2 域 = 持有面动词 + 检索/访问面 +
- * 工具面九件（createMemoryTools）；18c-3 域 = 提取即时路（纠正检测纯函数 +
+ * 工具面十件（createMemoryTools——批 ev-1 增 memory_lineage 第十件）；18c-3 域 = 提取即时路（纠正检测纯函数 +
  * fire-and-forget 编排件——机器源滤除 + owner 恒 global + 精确事件位溯源）；
  * 18c-4 域 = 注入两路（常驻简报 memory/core builder + 按需检索 recall 瞬态
  * 注入——读出消毒统一罩工具读面与注入面、流水 op='recall' 分账）；

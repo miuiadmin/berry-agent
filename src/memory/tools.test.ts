@@ -1,5 +1,5 @@
 /**
- * memory 工具面九件测试（批 18c-2——工厂面：名册/effect 分账/schema 收口/
+ * memory 工具面十件测试（批 18c-2——工厂面：名册/effect 分账/schema 收口/
  * owner 解析/回执形/错误编码 isError 面；DAO 语义全档归 holding.test.ts，
  * 本件只锁工具包装层）。
  */

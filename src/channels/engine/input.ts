@@ -1,5 +1,5 @@
 /**
- * 输入解码器（07 篇引擎节件 2——kitty/legacy 双轨七态机）。
+ * 输入解码器（07 篇引擎节件 4——kitty/legacy 双轨七态机）。
  *
  * 把终端 stdin 字节流解析成结构化输入事件（key/text/ime/paste/mouse 五分——
  * 事件模型在 types 件），一台状态机两种轨制同吃：

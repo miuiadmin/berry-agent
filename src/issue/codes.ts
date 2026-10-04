@@ -2,7 +2,8 @@
  * issue 域错误码注册（03 §10.7——ISSUE_ 前缀族首批）。
  *
  * 前缀族明列见 contracts/errors.ts ERROR_CODE_PREFIXES（02 §5.3 #1）；码名清
- * 单与语义真源 = 03 篇 §10.7 入队/触发/交付条 ISSUE_ 四码。本文件由模块公开
+ * 单与语义真源 = 03 篇 §10.7 入队/触发/交付条 ISSUE_ 五码〔2026-09-08 批 19e
+ * （498d479）增 ISSUE_CONFIG_INVALID 第五码——原「四码」句随批更新〕。本文件由模块公开
  * 面 index.ts 引入（注册纪律：写入点文件必须实际 import 本文件注册才发
  * 生——与 llm/session/persist/tools 的 codes.ts 同款）。
  */

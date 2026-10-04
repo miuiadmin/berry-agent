@@ -89,7 +89,7 @@ const GIT_MAX_BUFFER = 16 * 1024 * 1024;
 export interface WorktreeServiceOptions {
   /** 主仓根（.git 所在目录；绝对路径——建议 canonical 形） */
   readonly repoRoot: string;
-  /** git 可执行（缺省 'git'；装配可注 BERRY_AGENT_GIT_PATH 解析产物） */
+  /** git 可执行注入位（测试面；BERRY_AGENT_GIT_PATH 环境解析接线未做——保留位，生产装配恒缺省 git） */
   readonly gitCommand?: string;
   /** 单命令超时毫秒（缺省 30s） */
   readonly timeoutMs?: number;

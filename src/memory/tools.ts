@@ -1,13 +1,14 @@
 /**
- * memory 工具面九件（06 §7——模型可见动词；obs_query 同款工厂 idiom）。
+ * memory 工具面十件（06 §7——模型可见动词；obs_query 同款工厂 idiom；
+ * 〔2026-09-11 memory_lineage 第十件增——原「九件」句随批更新〕）。
  *
- * **同 DAO 单实现律**：九件与 /memory 用户管理面（TUI 形态随纵切批）共用
+ * **同 DAO 单实现律**：十件与 /memory 用户管理面（TUI 形态随纵切批）共用
  * 同一 MemoryDao 方法族——管理面零第二写路径，合并管线/写前扫描/frozen
  * 豁免/版本链拍照全档自动同享。
  *
  * **effect 分账**：写动词六件（write/forget/restore/freeze/unfreeze/ttl）
  * effect 'write'（走工具管道三段 waterfall 守门 + 审批对 + 批边界串行）；
- * 读动词三件（read/search/access_log）effect 'read'。memory_search 命中落
+ * 读动词四件（read/search/access_log/lineage）effect 'read'。memory_search 命中落
  * memory_access(op='search') 流水——读模型的计量写面，非领域状态变更，
  * effect 仍 'read' 不触发审批对；历史会话命中行（批 18c-6 联合检索）不落
  * 流水（访问流水以 memory_id 为键——06 §10 定形注③）。

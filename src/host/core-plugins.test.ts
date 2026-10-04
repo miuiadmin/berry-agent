@@ -544,7 +544,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(boot.promptSections.materialize('s-rt')).toBe(refrozen);
   });
 
-  it('memory 件装载全环（批 19b-2）：真 :memory: 座 → 服务面/九工具/简报段/三消费腿/命令注册', async () => {
+  it('memory 件装载全环（批 19b-2）：真 :memory: 座 → 服务面/十工具/简报段/三消费腿/命令注册', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-mem2-'));
     const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-mem2-ws-'));
     const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-mem2-home-'));
@@ -573,7 +573,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(memoryService).toBeDefined();
     expect(memoryService!.cycle).not.toBeNull();
 
-    // 九工具注册（boot 全局层——bootTools 重放消费腿同 fetch 形）
+    // 十工具注册（boot 全局层——bootTools 重放消费腿同 fetch 形）
     const names = boot.tools.definitions().map((d) => d.name);
     for (const tool of [
       'memory_write',

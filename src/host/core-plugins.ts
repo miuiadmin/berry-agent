@@ -778,7 +778,7 @@ function lastUserQueryText(
 
 /**
  * core:memory（批 19b-2）——06 篇记忆面全环装载：DAO（宿主库同库——05 §6.4
- * 迁移链已由 runtime 机械聚合）+ 九工具散装注册（boot 全局层）+ 'memory/core'
+ * 迁移链已由 runtime 机械聚合）+ 十工具散装注册（boot 全局层）+ 'memory/core'
  * 常驻简报段（每请求物化）+ session/event 三消费腿（即时提取/引用记录/周期
  * 计数——03 §2.4 钩子主表 session/event 行活体镜像的汇入点，发射位在 Persistence.onDurableEvent 桥）+
  * run 终态 due→fire（06 §5 计数挂件拍点 = 会话空闲即审）+ 激活期 FTS 对账 +
@@ -836,7 +836,7 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
         ensureFtsIndex({ face: deps.ftsMaintenance, warn });
       }
 
-      // 工具面九件（boot 全局层散装注册——bootTools 会话装配重放消费腿）
+      // 工具面十件（boot 全局层散装注册——bootTools 会话装配重放消费腿）
       const memoryToolDefs = createMemoryTools({
         dao,
         ownerKeys,

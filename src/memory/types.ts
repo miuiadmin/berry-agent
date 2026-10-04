@@ -49,7 +49,7 @@ export const MEMORY_SUMMARY_MAX_CHARS = 2_000;
 /** content 硬帽（注入用全文——与 summary 同律起草值） */
 export const MEMORY_CONTENT_MAX_CHARS = 64_000;
 
-/* 持有面/检索面常量（批 18c-2——06 §7 工具九件；起草值随实测调） */
+/* 持有面/检索面常量（批 18c-2——06 §7 工具面；起草值随实测调） */
 
 /** 检索行帽缺省 / 硬帽（memory_search） */
 export const MEMORY_SEARCH_DEFAULT_LIMIT = 10;
@@ -401,7 +401,7 @@ export interface IngestOutcome {
   readonly supersededId?: string;
 }
 
-/* ---------------- 持有面动词与检索面（批 18c-2——06 §6/§7 工具九件的数据面） ---------------- */
+/* ---------------- 持有面动词与检索面（批 18c-2——06 §6/§7 工具面的数据面） ---------------- */
 
 /**
  * 访问操作四值闭集（06 §6 四写点：recall 注入 / search 检索 / cite 引用回写 /

@@ -1,5 +1,5 @@
 /**
- * InputDecoder 单测（07 篇引擎节件 2——六态机全景：legacy/kitty 双轨 + IME
+ * InputDecoder 单测（07 篇引擎节件 4——六态机全景：legacy/kitty 双轨 + IME
  * 组字态机 + bracketed paste 整段 + lone-ESC 判定窗 + 畸形流防御）。
  *
  * 假钟注入驱动时间窗（lone-ESC 30ms / IME 跟随窗 100ms）；事件断言全形

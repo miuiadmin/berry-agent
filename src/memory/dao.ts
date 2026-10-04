@@ -108,7 +108,7 @@ export interface MemoryDao {
   /** FTS 全量重建（投影卫生面——可丢弃可重建纪律） */
   rebuildFts(): void;
 
-  /* —— 持有面动词（06 §7——工具九件与 /memory 管理面同 DAO 单实现律） —— */
+  /* —— 持有面动词（06 §7——工具十件与 /memory 管理面同 DAO 单实现律） —— */
 
   /**
    * 软删（纯状态变更；frozen 拒；**终态短路**——已 dismissed 行幂等返回现行行
