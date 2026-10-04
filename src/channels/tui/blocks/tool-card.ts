@@ -28,6 +28,7 @@
  */
 import {
   DIM_STYLE,
+  ellipsize,
   sanitizeDisplayText,
   truncateToWidth,
   wrapText,
@@ -43,6 +44,26 @@ import { toolFaceZh } from '../../../contracts/index.js';
 
 /** 卡终态（↔ ToolResultMessage isError / details.aborted 的呈现分档） */
 export type ToolCardStatus = 'success' | 'error' | 'aborted';
+
+/** exec 折叠组命令条目（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条——窗收口时铸入） */
+export interface ToolCardGroupCommand {
+  /** 命令文本（bash 调用参数 command 键——数据面事实，呈现层只读） */
+  readonly command: string;
+  /** 条目终态（组级最差态聚合的数据源） */
+  readonly status: ToolCardStatus;
+  /** 退出码（bash 数据面卡体首行 `Exit code: N` 解析值；缺席 = 无码形） */
+  readonly exitCode?: number;
+}
+
+/**
+ * exec 折叠组卡数据（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条——tool-card 块
+ * 新变体）：count = 窗内**已完成 toolResult 配对**条数 N（卡头 `• Ran N
+ * commands` 消费——孤儿在飞不入 N）；commands = 各命令一行摘要的数据源。
+ */
+export interface ToolCardGroupData {
+  readonly count: number;
+  readonly commands: readonly ToolCardGroupCommand[];
+}
 
 /**
  * 折叠档预览帽（UX 五问题批⑤——帽值语义翻**总帽 5**）：修前语义 = 尾 5 行
@@ -81,6 +102,13 @@ export interface ToolCardView {
   readonly toggleHint: string;
   /** 插件渲染腿载荷（07 §4.1 钉位注——缺席 = 宿主缺省卡体） */
   readonly renderInput?: ToolCardRenderInput;
+  /**
+   * exec 折叠组数据（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条）：在场 = 组卡
+   * 变体（卡头 `• Ran N commands` + 组级最差态符号 + 各命令一行摘要体）；
+   * 缺席 = 单卡三态形（R4 既有律）。组卡是宿主组级聚合面——不铸 renderInput
+   * （插件腿不进组卡）。
+   */
+  readonly group?: ToolCardGroupData;
 }
 
 /** 终态符号（卡头首段——状态分档可辨形；注⑩：失败位 ✗ 形〔✖ 退役〕） */
@@ -150,6 +178,10 @@ export function cardBodyOf(text: string): readonly string[] {
  * 回落形与宿主缺省同走下方两档渲染（折叠/展开/预览对插件行集同律）。
  */
 export function renderToolCardStyledLines(card: ToolCardView, columns: number): StyledLine[] {
+  // 组卡变体先分诊（07 §4.1 V-3 注⑩ exec 折叠组词条）：组级形是宿主聚合面
+  // ——exec 单卡头/插件腿/状态行三机制均不进组卡（renderInput 不铸入，故
+  // 插件腿结构性缺席）；折叠/展开/预览帽复用单卡机制（零新呈现机制）
+  if (card.group !== undefined) return renderGroupCardStyledLines(card, card.group, columns);
   const statusColor =
     card.status === 'success' ? card.theme.success : card.status === 'error' ? card.theme.error : card.theme.secondary;
   const headerLines = renderExecHeaderLines(card, columns, statusColor) ?? [
@@ -276,6 +308,89 @@ function commandRuns(line: string, offset: number, theme: Readonly<ResolvedTheme
     cursor += token.text.length;
   }
   return runs;
+}
+
+/**
+ * 组级最差态聚合（词条三态序：任一 aborted ⏹ > 任一 error ✗ > 全成 ✓——
+ * 中止优先于失败）：渲染位从组数据现算（数据单源——与铸卡位同式，块面
+ * status 字段是账面冗余位非渲染源）。
+ */
+function worstGroupStatus(group: ToolCardGroupData): ToolCardStatus {
+  if (group.commands.some((command) => command.status === 'aborted')) return 'aborted';
+  if (group.commands.some((command) => command.status === 'error')) return 'error';
+  return 'success';
+}
+
+/**
+ * exec 折叠组卡渲染（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条——组级形）：
+ * 卡头 = 组级最差态符号（三态组级聚合——worstGroupStatus 现算）+
+ * `• Ran {N} commands`（• 列点/折叠组前缀〔注⑩ 符号册〕+ Ran 动词 bold
+ * 〔exec 单卡先例〕）；卡体 = 各命令一行摘要（`$ ` 前缀 dim + 命令文本截断
+ * 〔ellipsize `…` 单源——界面美化役注① 全域律〕+ 退出码位〔失败腿非零码
+ * ` (N)` 后缀 error 色；成功零码不显——UX 批④ 信息零值不占屏同律〕）；
+ * 卡体帽 200 行同律；折叠/展开复用 ctrl+o 会话级既有机制（组卡即卡零新
+ * 展开机制——折叠 = 头 2 + 省略行 + 尾 2 整面 dim，展开 = 全量）。纯函数：
+ * 同 (组数据, columns) 恒同行集（repaint 投影重建同管线零漂移）。
+ */
+function renderGroupCardStyledLines(card: ToolCardView, group: ToolCardGroupData, columns: number): StyledLine[] {
+  const status = worstGroupStatus(group);
+  const statusColor =
+    status === 'success' ? card.theme.success : status === 'error' ? card.theme.error : card.theme.secondary;
+  const headerPlain = ` ${STATUS_SYMBOL[status]} • Ran ${group.count} commands`;
+  const header = capStyledLine(
+    {
+      plain: headerPlain,
+      runs: [
+        { start: 0, end: 2, style: { fg: statusColor } }, // 符号段（含首空格——语义色）
+        { start: 5, end: 8, style: { bold: true } }, // Ran 动词段（exec 单卡先例——成功/失败同词）
+      ],
+    },
+    columns,
+  );
+  const body = groupCommandLines(group.commands, columns, card.theme);
+  const shown = card.expanded ? body : previewWindow(body, card.toggleHint, columns).map(addDim);
+  return [header, ...shown];
+}
+
+/**
+ * 组卡体命令行集：各命令一行摘要 + 卡体帽同律（超帽截头保尾 + 截断标记首行
+ * ——CARD_BODY_MAX_LINES 同语义；组命令数超帽属病理性长窗，防御位在册）。
+ */
+function groupCommandLines(
+  commands: readonly ToolCardGroupCommand[],
+  columns: number,
+  theme: Readonly<ResolvedTheme>,
+): StyledLine[] {
+  const lines = commands.map((command) => groupCommandLine(command, columns, theme));
+  if (lines.length <= CARD_BODY_MAX_LINES) return lines;
+  const dropped = lines.length - CARD_BODY_MAX_LINES;
+  const marker = `⋯（前文已省 ${dropped} 行）`;
+  return [
+    { plain: marker, runs: [{ start: 0, end: marker.length, style: DIM_STYLE }] },
+    ...lines.slice(-CARD_BODY_MAX_LINES),
+  ];
+}
+
+/**
+ * 单命令摘要行：`$ ` 前缀（`$` 位符 dim——注⑩ 命令位，同 exec 单卡头）+
+ * 命令文本（消毒 + `bash -lc` 外壳剥除 + ellipsize 截到剩余宽）+ 退出码位。
+ * 预算 = columns − `$ ` 前缀 2 − 退出码后缀宽（后缀在场恒保——失败定位可辨）。
+ */
+function groupCommandLine(command: ToolCardGroupCommand, columns: number, theme: Readonly<ResolvedTheme>): StyledLine {
+  // 退出码位：非零码 ` (N)` 后缀（零码不显——UX 批④ 同律；无码形〔aborted/
+  // EXEC_TIMEOUT 族〕无后缀）
+  const suffix = command.exitCode !== undefined && command.exitCode !== 0 ? ` (${command.exitCode})` : '';
+  const text = ellipsize(
+    stripShellWrapper(sanitizeLineText(command.command)),
+    Math.max(1, columns - 2 - suffix.length),
+  );
+  const plain = `$ ${text}${suffix}`;
+  const runs: StyleRun[] = [{ start: 0, end: 1, style: DIM_STYLE }]; // `$` 位符段
+  if (suffix !== '' && command.status === 'error') {
+    // 退出码段失败可辨（` (N)` 的括号段——前导空格不染色，弱存在感同 `$` 位）
+    runs.push({ start: plain.length - suffix.length + 1, end: plain.length, style: { fg: theme.error } });
+  }
+  return capStyledLine({ plain, runs }, columns);
 }
 
 /**

@@ -1109,6 +1109,163 @@ describe('stableSlotLineCount doc 腿计量宽（bullet 槽前缀 2——与渲�
   });
 });
 
+/* ---------------- exec 折叠组（07 §4.1 V-3 注⑩ 符号册词条——窗口收口统一落卡） ---------------- */
+
+/** bash 调用消息速构（exec 内建族——载荷保原始名 'bash'，判断位单源） */
+const bashCallMsg = (id: string, command: string): AgentMessage =>
+  assistantMsg('', [{ id, name: 'bash', arguments: { command } }]);
+
+/** 直播路喂一对 bash 调用 + 结果（数据面首行 Exit code 形——成功 0 / 失败 1） */
+function runBashPair(t: LiveTranscript, id: string, command: string, isError = false, details?: unknown): void {
+  apply(t, { type: 'message_end', message: bashCallMsg(id, command) });
+  apply(t, {
+    type: 'message_end',
+    message: toolResultMsg(`Exit code: ${isError ? 1 : 0}`, { toolCallId: id, isError, details }),
+  });
+}
+
+describe('LiveTranscript exec 折叠组（直播路——agent_end 窗口收口）', () => {
+  it('窗内暂存 + N≥3 收口组卡：toolResult 到达不即时落卡（到达即落翻档——修前红锚），agent_end 落一张组卡', () => {
+    const t = new LiveTranscript();
+    runBashPair(t, 'e1', 'echo a');
+    runBashPair(t, 'e2', 'echo b');
+    runBashPair(t, 'e3', 'echo c');
+    // 窗内在飞零正文行：配对完成也不落卡（修前红锚——到达即落三张单卡）
+    expect(t.snapshot.filter((b) => b.kind === 'tool-card')).toHaveLength(0);
+    apply(t, { type: 'agent_end', status: 'completed' });
+    // 收口求值 N = 3 ≥ 3 → 一张组卡（卡头 `• Ran N commands` + 组数据）
+    const cards = t.snapshot.filter((b) => b.kind === 'tool-card');
+    expect(cards).toHaveLength(1);
+    const group = cards[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(group.group).toMatchObject({ count: 3 });
+    expect(group.group?.commands.map((c) => c.command)).toEqual(['echo a', 'echo b', 'echo c']);
+    const lines = renderBlockStyledLines(group, 60);
+    expect(lines[0]!.plain).toBe(' ✓ • Ran 3 commands');
+    expect(lines.slice(1).map((l) => l.plain)).toEqual(['$ echo a', '$ echo b', '$ echo c']);
+  });
+
+  it('N<3 逐条补落保序（R4 逐卡形不变——exec 单卡不携组数据）', () => {
+    const t = new LiveTranscript();
+    runBashPair(t, 'e1', 'echo a');
+    runBashPair(t, 'e2', 'echo b');
+    apply(t, { type: 'agent_end', status: 'completed' });
+    const cards = t.snapshot.filter((b) => b.kind === 'tool-card') as Array<
+      Extract<TranscriptBlock, { kind: 'tool-card' }>
+    >;
+    expect(cards).toHaveLength(2); // 两条逐卡（非组卡）
+    expect(cards.every((c) => c.group === undefined)).toBe(true);
+    // 保序 + R4 逐卡形（exec 单卡头 Ran + `$` 命令位）
+    expect(cards.map((c) => c.name)).toEqual(['bash', 'bash']);
+    expect(renderBlockStyledLines(cards[0]!, 60)[0]!.plain).toBe(' ✓ Ran $ echo a');
+    expect(renderBlockStyledLines(cards[1]!, 60)[0]!.plain).toBe(' ✓ Ran $ echo b');
+  });
+
+  it('组级最差态聚合三态：全成 ✓ / 任一失败 ✗ / 任一 aborted ⏹（中止优先于失败）', () => {
+    const run = (specs: Array<{ isError?: boolean; details?: unknown }>): string => {
+      const t = new LiveTranscript();
+      specs.forEach((spec, i) => runBashPair(t, `e${i}`, `echo ${i}`, spec.isError ?? false, spec.details));
+      apply(t, { type: 'agent_end', status: 'completed' });
+      const card = t.snapshot.find((b) => b.kind === 'tool-card') as { status: string };
+      return card.status;
+    };
+    expect(run([{}, {}, {}])).toBe('success');
+    expect(run([{}, { isError: true }, {}])).toBe('error');
+    // 中止优先律：error 与 aborted 并存 → ⏹
+    expect(run([{ isError: true }, {}, { details: { aborted: true } }])).toBe('aborted');
+  });
+
+  it('孤儿在飞不入 N 不入组卡（无 toolResult 的 exec 调用不计数；直播路无 ⚙ 显形——在飞可见性归面板/状态行）', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_end', message: bashCallMsg('e1', 'echo a') });
+    runBashPair(t, 'e2', 'echo b');
+    runBashPair(t, 'e3', 'echo c');
+    apply(t, { type: 'agent_end', status: 'aborted', durationMs: 100 });
+    // N = 2（e1 孤儿不计）→ 逐卡非组卡；孤儿零 ⚙ 块（直播路孤儿兜底是投影专属显形）
+    const cards = t.snapshot.filter((b) => b.kind === 'tool-card') as Array<
+      Extract<TranscriptBlock, { kind: 'tool-card' }>
+    >;
+    expect(cards).toHaveLength(2);
+    expect(cards.every((c) => c.group === undefined)).toBe(true);
+    expect(t.snapshot.some((b) => b.kind === 'tool-call')).toBe(false);
+  });
+
+  it('user 消息窗边界：收口先于 user 块落位（窗不跨 user 消息——agent_end 之外的防御位收口锚）', () => {
+    const t = new LiveTranscript();
+    runBashPair(t, 'e1', 'echo a');
+    runBashPair(t, 'e2', 'echo b');
+    expect(t.snapshot.filter((b) => b.kind === 'tool-card')).toHaveLength(0); // 窗内暂存（修前红锚）
+    apply(t, { type: 'message_end', message: userMsg('打断追问') });
+    // 收口先落、user 块在后（窗不跨 user 消息）
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['tool-card', 'tool-card', 'user']);
+  });
+
+  it('非 exec 工具到达即落律不变（read 卡即时落——不受窗机制影响）', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_end', message: assistantMsg('', [{ id: 'r1', name: 'read', arguments: {} }]) });
+    apply(t, { type: 'message_end', message: toolResultMsg('文件内容', { toolCallId: 'r1' }) });
+    expect(t.snapshot).toHaveLength(1); // 到达即落（无 agent_end 也在场）
+    expect(t.snapshot[0]).toMatchObject({ kind: 'tool-card', name: 'read' });
+  });
+});
+
+describe('LiveTranscript exec 折叠组（投影路——user 消息段窗聚合重建）', () => {
+  /** 三对 bash 的投影语料（同窗 ≥3 形） */
+  const threePairs = [
+    userMsg('问'),
+    bashCallMsg('e1', 'echo a'),
+    toolResultMsg('Exit code: 0', { toolCallId: 'e1' }),
+    bashCallMsg('e2', 'echo b'),
+    toolResultMsg('Exit code: 0', { toolCallId: 'e2' }),
+    bashCallMsg('e3', 'echo c'),
+    toolResultMsg('Exit code: 0', { toolCallId: 'e3' }),
+  ];
+
+  it('loadProjection 同款窗聚合：与直播路组卡同形（两路一致律）', () => {
+    const live = new LiveTranscript();
+    for (const message of threePairs) apply(live, { type: 'message_end', message });
+    apply(live, { type: 'agent_end', status: 'completed' });
+    const proj = new LiveTranscript();
+    proj.loadProjection(threePairs);
+    // 投影窗聚合重建组卡——块账与直播路逐字段一致（直播收口组卡/投影窗聚合组卡）
+    expect(proj.snapshot).toEqual(live.snapshot);
+    expect((proj.snapshot[1] as Extract<TranscriptBlock, { kind: 'tool-card' }>).group).toMatchObject({ count: 3 });
+  });
+
+  it('窗切分按 user 消息段近似：两窗各自求值（投影序列无 agent_end 信号——段即窗）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([
+      userMsg('一问'),
+      bashCallMsg('a1', 'echo a'),
+      toolResultMsg('Exit code: 0', { toolCallId: 'a1' }),
+      bashCallMsg('a2', 'echo b'),
+      toolResultMsg('Exit code: 0', { toolCallId: 'a2' }),
+      userMsg('二问'),
+      bashCallMsg('b1', 'echo c'),
+      toolResultMsg('Exit code: 0', { toolCallId: 'b1' }),
+    ]);
+    // 前窗 N=2（<3 逐卡）+ 后窗 N=1（逐卡）——两窗互不串账
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['user', 'tool-card', 'tool-card', 'user', 'tool-card']);
+  });
+
+  it('孤儿 ⚙ 显形不入 N：组卡只含配对条目、孤儿简行在组卡后（投影走查毕收口序）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([
+      bashCallMsg('e1', 'echo a'),
+      toolResultMsg('Exit code: 0', { toolCallId: 'e1' }),
+      bashCallMsg('e2', 'echo b'),
+      toolResultMsg('Exit code: 0', { toolCallId: 'e2' }),
+      bashCallMsg('e3', 'echo c'),
+      toolResultMsg('Exit code: 0', { toolCallId: 'e3' }),
+      bashCallMsg('e4', 'echo d'), // 孤儿：无 toolResult（agent_end aborted 形常见）
+    ]);
+    const kinds = t.snapshot.map((b) => b.kind);
+    expect(kinds).toEqual(['tool-card', 'tool-call']); // 组卡在前、孤儿 ⚙ 兜底在后
+    const group = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(group.group).toMatchObject({ count: 3 }); // 孤儿不入 N
+    expect((t.snapshot[1] as { name: string }).name).toBe('bash'); // 孤儿 ⚙ 简行照旧族
+  });
+});
+
 describe('thinkingDoc 折叠期跳过更新（渲染热路径 D3——ctrl+t 展开时重建承接）', () => {
   /** 单帧思考 partial */
   const thinkingPartial = (thinking: string): AgentEvent => ({
