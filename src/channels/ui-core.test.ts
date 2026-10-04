@@ -131,6 +131,21 @@ describe('ask 编舞单元边界', () => {
     expect(await p2).toBe(true);
   });
 
+  it('入参 signal 已中止：零呈现=零呈现面副作用——collapseAltScreen 钩不扇（修前红：早退位于收屏扇出之后）', async () => {
+    const b = fakeBackend('tui');
+    let collapses = 0;
+    b.backend.collapseAltScreen = () => {
+      collapses += 1;
+    };
+    const ui = makeCore([b.backend]);
+    const ac = new AbortController();
+    ac.abort();
+    await ui.confirm('s1', 'Q', { signal: ac.signal });
+    // 修前红：收屏扇出照发——僵尸 ask 把在场的 /history 回看收掉（件 8
+    // 注意力优先级条款被无呈现的早退件反向误用）
+    expect(collapses).toBe(0);
+  });
+
   it('排队 ask 的外部 abort：只收自身保守值——ACTIVE 件不被误弹、本件不晋升呈现（修前红：settled 弹 ACTIVE 甲 + 乙以已中止 signal 晋升 start）', async () => {
     const b = fakeBackend('tui');
     const ui = makeCore([b.backend]);

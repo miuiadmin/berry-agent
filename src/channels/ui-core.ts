@@ -270,7 +270,8 @@ export class UiCore {
    * 在场副屏先收起再入提问队列；能力缺席〔无副屏后端〕零义务跳过）。
    * 三条收口路（全部 once）：首答（含降级解析值）/ 呈现异常（保守值——
    * fail-closed）/ 外部 signal abort 或队列取消（保守值）。入参 signal 已
-   * 中止 = 零呈现早退（保守值直收不入队——见 ask 体内注）；排队期（未晋升
+   * 中止 = 零呈现早退（保守值直收不入队——零呈现 = 零呈现面副作用，收屏
+   * 扇出不发；见 ask 体内注）；排队期（未晋升
    * 队首）的外部 abort = cancel 语义——只结算自身保守值，不误弹 ACTIVE 件、
    * 不晋升后继（settled 以 started 位门控——残位零呈现让位见 start 钩子）。
    */
@@ -281,23 +282,25 @@ export class UiCore {
     conservative: () => T,
     present: AskPresenter<T>,
   ): Promise<T> {
+    // 入参 signal 已中止先检（abort 事件只发一次，只挂监听则死路——
+    // safety/approval.ts bridgeApprovalSignal 同律）。早退**不入队**：入队即
+    // 占队首而 settled 已被早收场消费（无对应件可出队）——后继问死排 + 后端
+    // 僵尸浮层。十六役补扫 N1：run 打断竞窗内 bridgeApprovalSignal 同步
+    // relay 使本件收到已中止 signal，修前只挂监听即死挂——run 到不了
+    // finally，settleApprovals 的 signal 链先收假定被打破。
+    // 零呈现 = 零呈现面副作用（第九轮 laneD 件3）：本检先于 collapseAltScreen
+    // 扇出——修前扇出在前，僵尸 ask 把在场的 /history 回看收掉（件 8 注意力
+    // 优先级条款被无呈现的早退件反向误用）。
+    if (externalSignal?.aborted) {
+      return Promise.resolve(conservative());
+    }
+
     // ask 强制收起（件 8 条款——批 10f-4）：扇出可选钩，先于入队
     for (const b of this.backends()) b.collapseAltScreen?.();
     let resolve!: (value: T) => void;
     const promise = new Promise<T>((r) => {
       resolve = r;
     });
-
-    // 入参 signal 已中止先检（abort 事件只发一次，只挂监听则死路——
-    // safety/approval.ts bridgeApprovalSignal 同律）。早退**不入队**：入队即
-    // 占队首而 settled 已被早收场消费（无对应件可出队）——后继问死排 + 后端
-    // 僵尸浮层。十六役补扫 N1：run 打断竞窗内 bridgeApprovalSignal 同步
-    // relay 使本件收到已中止 signal，修前只挂监听即死挂——run 到不了
-    // finally，settleApprovals 的 signal 链先收假定被打破
-    if (externalSignal?.aborted) {
-      resolve(conservative());
-      return promise;
-    }
 
     let done = false;
     // 本件是否已晋升队首（start 钩子已进）：finish 只允许已晋升件调 settled
