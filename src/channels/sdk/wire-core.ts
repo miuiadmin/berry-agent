@@ -131,8 +131,15 @@ interface SubState {
   runStartAt: number;
   /** 上一 run 尾值 elapsed（agent_end 落定；idle 态回显） */
   lastElapsedMs: number;
-  /** 当前阶段（message_*→thinking；tool_execution_start→tool；end 间 null） */
+  /** 当前阶段（message_*→thinking；tool_execution_start→tool；end 间 null；迟到入订/并行段收口后 update 就地回立——见 trackHeartbeat update case 注） */
   stage: { type: 'thinking' } | { type: 'tool'; name: string; sinceMs: number } | null;
+  /**
+   * 工具名台账（toolCallId → 工具名——tool_execution_start 落账；进度帧回查立
+   * 阶段的供名面。update 载荷只携 toolCallId 不携名，名真源在 start）。跨 run
+   * 的 call id 不复用（驱动侧单调新 id），agent_start 清账保界（单 run 内有界
+   * ——04 §2 批调用数上限天然封顶）。
+   */
+  toolNames: Map<string, string>;
   /** 该会话最近一帧写出时刻（心跳静默判据——任何携会话帧都刷新） */
   lastFrameAt: number;
 }
@@ -363,6 +370,7 @@ export class SdkWireCore {
       runStartAt: 0,
       lastElapsedMs: 0,
       stage: null,
+      toolNames: new Map<string, string>(),
       lastFrameAt: this.now(),
     });
     this.deps.onSubscribed?.(sessionId);
@@ -438,6 +446,7 @@ export class SdkWireCore {
         runStartAt: 0,
         lastElapsedMs: 0,
         stage: null,
+        toolNames: new Map<string, string>(),
         lastFrameAt: this.now(),
       });
       this.deps.onSubscribed?.(outcome.sessionId);
@@ -569,11 +578,21 @@ export class SdkWireCore {
 
   /** 心跳账推导（事件流 → runState/stage——非事件型 probe 走 tick 时查面） */
   private trackHeartbeat(sub: SubState, event: AgentEvent): void {
-    // 活体自证（lens5[0] 修形①——迟到入订）：run 起跑未被本订阅观察（running=false
-    // 且 runStartAt=0 哨兵——订阅晚于 agent_start 的中途入订形）时，message 族/
-    // tool 族活体事件即「run 在飞」的实证——就地置 running=true、runStartAt=now()。
-    // 起点取首见活体时刻（迟到入订近似：真实起点缺席，elapsedMs 恒为下界——
-    // 诚实下界优于 idle 谎报与 epoch 幻影）
+    // 活体自证（lens5[0] 修形①——迟到入订；sweep9 laneG 件1 扩集）：run 起跑
+    // 未被本订阅观察（running=false 且 runStartAt=0 哨兵——订阅晚于 agent_start
+    // 的中途入订形）时，证据型活体事件即「run 在飞」的实证——就地置
+    // running=true、runStartAt=now()。证据面九型全列：message 族三型
+    //（start/update/end）+ tool 族三型（start/update/end）+ turn_start（turn
+    // 已开而 message/tool 首事件未至——模型长思考/首 token 数十秒窗的唯一证据）
+    // + retry_wait_start（退避窗开着 = run 未收口——重试等待窗内首 message 同样
+    // 遥遥无期）+ context_usage（turn 收口随发、agent_end 未至）。turn_end /
+    // retry_wait_end 不入集（非自证形）：turn_end 是收口邻接形（stopReason=stop
+    // 后直连 agent_end），retry_wait_end 可无配对 start（孤儿终态揭示形——
+    // aborted/exhausted 即将亡 run）——两形皆可属将亡 run，误证在飞会把 idle
+    // 回显尾值翻转成短命 running 假象。起点取首见证据时刻（迟到入订近似：
+    // 真实起点缺席，elapsedMs 恒为下界——诚实下界优于 idle 谎报与 epoch 幻影；
+    // 对齐 message 族/tool 族既有取值律，不另设保守 0 形——0 起算会把 elapsedMs
+    // 推到 epoch 尺度，恰是要修的幻影）
     if (
       !sub.running &&
       sub.runStartAt === 0 &&
@@ -582,7 +601,10 @@ export class SdkWireCore {
         event.type === 'message_end' ||
         event.type === 'tool_execution_start' ||
         event.type === 'tool_execution_update' ||
-        event.type === 'tool_execution_end')
+        event.type === 'tool_execution_end' ||
+        event.type === 'turn_start' ||
+        event.type === 'retry_wait_start' ||
+        event.type === 'context_usage')
     ) {
       sub.running = true;
       sub.runStartAt = this.now();
@@ -592,6 +614,9 @@ export class SdkWireCore {
         sub.running = true;
         sub.runStartAt = this.now();
         sub.stage = null;
+        // 工具名台账清账保界（见 SubState.toolNames 注——跨 run 的 call id 不复
+        // 用，旧条目恒死键；run 边界即安全清位）
+        sub.toolNames.clear();
         break;
       case 'agent_end':
         sub.running = false;
@@ -608,13 +633,29 @@ export class SdkWireCore {
         sub.stage = { type: 'thinking' };
         break;
       case 'tool_execution_start':
+        sub.toolNames.set(event.toolCallId, event.name); // 名台账落账（update 回查面——update 载荷不携名）
         sub.stage = { type: 'tool', name: event.name, sinceMs: this.now() };
         break;
+      case 'tool_execution_update':
+        // 工具进度自证阶段（sweep9 laneG 件2）：进度帧到达而阶段空缺即就地立
+        // tool 阶段——进度流是「工具在执行」的直接实证。空缺两源：①迟到入订于
+        // 工具执行中途（start 未被本订阅观察——自证已命中 running 但阶段缺位）；
+        // ②read 段内并行的姊妹件先收口（end 清阶段是 id 无关形——余件仍在推进
+        // 度）。名回查 start 台账；台账缺席（①恒缺）以 toolCallId 兜底——诚实
+        // 标识符优于「无阶段」谎报（名真源 start 未被观察，同 runStartAt 近似
+        // 律）。阶段起点取首见进度时刻、沿用 start case 的 now() 推导形（真起点
+        // 缺席或已随姊妹件 end 清阶段丢失——stageElapsedMs 恒为下界，诚实下界
+        // 优于谎报）。阶段已是 tool 态则保账不重置：进度属同阶段内推进，重置
+        // 起点会把 stageElapsedMs 归零谎报短耗时。
+        if (sub.stage?.type !== 'tool') {
+          sub.stage = { type: 'tool', name: sub.toolNames.get(event.toolCallId) ?? event.toolCallId, sinceMs: this.now() };
+        }
+        break;
       case 'tool_execution_end':
-        sub.stage = null; // 工具间隙（下一 message_start/tool_execution_start 再立）
+        sub.stage = null; // 工具间隙（下一 message_start/tool_execution_start/update 再立）
         break;
       default:
-        break; // turn_* 不改阶段账
+        break; // turn_*/重试窗两型/占用快照不改阶段账（turn 族与窗口事件不承载阶段语义）
     }
   }
 

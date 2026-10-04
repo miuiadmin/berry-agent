@@ -654,6 +654,145 @@ describe('中途入订与一核多流订阅保账（lens5 处置批——03 §10
   });
 });
 
+describe('心跳自证扩面（sweep9 laneG——迟到入订 run 态推断证据面 + 工具进度自证阶段）', () => {
+  it('迟到入订 turn 自证：agent_start 已过、message/tool 首事件未至——turn_start 自证 running、elapsedMs 下界、agent_end 尾值诚实（修前红——修前 idle 谎报、elapsedMs 回显哨兵 0）', () => {
+    const h = createHarness();
+    seedS1(h);
+    // 模型长思考窗：run 起跑未被本订阅观察、首 message/tool 事件数十秒未至——
+    // turn_start 是该窗内唯一「run 活着」证据（迟到入订 run 态推断证据面）
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' }); // 中途入订（新鲜订阅态）
+    h.frames.length = 0;
+    h.core.pushEvent('s1', { type: 'turn_start', turn: 3 }); // t=1_000_000
+    h.clock.now += 5_000;
+    h.frames.length = 0; // 清事件帧账——只观测心跳
+    h.core.heartbeatTick();
+    // 修前红锚：修前 turn_start 不在自证集——runState=idle、elapsedMs=0（旧 run 尾值缺位回显哨兵）
+    expect(h.frames[0]).toMatchObject({
+      kind: 'heartbeat',
+      sessionId: 's1',
+      runState: 'running',
+      stage: null, // turn_* 不改阶段账——只自证 run 态不虚构阶段
+      elapsedMs: 5_000,
+    });
+    // runStartAt 取首见证据时刻（迟到入订近似——agent_end 尾值 = now − 近似起点，下界诚实）
+    h.clock.now += 2_000;
+    h.core.pushEvent('s1', { type: 'agent_end', status: 'completed' }); // 尾值 7_000
+    h.frames.length = 0;
+    h.clock.now += 5_000;
+    h.core.heartbeatTick();
+    expect(h.frames[0]).toMatchObject({ kind: 'heartbeat', runState: 'idle', elapsedMs: 7_000 });
+  });
+
+  it('迟到入订 retry_wait_start / context_usage 同证 running：退避窗开着与 turn 收口快照皆「run 活着」证据（修前红）', () => {
+    const h = createHarness();
+    seedS1(h);
+    h.sessions.set('s2', { state: 'open', highWater: 0, log: [], dedupe: new Map() });
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' });
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's2' });
+    h.frames.length = 0;
+    // s1：模型侧限流退避窗开着——run 未收口（首 message 遥遥无期的重试等待窗）
+    h.core.pushEvent('s1', { type: 'retry_wait_start', attempt: 2, maxAttempts: 5, nextAt: h.clock.now + 8_000 });
+    // s2：turn 收口随发的占用快照——agent_end 未至即 run 仍在飞
+    h.core.pushEvent('s2', { type: 'context_usage', usedTokens: 1_000, maxTokens: 200_000 });
+    h.clock.now += 5_000;
+    h.core.heartbeatTick();
+    // 修前红锚：修前两型皆不在自证集——runState=idle 谎报
+    expect(h.frames.find((f) => f.kind === 'heartbeat' && f.sessionId === 's1')).toMatchObject({
+      runState: 'running',
+      elapsedMs: 5_000,
+    });
+    expect(h.frames.find((f) => f.kind === 'heartbeat' && f.sessionId === 's2')).toMatchObject({
+      runState: 'running',
+      elapsedMs: 5_000,
+    });
+  });
+
+  it('非自证形护栏：turn_end / retry_wait_end 孤儿形不入自证集——runState 维持 idle（将亡 run 不误证在飞）', () => {
+    const h = createHarness();
+    seedS1(h);
+    h.sessions.set('s2', { state: 'open', highWater: 0, log: [], dedupe: new Map() });
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' });
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's2' });
+    h.frames.length = 0;
+    // turn_end(stop) 直连 agent_end（收口邻接形）；retry_wait_end(exhausted) 可无
+    // 配对 start（孤儿终态揭示形）——两形皆可属将亡 run，不构成「活着」自证
+    h.core.pushEvent('s1', { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    h.core.pushEvent('s2', { type: 'retry_wait_end', outcome: 'exhausted' });
+    h.clock.now += 5_000;
+    h.core.heartbeatTick();
+    expect(h.frames.find((f) => f.kind === 'heartbeat' && f.sessionId === 's1')).toMatchObject({
+      runState: 'idle',
+      elapsedMs: 0,
+    });
+    expect(h.frames.find((f) => f.kind === 'heartbeat' && f.sessionId === 's2')).toMatchObject({
+      runState: 'idle',
+      elapsedMs: 0,
+    });
+  });
+
+  it('工具进度自证阶段：并行段首件收口后余件进度流就地立阶段——名自 start 台账回查、起点取首见进度时刻（修前红——修前 stage=null 谎报「无阶段」直到下一 start）', () => {
+    const h = createHarness();
+    seedS1(h);
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' });
+    // read 段内并发形（03 §2.3 批语义）：A/X 两件并行——start 先后落、end 乱序收
+    h.core.pushEvent('s1', { type: 'agent_start' });
+    h.core.pushEvent('s1', { type: 'tool_execution_start', toolCallId: 'tc-a', name: 'readA', arguments: {} });
+    h.core.pushEvent('s1', { type: 'tool_execution_start', toolCallId: 'tc-x', name: 'X', arguments: {} });
+    h.core.pushEvent('s1', { type: 'tool_execution_end', toolCallId: 'tc-a', result: { content: [], isError: false } }); // A 先收口——X 仍在推进度
+    h.frames.length = 0;
+    h.clock.now += 3_000;
+    h.core.pushEvent('s1', { type: 'tool_execution_update', toolCallId: 'tc-x', update: { done: 1 } }); // t+3_000 立阶段
+    h.clock.now += 5_000;
+    h.frames.length = 0; // 清事件帧账——只观测心跳
+    h.core.heartbeatTick();
+    // 修前红锚：修前 update 无 case 落 default——stage=null 谎报「无阶段」；修后名回查
+    // start 台账（tc-x → X）、起点 = 首见进度时刻（下界——start 真起点已随 end(tc-a) 清阶段丢失）
+    expect(h.frames[0]).toMatchObject({
+      kind: 'heartbeat',
+      runState: 'running',
+      stage: { type: 'tool', name: 'X', stageElapsedMs: 5_000 },
+      elapsedMs: 8_000,
+    });
+  });
+
+  it('迟到入订于工具执行中途：进度流自证阶段——名台账缺席以 toolCallId 兜底（修前红——修前 running=true 但 stage=null）', () => {
+    const h = createHarness();
+    seedS1(h);
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' }); // 中途入订（start 未被观察）
+    h.frames.length = 0;
+    h.core.pushEvent('s1', { type: 'tool_execution_update', toolCallId: 'tc-x', update: { done: 2 } }); // t=1_000_000
+    h.clock.now += 5_000;
+    h.frames.length = 0; // 清事件帧账——只观测心跳
+    h.core.heartbeatTick();
+    // 修前红锚：修前六型自证命中 running 但 update 无 case——stage=null；修后以
+    // toolCallId 兜底名（名真源 start 未被本订阅观察——诚实标识符优于「无阶段」谎报）
+    expect(h.frames[0]).toMatchObject({
+      kind: 'heartbeat',
+      runState: 'running',
+      stage: { type: 'tool', name: 'tc-x', stageElapsedMs: 5_000 },
+      elapsedMs: 5_000,
+    });
+  });
+
+  it('同阶段进度保账：start 已立阶段后进度帧不重置起点（护栏——stageElapsedMs 不因进度帧归零谎报短耗时）', () => {
+    const h = createHarness();
+    seedS1(h);
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' });
+    h.core.pushEvent('s1', { type: 'agent_start' });
+    h.core.pushEvent('s1', { type: 'tool_execution_start', toolCallId: 'tc-1', name: 'write', arguments: {} }); // t=1_000_000 立阶段
+    h.frames.length = 0;
+    h.clock.now += 4_000;
+    h.core.pushEvent('s1', { type: 'tool_execution_update', toolCallId: 'tc-1', update: { done: 1 } }); // 同阶段进度——起点保账
+    h.clock.now += 5_000;
+    h.frames.length = 0; // 清事件帧账——只观测心跳
+    h.core.heartbeatTick();
+    expect(h.frames[0]).toMatchObject({
+      kind: 'heartbeat',
+      stage: { type: 'tool', name: 'write', stageElapsedMs: 9_000 }, // 若重置起点则 5_000
+    });
+  });
+});
+
 describe('unsubscribe 订阅退订（批 13e-2 HTTP 传输位——流撤即退）', () => {
   it('退订后：pushEvent 剥、心跳不拍、isSubscribed false；admit 账不动', () => {
     const h = createHarness();
