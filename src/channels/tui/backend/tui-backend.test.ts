@@ -1253,6 +1253,111 @@ describe('TuiBackend ask 撤销说明行（07 §4.3 撤销面——曾在屏者 
   });
 });
 
+// —— ask 浮层异会话 overlay 呈现串行化（07 §4.3 提问队列条 2026-10-04 定形注）：
+// TUI overlay 呈现位全局单槽（跨会话亦单——「用户同一时刻只答一个问题」的跨会话
+// 推广）；per-session 队列律在通道核不动（present() 仍 start 时即调），串行化纯
+// 属后端 overlay 呈现层——槽被占即入呈现等待队列（首次呈现到达序），先呈者占槽
+// 至落定即顶上；等待位收场 = 从未在屏 → 静默撤销（零撤销说明行）。
+describe('TuiBackend ask 浮层异会话串行（07 §4.3 异会话 overlay 呈现串行化）', () => {
+  it('两 ask 串行：第二件等槽不并开——先呈者落定即顶上（修前红：栈式并开两层）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const p1 = backend.confirm('一？');
+    pump();
+    expect(io.bytes).toContain('一？'); // 首件即呈（槽空闲）
+    io.bytes = '';
+    const p2 = backend.confirm('二？'); // 第二件——槽被占，入呈现等待位
+    pump();
+    expect(io.bytes).not.toContain('二？'); // 修前红：overlay 栈式并开——第二层照样上屏遮首件
+    expect(io.bytes).toContain('他会话有待答问题'); // 等待位可观测（匿名提示形——规范原句）
+    io.emitInput('\r'); // 应答首件（单槽——修前键被顶层第二层截走）
+    pump();
+    await expect(p1).resolves.toBe(true);
+    expect(io.bytes).toContain('二？'); // 槽释放——第二件顶上
+    io.emitInput('\r');
+    pump();
+    await expect(p2).resolves.toBe(true);
+  });
+
+  it('槽释放按首次呈现到达序激活：三件 FIFO——二件顶上时三件仍在等待位', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const p1 = backend.confirm('一？');
+    const p2 = backend.confirm('二？');
+    const p3 = backend.confirm('三？');
+    pump();
+    expect(io.bytes).toContain('一？'); // 恰队首（首件）呈现
+    expect(io.bytes).not.toContain('二？');
+    expect(io.bytes).not.toContain('三？');
+    expect(io.bytes.match(/他会话有待答问题/g)?.length).toBe(2); // 每等待位一条提示
+    io.emitInput('\r');
+    pump();
+    await expect(p1).resolves.toBe(true);
+    expect(io.bytes).toContain('二？'); // 到达序：二先于三顶上
+    expect(io.bytes).not.toContain('三？');
+    io.emitInput('\r');
+    pump();
+    await expect(p2).resolves.toBe(true);
+    expect(io.bytes).toContain('三？'); // 三顶上
+    io.emitInput('\r');
+    pump();
+    await expect(p3).resolves.toBe(true);
+  });
+
+  it('等待位静默撤销：等待中 abort → 保守值收口、零撤销说明行、问句从未上屏', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const p1 = backend.confirm('一？');
+    pump();
+    const ac = new AbortController();
+    const p2 = backend.confirm('二？', { signal: ac.signal }); // 等待位（带 signal）
+    pump();
+    ac.abort(); // 等待位撤销——从未在屏（「曾在屏者」判据的等待态推广）
+    await expect(p2).resolves.toBe(false); // 保守值
+    pump();
+    expect(io.bytes).not.toContain('⏹'); // 静默撤销：零撤销说明行（修前红：层在屏——⏹ 行照落）
+    expect(io.bytes).not.toContain('二？'); // 问句从未上屏（修前红：栈式并开）
+    io.emitInput('\r'); // 首件不受扰——正常应答
+    pump();
+    await expect(p1).resolves.toBe(true);
+  });
+
+  it('败腿锁：槽释放时本件已落定 → 不开层不落撤销行——释放扫队跳过、后继顶上', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const p1 = backend.confirm('一？');
+    pump();
+    const ac2 = new AbortController();
+    const p2 = backend.confirm('二？', { signal: ac2.signal }); // 等待位 [二]
+    pump();
+    const p3 = backend.confirm('三？'); // 等待位 [二, 三]
+    pump();
+    ac2.abort(); // 二先落定（等待位静默撤销）
+    await expect(p2).resolves.toBe(false);
+    io.bytes = '';
+    io.emitInput('\r'); // 应答一——槽释放扫队
+    pump();
+    expect(io.bytes).not.toContain('⏹'); // 修前红：二在屏（栈式并开）——abort 撤销行照落
+    expect(io.bytes).toContain('三？'); // 三顶上（二的落定残位不阻后继）
+    io.emitInput('\r');
+    pump();
+    await expect(p1).resolves.toBe(true);
+    await expect(p3).resolves.toBe(true);
+  });
+
+  it('跨件别同槽：askApproval 等槽——confirm 落定后审批面板顶上', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const p1 = backend.confirm('一？');
+    pump();
+    const p2 = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    pump();
+    expect(io.bytes).not.toContain('写文件'); // 修前红：审批层并开上屏
+    io.emitInput('\r'); // 应答 confirm——槽释放
+    pump();
+    await expect(p1).resolves.toBe(true);
+    expect(io.bytes).toContain('⚙ 写入文件：写文件'); // 审批面板顶上（V-0 注⑤动词位标题）
+    io.emitInput('\r'); // 高亮首项 = 批准
+    pump();
+    await expect(p2).resolves.toBe('approve');
+  });
+});
+
 describe('TuiBackend 渲染合并与 tick 自驱', () => {
   it('帧合并：多事件一帧落地（pump 前零写出）', () => {
     const rig = makeInteractive();
@@ -4089,7 +4194,12 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     await expect(p).resolves.toBe('v3');
   });
 
-  it('多层叠开截断恒等式（fx2-B 缝修·形A）：满帽 select 上叠 confirm——底层收缩让位新层可见、总高恒 ≤ 预算（修前红：overlay 19+2 > 帽 19 → total 25 > 24 守卫整段不写、confirm 隐形盲层）', async () => {
+  // fx2-B 缝修·形A 翻档（2026-10-04——07 §4.3 异会话 overlay 呈现串行化定形注
+  // 取代 overlay 栈式并存）：修前本例锁「满帽 select 上叠 confirm——底层收缩让
+  // 位新层可见」（修前红形：overlay 19+2 > 帽 19 → total 25 > 24 守卫整段不写、
+  // confirm 隐形盲层）；单槽化后「叠开」结构性不可达——同几何改锁：先呈者占
+  // 槽至落定、次件等待位候槽，落定顶上后单层自帽内（总高恒 ≤ 预算不变式续锁）。
+  it('满帽 select 上后到 confirm 等槽（形A 翻档）：先呈者占槽至落定、次件顶上后总高恒 ≤ 预算', async () => {
     const { io, backend, pump } = makeInteractive({}, 24);
     const choices = Array.from({ length: 30 }, (_, i) => ({ value: `v${i}`, label: `opt-${i}` }));
     const ps = backend.select('ZZQ', choices);
@@ -4097,21 +4207,19 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     io.emitInput('\x1b[B'.repeat(15)); // ↓×15 至中段——双指示行齐 = measure 恰帽 19（首帧 above=0 只量 18）
     pump();
     io.bytes = '';
-    const pc = backend.confirm('第二层确认');
+    const pc = backend.confirm('第二层确认'); // 槽被占——入呈现等待位（修前形：并开叠加帽溢出）
     pump();
-    // 修前：select 吃满帽 19 + confirm 未截断 2 = 21 > 帽 19（24 − 状态 1 −
-    // 编辑器下限 3）→ total 25 > 24 行屏 → MainScreen 守卫整段不写（帧仅归位
-    // 序列，内容零写出——固定区全冻结）；修后 unaware 上层保留 → select 收缩
-    // 让位、confirm 文案可见
-    expect(io.bytes).toContain('第二层确认'); // 新开层可见（非盲层）
-    expect(io.bytes).toContain('↑ 7 更多'); // 底层选单在场非全冻结（V-0 注③ 框退役——帽 19→22：confirm 2 + select 18 ≤ 22 无需全缩；行级 diff 不重写未变行故标题/编辑器不在本帧字节；more 行中文化=图标收敛批）
-    expect(io.bytes).not.toContain('\x1b[25;'); // 总高恒 ≤ 预算——无越 24 行屏定位
-    io.emitInput('\r'); // 栈顶独占——应答 confirm
+    expect(io.bytes).not.toContain('第二层确认'); // 等待位不上屏（overlay 族单槽——07 §4.3 翻档注）
+    expect(io.bytes).toContain('他会话有待答问题'); // 等待位可观测（匿名提示形）
+    expect(io.bytes).not.toContain('\x1b[25;'); // 满帽 select 存续独占——总高恒 ≤ 预算
+    io.emitInput('\r'); // 应答 select——槽释放、confirm 顶上
     pump();
-    await expect(pc).resolves.toBe(true);
+    await expect(ps).resolves.toBe('v15');
+    expect(io.bytes).toContain('第二层确认'); // 次件顶上（单层在帽内可见非盲层）
+    expect(io.bytes).not.toContain('\x1b[25;'); // 顶上后总高仍 ≤ 预算
     io.emitInput('\r');
     pump();
-    await expect(ps).resolves.toBe('v15'); // 底层 select 存续可如常收场（光标位保留）
+    await expect(pc).resolves.toBe(true);
   });
 
   it('多层叠开截断恒等式（fx2-B 缝修·形B）：5 行屏单开 confirm——四段齐装不越屏（V-0 注③ 框退役：confirm 2 + 编辑器 1 + 状态 1 = 4 ≤ 5——修前红形 6 > 5 全冻结已翻页）', async () => {

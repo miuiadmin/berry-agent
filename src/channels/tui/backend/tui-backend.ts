@@ -383,6 +383,26 @@ interface InputAsk {
 }
 
 /**
+ * ask 浮层呈现等待体（07 §4.3 提问队列条「异会话 overlay 呈现串行化」定形注
+ * ——2026-10-04）：TUI overlay 呈现位全局单槽（跨会话亦单——「用户同一时刻
+ * 只答一个问题」的跨会话推广）被占时的候呈记录。confirm/select/askApproval
+ * 三路共用；「首次呈现到达序」= 入队序——先呈者占槽至落定（应答/保守值
+ * 收场），后到者进呈现等待位、先呈者落定即顶上。
+ */
+interface AskLayerWaiter {
+  /** 浮层内容件（面板——ask 到达即构造，开层延迟到槽获取后） */
+  readonly content: OverlayContent;
+  /** 保守值收口回调（调用方 promise 的保守 resolve） */
+  readonly abort: () => void;
+  /** 撤销说明行文案（曾在屏的 abort 收场才写——07 §4.3 撤销面） */
+  readonly cancelLine: string;
+  /** 本件已落定（应答/撤销收场）——槽释放扫队的败腿锁判据（07 §4.3） */
+  settled: boolean;
+  /** 已开层的真句柄（null = 尚在等待位——从未在屏） */
+  handle: OverlayHandle | null;
+}
+
+/**
  * run 级用量累计（件 6——agent_start/repaint 归零、turn_end 累加、agent_end
  * 落行；观测面供装配/宿主侧二次消费，`/usage` 全量面板分职不互替）。
  */
@@ -556,8 +576,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /** input-ask 在飞体（null = 常态——提交落 onSubmit） */
   private inputAsk: InputAsk | null = null;
-  /** 排队问（异会话 FIFO——07 §4.3 定形注：在飞问未收场时新问入队不抢占） */
+  /** 排队问（异会话 FIFO——07 §4.1 路由序条 input() 异会话 FIFO 定形注〔节号勘正 2026-10-04：原引 §4.3 系错引，该定形注真源在 §4.1〕：在飞问未收场时新问入队不抢占） */
   private inputQueue: InputAsk[] = [];
+  /**
+   * ask 浮层槽持槽者（null = 槽空闲）——overlay 呈现位全局单槽（07 §4.3
+   * 异会话 overlay 呈现串行化定形注：跨会话亦单；input 族 FIFO 与 overlay
+   * 族单槽两律并存不悖——07 §4.1 路由序条恢复注）。
+   */
+  private askLayerOwner: AskLayerWaiter | null = null;
+  /** ask 浮层呈现等待队列（首次呈现到达序 FIFO——槽释放按序激活） */
+  private askLayerQueue: AskLayerWaiter[] = [];
 
   /* ---- 呈现面件 4/5/6 态 ---- */
   private readonly todoFor: ((sessionId: string) => readonly TodoItem[] | null | undefined) | undefined;
@@ -2106,10 +2134,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 弹层抑制）；signal abort → '' 保守值 + 残稿清框 + 撤销说明行（07 §4.3
    * 撤销面——提示行曾在固定区在屏，abort 收口正文流落 ⏹ 行）。
    *
-   * 异会话 FIFO 队列化（07 §4.3 定形注——十六役扫 #2）：在飞问未收场时新问
-   * 入队候接（不抢占队首——修前直覆使先问 promise 永悬）；应答/取消收场后
-   * 队首自动晋升接续。排队问 abort = 静默出队保守值 ''（提示行从未上屏——
-   * 不落撤销说明行）。
+   * 异会话 FIFO 队列化（07 §4.1 路由序条 input() 异会话 FIFO 定形注——十六役
+   * 扫 #2；节号勘正 2026-10-04：原引 §4.3 系错引，该定形注真源在 §4.1）：
+   * 在飞问未收场时新问入队候接（不抢占队首——修前直覆使先问 promise 永悬）；
+   * 应答/取消收场后队首自动晋升接续。排队问 abort = 静默出队保守值 ''（提示
+   * 行从未上屏——不落撤销说明行）。
    */
   input(message: string, opts?: UiInputOptions): Promise<string> {
     return new Promise<string>((resolve) => {
@@ -2501,14 +2530,20 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /**
    * 开 ask 浮层：内联回退锚（fx2-D）+ signal abort 保守值收口 + 撤销说明行 +
-   * 重绘请求。
+   * 重绘请求。confirm / select / askApproval 三路共用本层。
    *
-   * 「曾在屏者」判据（07 §4.3 语义纪律撤销面——confirm / select / askApproval
-   * 三路共用本层，统一处理）：abort 传播到后端呈现时层仍未关（在 overlay 栈
-   * 中）= 曾在屏 → 撤销说明行入正文流；面板已 done（onFinish 先关层）后迟
-   * 到的 abort 是 no-op，不误写。说明行只标撤销收场本身——保守值收口（与提
-   * 问队列收口三则「保守值同撤销面」同源条款：审批项收 'cancel'、阻塞件各
-   * 收保守值）由 promise 回值承载，行文不重复。
+   * 「曾在屏者」判据（07 §4.3 语义纪律撤销面——三路统一处理）：abort 传播到
+   * 后端呈现时层仍未关（在 overlay 栈中）= 曾在屏 → 撤销说明行入正文流；面板
+   * 已 done（onFinish 先关层）后迟到的 abort 是 no-op，不误写。说明行只标撤销
+   * 收场本身——保守值收口（与提问队列收口三则「保守值同撤销面」同源条款：审批
+   * 项收 'cancel'、阻塞件各收保守值）由 promise 回值承载，行文不重复。
+   *
+   * 异会话 overlay 呈现串行化（07 §4.3 提问队列条 2026-10-04 定形注）：TUI
+   * overlay 呈现位全局单槽——槽获取守卫在后端呈现层（present() 仍在 start 时
+   * 即调，per-session 队列律在通道核不动——「通道核通道无关」纪律不破）。槽
+   * 被占即入呈现等待队列（首次呈现到达序），先呈者占槽至落定（应答/保守值
+   * 收场）即顶上；等待位收场（abort 传播/他后端先应答经信号折入）= 从未在屏
+   * → 静默撤销——不开层、不落撤销说明行（「曾在屏者」判据的等待态推广）。
    */
   private openAskLayer(
     content: OverlayContent,
@@ -2525,25 +2560,101 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       abort();
       return { close: () => {}, closed: true }; // 预关死句柄：调用方 onFinish 迟到 close 幂等 no-op
     }
+    const waiter: AskLayerWaiter = { content, abort, cancelLine, settled: false, handle: null };
+    // abort 收场编舞（等待/激活两态分治——同一监听按触发时态走面）：
+    // - 激活态（已开层）：曾在屏 → 撤销说明行 + 关层（关层内含槽释放扫队）；
+    // - 等待态（未开层）：从未在屏 → 静默撤销——出等待队列，零呈现零撤销行。
+    signal?.addEventListener(
+      'abort',
+      () => {
+        if (waiter.settled) return; // 已落定——迟到 abort no-op（面板 done 后不误写）
+        waiter.settled = true;
+        if (waiter.handle !== null) {
+          // 激活态 abort：层仍在屏才写（07 §4.3 撤销面）
+          if (!waiter.handle.closed) this.appendTransientLine(cancelLine, { persist: true });
+          waiter.handle.close();
+        } else {
+          // 等待态 abort：静默撤销——出等待队列（从未在屏——不落撤销说明行）
+          const idx = this.askLayerQueue.indexOf(waiter);
+          if (idx !== -1) this.askLayerQueue.splice(idx, 1);
+        }
+        abort(); // 保守值收口（面板 done 锁下迟到 abort 是 no-op）
+        this.touchFixed();
+      },
+      { once: true },
+    );
+    if (this.askLayerOwner !== null) {
+      // 槽被占：入呈现等待队列（首次呈现到达序 FIFO）。「等待位可观测」匿名
+      // 提示——阻塞三件后端面无 sessionId 位（规范注：匿名提示形可无签名变更
+      // 落地），措辞取规范原句「他会话有待答问题」
+      this.askLayerQueue.push(waiter);
+      this.appendTransientLine('⏳ 他会话有待答问题（待当前问收场后呈现）', { persist: true });
+      this.touchFixed();
+    } else {
+      this.activateAskLayer(waiter);
+    }
+    // 返预约句柄：closed 以落定为准（等待期收场即闭）；close 在等待期 = 静默
+    // 撤销（调用方应答路 onFinish 不达等待位——防御位），激活后透传真句柄
+    //（幂等 + 内含槽释放扫队）
+    return {
+      close: () => {
+        if (waiter.settled) return;
+        waiter.settled = true;
+        if (waiter.handle !== null) {
+          waiter.handle.close(); // 真句柄 close（含槽释放 + 等待队列接续）
+          return;
+        }
+        const idx = this.askLayerQueue.indexOf(waiter);
+        if (idx !== -1) this.askLayerQueue.splice(idx, 1);
+      },
+      get closed() {
+        return waiter.settled;
+      },
+    };
+  }
+
+  /**
+   * 占槽开层（槽空闲首呈 / 释放扫队激活两路共用）：真句柄包一层槽释放编舞
+   * ——close 即释放单槽并按首次呈现到达序接续等待队列（「先呈者占槽至落定」
+   * 的落定执法位；持槽者比对守卫使释放幂等）。
+   */
+  private activateAskLayer(waiter: AskLayerWaiter): void {
+    this.askLayerOwner = waiter;
     // 模态浮层开层即收补全弹层（与 input() 路「应答期弹层抑制」同形——组 2
     // 修死显残留）：overlay 占焦后弹层键面不可达（模态独占），不收层则建议
     // 列表死显在浮层段下、且 20ms 窗内已武装的在途查询迟到还会刷新死显列表
     this.autocompleteCompleter.cancel(); // 撤防抖窗 + 在途作废
     this.popup.applyResult(null); // 在场弹层即刻收层
     // 开层（位形归装配层栈序叠放——锚定签名已随 OverlayAnchor 一刀清，第五役 F3）
-    const handle = this.stack.open(content);
-    signal?.addEventListener(
-      'abort',
-      () => {
-        if (!handle.closed) this.appendTransientLine(cancelLine, { persist: true }); // 曾在屏才写——面板 done 后迟到 abort 不误写
-        handle.close();
-        abort(); // 面板 done 锁下迟到 abort 是 no-op（已应答）
-        this.touchFixed();
+    const real = this.stack.open(waiter.content);
+    waiter.handle = {
+      close: () => {
+        real.close();
+        // 槽释放（持槽者比对——幂等）：释放即接续等待队列（后继顶上）
+        if (this.askLayerOwner === waiter) {
+          this.askLayerOwner = null;
+          this.continueAskLayerQueue();
+        }
       },
-      { once: true },
-    );
+      get closed() {
+        return real.closed;
+      },
+    };
     this.touchFixed();
-    return handle;
+  }
+
+  /**
+   * 等待队列接续（槽释放扫队——先呈者落定即顶上）：跳过已落定件后激活队首。
+   * 败腿锁（07 §4.3 定形注落码批承载锚）：「槽释放时本件已落定 → 不开层不落
+   * 撤销行」——ui-core start 钩子 done 早检零呈现让位的同构位（等待件收场
+   * 即时出队是常态清理，此处守卫是同判据的兜底：任何落定残位不阻后继顶上）。
+   */
+  private continueAskLayerQueue(): void {
+    while (this.askLayerOwner === null && this.askLayerQueue.length > 0) {
+      const next = this.askLayerQueue.shift()!;
+      if (next.settled) continue; // 败腿锁：已落定残位——不开层不落撤销行，扫向后继
+      this.activateAskLayer(next);
+    }
   }
 
   /* ---------------- 内部：渲染合并 ---------------- */
@@ -3195,8 +3306,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 段三：input-ask 提示行（应答期编辑器转应答车的引导位——恒保不截）。
     // overlay 占焦期明示（件 3）：栈非空时键盘路由进栈顶面板、编辑器收不到
     // 字——裸问句呈现为「可作答」与路由矛盾，补「待收场」标注让「问不丢
-    // 但要等」对用户诚实。异会话 FIFO 队列化（十六役扫 #2——07 §4.3 定形
-    // 注）：排队问不上屏，队首提示行缀排队数明示「后面还有几问」
+    // 但要等」对用户诚实。异会话 FIFO 队列化（十六役扫 #2——07 §4.1 路由序条
+    // input() 异会话 FIFO 定形注〔节号勘正 2026-10-04：原引 §4.3 系错引〕）：
+    // 排队问不上屏，队首提示行缀排队数明示「后面还有几问」
     if (this.inputAsk !== null) {
       const waiting = this.stack.size > 0 ? '（等上方面板关闭后作答）' : '';
       const queued = this.inputQueue.length > 0 ? `（后面还有 ${this.inputQueue.length} 个提问在排队）` : '';
