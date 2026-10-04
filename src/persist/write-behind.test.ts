@@ -8,6 +8,9 @@
 import { describe, expect, it } from 'vitest';
 import { BaseError, type SessionEvent } from '../contracts/index.js';
 import { SessionLog } from '../session/index.js';
+import { ephemeralSecretKey } from './secret-box.js';
+import { Persistence } from './persistence.js';
+import { SESSION_ARCHIVE_MIGRATION } from './store.js';
 import type { EventWrite, IncidentEntry, SessionRegistration, WriteTarget } from './store.js';
 import { WriteBehind, type WriteBehindOptions } from './write-behind.js';
 
@@ -306,5 +309,87 @@ describe('flush 屏障', () => {
     for (const write of writes.slice(4)) chain.enqueue(write);
     await chain.flush();
     expect(target.written).toHaveLength(writes.length);
+  });
+});
+
+describe('关库终态（件D1 ②层——close 后晚到事件折观测不重抛）', () => {
+  it('close 后 enqueue：不抛不点火——晚到事件折观测位（onLateWriteFailure 记账 + warn 不静默）', async () => {
+    const target = new FakeTarget();
+    const lateFailures: BaseError[] = [];
+    const { chain, warns } = makeChain(target, { onLateWriteFailure: (err) => lateFailures.push(err) });
+    chain.close();
+    // 关库后晚到事件（在飞 run 收尾竞速形——修前红线：无终态位，事件照常入队
+    // 点火、对已关库写三连败耗尽后 onFatal 重抛 = 未捕获拒绝进程带栈崩溃）
+    const late = writesFor('s1', makeEvents('s1', 'late'))[0]!;
+    expect(() => chain.enqueue(late)).not.toThrow();
+    await chain.flush();
+    // 不点火：零写调用（库已关——写调用必败，不试）
+    expect(target.calls).toHaveLength(0);
+    // 折观测位：晚到丢失记失败态（宿主装配根并计非零退出码——05 §6.3#6 N3）
+    expect(lateFailures).toHaveLength(1);
+    expect(lateFailures[0]!.code).toBe('PERSIST_WRITE_EXHAUSTED');
+    expect(warns.join('\n')).toContain('关库后');
+  });
+
+  it('close 后在飞 drain：队列放弃折观测——不退避不熔断不 onFatal（修前形=耗尽重抛带栈崩溃）', async () => {
+    const target = new FakeTarget();
+    target.batchScript = [transientError(), transientError(), transientError()];
+    const lateFailures: BaseError[] = [];
+    /** 挂起式睡眠门（测试持柄——放行才过退避） */
+    const sleepGates: Array<() => void> = [];
+    const { chain, fatals, warns, sleeps } = makeChain(target, {
+      onLateWriteFailure: (err) => lateFailures.push(err),
+      sleep: (ms) => {
+        sleeps.push(ms);
+        return new Promise<void>((resolve) => sleepGates.push(resolve));
+      },
+    });
+    const writes = writesFor('s1', makeEvents('s1', 'a'));
+    for (const write of writes) chain.enqueue(write);
+    // 微任务点火：批写首败（script #1）→ 退避睡眠挂起（门 0）
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(sleepGates).toHaveLength(1); // 在飞 drain 坐实（退避等待中）
+    // 退避等待中关库（run 收尾竞速窗——close 序在 flush 后标终态）
+    chain.close();
+    sleepGates[0]!(); // 放行退避 → drain 回环顶撞 closed 短路
+    await chain.flush();
+    // 单次写尝试（关库前首败）——不二试（修前形：三连败 50/100 退避后耗尽）
+    expect(target.calls).toEqual([{ op: 'batch', size: 2 }]);
+    expect(sleeps).toEqual([50]); // 只有首段退避——close 后不再退避
+    expect(fatals).toHaveLength(0); // 不 onFatal（修前形：PERSIST_WRITE_EXHAUSTED 重抛）
+    expect(chain.pending).toBe(0); // 整队列放弃清空（无处可写）
+    expect(lateFailures).toHaveLength(1);
+    expect(lateFailures[0]!.code).toBe('PERSIST_WRITE_EXHAUSTED');
+    expect(warns.join('\n')).toContain('关库后');
+  });
+
+  it('观测回调缺席：缺省 noop + warn 兜底（晚到链不因观测面缺席而炸）', async () => {
+    const target = new FakeTarget();
+    const { chain, warns } = makeChain(target); // 不注入 onLateWriteFailure
+    chain.close();
+    expect(() => chain.enqueue(writesFor('s1', makeEvents('s1', 'x'))[0]!)).not.toThrow();
+    expect(target.calls).toHaveLength(0);
+    expect(warns.join('\n')).toContain('关库后'); // 可见性兜底仍在
+  });
+
+  it('Persistence.close 序：终态标记先于 store.close——关库后晚到 append 不炸进程、经门面折失败态', async () => {
+    const lateFailures: BaseError[] = [];
+    const p = Persistence.open({
+      dbPath: ':memory:',
+      secretKey: ephemeralSecretKey(),
+      onLateWriteFailure: (err) => lateFailures.push(err),
+      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+      // 退避压缩（修前红的耗尽腿快进——重抛在红证里以未捕获拒绝形呈现）
+      writeBehind: { sleep: async () => {}, backoffBaseMs: 1 },
+    });
+    const log = p.createSession({ origin: 'conversation' });
+    log.append('turn/start', {});
+    await p.close();
+    // 关库后晚到事件（在飞 run 收尾竞速形）：不抛不崩（修前形=对已关库写→
+    // 三连败耗尽→onFatal 缺省重抛→未捕获拒绝）
+    expect(() => log.append('turn/start', {})).not.toThrow();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(lateFailures).toHaveLength(1); // 修前红：无折观测位——失败静默（或崩溃）
+    expect(lateFailures[0]!.code).toBe('PERSIST_WRITE_EXHAUSTED');
   });
 });

@@ -7,6 +7,11 @@
  * 退避重试（指数退避，耗尽 3 次 fail-loud）、毒丸分类（约束违例逐行诊断：
  * 单条隔离不重试 + durable 标记 + 会话 durability 切断）、flush 屏障。
  *
+ * 关库终态（件D1——05 §6.3#6）：close() 后链入 closed 态——晚到事件（停机
+ * 序与在飞 run 收尾的竞速窗）不再 fail-loud（对已关库重试耗尽重抛 = 未捕获
+ * 拒绝带栈崩溃），折观测位（onLateWriteFailure 记账 + warn 兜底——宿主装配
+ * 根并计非零退出码）。
+ *
  * 毒丸切断语义（§6.3 终态条款的实现推论）：被隔离事件不落库，其会话日志
  * 即现空洞——seq 连续律（恢复重放的前缀语义）下，洞后事件重放不可达；故
  * 毒丸一旦确认，该会话后续事件一并不再落库（每会话一笔 incident 自述，
@@ -30,6 +35,10 @@ export interface WriteBehindOptions {
   /** 重试耗尽回调（缺省重抛——微任务链未捕获拒绝 = 进程 fail-loud；宿主装配
    *  根接 exitCode=1 编舞在 07 篇进程模型批接线） */
   readonly onFatal?: (err: BaseError) => void;
+  /** 关库终态晚到写失败观测位（件D1——05 §6.3#6 N3）：close 后 enqueue/在飞
+   *  drain 的丢弃与放弃不再 fail-loud，折此回调（宿主装配根并计非零退出码）；
+   *  缺省 noop（warn 兜底仍在——可见性不缺位） */
+  readonly onLateWriteFailure?: (err: BaseError) => void;
   /** 告警面（毒丸隔离告警——缺省 console.error） */
   readonly warn?: (message: string) => void;
   /** 时间注入（incident 落账时刻；缺省 Date.now） */
@@ -55,8 +64,9 @@ function isConstraintError(err: unknown): boolean {
  * WriteBehind——进程级单写队列（Persistence 构造并持有；跨会话共用，
  * 05 §6.1 律 2「单进程内所有打开的会话共享同一 write-behind 队列」）。
  *
- * 生命周期态三枚：queued（队列本体）/ draining（在飞 drain 任务——enqueue
- * 只入队 + 按需点火）/ broken（fatal 熔断——此后 enqueue 即抛，诚实拒写）。
+ * 生命周期态四枚：queued（队列本体）/ draining（在飞 drain 任务——enqueue
+ * 只入队 + 按需点火）/ broken（fatal 熔断——此后 enqueue 即抛，诚实拒写）/
+ * closed（关库终态——此后晚到事件折观测不重抛，件D1）。
  */
 export class WriteBehind {
   private readonly target: WriteTarget;
@@ -65,6 +75,7 @@ export class WriteBehind {
   private readonly backoffBaseMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly onFatal: (err: BaseError) => void;
+  private readonly onLateWriteFailure: (err: BaseError) => void;
   private readonly warn: (message: string) => void;
   private readonly clock: () => number;
   /** 待写队列（全局序 = 事务序） */
@@ -79,6 +90,8 @@ export class WriteBehind {
   private consecutiveFailures = 0;
   /** 熔断旗（fatal 后诚实拒写——写链已死，再入队 = 谎报持久化） */
   private broken = false;
+  /** 关库终态旗（Persistence.close 序在 store.close 前置位——此后晚到事件折观测） */
+  private closed = false;
   /** 已切断 durability 的会话（毒丸后——后续事件静默丢弃，不再入队落库） */
   private readonly severed = new Set<string>();
 
@@ -93,6 +106,7 @@ export class WriteBehind {
       ((err) => {
         throw err;
       });
+    this.onLateWriteFailure = options.onLateWriteFailure ?? (() => {});
     this.warn = options.warn ?? ((message) => console.error(message));
     this.clock = options.clock ?? (() => Date.now());
   }
@@ -106,9 +120,30 @@ export class WriteBehind {
     if (this.broken) {
       throw new BaseError('PERSIST_WRITE_EXHAUSTED', '写链已熔断（批级重试耗尽）——进程应退出，拒绝继续假写');
     }
+    // 关库终态：晚到事件（在飞 run 收尾竞速窗）不抛不点火——折观测后丢弃
+    //（修前形：照常入队点火 → 对已关库重试耗尽 → onFatal 重抛 = 未捕获
+    //  拒绝进程带栈崩溃；件D1 ②层）
+    if (this.closed) {
+      this.recordLateFailure(
+        new BaseError(
+          'PERSIST_WRITE_EXHAUSTED',
+          `关库后晚到事件丢弃（会话 ${write.sessionId} seq#${write.event.seq} ${write.event.type}）——库已关，折退出失败态`,
+        ),
+      );
+      return;
+    }
     if (this.severed.has(write.sessionId)) return;
     this.queue.push(write);
     this.scheduleDrain();
+  }
+
+  /**
+   * 关库终态标记（件D1 ②层）：Persistence.close 序在 store.close 前调用——
+   * 此后晚到事件（enqueue 位）与在飞 drain 余队（drain 回环顶）一律折观测
+   * 不重试不熔断不重抛（05 §6.3#6 N3「落盘步永达记失败态」的关库侧推论）。
+   */
+  close(): void {
+    this.closed = true;
   }
 
   /** 队列深度（诊断面/测试断言） */
@@ -179,6 +214,21 @@ export class WriteBehind {
     for (;;) {
       if (this.queue.length === 0) {
         this.rowMode = false; // 队列清空——下一周期恢复批模式
+        this.consecutiveFailures = 0;
+        return;
+      }
+      // 关库终态短路（close 落在退避等待/重试点火窗时）：余队无处可写——
+      // 整批折观测后放弃清空（不重试不熔断不 onFatal——修前形：对已关库
+      // 连败耗尽重抛 = 未捕获拒绝带栈崩溃；件D1 ②层）
+      if (this.closed) {
+        const dropped = this.queue.splice(0);
+        this.recordLateFailure(
+          new BaseError(
+            'PERSIST_WRITE_EXHAUSTED',
+            `关库后晚到队列放弃（${dropped.length} 条，首条会话 ${dropped[0]!.sessionId} seq#${dropped[0]!.event.seq}）——库已关，折退出失败态`,
+          ),
+        );
+        this.rowMode = false;
         this.consecutiveFailures = 0;
         return;
       }
@@ -264,5 +314,19 @@ export class WriteBehind {
     this.warn(
       `[persist] 毒丸隔离：会话 ${sessionId} seq#${event.seq} ${event.type} 约束违例不落库（${message}）——durable 标记已落 persist_incidents，该会话后续事件停写`,
     );
+  }
+
+  /**
+   * 关库终态晚到写失败折观测（件D1 ②层）：记 onLateWriteFailure 观测位
+   * （宿主装配根并计非零退出码——05 §6.3#6 N3）+ warn 兜底（观测面缺席也
+   * 不静默）。观测回调自身异常不反噬（try/catch 隔离——晚到链只折不炸）。
+   */
+  private recordLateFailure(err: BaseError): void {
+    try {
+      this.onLateWriteFailure(err);
+    } catch (observerErr) {
+      this.warn(`[persist] 关库后晚到写失败观测回调异常（隔离不反噬）：${String(observerErr)}`);
+    }
+    this.warn(`[persist] 关库后晚到事件丢弃（不重试不熔断——已折退出失败态）：${err.message}`);
   }
 }

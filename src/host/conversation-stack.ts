@@ -477,8 +477,10 @@ export function providerGuidanceForMessageEvent(event: AgentEvent, modelSpec: st
 }
 
 /**
- * 组装对话栈。副作用注册：两 closer（manager 拆解 → compaction 排空）按注册
- * 序进运行时退出序（abort 之后、write-behind flush 之前）。
+ * 组装对话栈。副作用注册：两 closer（manager 拆解 + 在飞 run 结算等待 →
+ * compaction 排空）按注册序进运行时退出序（abort 之后、write-behind flush
+ * 之前——件D1：manager closer 帽内等待 run 闸归零，在飞 run 收尾事件先于
+ * 关库入队，04 §1②「closer 收口 drain」码面兑现）。
  */
 export function createConversationStack(options: ConversationStackOptions): ConversationStack {
   const warn = options.warn ?? ((message: string) => process.stderr.write(`${message}\n`));
@@ -1402,8 +1404,24 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     }
   }
 
-  // 退出序接线：closer 注册序即 drain 序——先拆驱动（打断在飞 run）再排空压缩链
-  options.runtime.registerCloser({ label: 'conversation-manager', fn: () => manager.dispose() });
+  // 退出序接线：closer 注册序即 drain 序——先拆驱动（打断在飞 run）再排空压缩链。
+  // manager closer 不止拆解（件D1——04 §1②「closer 收口 drain——在飞子代理/
+  // 子进程结算及在飞后台 LLM 链」条款码面兑现）：dispose 后帽内自持等待 run
+  // 闸归零——run 位释放附在结算尾段（turn/end / llm/usage 桥接等收尾事件
+  // 入队之后，driver 结算序），闸归零 ⟺ 收尾事件已在 write-behind 队列，
+  // ③ flush 才收得到它们（修前形：closer 同步 dispose 即返，收尾事件竞速
+  // 输给 ⑥ 关库 → 对已关库重试耗尽 → 未捕获拒绝进程带栈崩溃）。
+  options.runtime.registerCloser({
+    label: 'conversation-manager',
+    fn: async () => {
+      manager.dispose();
+      const settled = await waitForRunLaneIdle(runLane);
+      if (!settled) {
+        // 到帽放弃等待（帽子语义非杀 run——残余收尾事件由 ②层关库终态折失败态兜底）
+        warn(`[exit] 停机等待在飞 run 结算到帽（${RUN_SETTLE_WAIT_HAT_MS}ms）放弃——残余收尾事件可能折关库后失败态`);
+      }
+    },
+  });
   options.runtime.registerCloser({
     label: 'compaction-drain',
     fn: () => compaction.drain(),
@@ -1923,4 +1941,38 @@ export function createRunLaneGate(capacity: number): RunLaneGate {
       return waiting.length;
     },
   };
+}
+
+/** closer 内在飞 run 结算等待帽（件D1——须小于运行时 closer 总帽 5s：留强杀余量） */
+export const RUN_SETTLE_WAIT_HAT_MS = 4000;
+
+/** 结算等待轮询步长（件D1——结算在微任务链毫秒级完成，10ms 步长观测足够细） */
+export const RUN_SETTLE_POLL_MS = 10;
+
+/**
+ * 帽内自持等待 run 闸归零（件D1——04 §1②「closer 收口 drain——在飞子代理/
+ * 子进程结算及在飞后台 LLM 链」条款的码面兑现）：run 位释放附在结算尾段
+ * （turn/end / llm/usage 桥接等收尾事件入队之后，driver 结算序——释放器
+ * 挂 settled 链尾），故闸归零 ⟺ 收尾事件已在 write-behind 队列——closer
+ * 等到这里才返，③ flush 才能把这些事件落 durable（修前形：无人等在飞
+ * run，收尾事件在 ⑥ 关库后才入队）。
+ *
+ * @returns false = 到帽未归零（调用方 warn 后放行——帽子语义是放弃等待
+ *   不是杀 run；残余事件由 write-behind 关库终态折失败态兜底〔件D1 ②层〕）
+ */
+export async function waitForRunLaneIdle(
+  gate: { readonly inFlight: number },
+  options: { hatMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<boolean> {
+  const hatMs = options.hatMs ?? RUN_SETTLE_WAIT_HAT_MS;
+  const pollMs = options.pollMs ?? RUN_SETTLE_POLL_MS;
+  const sleep = options.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  let waited = 0;
+  while (gate.inFlight > 0) {
+    if (waited >= hatMs) return false;
+    const slice = Math.min(pollMs, hatMs - waited);
+    await sleep(slice);
+    waited += slice;
+  }
+  return true;
 }

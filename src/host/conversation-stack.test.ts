@@ -2978,3 +2978,69 @@ describe('会话累计聚合读面（07 §4.1 注⑪⑥a——V-4 底栏供数�
     await rt.shutdown();
   });
 });
+
+/* ---------------- 停机六步序在飞 run 结算等待（件D1——04 §1② closer 收口 drain 码面兑现） ---------------- */
+
+describe('停机序在飞 run 结算等待（件D1——04 §1②）', () => {
+  it('停机不等在飞 run：manager closer 帽内自持等待 run 闸归零——结算尾对先于关库落 durable、关库后晚到事件折退出失败态不炸进程', async () => {
+    const { dir, rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const ws = rigWorkspace();
+    const session = stack.manager.create({ workspaceRoot: ws, origin: 'delegation' });
+    // 首响应持门挂起（在飞 run 制造位——与 :1266 lane 帽先例同形）；停机
+    // ① abort 已置位后放门 → faux 工厂才 resolve（abort 检查在工厂 resolve
+    // 后的 streamWithDeltas 里——pi-ai faux 契约，编舞确定可复现）
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    faux.setResponses([
+      async () => {
+        await gate;
+        return messageOf('aborted');
+      },
+    ]);
+    let settled = false;
+    const run = stack.submitText(session.sessionId, '问');
+    // run 必在（下文 waitFor callCount=1 已坐实在飞——可选位仅类型面）
+    void run?.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    // run 在飞坐实（LLM 请求已发出——持门中）
+    await vi.waitFor(() => expect(faux.state.callCount).toBe(1));
+    // 关库前抓活体日志柄（停机后栈面拆解——经原柄断晚到事件折观测）
+    const liveLog = stack.driverOf(session.sessionId)!.session;
+
+    const shuttingDown = rt.shutdown(); // ① abort → ② closer（manager 拆解）→ …
+    await new Promise((resolve) => setTimeout(resolve, 30)); // ①② 步推进窗（closer 仍在等）
+    openGate(); // 在飞 run 放行 → 收尾事件（turn/end + llm/usage 结算尾对）竞速 close 序
+    await shuttingDown;
+
+    // 修前红锚：closer 同步 dispose 即返（无人等在飞 run）——shuttingDown 已
+    // 决、run 尚未结算（settled=false）；修后 closer 帽内轮询 run 闸归零
+    expect(settled).toBe(true);
+
+    // durable 对账：结算尾对（turn/end + llm/usage 桥接——run 收尾事件的
+    // 落库竞速尾巴，llm/usage 是结算序最后一笔）经 ③ flush 先于 ⑥ 关库落盘
+    // ——重开可见（修前形：无人等结算，尾对在关库后才入队 → 对已关库耗尽
+    // 重抛带栈崩溃——agent_end 是信封面事件非 durable 事件，durable 尾是本对）
+    const rt2 = createHostRuntime({ dataDir: dir });
+    const page = rt2.persistence.queryEvents({ sessionId: session.sessionId, sinceMs: 0 });
+    const types = page.events.map((event) => event.type);
+    expect(types).toContain('turn/end');
+    expect(types.at(-1)).toBe('llm/usage'); // 结算最后一笔在场 = 整条结算尾全落
+    await rt2.shutdown();
+
+    // happy path：结算窗内零晚到丢失——退出失败态缺省 undefined
+    expect(rt.shutdownFlushFailure?.()).toBeUndefined();
+    // 关库后晚到事件（收尾竞速窗漏出的尾巴）：不炸进程、折退出失败态（件D1 ②层）
+    expect(() => liveLog.append('turn/start', {})).not.toThrow();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(rt.shutdownFlushFailure?.()).toBeDefined();
+  });
+});

@@ -182,6 +182,13 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
       // 迁移在前、追加件按版本升序插队（scheduler v2 → goal v3 先于 memory
       // v4-6；调用方版本须全链严格递增——19c 追加件同律校验）
       migrations: [...(options.persistence?.migrations ?? []), ...HOST_MIGRATION_TAIL],
+      // 关库终态晚到写失败折退出失败态（件D1——与 ③ flush/⑥ close 吞错并计
+      // 同位：shutdownFlushFailure 读此位折非零退出码，05 §6.3#6 N3）。
+      // 置尾保宿主折位赢过调用方透传；闭包引用 exitFlushFailure（TDZ 晚绑
+      // 槽——回调只可能在 close 后触发，彼时早已声明）
+      onLateWriteFailure: (err) => {
+        exitFlushFailure ??= err;
+      },
     });
   } catch (err) {
     lease?.release();

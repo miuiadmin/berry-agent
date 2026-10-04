@@ -46,6 +46,13 @@ export interface PersistenceOptions {
   readonly clock?: () => number;
   /** 凭证密钥注入（测试位） */
   readonly secretKey?: Buffer;
+  /**
+   * 关库终态晚到写失败观测位（件D1——05 §6.3#6 N3）：close 后晚到事件
+   * （停机序与在飞 run 收尾的竞速窗）折此回调（宿主装配根并计非零退出
+   * 码）而非 fail-loud 重抛（对已关库重试耗尽 = 未捕获拒绝进程带栈崩溃）。
+   * 缺省 noop（warn 兜底仍在）。
+   */
+  readonly onLateWriteFailure?: (err: BaseError) => void;
   /** write-behind 旋钮透传（测试位——尺寸帽/退避/睡眠注入） */
   readonly writeBehind?: {
     maxBatchSize?: number;
@@ -128,6 +135,8 @@ export class Persistence {
       target: store,
       warn,
       clock: options.clock,
+      // 关库终态晚到写失败观测位透传（件D1——折退出失败态不重抛）
+      onLateWriteFailure: options.onLateWriteFailure,
       ...options.writeBehind,
     });
     return new Persistence(store, writeBehind, warn, options.onDurableEvent ?? (() => undefined));
@@ -336,11 +345,18 @@ export class Persistence {
     return this.store.searchSessionFts(sessionId, pattern, limit);
   }
 
-  /** 关库退出序：flush（失败即抛——调用方转非零退出，05 §6.3#6）→ checkpoint → close */
+  /**
+   * 关库退出序：flush（失败即抛——调用方转非零退出，05 §6.3#6）→ write-behind
+   * 关库终态标记（件D1：置位先于 store.close——此后晚到事件折 onLateWriteFailure
+   * 观测不重抛）→ checkpoint → close。
+   */
   async close(): Promise<void> {
     if (this.closed) return;
     await this.flush();
     this.closed = true;
+    // 关库终态标记先于 store.close：close() 后的晚到 enqueue/在飞 drain 余队
+    // 在 write-behind 层折观测（不再对已关库重试耗尽重抛——件D1 ②层）
+    this.writeBehind.close();
     this.store.close();
   }
 
