@@ -268,8 +268,9 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
     // 接线）：stdio 线与 TCP 面并存双活——面承载 SPA + /api/* + /v1/* 三族
     // （bridge 同走 createServeBridge 零第二套映射）；披露两行走 stderr
     // （serve 前台披露通道）；closer 挂运行时退出序——EOF/信号/过载三路
-    // 收场同享面收口（LIFO 在 serve-backend 之前注册 = drain 晚于 stdio 线
-    // 收口——网络面先关）。批 19e 件在场执法：sdk 件缺席 = 面本体件禁用
+    // 收场同享面收口（HTTP 面 closer 在 serve-backend 之前注册——drain 序
+    // = 注册序 FIFO：网络面先关，stdio 线收口在后）。批 19e 件在场执法：sdk
+    // 件缺席 = 面本体件禁用
     // 语义族——warn 一行不开面（daemon 形拒启退 2 同族，前台形降级——
     // stdio 传输本体不受累）；webui 件缺席 = 面开而 /api/* 404（mountKit
     // 缺席形——openWebuiFace 内分档披露）——
@@ -338,7 +339,9 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
       handle.core.drain();
     }, heartbeatIntervalMs);
 
-    // 收场序：清定时 → dispose（在飞 ask cancel + core.close）→ runtime 六步
+    // 收场序：清定时 → dispose（在飞 ask 收口 unavailable + core.close——
+    // 2026-09-13 edf2e83 起 ask 收口语义分立：dispose 腿通道消失 = unavailable，
+    // 用户主动打断走 abort 路的 cancel）→ runtime 六步
     // 退出序（幂等——EOF 路径与信号路径同享，closer 保证信号路径同样执行）；
     // 落盘失败折非零（05 §6.3#6「flush 失败 = 退出非零码」；十六役补扫 N3
     // ——③ flush / ⑥ close 吞错续行后由失败态观测位如实上报）
