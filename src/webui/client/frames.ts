@@ -278,8 +278,28 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
     case 'notify':
       // 帧腿与本地推播共用同帽同形（pushedNotice——单源执法位）
       return pushedNotice(state, env.payload.message, env.payload.level);
-    case 'status':
+    case 'status': {
+      // 终态 status 信封 = run 已收口的权威供数（服务端 SSE 受理尾快照补帧
+      // ——第八轮 laneF F2 客户端半边）：断连窗丢 agent_end 的重连观众由此
+      // 复位 run 账（runActive 恒挂 → 打断键伪使能——runInFlight 首信号），
+      // 连线形与 agent_end 折叠位幂等双清；非终态 status（在飞档位/收据）
+      // 只更新状态行——中途附着 run 在飞时的补位信号（App runInFlight 三
+      // 信号之一）不误伤
+      if (isTerminalStatus(env.payload.status)) {
+        return {
+          ...state,
+          status: env.payload.status,
+          runActive: false,
+          runStartedAt: null,
+          runSeedAt: null,
+          runToolCount: 0,
+          runRetryCount: 0,
+          retryContinuation: false,
+          pendingFailReason: null, // 已揭示形直呈（终态信封不带持有档——防御清）
+        };
+      }
       return { ...state, status: env.payload.status };
+    }
     case 'display':
     case 'session': {
       const payload = env.payload;

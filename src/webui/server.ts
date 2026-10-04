@@ -19,12 +19,15 @@
  *   （abort 恒后于竞速落定——UiCore finish 内序，不构成抢答）。
  * - **SSE 信封三族**：分档判据注②（终结型两型 + asked 镜像 → session 族，
  *   其余活体 → display 族）；连接即当下（v1 无重放游标——正确性层 = 客户端
- *   onopen 恒重拉投影）；全局连接帽 16 件侧自记账（面级 openStreams 不暴露
+ *   onopen 恒重拉投影）；受理尾补发一帧最近 status 信封快照（订阅建流即
+ *   对齐——03 §10.6 ② 2026-10-04 注：断连窗丢 agent_end 的重连观众复位
+ *   status 账；词汇零新增原帧复播，closed 空流恒静默不破）；全局连接帽 16
+ *   件侧自记账（面级 openStreams 不暴露
  *   计数）超帽 503；背压 shedding 判据 = display 的 update 两型（session/
  *   notify/status 镜像帧不弃）。
- * - **微路由语义**：会话存在性分账（missing submit/events 404 not_found /
- *   closed submit 404 closed；messages/todo 不受闭态拦；closed events 放行
- *   空流）；cookie 桥注③（体 {token} 经面级 verifyToken 验换 → Set-Cookie
+ * - **微路由语义**：会话存在性分账（missing submit/events/messages 404
+ *   not_found / closed submit 404 closed；messages/todo 不受闭态拦——messages
+ *   缺席仍 404 分账；closed events 放行空流）；cookie 桥注③（体 {token} 经面级 verifyToken 验换 → Set-Cookie
  *   HttpOnly SameSite=Strict——EventSource 无头位，浏览器侧唯一凭证通道）；
  *   SPA 静态位注⑦（路径穿越防线 + 未知深路径 fallback index.html；缺席
  *   API-only 404 no_spa）；JSON 均 typebox 校验后消费。
@@ -202,6 +205,9 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
   /** 活体流注册表（全局帽计数 + 按会话扇出索引） */
   const streams = new Set<WebuiStreamEntry>();
   const bySession = new Map<string, Set<WebuiStreamEntry>>();
+  /** 最近 status 信封缓存（sessionId → 末次 setStatus 帧——SSE 受理尾快照
+   *  补发的当前值源；03 §10.6 ② 2026-10-04 订阅建流即对齐注 webui 腿） */
+  const lastStatusFrame = new Map<string, WebuiEnvelope>();
   /** 未决审批账（approvalId → 账项——decide 幂等判据 + 清单投影） */
   const pending = new Map<string, PendingApproval>();
   /** 后端内 ask 计数（调用方未指派 approvalId 时生成 `webui-N`） */
@@ -252,9 +258,13 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
         payload: { message, ...(opts?.level !== undefined ? { level: opts.level } : {}) },
       });
     },
-    // 状态行更新（last-writer-wins 天然——多写者扇出覆盖）
+    // 状态行更新（last-writer-wins 天然——多写者扇出覆盖）；emit 时随写最近
+    // status 信封缓存（受理尾快照的当前值源——断连窗丢 agent_end 的重连观
+    // 众由此复位 status/runActive 账）
     setStatus: (sessionId: string, status: string) => {
-      pushToSession(sessionId, { kind: 'status', sessionId, payload: { status } });
+      const frame: WebuiEnvelope = { kind: 'status', sessionId, payload: { status } };
+      lastStatusFrame.set(sessionId, frame);
+      pushToSession(sessionId, frame);
     },
     // 活体信封呈现（focused 位无 webui 语义——SPA 自选视图，无聚焦降档）
     onEnvelope: (env: SessionEnvelope) => {
@@ -427,13 +437,23 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     handler: (_req, res) => sendJson(res, 200, { sessionId: deps.sessions.createSession() }),
   });
 
-  // —— 会话族子路由（存在性分账注⑥：messages/todo 不受闭态拦；events 前
-  //    missing 拒、closed 放行空流；submit/interrupt 受闭态拦）——
+  // —— 会话族子路由（存在性分账注⑥：missing submit/events/messages 一律
+  //    404 not_found；closed submit 404 closed、messages/todo 放行只读腿
+  //    （closed 兜底可拉）；events closed 放行空流；submit/interrupt 受
+  //    闭态拦）——
   add({
     method: 'GET',
     path: WEBUI_ENDPOINTS.sessionMessages,
     auth: tokenOrCookie,
     handler: async (_req, res, ctx) => {
+      // 存在性分账（events 位镜像——03 §10.4 定形注⑥「GET messages 先例
+      // 同词」）：missing → 404 not_found（第八轮深扫件F1——修前无此检查，
+      // 真链 fetchMessages→loadSession 对缺席会话抛 PERSIST_DATA_CORRUPT
+      // 走面级 500，存在性错误误报为内部错误）
+      if (deps.sessions.sessionStateOf(ctx.params.id!) === 'missing') {
+        sendError(res, 404, 'not_found', '会话不存在');
+        return;
+      }
       // 近史投影兜底可拉（closed 会话同样可拉——只读腿）
       const messages = await deps.read.fetchMessages(ctx.params.id!);
       sendJson(res, 200, { messages });
@@ -607,6 +627,15 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       // 件侧销账位 = res close（连接 close/面级看门狗 destroy/宿主收场三路
       // 共用的真连接终结信号——与面级流账自摘并存）
       res.on('close', () => deregister(entry));
+      // 受理尾 status 快照补发（订阅建流即对齐——03 §10.6 ② 2026-10-04 注
+      // webui SSE 面同律）：断连窗丢 agent_end 的重连观众由此收当前 status
+      // 信封（词汇零新增——setStatus 既有 session-scoped status 帧原帧复播；
+      // run 已收口时末次终态形随播）。从未 setStatus 诚实零帧；closed 会话
+      // 不补发（空流形恒静默既有律——不造假帧）
+      if (deps.sessions.sessionStateOf(sessionId) !== 'closed') {
+        const snapshot = lastStatusFrame.get(sessionId);
+        if (snapshot !== undefined) stream.write(snapshot);
+      }
     },
   });
   add({

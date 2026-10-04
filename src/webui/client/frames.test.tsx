@@ -318,7 +318,10 @@ describe('frames 工具族与状态行', () => {
   it('agent_end 终态分档：failed 持有不立即揭示 / aborted ⏹ 即时 / completed 归闲态（E1 持有档——TUI 同律翻档）', () => {
     // 07 §4.1 件 6 跨通道同律（TUI 侧 P0 批已修——失败/中止显式呈现不伪装成功）；
     // E1：failed 是持有档非终态——揭示位移到 retry_wait_end {aborted|exhausted}
-    //（驱动侧保证 failed 后必随发 retry_wait_start 或 retry_wait_end 收口）
+    //（驱动侧保证 failed 后必随发其一——retry_wait_start（退避窗开）/ retry_wait_end
+    // {aborted|exhausted}（终态收口）/ 孤儿 retry_wait_end {resumed}（overflow
+    // compacted 续入——07 件 12 扩第三形〔第七轮深扫批，04 §3.4 尾注真源〕；
+    // 与 frames.ts E1 持有档注释单源同文——tui-backend.test 同形已随迁）
     let state = applyEnvelope(initialAppState, display({ type: 'agent_end', status: 'failed' }));
     expect(state.status).toBeNull(); // 修前红：'✗ 失败'——持有窗内不闪终态
     state = applyEnvelope(state, display({ type: 'retry_wait_end', outcome: 'exhausted' }));
@@ -373,6 +376,31 @@ describe('frames 审批与通知', () => {
     expect(state.notices[4]?.message).toBe('通知7');
     state = applyEnvelope(state, { kind: 'status', sessionId: 's-1', payload: { status: '跑' } });
     expect(state.status).toBe('跑');
+  });
+
+  it('status 终态信封复位 run 账（laneF F2 客户端半边——受理尾快照补帧的收账位：断连窗丢 agent_end 的重连观众）', () => {
+    // 形位：观众见 agent_start（runActive=true）→ 断连窗丢 agent_end →
+    // 重连受理尾补发末次 status 帧原帧复播——终态词直达即复位 run 账
+    //（服务端受理尾快照 laneF 件的客户端收账；修前红：终态信封只改
+    // status 行、runActive 恒挂——打断键伪使能首信号）
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }));
+    expect(state.runActive).toBe(true);
+    state = applyEnvelope(state, { kind: 'status', sessionId: 's-1', payload: { status: '⏹ 已中止' } });
+    expect(state.status).toBe('⏹ 已中止');
+    expect(state.runActive).toBe(false); // 修前红锚：复位 run 账
+    expect(state.runStartedAt).toBeNull();
+    // 连线形幂等：agent_end 折叠位先清后 status 尾帧再清——双清不复活
+    state = applyEnvelope(state, display({ type: 'agent_start' }));
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'aborted' }));
+    expect(state.runActive).toBe(false);
+    state = applyEnvelope(state, { kind: 'status', sessionId: 's-1', payload: { status: '✗ 失败 · 渠道未配置' } });
+    expect(state.runActive).toBe(false);
+    expect(state.status).toBe('✗ 失败 · 渠道未配置');
+    // 非终态 status（在飞档/收据）不清 run 账——中途附着补位信号不误伤
+    state = applyEnvelope(state, display({ type: 'agent_start' }));
+    state = applyEnvelope(state, { kind: 'status', sessionId: 's-1', payload: { status: '⚙ bash 慢命令 …' } });
+    expect(state.runActive).toBe(true);
+    expect(state.status).toBe('⚙ bash 慢命令 …');
   });
 
   it('pushedNotice 与 notify 帧腿同帽 5——本地推播第 6 条滚动出清最旧（修前五处直追数组绕帽）', () => {
@@ -743,6 +771,32 @@ describe('frames onopen 交错窗对账（E4——投影整段重置与活体终
     expect(state.messages).toHaveLength(1); // 让位投影副本（恰一份不双呈）
     expect(state.messages[0]?.key).toBe('p#1');
     expect(state.pendingEchoes).toHaveLength(0); // 账随让位出清（镜像不至）
+  });
+
+  it('快照同文多份计数对账：双回显×双份恰两份 p#1/p#2；快照少份计数尽保位（多重集判别锁——退化为布尔集则本用例红）', () => {
+    // 第八轮深扫 laneF 件F4：snapTextCounts 是计数 Map（按份数对账）——若
+    // 退化为布尔集（无份数账）现测试全绿穿透。双提交同文两腿锁判别力：
+    // ①快照含两份——两回显皆让位（投影副本即真源，恰两份键形 p#1/p#2；
+    // 「让位即出集」的布尔集形下第二回显保位 → 三份红）；
+    // ②快照只含一份——计数尽第二回显保位续接投影尾（恰两份 = 投影副本 +
+    // 回显位；「恒让位」的布尔集形下两回显皆让 → 一份红）
+    let state = echoedUserMessage(initialAppState, 's-1', '再来一次', 20);
+    state = echoedUserMessage(state, 's-1', '再来一次', 21);
+    expect(state.messages).toHaveLength(2); // 双回显基底（同文两份在途）
+    // ① 快照两份：恰两份、投影键形 p#1/p#2、配对账随让位出清
+    const paired = loadedMessages(state, [
+      { role: 'user', content: '再来一次', timestamp: 30 },
+      { role: 'user', content: '再来一次', timestamp: 31 },
+    ]);
+    expect(paired.messages).toHaveLength(2);
+    expect(paired.messages.map((m) => m.key)).toEqual(['p#1', 'p#2']);
+    expect(paired.pendingEchoes).toHaveLength(0);
+    // ② 快照一份：计数尽——首回显让位、次回显保位（恰两份 = 投影副本 +
+    // 回显位；配对账保留——镜像后至仍吸收恰一份）
+    const exhausted = loadedMessages(state, [{ role: 'user', content: '再来一次', timestamp: 30 }]);
+    expect(exhausted.messages).toHaveLength(2);
+    expect(exhausted.messages.map((m) => m.key)).toEqual(['p#1', echoKeyOf(21)]);
+    expect(exhausted.pendingEchoes).toHaveLength(1);
   });
 
   it('工具终结行交错窗对账：tool-<id> 键——快照未含不抹、已含让位不双份（修前红：终结行随整段重置抹除）', () => {

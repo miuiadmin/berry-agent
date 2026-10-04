@@ -175,7 +175,16 @@ function makeDeps(opts?: {
       },
     },
     read: {
-      fetchMessages: async (id) => messages.get(id) ?? [],
+      // 桩同构（第八轮深扫 laneF 件F1）：真身链 host 桥 fetchMessages =
+      // stack.projectionOf → 缺席会话 loadSession 抛 PERSIST_DATA_CORRUPT
+      //（persist/persistence.ts 同码）——桩对 missing 同构上抛（修前桩静默返
+      // [] 测不出真链：存在性错走面级 500 而非 404 分账）
+      fetchMessages: async (id) => {
+        if ((states.get(id) ?? 'missing') === 'missing') {
+          throw new BaseError('PERSIST_DATA_CORRUPT', `会话 ${id} 不存在（读未保存 id 或已删除——调用序检视）`);
+        }
+        return messages.get(id) ?? [];
+      },
       ...(opts?.withoutTodo === true ? {} : { todoOf: () => [{ status: 'in-progress', content: '跑测' }] }),
       ...(opts?.withoutExport === true ? {} : { exportMarkdown: (id: string) => markdowns.get(id) }),
     },
@@ -502,6 +511,18 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     const closed = await get('/api/sessions/s-closed/messages');
     expect(closed.status).toBe(200);
     expect((closed.json as { messages: AgentMessage[] }).messages[0]).toMatchObject({ role: 'user' });
+  });
+
+  it('messages 会话态分账：missing 404 not_found（events 位镜像——修前红：同构桩上抛走面级 500）', async () => {
+    // 第八轮深扫 laneF 件F1：修前 handler 无存在性检查，真链 fetchMessages →
+    // loadSession 对缺席会话抛 PERSIST_DATA_CORRUPT → 面级 catch 500（存在性
+    // 错误误报为内部错误）；修后与 events 位同词分账 404 not_found（03 §10.4
+    // 定形注⑥「GET messages 先例同词」的本位兑现——closed 仍放行只读腿）
+    const res = await fetch(`http://127.0.0.1:${port}/api/sessions/who-knows/messages`, {
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(404); // 修前红：500（存在性错未分账先入投影拉取）
+    expect(await res.json()).toMatchObject({ error: 'not_found', message: '会话不存在' });
   });
 
   it('todo：数据源在场回条目；缺席诚实回 null', async () => {
@@ -948,6 +969,57 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
       expect((f2 as { payload: { type: string } }).payload.type).toBe('message_end');
     } finally {
       r2.abort();
+    }
+  });
+
+  it('SSE 受理尾 status 快照（订阅建流即对齐——03 §10.6 ② 2026-10-04 注 webui 腿）：断连窗丢 agent_end 的重连观众收当前 status 信封恰一帧', async () => {
+    // 第八轮深扫 laneF 件F2：run 在飞断连 → agent_end 落在断线窗（无观众零
+    // 滞留既有律）→ 重连观众无终态帧可收 → run 账恒挂（打断键伪使能）——
+    // 修形 = 流受理尾补发一帧当前 status 信封（缓存源 = setStatus emit 时
+    // 随写；词汇零新增——session-scoped status 帧原帧复播）。修前红：零帧。
+    const r1 = await openSse(port, 's-1', token);
+    // run 在飞：setStatus 落一帧（受理尾快照的缓存源——emit 时随写）
+    webui!.backend.setStatus!('s-1', '⚙ bash 慢命令 …');
+    expect(await r1.next()).toEqual({ kind: 'status', sessionId: 's-1', payload: { status: '⚙ bash 慢命令 …' } });
+    // 断连：agent_end 随即落入断线窗（无观众零滞留——重连观众无终态帧可收）
+    r1.abort();
+    const t0 = Date.now();
+    while (webui!.backend.hasAudience()) {
+      if (Date.now() - t0 > 2_000) throw new Error('close 销账超时：hasAudience 恒 true（流账未摘）');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    pushEnvelope({ sessionId: 's-1', event: { type: 'agent_end', status: 'completed' } });
+    // 重连：受理尾补发恰一帧当前 status 快照（修前红：2s 静默窗 undefined 零帧）
+    const r2 = await openSse(port, 's-1', token);
+    try {
+      const snapshot = await r2.next();
+      expect(snapshot).toEqual({ kind: 'status', sessionId: 's-1', payload: { status: '⚙ bash 慢命令 …' } });
+      // 恰一帧：不重放不循环（display/session 族断线帧仍零补推——live-only 不破）
+      await expectSilence(r2);
+    } finally {
+      r2.abort();
+    }
+  });
+
+  it('status 快照终态形与静默分账：run 已收口（末次 setStatus 终态词）重连收终态形；closed 空流恒静默不破', async () => {
+    // 「run 已收口时发终态形」：末次 setStatus 即缓存帧原帧复播（终态词直达
+    // 重连观众——打断键使能面的服务端权威供数）；closed 会话流恒静默既有律
+    // 不破——即便缓存在册（同进程历史帧）也不得向空流形造帧
+    const r1 = await openSse(port, 's-1', token);
+    webui!.backend.setStatus!('s-1', '⏹ 已中止');
+    expect(await r1.next()).toEqual({ kind: 'status', sessionId: 's-1', payload: { status: '⏹ 已中止' } });
+    r1.abort();
+    // closed 会话：无观众窗落缓存帧（live 腿零扇出——只进缓存账）
+    webui!.backend.setStatus!('s-closed', '✗ 失败 · 模型渠道未配置');
+    const r2 = await openSse(port, 's-1', token);
+    const rClosed = await openSse(port, 's-closed', token);
+    try {
+      expect(await r2.next()).toEqual({ kind: 'status', sessionId: 's-1', payload: { status: '⏹ 已中止' } });
+      await expectSilence(r2);
+      await expectSilence(rClosed); // closed 空流恒静默——快照不得破既有律
+    } finally {
+      r2.abort();
+      rClosed.abort();
     }
   });
 
