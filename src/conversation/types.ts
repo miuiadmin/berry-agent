@@ -286,7 +286,7 @@ export interface ConversationDriverOptions {
   /**
    * run 结算钩（04 §5 记账腿——批 #99 三入口统一）：launch settled 链内
    * 嵌（run 回执 promise 引用恒等不破）；settle 时窗扫 durable 事件计数
-   * 前台 assistant/message（04 §176 记账单位 = 消息非 run）。双计防线：
+   * 前台 assistant/message（04 §5 记账刹停腿记账单位 = 消息非 run）。双计防线：
    * CLI run 入口的既有挂点已随本钩上移移除。缺席 = 零记账（goal 件未
    * 装载同形）。
    */
@@ -354,7 +354,7 @@ export interface SubmitOptions {
  */
 export interface RunSettledReceipt {
   readonly sessionId: string;
-  /** 本窗 durable assistant/message 条数（settle 时窗扫——04 §176 记账单位） */
+  /** 本窗 durable assistant/message 条数（settle 时窗扫——04 §5 记账刹停腿记账单位） */
   readonly assistantMessages: number;
   /**
    * 记账窗锚（04 §5 记账桥接单点——2026-09-13 复盘修复 #41/#44 定形）：

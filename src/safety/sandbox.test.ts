@@ -455,9 +455,9 @@ describe('读 deny / danger 档形（04 §7 读侧 carve-out + 04 §8 定形②�
   });
 });
 
-/* ---------------- 写 deny 与 dataDir enrich（04 §252 腿二——成熟度缺口 #9） ---------------- */
+/* ---------------- 写 deny 与 dataDir enrich（04 §8 腿二——成熟度缺口 #9） ---------------- */
 
-describe('写 deny / dataDir enrich（04 §252 腿二 + 04 §7 数据目录写腿）', () => {
+describe('写 deny / dataDir enrich（04 §8 腿二 + 04 §7 数据目录写腿）', () => {
   const WS_GIT = '/ws/.git';
 
   // bwrap 写遮蔽行宿主在判过滤夹具（B4 勘正同读腿）：工作区 + .git 目录真在

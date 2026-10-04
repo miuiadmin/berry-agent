@@ -616,7 +616,7 @@ describe('预算双轨（recordTurn 刹停腿 + foldDelegation 折叠腿）', ()
     expect(service.budgetExceeded(goal.id)).toBe(false); // cap null 永不刹
   });
 
-  it('recordTurn messages 批量记账：窗扫计数整批入账（缺省 1 兼容单笔形——04 §176 记账单位）', async () => {
+  it('recordTurn messages 批量记账：窗扫计数整批入账（缺省 1 兼容单笔形——04 §5 记账刹停腿记账单位）', async () => {
     const { service } = openService();
     const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x', budgetMessagesCap: 5 });
     expect(service.recordTurn(goal.id, { messages: 3 })).toEqual({ braked: false, used: 3, cap: 5 });

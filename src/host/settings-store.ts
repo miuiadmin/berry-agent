@@ -25,7 +25,7 @@
  * ）：自定义模型渠道定义件（id → {name?, protocol, baseUrl, models,
  * headers?}；条目形真源 = llm 域 CustomProviderDef）。**非敏感件**（key 不入
  * 此表、走凭证表绑定行单源；headers 不得含鉴权材料——定性条款归规范面）；
- * 条目级坏形 = 丢该条点名不殃及全键（keybindings 先例同形——04:328 定形）；
+ * 条目级坏形 = 丢该条点名不殃及全键（keybindings 先例同形——04 §9 定形块⑥ 键面条款定形）；
  * id 保留字执法（撞 pi-ai 内置目录 id 拒注）在装配注册腿，本面零 pi-ai 知识。
  *
  * 读写纪律（与 tool-policy-store 同族——「文件即用户资产」律）：

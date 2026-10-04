@@ -1210,7 +1210,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       sourceRefs: [{ sessionId: 's-inj', seq: 1 }],
     });
 
-    // 拍 2：差分落账（绑会话发射位经 sessions 服务面过闸）+ 注入两条（06 §328 序）
+    // 拍 2：差分落账（绑会话发射位经 sessions 服务面过闸）+ 注入两条（06 §6「注入面」条注入序）
     const out2 = await dispatch.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, {
       sessionId: 's-inj',
       messages: [],

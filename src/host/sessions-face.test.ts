@@ -1,5 +1,5 @@
 /**
- * sessions 服务面测试（批 19 销账笔——03 §4.4/§4.5 + 06 §318 appendEvent 最小面；
+ * sessions 服务面测试（批 19 销账笔——03 §4.4/§4.5 + 06 §6「ctx.sessions.appendEvent 最小面」条；
  * cs-D1 sessions 完整受理面批 2026-09-15 扩面——只读四件 + storeStateFor 域绑定
  * 三动词 + bind storeState 直连/行籍闸单拍）。
  *
@@ -70,7 +70,7 @@ function tableOf(): { table: Map<string, { session: SessionLog }>; driverOf: Ses
   return { table, driverOf: (sessionId) => table.get(sessionId) };
 }
 
-describe('sessions 服务面（createSessionsFace——06 §318 appendEvent 最小面）', () => {
+describe('sessions 服务面（createSessionsFace——06 §6「ctx.sessions.appendEvent 最小面」条）', () => {
   it('二道闸①：核心事件词伪造拒写（核心词写入权属宿主驱动单源）', () => {
     const { table, driverOf } = tableOf();
     const log = new SessionLog({ sessionId: 's-core' });

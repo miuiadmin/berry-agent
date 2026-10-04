@@ -751,7 +751,7 @@ function makeSkillsPlugin(deps: CorePluginHostDeps): CorePluginReference {
 }
 
 /**
- * 当轮 query 取数（06 §294——recall 注入腿消费位）：durable 日志尾扫最后一条
+ * 当轮 query 取数（06 §6 按需检索腿——recall 注入腿消费位）：durable 日志尾扫最后一条
  * user/message 的 string content（非 string 形〔parts 数组〕不作 query——宁缺
  * 毋滥）。从 durable 日志取而非 LLM batch 尾扫：diff handler 先注入的 user 形
  * 消息会污染 batch 尾扫判据（注入序依赖）。fetchEvents 缺席/读失败/扫到头 →
@@ -780,7 +780,7 @@ function lastUserQueryText(
  * core:memory（批 19b-2）——06 篇记忆面全环装载：DAO（宿主库同库——05 §6.4
  * 迁移链已由 runtime 机械聚合）+ 九工具散装注册（boot 全局层）+ 'memory/core'
  * 常驻简报段（每请求物化）+ session/event 三消费腿（即时提取/引用记录/周期
- * 计数——03 §146 活体镜像的汇入点，发射位在 Persistence.onDurableEvent 桥）+
+ * 计数——03 §2.4 钩子主表 session/event 行活体镜像的汇入点，发射位在 Persistence.onDurableEvent 桥）+
  * run 终态 due→fire（06 §5 计数挂件拍点 = 会话空闲即审）+ 激活期 FTS 对账 +
  * memory/diff 词汇注册（不可逆装配面）+ memory-export/import 两命令 +
  * 'memory' 服务面供给。
@@ -788,7 +788,7 @@ function lastUserQueryText(
  * 路 2（recallForQuery 按需检索）已接线（批 19 销账笔——06 §6 路 2 消费腿：
  * minScore 水位旋钮缺省不设位〔拍板维持〕——检索路本身在场）；diff 发射位
  * （sessions.appendEventFor 绑会话闭包）与 diff/recall 两注入腿
- * （context_transform 瀑布——06 §328 注入序 diff 先 recall 后）同批收口。
+ * （context_transform 瀑布——06 §6 差分实现纪律「注入面」条注入序 diff 先 recall 后）同批收口。
  *
  * 降级梯：sqlite 缺席 = 件整体零装载（主闸）；llm/fetchEvents 缺席 = 周期腿
  * 缺席（即时提取仍通）；ftsSearch/ftsMaintenance/notify 各自缺席各腿静默降级；
@@ -873,7 +873,7 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
       });
       const cite = createCiteRecorder({ dao, warn });
 
-      // session/event 三消费腿（03 §146——user/message→即时提取；assistant/
+      // session/event 三消费腿（03 §2.4 钩子主表 session/event 行——user/message→即时提取；assistant/
       // message→引用记录（件内自滤）+ 回看缓存喂入（§4 第二动作——空文本面
       // 同覆写，「紧邻前一条」语义忠实）；全事件→周期计数（件内自滤 turn/end +
       // tool/call）。surfaceOp 遮蔽指令不进消费面（surface 事件滤除）。
@@ -941,7 +941,7 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
         },
       );
 
-      // memory/diff 词汇注册（不可逆装配面——06 §329 装载面作用域化注册）。
+      // memory/diff 词汇注册（不可逆装配面——06 §6 差分实现纪律「词汇注册」条装载面作用域化注册）。
       // 注册表进程级单例（contracts/events 模块态）：同进程多次装配（测试多例
       // /热重启形）同 owner 已在场 = 幂等跳过；异 owner 在场则注册动词保持
       // 响亮冲突（PLUGIN_EVENT_TYPE_CONFLICT 拒收语义不软化——03 §2.7 指派）
@@ -985,7 +985,7 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // 注入角色两枚（幂等注册——进程级角色注册表多次装配常态）
       ensureDiffRole();
       ensureRecallRole();
-      // 注入序（06 §328）：diff handler 注册先于 recall——权威修正先于查询提示
+      // 注入序（06 §6 差分实现纪律「注入面」条）：diff handler 注册先于 recall——权威修正先于查询提示
       // 进请求尾；todo 恒最后（驱动侧瀑布后追加——05 §1.1）。两腿体内 try/catch
       // 全包 warn 放行（铁律 3——注入失败不影响会话主路径）；每 handler 每请求
       // 至多一条（零差分/零命中 = 零注入不打扰请求面）

@@ -65,7 +65,7 @@ function bwrapDenyArgs(policy: SandboxPolicy): string[] {
 }
 
 /**
- * 写 deny 遮蔽参数（04 §252 腿二——成熟度缺口 #9）：`--ro-bind-try <path>
+ * 写 deny 遮蔽参数（04 §8 腿二——成熟度缺口 #9）：`--ro-bind-try <path>
  * <path>` 逐件一对——把宿主该路径**只读**挂载遮蔽沙箱内同名路径（写即
  * read-only file system 拒）。与读 deny 同律末位追加（后位遮蔽——排在全部
  * 既有 bind 之后）+ 同律宿主在判过滤（B4 勘正）：缺席即不发行 = 「`.git`

@@ -4,7 +4,7 @@
  *
  * 编舞单源律（04 §7「管道是唯一执行路径」结构保证）：本件与 bash 工具件
  * （bash.ts）同模块——守门全序复用件内函数族（背景命令拒/git 重定向硬拒/
- * git push 截获〔03 :823 六役消费位接线〕/豁免分类/沙箱一律 confine），
+ * git push 截获〔04 §8 腿三定形注——git push 外推截获条款消费位接线〕/豁免分类/沙箱一律 confine），
  * spawn 经 pipeline.run 全腿照常（登记簿/env 白名单/三源竞速结算/保尾）。
  * goal 侧不自组装第二份编舞、不解析工具文本结果（立项档裁决 1 两否决项）。
  *
@@ -89,7 +89,7 @@ function foldResult(result: { outcome: string; exitCode: number | null; stderr: 
 
 /**
  * 造 gate 执行 seam：守门全序（背景命令拒 → git 重定向硬拒 → git push
- * 截获〔03 :823 六役——与重定向拒同位硬拒〕→ 豁免分类 + 沙箱一律 confine）
+ * 截获〔04 §8 腿三定形注——与重定向拒同位硬拒〕→ 豁免分类 + 沙箱一律 confine）
  * → pipeline.run（30s 帽 + owner 'goal-gate'）→ 结算折形。
  *
  * 守门抛错（EXEC_BACKGROUND_REJECTED/EXEC_GIT_REDIRECT_DENIED/
@@ -117,7 +117,7 @@ export function createGateExec(deps: GateExecFactoryDeps): GateExecHandle {
             `gate 命令重定向目标落在 .git 版本史内（${gitViolations.join('、')}）——carve-out 平台底线恒不可写`,
           );
         }
-        // 守门 2.5：git push 外推截获（03 :823 六役消费位接线——bash 工具面
+        // 守门 2.5：git push 外推截获（04 §8 腿三定形注消费位接线——bash 工具面
         // :272 同款先例，插入位点与 git 重定向拒相邻）。gate 命令无 danger
         // 出路（approval 面不注入），远端史不可逆写不因档位放行——词干命中
         // 即硬拒，全档无升权出路（折形同守门抛错：catch 折 exitCode 1 +
@@ -125,7 +125,7 @@ export function createGateExec(deps: GateExecFactoryDeps): GateExecHandle {
         if (isGitPushAttempt(command)) {
           throw new BaseError(
             'EXEC_GIT_PUSH_DENIED',
-            'gate 命令 git push 外推全模式截获（EXEC_GIT_PUSH_DENIED——03 :823 六役）：' +
+            'gate 命令 git push 外推全模式截获（EXEC_GIT_PUSH_DENIED——04 §8 腿三）：' +
               '远端史不可逆写不因沙箱模式放行；发布动作走宿主编排面或人面自跑，' +
               '本地评测工作（commit/branch 等只读与本地动词）不受影响',
           );

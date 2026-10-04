@@ -9,7 +9,7 @@
  *   UTC 翻日 now 注入）；
  * - verdict 三值记账 + seq/prevHash/recordHash 链形手工重算；
  * - 链坏拒续写的零追加半面（字节快照全等）+ 记账/落盘失败 warn 降级四例族
- *   （步 6 两腿 + deny 腿 + latch 腿——04:426 全域对称律）；
+ *   （步 6 两腿 + deny 腿 + latch 腿——04 §13「记账失败降级律（全域对称）」）；
  * - 并发互斥（maxPerDay=1 双 deliver 恰一过——串行段回归锁）；
  * - approve 三律（默认 30 天/坏 ttlDays 拒/他 consumer 保留）；
  * - status 各态（链坏 cap.used=null、HALT 删后 latch 痕迹独立呈现）；
@@ -297,7 +297,7 @@ describe('闸序 0：账本链健康（前置不变式）', () => {
       gate.runGuarded({ action: 'push', target: 'o/r' }, async () => 3),
       'DANGER_LEDGER_CORRUPT',
     );
-    // 零追加半面（04:422「链坏拒续写」——账本完整性先于可用性）：拒续写 = 拒码
+    // 零追加半面（04 §13 闸序 0 账本链健康前置不变式「链坏拒续写」——账本完整性先于可用性）：拒续写 = 拒码
     // 半面 + 不向坏链追加任何行半面，二者缺一即伪。字节级快照全等断言——
     // 若步 0 失败被改走路由 denyAndThrow（会 appendRecord 一笔 deny 行），
     // 本断言即红（2026-09-11 遗漏扫描批 test-gap-1 补锁——注入实证 36 例全
@@ -558,7 +558,7 @@ describe('对拍：dangerTargetMatches vs repoMatchesGlob（词面独立律漂�
   });
 });
 
-describe('记账/落盘失败 warn 降级（04:426 全域对称律四例族——决策已成立后观测位 IO 失败不改回执语义）', () => {
+describe('记账/落盘失败 warn 降级（04 §13「记账失败降级律（全域对称）」四例族——决策已成立后观测位 IO 失败不改回执语义）', () => {
   it('成功尾记账失败：runGuarded 仍返执行结果 + warn 恰一笔（外部写已发生不可折假失败）', async () => {
     const warns: string[] = [];
     const gate = makeGate({ warn: (m) => warns.push(m) });
@@ -605,7 +605,7 @@ describe('记账/落盘失败 warn 降级（04:426 全域对称律四例族—�
     try {
       // 值域越闭集拒（闸序 4——denyAndThrow 路径）：appendRecord EACCES →
       // catch 降级 warn 后照抛拒码。若有人把 catch 改成吞拒或 rethrow 顶替
-      // 拒码，本例即红（04:426「deny 路径同律对称」明文）。
+      // 拒码，本例即红（04 §13「记账失败降级律」deny 路径同律对称明文）。
       await expectDeny(
         gate.runGuarded({ action: 'comment', target: 'o/r' }, async () => 'x'),
         'DANGER_TARGET_DENIED',

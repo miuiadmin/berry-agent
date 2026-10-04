@@ -1,5 +1,5 @@
 /**
- * exec 件 git-guard——bash 侧 .git 拦截面（04 §252 桥条款两腿执法，成熟度
+ * exec 件 git-guard——bash 侧 .git 拦截面（04 §8 carve-out 桥条款两腿执法，成熟度
  * 缺口 #9 落码批；此前「先有词后有法」挂账的执法批本体；2026-09-14 呈拍
  * 落定批增腿三 git push 外推截获）。
  *
@@ -145,7 +145,7 @@ export interface RedirectTarget {
  *
  * 命令替换嵌套域（裸/双引号内 `$(`、反引号）照扫——替换体里的 `>` 是真
  * 算子（`"$(cmd > .git/x)"` 是真写）；嵌套域内 heredoc 不识别（体按文本扫
- * 可致保守误拒，方向无害——04 §252 诚实边界）。
+ * 可致保守误拒，方向无害——04 §8 腿二定形注「保守边界诚实成文」条）。
  *
  * 段内 `cd <静态词>` 漂移追踪：段边界（未引号 `;` `&&` `||` `|` `&` 换行）
  * 处回看刚完段——`cd .git && > config` 漂移形同捕。漏追边界诚实成文：段内
@@ -597,7 +597,7 @@ function segmentScan(command: string): {
 }
 
 /**
- * 静态洁净 git 白名单形判定（04 §252 腿二——豁免 = 策略不携 workspace .git
+ * 静态洁净 git 白名单形判定（04 §8 腿二〔成熟度缺口 #9〕——豁免 = 策略不携 workspace .git
  * 写 deny + worktree 授予腿）。
  *
  * 洁净形 = 段（未引号 `;` `&&` `||` `|` `&` 换行 切分）全部为：
@@ -771,7 +771,7 @@ export function isGitPushAttempt(command: string): boolean {
 /* ------------------------------------------------------------------ */
 
 /**
- * worktree 形态探测（04 §252「worktree 绑定会话对锚定 worktree 的 git 命令
+ * worktree 形态探测（04 §8 冷读闸桥条款「worktree 绑定会话对锚定 worktree 的 git 命令
  * 豁免」的授予腿）：workspaceRoot `.git` 为**文件**（worktree 指针形）时读
  * `gitdir:` 指针，返回**主仓 common git dir**（`<repo>/.git/`）的 canonical
  * 路径。真跑证明返回 backing worktrees 目录不够——worktree 的 git 元数据写

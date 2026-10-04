@@ -1,13 +1,13 @@
 /**
  * 'sessions' 服务面（03 §4.4/§4.5——cs-D1 sessions 完整受理面批 2026-09-15
- * 完整面 + 06 §318 appendEvent 最小面批 19 销账笔）。
+ * 完整面 + 06 §6「ctx.sessions.appendEvent 最小面」条批 19 销账笔）。
  *
  * 宿主装配根 provide 的活引用面：appendEventFor(sessionId) 按会话解析**当下**
  * 活体驱动（/new 热切换安全 = 调用时点解析非装配期冻结）；无活体驱动 =
  * undefined 降级（服务照常 provide——诚实缺席律：消费方〔core:memory 差分
  * 落账腿〕捕获后自行降级，mirror 不锁步）。
  *
- * 二道闸（06 §318 定稿条款——闭环在闭包内非依赖 SessionLog 下游）：
+ * 二道闸（06 §6「ctx.sessions.appendEvent 最小面」定稿条款——闭环在闭包内非依赖 SessionLog 下游）：
  *  ①核心事件词伪造拒写——核心词写入权属宿主（核心事件族 = 驱动单源）；
  *  ②未注册词汇拒写——与 SessionLog.append 下游 SESSION_UNKNOWN_EVENT_TYPE
  *    同判据（前置在此 = 错误信息可携带服务面上下文；下游仍兜底）。

@@ -238,7 +238,7 @@ describe('customProviders 第五键（2026-09-28 模型渠道批 C-1——条目
     expect(load.healthy).toBe(true);
   });
 
-  it('条目坏形 = 丢该条点名、好条目照常生效（keybindings 先例同形——04:328 定形）', () => {
+  it('条目坏形 = 丢该条点名、好条目照常生效（keybindings 先例同形——04 §9 定形块⑥ 键面条款定形）', () => {
     const dir = tmpDir('settings-cp-badentry-');
     writeFileSync(
       join(dir, SETTINGS_BASENAME),

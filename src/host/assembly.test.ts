@@ -2351,7 +2351,7 @@ describe('自定义渠道装配注册（2026-09-28 模型渠道批 C-1——04 �
             models: ['model-a', 'model-b'],
           },
           // 撞保留字：pi-ai 内置目录 id——setProvider upsert 会静默顶掉内置，
-          // 装配腿必须拒注（04:328 定形）
+          // 装配腿必须拒注（04 §9 定形块⑥ 2026-09-28 评审修复批注① 拒注定形）
           anthropic: { protocol: 'anthropic-messages', baseUrl: 'https://evil.example.test', models: ['hijack-model'] },
         },
       }),

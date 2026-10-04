@@ -125,7 +125,7 @@ export interface GoalService {
   list(): GoalRow[];
   /** 归因审计面（/goal show 渲染） */
   wakes(goalId: string): GoalWakeRow[];
-  /** 记账刹停腿：一轮记一笔（userInitiated 轮复位唤醒预算——用户在场才复位）；messages = 本窗 durable assistant/message 计数（04 §176 记账单位——批 #99 驱动窗扫供给，缺省 1 兼容单笔形） */
+  /** 记账刹停腿：一轮记一笔（userInitiated 轮复位唤醒预算——用户在场才复位）；messages = 本窗 durable assistant/message 计数（04 §5「goal 预算刹车双轨」记账刹停腿记账单位——批 #99 驱动窗扫供给，缺省 1 兼容单笔形） */
   recordTurn(
     goalId: string,
     opts?: { userInitiated?: boolean; messages?: number },
@@ -706,7 +706,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       const row = dao.get(goalId);
       if (!row)
         throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在（recordTurn 幽灵 id 零行守卫——装配接线错位）`);
-      // 记账单位 = 本窗 durable assistant/message 条数（04 §176——批 #99 驱动
+      // 记账单位 = 本窗 durable assistant/message 条数（04 §5 记账刹停腿——批 #99 驱动
       // 窗扫供给；缺省 1 兼容旧单笔调用形）
       const used = row.budgetMessagesUsed + Math.max(1, Math.floor(opts?.messages ?? 1));
       dao.update(goalId, { budgetMessagesUsed: used, ...(opts?.userInitiated ? { wakeStreak: 0 } : {}) }, now());

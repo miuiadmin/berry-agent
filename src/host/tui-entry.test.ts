@@ -959,7 +959,7 @@ describe('runTuiEntry 装配序', () => {
   // —— 启动动画接线锁（三反馈批D——2026-09-21）：先行件2 供数面（onBootStage/
   // onPluginLoadStart——assembly emitBootStage）经本件装配位接 BootAnimation；
   // 进屏序 = cooked 窗动画行（零 CSI/OSC 纯文本）→ raw 窗屏本体（footer）——
-  // 两窗序由「io 先于装配构造 + 动画行直写 io」结构性保证（07 :204 射程分立）。
+  // 两窗序由「io 先于装配构造 + 动画行直写 io」结构性保证（07 §4.1 批D 定形注射程分立）。
   it('启动动画接线锁（批D）：阶段行先于 footer 进屏（cooked→raw 两窗序）', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-boot-a-data-'), rigDir('entry-boot-a-ws-'));
     await until(() => io.output.includes('工作区写 · ')); // footer 就绪门（raw 窗首帧）

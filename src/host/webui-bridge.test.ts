@@ -505,7 +505,7 @@ describe('openWebuiFace 桥单元', () => {
       const id = face.deps!.sessions.createSession();
       // 三跑应答：首发 + 缺席键 + 陈旧字面量（幂等重收执与冲突拒不耗应答）
       faux.setResponses([() => messageOf(), () => messageOf(), () => messageOf()]);
-      // 首发受理（SPA 携 UUID 形幂等键——03:938 ⑤ submit 体 messageId 选填位）
+      // 首发受理（SPA 携 UUID 形幂等键——03 §10.4 批 18a 定形块⑤ submit 体 messageId 选填位）
       face.deps!.sessions.submitPrompt({ sessionId: id, content: '重试同文', messageId: 'spa-uuid-1' });
       // 轮询至首笔 durable 可见（真重试形：响应丢失后重发——重发时首笔已在账）
       await until(async () => (await face.deps!.read.fetchMessages(id)).some((m) => m.role === 'user'));

@@ -131,7 +131,7 @@ export function renderDiffInjection(entries: readonly MemoryDiffEntry[]): string
   return lines.join('\n');
 }
 
-/* ---------------- 差分注入角色（06 §319——memory/diff 自定义角色） ---------------- */
+/* ---------------- 差分注入角色（06 §6 差分实现纪律「注入面」条——memory/diff 自定义角色） ---------------- */
 
 /** 差分注入角色名（与事件词同串——消息角色/事件类型两注册表分立互不撞） */
 export const MEMORY_DIFF_ROLE = 'memory/diff';

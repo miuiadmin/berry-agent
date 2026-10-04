@@ -261,7 +261,7 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
         const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : BASH_TIMEOUT_DEFAULT_MS;
         const cwd = typeof args.cwd === 'string' ? args.cwd : deps.workspaceRoot();
 
-        // ---- 腿一（04 §252）：.git 重定向目标扫描——硬拒前置（升权审批前，
+        // ---- 腿一（04 §8 成熟度缺口 #9 落码批）：.git 重定向目标扫描——硬拒前置（升权审批前，
         // 不空耗审批对；任何档无升权出路、白名单不豁免——carve-out 路径级
         // 直写恒不可写） ----
         const gitViolations = findGitRedirectViolations(command, cwd);
@@ -269,7 +269,7 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
           throw new BaseError(
             'EXEC_GIT_REDIRECT_DENIED',
             `bash 重定向目标落在 .git 版本史内（${gitViolations.join('、')}）——carve-out 平台底线：` +
-              '任何模式恒不可写、无升权出路（04 §252）；git 元数据操作请走 git 命令白名单形' +
+              '任何模式恒不可写、无升权出路（04 §8 carve-out 条款）；git 元数据操作请走 git 命令白名单形' +
               '（add/commit/branch 等直陈命令，不带命令替换/子壳）',
           );
         }
@@ -354,7 +354,7 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
             isError: true,
           };
         }
-        // ---- 腿二（04 §252）：静态洁净白名单分类 + 策略组装 ----
+        // ---- 腿二（04 §8 成熟度缺口 #9 落码批）：静态洁净白名单分类 + 策略组装 ----
         // 非豁免形恒携 workspace .git 写 deny（任何档含 danger——底线不交档位；
         // 运行时兜底关 tee/python/sed -i/dd/变量间接等全部非重定向向量；wt 挂账
         // 批：全部授予根的 .git 位同并入——授予扩「批了能成」的域不扩版本史面）；

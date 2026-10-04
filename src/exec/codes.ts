@@ -4,7 +4,8 @@
  * 前缀族在 contracts/errors.ts ERROR_CODE_PREFIXES 已注册（02 §5.3 #1）；
  * 码名两枚为规范具名（EXEC_SPAWN_FAILED / EXEC_ENV_FORBIDDEN——04 §11/§8
  * 原文），两枚为落码批定名（EXEC_TIMEOUT / EXEC_BACKGROUND_REJECTED——
- * 04 §11 超时归因条与 §8「无后台化」截获条的拒执面），一枚 04 §252 定名
+ * 04 §11 超时归因条与 §8「无后台化」截获条的拒执面），一枚 04 §8 腿一
+ * （成熟度缺口 #9）定名
  * （EXEC_GIT_REDIRECT_DENIED），一枚第四役入册（EXEC_ABORTED——bash 工具
  * 面打断归因前缀既有、码册 2026-09-14 补齐），一枚呈拍落定批入册
  * （EXEC_GIT_PUSH_DENIED——04 §8 腿三 git push 外推截获执法面）。
@@ -39,7 +40,7 @@ registerErrorCodes([
     code: 'EXEC_GIT_REDIRECT_DENIED',
     module: 'exec',
     description:
-      'bash 重定向目标落在 .git 版本史内——carve-out 路径级直写硬拒（04 §252 桥条款腿一）：任何档无升权出路、白名单不豁免；git 元数据操作走命令白名单形（成熟度缺口 #9 落码批）',
+      'bash 重定向目标落在 .git 版本史内——carve-out 路径级直写硬拒（04 §8 腿一）：任何档无升权出路、白名单不豁免；git 元数据操作走命令白名单形（成熟度缺口 #9 落码批）',
   },
   {
     code: 'EXEC_ABORTED',

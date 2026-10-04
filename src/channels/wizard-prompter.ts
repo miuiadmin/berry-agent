@@ -81,7 +81,7 @@ export interface WizardPrompter {
    * 忙等指示（R-3 体验批——拉取/探针等短等步的即时反馈）：非阻塞呈现
    * label，返回**清除函数**（幂等——调用侧 try/finally 恒调，防异常路径
    * 状态行残留）。**可选法**：缺席（旧实装/假 prompter）时流程件 no-op
-   * 不炸（07:292 R-3 笔——busy 缺席 no-op 裁决）。
+   * 不炸（07 §4.1 ob-3 定形注 R-3 笔——busy 缺席 no-op 裁决）。
    */
   busy?(label: string): () => void;
   /** 收尾（阻塞至用户确认——任意键关屏；流程终局唯一出口） */

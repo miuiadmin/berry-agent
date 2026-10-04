@@ -26,7 +26,7 @@ function makeGitRepo(base: string): string {
   return repoRoot;
 }
 
-describe('canonical 工作区根解析（06 §74 解析律）', () => {
+describe('canonical 工作区根解析（06 §3「owner_key 与 canonical 工作区根」条解析律）', () => {
   it('普通仓库：.git 目录的父级即根（realpath 消符号链）', () => {
     const base = makeRoot();
     const repoRoot = makeGitRepo(base);

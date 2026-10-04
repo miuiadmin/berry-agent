@@ -260,7 +260,7 @@ describe('createGateExec 执行段收抵（pipeline.request 断言）', () => {
   });
 });
 
-/* ---------------- git 豁免两分支策略组装（04 §252 腿二抄写面收抵——ex-2 + test/ex-1） ---------------- */
+/* ---------------- git 豁免两分支策略组装（04 §8 腿二抄写面收抵——ex-2 + test/ex-1） ---------------- */
 
 describe('createGateExec git 豁免策略组装（独立抄写面不漂移）', () => {
   it('豁免命令 + 主仓形：不携 denyWritePaths/writableRoots（裸 workspace-write 形）', async () => {
@@ -308,9 +308,9 @@ describe('createGateExec git 豁免策略组装（独立抄写面不漂移）', 
   });
 });
 
-/* ---------------- git push 截获（03 :823 六役消费位接线——纯增序） ---------------- */
+/* ---------------- git push 截获（04 §8 腿三定形注消费位接线——纯增序） ---------------- */
 
-describe('createGateExec git push 截获（03 :823 六役——守门缺位收口；修前红锚：push 形照常放行进执行段）', () => {
+describe('createGateExec git push 截获（04 §8 腿三定形注——守门缺位收口；修前红锚：push 形照常放行进执行段）', () => {
   // 词干变形矩阵与 bash.test.ts 腿三硬拒矩阵同源对拍（isGitPushAttempt
   // 真身单源——gate 侧只锁「守门消费位在场」这一件事，词干判覆盖面归 git-guard 测试辖）
   it.each([

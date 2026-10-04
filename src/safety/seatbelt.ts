@@ -37,7 +37,7 @@ function seatbeltDenyLines(policy: SandboxPolicy): string[] {
 }
 
 /**
- * 写 deny 行（04 §252 腿二——成熟度缺口 #9）：`(deny file-write* (subpath
+ * 写 deny 行（04 §8 腿二——成熟度缺口 #9）：`(deny file-write* (subpath
  * "<canonical 路径>"))` 逐件一行，恒末位追加（SBPL last-match-wins——压过
  * 此前一切 allow，含 workspace-write 档的逐根 allow 与 danger 档的
  * allow default；subpath 覆盖整树）。read-only 档与全局 `(deny file-write*)`
@@ -55,7 +55,7 @@ function seatbeltDenyWriteLines(policy: SandboxPolicy): string[] {
  *
  * danger 档形（04 §8 定形②「任何档一律」）：(version 1) + (allow default)
  * + 读 deny 行——无拒写、无逐根 allow；danger 同过最小读 deny profile。
- * 写 deny 行两档同律恒末位（含 danger——04 §252 底线不交档位）。
+ * 写 deny 行两档同律恒末位（含 danger——04 §8 腿二定形注「底线不交档位」）。
  */
 export function seatbeltProfile(policy: SandboxPolicy): string {
   const denies = seatbeltDenyLines(policy);

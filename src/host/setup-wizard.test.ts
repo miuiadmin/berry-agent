@@ -707,7 +707,7 @@ describe('R-3 体验批（busy 可选法 + 坏形重问 + ✓ 判据同锚 + 可
     expect(busyLog[0]?.cleared).toBe(true); // 异常路径 finally 恒清（D6）
   });
 
-  it('busy 可选法缺席 = no-op（假 prompter 无 busy 不炸——07:292 R-3 裁决）', async () => {
+  it('busy 可选法缺席 = no-op（假 prompter 无 busy 不炸——07 §4.1 ob-3 定形注 R-3 裁决）', async () => {
     // makePrompter 假件不带 busy——NEW_SCRIPT 全流程直跑（拉取步 showBusy 无炸）
     const { prompter } = makePrompter({
       select: ['__new_custom__', 'openai-completions', '__models_manual__'],

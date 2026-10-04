@@ -1,5 +1,5 @@
 /**
- * exec/git-guard 测试——bash 侧 .git 拦截面三腿的纯词法矩阵（04 §252 桥
+ * exec/git-guard 测试——bash 侧 .git 拦截面三腿的纯词法矩阵（04 §8 carve-out 桥
  * 条款，成熟度缺口 #9 落码批）。
  *
  * 腿一：scanRedirectionTargets 算子族/heredoc/嵌套替换矩阵 +

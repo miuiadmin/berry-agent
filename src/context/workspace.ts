@@ -3,7 +3,7 @@
  * context 职责——共享原语宿主收编：memory owner_key / 技能信任判定 / 未来
  * project 域键三处同源，一处实现三处消费）。
  *
- * 解析律（06 §74 逐条）：
+ * 解析律（06 §3「owner_key 与 canonical 工作区根」条逐条）：
  *  - 从 cwd 向上找最近 `.git`；
  *  - worktree / submodule（`.git` 为文件）解析 `gitdir → commondir` 归并到
  *    主仓库根——同一仓库的主目录、worktree、任意子目录产生同一 project 键；

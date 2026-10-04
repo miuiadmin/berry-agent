@@ -1,7 +1,7 @@
 /**
  * safety/seatbelt 真跑测试 — darwin 平台沙箱读 deny / 写 deny 执法回归锁
  * （04 §7 读侧 carve-out + 04 §8 定形②——2026-09-08 P0①；写 deny 面 =
- * 04 §252 腿二——成熟度缺口 #9）。
+ * 04 §8 腿二——成熟度缺口 #9）。
  *
  * 与 sandbox.test 的分工：彼件只测参数面纯函数（不 spawn——平台无关跑）；
  * 本件在 darwin 真机上真 spawn sandbox-exec，验证拼出的 SBPL profile 内核
@@ -82,7 +82,7 @@ d('seatbelt 真跑（读 deny 两档执法——fail-closed 无豁免）', () =>
   });
 });
 
-d('seatbelt 真跑（写 deny——04 §252 腿二 .git 版本史护栏）', () => {
+d('seatbelt 真跑（写 deny——04 §8 腿二 .git 版本史护栏）', () => {
   /** 真跑临时目录族（afterAll 清） */
   const rigDirs: string[] = [];
   afterAll(() => {

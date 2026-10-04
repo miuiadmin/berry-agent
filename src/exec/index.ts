@@ -46,7 +46,7 @@ export type { BashToolDeps } from './bash.js';
 export { createGateExec, GATE_EXEC_OWNER, GATE_EXEC_TIMEOUT_MS } from './gate-exec.js';
 export type { GateExecFactoryDeps, GateExecHandle } from './gate-exec.js';
 
-// bash 侧 .git 拦截面（04 §252 桥条款两腿——成熟度缺口 #9 落码批）
+// bash 侧 .git 拦截面（04 §8 carve-out 桥条款两腿——成熟度缺口 #9 落码批）
 export {
   findGitRedirectViolations,
   isGitMetadataExempt,

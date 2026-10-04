@@ -356,7 +356,7 @@ describe('createBashTool 升权面（allowed-once 语义）', () => {
   });
 });
 
-describe('createBashTool .git 拦截面（04 §252 两腿——成熟度缺口 #9）', () => {
+describe('createBashTool .git 拦截面（04 §8 腿一/腿二——成熟度缺口 #9）', () => {
   /** 计数管道：断言零 spawn（硬拒前置——不应到达执行层） */
   function countingPipeline(): { pipeline: SpawnPipeline; runs: () => number } {
     let count = 0;

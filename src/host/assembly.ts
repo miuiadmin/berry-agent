@@ -289,7 +289,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         pluginsProvider: () => ({ ...pluginCounts }),
         // 沙箱行第六件真源（F2）：晚绑定槽取面（见上方槽注）——每请求重算
         sandboxModeProvider: (sessionId?: string) => sandboxDisclosureSource?.(sessionId),
-        // session/event 活体镜像桥（03 §146——批 19b-2）：durable append →
+        // session/event 活体镜像桥（03 §2.4 钩子主表 session/event 行——批 19b-2）：durable append →
         // dispatch.emit。isRegistered 守卫 = 纯诊断形（noPlugins）词汇未注册
         // 零发射（41 词表在 bootPlugins 预注册——不装载即不注册）；观察者
         // 异常隔离双保险（Persistence 发射侧 try/catch + dispatch 监听器互

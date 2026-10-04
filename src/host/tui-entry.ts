@@ -328,7 +328,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
   // —— 启动动画件（三反馈批D——07 §4.1 呈现面件 10）：io 先于装配构造
   // （构造态零副作用），动画行在 cooked 窗直写 io（零 CSI/OSC 纯文本——
   // ONLCR 交驱动）；raw 窗（io.ready）在装配后才进——进屏序两窗分立
-  // （07 :204 射程分立：本件非探测类写出）。打点门 = BERRY_AGENT_TIMING=1。
+  // （07 §4.1 批D 定形注射程分立：本件非探测类写出）。打点门 = BERRY_AGENT_TIMING=1。
   const io = options.io ?? new ProcessTerminalIO();
   const bootAnimation = new BootAnimation((text) => io.write(text), {
     version: options.version ?? '0.0.0',

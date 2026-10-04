@@ -47,7 +47,7 @@ export interface SandboxPolicy {
    */
   readonly denyReadFiles?: readonly string[];
   /**
-   * 写 deny 集显式覆盖（canonical 绝对路径——04 §252 腿二：bash 非白名单
+   * 写 deny 集显式覆盖（canonical 绝对路径——04 §8 腿二：bash 非白名单
    * 形的 workspace `.git` 写遮蔽等）。服务侧 dataDir 在场时**恒并入**数据
    * 目录条（04 §7「任何档恒不可写」的 bash 腿——与读侧「未携带才补位」
    * 不同：写侧是平台底线不可关，调用方携带值与 enrich 取并集去重）。

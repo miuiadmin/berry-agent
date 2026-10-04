@@ -7,7 +7,7 @@
  * fail-closed 不回落真 DNS（裁决 2）/family 过滤与无匹配族即错（不静默放宽）/
  * dispatcher 单例恒等（进程级单例——连接池复用零生命周期编舞）/真连接
  * e2e 正负例 + 挂账 tripwire（undici Agent connect.lookup 通行 + fetch
- * dispatcher 认位——07 §129 精确锁纪律：任一传输面契约点变迁即钉死链失效面）。
+ * dispatcher 认位——07 §2.1「精确锁的三条纪律」：任一传输面契约点变迁即钉死链失效面）。
  *
  * 进程级登记是有意设计（非每请求隔离）——测试用独立 hostname 防交叉污染，
  * 不设重置钩（单例语义本身即被测对象之一）。
@@ -134,7 +134,7 @@ function causeChainOf(error: unknown): string {
 }
 
 /**
- * 真连接 e2e（rb-1 补锁——钉死链传输面两契约点，07 §129 精确锁纪律：
+ * 真连接 e2e（rb-1 补锁——钉死链传输面两契约点，07 §2.1「精确锁的三条纪律」：
  * 任一契约点变迁即钉死链失效面，须本 e2e 全量重跑）：
  * ① undici Agent `connect.lookup` 真通行（钉值 lookup 经真实 Agent 连接被
  *    消费——非只 lookupOf 直调 callback 形）；
@@ -161,7 +161,7 @@ function causeChainOf(error: unknown): string {
  * 事实——若 Node/npm undici 版本配对变迁使互斥消解，tripwire 翻红强制
  * 重评（届时本注释与 07 定形注一并再勘）。
  */
-describe('真连接 e2e（connect.lookup 通行 + dispatcher 认位——07 §129 精确锁纪律）', () => {
+describe('真连接 e2e（connect.lookup 通行 + dispatcher 认位——07 §2.1「精确锁的三条纪律」）', () => {
   let server: Server;
   let port: number;
 
