@@ -42,5 +42,12 @@ export type { ProjectedMessage, ProjectedToolCall, FoldState } from './derive.js
 export { recoverClosers, firstSeqBreak, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './recover.js';
 export type { SyntheticDraft } from './recover.js';
 export { forkPrefix, slicePrefix, isSeededPrefix } from './fork.js';
-export { parseImportFile, vocabularyGate, pairingGate, SessionSpawnLimiter, runImportGates } from './import-gates.js';
+export {
+  parseImportFile,
+  vocabularyGate,
+  messageShapeGate,
+  pairingGate,
+  SessionSpawnLimiter,
+  runImportGates,
+} from './import-gates.js';
 export type { ImportMeta, ParsedImport } from './import-gates.js';
