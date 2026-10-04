@@ -13,7 +13,9 @@
  * 错误发在 res，两期皆接线 reject（不留悬挂 Promise）。直播档 = GET /v1/events
  * SSE：`data:
  * <单行 JSON>` 块 + `: ping` 注释行——与 face 写侧纪律一一对应；建立期
- * （replay-end 界标前）流终结同样 fail-loud reject，已建立后流错误只诊断。
+ * （replay-end 界标前）流内 error 帧保码拒绝（真实 face 开流即 200——核级
+ * 失败只能走帧，与 stdio 形同语义）、非 2xx 与流终结两路同样 fail-loud
+ * reject，已建立后流错误只诊断。
  */
 import { request as httpRequest } from 'node:http';
 import type { IncomingMessage } from 'node:http';
@@ -97,20 +99,23 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
     });
 
   /**
-   * 非 2xx 错误体还原：face 错误体与线协议错误帧同构（码→状态映射——词汇零
-   * 第二套）——可还原即返回线面错误帧；非帧形错误体落传输错（fail-loud）。
+   * 非 2xx 错误体还原（send/interrupt 与 openLive 建流双形并源）：face 错误体
+   * 与线协议错误帧同构（码→状态映射——词汇零第二套）——可还原即返回线面错误
+   * 帧；非帧形错误体落传输错（fail-loud），回退文案携错误体前 200 字符截段
+   * （代理 HTML 等非帧形错误体的诊断信息不丢——openLive 建流档修前回退只有
+   * 状态码，与 request/send 档漂移）。
    * request 档（错误帧原样返回投形归 client）与 send 档（B2：直接投形
    * SdkError 抛出）共腿——interrupt 的结构化码（如 SESSION_NOT_FOUND）不沦为
    * 传输错文本。
    */
-  const errorFrameOf = (result: HttpResult, what: string): SdkErrorFrame => {
+  const errorFrameOf = (statusCode: number, body: string, what: string): SdkErrorFrame => {
     try {
-      const frame = decodeWireLine(result.body);
+      const frame = decodeWireLine(body);
       if (!isSdkRequest(frame) && frame.kind === 'error') return frame;
     } catch {
       // 落到传输错——非帧形错误体
     }
-    throw new SdkError('SDK_TRANSPORT', `${what} → HTTP ${result.status}：${result.body.slice(0, 200)}`);
+    throw new SdkError('SDK_TRANSPORT', `${what} → HTTP ${statusCode}：${body.slice(0, 200)}`);
   };
 
   /** 应答体 → 帧：2xx 解帧；非 2xx 错误体还原错误帧原样返回（投形归 client） */
@@ -126,7 +131,7 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
         );
       }
     }
-    return errorFrameOf(result, what);
+    return errorFrameOf(result.status, result.body, what);
   };
 
   const transport: SdkTransport = {
@@ -154,7 +159,7 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
       const { verb: _verb, ...payload } = req;
       const result = await roundTrip('POST', SDK_HTTP_ENDPOINTS.interrupt, JSON.stringify(payload));
       if (result.status < 200 || result.status >= 300) {
-        const frame = errorFrameOf(result, 'interrupt');
+        const frame = errorFrameOf(result.status, result.body, 'interrupt');
         throw new SdkError(frame.code, frame.message);
       }
     },
@@ -180,25 +185,29 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
           },
           (res) => {
             if ((res.statusCode ?? 0) !== 200) {
-              // 建流失败：错误体还原错误帧投形拒绝（订阅失败即整档失败）
+              // 建流失败：错误体还原错误帧投形拒绝（订阅失败即整档失败）；非帧形
+              // 错误体经 errorFrameOf 同款回退 SDK_TRANSPORT（携错误体前 200 字符
+              // 截段——与 request/send 档并源，修前回退文案只有状态码）
               const chunks: Buffer[] = [];
               res.on('data', (chunk: Buffer) => chunks.push(chunk));
               res.on('end', () => {
                 try {
-                  const frame = decodeWireLine(Buffer.concat(chunks).toString('utf8'));
-                  if (!isSdkRequest(frame) && frame.kind === 'error') {
-                    reject(new SdkError(frame.code, frame.message));
-                    return;
-                  }
-                } catch {
-                  // 落到传输错
+                  const frame = errorFrameOf(res.statusCode ?? 0, Buffer.concat(chunks).toString('utf8'), 'SSE 建流');
+                  reject(new SdkError(frame.code, frame.message));
+                } catch (err) {
+                  // 非帧形错误体：errorFrameOf 抛 SDK_TRANSPORT（携错误体截段）——直接投形拒绝
+                  reject(
+                    err instanceof SdkError
+                      ? err
+                      : new SdkError('SDK_TRANSPORT', `SSE 建流 → HTTP ${res.statusCode ?? 0}`),
+                  );
                 }
-                reject(new SdkError('SDK_TRANSPORT', `SSE 建流 → HTTP ${res.statusCode ?? 0}`));
               });
               return;
             }
             liveStreams.add(res);
             let settled = false; // 建立界标守卫：replay-end resolve 置位——界标前终局一律建流失败
+            let failed = false; // 建流失败界标：界标前 error 帧已保码拒绝——残帧不再入监听面
             let highWaterSeq = -1;
             let buffer = '';
             res.setEncoding('utf8');
@@ -221,6 +230,19 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
                       highWaterSeq = frame.highWaterSeq;
                       continue;
                     }
+                    if (frame.kind === 'error' && !settled) {
+                      // 建立界标前错误帧 = 建流失败（保码拒绝——与 stdio 形同语义，
+                      // 修前双漂移：错误帧只投 onFrame 且流终结折 SDK_TRANSPORT 泛码）。
+                      // 机理：真实宿主 face 对核级订阅失败（SESSION_NOT_FOUND/
+                      // SDK_CURSOR_INVALID——会话不存在/游标非法）SSE 开流即 200
+                      // （状态码位已用尽，错误只能走帧——src/sdk/http.ts SseStream）、
+                      // 错误帧入流后 EOF 收线。此处 reject 后流终结 terminate 的
+                      // reject 为 no-op（Promise 已落定）。
+                      failed = true;
+                      reject(new SdkError(frame.code, frame.message, frame.sessionId));
+                      return;
+                    }
+                    if (failed) continue; // 已拒流的残帧不再投监听面（错误帧后按契约即 EOF——防御位）
                     onFrame(frame);
                     if (frame.kind === 'replay-end') {
                       // 衔接界标即建立点——界标帧已入监听面（重放段全量承诺）

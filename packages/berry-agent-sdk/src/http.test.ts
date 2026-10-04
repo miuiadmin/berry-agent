@@ -129,7 +129,26 @@ async function startFace(): Promise<{ transport: SdkTransport; log: FaceLog; clo
       }
       const sessionId = url.searchParams.get('sessionId');
       if (sessionId === 's-missing') {
+        // 真实形对拍（宿主 src/sdk/http.ts getEvents）：核级订阅失败（会话不
+        // 存在/游标非法）SSE 开流即 200（状态码位已用尽——错误只能走帧）、
+        // 错误帧入流后 EOF 收线
+        res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+        res.write(
+          `data: ${JSON.stringify({ kind: 'error', code: 'SESSION_NOT_FOUND', message: '无此会话', sessionId })}\n\n`,
+        );
+        res.end();
+        return;
+      }
+      if (sessionId === 's-missing-404') {
+        // gate 层参数档对照形：非 2xx + 线面错误体直答（不开流）——两形都要锁
         sendJson(res, 404, { kind: 'error', code: 'SESSION_NOT_FOUND', message: '无此会话' });
+        return;
+      }
+      if (sessionId === 's-gateway') {
+        // 非帧形错误体（件2）：代理/网关 HTML 错误页——非 200 路回退文案须携
+        // 错误体前 200 字符截段（诊断信息不丢——与 request/send 档并源）
+        res.writeHead(502, { 'content-type': 'text/html; charset=utf-8' });
+        res.end('<html><body>bad gateway upstream</body></html>');
         return;
       }
       if (sessionId === 's-cut-live') {
@@ -301,11 +320,38 @@ describe('httpSdkTransport 直连 HTTP 传输', () => {
     await handle.close();
   });
 
-  it('SSE 建流失败：错误体投形拒绝', async () => {
+  it('SSE 建流失败（真实形——开流即 200、错误帧入流后 EOF）：界标前 error 帧保码拒绝、不入监听面（与 stdio 同语义）', async () => {
     const { transport } = await face();
-    await expect(transport.openLive({ sessionId: 's-missing' }, () => {})).rejects.toMatchObject({
+    const seen: string[] = [];
+    // 宿主 face 对核级订阅失败开流即 200、错误帧入流后 EOF——修前错误帧泄漏进
+    // onFrame 且流终结折 SDK_TRANSPORT 泛码（丢结构化码——与 stdio 形双漂移）
+    await expect(
+      transport.openLive({ sessionId: 's-missing' }, (frame) => seen.push(frame.kind)),
+    ).rejects.toMatchObject({
       name: 'SdkError',
       code: 'SESSION_NOT_FOUND',
+    });
+    expect(seen).toEqual([]); // 错误帧不投监听面（建流失败即整档失败）
+  });
+
+  it('SSE 建流失败（gate 层非 2xx 形）：错误体还原错误帧投形拒绝', async () => {
+    const { transport } = await face();
+    // 宿主 gate 层参数档（查询参坏形等）不开流、非 2xx + 线面错误体直答——
+    // 非 200 路帧还原保码仍须锁（与流内 error 帧形两形并存）
+    await expect(transport.openLive({ sessionId: 's-missing-404' }, () => {})).rejects.toMatchObject({
+      name: 'SdkError',
+      code: 'SESSION_NOT_FOUND',
+    });
+  });
+
+  it('SSE 建流失败非帧错误体（代理 HTML）：SDK_TRANSPORT 回退文案携错误体截段（诊断不丢）', async () => {
+    const { transport } = await face();
+    // 修前回退文案只有状态码（`SSE 建流 → HTTP 502`）——非帧形错误体（代理
+    // HTML）诊断信息丢失；并源后与 request/send 档同款携错误体前 200 字符
+    await expect(withDeadline(transport.openLive({ sessionId: 's-gateway' }, () => {}))).rejects.toMatchObject({
+      name: 'SdkError',
+      code: 'SDK_TRANSPORT',
+      message: expect.stringContaining('bad gateway upstream') as unknown,
     });
   });
 
