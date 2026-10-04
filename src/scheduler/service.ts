@@ -51,9 +51,16 @@ export interface SchedulerServiceDeps {
 /** jobs 表 DAO（service/engine 共用——行映射蛇 ↔ 驼峰单源） */
 export class JobsDao {
   private readonly db: SqliteDatabase;
+  /**
+   * 坏值降级 warn 通道（第十一轮深扫 L4-1——fromDb 三读位 get/list/due 共用；
+   * 缺省静默 no-op：独立构造兼容形，装配位 createSchedulerService 传真实
+   * deps.warn 兑现 docstring「坏值 warn 不炸读」承诺）。
+   */
+  private readonly warn: (message: string) => void;
 
-  constructor(db: SqliteDatabase) {
+  constructor(db: SqliteDatabase, warn: (message: string) => void = () => {}) {
     this.db = db;
+    this.warn = warn;
   }
 
   /** 行查（名寻径；缺席 undefined） */
@@ -65,7 +72,7 @@ export class JobsDao {
          FROM jobs WHERE name = ?`,
       )
       .get(name) as JobsDbRow | undefined;
-    return row ? fromDb(row) : undefined;
+    return row ? fromDb(row, this.warn) : undefined;
   }
 
   /** 全行清单（名序——/tick list 观察面） */
@@ -77,7 +84,7 @@ export class JobsDao {
          FROM jobs ORDER BY name`,
       )
       .all() as JobsDbRow[];
-    return rows.map(fromDb);
+    return rows.map((r) => fromDb(r, this.warn));
   }
 
   /** due 集（启用且到点——挂钟推进轮询面；next_fire_at 升序） */
@@ -91,7 +98,7 @@ export class JobsDao {
          ORDER BY next_fire_at`,
       )
       .all(now) as JobsDbRow[];
-    return rows.map(fromDb);
+    return rows.map((r) => fromDb(r, this.warn));
   }
 
   /** 启用行的下次到点最小值（挂钟下轮调度间隔计算面；无启用行 null） */
@@ -185,12 +192,19 @@ interface JobsDbRow {
   active_started_at: string | null;
 }
 
-/** DB 行 → 契约行（schedule/last_outcome JSON 解析坏值容错降级——行是自有面，坏值 warn 不炸读） */
-function fromDb(row: JobsDbRow): JobRow {
+/**
+ * DB 行 → 契约行（schedule/last_outcome JSON 解析坏值容错降级——行是自有面，
+ * 坏值 warn 不炸读）。warn 腿（第十一轮深扫 L4-1——此前静默降级零日志、
+ * docstring 承诺不存在）：降级时 warn 携行锚（行名 + 原文截断），对齐同族
+ * mcp 行帧坏形 warn 兑现形——降级留痕可诊断。
+ */
+function fromDb(row: JobsDbRow, warn: (message: string) => void): JobRow {
   let schedule: Schedule;
   try {
     schedule = JSON.parse(row.schedule) as Schedule;
   } catch {
+    // 坏值降级 once@epoch0（立即可到点形——坏行不悬置）+ warn 携行锚留痕
+    warn(`jobs 行「${row.name}」schedule 坏值降级 once@epoch0（原文：${truncateRaw(row.schedule)}）`);
     schedule = { kind: 'once', at: new Date(0).toISOString() };
   }
   let lastOutcome: RunOutcome | null = null;
@@ -198,6 +212,8 @@ function fromDb(row: JobsDbRow): JobRow {
     try {
       lastOutcome = JSON.parse(row.last_outcome) as RunOutcome;
     } catch {
+      // 坏值降级 null（结算面缺位——下次 fire 重写）+ warn 携行锚留痕
+      warn(`jobs 行「${row.name}」last_outcome 坏值降级 null（原文：${truncateRaw(row.last_outcome)}）`);
       lastOutcome = null;
     }
   }
@@ -216,6 +232,11 @@ function fromDb(row: JobsDbRow): JobRow {
     activePid: row.active_pid,
     activeStartedAt: row.active_started_at,
   };
+}
+
+/** 坏值原文截断（行锚 warn 用——超 80 字符截断加省略号，不整段刷屏；同族 mcp 行帧 warn 截断形） */
+function truncateRaw(raw: string): string {
+  return raw.length > 80 ? `${raw.slice(0, 80)}…` : raw;
 }
 
 /**
@@ -276,7 +297,9 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
   dao: JobsDao;
   goalJobs: GoalJobsFace;
 } {
-  const dao = new JobsDao(deps.db);
+  // warn 通道随构造注入（L4-1——fromDb 三读位坏值降级留痕的真身；缺省形
+  // 独立构造 JobsDao 兼容静默 no-op）
+  const dao = new JobsDao(deps.db, deps.warn);
   const pathExists = deps.pathExists ?? ((p: string) => statExists(p));
   const now = deps.now;
 

@@ -40,6 +40,7 @@ function openService(
   service: SchedulerService;
   goalJobs: GoalJobsFace;
   getRow: (name: string) => JobRow | undefined;
+  dueRows: (now: string) => JobRow[];
 } {
   store = openStore({
     dbPath: join(dir, 'test.db'),
@@ -54,7 +55,8 @@ function openService(
     pathExists: options.pathExists ?? (() => true),
     cronRegistrar: options.cronRegistrar ?? null,
   });
-  return { service, goalJobs, getRow: (name) => dao.get(name) };
+  // dueRows：坏值降级 warn 锁面三使用位（get/list/due）之一——直开 dao.due
+  return { service, goalJobs, getRow: (name) => dao.get(name), dueRows: (now: string) => dao.due(now) };
 }
 
 /** 断言抛指定码 */
@@ -327,5 +329,54 @@ describe('cron 联动「不半态」', () => {
     expect(calls).toEqual(['register:goal-g10']); // OS 面尝试过（warn 跳过）
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toContain('goal-g10');
+  });
+});
+
+describe('fromDb 坏值降级 warn（第十一轮深扫 L4-1——docstring 承诺兑现）', () => {
+  /** 直改库列坏值（模拟外部坏写/旧迁移残渣——绕开 addJob 守卫的 JSON 串真源） */
+  function corruptColumn(column: 'schedule' | 'last_outcome', name: string, bad: string): void {
+    store!.sqlite().prepare(`UPDATE jobs SET ${column} = ? WHERE name = ?`).run(bad, name);
+  }
+
+  it('schedule 坏值：降级 once@epoch0 照旧 + get/list/due 三使用位 warn 携行锚（名+原文截断）——修前红：静默降级零 warn', () => {
+    const { service, getRow, dueRows } = openService();
+    service.addJob({ name: 'corrupt-sched', schedule: 'daily@09:30', prompt: 'p' });
+    const bad = `not-json${'x'.repeat(100)}`; // >80 字符——截断形同锁
+    corruptColumn('schedule', 'corrupt-sched', bad);
+    // get 使用位：降级形守恒（warn 不炸读）+ warn 留痕
+    warn.mockClear();
+    const row = getRow('corrupt-sched');
+    expect(row?.schedule).toEqual({ kind: 'once', at: '1970-01-01T00:00:00.000Z' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain('corrupt-sched'); // 行锚：行名
+    expect(message).toContain('not-json'); // 行锚：原文前缀在场
+    expect(message).toContain('…'); // 截断标记（>80 字符不整段透传）
+    expect(message).not.toContain('x'.repeat(81)); // 原文超帽段不入场
+    // list 使用位：同一降级单源同律
+    warn.mockClear();
+    expect(service.listJobs().map((r) => r.name)).toContain('corrupt-sched');
+    expect(warn).toHaveBeenCalledTimes(1);
+    // due 使用位：直排 past next_fire_at 令坏行入 due 扫描面
+    store!
+      .sqlite()
+      .prepare('UPDATE jobs SET enabled = 1, next_fire_at = ? WHERE name = ?')
+      .run('2000-01-01T00:00:00.000Z', 'corrupt-sched');
+    warn.mockClear();
+    expect(dueRows(nowIso).map((r) => r.name)).toContain('corrupt-sched');
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('last_outcome 坏值：降级 null 照旧 + warn 携行锚——修前红：静默降级零 warn', () => {
+    const { service, getRow } = openService();
+    service.addJob({ name: 'corrupt-outcome', schedule: 'daily@09:30', prompt: 'p' });
+    corruptColumn('last_outcome', 'corrupt-outcome', 'garbage-outcome{{{');
+    warn.mockClear();
+    const row = getRow('corrupt-outcome');
+    expect(row?.lastOutcome).toBeNull(); // 降级形守恒（warn 不炸读）
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain('corrupt-outcome'); // 行锚：行名
+    expect(message).toContain('garbage-outcome{{{'); // 行锚：原文（≤80 字符整段在场）
   });
 });
