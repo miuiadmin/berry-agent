@@ -239,7 +239,12 @@ export interface SchedulerService {
   listJobs(): JobRow[];
   /** 名寻径（缺席 undefined——/tick 用法面自判 NOT_FOUND 文案） */
   getJob(name: string): JobRow | undefined;
-  /** rm：幽灵名守卫；cron 后端在场先注销 OS 注册（失败亮拒不半态）再删行 */
+  /**
+   * rm：幽灵名守卫；内置 goal 挂钟行拒删（SCHEDULER_JOB_INVALID 指路
+   * /goal 终态动词——删行令 resume/wake/预算广播三消费位结构性不可恢复；
+   * issue-poll builtin 行除外——issue stop() 正门可恢复）；cron 后端在场
+   * 先注销 OS 注册（失败亮拒不半态）再删行。
+   */
   removeJob(name: string): void;
   /** enable/disable 直打行：幽灵名守卫；cron 后端在场同步 OS 注册（失败亮拒、行不翻转） */
   setJobEnabled(name: string, enabled: boolean): void;
@@ -366,6 +371,18 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
     removeJob(name) {
       const row = dao.get(name);
       if (!row) throw new BaseError('SCHEDULER_NOT_FOUND', `任务「${name}」不存在（rm 幽灵名零行守卫）`);
+      // 内置 goal 挂钟行拒删（第七轮 H2）：goal-<goalId> 行的 prompt 快照只此
+      // 一份——删行后 goal 行仍 active 而 GoalJobsFace.enable/disable/remove 对
+      // 无行静默 no-op，resume/wake/预算广播三消费位全瘫且结构性不可恢复。
+      // 生死归 /goal 终态动词摘钟（goalJobs.remove 正门）；issue-poll builtin
+      // 行不在此列——issue 件 stop() 正当经本门摘行、start() 幂等重挂可恢复
+      // （不可恢复性是 goal 独有，守卫面按 builtin 位 × goal- 前缀两判收紧）。
+      if (row.builtin && name.startsWith('goal-')) {
+        throw new BaseError(
+          'SCHEDULER_JOB_INVALID',
+          `任务「${name}」由 goal（目标）自动管理——/tick rm 不受理；请在 /goal 里停止或删除该目标（直接删会令自动唤醒与预算提醒全部失效且无法恢复）`,
+        );
+      }
       if (deps.cronRegistrar && row.enabled) {
         deps.cronRegistrar.unregister(name); // 失败抛 SCHEDULER_CRON_*——行不删（不半态）
       }

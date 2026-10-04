@@ -2,11 +2,16 @@
  * /tick 处理器测试——六动词 argv → 人读文本（守卫折文本不抛；run 收场渲染）。
  * service/engine 均假件（行为面各有专测——本件只测动词分派与文本形态）。
  */
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../contracts/index.js';
+import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
+import { SCHEDULER_MIGRATION } from './migration.js';
 import { runTickCommand, TICK_USAGE, type TickCommandDeps } from './tick.js';
+import { createSchedulerService, type SchedulerService } from './service.js';
 import type { SchedulerEngine } from './engine.js';
-import type { SchedulerService } from './service.js';
 import type { JobRow, RunOutcome } from './types.js';
 
 /** 服务假件：add 直通记录 + 按请求造行（enabled → 排刻形） */
@@ -225,5 +230,84 @@ describe('下次到点呈现（TZ seam——America/New_York）', () => {
     expect(out).toContain('下次 —');
     const added = await runTickCommand(['add', 'j', 'every:10m', 'p'], deps(fakeService(), fakeEngine()));
     expect(added).toContain('停用态');
+  });
+});
+
+/**
+ * rm 内置 goal 挂钟行守卫（第七轮 H2——真 service 面：守卫落 service
+ * removeJob 单点，/tick 面锁折文本与指路文案）。修前红：rm 直入 removeJob
+ * 删成功零拒绝——删后 goal 行仍 active 而 GoalJobsFace.enable 对无行静默
+ * no-op，resume/wake/预算广播三消费位全瘫且结构性不可恢复（prompt 快照
+ * 只此一份）。
+ */
+describe('rm 内置 goal 挂钟行守卫（真 service——H2）', () => {
+  let dir: string;
+  let store: Store | null = null;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'berry-agent-tick-rm-test-'));
+  });
+
+  afterEach(() => {
+    store?.close();
+    store = null;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** 真 service 装配（service.test 同形——临时目录库跑 scheduler 迁移） */
+  function openService(): { service: SchedulerService; getRow: (name: string) => JobRow | undefined } {
+    store = openStore({
+      dbPath: join(dir, 'test.db'),
+      dataDir: join(dir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SCHEDULER_MIGRATION],
+    });
+    const { service, dao } = createSchedulerService({
+      db: store.sqlite(),
+      now: () => '2026-09-07T08:00:00.000Z',
+      warn: () => undefined,
+      pathExists: () => true,
+    });
+    return { service, getRow: (name) => dao.get(name) };
+  }
+
+  it('builtin goal 行 removeJob 拒删 SCHEDULER_JOB_INVALID + 行不删（修前红：删成功零拒绝）', () => {
+    const { service, getRow } = openService();
+    service.addBuiltinJob({ name: 'goal-g1', schedule: 'every:10m', prompt: '挂钟快照', enabled: true });
+    try {
+      service.removeJob('goal-g1');
+      expect.unreachable('应抛 SCHEDULER_JOB_INVALID（内置 goal 挂钟行拒删）');
+    } catch (err) {
+      expect(err).toBeInstanceOf(BaseError);
+      expect((err as BaseError).code).toBe('SCHEDULER_JOB_INVALID');
+    }
+    expect(getRow('goal-g1')).toBeDefined(); // 行不删——goal 挂钟行生死归 /goal 终态动词
+  });
+
+  it('/tick rm builtin goal 行折指路文本 + 行仍在 + enable 仍可复活（可恢复性锁）', async () => {
+    const { service, getRow } = openService();
+    service.addBuiltinJob({ name: 'goal-g2', schedule: 'every:10m', prompt: 'p', enabled: true });
+    service.setJobEnabled('goal-g2', false); // 终态停摆形（行留史——resume 复活前常态）
+    const out = await runTickCommand(['rm', 'goal-g2'], deps(service, fakeEngine()));
+    // BaseError 折文本（命令道不抛）+ 指路 /goal 终态动词摘钟
+    expect(out).toContain('SCHEDULER_JOB_INVALID');
+    expect(out).toContain('/goal');
+    expect(getRow('goal-g2')).toBeDefined(); // rm 不受理——行不删
+    // 修前损害形锁 absent：删行后 enable 对无行静默 no-op 全瘫；治本后照常复活
+    service.setJobEnabled('goal-g2', true);
+    expect(getRow('goal-g2')?.enabled).toBe(true);
+  });
+
+  it('守卫面精准（builtin 位 × goal- 前缀两判）：同名非 builtin 用户行可删、issue-poll builtin 行可删（issue stop() 正门）', () => {
+    const { service, getRow } = openService();
+    // 用户行恰名 goal-mine（NAME_RE 合法）——非 builtin 不在守卫面
+    service.addJob({ name: 'goal-mine', schedule: 'every:10m', prompt: 'p' });
+    service.removeJob('goal-mine');
+    expect(getRow('goal-mine')).toBeUndefined();
+    // issue-poll builtin 行：issue 件 stop() 经 service.removeJob 正门摘行、
+    // start() 幂等重挂可恢复——不落 goal 守卫面（不可恢复性是 goal 独有）
+    service.addBuiltinJob({ name: 'issue-poll', schedule: 'every:120s', prompt: '(builtin) 占位', enabled: true });
+    service.removeJob('issue-poll');
+    expect(getRow('issue-poll')).toBeUndefined();
   });
 });
