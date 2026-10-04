@@ -10,7 +10,8 @@
  *   请求；handleRequest 全同步 ⇒ 栈式作用域零交织（Node 单线程 + 同步受理）；
  * - 活体相位（栈空）：pushEvent/heartbeatTick 的帧按 sessionId 扇出至订阅
  *   SSE 流——**订阅生命周期与真观众同步**（定形注⑤）：流关闭即退订
- *   （core.unsubscribe），ask fail-closed 判据〔无订阅者即 cancel〕与传输面
+ *   （core.unsubscribe），ask fail-closed 判据〔无订阅者即 unavailable——
+ *   04 §9 两语义分立：无人可答 ≠ 用户主动终止（cancel 属打断透传位）〕与传输面
  *   真观众恒一致；POST-only 调用方（prompt 后未开 SSE）的审批即时保守收场。
  *
  * 端点面（定形注①）：五 POST/GET + GET /v1/events（SSE = hello 的 HTTP 承载
@@ -141,7 +142,7 @@ export interface SdkHttpFaceHandle {
   register: SdkRouteRegistrar;
   /** 监听就绪（sock 可选 + TCP 单/多；陈旧 sock 死迹自动清） */
   start(): Promise<SdkListenInfo>;
-  /** 收场序：停心跳 → 全流收口（含扩展路由 SSE 流）→ dispose（在飞 ask cancel + core.close）→ 关监听 → 清 sock 足迹 */
+  /** 收场序：停心跳 → 全流收口（含扩展路由 SSE 流）→ dispose（在飞 ask unavailable + core.close）→ 关监听 → 清 sock 足迹 */
   stop(): Promise<void>;
 }
 
@@ -551,7 +552,7 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
     const collected = handleScoped(validated.value);
     // prompt 落定后观众同步：该会话零 SSE 流即撤核内自动订阅（POST-only 调用方
     // 无直播腿——保留空订阅只会让 ask 打入无人区挂死；撤后 fail-closed 即时
-    // cancel。SSE 已开则保留——ack 帧携句柄定位会话）
+    // unavailable。SSE 已开则保留——ack 帧携句柄定位会话）
     const first = collected[0];
     if (verb === 'prompt' && first?.kind === 'ack') {
       if ((streamsBySession.get(first.sessionId)?.size ?? 0) === 0) core.unsubscribe(first.sessionId);
@@ -995,7 +996,7 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
       for (const stream of openStreams) stream.close();
       openStreams.clear();
       streamsBySession.clear();
-      handle.dispose(); // 在飞 ask 保守 cancel + core.close
+      handle.dispose(); // 在飞 ask 保守 unavailable（通道消失语义）+ core.close
       const closeServer = (server: Server): Promise<void> =>
         new Promise((resolve) => {
           server.close(() => resolve());

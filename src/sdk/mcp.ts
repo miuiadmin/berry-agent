@@ -12,7 +12,7 @@
  * 工具参数经 validateSdkRequest 同源深校验后入核）；件内零直播面——无订阅
  * 即无帧流，MCP 形只消费请求/应答档（心跳/重放/线控帧不达 MCP 面，包装层
  * 不发明第二直播通道）。审批 v1 无应答通道：工具面不含 decide，ask 无订阅
- * 者 fail-closed cancel（04 §9 headless 律不豁免——「给应答能力」的承载是
+ * 者 fail-closed unavailable（04 §9 headless 律不豁免——「给应答能力」的承载是
  * serve/HTTP 形，MCP 形如实不承载）。
  *
  * MCP 协议面（server 侧五方法——与 10.1 client 侧同集反向）：initialize /
@@ -116,7 +116,7 @@ export interface McpFaceHandle {
   readonly core: SdkWireCore;
   /** 终局（EOF 优雅 0 / 传输面坏死 1）——宿主 await 后走运行时退出序 */
   readonly done: Promise<number>;
-  /** 收口（幂等）：解挂输入监听 + 后端 dispose（在飞 ask 保守 cancel + core.close） */
+  /** 收口（幂等）：解挂输入监听 + 后端 dispose（在飞 ask 保守 unavailable + core.close） */
   dispose(): void;
 }
 
