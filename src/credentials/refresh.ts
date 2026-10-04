@@ -187,15 +187,30 @@ export function createRefreshChain(deps: RefreshChainDeps): RefreshChainHandle {
         // 一拍直落 EXPIRED 授权态不可恢复。非轮换形（grant 不携新
         // refreshToken）不写刷新行不受影响。
         // 刷新行 meta 同主行律——读旧行 meta 经 stripChainKeys 展开（链管键
-        // 整列换、插件自记附加键保全——账号句柄等不因轮换链写抹掉），source 键覆新
+        // 整列换、插件自记附加键保全——账号句柄等不因轮换链写抹掉），source 键覆新。
+        // 竞窗守卫（第九轮 F2）：起飞后 await POST 让出事件环——人面
+        // /credentials rm 可在窗内删刷新行（rm 是撤销唯一路径），收口无条件
+        // upsert 会把已删行复活（用户撤销意图被静默推翻）。写前查目标行在
+        // 场：已删跳写 + warn 留痕（新 refresh token 弃落——旧值已被服务端
+        // 作废，行既删则无从续用，撤销优先）。
         if (grant.refreshToken !== undefined && grant.refreshToken !== refreshRow.apiKey) {
-          store.setCredential(ns, refreshName, {
-            apiKey: grant.refreshToken,
-            meta: { ...stripChainKeys((refreshRow.meta ?? {}) as CredentialMeta), source: 'refresh' },
-          });
+          if (store.getCredential(ns, refreshName) === undefined) {
+            warn(`凭证 ${ns}/${refreshName} 刷新收口发现行已删除——放弃落库（用户撤销优先）`);
+          } else {
+            store.setCredential(ns, refreshName, {
+              apiKey: grant.refreshToken,
+              meta: { ...stripChainKeys((refreshRow.meta ?? {}) as CredentialMeta), source: 'refresh' },
+            });
+          }
         }
         // 主行换新（source 'refresh'、failures/expired 随整列换消失；端点未给
-        // expires_in 则保留旧到期位）
+        // expires_in 则保留旧到期位）。竞窗守卫（同上——第九轮 F2）：窗内主行
+        // 被人面 rm 时跳写不复活；rotate 未落主行故审计 seam 不发，按成功结算
+        // （POST 本身成功——行缺席由消费面自身缺席语义承接）。
+        if (store.getCredential(ns, name) === undefined) {
+          warn(`凭证 ${ns}/${name} 刷新收口发现行已删除——放弃落库（用户撤销优先）`);
+          return { status: 'refreshed' };
+        }
         store.setCredential(ns, name, {
           apiKey: grant.accessToken,
           meta: { ...stripChainKeys(meta), source: 'refresh', expiresAt: grant.expiresAt ?? meta.expiresAt },
@@ -212,6 +227,15 @@ export function createRefreshChain(deps: RefreshChainDeps): RefreshChainHandle {
         // 内层 try——写失败折 warn 留痕（三振账本拍未落、下拍重计），结算恒
         // 返 failed 结局，「永不 reject」两腿同真。
         try {
+          // 竞窗守卫（第九轮 F2）：失败记账写同样是无条件 upsert——窗内主行被
+          // 人面 rm 时记账会把旧行（连同 failures/expired 账）整行写回复活。
+          // 已删则整段记账弃落（三振 notify 亦不发——行已不存在，告警无的
+          // 放矢），warn 留痕后按 failed 结算（读侧守卫壳同庇：getCredential
+          // 抛折「记账异常」warn 不洞穿）。
+          if (store.getCredential(ns, name) === undefined) {
+            warn(`凭证 ${ns}/${name} 刷新失败收口发现行已删除——放弃记账落库（用户撤销优先）`);
+            return { status: 'failed', errorMessage: errText(err) };
+          }
           // 失败保留旧值续用：值不动，failures 递增（durable）
           const failures = (typeof meta.failures === 'number' ? meta.failures : 0) + 1;
           // invalid_grant（EXPIRED 码）= 授权态坏——直落三振语义（重试无益不空转三拍）

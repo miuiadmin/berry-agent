@@ -718,3 +718,70 @@ describe('刷新窗与消费读交织（refresh 在飞期间消费面恒读完�
     expectRow(readAt401, { apiKey: 'at-new', meta: NEW_META });
   });
 });
+
+/* ---------------- 竞窗守卫：在飞刷新不复活已删行（第九轮 F2） ---------------- */
+
+/**
+ * 竞窗机理（第九轮 F2）：flight 起飞快照行值 → await POST 让出事件环 →
+ * 人面 /credentials rm 可在窗内删行（deleteCredential 唯一撤销道）→ POST
+ * 收口后无条件 setCredential（upsert）把已删行重写回库——用户撤销意图被
+ * 静默推翻。修形：三写位（成功腿刷新行/主行两笔 + 失败记账腿一笔）写前
+ * 查目标行在场，已删跳写 + warn 留痕（用户撤销优先）。编舞与 B3 竞态窗锁
+ * 同法（deferredFetch 手动开/关窗——全确定性）。
+ */
+describe('竞窗守卫：刷新窗内人面 rm——收口不复活已删行（用户撤销优先）', () => {
+  const NS = pluginNamespace('demo');
+
+  /** 造到期形主行 + 刷新行（三案共用编舞底座） */
+  function seedDueRow(r: ReturnType<typeof rig>): void {
+    seedMain(r.store, { meta: { source: 'oauth', refreshName: 'github.refresh', expiresAt: 1_000 } });
+    r.store.setCredential(NS, 'github.refresh', { apiKey: 'rt-old', meta: { source: 'oauth' } });
+  }
+
+  it('成功腿：POST 成功 + 主行窗内 rm——主行不复活 + 审计 seam 不发（修前红：行被整行写回复活 apiKey at-new）', async () => {
+    const d = deferredFetch();
+    const r = rig({ fetchFn: d.fetch });
+    seedDueRow(r);
+    const inflight = r.chain.tick();
+    expect(d.fetch.calls).toHaveLength(1); // 飞行窗开（调用链同步到达 fetch）
+    r.store.deleteCredential(NS, 'github'); // 人面 rm 主行（窗内）
+    d.settle({ ok: true, status: 200, json: { access_token: 'at-new', expires_in: 3600 } });
+    await inflight;
+    // 修前红位：修前无条件 upsert 把主行写回（apiKey at-new + source refresh）
+    expect(r.store.getCredential(NS, 'github')).toBeUndefined();
+    expect(r.warns.some((w) => w.includes('已删除——放弃落库'))).toBe(true);
+    expect(r.changed).toEqual([]); // rotate 未落主行——credentials/changed 审计不发
+  });
+
+  it('失败腿：POST 失败 + 主行窗内 rm——记账不复活 + 三振 notify 不发（修前红：行被写回复活带 failures 1）', async () => {
+    const d = deferredFetch();
+    const r = rig({ fetchFn: d.fetch });
+    seedDueRow(r);
+    const inflight = r.chain.tick();
+    expect(d.fetch.calls).toHaveLength(1);
+    r.store.deleteCredential(NS, 'github');
+    d.settle({ ok: false, status: 500, json: { error: 'server_error' } });
+    await inflight;
+    // 修前红位：修前失败记账写把旧行（apiKey at-old + failures 1）整行写回
+    expect(r.store.getCredential(NS, 'github')).toBeUndefined();
+    expect(r.warns.some((w) => w.includes('已删除——放弃记账'))).toBe(true);
+    expect(r.notifies).toEqual([]); // 行既删——三振 notify 无的放矢不发
+  });
+
+  it('成功腿刷新行半边：POST 成功 + 刷新行窗内 rm——新 refresh token 弃落不复活刷新行；主行未被删照常换新', async () => {
+    const d = deferredFetch();
+    const r = rig({ fetchFn: d.fetch });
+    seedDueRow(r);
+    const inflight = r.chain.tick();
+    expect(d.fetch.calls).toHaveLength(1);
+    r.store.deleteCredential(NS, 'github.refresh'); // 人面 rm 刷新行（窗内）
+    d.settle({ ok: true, status: 200, json: { access_token: 'at-new', refresh_token: 'rt-rotated', expires_in: 3600 } });
+    await inflight;
+    expect(r.store.getCredential(NS, 'github.refresh')).toBeUndefined(); // 不复活
+    expect(r.store.getCredential(NS, 'github')?.apiKey).toBe('at-new'); // 主行未被删——照常换新
+    expect(r.warns.some((w) => w.includes('github.refresh') && w.includes('已删除'))).toBe(true);
+    expect(r.changed).toEqual([
+      { namespace: NS, name: 'github', action: 'rotate', origin: 'oauth-flow' }, // 主行 rotate 照发
+    ]);
+  });
+});
