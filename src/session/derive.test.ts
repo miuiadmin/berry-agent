@@ -173,4 +173,37 @@ describe('applyOcclusion 增量遮蔽摘除', () => {
     expect(snapshotProjection(state)).toEqual(snapshotProjection(fresh));
     expect(projectedJsonChars(state)).toBe(projectedJsonChars(fresh));
   });
+
+  it('遮蔽区间内 call 的 pendingCalls 条目随摘除（死键清理——区间外迟到 result 两路 toolName 一致）', () => {
+    // 探针 retry-orphan-recover.mjs 漂移腿：call 入账 pendingCalls 后被遮蔽摘除
+    // ——若配对表残留死键，区间外迟到 tool/result（同 id）在增量路取到 name、
+    // 全量路（deriveMessages 预滤 call 后无条目）兜底 ''——两路漂移
+    const before = [
+      evt(0, 'assistant/message', { content: [], stopReason: 'error' }),
+      evt(1, 'tool/call', { toolCallId: 'c9', name: 'bash', arguments: '{}' }),
+    ];
+    const lateResult = evt(3, 'tool/result', { toolCallId: 'c9', content: 'x' });
+
+    // 增量路（活体模拟：逐事件步进，遮蔽指令到达即 applyOcclusion 回溯摘除）
+    const state = createFoldState();
+    for (const event of before) stepFold(state, event);
+    applyOcclusion(state, { start: 0, end: 1 });
+    // 修前红：pendingCalls 死键残留（applyOcclusion 不清配对表）
+    expect(state.pendingCalls.has('c9')).toBe(false);
+    stepFold(state, lateResult);
+    const trLive = state.messages.find((m) => m.type === 'toolResult');
+    if (!trLive || trLive.type !== 'toolResult') throw new Error('形状错');
+    // 修前红：增量路 toolName='bash'（死键供血）vs 全量路 ''——两路漂移
+    expect(trLive.toolName).toBe('');
+
+    // 全量路对账（deriveMessages 预滤遮蔽区间后 fold——两路同源不变式）
+    const withOp = [
+      ...before,
+      { ...evt(2, 'llm/retry', { attempt: 1 }), surfaceOp: { op: 'replace' as const, start: 0, end: 1 } },
+      lateResult,
+    ];
+    const trFresh = deriveMessages(withOp).find((m) => m.type === 'toolResult');
+    if (!trFresh || trFresh.type !== 'toolResult') throw new Error('形状错');
+    expect(trLive.toolName).toBe(trFresh.toolName);
+  });
 });

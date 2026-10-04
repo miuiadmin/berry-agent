@@ -10,6 +10,7 @@
  */
 import type { TurnEndReason } from '../contracts/index.js';
 import type { SessionEvent } from '../contracts/index.js';
+import { occludedSeqs } from './derive.js';
 
 /** 合成事件草稿（append 面：SessionLog.appendSynthetic 消费） */
 export interface SyntheticDraft {
@@ -29,7 +30,10 @@ export const TOOL_OUTCOME_UNKNOWN = 'TOOL_OUTCOME_UNKNOWN';
  *  - 孤儿 tool/call（有 call 无 result）：合成 tool/result——执行证据 =
  *    守门 gate/decision 是否在场（在场 = 已开始执行 OUTCOME_UNKNOWN / 缺席 =
  *    NOT_STARTED）。gate/decision 按全日志 toolCallId 索引（决策可能晚于崩溃
- *    前最后一刻才落——全日志扫描是保守完备面）；
+ *    前最后一刻才落——全日志扫描是保守完备面）。**遮蔽区间内孤儿 call 非恢复
+ *    对象**（05 §4 2026-10-04 注）：其 assistant 载体已被遮蔽摘除，为其合成
+ *    只会造出无配对 assistant 的悬空 toolResult 直送 LLM——入口按 occludedSeqs
+ *    （derive 同源导出，零二写）预滤，配对扫描跳过落遮蔽区间的 call；
  *  - 未闭合压缩对（compaction/start 无 end）：合成 compaction/end
  *    （reason='aborted'）——孤 start 与孤儿摘要（摘要已落、遮蔽指令未落）
  *    两子形态都收形；孤儿摘要是合法 surface 事件无需处置（按普通
@@ -40,6 +44,9 @@ export const TOOL_OUTCOME_UNKNOWN = 'TOOL_OUTCOME_UNKNOWN';
  * 闭合必后于其内一切内容）。
  */
 export function recoverClosers(events: readonly SessionEvent[]): SyntheticDraft[] {
+  // 遮蔽预滤（occludedSeqs 单源——与 deriveMessages 全量路同一把尺）：落遮蔽
+  // 区间的 call 不入配对账（其载体事件已被遮蔽，重开投影中不存在）
+  const occluded = occludedSeqs(events);
   // gate/decision 的 toolCallId 索引（执行证据位——按 data.toolCallId 字段）
   const gatedCallIds = new Set<string>();
   // tool 配对状态：call 出现序记录 id；result 到达即摘
@@ -53,6 +60,8 @@ export function recoverClosers(events: readonly SessionEvent[]): SyntheticDraft[
   for (const event of events) {
     switch (event.type) {
       case 'tool/call': {
+        // 遮蔽区间内的 call 跳过（非恢复对象——见函数头注释 05 §4 注）
+        if (occluded.has(event.seq)) break;
         const id = (event.data as { toolCallId?: unknown } | null)?.toolCallId;
         if (typeof id === 'string') pendingCallIds.push(id);
         break;

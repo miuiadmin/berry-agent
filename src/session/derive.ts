@@ -79,8 +79,12 @@ export interface FoldState {
     errorMessage?: string;
     toolCalls: ProjectedToolCall[];
   } | null;
-  /** toolCallId → 调用信息（tool/result 到达时取名字与参数，配对后删除） */
-  pendingCalls: Map<string, { name: string; arguments: string }>;
+  /**
+   * toolCallId → 调用信息（tool/result 到达时取名字与参数，配对后删除）。
+   * seq 锚 = tool/call 事件 seq：applyOcclusion 摘除遮蔽区间时据此清理区间内
+   * call 的条目（增量路配对账与全量路预滤同源——死键不残留）。
+   */
+  pendingCalls: Map<string, { name: string; arguments: string; seq: number }>;
 }
 
 /** 新建空 fold 状态（增量缓存的起点；全量 fold 内部同用） */
@@ -134,7 +138,7 @@ export function stepFold(state: FoldState, event: SessionEvent): void {
         toolName: data.name,
         arguments: data.arguments,
       });
-      state.pendingCalls.set(data.toolCallId, { name: data.name, arguments: data.arguments });
+      state.pendingCalls.set(data.toolCallId, { name: data.name, arguments: data.arguments, seq: event.seq });
       return;
     }
     case 'tool/result': {
@@ -231,9 +235,15 @@ export function applyOcclusion(state: FoldState, op: { start: number; end: numbe
   if (state.openAssistant && inRange(state.openAssistant.seq)) {
     state.openAssistant = null;
   }
-  // pendingCalls 的 id 与事件 seq 的对应关系在 fold 内部无账——区间摘除后配对表
-  // 可能残留区间内 call 的条目（对应 tool/result 已摘，不会再被消费）；残留
-  // 条目不影响投影正确性（只是死键），会话重建（fork/恢复）时自然清零。
+  // pendingCalls 条目按 seq 锚摘除（2026-10-04 翻档：原「fold 内部无账、死键
+  // 残留无害」判语不再成立——恢复协议遮蔽预滤落地后，区间外迟到同 id 的
+  // tool/result 会消费死键取到 name，与全量路（预滤 call 后无条目兜底 ''）
+  // 两路漂移；摘除即恢复两路同源不变式）。
+  for (const [id, call] of state.pendingCalls) {
+    if (inRange(call.seq)) {
+      state.pendingCalls.delete(id);
+    }
+  }
 }
 
 /** 计算被遮蔽的 seq 集合：遍历所有 surfaceOp 的 [start,end] 区间取并集 */
