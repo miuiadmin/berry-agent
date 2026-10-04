@@ -64,7 +64,7 @@ import type { AssemblySuccess } from './assembly.js';
 import { startSchedulerClock } from './core-plugins.js';
 import { defaultTryUnlink } from './single-instance.js';
 import type { CorePluginReference } from './loader.js';
-import type { HostRuntime } from './runtime.js';
+import type { ExitSequenceBudget, HostRuntime } from './runtime.js';
 import type { WebuiMountKit } from './webui-bridge.js';
 
 /**
@@ -381,6 +381,12 @@ export interface DaemonServeOptions {
   readonly heartbeatIntervalMs?: number;
   /** 运行时组装后回调（main attachRuntime——信号编舞切运行时本体） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
+  /**
+   * 退出序时间帽注入（测试位——透传 assembly 的 runtime 构造参数；缺省保持
+   * 04 §1 钉值帽 5s/2s）。第十轮 laneA 结算拆位回归锁消费：小总帽造「前置
+   * closer 耗尽总帽」形（HostRuntimeOptions.exitBudget 同源同律）。
+   */
+  readonly exitBudget?: ExitSequenceBudget;
   /** face 工厂注入位（测试换假 face——产码缺省 core:sdk 件 kit 的 createFace） */
   readonly faceFactory?: typeof createSdkHttpFace;
   /** core: 官方件注册表注入位（批 19e——测试禁件拒启例用；透传 assembly 单源） */
@@ -466,7 +472,11 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
 
   // —— 装配公共段（与 TUI 同一合成代码路径——装载面随批 19a 活化）——
   const assembly = await assembleHostStack({
-    runtime: { dataDir },
+    runtime: {
+      dataDir,
+      // 退出序时间帽测试注入位（缺省缺席 = 04 §1 钉值帽——本缝零行为差）
+      ...(options.exitBudget !== undefined ? { exitBudget: options.exitBudget } : {}),
+    },
     noPlugins: false,
     debug: false, // 零旗标面：daemon 日志级只走 env（BERRY_AGENT_LOG_LEVEL）
     version: options.version ?? '0.0.0-unknown',
@@ -579,6 +589,27 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
     resolveExit = resolve;
   });
   let settled = false;
+  // —— 结算拆位（04 §1 第十轮定形注——daemon 退出结算 closer 独立拆位）：退出
+  // 结算链（resolveExit 折码）不得押在可被 drain 总帽 break 跳过/夭折的尾位
+  // closer——sdk-http-face 恒在装配序尾，conversation-manager 4000ms settle
+  // 帽等前置 closer 可耗尽总帽令其整段被跳过（或 face.stop 抛错令 fn 中止），
+  // 结算永不落定 = exited promise 悬挂（生产靠 main 信号编舞 1s 兜底可退；
+  // 测试/程序化装配 await done 永挂）。正形：纯结算 closer 在 daemon 装配面
+  // 最先注册（webui-server 前）——零耗时恒在总帽内执行；drain 环内 void
+  // shutdown() 二调恒返同柄在飞 promise（第九轮「结算归六步尽」形保持——
+  // 不得 await 自锁：drain 在等本 closer、await 即互等），.then 恰在六步
+  // 收口尾结算；落盘失败折 1（05 §6.3#6——shutdownFlushFailure 观测位）。
+  // face.stop 与足迹自清留原网络面 closer 原位（可被总帽跳过 = 诚实降级
+  // ——足迹残留归 stop 幂等清扫兜底，属可接受降级面）。
+  runtime.registerCloser({
+    label: 'daemon-exit-settle',
+    fn: () => {
+      void runtime
+        .shutdown()
+        .catch(() => {}) // 六步序内部已吞错记账——收场不二次抛
+        .then(() => resolveExit(runtime.shutdownFlushFailure?.() !== undefined ? 1 : 0));
+    },
+  });
   runtime.registerCloser({
     label: 'webui-server',
     fn: () => webuiMount?.detach(), // 幂等（未挂载形 = no-op）
@@ -598,20 +629,10 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
       sdkKit.pluginRoutes?.detachFace(); // U5-2 收口对称：受理账回 pending 态
       await face.stop();
       clearDaemonFootprints(paths); // 优雅停自清（猝死残留归 stop 幂等清扫）
-      // 退出码结算归六步尽（第九轮深扫 laneA）：closer 本体跑在 shutdown 的
-      // drain 环内——此处若 await runtime.shutdown() 即自锁（drain 在等本
-      // closer、本 closer 又在等 drain 收口）；也不得直接 resolveExit(0)——
-      // done 落定后四层 async 返回链（runDaemonServe→dispatchCli→main）让
-      // main 尾硬 process.exit(code) 先于 ③ write-behind flush/④
-      // session_shutdown/⑤ disposers/⑥ 关库完成，write-behind 尾批丢失（α1
-      // 同族竞速的 daemon 门）。正形（承 serve-entry 前台形同款）：void 链挂
-      // shutdown 在飞 promise 的 .then——幂等二调共享同柄（本 closer 只在
-      // shutdown 在飞期内可跑，此处二调必返同柄），.then 恰在六步收口尾结
-      // 算；落盘失败折 1（05 §6.3#6——shutdownFlushFailure 观测位）。
-      void runtime
-        .shutdown()
-        .catch(() => {}) // 六步序内部已吞错记账——收场不二次抛
-        .then(() => resolveExit(runtime.shutdownFlushFailure?.() !== undefined ? 1 : 0));
+      // 结算链已前移 daemon-exit-settle closer（第十轮拆位——见上方拆位注）：
+      // 本 closer 只留面停与足迹清，命运不再牵连退出结算。settled 门保持原
+      // 语义（防御位：drain 单次形下恒首次通过；防任何时序交叠下双跑
+      // face.stop/足迹清）。
     },
   });
   return exited;

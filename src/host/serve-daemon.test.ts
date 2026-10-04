@@ -31,6 +31,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Store } from '../persist/index.js';
+import { createSdkHttpFace } from '../sdk/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
 import { createHostRuntime } from './runtime.js';
@@ -886,6 +887,79 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
     await runtimeShutdown!();
     await expect(done).resolves.toBe(1); // 修前红：恒 0
     expect(existsSync(paths.pidPath)).toBe(false); // 足迹自清不受失败态影响
+  });
+
+  // —— 结算拆位（第十轮 laneA——04 §1 定形注：结算不押可被总帽跳过的尾位 closer）——
+  it('总帽压力形：前置 closer 吃帽 + 尾位 closer 夭折——done 仍有限时落定退 0（daemon-exit-settle 拆位）', async () => {
+    // 修前红：结算链押在装配序尾的 sdk-http-face closer 内（await face.stop()
+    // 之后）——尾位 closer 在总帽压力下夭折（face.stop 抛错即 fn 中止；纯
+    // break 形同理整段跳过）即结算链 unreached → resolveExit 永不调 → done
+    // 悬挂（生产靠 main 信号编舞 1s 兜底可退；测试/程序化装配 await done
+    // 永挂）。修后（04 §1 第十轮定形注）：纯结算 closer（daemon-exit-settle）
+    // 在 daemon 装配面最先注册——零耗时恒在总帽内先行执行，结算挂六步收口
+    // 尾（shutdown 在飞 promise 的 .then），尾位 closer 夭折不再牵连结算。
+    // 注入三缝：exitBudget 小总帽（DaemonServeOptions 测试位透传）+
+    // onRuntime 注册前置吃帽 closer（250ms——conversation-manager 4000ms
+    // settle 帽耗帽位的同族建模）+ faceFactory stop 夭折注入（真面真收口后
+    // 抛——确定性锚：红锚不取「慢停超时强杀」形，因 drain 弃等后 fn 在后台
+    // 续跑仍会迟到落定结算〔本例首版实证〕；纯 break 形在结算位与尾位两相邻
+    // 零耗 closer 间不可确定性构造〔knife-edge〕——夭折形与 break 形同属
+    // 「结算押尾位 closer 命运」缺陷族）。
+    const faux = fauxProvider({ provider: 'faux-daemon-cap', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'daemon-cap-data-'));
+    dirs.push(dataDir);
+    const paths = daemonPaths(dataDir);
+    const lines: string[] = [];
+    let runtimeShutdown: (() => Promise<void>) | undefined;
+    let stopTail: Promise<void> = Promise.resolve(); // 夭折尾腿（真 face.stop 完成位——测试尾 await 防监听句柄残留）
+    const done = runDaemonServe({
+      flags: { noDelta: false },
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-daemon-cap/m1',
+      env: {},
+      exitBudget: { closersMs: 600 }, // 小总帽（缺省 5000——04 §1 钉值）
+      onRuntime: (runtime) => {
+        runtimeShutdown = () => runtime.shutdown();
+        // 前置吃帽 closer：onRuntime 在装配期触发——注册序先于
+        // conversation-manager 与 daemon 全部 closer（drain 序 = 注册序）
+        runtime.registerCloser({
+          label: 'test-budget-eater',
+          fn: () => new Promise<void>((resolve) => setTimeout(resolve, 250)),
+        });
+      },
+      faceFactory: (faceOptions) => {
+        // 真面包装（非假 face——全环形态保持）：真收口照跑后抛——closer fn
+        // 在 await face.stop() 位中止（结算链 unreached 的修前形真源）
+        const real = createSdkHttpFace(faceOptions);
+        const origStop = real.stop.bind(real);
+        real.stop = () => {
+          const tail = (async () => {
+            await origStop();
+            throw new Error('stop 夭折注入（真收口后抛）');
+          })();
+          stopTail = tail;
+          return tail;
+        };
+        return real;
+      },
+      writeErr: (l) => lines.push(l),
+    });
+    // 就绪等待（承全环例式：pid 登记 + 就绪披露行）
+    let ready = false;
+    for (let i = 0; i < 200 && !ready; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      ready = existsSync(paths.pidPath) && lines.some((l) => l.includes('daemon 就绪'));
+    }
+    expect(ready, `就绪行：${lines.join(' / ')}`).toBe(true);
+    await runtimeShutdown!();
+    // 有限时落定断言（不悬挂形）：修前 done 悬挂 → race 2s 超时 reject（红）；
+    // 修后六步收口尾结算 → resolves 0（退出码正确——净收口档不折 1）
+    const hung = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('done 悬挂：结算押在可夭折/被总帽跳过的尾位 closer（修前形）')), 2_000),
+    );
+    await expect(Promise.race([done, hung])).resolves.toBe(0);
+    await stopTail.catch(() => {}); // 夭折尾腿收口（真 face.stop 已完成——监听真关，注入抛被吞）
   });
 
   it("`--port` 人面全环（18a-3'）：TCP 侧人面 + webui 路由同面 + 同面单 token，停后足迹清", async () => {
