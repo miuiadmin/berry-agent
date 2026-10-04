@@ -31,7 +31,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Store } from '../persist/index.js';
-import { createSdkHttpFace } from '../sdk/index.js';
+import { createSdkHttpFace, type SdkHttpFaceHandle } from '../sdk/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
 import { createHostRuntime } from './runtime.js';
@@ -960,6 +960,102 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
     );
     await expect(Promise.race([done, hung])).resolves.toBe(0);
     await stopTail.catch(() => {}); // 夭折尾腿收口（真 face.stop 已完成——监听真关，注入抛被吞）
+  });
+
+  // —— 拆位残窗（第十一轮 laneA——04 §1 第十一轮深扫定形注：结算 closer 升
+  // onRuntime 真先行）——
+  it('双帽相撞形：前置 closer 吃尽 drain 总帽 → break 跳段——done 仍有限时落定退 0（onRuntime 真先行）', async () => {
+    // 修前红：daemon-exit-settle 注册锚在 assembleHostStack 返回之后——drain
+    // 序居 conversation-manager（4000ms settle 内帽）与 compaction-drain（60s
+    // 预算）等 assembly 期 closer 之后，忙时停机形（前置 closer 吃尽 drain 总
+    // 帽）下被 runtime drain 循环 break 整段跳过——resolveExit 永不调 → done
+    // 悬挂（await done 永挂形；第十轮拆位只保序先于 daemon 自有尾位 closer，
+    // assembly 期 closer 仍居其前——残窗形）。修后：结算 closer 注册升
+    // onRuntime 装配回调位（装配期触发——注册序先于 conversation-manager 等
+    // 全部 assembly 期 closer）→ drain 序首位恒执行（首位 remaining=总帽>0
+    // 恒真）。造形：onRuntime 注吃帽 closer（550ms > 总帽 300ms——真
+    // conversation-manager settle 帽「吃尽总帽」的同族确定性建模：等比小形
+    // 缩时，免 4000ms 全时跑）；断言 done 在 2s 观测帽内 resolves 0。
+    const faux = fauxProvider({ provider: 'faux-daemon-hat', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'daemon-hat-data-'));
+    dirs.push(dataDir);
+    const paths = daemonPaths(dataDir);
+    const lines: string[] = [];
+    let runtimeShutdown: (() => Promise<void>) | undefined;
+    let faceHandle: SdkHttpFaceHandle | undefined; // drain break 跳过面停 closer——测试尾手动收口防监听句柄残留
+    // 重入防线观测（shutdown 同步重入 depth 记账）：结算 closer 恒居 drain
+    // 首位——若修形缺微任务迟滞，其 fn 会在 shutdown() 首调的同步前缀内直调
+    // shutdown()，彼时 in-flight 赋值未落定 → 重入创建支路自嵌套（depth 冲破
+    // 个位数至栈溢出——实测 RangeError 噪声）；正形迟一拍微任务后二调恒走
+    // 共享支路，depth 上界 = 2（外层首调 + 结算 closer 迟滞二调同时在飞）。
+    let shutdownDepth = 0;
+    let maxShutdownDepth = 0;
+    const done = runDaemonServe({
+      flags: { noDelta: false },
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-daemon-hat/m1',
+      env: {},
+      exitBudget: { closersMs: 300 }, // 小总帽（缺省 5000——04 §1 钉值；第十轮 laneA 同缝注入位）
+      onRuntime: (runtime) => {
+        // shutdown 遮蔽记账（自有属性遮蔽——承停机序竞速例 shadow close 同款
+        // 注入法）：depth 进出同步增减，同步前缀内重入即垒高
+        const origShutdown = runtime.shutdown.bind(runtime);
+        (runtime as { shutdown: () => Promise<void> }).shutdown = async () => {
+          shutdownDepth += 1;
+          if (shutdownDepth > maxShutdownDepth) maxShutdownDepth = shutdownDepth;
+          try {
+            await origShutdown();
+          } finally {
+            shutdownDepth -= 1;
+          }
+        };
+        runtimeShutdown = () => runtime.shutdown();
+        // 吃帽 closer：550ms > 总帽 300ms——drain 在此 closer 超时强杀后
+        // remaining≤0，后续 closer 全段 break 跳过（修前形含 daemon-exit-settle；
+        // conversation-manager settle 帽吃尽总帽的等比小形建模）
+        runtime.registerCloser({
+          label: 'test-hat-exhauster',
+          fn: () => new Promise<void>((resolve) => setTimeout(resolve, 550)),
+        });
+      },
+      faceFactory: (faceOptions) => {
+        // 真面捕获（非假 face——全环形态保持）：drain break 下 sdk-http-face
+        // closer 被跳过、face.stop 永不被调——测试尾手动收口
+        const real = createSdkHttpFace(faceOptions);
+        faceHandle = real;
+        return real;
+      },
+      writeErr: (l) => lines.push(l),
+    });
+    // 就绪等待（承全环例式：pid 登记 + 就绪披露行）
+    let ready = false;
+    for (let i = 0; i < 200 && !ready; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      ready = existsSync(paths.pidPath) && lines.some((l) => l.includes('daemon 就绪'));
+    }
+    expect(ready, `就绪行：${lines.join(' / ')}`).toBe(true);
+    await runtimeShutdown!();
+    // 有限时落定断言（不悬挂形）：修前 daemon-exit-settle 被 break 跳过 → done
+    // 悬挂 → race 2s 超时 reject（红）；修后 onRuntime 首位恒结算 → 六步收口
+    // 尾 resolves 0（净收口档不折 1——面停被跳过属诚实降级面不折码）
+    const hung = new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error('done 悬挂：结算 closer 被 drain 总帽 break 跳过（修前形——注册锚在 assembly 期 closer 之后）'),
+          ),
+        2_000,
+      ),
+    );
+    try {
+      await expect(Promise.race([done, hung])).resolves.toBe(0);
+    } finally {
+      await faceHandle?.stop().catch(() => {}); // break 跳段两形通用收口（红形断言抛后也收——监听真关）
+    }
+    // 重入防线锁：迟滞缺位形 depth 冲破上界至栈溢出（同步前缀自嵌套族）；
+    // 正形二调共享在飞 promise，depth 上界 = 2
+    expect(maxShutdownDepth).toBeLessThanOrEqual(2);
   });
 
   it("`--port` 人面全环（18a-3'）：TCP 侧人面 + webui 路由同面 + 同面单 token，停后足迹清", async () => {

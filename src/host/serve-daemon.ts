@@ -379,12 +379,18 @@ export interface DaemonServeOptions {
   /** 版本串（HostFace 物化位——批 19a-3 与 TUI 同源；缺席 = 裸 0.0.0-unknown） */
   readonly version?: string;
   readonly heartbeatIntervalMs?: number;
-  /** 运行时组装后回调（main attachRuntime——信号编舞切运行时本体） */
+  /**
+   * 运行时组装后回调（main attachRuntime——信号编舞切运行时本体）。本件组合
+   * 包装而非直传：daemon-exit-settle 结算 closer 先行注册后才转调既有回调
+   * （04 §1 第十一轮深扫定形注——注册序保「结算恒居 drain 首位」不变式，
+   * 见 runDaemonServe 装配段组合包装注）。
+   */
   readonly onRuntime?: (runtime: HostRuntime) => void;
   /**
    * 退出序时间帽注入（测试位——透传 assembly 的 runtime 构造参数；缺省保持
    * 04 §1 钉值帽 5s/2s）。第十轮 laneA 结算拆位回归锁消费：小总帽造「前置
-   * closer 耗尽总帽」形（HostRuntimeOptions.exitBudget 同源同律）。
+   * closer 耗尽总帽」形（HostRuntimeOptions.exitBudget 同源同律）；第十一轮
+   * laneA 双帽相撞回归锁（前置 closer 吃尽总帽 → break 跳段）同缝消费。
    */
   readonly exitBudget?: ExitSequenceBudget;
   /** face 工厂注入位（测试换假 face——产码缺省 core:sdk 件 kit 的 createFace） */
@@ -452,9 +458,12 @@ function daemonListenConfig(
  * 注册表 + enabled.yaml 真跑——无人值守主通道装载面与 TUI 同构〕）→ face
  * （sock 缺省 + TCP 可选）→ 写 pid 登记 → token 披露（自动生成档唯一披露位 =
  * stderr → daemon.log）→ 常驻 await。
- * 退出序：runtime closer（face.stop + 清 pid）——SIGTERM 经 main 信号编舞
- * → runtime.shutdown 六步触发（closer drain 序 = 注册序——webui-server 先
- * 注册先摘挂，再停面）；测试直调注入 runtime.shutdown 同径。
+ * 退出序：daemon-exit-settle 结算 closer 经 onRuntime 装配回调位先行注册
+ * （04 §1 第十一轮深扫定形注——drain 序首位恒执行，忙时停机〔前置 closer
+ * 吃尽总帽 break 跳段〕不殃及结算）；网络面 closer（face.stop + 清 pid）
+ * ——SIGTERM 经 main 信号编舞 → runtime.shutdown 六步触发（closer drain
+ * 序 = 注册序——webui-server 先注册先摘挂，再停面）；测试直调注入
+ * runtime.shutdown 同径。
  */
 export async function runDaemonServe(options: DaemonServeOptions): Promise<number> {
   const env = options.env ?? process.env;
@@ -470,6 +479,18 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
     return 2;
   }
 
+  // —— 退出结算位前置声明（结算 closer 升 onRuntime 装配回调位——04 §1 第十一
+  // 轮深扫定形注）：onRuntime 在装配期（runtime 创建后、conversation 栈等
+  // assembly 期 closer 注册前）触发，结算 closer 闭包此时即须捕到 resolveExit
+  // ——故 exited/resolveExit 声明前移至装配调用之前。早期失败路（judge 拒启/
+  // sdk 件缺席/面启动失败）直接 return 退出码不经 exited：closer 若已注册，会
+  // 随失败路的内部 shutdown drain 触发 resolveExit——无人 await 的 resolve 零
+  // 行为面（幂等无害）。
+  let resolveExit!: (code: number) => void;
+  const exited = new Promise<number>((resolve) => {
+    resolveExit = resolve;
+  });
+
   // —— 装配公共段（与 TUI 同一合成代码路径——装载面随批 19a 活化）——
   const assembly = await assembleHostStack({
     runtime: {
@@ -484,7 +505,35 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.env !== undefined ? { env: options.env } : {}),
     ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
-    ...(options.onRuntime !== undefined ? { onRuntime: options.onRuntime } : {}),
+    // onRuntime 组合包装（非覆盖——main attachRuntime 等既有用途保持）：
+    // daemon-exit-settle 结算 closer 在本位注册，恒居 drain 序首位（先于既有
+    // 回调可能有的注册，更先于 conversation-manager〔4000ms settle 内帽〕/
+    // compaction-drain〔60s 预算〕等全部 assembly 期 closer）——忙时停机形
+    // （前置 closer 吃尽 drain 总帽触发 break 跳段）下首位 remaining=总帽>0
+    // 恒真，结算不再被跳过（04 §1 第十一轮深扫定形注；第十轮「装配面先行
+    // 注册」只保序先于 daemon 自有尾位 closer，assembly 序内注册仍居
+    // conversation 栈 closer 之后——该残窗在本笔闭死）。
+    onRuntime: (runtime) => {
+      runtime.registerCloser({
+        label: 'daemon-exit-settle',
+        fn: () => {
+          // 结算归六步尽（第九轮形保持）：微任务迟滞调 shutdown() 二调恒返
+          // 同柄在飞 promise——不得 await 自锁（drain 在等本 closer、await 即
+          // 互等），.then 恰在六步收口尾结算；落盘失败折 1（05 §6.3#6——
+          // shutdownFlushFailure 观测位）。零耗时同步返 fn 体 = 首位恒在总帽
+          // 内执行。迟滞一拍是重入防线（本 closer 恒居 drain 首位）：drain
+          // 首轮在 shutdown() 首调的同步前缀内执行，彼时 shutdownInFlight
+          // 赋值尚未落定（首调 IIFE 未返 promise），直调 shutdown() 会重入
+          // 创建支路自嵌套至栈溢出；微任务必在调用栈清空后才跑——彼时赋值
+          // 已同步落定，二调恒走共享支路。
+          void Promise.resolve()
+            .then(() => runtime.shutdown())
+            .catch(() => {}) // 六步序内部已吞错记账——收场不二次抛
+            .then(() => resolveExit(runtime.shutdownFlushFailure?.() !== undefined ? 1 : 0));
+        },
+      });
+      options.onRuntime?.(runtime); // 既有回调转调（注册序在本位之后——保「结算恒首位」不变式）
+    },
     ...(options.corePlugins !== undefined ? { corePlugins: options.corePlugins } : {}),
   });
   if (!assembly.ok) {
@@ -583,33 +632,10 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
 
   // 常驻至优雅停：closer（face.stop + 清 pid）挂 runtime 六步退出序——drain
   // 序 = 注册序：webui-server 先注册（先摘 backend/路由/流，再停面——避免停面
-  // 后信封扇出仍写入已关流）
-  let resolveExit!: (code: number) => void;
-  const exited = new Promise<number>((resolve) => {
-    resolveExit = resolve;
-  });
+  // 后信封扇出仍写入已关流）。daemon-exit-settle 结算 closer 已前移 onRuntime
+  // 装配回调位注册（04 §1 第十一轮深扫定形注——见装配段组合包装注；exited/
+  // resolveExit 声明同随前移）。
   let settled = false;
-  // —— 结算拆位（04 §1 第十轮定形注——daemon 退出结算 closer 独立拆位）：退出
-  // 结算链（resolveExit 折码）不得押在可被 drain 总帽 break 跳过/夭折的尾位
-  // closer——sdk-http-face 恒在装配序尾，conversation-manager 4000ms settle
-  // 帽等前置 closer 可耗尽总帽令其整段被跳过（或 face.stop 抛错令 fn 中止），
-  // 结算永不落定 = exited promise 悬挂（生产靠 main 信号编舞 1s 兜底可退；
-  // 测试/程序化装配 await done 永挂）。正形：纯结算 closer 在 daemon 装配面
-  // 最先注册（webui-server 前）——零耗时恒在总帽内执行；drain 环内 void
-  // shutdown() 二调恒返同柄在飞 promise（第九轮「结算归六步尽」形保持——
-  // 不得 await 自锁：drain 在等本 closer、await 即互等），.then 恰在六步
-  // 收口尾结算；落盘失败折 1（05 §6.3#6——shutdownFlushFailure 观测位）。
-  // face.stop 与足迹自清留原网络面 closer 原位（可被总帽跳过 = 诚实降级
-  // ——足迹残留归 stop 幂等清扫兜底，属可接受降级面）。
-  runtime.registerCloser({
-    label: 'daemon-exit-settle',
-    fn: () => {
-      void runtime
-        .shutdown()
-        .catch(() => {}) // 六步序内部已吞错记账——收场不二次抛
-        .then(() => resolveExit(runtime.shutdownFlushFailure?.() !== undefined ? 1 : 0));
-    },
-  });
   runtime.registerCloser({
     label: 'webui-server',
     fn: () => webuiMount?.detach(), // 幂等（未挂载形 = no-op）
@@ -629,9 +655,9 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
       sdkKit.pluginRoutes?.detachFace(); // U5-2 收口对称：受理账回 pending 态
       await face.stop();
       clearDaemonFootprints(paths); // 优雅停自清（猝死残留归 stop 幂等清扫）
-      // 结算链已前移 daemon-exit-settle closer（第十轮拆位——见上方拆位注）：
-      // 本 closer 只留面停与足迹清，命运不再牵连退出结算。settled 门保持原
-      // 语义（防御位：drain 单次形下恒首次通过；防任何时序交叠下双跑
+      // 结算链已前移 daemon-exit-settle closer（onRuntime 真先行位——见装配段
+      // 组合包装注）：本 closer 只留面停与足迹清，命运不再牵连退出结算。settled
+      // 门保持原语义（防御位：drain 单次形下恒首次通过；防任何时序交叠下双跑
       // face.stop/足迹清）。
     },
   });
