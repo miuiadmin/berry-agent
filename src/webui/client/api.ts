@@ -49,6 +49,18 @@ function withId(endpoint: string, id: string): string {
 }
 
 /**
+ * SSE 活体流 URL 单源铸造（第十一轮深扫 laneG L8-2）：App 的 EventSource
+ * 接线经本腿取 URL——端点词面走 WEBUI_ENDPOINTS.sessionEvents（protocol
+ * 客户端线视界，与服务端 types.ts 同形镜像、双表对拍锁执法），禁手写字面量
+ * 副本（修前 App 第三份手写副本：端点表项零消费，服务端改词面时对拍锁够不
+ * 到该副本——SSE 恒 404 静默重连循环）。:id 代换 + encodeURIComponent 保序
+ * （withId 同语义——会话 id 含保留字时路由不破）。
+ */
+export function sessionEventsUrl(sessionId: string): string {
+  return withId(WEBUI_ENDPOINTS.sessionEvents, sessionId);
+}
+
+/**
  * GET tiers 应答体（与 host 装配面 tiersOf 应答形对齐——客户端树隔离零
  * host import）。词表与行文案单源服务端（SPA 零硬编码）；thinkingLevel
  * 无锚（fold 与 boot 均缺席）= null——行集照常全量、呈现面零标记不虚标；

@@ -16,6 +16,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { sessionEventsUrl } from './api.js';
 import type { ClientEnvelope } from './protocol.js';
 import {
   appliedDecide,
@@ -841,6 +842,48 @@ describe('frames 投影层（正确性层真源）', () => {
     expect(state.messages[0]?.error).toBe('输出被上下文窗口截断');
   });
 
+  it('loadedMessages 投影 toolResult 行铸 ⚙ 终结行：isError 失败分档 + 工具名（第十一轮 laneG L8-3；修前红：live ⚙ 行随对账被撤、裸行独存——重连后失败标记与工具名双丢）', () => {
+    // 重连前后呈现一致（TUI 投影三态卡跨通道同律）：活体窗内同一工具调用呈
+    // 两行（message_end 裸行 + tool_execution_end ⚙ 终结行），投影重载后 live
+    // ⚙ 行随 snapToolIds 对账被撤——投影腿铸同形行补位（toolResultLine 单源），
+    // 裸行保留（原始输出正文——与活体 message_end 落稿同形，不因铸 ⚙ 行而丢）
+    const failed = loadedMessages(initialAppState, [
+      { role: 'user', content: '跑个工具', timestamp: 100 },
+      {
+        role: 'toolResult',
+        toolCallId: 't-err',
+        toolName: 'read',
+        content: [{ type: 'text', text: '读炸了' }],
+        isError: true,
+        timestamp: 150,
+      },
+    ]);
+    // ⚙ 终结行：映射族名走 toolFaceZh（read → 读取文件）+ 失败语气词
+    const toolLines = failed.messages.filter((m) => m.role === 'tool');
+    expect(toolLines).toHaveLength(1); // 修前红：0——投影腿不铸 ⚙ 行
+    expect(toolLines[0]?.text).toBe('⚙ 读取文件 执行失败'); // 修前红：裸行零失败标记零工具名
+    // 裸行保留（原始输出正文）
+    expect(failed.messages.some((m) => m.role === 'toolResult' && m.text === '读炸了')).toBe(true);
+    // 成功形：isError=false → 「执行完成」；集外名（bash 不在映射族）直呈兜底
+    const ok = loadedMessages(initialAppState, [
+      {
+        role: 'toolResult',
+        toolCallId: 't-ok',
+        toolName: 'bash',
+        content: [{ type: 'text', text: '出' }],
+        isError: false,
+        timestamp: 150,
+      },
+    ]);
+    expect(ok.messages.filter((m) => m.role === 'tool')[0]?.text).toBe('⚙ bash 执行完成');
+    // isError 缺席（坏形/旧服务端）按成功呈现——可选位向后兼容（活体腿 result
+    // 缺席同律）；toolName 缺席回退 toolCallId（活体腿映射缺席同律）
+    const bare = loadedMessages(initialAppState, [
+      { role: 'toolResult', toolCallId: 't-bare', content: [{ type: 'text', text: '出' }], timestamp: 1 },
+    ]);
+    expect(bare.messages.filter((m) => m.role === 'tool')[0]?.text).toBe('⚙ t-bare 执行完成');
+  });
+
   it('setActiveSession 切换清场 / loadedSessions 清单落座', () => {
     let state = loadedSessions(initialAppState, [{ id: 's-9', title: null, lastActivityAt: 1 }]);
     state = applyEnvelope(state, display({ type: 'message_start', role: 'assistant' }));
@@ -943,7 +986,8 @@ describe('frames onopen 交错窗对账（E4——投影整段重置与活体终
     // 同 id 终结帧重复到达（异常重发防御）不二次落行（稳定键幂等位）
     const again = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-9', result: {} }));
     expect(again.messages.filter((m) => m.role === 'tool')).toHaveLength(1);
-    // 快照含同 toolCallId 的 toolResult——live 行让位投影副本（不双份）
+    // 快照含同 toolCallId 的 toolResult——live ⚙ 行按 toolCallId 对账让位、
+    // 投影腿铸同形 ⚙ 行补位（L8-3——重连前后两行呈现一致：裸行 + ⚙ 终结行）
     let dup = applyEnvelope(
       initialAppState,
       display({ type: 'tool_execution_start', toolCallId: 't-9', name: 'bash', arguments: {} }),
@@ -960,8 +1004,12 @@ describe('frames onopen 交错窗对账（E4——投影整段重置与活体终
         timestamp: 150,
       },
     ]);
-    expect(dup.messages).toHaveLength(2); // live 行让位（投影 user + toolResult 两份）
-    expect(dup.messages.some((m) => m.role === 'tool')).toBe(false);
+    // 投影 user + 裸行 + ⚙ 终结行三份（铸形扩位随 L8-3 翻档——修前 2 份）
+    expect(dup.messages).toHaveLength(3);
+    // ⚙ 终结行恰一份：live tool-t-9 让位（snapToolIds 对账）+ 投影铸行补位——不双份
+    const dupToolLines = dup.messages.filter((m) => m.role === 'tool');
+    expect(dupToolLines).toHaveLength(1);
+    expect(dupToolLines[0]?.text).toBe('⚙ bash 执行完成'); // 投影铸行走 toolResultLine 单源同形
   });
 
   it('回显吸收后重连对账恰一份（修前红：配对账已闭合 + 两钟域失配——回显行穿透 kept 双份）', () => {
@@ -1016,7 +1064,11 @@ describe('frames onopen 交错窗对账（E4——投影整段重置与活体终
       },
     ]);
     expect(state.messages.filter((m) => m.role === 'toolResult' && m.text === '原始输出')).toHaveLength(1); // 修前红：2（p# 投影副本 + m-150 落稿行）
-    expect(state.messages.filter((m) => m.role === 'tool')).toHaveLength(0); // 工具终结行按 toolCallId 对账让位（既有律不回归）
+    // ⚙ 终结行恰一份：live tool-t-9 按 toolCallId 对账让位（既有律不回归）+
+    // 投影腿铸同形行补位（L8-3）——恰一份不双份
+    const castToolLines = state.messages.filter((m) => m.role === 'tool');
+    expect(castToolLines).toHaveLength(1);
+    expect(castToolLines[0]?.text).toBe('⚙ bash 执行完成');
     // 对偶面：快照未含该 toolResult（记录晚于快照）——落稿行 + 工具终结行各恰一份存活
     const late = loadedMessages(liveToolResult(), [{ role: 'user', content: '问', timestamp: 100 }]);
     expect(late.messages.filter((m) => m.role === 'toolResult' && m.text === '原始输出')).toHaveLength(1); // 计数尽保位（快照未含不抹）
@@ -1204,5 +1256,18 @@ describe('frames textOf 抽取三形', () => {
     expect(textOf(42)).toBe('');
     expect(textOf(null)).toBe('');
     expect(textOf([{ type: 'tool_call', id: 'x' }])).toBe('');
+  });
+});
+
+describe('SSE 流 URL 单源铸造锁（第十一轮深扫 laneG L8-2——api.test 不在本 lane 文件域，锁位落本件）', () => {
+  it('sessionEventsUrl：端点表 :id 代换 + encodeURIComponent 保序（修前红：api 面零导出——App EventSource 手写字面量第三份副本、端点表 sessionEvents 项死行）', () => {
+    // 两形锁：①铸造走端点表单源（WEBUI_ENDPOINTS.sessionEvents——protocol
+    // 客户端副本与服务端 types.ts 同形镜像、双表对拍锁执法；服务端改词面时
+    // 传导到本消费位，SSE 不因词面漂移恒 404 静默重连循环）；②id 代换保
+    // encodeURIComponent 编码序（会话 id 含 / 等保留字时路由不破——withId
+    // 同语义）
+    expect(typeof sessionEventsUrl).toBe('function'); // 修前红：undefined——单源铸造位缺位即缺陷
+    expect(sessionEventsUrl('s-1')).toBe('/api/sessions/s-1/events');
+    expect(sessionEventsUrl('会话/甲')).toBe(`/api/sessions/${encodeURIComponent('会话/甲')}/events`);
   });
 });

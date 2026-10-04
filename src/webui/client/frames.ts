@@ -337,6 +337,19 @@ function runCloseLine(
 }
 
 /**
+ * 工具终结行文案单源（第十一轮深扫 laneG L8-3 收编）：活体腿
+ * （tool_execution_end 帧）与投影腿（loadedMessages 的 toolResult 行）共用——
+ * 「⚙ <用户面动词> 执行完成/执行失败」同形，重连前后呈现一致（TUI 投影三态
+ * 卡跨通道同律：失败工具不伪收场、工具名不丢）。动词位走 toolFaceZh（V-0
+ * 注⑤——映射族名译、集外名直呈兜底）；失败语气词由调用面判（活体腿 =
+ * result.isError 载荷 / 投影腿 = ToolResultMessage.isError 字段——判据同源
+ * 「错误标记是数据契约位非默认位」，缺席按成功呈现向后兼容）。
+ */
+function toolResultLine(name: string, failed: boolean): string {
+  return `${TOOL_RUN_MARK} ${toolFaceZh(name)} ${failed ? '执行失败' : '执行完成'}`;
+}
+
+/**
  * 信封折叠（纯函数）：display 族画流式尾巴 / session 族落稿与 asked 镜像 /
  * status·notify 各归其位。未知帧形静默忽略（前向兼容——服务端加型不炸客户端）。
  * now = 折叠时刻毫秒（run 观察窗/收尾行的可测注入口，缺省 Date.now——真流
@@ -516,7 +529,9 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
             {
               key,
               role: 'tool',
-              text: `${TOOL_RUN_MARK} ${toolFaceZh(name)} ${failed ? '执行失败' : '执行完成'}`,
+              // 行文案单源 toolResultLine（L8-3——与投影腿 loadedMessages 共用，
+              // 重连前后同形）
+              text: toolResultLine(name, failed),
               streaming: false,
             },
           ],
@@ -843,6 +858,24 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
       ...(error !== undefined ? { error } : {}),
       streaming: false,
     });
+    // toolResult 行附加铸 ⚙ 终结行（第十一轮深扫 laneG L8-3）：活体窗内同一
+    // 工具调用呈两行（message_end 裸行 + tool_execution_end ⚙ 终结行），投影
+    // 重载后 live ⚙ 行随 snapToolIds 对账被撤——投影腿铸同形行补位
+    // （toolResultLine 单源），重连前后呈现一致：失败分档（isError）与工具名
+    // （toolName，缺席回退 toolCallId——活体腿映射缺席同律）不丢。身份锚
+    // （toolCallId）在场才铸——对账键律成立形（同拍必撤 live ⚙ 行，不双份）；
+    // 缺席（坏形）裸行独存不铸（live ⚙ 行无从被撤，铸则双份）。裸行保留
+    //（原始输出正文——与活体 message_end 落稿同形）；⚙ 行不入多重集（派生
+    // 视图非快照本体——对账仍按裸行 (role,text) 原形）
+    if (role === 'toolResult' && toolId !== null) {
+      seq += 1;
+      views.push({
+        key: `p#${seq}`,
+        role: 'tool',
+        text: toolResultLine(messageToolName(message) ?? toolId, messageToolIsError(message)),
+        streaming: false,
+      });
+    }
     // 投影内末条 user 时刻入账（中途附着/重连场景的收尾行种子锚——投影是
     // 正确性层真源，服务端钟优先于观察钟）
     if (role === 'user' && typeof timestamp === 'number') lastUserAt = timestamp;
@@ -1017,6 +1050,31 @@ function messageToolCallId(message: unknown): string | null {
     if (typeof value === 'string') return value;
   }
   return null;
+}
+
+/**
+ * 投影 toolResult 消息的工具名抽取（第十一轮深扫 laneG L8-3——messageToolCallId
+ * 同族安全读取位，⚙ 终结行铸造供名）：非本形/空串/坏形回 null，调用面回退
+ * toolCallId（活体腿映射缺席同律）；非 toolResult 行不读（调用面 role 判前置）
+ */
+function messageToolName(message: unknown): string | null {
+  if (typeof message === 'object' && message !== null && 'toolName' in message) {
+    const value = (message as { toolName: unknown }).toolName;
+    if (typeof value === 'string' && value !== '') return value;
+  }
+  return null;
+}
+
+/**
+ * 投影 toolResult 消息的失败位抽取（L8-3）：isError 是数据契约位非默认位——
+ * 恰 true 才失败分档；缺席/false 按成功呈现（向后兼容，活体腿 result.isError
+ * 同判据同源）
+ */
+function messageToolIsError(message: unknown): boolean {
+  if (typeof message === 'object' && message !== null && 'isError' in message) {
+    return (message as { isError: unknown }).isError === true;
+  }
+  return false;
 }
 
 function partialContent(partial: unknown): unknown {

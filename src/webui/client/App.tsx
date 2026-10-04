@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 
-import { api, isUnauthorized } from './api.js';
+import { api, isUnauthorized, sessionEventsUrl } from './api.js';
 import {
   appliedDecide,
   applyAsked,
@@ -243,7 +243,9 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
   useEffect(() => {
     if (state.activeId === null) return;
     const sessionId = state.activeId;
-    const source = new EventSource(`/api/sessions/${encodeURIComponent(sessionId)}/events`);
+    // 流 URL 走 api 层单源铸造（sessionEventsUrl——端点表 sessionEvents 项唯一
+    // 消费位，L8-2：修前手写字面量第三份副本，服务端改词面时对拍锁够不到）
+    const source = new EventSource(sessionEventsUrl(sessionId));
     source.onopen = () => {
       reloadProjection(sessionId);
     };
