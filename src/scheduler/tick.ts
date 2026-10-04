@@ -55,7 +55,8 @@ async function dispatchTick(argv: readonly string[], deps: TickCommandDeps): Pro
     case 'rm': {
       const name = requireName(argv.slice(1), 'rm');
       // 内置 goal 挂钟行拒删守卫在 service.removeJob 单点（CLI 面同律共享）
-      // ——本面只收 BaseError 折文本（SCHEDULER_JOB_INVALID 指路 /goal 终态动词）
+      // ——本面只收 BaseError 折文本（SCHEDULER_JOB_INVALID 文案述 goal 终态
+      // 语义与「让模型放弃」真路径——终态动词现无用户道，不指路不存在动词）
       deps.service.removeJob(name);
       return `✓ 已删除任务 ${name}`;
     }

@@ -289,9 +289,13 @@ describe('rm 内置 goal 挂钟行守卫（真 service——H2）', () => {
     service.addBuiltinJob({ name: 'goal-g2', schedule: 'every:10m', prompt: 'p', enabled: true });
     service.setJobEnabled('goal-g2', false); // 终态停摆形（行留史——resume 复活前常态）
     const out = await runTickCommand(['rm', 'goal-g2'], deps(service, fakeEngine()));
-    // BaseError 折文本（命令道不抛）+ 指路 /goal 终态动词摘钟
+    // BaseError 折文本（命令道不抛）。指路文案诚实化（第九轮 F1）：/goal 动词
+    // 闭集 = create/list/show/wake/approve——停止/删除两动词皆不存在，旧文案
+    // 「请在 /goal 里停止或删除该目标」是不存在动词的承诺；新锚锁真路径
+    // 「在目标会话中让模型放弃该目标」+ 不含旧承诺形（修前红 = 旧文案无新锚）
     expect(out).toContain('SCHEDULER_JOB_INVALID');
-    expect(out).toContain('/goal');
+    expect(out).toContain('在目标会话中让模型放弃该目标');
+    expect(out).not.toContain('停止或删除该目标');
     expect(getRow('goal-g2')).toBeDefined(); // rm 不受理——行不删
     // 修前损害形锁 absent：删行后 enable 对无行静默 no-op 全瘫；治本后照常复活
     service.setJobEnabled('goal-g2', true);
