@@ -171,6 +171,26 @@ describe('ask 编舞单元边界', () => {
     expect(ui.pending('s1')).toEqual([]);
   });
 
+  it('present 同步抛错：先收口释放槽位再重抛同步异常（修前红：active 槽占用永不落定——后继问死排）', async () => {
+    const b = fakeBackend('bad');
+    let boom = true;
+    b.backend.confirm = (): Promise<boolean> => {
+      // 坏后端形：同步 throw（非 rejected promise）——present 调用点直接穿出
+      if (boom) throw new Error('sync boom');
+      return Promise.resolve(true);
+    };
+    const ui = makeCore([b.backend]);
+    // 调用方契约不变（修后仍成立）：同步异常照抛回（enqueue 链穿出）
+    expect(() => ui.confirm('s1', 'Q')).toThrow('sync boom');
+    boom = false;
+    // 修前红主证：AskQueue active 槽已占用且永不落定——pending 恒 ['confirm']
+    expect(ui.pending('s1')).toEqual([]);
+    // 修前红次证：后继健康 confirm 死排无呈现——修后正常起跑作答
+    const p2 = ui.confirm('s1', 'Q2');
+    expect(await p2).toBe(true);
+    expect(ui.pending('s1')).toEqual([]);
+  });
+
   it('审批呈现异常折保守值 cancel（fail-closed——组合根只测过 confirm 族异常）', async () => {
     const b = fakeBackend('tui');
     const ui = makeCore([b.backend]);

@@ -327,7 +327,21 @@ export class UiCore {
           this.askQueue.settled(sessionId);
           return;
         }
-        present(controller.signal).then(finish, () => finish(conservative()));
+        // 呈现两形分立（第九轮 laneD 件1）：异步 rejection 经 .then 二参收
+        // 「呈现异常（保守值）」路；**同步 throw 不经 promise 链**——修前直接
+        // 穿出 start()，而 AskQueue.enqueue 先置 q.active 再调 hooks.start()
+        //（ask-queue.ts 入队链证之），active 槽就此占用且无人再调 settled——
+        // 同会话一切后继 ask 死排至 closeSession/外部 abort。收口序：先
+        // finish(conservative())（started 已置位 → settled 出队、后继顶上——
+        // 同步形补齐保守值收口路）再重抛——调用方契约不变（enqueue 抛回）。
+        // 审批第四原语天然不受此形：askApproval 的 present 体在 new Promise
+        // executor 内调后端，同步 throw 被 executor 折成 rejection 走二参路。
+        try {
+          present(controller.signal).then(finish, () => finish(conservative()));
+        } catch (cause) {
+          finish(conservative());
+          throw cause;
+        }
       },
       cancel: () => finish(conservative()),
     });
