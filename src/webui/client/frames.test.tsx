@@ -707,7 +707,7 @@ describe('frames onopen 交错窗对账（E4——投影整段重置与活体终
     expect(state.messages[1]).toMatchObject({ role: 'assistant', text: '答', streaming: false }); // 更晚帧不抹
   });
 
-  it('快照已含不重复推：同时间戳终结帧让位投影副本（恰一份——键律 m-<ts> 身份同一）', () => {
+  it('快照已含不重复推：同文终结帧让位投影副本（恰一份——(role,text) 多重集对账；数值时间戳键律已退役）', () => {
     let state = applyEnvelope(
       initialAppState,
       session({ type: 'message_end', message: { role: 'assistant', content: '答', timestamp: 200 } }),
@@ -776,6 +776,106 @@ describe('frames onopen 交错窗对账（E4——投影整段重置与活体终
     ]);
     expect(dup.messages).toHaveLength(2); // live 行让位（投影 user + toolResult 两份）
     expect(dup.messages.some((m) => m.role === 'tool')).toBe(false);
+  });
+
+  it('回显吸收后重连对账恰一份（修前红：配对账已闭合 + 两钟域失配——回显行穿透 kept 双份）', () => {
+    // 场景：提交 → 回显（客户端构造钟 500）→ 镜像到达被吸收（配对账闭合——
+    // pendingEchoes 出清）→ 重连 onopen 重拉投影（快照含本体，durable 追加钟
+    // 900 ≠ 500）。修前：回显文本去重前置 pendingEchoes.some(...) 恒假（账已
+    // 闭合）+ snapTimestamps 数值全等恒假（构造钟 vs 追加钟两钟域永不相等）
+    // → 回显行穿透 kept 与投影副本双份呈现
+    let state = echoedUserMessage(initialAppState, 's-1', '你好', 500);
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '你好', timestamp: 900 } }),
+    );
+    expect(state.pendingEchoes).toHaveLength(0); // 镜像已吸收（配对账闭合——夹具自检）
+    state = loadedMessages(state, [{ role: 'user', content: '你好', timestamp: 900 }]);
+    expect(state.messages.filter((m) => m.role === 'user' && m.text === '你好')).toHaveLength(1); // 修前红：2（p# 投影副本 + m-500 回显行）
+  });
+
+  it('toolResult 落稿行对账恰一份（修前红：message_end 落稿行穿透——构造钟 150 ≠ 投影追加钟 152）', () => {
+    /** 生产序夹具：start → loop pushAll message_end(toolResult)（构造钟 150 落稿）→ tools-batch tool_execution_end（工具终结行） */
+    const liveToolResult = () => {
+      let s = applyEnvelope(
+        initialAppState,
+        display({ type: 'tool_execution_start', toolCallId: 't-9', name: 'bash', arguments: {} }),
+      );
+      s = applyEnvelope(
+        s,
+        session({
+          type: 'message_end',
+          message: {
+            role: 'toolResult',
+            toolCallId: 't-9',
+            content: [{ type: 'text', text: '原始输出' }],
+            isError: false,
+            timestamp: 150,
+          },
+        }),
+      );
+      return applyEnvelope(s, session({ type: 'tool_execution_end', toolCallId: 't-9', result: {} }));
+    };
+    // 快照含同 toolResult（追加钟 152 ≠ 构造钟 150——两钟域结构性失配，键律
+    // 按文本多重集对账）
+    let state = loadedMessages(liveToolResult(), [
+      { role: 'user', content: '问', timestamp: 100 },
+      {
+        role: 'toolResult',
+        toolCallId: 't-9',
+        toolName: 'bash',
+        content: [{ type: 'text', text: '原始输出' }],
+        isError: false,
+        timestamp: 152,
+      },
+    ]);
+    expect(state.messages.filter((m) => m.role === 'toolResult' && m.text === '原始输出')).toHaveLength(1); // 修前红：2（p# 投影副本 + m-150 落稿行）
+    expect(state.messages.filter((m) => m.role === 'tool')).toHaveLength(0); // 工具终结行按 toolCallId 对账让位（既有律不回归）
+    // 对偶面：快照未含该 toolResult（记录晚于快照）——落稿行 + 工具终结行各恰一份存活
+    const late = loadedMessages(liveToolResult(), [{ role: 'user', content: '问', timestamp: 100 }]);
+    expect(late.messages.filter((m) => m.role === 'toolResult' && m.text === '原始输出')).toHaveLength(1); // 计数尽保位（快照未含不抹）
+    expect(late.messages.filter((m) => m.role === 'tool' && m.key === 'tool-t-9')).toHaveLength(1); // 工具终结行存活恰一
+  });
+
+  it('幂等：同场景连续两次对账不重复保留（每次按当次快照重建多重集——旧 kept 行本体已入投影即让位）', () => {
+    // message_end 落稿（构造钟 200）→ 首次对账（快照追加钟 250 已含本体——
+    // 让位恰一份）→ 二次重拉（同投影）——旧投影行随整段重置让位新视图，落稿
+    // 行不再穿透。修前红：首次即双份，且历次 reload 重复保留（旧 kept 行永不
+    // 让位——时间戳全等判据对不上追加钟）
+    let state = applyEnvelope(
+      initialAppState,
+      session({ type: 'message_end', message: { role: 'assistant', content: '答', timestamp: 200 } }),
+    );
+    const projection = [
+      { role: 'user', content: '问', timestamp: 100 },
+      { role: 'assistant', content: '答', timestamp: 250 },
+    ];
+    state = loadedMessages(state, projection);
+    expect(state.messages.filter((m) => m.role === 'assistant' && m.text === '答')).toHaveLength(1); // 修前红：2
+    state = loadedMessages(state, projection);
+    expect(state.messages.filter((m) => m.role === 'assistant' && m.text === '答')).toHaveLength(1); // 修前红：仍 2
+  });
+
+  it('保留位不误伤：live 行文本不在投影（transient 失败轮 durable 已遮蔽）→ 保位恰一份（error 位随行保留）', () => {
+    // transient 失败轮：message_end errorMessage 落稿，durable 侧该轮被遮蔽
+    //（occlude）不进投影——多重集计数 0 → 保位（快照未含不抹——既有语义维持，
+    // 多重集对账不虚吞在场外行）
+    let state = applyEnvelope(
+      initialAppState,
+      session({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: '失败半截' }],
+          timestamp: 300,
+          errorMessage: 'Provider is not configured: anthropic',
+        },
+      }),
+    );
+    state = loadedMessages(state, [{ role: 'user', content: '问', timestamp: 100 }]);
+    const survivors = state.messages.filter((m) => m.role === 'assistant' && m.text === '失败半截');
+    expect(survivors).toHaveLength(1); // 计数尽保位
+    expect(survivors[0]?.error).toBe('Provider is not configured: anthropic'); // error 位随 live 行保留
   });
 });
 

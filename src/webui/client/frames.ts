@@ -494,8 +494,10 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
       }
       if (payload.type === 'agent_end') {
         // ⚠ 持有档（E1——TUI tui-backend agent_end failed 分支同律）：failed 不
-        // 立即终态化——驱动侧保证 failed 后必随发 retry_wait_start（退避窗开）
-        // 或 retry_wait_end {aborted|exhausted}（终态收口）。持有窗内状态行不闪
+        // 立即终态化——驱动侧保证 failed 后必随发 retry_wait_start（退避窗开）、
+        // retry_wait_end {aborted|exhausted}（终态收口）或孤儿 retry_wait_end
+        // {resumed}（overflow compacted 续入——07 件 12 扩第三形〔第七轮深扫批，
+        // 04 §3.4 尾注真源〕；本件 :441 resumed 分支撤持有同承载）。持有窗内状态行不闪
         // ✗、run 账不冻结（退避窗计时计入 run 时长——收尾行整 run 口径）、活体
         // 窗维持（打断键在退避窗内仍可打断——TUI ESC 同语义）。揭示/撤销归
         // retry_wait_end 与 agent_start 分诊位。
@@ -618,39 +620,55 @@ export function echoedUserMessage(state: AppState, sessionId: string, text: stri
  * onopen 交错窗对账（E4）：App 侧 onopen 恒重拉投影，fetch 异步窗内到达的
  * session 族终结帧（message_end/tool_execution_end）先落稿——快照若早于该
  * 帧的 durable 记录（服务端 GET 先处理），整段重置会抹除已落稿帧，而长连接
- * 内 session 族无重发（不自愈）。落座时按键/时间戳对账：**快照已含的不重复
- * 推**（投影副本即真源——live 副本让位）；**快照未含的已落稿帧不抹**（记录
- * 晚于快照——续接投影尾，时序上必后于全部快照消息）。对账键律：message_end
- * 落稿/回显键 m-<数值时间戳>（身份同一）；工具终结行键 tool-<toolCallId>
- * （与投影 toolResult 的 toolCallId 同一）。回显保持位特判：回显键是客户端
- * 钟与投影服务端钟配不上——按文本对账（快照含同文 user 即回显本体，让位 +
- * 配对账出清〔重连形镜像不至〕；未含则回显保位 + 配对账保留〔镜像后至仍
- * 吸收恰一份〕）。
+ * 内 session 族无重发（不自愈）。落座时对账：**快照已含的不重复推**（投影
+ * 副本即真源——live 副本让位）；**快照未含的已落稿帧不抹**（记录晚于快照
+ * ——续接投影尾，时序上必后于全部快照消息）。
+ *
+ * 对账键律（文本多重集根修——两钟域不可配）：live 正文行 m-<数值> 键的
+ * 时间戳是**构造钟**（回显 = 浏览器 submit 时刻；message_end 落稿 = driver
+ * loop pushAll 构造时刻），投影消息 timestamp 是 **durable 追加钟**
+ * （reseedTimeline timeOf = events[seq].time）——两钟域永不相等，旧注
+ * 「m-<数值时间戳>（身份同一）」前提错误，数值全等判据结构性恒假（已吸收
+ * 回显、非回显 user、assistant、toolResult 的落稿行全部穿透双份且历次
+ * reload 重复保留）。新键律：
+ * - message_end 落稿/回显行 → (role,text) **多重集**对账（快照侧键 =
+ *   role + '\u0000' + text → 计数；空文本不入集——坏形不吞让位判据）：
+ *   计数 > 0 → 扣减让位（投影副本即真源）；计数尽 → 保位。遍历维持
+ *   state.messages 时间序——旧同文行先消耗计数，后到的在途回显保位（天然
+ *   正确）；同文多份场景按份数对账（单集判据分不清一份/两份）。
+ * - 工具终结行 → toolCallId（投影 toolResult 序列化在场——与 live 行
+ *   tool-<toolCallId> 身份同一）。
+ *
+ * 回显配对账随行命运：让位的回显行不进保留集（配对账出清——投影已含
+ * 本体，重连形镜像不至）；保位的进（镜像后至仍吸收恰一份）——判定路径
+ * 即多重集消耗结果（旧 pendingEchoes 前置 + 单集文本判据已随键律退役）。
  */
 export function loadedMessages(state: AppState, messages: readonly unknown[]): AppState {
   const views: ViewMessage[] = [];
   let seq = state.seq;
   let lastUserAt: number | null = null;
-  // 对账索引三面：快照数值时间戳集 / 快照 toolCallId 集 / 快照 user 文本集
-  const snapTimestamps = new Set<number>();
+  // 对账索引两面：快照正文多重集（键 = role + '\u0000' + text → 计数；空
+  // 文本不入集——坏形不吞让位判据）/ 快照 toolCallId 集。数值时间戳集已
+  // 退役——live 构造钟与投影追加钟两钟域永不相等，全等判据结构性恒假
+  //（对账键律详见函数头注）
+  const snapTextCounts = new Map<string, number>();
   const snapToolIds = new Set<string>();
-  const snapUserTexts = new Set<string>();
   for (const message of messages) {
     seq += 1;
     const error = errorMessageOf(message);
     const timestamp = messageTimestamp(message);
     const role = messageRole(message);
-    if (typeof timestamp === 'number') snapTimestamps.add(timestamp);
+    const text = textOf(messageContent(message));
+    if (text !== '') {
+      const snapKey = role + '\u0000' + text;
+      snapTextCounts.set(snapKey, (snapTextCounts.get(snapKey) ?? 0) + 1);
+    }
     const toolId = messageToolCallId(message);
     if (toolId !== null) snapToolIds.add(toolId);
-    if (role === 'user') {
-      const text = textOf(messageContent(message));
-      if (text !== '') snapUserTexts.add(text); // 空串不入集（坏形不吞回显让位判据）
-    }
     views.push({
       key: `p#${seq}`,
       role,
-      text: textOf(messageContent(message)),
+      text,
       ...(error !== undefined ? { error } : {}),
       streaming: false,
     });
@@ -666,9 +684,14 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
     if (m.streaming || m.role === RUN_CLOSE_ROLE) continue;
     const ts = numericKeyOf(m.key);
     if (ts !== null) {
-      if (snapTimestamps.has(ts)) continue; // 快照已含——live 副本让位（不重复推）
-      if (m.role === 'user' && state.pendingEchoes.some((p) => p.key === m.key) && snapUserTexts.has(m.text)) {
-        continue; // 回显本体已在快照（文本对账——服务端钟落账）→ 让位投影副本
+      // 正文多重集对账：本体已在快照（计数 > 0）→ 扣减让位（投影副本即真源
+      // ——不重复推）；计数尽（快照未含——记录晚于快照）→ 保位续接投影尾。
+      // 遍历维持时间序——旧同文行先消耗计数，后到的在途回显在计数尽后保位
+      const snapKey = m.role + '\u0000' + m.text;
+      const count = m.text !== '' ? (snapTextCounts.get(snapKey) ?? 0) : 0;
+      if (count > 0) {
+        snapTextCounts.set(snapKey, count - 1);
+        continue; // 让位——回显让位形配对账随之出清（不进 keptEchoKeys）
       }
       if (m.role === 'user' && state.pendingEchoes.some((p) => p.key === m.key)) {
         keptEchoKeys.add(m.key); // 在途回显保位——配对账保留（镜像后至仍吸收）
@@ -767,7 +790,11 @@ function messageTimestamp(message: unknown): unknown {
   return undefined;
 }
 
-/** m-<数值时间戳> 键解析（message_end 落稿/回显键族——E4 交错窗对账的身份判据；非本形回 null） */
+/**
+ * m-<数值> 键解析（message_end 落稿/回显键族识别——E4 交错窗对账据此走
+ * (role,text) 多重集对账腿；数值本身是构造钟，不再作身份判据〔两钟域不可
+ * 配——见 loadedMessages 头注〕；非本形回 null）
+ */
 function numericKeyOf(key: string): number | null {
   if (!key.startsWith('m-')) return null;
   const digits = key.slice(2);
