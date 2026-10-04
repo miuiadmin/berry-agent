@@ -372,6 +372,66 @@ describe('关库终态（件D1 ②层——close 后晚到事件折观测不重�
     expect(warns.join('\n')).toContain('关库后'); // 可见性兜底仍在
   });
 
+  it('severed 判先于 closed 判：切断会话的关库后迟到事件静默丢弃零记账（修前红：折晚到失败观测一次）', async () => {
+    const target = new FakeTarget();
+    const lateFailures: BaseError[] = [];
+    const { chain, warns } = makeChain(target, { onLateWriteFailure: (err) => lateFailures.push(err) });
+    // 先经毒丸切断 s1（批约束 → 行模式定位 → 隔离——incident 一笔在案）
+    const events = makeEvents('s1', 'a'); // seq 0,1
+    target.batchScript = [constraintError()];
+    target.singleFailsOn = (write) => (write.event.seq === 1 ? constraintError() : undefined);
+    for (const write of writesFor('s1', events)) chain.enqueue(write);
+    await chain.flush();
+    expect(chain.severedSessions).toEqual(['s1']);
+    const warnsBefore = warns.length;
+    const lateFailuresBefore = lateFailures.length;
+    // 关库后 s1 迟到事件：按切断纪律静默丢弃（incident 已自述——不折晚到
+    // 失败观测、不刷退出码账）。修前：closed 判在前 → recordLateFailure 记账
+    chain.close();
+    const lateS1 = writesFor('s1', [
+      { ...events[0]!, seq: 5, time: 50, data: { content: 'post-close-sever', source: 'user' } },
+    ])[0]!;
+    expect(() => chain.enqueue(lateS1)).not.toThrow();
+    expect(lateFailures).toHaveLength(lateFailuresBefore); // 修前红：+1 晚到失败记账
+    expect(warns.length).toBe(warnsBefore); // 静默纪律——零新告警
+    // 对照组：未切断会话的关库后迟到事件照常折观测（优先级换序不伤件D1 纪律）
+    chain.enqueue(writesFor('s2', makeEvents('s2', 'late'))[0]!);
+    expect(lateFailures).toHaveLength(lateFailuresBefore + 1);
+    expect(lateFailures[lateFailures.length - 1]!.code).toBe('PERSIST_WRITE_EXHAUSTED');
+  });
+
+  it('Persistence.close broken 路径（第九轮深扫件2）：flush 失败也关库三步永达——晚到 append 折观测不抛栈（修前红：截断 + 晚到同步抛）', async () => {
+    const lateFailures: BaseError[] = [];
+    const p = Persistence.open({
+      dbPath: ':memory:',
+      secretKey: ephemeralSecretKey(),
+      onLateWriteFailure: (err) => lateFailures.push(err),
+      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+      // 退避快进（熔断三连败不真等墙钟——测试位旋钮）
+      writeBehind: { sleep: async () => {}, backoffBaseMs: 1 },
+    });
+    const log = p.createSession({ origin: 'conversation' });
+    log.append('turn/start', {});
+    // 写失败注入（WriteTarget 缝——非约束错走批级退避重试，耗尽即熔断）：
+    // 只毒批写面，关库三步（checkpoint/close）不受牵连
+    const busy = new Error('database is locked');
+    (busy as Error & { code: string }).code = 'SQLITE_BUSY';
+    p.store.writeEvents = () => {
+      throw busy;
+    };
+    // close：flush 熔断失败照常外抛（调用方转非零退出——05 §6.3#6）
+    await expect(p.close()).rejects.toMatchObject({ code: 'PERSIST_WRITE_EXHAUSTED' });
+    // 修前红锚 ①：关库三步被截断——store 未关（修后：读面拒用）
+    expect(() => p.queryEvents({})).toThrowError(/已关闭/);
+    // 修前红锚 ②：晚到事件（run 收尾竞速形）撞熔断分支同步抛错带栈；
+    // 修后：write-behind 已置关库终态（enqueue 的 closed 判前于 broken 判）
+    // ——折观测位（warn + 失败态记账）
+    expect(() => log.append('turn/end', { reason: 'completed' })).not.toThrow();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(lateFailures).toHaveLength(1);
+    expect(lateFailures[0]!.code).toBe('PERSIST_WRITE_EXHAUSTED');
+  });
+
   it('Persistence.close 序：终态标记先于 store.close——关库后晚到 append 不炸进程、经门面折失败态', async () => {
     const lateFailures: BaseError[] = [];
     const p = Persistence.open({

@@ -115,13 +115,20 @@ export class WriteBehind {
 
   /**
    * 入队（append 热路径直通——O(1) 内存操作 + 按需点火微任务）。
-   * 熔断后抛 PERSIST_WRITE_EXHAUSTED（诚实拒写：调用方立即知道持久化已死）。
-   * 切断会话静默丢弃（incident 已自述——毒丸后该会话 durability 已终）。
+   * 前置三判的优先级序（第九轮深扫件2/件3 定形：severed → closed → broken）：
+   *  1. severed（毒丸切断）最优先——incident 已一笔在案、该会话 durability
+   *     已终，迟到事件按切断纪律静默丢弃；若 closed 判在前，会把本应静默
+   *     丢弃的事件折成晚到失败观测（warn + 退出失败态并计）——对已终会话
+   *     重复刷账，违「一笔 incident 概括，不逐条刷账」；
+   *  2. closed 次之——关库终态后 fail-loud 让位退出记账（件D1）：flush 失败
+   *     变体里关库标记已置而链亦熔断（close 的 finally 两步同达），晚到事件
+   *     须折观测而非同步抛栈——closed 判必须前于 broken 判（熔断的诚实拒写
+   *     只对「进程还在跑」的世界有意义，库已关即进程正在退出）；
+   *  3. broken 最后——诚实拒写（调用方立即知道持久化已死）。
    */
   enqueue(write: EventWrite): void {
-    if (this.broken) {
-      throw new BaseError('PERSIST_WRITE_EXHAUSTED', '写链已熔断（批级重试耗尽）——进程应退出，拒绝继续假写');
-    }
+    // 切断会话静默丢弃（incident 已自述——毒丸后该会话 durability 已终）
+    if (this.severed.has(write.sessionId)) return;
     // 关库终态：晚到事件（在飞 run 收尾竞速窗）不抛不点火——折观测后丢弃
     //（修前形：照常入队点火 → 对已关库重试耗尽 → onFatal 重抛 = 未捕获
     //  拒绝进程带栈崩溃；件D1 ②层）
@@ -134,7 +141,9 @@ export class WriteBehind {
       );
       return;
     }
-    if (this.severed.has(write.sessionId)) return;
+    if (this.broken) {
+      throw new BaseError('PERSIST_WRITE_EXHAUSTED', '写链已熔断（批级重试耗尽）——进程应退出，拒绝继续假写');
+    }
     this.queue.push(write);
     this.scheduleDrain();
   }

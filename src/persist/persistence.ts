@@ -356,16 +356,22 @@ export class Persistence {
   /**
    * 关库退出序：flush（失败即抛——调用方转非零退出，05 §6.3#6）→ write-behind
    * 关库终态标记（件D1：置位先于 store.close——此后晚到事件折 onLateWriteFailure
-   * 观测不重抛）→ checkpoint → close。
+   * 观测不重抛）→ checkpoint → close。flush 失败（写链 broken）时后三步在
+   * finally 中永达（第九轮深扫件2：修前截断会使晚到事件撞熔断分支同步抛
+   * 带栈错——件D1 要防的「关库后晚到写」崩溃在 flush 失败变体复活）；
+   * flush 错照常外抛（调用方 runtime ⑥ 吞错记账）。
    */
   async close(): Promise<void> {
     if (this.closed) return;
-    await this.flush();
-    this.closed = true;
-    // 关库终态标记先于 store.close：close() 后的晚到 enqueue/在飞 drain 余队
-    // 在 write-behind 层折观测（不再对已关库重试耗尽重抛——件D1 ②层）
-    this.writeBehind.close();
-    this.store.close();
+    try {
+      await this.flush();
+    } finally {
+      this.closed = true;
+      // 关库终态标记先于 store.close：close() 后的晚到 enqueue/在飞 drain 余队
+      // 在 write-behind 层折观测（不再对已关库重试耗尽重抛——件D1 ②层）
+      this.writeBehind.close();
+      this.store.close();
+    }
   }
 
   /** 只读判别（诊断面） */
