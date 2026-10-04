@@ -86,18 +86,25 @@ export function vocabularyGate(events: readonly SessionEvent[]): void {
 }
 
 /**
- * 消息形状闸（05 §5.1 词汇闸形状校验半句——规范笔 056ff25 已落）：词汇闸只
- * 认 type 注册面不看 data——外部文件 assistant/message 缺 content 时四闸全
- * 过，deriveMessages 产出 content=undefined，重建消费位（reseed 展开写
- * `[...content]`）抛裸 TypeError：可导入可列表但永远打不开，错误现场远离
- * 导入位。本闸把拦截钉在导入位：核心消息族 data.content 形状校验。
+ * 消息形状闸（05 §5.1 词汇闸形状校验半句——规范笔 056ff25 已落 + 2026-10-04
+ * 第十轮补笔射界扩）：词汇闸只认 type 注册面不看 data——外部文件坏形数据
+ * 若过闸，重建/请求组装消费位的错误现场远离导入位难归因。本闸把拦截钉在
+ * 导入位（射界 = 核心消息族 + 工具族四词）：
  *  - assistant/message：content 须为块数组（Array.isArray）。**空数组放行**
  *    ——生产落账面（conversation wiring appendMessage）对 tool-only 响应
  *    filter 掉 toolCall 块后合法产空数组，金样回环不得误拒；崩溃判据是
  *    「非数组不可展开」非「空数组」（derive 自身在 tool/call 无缓冲兜底位
  *    同用空数组）。
  *  - user/message：content 须在场且为 string 或块数组（契约双形——string
- *    直通、块数组直通，两形重建面均不炸）。
+ *    直通、块数组直通）；块数组同闸细校元素——每块须对象且 type 须字符串，
+ *    text 块的 text 须字符串（消费面实读定粒度：导出面 textOf →
+ *    sanitizeBodyText 的 .replace 位与预算刀 blockBytes 的字符串帽位对
+ *    非字符串 text 裸 TypeError；块内其余键不预铺）。
+ *  - tool/call：data 须对象（非 null 非数组——derive stepFold 展开位读
+ *    data.toolCallId/name/arguments）且 name 须字符串（事件 data 实键名
+ *    = name——derive 投影 toolName 位；钉形文「toolName」指投影位键）。
+ *  - tool/result：data 须对象（非 null 非数组——derive 配对位读
+ *    data.toolCallId；其余键判形不预铺）。
  * 坏形抛 SESSION_IMPORT_BAD_FORMAT（消息携 seq 与词面——现场钉导入位）。
  */
 export function messageShapeGate(events: readonly SessionEvent[]): void {
@@ -118,13 +125,68 @@ export function messageShapeGate(events: readonly SessionEvent[]): void {
           `导入事件 seq#${event.seq} user/message 的 data.content 须为字符串或块数组（实得 ${describeValue(content)}）`,
         );
       }
+      // 块数组元素细校（第十轮补笔②——修前只查「是数组」不查元素形）
+      if (Array.isArray(content)) {
+        for (let i = 0; i < content.length; i++) {
+          const block: unknown = content[i];
+          if (!isJsonObject(block)) {
+            throw new BaseError(
+              'SESSION_IMPORT_BAD_FORMAT',
+              `导入事件 seq#${event.seq} user/message 的 data.content 第 ${i} 块须为对象（实得 ${describeValue(block)}——重建消费面不可读）`,
+            );
+          }
+          const typed = block as { type?: unknown; text?: unknown };
+          if (typeof typed.type !== 'string') {
+            throw new BaseError(
+              'SESSION_IMPORT_BAD_FORMAT',
+              `导入事件 seq#${event.seq} user/message 的 data.content 第 ${i} 块的 type 须为字符串（实得 ${describeValue(typed.type)}——消费面按 type 分派）`,
+            );
+          }
+          // text 块 text 键字符串判（消费面实读定粒度——见本函数 JSDoc）
+          if (typed.type === 'text' && typeof typed.text !== 'string') {
+            throw new BaseError(
+              'SESSION_IMPORT_BAD_FORMAT',
+              `导入事件 seq#${event.seq} user/message 的 data.content 第 ${i} 块为 text 块但 text 须为字符串（实得 ${describeValue(typed.text)}——导出/预算消费位 string 方法裸 TypeError）`,
+            );
+          }
+        }
+      }
+    } else if (event.type === 'tool/call') {
+      // 工具族射界扩（第十轮补笔①——修前四闸全过后 derive 展开位裸 TypeError）
+      if (!isJsonObject(event.data)) {
+        throw new BaseError(
+          'SESSION_IMPORT_BAD_FORMAT',
+          `导入事件 seq#${event.seq} tool/call 的 data 须为对象（实得 ${describeValue(event.data)}——derive 消费面展开位不可读）`,
+        );
+      }
+      const name = (event.data as { name?: unknown }).name;
+      if (typeof name !== 'string') {
+        throw new BaseError(
+          'SESSION_IMPORT_BAD_FORMAT',
+          `导入事件 seq#${event.seq} tool/call 的 data.name 须为字符串（实得 ${describeValue(name)}——投影 toolName 位）`,
+        );
+      }
+    } else if (event.type === 'tool/result') {
+      if (!isJsonObject(event.data)) {
+        throw new BaseError(
+          'SESSION_IMPORT_BAD_FORMAT',
+          `导入事件 seq#${event.seq} tool/result 的 data 须为对象（实得 ${describeValue(event.data)}——derive 消费面配对位不可读）`,
+        );
+      }
     }
   }
 }
 
-/** 坏形值人读（诊断面——缺席/数组/类型名三形） */
+/** JSON 对象判（非 null 非数组的 object——外部文件 data/块形状的判据基） */
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 坏形值人读（诊断面——缺席/null/数组/类型名四形） */
 function describeValue(value: unknown): string {
-  return value === undefined ? '缺席' : Array.isArray(value) ? '数组' : typeof value;
+  if (value === undefined) return '缺席';
+  if (value === null) return 'null';
+  return Array.isArray(value) ? '数组' : typeof value;
 }
 
 /**

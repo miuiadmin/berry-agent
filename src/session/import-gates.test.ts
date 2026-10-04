@@ -213,8 +213,127 @@ describe('messageShapeGate 消息形状闸（词汇闸形状半句——05 §5.1
     );
   });
 
-  it('非消息族事件不校验（形状闸射界 = 核心消息族两词）', () => {
+  it('非射界事件不校验（形状闸射界 = 核心消息族 + 工具族四词——05 §5.1 第十轮补笔）', () => {
     expect(() => messageShapeGate([{ type: 'llm/usage', seq: 0, time: 1, data: { input: 1 } }])).not.toThrow();
+  });
+
+  describe('形状闸射界扩工具族 + 块元素细校（05 §5.1 第十轮补笔）', () => {
+    it('tool/call data:null 嵌合法文件：修前四闸全过 → derive 消费位裸 TypeError；修后拒整批（携 seq 与词面）', () => {
+      // data:null 过词汇闸（词面注册）、过配对闸（toolCallId 读取经 ?. 容错——
+      // 非字符串 id 不入 seenCalls，无 result 即无多余闭合）——修前四闸全过，
+      // derive 的 data.toolCallId 展开位裸 TypeError（错误现场远离导入位）
+      const bad = [
+        JSON.stringify({ format: 'berry-agent/session', version: 1 }),
+        line(0, 'turn/start'),
+        line(1, 'user/message', { content: 'hi' }),
+        line(2, 'assistant/message', { content: [{ type: 'text', text: 'yo' }] }),
+        line(3, 'tool/call', null),
+        line(4, 'turn/end', { reason: 'completed' }),
+      ].join('\n');
+      try {
+        runImportGates(bad);
+        expect.unreachable('未拒绝');
+      } catch (err) {
+        expect(err).toBeInstanceOf(BaseError);
+        expect((err as BaseError).code).toBe('SESSION_IMPORT_BAD_FORMAT');
+        expect((err as BaseError).message).toContain('seq#3');
+        expect((err as BaseError).message).toContain('tool/call');
+      }
+    });
+
+    it('tool/call data 非对象（字符串/数组/缺席）拒；data.name 非字符串拒（投影 toolName 位）', () => {
+      expectCode(
+        () => messageShapeGate([{ type: 'tool/call', seq: 0, time: 1, data: 'oops' }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () => messageShapeGate([{ type: 'tool/call', seq: 0, time: 1, data: [{ toolCallId: 'c1' }] }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      // data 整体缺席经原始 JSON 形构造（信封面 data 必填——导入解析位不查，闸须容错拒）
+      const noData = JSON.parse('{"type":"tool/call","seq":0,"time":1}') as SessionEvent;
+      expectCode(() => messageShapeGate([noData]), 'SESSION_IMPORT_BAD_FORMAT');
+      // data 是对象但 name 非字符串（null/数字）——derive 投影 toolName 位裸值
+      expectCode(
+        () => messageShapeGate([{ type: 'tool/call', seq: 0, time: 1, data: { toolCallId: 'c1', name: 42 } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () => messageShapeGate([{ type: 'tool/call', seq: 0, time: 1, data: { toolCallId: 'c1', name: null } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+    });
+
+    it('tool/result data 非对象（null/字符串/数组）拒——derive 配对位 data.toolCallId 不可读', () => {
+      const bad = [
+        JSON.stringify({ format: 'berry-agent/session', version: 1 }),
+        line(0, 'turn/start'),
+        line(1, 'tool/call', { toolCallId: 'c1', name: 'read', arguments: '{}' }),
+        line(2, 'tool/result', 'oops'),
+        line(3, 'turn/end', { reason: 'completed' }),
+      ].join('\n');
+      // 修前：词汇闸过（词面注册）、配对闸过（字符串原语上读属性得 undefined——
+      // 非字符串 id 不查前置）——四闸全过后 derive 读 data.toolCallId 裸 TypeError
+      expectCode(() => runImportGates(bad), 'SESSION_IMPORT_BAD_FORMAT');
+      expectCode(
+        () => messageShapeGate([{ type: 'tool/result', seq: 0, time: 1, data: null }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () => messageShapeGate([{ type: 'tool/result', seq: 0, time: 1, data: ['x'] }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+    });
+
+    it('user/message 块数组元素细校：非对象元素 / type 非字符串 / text 块 text 非字符串拒（修前只查「是数组」）', () => {
+      // [{type:'text',text:42}] 修前过闸 → 导出面 sanitizeBodyText 的 .replace 位
+      // 与预算刀 blockBytes 的字符串帽位裸 TypeError（错误现场远离导入位）
+      expectCode(
+        () =>
+          messageShapeGate([
+            { type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 42 }] } },
+          ]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () => messageShapeGate([{ type: 'user/message', seq: 0, time: 1, data: { content: [42] } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () => messageShapeGate([{ type: 'user/message', seq: 0, time: 1, data: { content: [null] } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      // 块是对象但 type 缺席/非字符串——投影与导出面按 type 分派消费
+      expectCode(
+        () => messageShapeGate([{ type: 'user/message', seq: 0, time: 1, data: { content: [{ text: 'x' }] } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () =>
+          messageShapeGate([{ type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 7, text: 'x' }] } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+    });
+
+    it('对照组：合法工具族（真实词面 + 真实 data 形）与合法块数组（text + image 块）照常过闸零误伤', () => {
+      const good = [
+        JSON.stringify({ format: 'berry-agent/session', version: 1 }),
+        line(0, 'turn/start'),
+        line(1, 'user/message', { content: [{ type: 'text', text: '帮我读文件' }] }),
+        line(2, 'user/message', {
+          source: 'user',
+          content: [
+            { type: 'text', text: '配图说明' },
+            { type: 'image', data: 'aGk=', mimeType: 'image/png' },
+          ],
+        }),
+        line(3, 'assistant/message', { content: [{ type: 'text', text: '这就去读' }] }),
+        line(4, 'tool/call', { toolCallId: 'c1', name: 'fs_read', arguments: '{"path":"a.txt"}' }),
+        line(5, 'tool/result', { toolCallId: 'c1', content: '文件内容', error: false }),
+        line(6, 'turn/end', { reason: 'completed' }),
+      ].join('\n');
+      expect(() => runImportGates(good)).not.toThrow();
+    });
   });
 });
 
