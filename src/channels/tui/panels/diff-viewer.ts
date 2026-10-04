@@ -11,6 +11,14 @@
  *   （git 真源）两问分立——v1 答前者，投影快照档（开屏一次现取）；
  * - **enter = 展开 / 收起光标组**（缺省全收起——总览语义）；空集（会话零
  *   edit）= 诚实空态行；
+ * - **行号槽 + 宽屏 split 双栏**（2026-10-05 ZCode TUI 对标批——07 §4.1
+ *   副屏族 diff-viewer 双件定形注）：diff 行前旧/新行号 dim 槽——patch 相对
+ *   帧（数据源零 git 子进程、apply_patch 文法无 @@ 行号头，无文件绝对行号
+ *   ——组体行序自算的唯一自洽帧），各循其轨（删行旧轨 / 增行新轨 / ctx 双
+ *   轨同进）、位数按组最大轨号自适应；终端宽 ≥100 列（SPLIT_MIN_WIDTH 落码
+ *   定值）unified→split 双栏（左旧右新、中缝 1 列、行号槽分栏各随、词级对
+ *   行合并同屏行、孤立删/增单侧挂空），窄屏维持 unified；两形导航键与
+ *   ⋮/… 省略位不变；
  * - 键面同副屏件族律（q / esc 返回、Ctrl+C 打断、Ctrl+D 先收屏再退）。
  */
 import type { CellBuffer, CellStyle, ColorValue, InputEvent, Region } from '../../engine/index.js';
@@ -133,11 +141,19 @@ interface DiffBodyRow {
   readonly text: string;
   /** 词级段族（相邻 del+add 对行——null = 孤立行整行着色） */
   readonly segs: readonly DiffSeg[] | null;
+  /** 旧轨行号（ctx/del 在场——patch 相对帧：组内 ctx+del 序前进） */
+  readonly oldLine: number | null;
+  /** 新轨行号（ctx/add 在场——patch 相对帧：组内 ctx+add 序前进） */
+  readonly newLine: number | null;
 }
 
-/** 组体行 → 呈现行（tool-card renderDiffBodyLines 同律：1 删 1 增相邻对走词级） */
+/** 组体行 → 呈现行（tool-card renderDiffBodyLines 同律：1 删 1 增相邻对走词级）+ 行号轨记账 */
 function bodyRowsOf(lines: readonly PatchLine[]): readonly DiffBodyRow[] {
   const rows: DiffBodyRow[] = [];
+  // 行号轨游标（patch 相对帧）：旧轨 = ctx+del 前进、新轨 = ctx+add 前进
+  //（组内累计——同文件多次 edit 的组体行按事件时间序连续记账）
+  let oldLine = 0;
+  let newLine = 0;
   let i = 0;
   while (i < lines.length) {
     const line = lines[i]!;
@@ -155,20 +171,85 @@ function bodyRowsOf(lines: readonly PatchLine[]): readonly DiffBodyRow[] {
       const delBody = sanitizeLineText(line.text);
       const addBody = sanitizeLineText(lines[i + 1]!.text);
       const segs = diffWords(delBody, addBody);
-      rows.push({ kind: 'del', text: delBody, segs });
-      rows.push({ kind: 'add', text: addBody, segs });
+      oldLine += 1; // 删行旧轨前进
+      newLine += 1; // 对行增侧新轨前进（记账与 push 同序——轨号即行位）
+      rows.push({ kind: 'del', text: delBody, segs, oldLine, newLine: null });
+      rows.push({ kind: 'add', text: addBody, segs, oldLine: null, newLine });
       i += 2;
       continue;
     }
-    rows.push({ kind: line.kind, text: sanitizeLineText(line.text), segs: null }); // 孤立行/上下文行
+    if (line.kind === 'ctx') {
+      oldLine += 1; // 上下文行双轨同进
+      newLine += 1;
+      rows.push({ kind: 'ctx', text: sanitizeLineText(line.text), segs: null, oldLine, newLine });
+    } else if (line.kind === 'del') {
+      oldLine += 1; // 孤立删行旧轨前进
+      rows.push({ kind: 'del', text: sanitizeLineText(line.text), segs: null, oldLine, newLine: null });
+    } else {
+      newLine += 1; // 孤立增行新轨前进
+      rows.push({ kind: 'add', text: sanitizeLineText(line.text), segs: null, oldLine: null, newLine });
+    }
     i += 1;
   }
   return rows;
 }
 
-/** 扁平呈现行（组头 + 展开组体——光标/滚动的行空间单源） */
+/** 行号槽串（右对齐 W 宽；null = 本轨不前进位——空槽） */
+function lineSlot(line: number | null, width: number): string {
+  return line === null ? ' '.repeat(width) : String(line).padStart(width);
+}
+
+/** 组行号槽宽（位数自适应——组内两轨最大号位数；空组下限 1） */
+function numWidthOf(group: DiffFileGroup): number {
+  let oldCount = 0;
+  let newCount = 0;
+  for (const line of group.lines) {
+    if (line.kind === 'ctx') {
+      oldCount += 1;
+      newCount += 1;
+    } else if (line.kind === 'del') oldCount += 1;
+    else if (line.kind === 'add') newCount += 1;
+  }
+  return Math.max(1, String(Math.max(oldCount, newCount)).length);
+}
+
+/** split 双栏行（左旧右新——null = 该侧无内容：孤立删挂右空、孤立增挂左空） */
+interface SplitPair {
+  readonly left: DiffBodyRow | null;
+  readonly right: DiffBodyRow | null;
+}
+
+/**
+ * 组体行 → split 双栏行（宽屏形行空间）：词级对行合并同屏行（左旧右新
+ * 对齐——segs 在场即对行判据）；孤立删/增单侧挂空；ctx 双侧同现。连续
+ * 删/增族经 bodyRowsOf 的 1:1 相邻对配对后自然对齐（余行挂空侧）。
+ */
+function splitRowsOf(rows: readonly DiffBodyRow[]): readonly SplitPair[] {
+  const pairs: SplitPair[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const row = rows[i]!;
+    if (row.kind === 'del' && row.segs !== null && rows[i + 1]?.kind === 'add') {
+      pairs.push({ left: row, right: rows[i + 1]! });
+      i += 2;
+      continue;
+    }
+    if (row.kind === 'ctx') pairs.push({ left: row, right: row });
+    else if (row.kind === 'del') pairs.push({ left: row, right: null });
+    else pairs.push({ left: null, right: row });
+    i += 1;
+  }
+  return pairs;
+}
+
+/**
+ * 扁平呈现行（光标/滚动的行空间单源——形随宽双空间）：组头 + 展开组体
+ *（unified 形逐行 / split 形双栏合并行）。
+ */
 type FlatRow =
-  { readonly kind: 'head'; readonly group: DiffFileGroup } | { readonly kind: 'body'; readonly row: DiffBodyRow };
+  | { readonly kind: 'head'; readonly group: DiffFileGroup }
+  | { readonly kind: 'body'; readonly row: DiffBodyRow; readonly numWidth: number }
+  | { readonly kind: 'split'; readonly pair: SplitPair; readonly numWidth: number };
 
 /** 改动总览装配选项 */
 export interface DiffViewerOptions {
@@ -196,6 +277,13 @@ const EXPANDED_MARK = '▾';
 
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
 const WHEEL_LINES = 3;
+
+/**
+ * split 双栏阈值（2026-10-05 ZCode 对标批落码定值——07 §4.1 副屏族 diff-viewer
+ * 双件定形注「随落码批定值」）：终端宽 ≥100 列 unified→split。定值依据：半栏
+ * ~49 列扣除行号槽与前缀后两侧各余 ~44 列正文可读位；窄于此双栏挤成截断雨。
+ */
+const SPLIT_MIN_WIDTH = 100;
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -233,6 +321,12 @@ export class DiffViewer implements OverlayContent {
   private freeScroll = false;
   /** 视口高实测（render 回写——翻页的页幅依据） */
   private viewportHeight = 1;
+  /**
+   * 末次量宽实测（measure/render 双回写——split 形判定真源）：形随宽的双
+   * 行空间（split 对行合并）需要 render 外的消费面（handleEvent 的光标/
+   * 滚动/翻组）与 render 同形——渲染前缺省 0 = unified（首帧先于任何键）。
+   */
+  private lastWidth = 0;
   /** 退出闭锁（q/Esc 与 Ctrl+D 两路共闭——竞发防御位） */
   private exited = false;
 
@@ -245,26 +339,39 @@ export class DiffViewer implements OverlayContent {
     this.onQuit = options.onQuit;
   }
 
-  /** 扁平行空间（组头 + 展开组体——render/事件两消费面单源） */
+  /** split 形在场判定（宽达阈值——ZCode 对标批双件②） */
+  private get splitForm(): boolean {
+    return this.lastWidth >= SPLIT_MIN_WIDTH;
+  }
+
+  /** 扁平行空间（组头 + 展开组体——render/事件两消费面单源；形随宽双空间） */
   private flatRows(): readonly FlatRow[] {
+    const split = this.splitForm;
     const rows: FlatRow[] = [];
     for (const group of this.groups) {
       rows.push({ kind: 'head', group });
-      if (this.expanded.has(group.path)) {
-        for (const row of bodyRowsOf(group.lines)) rows.push({ kind: 'body', row });
+      if (!this.expanded.has(group.path)) continue;
+      const bodyRows = bodyRowsOf(group.lines);
+      const numWidth = numWidthOf(group);
+      // split 形：对行合并同屏行（行空间收缩）；unified 形：组体逐行
+      if (split) {
+        for (const pair of splitRowsOf(bodyRows)) rows.push({ kind: 'split', pair, numWidth });
+      } else {
+        for (const row of bodyRows) rows.push({ kind: 'body', row, numWidth });
       }
     }
     return rows;
   }
 
-  /** 量高：头行 + 扁平行全量 + 底行提示（副屏 root 不经布局路——render 窗口化） */
+  /** 量高：头行 + 扁平行全量 + 底行提示（副屏 root 不经布局路——render 窗口化；形随宽） */
   measure(width: number): number {
-    void width;
+    this.lastWidth = width; // 量宽回写（与 render 同源——两消费面同形）
     return 1 + Math.max(1, this.flatRows().length) + 1;
   }
 
-  /** 落位：头行 → 行视口（组头计数着色 / 组体词级变段着色）→ 底行提示 */
+  /** 落位：头行 → 行视口（组头计数着色 / 组体行号槽 + 词级变段着色 / split 双栏）→ 底行提示 */
   render(buffer: CellBuffer, region: Region): void {
+    this.lastWidth = region.width; // 落位宽回写（与 measure 同源——resize 弃旧换新后即随新形）
     if (region.height < 2) return; // 防御位（极小终端）
     const head = `${HEAD_MARKS.diff} 改动总览 · ${this.groups.length} 文件`;
     // 头行/空态/底行 fitLine 收口（界面美化役美学注⑤——窄窗溢出止漏）
@@ -292,8 +399,10 @@ export class DiffViewer implements OverlayContent {
           const row = rows[index]!;
           if (row.kind === 'head') {
             this.renderHead(buffer, region.row + 1 + i, region.col, region.width, index, row.group);
+          } else if (row.kind === 'body') {
+            this.renderBody(buffer, region.row + 1 + i, region.col, region.width, index, row.row, row.numWidth);
           } else {
-            this.renderBody(buffer, region.row + 1 + i, region.col, region.width, index, row.row);
+            this.renderSplit(buffer, region.row + 1 + i, region.col, region.width, index, row.pair, row.numWidth);
           }
         }
       }
@@ -342,7 +451,11 @@ export class DiffViewer implements OverlayContent {
     }
   }
 
-  /** 组体行：词级对行同段裸/变段着色（R4 单源呈现）；孤立 del/add 整行着色；ctx 裸行；超宽 … 收口（界面美化役①——记号随段既有着色） */
+  /**
+   * 组体行（unified 形）：光标位 + 行号槽（旧轨|新轨 dim——各循其轨）+ 前缀
+   * 与内容（词级对行同段裸/变段着色——R4 单源呈现；孤立 del/add 整行着色；
+   * ctx 裸行；超宽 … 收口）。行几何 = 光标位(1) + 槽区(2W+1) + 前缀(1) + 文本。
+   */
   private renderBody(
     buffer: CellBuffer,
     row: number,
@@ -350,27 +463,76 @@ export class DiffViewer implements OverlayContent {
     width: number,
     index: number,
     body: DiffBodyRow,
+    numWidth: number,
   ): void {
+    buffer.writeText(row, col, index === this.cursor ? CURSOR_MARK : ' ');
+    buffer.writeText(
+      row,
+      col + 1,
+      `${lineSlot(body.oldLine, numWidth)} ${lineSlot(body.newLine, numWidth)}`,
+      HINT_STYLE,
+    );
+    const start = col + 2 * numWidth + 2; // 前缀列（槽区 2W+1 起于 col+1）
+    this.renderLineContent(buffer, row, start, width - (2 * numWidth + 2), body);
+  }
+
+  /**
+   * split 双栏行（宽屏形——左旧右新、中缝 1 列）：行号槽分栏各随（左旧轨/
+   * 右新轨 dim）；两侧同预算（对齐位 1 + 槽 W + 缝 1 + 前缀 1——前缀列跨缝
+   * 同列，width 奇偶余列归右半）；内容收口单源 renderLineContent（半栏窗——
+   * … 省略位与 unified 同律，止步缝前）。
+   */
+  private renderSplit(
+    buffer: CellBuffer,
+    row: number,
+    col: number,
+    width: number,
+    index: number,
+    pair: SplitPair,
+    numWidth: number,
+  ): void {
+    const half = Math.floor((width - 1) / 2); // 左半 [col, col+half)，缝 1 列，右半 [col+half+1, col+width)
+    const rightCol = col + half + 1;
+    buffer.writeText(row, col, index === this.cursor ? CURSOR_MARK : ' ');
+    if (pair.left !== null) {
+      buffer.writeText(row, col + 1, lineSlot(pair.left.oldLine, numWidth), HINT_STYLE);
+    }
+    if (pair.right !== null) {
+      buffer.writeText(row, rightCol + 1, lineSlot(pair.right.newLine, numWidth), HINT_STYLE);
+    }
+    const room = half - numWidth - 2; // 两侧同内容预算（前缀列起算——含前缀 1）
+    if (pair.left !== null) this.renderLineContent(buffer, row, col + numWidth + 2, room, pair.left);
+    if (pair.right !== null) this.renderLineContent(buffer, row, rightCol + numWidth + 2, room, pair.right);
+  }
+
+  /**
+   * 行内容渲染（前缀 -/+/空 + 词级段族或整行文本，窗 [start, start+room) 内
+   * 收口——unified 全宽窗 / split 半栏窗两消费面单源）：词级段族在场逐段写
+   * （same 段裸、本侧变段着色——对行的异侧段不在此行），超宽段省略形收口
+   * （… 记号随段既有着色、被切即行终——界面美化役①）；孤立行整行着色
+   * （ctx 裸）+ 超宽 ellipsize（0 宽守卫在源）。
+   */
+  private renderLineContent(buffer: CellBuffer, row: number, start: number, room: number, body: DiffBodyRow): void {
+    if (room <= 0) return; // 极窄窗（槽区占满）——内容位零预算不写
     const fg: ColorValue | undefined =
       body.kind === 'del' ? this.theme.diffRemoved : body.kind === 'add' ? this.theme.diffAdded : undefined;
-    // 词级段族在场：逐段写（same 段裸、本侧变段着色——对行的异侧段不在此行）
+    const style = fg === undefined ? undefined : { fg };
+    const prefix = body.kind === 'del' ? '-' : body.kind === 'add' ? '+' : '';
+    buffer.writeText(row, start, prefix, style);
+    let c = start + 1;
+    const limit = start + room;
     if (body.segs !== null) {
-      buffer.writeText(row, col, index === this.cursor ? CURSOR_MARK : ' ');
-      let c = col + 2;
-      const prefix = body.kind === 'del' ? '-' : '+';
-      buffer.writeText(row, c, prefix, { fg });
-      c += 1;
       for (const seg of body.segs) {
-        if (c >= col + width) break; // 超宽即止（段级截断）
+        if (c >= limit) break; // 超宽即止（段级截断）
         // 段族两栖承载（del+add+same 全集）——本行只取本侧变段 + same 段
         //（对行的异侧变段不在此行：del 行不写 add 段、add 行不写 del 段）
         if (seg.kind !== 'same' && seg.kind !== body.kind) continue;
         const isChange = seg.kind === body.kind; // 本侧变段（着色位）
         const piece = seg.text;
-        const room = col + width - c;
-        if (stringWidth(piece) <= room) {
+        const space = limit - c;
+        if (stringWidth(piece) <= space) {
           // 适装段整段写（着色语义不变——本侧变段红/绿、same 段裸）
-          buffer.writeText(row, c, piece, isChange ? { fg } : undefined);
+          buffer.writeText(row, c, piece, isChange ? style : undefined);
           c += stringWidth(piece);
           continue;
         }
@@ -378,16 +540,13 @@ export class DiffViewer implements OverlayContent {
         // 前景色不变，仅截断点拼 … 记号且随本段既有着色——被切行与真实行尾
         // 可辨）；被切即行终——后续段不再写（防 … 记号后缀残段内容），整字
         // 丢弃的残列留白
-        buffer.writeText(row, c, ellipsize(piece, room), isChange ? { fg } : undefined);
+        buffer.writeText(row, c, ellipsize(piece, space), isChange ? style : undefined);
         break;
       }
       return;
     }
-    // 孤立行：前缀 + 整行着色（ctx 裸——fg undefined 时样式位即裸）
-    const prefix = body.kind === 'del' ? '-' : body.kind === 'add' ? '+' : '';
-    const text = `${index === this.cursor ? CURSOR_MARK : ' '} ${prefix}${body.text}`;
-    const fit = ellipsize(text, width); // 省略形单源（width 件——0 宽守卫在源）
-    buffer.writeText(row, col, fit, fg === undefined ? undefined : { fg });
+    // 孤立行/上下文行：整行续写（前缀已落；ctx 裸——style undefined 即裸）
+    buffer.writeText(row, c, ellipsize(body.text, limit - c), style);
   }
 
   /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 翻组 → 移动键 → 退出 */
