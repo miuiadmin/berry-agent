@@ -1659,17 +1659,19 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
     await rt.shutdown();
   });
 
-  it('单发计量：会话退役后粘滞持有仍落账（settle 观测持有在场——写路径律 04 §5 mq）', async () => {
+  it('单发计量：会话退役后持有已清、迟到写笔走 detached 铸新腿仍落账（05 retire 清账律——第十一轮修前红：持有不驱逐边界下 loadSession 零调用）', async () => {
     const { rt } = rigRuntime();
     const { faux, stack } = rigStack(rt);
     const ws = rigWorkspace();
     const session = stack.openStartupSession(ws);
-    // 先跑一轮：会话行落库 + settle 观测已把活体日志入持有——本例实走粘滞
-    // 持有腿（词面与实走腿一致；detached 铸新腿形归跨进程形例，见下例）
+    // 先跑一轮：会话行落库（retire 后 detached 腿可装载的前提）+ 创建期持有
+    // 在场（mq-2 创建即持）
     await stack.submitText(session.sessionId, '先跑一轮');
     await rt.persistence.flush();
     const loadSpy = vi.spyOn(rt.persistence, 'loadSession');
-    stack.manager.retire(session.sessionId); // 摘活体 → driverOf undefined
+    // retire 成功路 = dismantle + 摘登记 + 清账三步（排干屏障 → 摘持有 →
+    // 登记面出册——manager 装配位 onRetired 编排，05 retire 清账律定形注）
+    stack.manager.retire(session.sessionId);
     faux.setResponses([() => meteredMessage(20, 10)]);
     await stack.llm.complete({
       messages: [{ role: 'user', content: '退役后', timestamp: Date.now() }],
@@ -1677,46 +1679,59 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
       metering: { sessionId: session.sessionId },
     });
     await rt.persistence.flush();
-    // 腿身份钉死：持有在场 → loadSession 铸新腿零调用（live 缺席解析走持有
-    // 对象——append 直通既有写队列，durable 可查）。同流还有先跑轮 run 路
-    // 桥接笔（callId 'run:' 前缀）——按 callId 形区分
-    expect(loadSpy).not.toHaveBeenCalled();
+    // 腿身份钉死（修前红锚）：修前持有不驱逐 → 迟到写笔经持有对象落账、
+    // loadSession 铸新腿零调用；修后持有已摘 → 解析走 detached 铸新腿
+    //（retire 期排干后本进程队列空，铸新不撞 seq 双计数器——单追加者律保持）
+    expect(loadSpy).toHaveBeenCalled();
     const page = rt.persistence.store.queryEvents({ sessionId: session.sessionId, types: ['llm/usage'], sinceMs: 0 });
     const singles = page.events.filter(
       (e) => !String((e.data as Record<string, unknown>)['callId']).startsWith('run:'),
     );
+    // detached 腿仍 durable 落账（行在场可装载——迟到笔不丢）
     expect(singles).toHaveLength(1);
     expect((singles[0]!.data as Record<string, unknown>)['priority']).toBe('background');
     await rt.shutdown();
   });
 
-  it('单发计量：零 run 会话退役后解析走粘滞持有、loadSession 铸新腿零调用（mq-2 修前红——首-run-在飞窗 live/hold 双空）', async () => {
+  it('单发计量：零 run 会话退役后持有随清账摘除——迟到写笔走 detached 腿、行未落库即丢账 warn 可观测（第十一轮 retire 边界翻档；mq-2 创建即持辖存活会话窗）', async () => {
     const { rt } = rigRuntime();
     const warns: string[] = [];
     const { faux, stack } = rigStack(rt, { warn: (m) => warns.push(m) });
     const ws = rigWorkspace();
-    // 零 run 即退役 = 「首 run 在飞、尚无被观测 settle 即退役」窗的等价触发
-    //（goal 沉淀单发恰在 run 组装期发起、无先导 settle——goalDeposit 同窗形）：
-    // 修前持有只在 settle 观测落位 → live/hold 双空；修后创建/开期即持
+    // 零 run 即退役：mq-2 曾以创建期持有覆盖该窗（彼时 retire 后迟到笔仍落
+    // 持有对象）；第十一轮 retire 清账翻档后持有随 retire 摘除——零 run 会话
+    // 行未落库（createSession 零 I/O），detached 腿 loadSession 必然落空
     const session = stack.openStartupSession(ws);
     const loadSpy = vi.spyOn(rt.persistence, 'loadSession');
-    stack.manager.retire(session.sessionId); // dismantle + 摘登记 → driverOf undefined
+    stack.manager.retire(session.sessionId); // dismantle + 摘登记 + 清账三步
     faux.setResponses([() => meteredMessage(20, 10)]);
-    const result = await stack.llm.complete({
+    await stack.llm.complete({
       messages: [{ role: 'user', content: '退役后', timestamp: Date.now() }],
       priority: 'background',
       metering: { sessionId: session.sessionId },
     });
-    // 解析走持有：detached loadSession 铸新腿零调用（修前红锚——当前双空必经
-    // loadSession；零 run 会话行未落库时该调用直接抛 PERSIST_DATA_CORRUPT →
-    // 丢账仅 warn）
-    expect(loadSpy).not.toHaveBeenCalled();
-    // 笔落既有日志：创建期持有 = 同对象同计数器（无第二日志、无 seq 撞车）
-    const usageEvents = session.driver.session.events().filter((e) => e.type === 'llm/usage');
-    expect(usageEvents).toHaveLength(1);
-    expect((usageEvents[0]!.data as Record<string, unknown>)['callId']).toBe(result.callId);
-    // 无丢账可观测（修前：onUsage 回调内抛 → onUsageError 交接 warn 在场）
-    expect(warns.some((w) => w.includes('丢账'))).toBe(false);
+    // 修前红锚：mq-2 形持有解析 → loadSession 零调用；修后持有已摘 → 必经
+    // detached loadSession（行不在 → PERSIST_DATA_CORRUPT 抛）
+    expect(loadSpy).toHaveBeenCalled();
+    // 丢账不静默律：onUsage 异常经 onUsageError 交接落 warn（无 durable 行可
+    // 归属的迟到计量笔诚实丢弃并可观测——非崩溃、complete 回执照常返回）
+    expect(warns.some((w) => w.includes('丢账'))).toBe(true);
+    await rt.shutdown();
+  });
+
+  it('retire 清账：登记面死键出册（registrations 经 stageSessionTitle 在册判据观测——修前红：死键在场返 true）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const ws = rigWorkspace();
+    const session = stack.openStartupSession(ws);
+    await stack.submitText(session.sessionId, '一轮');
+    await rt.persistence.flush();
+    stack.manager.retire(session.sessionId);
+    // retire 路清账出册后活体登记缺席 → stageSessionTitle 诚实 miss（修前：
+    // registrations 死键在场恒 true——P3 缺陷的行为观测位）；durable 面保留
+    //（行/事件可读——retire 非删除路，open 可复续不受影响）
+    expect(rt.persistence.stageSessionTitle(session.sessionId, '退役后改题')).toBe(false);
+    expect(rt.persistence.store.getSessionRow(session.sessionId)).toBeDefined();
     await rt.shutdown();
   });
 

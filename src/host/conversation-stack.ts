@@ -250,7 +250,10 @@ export interface ConversationStackOptions {
    * 单会话收口观察穿线位（宿主内部——SessionManager.onRetired 的装配透传，
    * 2026-09-13 复盘发现 ⑯）：retire 成功路发射（dismantle + 摘登记后；
    * 观察者异常吞隔离）。消费位 = 装配根订阅面（memory 件简报冻结缓存收口
-   * 摘除）。缺席 = 无观察（测试替身形——帽 256 FIFO 兜底仍在）。
+   * 摘除）。缺席 = 无外部观察（测试替身形——帽 256 FIFO 兜底仍在）。
+   * 第十一轮 retire 清账批（05 retire 清账律定形注）起：装配位恒装内部
+   * 观察者先走清账三步（排干屏障 → 摘计量持有 → persist 登记面出册，
+   * 见 manager 装配段），本外部观察者退居尾调——发射时点不变、语义不变。
    */
   readonly onSessionRetired?: (sessionId: string) => void;
   /**
@@ -747,8 +750,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // 解析永不经 detached 铸新腿（活体或持有常在）。
   // 单追加者律（一会话同一时刻至多一个可追加日志对象）：持有在场 = 同对象
   // 同计数器，append 续既有写队列尾、序不破；「从未见过活体」（跨进程/从未
-  // 开驱动）才铸新——该会话本进程队列必空，安全。持有不驱逐（v1 有意边界：
-  // 驱逐安全需「队列已冲刷 ∧ 无外部日志引用」双判据，后者不可判定）。
+  // 开驱动）才铸新——该会话本进程队列必空，安全。持有驱逐（05 retire 清账
+  // 律——第十一轮深扫定形注翻档，原 v1「持有不驱逐」边界废止）：retire 成功
+  // 路尾同步排干〔队列已冲刷——drainSessionNow 屏障〕后摘持有〔dismantle 摘
+  // 登记后除持有位外无强引用——无外部日志引用〕，双判据在 retire 收口序内
+  // 可判定；此后迟到计量写笔走 detached 铸新腿（排干后队列空、铸新不撞 seq
+  // 双计数器——单追加者律保持）。进程级全量 SessionLog 单调滞留就此收口
+  //（清账编排位 = manager 装配 onRetired 三步，见 :1294 段）。
   const meteringLogHold = new Map<string, SessionLog>();
   const llm = createLlmService({
     runtime: llmRuntime,
@@ -1030,7 +1038,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // live/hold 双空 → onUsage 走 detached loadSession 从滞后库铸第二内存
     // 日志 = per-session seq 双计数器撞车；goal 沉淀单发恰在 run 组装期发起、
     // 无先导 settle 同窗）。settle 观测保留「逐次刷新取最新活体」既有语义
-    //（onRunSettled 订阅位）；持有不驱逐（v1 有意边界不变——头注见上）。
+    //（onRunSettled 订阅位）；持有驱逐随 retire 清账翻档（05 retire 清账律
+    // ——第十一轮：retire 收口序内摘持有，头注见上）。
     meteringLogHold.set(sessionId, session);
     // 审批桥：driver 与 open 域工具共用同一 per-session ask 面（07 §4.3 提问队列）；
     // 工厂注入覆盖在场时胜出（委派边界①——子会话审批落父会话呈现面，04 §10）
@@ -1295,8 +1304,39 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     persistence: options.runtime.persistence,
     dispatch,
     createDriver,
-    // 单会话收口观察穿线（发现 ⑯——缺席形不设位保持测试替身零观察）
-    ...(options.onSessionRetired !== undefined ? { onRetired: options.onSessionRetired } : {}),
+    // 单会话收口观察 + retire 清账三步（05 retire 清账律——第十一轮深扫
+    // 定形注；规范先行笔 bec282b）：retire 成功路（dismantle + 摘登记后）
+    // 同步执行——
+    // ① drainSessionNow 单会话排干屏障（loadSession 读前屏障同 seam，第九轮
+    //   c18cf65 既有面）：满足「队列已冲刷」判据，durable 前缀收齐；
+    // ② meteringLogHold 摘持有：dismantle 摘登记后除持有位外无强引用
+    //   （满足「无外部日志引用」判据——v1 边界翻档，头注见 :734 段）；此后
+    //   迟到计量写笔走 detached 铸新腿（onUsage/probe 两写位既有形——排干
+    //   后队列空，铸新不撞 seq 双计数器，单追加者律保持）；
+    // ③ persistence.retireEntries 出册（registrations/cursors 死键清账）：
+    //   排干后执行防在飞写笔回复活死键。
+    // 清账三步整体 try 位：排干失败（写链熔断/同步写失败）即中止后续步骤
+    // ——持有保持（迟到写笔仍走持有对象，单追加者律不破）+ 键保持，泄漏
+    // 退居次位、失败不静默（warn 可观测）；manager 发射位另有吞隔离兜底。
+    // 尾调外部观察者（发现 ⑯ 原穿线位——memory 件简报冻结缓存收口摘除）
+    // 语义不变。goal 会话复用形不走 retire 不受辖；dispose 全拆位不发射本
+    // seam（进程收尾随 close 终清，不另加全清）。
+    onRetired: (sessionId) => {
+      try {
+        // ① 排干屏障（fail-loud 重抛——由下方 catch 收口，见上注）
+        options.runtime.persistence.writeBehind.drainSessionNow(sessionId);
+        // ② 粘滞持有摘除（迟到写笔转 detached 铸新腿）
+        meteringLogHold.delete(sessionId);
+        // ③ persist 登记面出册（排干后无在飞写——键不复活）
+        options.runtime.persistence.retireEntries(sessionId);
+      } catch (err) {
+        warn(
+          `retire 清账失败（持有与登记键保持不摘——迟到写笔仍走持有对象）：${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      // 外部观察者尾调（原 seam 消费位——异常由 manager 发射位吞隔离）
+      options.onSessionRetired?.(sessionId);
+    },
     // 会话关闭收口穿线（六役 CL-C ④——缺席形不设位保持测试替身零行为）
     ...(options.onSessionClosed !== undefined ? { onSessionClosed: options.onSessionClosed } : {}),
   });
