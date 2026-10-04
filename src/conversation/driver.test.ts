@@ -758,6 +758,61 @@ describe('ConversationDriver 待发队列通道', () => {
     const userTexts = lastMessages.filter((m) => m.role === 'user').map((m) => m.content);
     expect(userTexts).toEqual(['一问', '搁浅件', '新输入']);
   });
+
+  it('peekWaiting 只读队列观察：busy 入列预览可见 / 消费移除 / 清空退场 + 改写不渗队（07 §4.1 装配向接线——排队常驻面板数据源）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一答' }] }),
+        assistant({ content: [{ type: 'text', text: '二答' }] }),
+        assistant({ content: [{ type: 'text', text: '三答' }] }),
+      ],
+      gates: [gate],
+    });
+    expect(driver.peekWaiting()).toEqual([]); // 空队基线（清空退场形 = 零在队）
+    const first = driver.submit('一问');
+    expect(driver.running).toBe(true);
+    // busy 窗口两形入列同池：enter steer 顶注件 + alt+enter 候跑件——面板诚实
+    // 呈现全部在队件（候跑件不排除）
+    const second = driver.submit('二问');
+    const third = driver.submit('三问', { queueFollowUp: true });
+    expect(second).toBe(first); // steer 件搭同一在飞 run 结算
+    expect(driver.peekWaiting()).toEqual(['二问', '三问']);
+    // 只读性锁：返回新铸数组——调用方改写不渗队内真身（快照零副作用律）
+    const snapshot = driver.peekWaiting() as string[];
+    snapshot.push('伪造件');
+    snapshot[0] = '篡改';
+    expect(driver.peekWaiting()).toEqual(['二问', '三问']);
+    release();
+    await first; // steer 件随在飞 run 消费（第二 LLM 调用顶注）
+    await third; // 候跑件 run 终态取件种子新起 run（第三 LLM 调用）——队列全清
+    expect(driver.peekWaiting()).toEqual([]); // 清空退场（面板数据源归零）
+  });
+
+  it('peekWaiting 预览串折叠：图文块数组取文本块、图块占位、空白序列折单空格（单行呈现契约）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一答' }] }),
+        assistant({ content: [{ type: 'text', text: '二答' }] }),
+      ],
+      gates: [gate],
+    });
+    const first = driver.submit('一问');
+    driver.submit([
+      { type: 'text', text: '首行\n  次行' },
+      { type: 'image', data: 'aGk=', mimeType: 'image/png' },
+    ]);
+    expect(driver.peekWaiting()).toEqual(['首行 次行 [图片]']);
+    release();
+    await first;
+  });
 });
 
 /* ---------------- 三通道路由与取消模型（11d：inject / 唤醒预算 / 工具面收窄 / resume） ---------------- */

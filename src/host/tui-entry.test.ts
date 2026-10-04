@@ -1140,7 +1140,7 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     await until(() => faux.state.callCount >= 1); // 首 run 在飞（响应挂起——busy 窗口）
     io.send('候跑问');
     io.send('\x1b[13;3u'); // alt+enter（kitty 形）——候跑提交
-    await until(() => io.output.includes('已排队（当前回复结束后自动开始）')); // 排队回执一行（notify 面）
+    await until(() => io.output.includes('已排队 1：候跑问')); // 排队常驻面板段（notify 单行回执已退役——常驻面板接管可见性）
     expect(faux.state.callCount).toBe(1); // 候跑未顶注在飞 run（零新调用）
     releaseFirst(); // 首 run 放行——候跑件种子新起 run
     await until(() => faux.state.callCount >= 2);

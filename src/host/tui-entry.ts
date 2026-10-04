@@ -1481,13 +1481,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             return;
           }
         }
-        // 候跑排队回执（挂账解挂批 2026-09-15——alt+enter 形）：busy 期排队才
-        // 上屏一行；busy 判据必须先于 submitText 读——idle 提交即起 run，
-        // 提交后再读恒真（首条误报排队）。notify 走 backend 直投（closure 捕
-        // 获构造后柄——仅输入期触发无 TDZ）
-        if (opts?.queueFollowUp === true && (stack.driverOf(sessionId)?.running ?? false)) {
-          backend.notify('已排队（当前回复结束后自动开始）', { level: 'info' });
-        }
+        // 候跑排队回执已退役（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向
+        // 接线排队常驻面板翻档注）：busy 期排队的可见性由固定区排队常驻面板
+        // 接管（queueFor 数据源在下——帧首拉取即时刷新、清空即退场），notify
+        // 单行回执撤除；「busy 判据先于 submitText 读」知识点随回执一并退
+        // 役（面板数据真源 = 驱动在队快照逐帧观察，非提交期采样）。
         // 候跑标记透传（SubmitOptions.queueFollowUp——04 §4）：普通形不带 opts
         // 保持旧调用形（undefined 与 {} 对驱动同义，零扰动）
         const run =
@@ -1584,6 +1582,12 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         running: () => jobRows.running(),
         list: () => jobRows.list(),
       },
+      // 排队常驻面板数据源（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向接
+      // 线排队常驻面板翻档注）：driver 只读队列观察 peekWaiting 直投（预览
+      // 串折叠在驱动侧单源——本层零折叠知识）；会话未开 = null（面板退场，
+      // 与注入缺席同义）。busy 判据不在接线层——面板帧首拉取在队快照即真源
+      //（steer 顶注件与候跑件同池全量呈现）。
+      queueFor: (sessionId) => stack.driverOf(sessionId)?.peekWaiting() ?? null,
       autocomplete: {
         // 通道核命令表 + TUI 本地命令族 + TUI 本地退出词三源并流（07 §4.1
         // 2026-09-15 /exit 批定形注 + 命令面增补批扩编——本地族与退出词均不

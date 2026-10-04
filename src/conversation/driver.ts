@@ -432,6 +432,17 @@ export class ConversationDriver {
   }
 
   /**
+   * 只读队列观察（07 §4.1 装配向接线——排队常驻面板数据源，2026-10-05 ZCode
+   * TUI 对标批翻档注）：在队件预览串快照（steer 顶注件与候跑件同池全量——
+   * 面板诚实呈现全部在队件；与 queuedItems 的操控回执面分立——呈现投影单
+   * 独成面，消费方无需自理消息体折叠）。只读零副作用：逐件折单行预览串、
+   * 新铸数组返回（调用方改写不渗队内真身——快照零副作用律）。
+   */
+  peekWaiting(): readonly string[] {
+    return this.queue.snapshot().map((item) => queuedPreviewOf(item.message));
+  }
+
+  /**
    * 子代理审批挂起通知（04 §10 审批挂起通知——11f 注入面；子代理机器是
    * 调用方，one-shot 形态不注入由调用方裁量）：background 子代理触发审批对
    * 时向父会话注入一条 UserMessage（source='subagent-approval-pending'，
@@ -1449,4 +1460,19 @@ function errorTextOf(assistant: AssistantMessage): string {
   if (assistant.errorMessage !== undefined) return assistant.errorMessage;
   const firstText = assistant.content.find((block) => block.type === 'text');
   return firstText !== undefined && firstText.type === 'text' ? firstText.text : '';
+}
+
+/**
+ * 在队消息单行预览串（peekWaiting 供数形——07 §4.1 排队常驻面板）：
+ * user 纯文本直取；图文块数组取文本块拼接、图块占位「[图片]」；空白序列
+ * 折单空格（多行稿单行化——面板行不携换行）。队列件恒 UserMessage
+ * （routeMessage / deliverControl 两入列位单源），非用户形防御占位不炸。
+ */
+function queuedPreviewOf(message: AgentMessage): string {
+  if (!isStandardMessage(message) || message.role !== 'user') return '（非用户消息）';
+  const raw =
+    typeof message.content === 'string'
+      ? message.content
+      : message.content.map((block) => (block.type === 'text' ? block.text : '[图片]')).join(' ');
+  return raw.replace(/\s+/g, ' ').trim();
 }

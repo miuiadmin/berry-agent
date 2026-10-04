@@ -4988,6 +4988,46 @@ describe('TuiBackend 后台任务段 + /jobs 副屏（界面美化役批6——U
   });
 });
 
+describe('TuiBackend 排队常驻面板（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向接线排队常驻面板翻档注）', () => {
+  it('入列可见：帧首拉取「已排队 N：首条预览 +M」折叠计数形（N≥2）', () => {
+    const { io } = makeBackend({ sessionId: SESSION, queueFor: () => ['修复登录跳转', '补测试'] });
+    expect(io.bytes).toContain('已排队 2：修复登录跳转 +1'); // N≥2 折叠计数形（+M = N-1）
+  });
+
+  it('单件形无折叠段（N=1——首条预览后零「+M」尾巴不虚报）', () => {
+    const { io } = makeBackend({ sessionId: SESSION, queueFor: () => ['修复登录跳转'] });
+    expect(io.bytes).toContain('已排队 1：修复登录跳转');
+    expect(stripAnsi(io.bytes)).not.toContain('修复登录跳转 +'); // 单件零折叠段
+  });
+
+  it('消费移除 / 清空退场：帧锚重拉——计数收敛、队列归零即段退场（零高度）', () => {
+    const queue: string[] = ['修复登录跳转', '补测试'];
+    const { io, backend } = makeBackend({ sessionId: SESSION, queueFor: () => queue });
+    expect(io.bytes).toContain('已排队 2：修复登录跳转 +1');
+    queue.splice(0, 1); // 消费一件（次条晋升首条——计数收敛）
+    io.bytes = '';
+    emit(backend, { type: 'agent_start' }); // run 边界帧锚（入列/消费即时刷新路——touchFixed → 帧首重拉）
+    expect(io.bytes).toContain('已排队 1：补测试');
+    queue.splice(0, 1); // 清空
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).not.toContain('已排队'); // 队列清空即退场
+  });
+
+  it('注入缺席：固定区零排队段（旧形锚——既有装配/测试零扰动）', () => {
+    const { io } = makeBackend({ sessionId: SESSION });
+    expect(io.bytes).not.toContain('已排队');
+  });
+
+  it('极小终端（3 行屏）整段隐：先缩后隐梯末位（任务行同形外挂腿——低段让位零高度不虚报）', () => {
+    const io = new MemoryTerminalIO(COLS, 3);
+    const backend = new TuiBackend(io, { sessionId: SESSION, queueFor: () => ['排队件'] });
+    backend.start();
+    expect(io.bytes).toContain('›'); // 编辑器下限保底在场
+    expect(io.bytes).not.toContain('已排队'); // 低段让位——零高度不虚报
+  });
+});
+
 describe('TuiBackend /rewind 副屏装配（openRewindPicker——装配 seam 锁）', () => {
   it('装配 seam requestRepaint：预览异步落位经 altHost.requestRepaint 请帧（组合根缝——面板件内锁之外）', async () => {
     const { io, backend } = makeBackend({ sessionId: SESSION });

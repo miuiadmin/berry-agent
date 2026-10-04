@@ -224,6 +224,15 @@ export interface TuiBackendOptions {
     readonly running: () => readonly JobEntry[];
     readonly list: () => readonly JobEntry[];
   };
+  /**
+   * 排队常驻面板数据源（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向接线
+   * 排队常驻面板翻档注）：聚焦会话在队件预览串 pull 闭包（真源 = driver
+   * 只读队列观察 peekWaiting——数据面全经装配注入，backend 零 conversation
+   * 触感）；帧首拉取（jobs 同路——run 边界与提交帧锚自然收敛即时刷新）。
+   * 注入缺席 = 段缺席零变化（既有装配/测试零扰动）；null / undefined /
+   * 空数组同义 = 面板退场（队列清空即退场条款的供数形）。
+   */
+  readonly queueFor?: (sessionId: string) => readonly string[] | null | undefined;
   /** 调度注入（启用渲染合并 + fps 帽 + tick 自驱——缺省同步直出测试语义） */
   readonly schedule?: (fn: () => void, ms: number) => unknown;
   /** 取消调度注入（与 schedule 配对——stop 时收在飞帧/tick/ESC 窗） */
@@ -640,6 +649,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private readonly jobsSource:
     { readonly running: () => readonly JobEntry[]; readonly list: () => readonly JobEntry[] } | undefined;
+  /**
+   * 排队常驻面板数据源（2026-10-05 ZCode TUI 对标批）：注入缺席 = 段缺席
+   * 零变化（与 jobsSource 同判位形）；在场时帧首拉取聚焦会话在队预览串。
+   */
+  private readonly queueFor: ((sessionId: string) => readonly string[] | null | undefined) | undefined;
+  /** 排队面板最新在队预览串（帧首拉取缓存——renderFixed 单次读源） */
+  private queuePreviews: readonly string[] = [];
   /** 当前 turn 的 assistant 消息用量暂存（turn_end 累加——件 6 等价性条款） */
   private pendingUsage: Usage | null = null;
   /**
@@ -950,6 +966,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 后台任务面板（界面美化役批6）：jobs 注入缺席 = 段缺席零变化；本地钟
     // 注入（时长基准——测试确定性）；须早于 injectTheme（主题注入位消费）
     this.jobsSource = options.jobs;
+    // 排队常驻面板（2026-10-05 ZCode TUI 对标批）：queueFor 注入缺席 = 段缺席零变化
+    this.queueFor = options.queueFor;
     this.jobPanel = new JobPanel({ now: () => this.now() });
     this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
     this.stack.onChange = () => this.touchFixed();
@@ -3457,6 +3475,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 拉（注入缺席零扰动）；帧频 O(n) 滤除终态——注册表帽 256 量级无害。
     // settle 推送锚另在 refreshJobs 公开面（闲态零帧源的即时收敛路）
     if (this.jobsSource !== undefined) this.jobPanel.update(this.jobsSource.running());
+    // 排队面板帧首拉取（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向接线排队
+    // 常驻面板翻档注）：queueFor 注入在场才拉、聚焦会话（todoFor 同形——
+    // this.sessionId 由 onRepaint 维护聚焦位）；入列/消费增删即时刷新锚 =
+    // 既有 touchFixed 帧源（提交清稿 onChange / run 边界 applyFocusedEvent），
+    // 帧首重拉自然收敛，无需新推送锚。null / undefined / 空数组同义 = 退场。
+    this.queuePreviews = this.queueFor !== undefined ? (this.queueFor(this.sessionId) ?? []) : [];
     const contents = this.stack.contents;
     // 编辑器量高单次（fx2-B——帽计算与分配梯共用；measure 幂等无帧账副作用）
     const editorMeasure = this.editor.measure(columns);
@@ -3469,18 +3493,22 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 行，最小必保段（overlay 实高 + ask 行 + 编辑器下限 + 任务行 + 状态行）
     // 超截断预算时任务行整段隐（极小终端让位——「先缩后隐」梯末位语义）。
     const taskPresent = this.taskLine.measure(columns) === 1;
+    // 排队段在场性（2026-10-05 ZCode TUI 对标批）：数据源注入在场且队列非空
+    // 才占行（队列清空即退场 = 零高度零文案——段缺席不虚报）
+    const queuePresent = this.queueFor !== undefined && this.queuePreviews.length > 0;
     // overlay 视口帽（fx2-B）：一次性问答面板选项数超可用预算时开滚动窗——
     // 固定区总高恒 ≤ 截断预算（绝不让固定区超高触发 MainScreen 陈货守卫
     // 整段不写——修前 24 行屏 21 选项 = 面板 22 + 编辑器 3 + 状态 1 = 26 >
-    // 预算 23，守卫整段不写 = 模态开屏即黑）。帽 = 预算 - 任务行 - 状态行
-    // statusWanted - ask 行 - 编辑器下限（编辑器恒保底对话本体；todo/tool/
-    // popup/jobs 属更低优先级段、分配梯先牺牲——按编辑器下限保守计算保证
-    // 梯降到底 total 恰 ≤ 预算〔任务行缺席时预留归零——极小终端保守 1 行
-    // 可容忍〕）
+    // 预算 23，守卫整段不写 = 模态开屏即黑）。帽 = 预算 - 任务行 - 排队行 -
+    // 状态行 statusWanted - ask 行 - 编辑器下限（编辑器恒保底对话本体；
+    // todo/tool/popup/jobs 属更低优先级段、分配梯先牺牲——按编辑器下限保守
+    // 计算保证梯降到底 total 恰 ≤ 预算〔任务行/排队行缺席时预留归零——极小
+    // 终端保守 1 行可容忍〕）
     const overlayCap = Math.max(
       0,
       fixedBudgetRows(this.io.size().rows) -
         (taskPresent ? 1 : 0) -
+        (queuePresent ? 1 : 0) -
         statusWanted -
         askRows -
         Math.min(editorMeasure, EDITOR_MIN_HEIGHT),
@@ -3493,12 +3521,24 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         fixedBudgetRows(this.io.size().rows)
         ? 1
         : 0;
+    // 排队段占行裁决（2026-10-05 ZCode TUI 对标批）：分配梯不改面（梯键集无
+    // queue 槽——任务行同形外挂腿）。队列非空即 1 行（已排队 N 计数 + 首条
+    // 预览——单行契约不量高）；任务行优先（忙态指示高于排队预览——taskRows
+    // 判定不回看排队行，两外挂腿同竞争时排队段先让位）；最小必保段（overlay
+    // 实高 + ask 行 + 编辑器下限 + 任务行 + 排队行 + 状态行）超截断预算时排
+    // 队段整段隐（极小终端让位——「先缩后隐」梯末位语义）
+    const queueRows =
+      queuePresent &&
+      overlaySum + askRows + Math.min(editorMeasure, EDITOR_MIN_HEIGHT) + (taskRows > 0 ? 1 : 0) + 1 + statusWanted <=
+        fixedBudgetRows(this.io.size().rows)
+        ? 1
+        : 0;
     // 后台任务段占行裁决（界面美化役批6——UX 批6 A 件 + V-4 注⑪① 迁最底
     // 行）：分配梯不改面（梯键集无 jobs 槽——任务行同形外挂腿）。想占行数
     // = 面板量高原值（帽 5 + 溢出行）；最小必保段（overlay 实高 + ask 行 +
-    // 编辑器下限 + 任务行 + 状态行）外算余量，正数即得、负数整段隐（极小
-    // 终端让位——「先缩后隐」梯末位语义，todo/tool 同档牺牲序；段内低段高
-    // 收口在 JobPanel.render 容量自洽）
+    // 编辑器下限 + 任务行 + 排队行 + 状态行）外算余量，正数即得、负数整段隐
+    // （极小终端让位——「先缩后隐」梯末位语义，todo/tool 同档牺牲序；段内低
+    // 段高收口在 JobPanel.render 容量自洽）
     const jobsWanted = this.jobsSource !== undefined ? this.jobPanel.measure(columns) : 0;
     const jobRows =
       this.jobsSource !== undefined && jobsWanted > 0
@@ -3511,15 +3551,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
                   askRows +
                   Math.min(editorMeasure, EDITOR_MIN_HEIGHT) +
                   (taskRows > 0 ? 1 : 0) +
+                  queueRows +
                   statusWanted),
             ),
           )
         : 0;
     // 量高原值 → 优先级截断分配（预算 = 视口 - 1：正文滚动区至少 1 行；任务
-    // 行/后台任务行占行从梯预算外扣——梯总额 + 两外挂腿恒 ≤ 截断预算不变式
-    // 保持）
+    // 行/排队行/后台任务行占行从梯预算外扣——梯总额 + 三外挂腿恒 ≤ 截断预算
+    // 不变式保持）
     const budget = allocateFixedBudget({
-      viewportRows: this.io.size().rows - taskRows - jobRows,
+      viewportRows: this.io.size().rows - taskRows - queueRows - jobRows,
       overlay: overlaySum,
       ask: askRows,
       popup: this.popup.visible ? this.popup.measure(columns) : 0,
@@ -3528,7 +3569,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       tool: this.toolPanel.measure(columns),
       statusWanted,
     });
-    const total = budget.total + taskRows + jobRows;
+    const total = budget.total + taskRows + queueRows + jobRows;
     const grid = new CellGrid(columns, total);
     let row = 0;
 
@@ -3570,6 +3611,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 占行裁决见上；编辑器聚焦态不受影响——overlay 占焦判定与任务行无涉）
     if (taskRows > 0) {
       this.taskLine.render(grid, { row, col: 0, width: columns, height: 1 });
+      row += 1;
+    }
+
+    // 段五.五：排队常驻面板（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向
+    // 接线排队常驻面板翻档注）：已排队 N 计数 + 首条预览（ellipsize 收口防
+    // 越列硬截断——段三同形）；N≥2 加 +M 折叠计数形（+M = N-1，单件形零
+    // 折叠尾巴）；dim 档（待命性质 = 次要信息——段三 input-ask 同档）。入
+    // 列/消费增删即时刷新、队列清空即退场（帧首拉取 + 占行裁决见上）；极
+    // 小终端整段隐（先缩后隐梯末位）。
+    if (queueRows > 0) {
+      const folded = this.queuePreviews.length > 1 ? ` +${this.queuePreviews.length - 1}` : '';
+      grid.writeText(
+        row,
+        0,
+        ellipsize(`已排队 ${this.queuePreviews.length}：${this.queuePreviews[0] ?? ''}${folded}`, columns),
+        { dim: true },
+      );
       row += 1;
     }
 
