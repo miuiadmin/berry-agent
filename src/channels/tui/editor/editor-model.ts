@@ -389,7 +389,7 @@ export class EditorModel {
 
   /* ---------------- 删除族（字素算术 + 行合并） ---------------- */
 
-  /** 退格：删光标前一字素；行首与前行合并（换行删除语义）；标记行 = 删整标记行 */
+  /** 退格：删光标前一字素；行首与前行合并（换行删除语义）；标记行（自身或合并邻行）= 删整标记行 */
   backspace(): void {
     this.lastAction = null;
     if (this.markerIdAt(this.state.cursorLine) !== null) {
@@ -403,6 +403,14 @@ export class EditorModel {
       this.state.lines[this.state.cursorLine] = line.slice(0, boundary) + line.slice(this.state.cursorCol);
       this.setCursorCol(boundary);
     } else if (this.state.cursorLine > 0) {
+      // 合并前行是标记行 → 删整标记行（R3——合并支无条件拼接会把标记并成
+      // '前文[paste #N +L lines]' 毁严格形、submit 取不回登记原文；与本
+      // 原语「标记行上删除 = 删整标记行」律同构，undo 单步/光标钳位随
+      // deleteMarkerLine 编舞）
+      if (this.markerIdAt(this.state.cursorLine - 1) !== null) {
+        this.deleteMarkerLine(this.state.cursorLine - 1);
+        return;
+      }
       this.pushUndo();
       const prev = this.state.lines[this.state.cursorLine - 1] ?? '';
       this.state.lines[this.state.cursorLine - 1] = prev + line;
@@ -416,7 +424,7 @@ export class EditorModel {
     this.notify();
   }
 
-  /** 前删：删光标处一字素；行尾与下一行合并；标记行 = 删整标记行 */
+  /** 前删：删光标处一字素；行尾与下一行合并；标记行（自身或合并邻行）= 删整标记行 */
   deleteForward(): void {
     this.lastAction = null;
     this.exitHistoryBrowsing();
@@ -430,6 +438,12 @@ export class EditorModel {
       const boundary = nextGraphemeBoundary(line, this.state.cursorCol);
       this.state.lines[this.state.cursorLine] = line.slice(0, this.state.cursorCol) + line.slice(boundary);
     } else if (this.state.cursorLine < this.state.lines.length - 1) {
+      // 合并次行是标记行 → 删整标记行（R3 同律——拼接毁标记严格形致登记
+      // 失配原文丢失；deleteMarkerLine 内含 undo 单步与光标钳位）
+      if (this.markerIdAt(this.state.cursorLine + 1) !== null) {
+        this.deleteMarkerLine(this.state.cursorLine + 1);
+        return;
+      }
       this.pushUndo();
       const next = this.state.lines[this.state.cursorLine + 1] ?? '';
       this.state.lines[this.state.cursorLine] = line + next;
@@ -440,7 +454,7 @@ export class EditorModel {
     this.notify();
   }
 
-  /** 删至行首：光标前段整删；行首与前行合并（R3：被删段入 kill 环）；标记行 = 删整标记行 */
+  /** 删至行首：光标前段整删；行首与前行合并（R3：被删段入 kill 环）；标记行（自身或合并邻行）= 删整标记行 */
   deleteToLineStart(): void {
     this.lastAction = null;
     this.exitHistoryBrowsing();
@@ -455,6 +469,12 @@ export class EditorModel {
       this.state.lines[this.state.cursorLine] = line.slice(this.state.cursorCol);
       this.setCursorCol(0);
     } else if (this.state.cursorLine > 0) {
+      // 合并前行是标记行 → 删整标记行（R3 同律——拼接毁标记严格形；原子
+      // 整删不压 kill 环：被删的是整标记行非换行段，与光标行标记位同形）
+      if (this.markerIdAt(this.state.cursorLine - 1) !== null) {
+        this.deleteMarkerLine(this.state.cursorLine - 1);
+        return;
+      }
       this.pushUndo();
       this.ring.push('\n'); // kill：换行段（合并形）
       const prev = this.state.lines[this.state.cursorLine - 1] ?? '';
@@ -468,7 +488,7 @@ export class EditorModel {
     this.notify();
   }
 
-  /** 删至行尾：光标后段整删；行尾与下一行合并（R3：被删段入 kill 环）；标记行 = 删整标记行 */
+  /** 删至行尾：光标后段整删；行尾与下一行合并（R3：被删段入 kill 环）；标记行（自身或合并邻行）= 删整标记行 */
   deleteToLineEnd(): void {
     this.lastAction = null;
     this.exitHistoryBrowsing();
@@ -482,6 +502,12 @@ export class EditorModel {
       this.ring.push(line.slice(this.state.cursorCol)); // kill：行尾段
       this.state.lines[this.state.cursorLine] = line.slice(0, this.state.cursorCol);
     } else if (this.state.cursorLine < this.state.lines.length - 1) {
+      // 合并次行是标记行 → 删整标记行（R3 同律——拼接毁标记严格形；原子
+      // 整删不压 kill 环：被删的是整标记行非换行段，与光标行标记位同形）
+      if (this.markerIdAt(this.state.cursorLine + 1) !== null) {
+        this.deleteMarkerLine(this.state.cursorLine + 1);
+        return;
+      }
       this.pushUndo();
       this.ring.push('\n'); // kill：换行段（合并形）
       const next = this.state.lines[this.state.cursorLine + 1] ?? '';
@@ -493,7 +519,7 @@ export class EditorModel {
     this.notify();
   }
 
-  /** 词级退删：删光标前一词（词边界 = word-nav 单源）；行首与前行合并（R3：被删段入 kill 环）；标记行 = 删整标记行 */
+  /** 词级退删：删光标前一词（词边界 = word-nav 单源）；行首与前行合并（R3：被删段入 kill 环）；标记行（自身或合并邻行）= 删整标记行 */
   deleteWordBackward(): void {
     this.lastAction = null;
     this.exitHistoryBrowsing();
@@ -504,6 +530,12 @@ export class EditorModel {
     const line = this.state.lines[this.state.cursorLine] ?? '';
     if (this.state.cursorCol === 0) {
       if (this.state.cursorLine > 0) {
+        // 合并前行是标记行 → 删整标记行（R3 同律——词级跨行支吞并标记行同
+        // 样拼接毁严格形；原子整删不压 kill 环：被删的是整标记行非换行段）
+        if (this.markerIdAt(this.state.cursorLine - 1) !== null) {
+          this.deleteMarkerLine(this.state.cursorLine - 1);
+          return;
+        }
         this.pushUndo();
         this.ring.push('\n'); // kill：换行段（合并形）
         const prev = this.state.lines[this.state.cursorLine - 1] ?? '';
@@ -523,7 +555,7 @@ export class EditorModel {
     this.notify();
   }
 
-  /** 词级前删：删光标后一词；行尾与下一行合并；标记行 = 删整标记行 */
+  /** 词级前删：删光标后一词；行尾与下一行合并；标记行（自身或合并邻行）= 删整标记行 */
   deleteWordForward(): void {
     this.lastAction = null;
     this.exitHistoryBrowsing();
@@ -534,6 +566,12 @@ export class EditorModel {
     const line = this.state.lines[this.state.cursorLine] ?? '';
     if (this.state.cursorCol >= line.length) {
       if (this.state.cursorLine < this.state.lines.length - 1) {
+        // 合并次行是标记行 → 删整标记行（R3 同律——词级跨行支吞并标记行同
+        // 样拼接毁严格形；deleteMarkerLine 内含 undo 单步与光标钳位）
+        if (this.markerIdAt(this.state.cursorLine + 1) !== null) {
+          this.deleteMarkerLine(this.state.cursorLine + 1);
+          return;
+        }
         this.pushUndo();
         const next = this.state.lines[this.state.cursorLine + 1] ?? '';
         this.state.lines[this.state.cursorLine] = line + next;
@@ -755,7 +793,8 @@ export class EditorModel {
 
   /**
    * jump 词向：跳到指定字符的下 / 上一处出现（多行搜索、跳过光标当前位）。
-   * 无匹配光标不动。
+   * 无匹配光标不动。落位经字素边界校准（模型头注「一切移动 / 删除原语经
+   * 字素边界函数」承诺——原始命中落组合字素中段时吸到所属字素终点）。
    */
   jumpToChar(ch: string, direction: 'forward' | 'backward'): void {
     this.lastAction = null;
@@ -773,6 +812,21 @@ export class EditorModel {
       const idx = isForward ? line.indexOf(ch, from) : line.lastIndexOf(ch, from);
       if (idx !== -1) {
         this.state.cursorLine = li;
+        // 字素边界校准：indexOf/lastIndexOf 的原始命中可落组合字素（ZWJ 旗 /
+        // 肤质修饰簇等）中段码点——不校准则光标落字素内，其上 deleteForward
+        // 经 nextGraphemeBoundary 定界会撕裂字素误删邻字。校准形：idx 非字素
+        // 边界时吸到所属字素终点（光标停完整字素后——与视觉列一致）。判据：
+        // 所属字素（起点 = prevGraphemeBoundary(idx)、终点 = nextGrapheme-
+        // Boundary(起点)）越过 idx 即中段命中；idx 恰为边界时前字素终点恰等
+        // idx、idx = 0 恒为边界——两形皆不校准。
+        if (idx > 0) {
+          const gStart = prevGraphemeBoundary(line, idx);
+          const gEnd = nextGraphemeBoundary(line, gStart);
+          if (gEnd > idx) {
+            this.setCursorCol(gEnd);
+            return;
+          }
+        }
         this.setCursorCol(idx);
         return;
       }
@@ -839,6 +893,14 @@ export class EditorModel {
       const text = this.history[this.historyIndex] ?? '';
       const lines = text.split('\n');
       this.state.lines = lines.length === 0 ? [''] : lines;
+      // 整体换行集同步清登记表（登记↔行集一致律——setText / submit /
+      // deleteMarkerLine / expandMarkerIfInside 四处维持，唯翻阅支漏）：浏览
+      // 行集无标记行，draft 携带的登记若残留成孤儿条目，用户浏览态编辑（弃
+      // draft）后手敲同形文本行会伪获标记原子性（markerIdAt 只按 parse +
+      // 登记双命中判）。draft 快照在首入浏览 pushUndo 时已 structuredClone
+      // 随带原 markers——回 draft 态（historyIndex 归 -1 支）与 undo 路自
+      // 恢复，一致律闭环。
+      this.state.markers = new Map();
       const goingOld = direction === -1;
       this.state.cursorLine = goingOld ? 0 : this.state.lines.length - 1;
       const target = this.state.lines[this.state.cursorLine] ?? '';

@@ -290,6 +290,28 @@ describe('EditorModel 移动族', () => {
     m.jumpToChar('z', 'backward');
     expect(m.getCursor()).toEqual({ line: 0, col: 0 }); // 首行行首——既有语义 no-op（无 wrap）
   });
+
+  it('jumpToChar 落位字素边界校准：组合字素中段命中吸到所属字素终点', () => {
+    // 修前红实证位（wf laneC ②）：indexOf/lastIndexOf 原始命中下标直写
+    // cursorCol——全模型唯一不经字素边界函数的落位原语（模型头注「一切
+    // 移动/删除原语经字素边界函数」承诺被破）。靶是组合字素（旗 = 1F3F3
+    // FE0F 200D 1F308，字素区间 [1,7)）中段码点时光标落字素内，其上
+    // deleteForward 经 nextGraphemeBoundary 定界撕裂字素误删邻字（🌈 与 b
+    // 双删 + 悬空 ZWJ 残留）。修后命中非边界位吸到所属字素终点（光标停
+    // 完整字素后——语义与视觉列一致）。
+    const flag = 'a\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}b'; // a + 旗（6 码元单字素）+ b——长 8
+    const m = modelWith(flag);
+    m.jumpToChar('\u{1F308}', 'backward'); // 命中 idx 5——旗字素中段
+    expect(m.getCursor().col).toBe(7); // 修前 5（字素内）——修后吸到字素终点
+    m.deleteForward(); // 光标已在完整字素边界——整字素定界不撕裂
+    expect(m.getText()).toBe('a\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}'); // 删 b：恰一个完整字素（修前撕裂旗留悬空 ZWJ）
+    expect(m.getCursor().col).toBe(7);
+    // forward 向同律：命中变体选择符（FE0F，idx 3）亦为旗字素中段——吸到终点
+    const m2 = modelWith(flag);
+    m2.moveHome(); // modelWith 光标在行尾——forward 搜索前归首
+    m2.jumpToChar('\u{FE0F}', 'forward');
+    expect(m2.getCursor().col).toBe(7);
+  });
 });
 
 describe('EditorModel undo', () => {
@@ -792,6 +814,97 @@ describe('EditorModel 粘贴标记化', () => {
     expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '', '[paste #2 +21 lines]']);
     const out = m.submit();
     expect(out).toBe(`${bigPaste}\n\n${bigPaste}`);
+  });
+
+  it('合并邻行是标记行：六删除原语删整标记行不拼接（登记注销、无静默丢失）', () => {
+    // 修前红实证位（wf laneC ①）：六删除原语只守光标所在行（markerIdAt(
+    // cursorLine) → deleteMarkerLine），行合并支无条件字符串拼接——邻行是
+    // 标记行时 '[paste #1 +21 lines]' 被并成 'abc[paste #1 +21 lines]'，
+    // parsePasteMarker 严格形不再命中 → submit 取不回登记原文（21 行粘贴
+    // 静默丢失）。修后循六原语「标记行上删除 = 删整标记行」律（07 §4.1 R3
+    // 删除按整段算术）：合并邻行命中登记 → deleteMarkerLine(邻行)——整行
+    // 删除 + 登记注销 + 光标钳到合并后行内合法位。
+    // 前向族布置：光标在标记行**前一行**行尾（合并次标记行）
+    const setupForward = (): EditorModel => {
+      const m = new EditorModel();
+      m.insertText('abc'); // lines ['abc']
+      m.insertPaste(bigPaste); // 行尾落标记 → lines ['abc', '[paste #1 +21 lines]']
+      m.moveUp(); // sticky 夹尾 → (0,3)——'abc' 行尾
+      return m;
+    };
+    // 后向族布置：光标在标记行**次一行**行首（合并前行标记）
+    const setupBackward = (): EditorModel => {
+      const m = new EditorModel();
+      m.insertText('abc');
+      m.insertPaste(bigPaste); // lines ['abc', '[paste #1 +21 lines]']
+      m.insertText('尾部'); // 标记行尾守卫后置空行 → lines ['abc', marker, '尾部']
+      m.moveHome(); // (2,0)——标记行次行行首
+      return m;
+    };
+    // 前向族（光标行尾合并次标记行）：deleteForward / deleteToLineEnd / deleteWordForward
+    for (const op of ['deleteForward', 'deleteToLineEnd', 'deleteWordForward'] as const) {
+      const m = setupForward();
+      m[op]();
+      expect(m.getLines()).toEqual(['abc']); // 修前 ['abc[paste #1 +21 lines]']——拼接毁形
+      expect(m.getCursor()).toEqual({ line: 0, col: 3 }); // 删末行位——光标留本行行尾
+      expect(m.killRing.current()).toBeNull(); // 原子整删不压 kill 环（被删是整标记行非换行段）
+      expect(m.submit()).toBe('abc'); // 登记注销无孤儿——行集↔登记一致
+    }
+    // 后向族（标记行次行行首合并前行）：backspace / deleteToLineStart / deleteWordBackward
+    for (const op of ['backspace', 'deleteToLineStart', 'deleteWordBackward'] as const) {
+      const m = setupBackward();
+      m[op]();
+      expect(m.getLines()).toEqual(['abc', '尾部']); // 修前行 1 被并成 '[paste #1 +21 lines]尾部'
+      expect(m.getCursor()).toEqual({ line: 1, col: 0 }); // 删中段位——光标落上移后本行首
+      expect(m.killRing.current()).toBeNull();
+      expect(m.submit()).toBe('abc\n尾部');
+    }
+  });
+
+  it('合并邻标记行删除 undo 单步回标记形（登记随快照恢复——submit 取回原文）', () => {
+    const m = new EditorModel();
+    m.insertText('abc');
+    m.insertPaste(bigPaste);
+    m.insertText('尾部'); // lines ['abc', marker, '尾部']
+    m.moveHome(); // (2,0)
+    m.backspace(); // 邻行标记整删
+    expect(m.getLines()).toEqual(['abc', '尾部']);
+    m.undo(); // deleteMarkerLine 单步——undo 回删除前标记形
+    expect(m.getLines()).toEqual(['abc', '[paste #1 +21 lines]', '尾部']);
+    expect(m.isPasteMarkerLine(1)).toBe(true); // 登记随快照恢复
+    expect(m.submit()).toBe(`abc\n${bigPaste}\n尾部`); // 原文经标记展开取回——无丢失
+  });
+
+  it('历史翻阅整体换行集清登记：孤儿登记不给手敲同形文本伪原子性', () => {
+    // 修前红实证位（wf laneC ③）：翻阅支只写 state.lines 落光标、markers
+    // 不动——draft 被浏览替换且用户在浏览态编辑（exitHistoryBrowsing 弃
+    // draft）后，登记表残留孤儿条目而行集无对应标记行；markerIdAt 只按
+    // 「行文本 parse 命中 + 登记表命中」判原子性 → 用户手敲同形文本行伪获
+    // 标记原子性（dim 呈现 + 退格删整行——违 paste-marker「用户手敲同形
+    // 文本不获原子性」设计意图）。修后翻阅支同步清 markers。
+    const m = new EditorModel();
+    m.addToHistory('h1');
+    m.insertPaste(bigPaste); // draft 携标记行 + 登记 id 1
+    m.navigateHistory(-1); // 入浏览——行集整体换 ['h1']（修前登记残留）
+    m.insertText('!'); // 浏览态编辑——draft 弃置（exitHistoryBrowsing）
+    m.moveEnd(); // (0,3)——行尾（插入后光标在 '!' 后，先归尾再换行）
+    m.addNewLine(); // lines ['!h1', '']、光标 (1,0)
+    for (const ch of '[paste #1 +21 lines]') m.insertText(ch); // 手敲同形文本
+    expect(m.isPasteMarkerLine(1)).toBe(false); // 修前 true——孤儿登记伪原子
+    m.backspace();
+    expect(m.getLines()[1]).toBe('[paste #1 +21 lines'); // 修前整行删——修后退格删单字符
+    expect(m.getCursor()).toEqual({ line: 1, col: 19 });
+  });
+
+  it('历史翻阅清登记不伤恢复路：回 draft 登记随快照恢复（submit 取回原文）', () => {
+    const m = new EditorModel();
+    m.addToHistory('h1');
+    m.insertPaste(bigPaste);
+    m.navigateHistory(-1); // 浏览态——行集 ['h1']、登记清空
+    expect(m.isPasteMarkerLine(0)).toBe(false); // 浏览行不是标记行
+    m.navigateHistory(1); // 回 draft——markers 随 draft 快照（structuredClone 全 state）恢复
+    expect(m.isPasteMarkerLine(0)).toBe(true);
+    expect(m.submit()).toBe(bigPaste);
   });
 });
 
