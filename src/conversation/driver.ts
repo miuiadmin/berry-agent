@@ -1071,6 +1071,15 @@ export class ConversationDriver {
               const outcome = await this.options.compactForOverflow(this.session);
               if (outcome === 'compacted') {
                 this.context.messages = this.reseededTimeline();
+                // 续入发孤儿 resumed（04 §3.4 尾注——第七轮深扫批）：本腿无退避窗
+                // 零 start 配对，但续入仍须让消费端置 retryContinuation——否则续入
+                // agent_start 走 fresh-run 分诊，run 级账（用量/速度分母/重试计数/
+                // 种子时戳）在 run 未终结（04 §3.3 条 3）时被静默清零，07 件 12
+                // 「failed 后必随发」保证句亦被字面违反。裸形对齐 transient 腿续入
+                // 发射位（缺省不带 attempt/maxAttempts——孤儿形信息更少是诚实形）；
+                // durable 面已为本续入落 request/header reason='resume'——live 面
+                // 补发系两面同步非新语义；孤儿形先例 = 本腿终态 end{exhausted}
+                this.onLiveEvent({ type: 'retry_wait_end', outcome: 'resumed' });
                 result = await this.enterRun([], controller.signal);
                 continue;
               }

@@ -19,11 +19,15 @@
  * 重试窗口两型（E-1 首批落码）：窗口开 = `retry_wait_start`（attempt 本轮
  * 将续入的序号 / maxAttempts 名额帽 / nextAt 退避结束绝对时刻——04 §2
  * 绝对时刻律：周期性信息传绝对时刻不传 tick，倒计时由消费端本地钟渲染）；
- * 窗口关 = `retry_wait_end`（resumed = 续入即新 agent_start/message 流；
- * aborted = 退避窗内被打断；exhausted = 重试链燃尽/不可重试首败的终态
- * 揭示——可无配对 start，消费端据此把 agent_end(failed) 的 ⚠ 持有档翻
- * 终态红 ✗）。durable 零新词红线：llm/retry 三相 log-only 维持不升格，
- * 本两型纯活体（呈现想要 ≠ 顺手落 durable）。
+ * 窗口关 = `retry_wait_end`（resumed = 续入即新 agent_start/message 流——
+ * 退避窗关发射位之外另有**孤儿第三发射形**：overflow compacted 续入腿
+ * enterRun 前发〔04 §3.4 尾注——第七轮深扫批；无配对 start（该腿无退避
+ * 窗）、裸形不带 attempt/maxAttempts，消费端置 retryContinuation 防续入
+ * agent_start 走 fresh-run 分诊清 run 级账〕；aborted = 退避窗内被打断；
+ * exhausted = 重试链燃尽/不可重试首败的终态揭示——可无配对 start，消费端
+ * 据此把 agent_end(failed) 的 ⚠ 持有档翻终态红 ✗）。durable 零新词红线：
+ * llm/retry 三相 log-only 维持不升格，本两型纯活体（呈现想要 ≠ 顺手落
+ * durable）。
  *
  * agent_end 载荷扩（E-0 非新型）：可选 `durationMs/usage/cost` run 累计值
  * ——driver 结算账供源（A-3），可选带出形零迁移；消费端在场必用（收尾行
@@ -92,7 +96,11 @@ export type AgentEvent =
       nextAt: number;
     }
   | {
-      /** 重试退避窗关（resumed=续入 / aborted=窗内被打断 / exhausted=燃尽或不可重试终态揭示——可无配对 start） */
+      /**
+       * 重试退避窗关（resumed=续入——退避窗关位或 overflow compacted 续入腿
+       * 孤儿形〔04 §3.4 尾注，无配对 start〕/ aborted=窗内被打断 /
+       * exhausted=燃尽或不可重试终态揭示——可无配对 start）
+       */
       type: 'retry_wait_end';
       outcome: 'resumed' | 'aborted' | 'exhausted';
     }

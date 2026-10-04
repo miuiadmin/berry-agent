@@ -2807,8 +2807,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       case 'agent_end':
         if (event.status === 'failed') {
           // ⚠ 持有档（界面美化役批 4）：failed 终态揭示延后——驱动侧保证
-          // failed 后必随发 retry_wait_start（退避窗开）或 retry_wait_end
-          // {aborted|exhausted}（终态收口）。揭示前账不冻结（run 仍在跑——
+          // failed 后必随发 retry_wait_start（退避窗开）、retry_wait_end
+          // {aborted|exhausted}（终态收口）或孤儿 retry_wait_end{resumed}
+          // （overflow compacted 续入——07 件 12 扩第三形〔第七轮深扫批〕，
+          // 04 §3.4 尾注真源）。揭示前账不冻结（run 仍在跑——
           // 退避窗计时计入 run 时长）、任务行保持忙态转轮不停（不闪「✗」）、
           // footer 尾注不落（防翻档前一帧伪终态）
           this.pendingFailReason = event.errorMessage ?? null; // 失败直呈律（V-0 注②）：原因存账随揭示同句供位

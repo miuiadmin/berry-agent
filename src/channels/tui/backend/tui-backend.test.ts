@@ -265,7 +265,8 @@ describe('TuiBackend 状态面', () => {
     emit(backend, { type: 'agent_end', status: 'failed' });
     // 持有档（界面美化役批 4）：failed 到达先持有——不闪「✗」不落尾注
     //（终态揭示由 retry_wait_end aborted/exhausted 翻档；驱动侧保证 failed
-    // 后必随发其一——消费端延后翻转达成同效 UX）
+    // 后必随发其一——start / end {aborted|exhausted} / 孤儿 end{resumed}
+    //（overflow compacted 续入形，第七轮深扫批扩）；消费端延后翻转达成同效 UX）
     expect(io.bytes).not.toContain('✗ 失败');
     expect(io.bytes).not.toContain('✓ 用量');
     emit(backend, { type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: Date.now() + 5_000 });

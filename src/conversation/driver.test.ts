@@ -508,7 +508,7 @@ describe('ConversationDriver turn 级 auto-retry', () => {
 
   it('overflow 兜底成功：遮蔽(reason=overflow) → compacted → 重播种续入 → completed', async () => {
     const compactionCalls: number[] = [];
-    const { driver } = makeDriver({
+    const { driver, live } = makeDriver({
       scripts: [
         assistant({ stopReason: 'error', errorMessage: 'context length exceeded' }),
         assistant({ content: [{ type: 'text', text: '压缩后续入' }] }),
@@ -529,6 +529,22 @@ describe('ConversationDriver turn 级 auto-retry', () => {
       'initial',
       'resume',
     ]);
+    // 活体事件序（04 §3.4 尾注——第七轮深扫批修前红）：compacted 续入腿在
+    // enterRun 前发孤儿 retry_wait_end(resumed)——首 agent_end(failed) 之后、
+    // 续入 agent_start 之前（消费端据此置 retryContinuation，续入不走
+    // fresh-run 分诊清 run 级账）
+    const seq = live.map((e) => e.type);
+    const firstEnd = seq.indexOf('agent_end');
+    const resumedIdx = live.findIndex((e) => e.type === 'retry_wait_end' && e.outcome === 'resumed');
+    const secondStart = seq.indexOf('agent_start', firstEnd + 1);
+    expect(resumedIdx).toBeGreaterThan(firstEnd);
+    expect(secondStart).toBeGreaterThan(resumedIdx);
+    // 孤儿形：无配对 start（overflow 腿无退避窗）；裸形对齐 transient 腿续入
+    // 发射位（缺省不带 attempt/maxAttempts——孤儿形信息更少是诚实形）
+    expect(seq).not.toContain('retry_wait_start');
+    expect(live[resumedIdx]).toEqual({ type: 'retry_wait_end', outcome: 'resumed' });
+    // durable 零新词红线（两面同步非新语义）：live 补发不落日志
+    expect(driver.session.events().map((e) => e.type)).not.toContain('retry_wait_end');
   });
 
   it('overflow nothing：区间不足压无可压 → exhausted(reason=overflow) + failed', async () => {
