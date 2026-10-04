@@ -368,7 +368,9 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
       // 快照补帧现行 setStatus 生产者全集仅切档回执 + 插件 ctx.ui 透传，
       // 无 run 终态 setStatus 生产者——末次帧恰为终态词的形现产线不可达，
       // 本腿暂为机制防御位（frames.test 直驱终态信封所锁即机制位；run 终态
-      // setStatus 生产者两案呈拍中，落定后本腿自然接通）；非终态 status
+      // setStatus 生产者已拍维持现状〔2026-10-04 第十一轮收官呈拍卡③〕：终态
+      // 语义由 agent_end 收尾行等帧承载，不补 setStatus 终态词生产者——防与
+      // agent_end 构成双生产者双源，本腿防御位语义就此定谳不再翻档）；非终态 status
       //（在飞档位/档位切换回执——isReceiptStatus 词面单源）只更新状态行
       //——中途接入 run 在飞时的补位信号（App runInFlight 三信号之一）不误伤
       if (isTerminalStatus(env.payload.status)) {

@@ -668,8 +668,10 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       // 勘正：「run 已收口时末次终态形随播复位 run 账」结构性不成立——全库
       // setStatus 生产者仅切档回执〔host webui-bridge/tui-entry 两装配位〕
       // + 插件 ctx.ui 透传位，无 run 终态 setStatus 生产者，末次帧恰为终态
-      // 词的形在现产线不可达；run 终态 setStatus 生产者两案呈拍中〔卡③〕，
-      // 落定前不留虚假承诺句）。从未 setStatus 诚实零帧；closed 会话不补发
+      // 词的形在现产线不可达；run 终态 setStatus 生产者已拍维持现状〔2026-10-04
+      // 第十一轮收官呈拍卡③〕——终态语义由 agent_end 收尾行等帧承载，不补
+      // setStatus 终态词生产者〔防双生产者双源〕，本补发腿效力维持状态行对齐 +
+      // 打断键使能面供数两桩定谳）。从未 setStatus 诚实零帧；closed 会话不补发
       // （空流形恒静默既有律——不造假帧）
       if (deps.sessions.sessionStateOf(sessionId) !== 'closed') {
         const snapshot = lastStatusFrame.get(sessionId);
