@@ -3,7 +3,7 @@
  * 间接覆盖；本件补队列自身单元边界：直晋同步性 / FIFO 顶上 / settled 幂等 /
  * 条目留存行为回归 / clearSession 全 cancel 与条目真清）。
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AskQueue } from './ask-queue.js';
 import type { AskHooks } from './ask-queue.js';
 import type { AskKind } from './types.js';
@@ -48,6 +48,45 @@ describe('AskQueue（per-session FIFO）', () => {
     q.enqueue('s1', 'confirm', hooks('confirm', log));
     q.enqueue('s2', 'select', hooks('select', log));
     expect(log).toEqual(['start:confirm', 'start:select']);
+  });
+
+  it('start 钩子抛错两径分治：直晋径（enqueue）重抛保留、晋升径（settled）折诊断不上抛（修前红：promo boom 穿出 settled——finish 微任务语境无人接成 unhandledRejection）', () => {
+    const q = new AskQueue();
+    const log: string[] = [];
+    // 直晋径：同步重抛保留给 enqueue 调用方栈（ui-core ask() 调用方承接——契约不变）
+    expect(() =>
+      q.enqueue('s-direct', 'confirm', {
+        start: () => {
+          throw new Error('direct boom');
+        },
+        cancel: () => {},
+      }),
+    ).toThrow('direct boom');
+    // 晋升径：settled 内 start 抛错折诊断（对齐 runtime drain 的 console.error
+    // 诊断形）——修前穿出 settled，finish 微任务语境（promise 反应体内）无人可接
+    q.enqueue('s-promo', 'confirm', hooks('confirm', log)); // 健康队首（在飞）
+    q.enqueue('s-promo', 'input', {
+      start: () => {
+        throw new Error('promo boom');
+      },
+      cancel: () => log.push('cancel:input'),
+    });
+    q.enqueue('s-promo', 'select', hooks('select', log)); // 第三件（后继顶上证）
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      errors.push(args.map(String).join(' '));
+    });
+    try {
+      expect(() => q.settled('s-promo')).not.toThrow(); // 修前红：promo boom 穿出 settled
+      expect(errors.length).toBe(1); // 诊断恰一条（不吞错不刷屏）
+      expect(errors[0]).toContain('promo boom'); // 诊断携带原始错因
+      // 折诊断只保进程不炸：槽位让位义务在 start 钩子自结（ui-core 契约——
+      // 抛错前先 finish 保守值收口）——裸钩子不自结，手工落定后第三件照常顶上
+      q.settled('s-promo');
+      expect(log).toEqual(['start:confirm', 'start:select']);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('settled 幂等：未知会话与空转（迟到落定）都 no-op 不炸', () => {

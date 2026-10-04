@@ -345,6 +345,10 @@ export class UiCore {
         // 同会话一切后继 ask 死排至 closeSession/外部 abort。收口序：先
         // finish(conservative())（started 已置位 → settled 出队、后继顶上——
         // 同步形补齐保守值收口路）再重抛——调用方契约不变（enqueue 抛回）。
+        // 两径分治（第十轮 laneC 件1）：此处的 throw cause 只属直晋径（enqueue
+        // 同步于 ask() 调用方栈——调用方承接）；晋升径（settled 内 start）由
+        // AskQueue.settled 兜底承接（不上抛）——微任务语境重抛即
+        // unhandledRejection。
         // 审批第四原语天然不受此形：askApproval 的 present 体在 new Promise
         // executor 内调后端，同步 throw 被 executor 折成 rejection 走二参路。
         try {

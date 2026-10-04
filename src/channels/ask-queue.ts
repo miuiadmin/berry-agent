@@ -70,7 +70,22 @@ export class AskQueue {
       q.active = null; // 队列清空（会话条目留存——防高频重建；clearSession 才真清）
     } else {
       q.active = next;
-      next.hooks.start();
+      // 晋升径 start 钩子抛错的兜底承接（第十轮 laneC 件1——两径分治）：
+      // 直晋径（enqueue 同步于 ask() 调用方栈）的重抛语义保留给调用方
+      //（ui-core start 钩子 catch 分支的 throw cause——调用方契约不变）；
+      // 晋升径跑在 finish 微任务语境（present(...).then(finish,...) 派生
+      // promise 无人接），重抛即 unhandledRejection——signals 崩溃编舞
+      // exit(1) 杀整机，单个坏 ask 被放大成整机崩溃。故此处兜底折诊断
+      // 不上抛（对齐 runtime drain 的 console.error 诊断形）；槽位让位义务
+      // 仍在 start 钩子自结（ui-core 契约：抛错前先 finish 保守值收口）。
+      try {
+        next.hooks.start();
+      } catch (err) {
+        console.error(
+          '[ask-queue] 晋升 start 钩子抛错（折诊断不上抛——微任务语境无调用方可承接）：' +
+            (err instanceof Error ? err.message : String(err)),
+        );
+      }
     }
   }
 

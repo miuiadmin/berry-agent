@@ -206,6 +206,43 @@ describe('ask 编舞单元边界', () => {
     expect(ui.pending('s1')).toEqual([]);
   });
 
+  it('晋升径 present 同步抛错：折诊断不上抛——零 unhandledRejection、后继照常顶上（修前红：throw cause 在 finish 微任务语境无人接——崩溃编舞 exit(1) 杀整机）', async () => {
+    const b = fakeBackend('bad');
+    b.backend.input = (): Promise<string> => {
+      // 坏后端形：同步 throw（非 rejected promise）——乙在排队期零呈现，
+      // 晋升时刻（settled 内 start）才炸
+      throw new Error('sync boom');
+    };
+    const ui = makeCore([b.backend]);
+    // 进程级收集器：修前 throw cause 穿到 present(...).then(finish,...) 派生
+    // promise 无人接 → unhandledRejection（signals.ts 崩溃编舞 exit(1)）——
+    // 单个坏 ask 被放大成整机崩溃
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => {
+      rejections.push(reason);
+    };
+    process.on('unhandledRejection', onRejection);
+    try {
+      const p1 = ui.confirm('s1', '甲问'); // 甲：直晋队首（健康 confirm 在飞）
+      const p2 = ui.input('s1', '乙问'); // 乙：坏后端排队——enqueue 期不炸（start 未进）
+      expect(ui.pending('s1')).toEqual(['confirm', 'input']);
+      b.confirmAsks[0]?.resolve(true); // 甲落定 → finish 微任务晋升乙 → present 同步抛
+      expect(await p1).toBe(true);
+      expect(await p2).toBe(''); // 乙仍保守值收场（start 钩子先 finish 再重抛——promise 契约不变）
+      // 让 unhandledRejection 事件触发（Node 在微任务排干后的进程轮回调发）
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(rejections).toEqual([]); // 修前红：收集器收到 sync boom 的 rejection
+      // 槽不卡死：第三 ask 照常直晋呈现（队列已让位）
+      const p3 = ui.confirm('s1', '丙问');
+      expect(b.confirmAsks.length).toBe(2);
+      b.confirmAsks[1]?.resolve(false);
+      expect(await p3).toBe(false);
+      expect(ui.pending('s1')).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
+  });
+
   it('审批呈现异常折保守值 cancel（fail-closed——组合根只测过 confirm 族异常）', async () => {
     const b = fakeBackend('tui');
     const ui = makeCore([b.backend]);
