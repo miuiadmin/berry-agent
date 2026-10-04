@@ -543,6 +543,17 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     }
   });
 
+  it('todo 会话态分账：missing 404 not_found（messages 位同词对齐——修前红：200 {items:null}）', async () => {
+    // 第九轮深扫 laneE1 件2：messages 端点 404 分账（第八轮笔7 件F1）后
+    // API 面唯一遗留不一致端点——修前对 missing 会话回 200 {items:null}，
+    // 缺席会话被虚报为「无数据源」档（03 §10.4 定形注⑥存在性分账射界）
+    const res = await fetch(`http://127.0.0.1:${port}/api/sessions/who-knows/todo`, {
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(404); // 修前红：200
+    expect(await res.json()).toMatchObject({ error: 'not_found', message: '会话不存在' });
+  });
+
   it('export：markdown 直出三态——open 200（Content-Type 精确值）/ missing 404 not_found / closed 近史兜底 200', async () => {
     // open 会话：markdown 正文直出（不落盘——web 面消费语义 = 浏览器/curl 直接取文）
     const open = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/export`, { headers: authHeaders() });
@@ -1009,7 +1020,8 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     webui!.backend.setStatus!('s-1', '⏹ 已中止');
     expect(await r1.next()).toEqual({ kind: 'status', sessionId: 's-1', payload: { status: '⏹ 已中止' } });
     r1.abort();
-    // closed 会话：无观众窗落缓存帧（live 腿零扇出——只进缓存账）
+    // closed 会话：迟到 status 走写位生命周期门（第九轮件1——非 open 删旧
+    // 不写新零扇出；修前「无观众窗只进缓存账」形已不可达）
     webui!.backend.setStatus!('s-closed', '✗ 失败 · 模型渠道未配置');
     const r2 = await openSse(port, 's-1', token);
     const rClosed = await openSse(port, 's-closed', token);
@@ -1020,6 +1032,32 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     } finally {
       r2.abort();
       rClosed.abort();
+    }
+  });
+
+  it('status 缓存生命周期 = 会话生命周期：会话闭后迟到 setStatus 零扇出 + 快照不供数（修前红：帧直达 closed 空流）', async () => {
+    // 第九轮深扫 laneE1 件1：lastStatusFrame 只写不删（含已闭/缺席会话的
+    // 植入条目）无界增长；且修前 setStatus 对 closed 会话照常 live 扇出——
+    // 「closed 空流恒静默」只在受理尾快照面成立（cd4cca0），live 推送面破
+    // 律。修形 = 写位生命周期门（非 open 删旧不写新零扇出）+ 读位销账 +
+    // 收场 clear + 写入顺带清谱。纯内存增长面（条目计数）无行为断言位——
+    // 本例锁可观测半边（live 扇出与快照供数），清谱射程归 notes 诚实说明
+    const closedReader = await openSse(port, 's-closed', token);
+    try {
+      // 迟到 status（会话已闭）：live 扇出不得破空流静默律——修前红：帧到达
+      webui!.backend.setStatus!('s-closed', '迟到回执');
+      await expectSilence(closedReader);
+      // 对照弧：open 会话落缓存 → 会话转闭 → 受理尾快照不供数（既有律回归位）
+      webui!.backend.setStatus!('s-1', '跑测中');
+      stub.setSession('s-1', 'closed');
+      const afterClose = await openSse(port, 's-1', token);
+      try {
+        await expectSilence(afterClose);
+      } finally {
+        afterClose.abort();
+      }
+    } finally {
+      closedReader.abort();
     }
   });
 

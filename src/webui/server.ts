@@ -25,8 +25,8 @@
  *   件侧自记账（面级 openStreams 不暴露
  *   计数）超帽 503；背压 shedding 判据 = display 的 update 两型（session/
  *   notify/status 镜像帧不弃）。
- * - **微路由语义**：会话存在性分账（missing submit/events/messages 404
- *   not_found / closed submit 404 closed；messages/todo 不受闭态拦——messages
+ * - **微路由语义**：会话存在性分账（missing submit/events/messages/todo
+ *   404 not_found / closed submit 404 closed；messages/todo 不受闭态拦——
  *   缺席仍 404 分账；closed events 放行空流）；cookie 桥注③（体 {token} 经面级 verifyToken 验换 → Set-Cookie
  *   HttpOnly SameSite=Strict——EventSource 无头位，浏览器侧唯一凭证通道）；
  *   SPA 静态位注⑦（路径穿越防线 + 未知深路径 fallback index.html；缺席
@@ -206,7 +206,12 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
   const streams = new Set<WebuiStreamEntry>();
   const bySession = new Map<string, Set<WebuiStreamEntry>>();
   /** 最近 status 信封缓存（sessionId → 末次 setStatus 帧——SSE 受理尾快照
-   *  补发的当前值源；03 §10.6 ② 2026-10-04 订阅建流即对齐注 webui 腿） */
+   *  补发的当前值源；03 §10.6 ② 2026-10-04 订阅建流即对齐注 webui 腿）。
+   *  清理面清单（缓存生命周期 = 会话生命周期——deps.sessions 无闭会话事件
+   *  seam，写读收三道 + 顺带清谱收口，第九轮深扫件1）：① 写位门〔setStatus
+   *  目标会话非 open 删旧不写新零扇出；写入成行后顺带清谱非 open 历史条目〕
+   *  ② 读位〔events 受理尾对 closed 会话跳过快照时条目同步销账〕③ 收场位
+   *  〔detach 整表 clear——会话生命周期上界 = mount 生命周期〕 */
   const lastStatusFrame = new Map<string, WebuiEnvelope>();
   /** 未决审批账（approvalId → 账项——decide 幂等判据 + 清单投影） */
   const pending = new Map<string, PendingApproval>();
@@ -263,8 +268,23 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     // 众由此复位 status/runActive 账）
     setStatus: (sessionId: string, status: string) => {
       const frame: WebuiEnvelope = { kind: 'status', sessionId, payload: { status } };
+      // 写位生命周期门（清理面①）：迟到 status 的会话已闭/缺席 → 删旧不写
+      // 新、零扇出（closed 空流恒静默律的 live 半边——受理尾快照面清理面②
+      // 同律；missing 会话不可能有在册流，旧条目系会话删除/竞速窗残留，
+      // 一并销账——第九轮深扫件1）
+      if (deps.sessions.sessionStateOf(sessionId) !== 'open') {
+        lastStatusFrame.delete(sessionId);
+        return;
+      }
       lastStatusFrame.set(sessionId, frame);
       pushToSession(sessionId, frame);
+      // 写入顺带清谱（清理面①续）：setStatus 是低频写点，本写入兼作定期
+      // 清理锚——非 open 态的历史条目随写销账（deps.sessions 无闭会话事件
+      // seam 下的生命周期近似收口：每次写入后缓存 ≤ 在册 open 会话数 + 1，
+      // 已闭/已删会话条目的无界增长面就此封死）
+      for (const cachedId of lastStatusFrame.keys()) {
+        if (deps.sessions.sessionStateOf(cachedId) !== 'open') lastStatusFrame.delete(cachedId);
+      }
     },
     // 活体信封呈现（focused 位无 webui 语义——SPA 自选视图，无聚焦降档）
     onEnvelope: (env: SessionEnvelope) => {
@@ -437,10 +457,10 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     handler: (_req, res) => sendJson(res, 200, { sessionId: deps.sessions.createSession() }),
   });
 
-  // —— 会话族子路由（存在性分账注⑥：missing submit/events/messages 一律
-  //    404 not_found；closed submit 404 closed、messages/todo 放行只读腿
-  //    （closed 兜底可拉）；events closed 放行空流；submit/interrupt 受
-  //    闭态拦）——
+  // —— 会话族子路由（存在性分账注⑥：missing submit/events/messages/todo
+  //    一律 404 not_found——todo 位于第九轮深扫件2补齐；closed submit 404
+  //    closed、messages/todo 放行只读腿（closed 兜底可拉）；events closed
+  //    放行空流；submit/interrupt 受闭态拦）——
   add({
     method: 'GET',
     path: WEBUI_ENDPOINTS.sessionMessages,
@@ -464,6 +484,14 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     path: WEBUI_ENDPOINTS.sessionTodo,
     auth: tokenOrCookie,
     handler: (_req, res, ctx) => {
+      // 存在性分账（第九轮深扫件2——messages 位同词对齐：修前对 missing
+      // 会话回 200 {items:null}，缺席会话被虚报为「无数据源」档；messages
+      // 端点 404 分账〔第八轮件F1〕后 API 面唯一遗留不一致端点，03 §10.4
+      // 定形注⑥「GET messages 先例同词」射界补全）
+      if (deps.sessions.sessionStateOf(ctx.params.id!) === 'missing') {
+        sendError(res, 404, 'not_found', '会话不存在');
+        return;
+      }
       const items = deps.read.todoOf?.(ctx.params.id!);
       sendJson(res, 200, { items: items ?? null }); // null = 无数据源（诚实不虚报）
     },
@@ -635,6 +663,10 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       if (deps.sessions.sessionStateOf(sessionId) !== 'closed') {
         const snapshot = lastStatusFrame.get(sessionId);
         if (snapshot !== undefined) stream.write(snapshot);
+      } else {
+        // 读位销账（清理面②——第九轮深扫件1）：closed 会话的快照永不再供数
+        // （本受理尾与后续一切读点），条目随读清除（空流静默律不动，只清缓存账）
+        lastStatusFrame.delete(sessionId);
       }
     },
   });
@@ -801,6 +833,9 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       for (const detach of detachers.splice(0)) detach();
       for (const entry of [...streams]) entry.stream.close();
       pending.clear();
+      // 收场位销账（清理面③——第九轮深扫件1）：status 快照缓存整表 clear
+      // （会话生命周期上界 = mount 生命周期，收场不留守）
+      lastStatusFrame.clear();
     },
   };
 }
