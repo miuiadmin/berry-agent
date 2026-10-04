@@ -7,9 +7,11 @@
  *
  * 应答归属：HTTP 请求/响应一一对应，帧归属天然无歧义——无需 stdio 形的
  * 事务串行链。错误帧以非 2xx + 错误体（与线协议错误帧同构）回达 → 本层
- * 还原为帧原样返回（投形归 client）；传输级失败（连接拒/断）抛
- * `SDK_TRANSPORT`——建连期错误发在 req、应答期夭折错误发在 res，两期皆
- * 接线 reject（不留悬挂 Promise）。直播档 = GET /v1/events SSE：`data:
+ * 共腿还原（errorFrameOf）：request 档还原为帧原样返回（投形归 client）、
+ * send 档（interrupt）直接投形 SdkError 抛出（结构化码原码透传）；传输级
+ * 失败（连接拒/断）抛 `SDK_TRANSPORT`——建连期错误发在 req、应答期夭折
+ * 错误发在 res，两期皆接线 reject（不留悬挂 Promise）。直播档 = GET /v1/events
+ * SSE：`data:
  * <单行 JSON>` 块 + `: ping` 注释行——与 face 写侧纪律一一对应；建立期
  * （replay-end 界标前）流终结同样 fail-loud reject，已建立后流错误只诊断。
  */
@@ -18,7 +20,7 @@ import type { IncomingMessage } from 'node:http';
 
 import { decodeWireLine, isSdkRequest } from '../../../src/channels/sdk/jsonl.js';
 import { SDK_PROTOCOL_VERSION } from '../../../src/channels/sdk/protocol.js';
-import type { SdkRequest, SdkWireFrame } from '../../../src/channels/sdk/protocol.js';
+import type { SdkErrorFrame, SdkRequest, SdkWireFrame } from '../../../src/channels/sdk/protocol.js';
 import { SDK_AUTH_HEADER, SDK_HTTP_ENDPOINTS, SDK_PROTOCOL_HEADER } from '../../../src/sdk/types.js';
 
 import { SdkError } from './types.js';
@@ -94,6 +96,23 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
       req.end();
     });
 
+  /**
+   * 非 2xx 错误体还原：face 错误体与线协议错误帧同构（码→状态映射——词汇零
+   * 第二套）——可还原即返回线面错误帧；非帧形错误体落传输错（fail-loud）。
+   * request 档（错误帧原样返回投形归 client）与 send 档（B2：直接投形
+   * SdkError 抛出）共腿——interrupt 的结构化码（如 SESSION_NOT_FOUND）不沦为
+   * 传输错文本。
+   */
+  const errorFrameOf = (result: HttpResult, what: string): SdkErrorFrame => {
+    try {
+      const frame = decodeWireLine(result.body);
+      if (!isSdkRequest(frame) && frame.kind === 'error') return frame;
+    } catch {
+      // 落到传输错——非帧形错误体
+    }
+    throw new SdkError('SDK_TRANSPORT', `${what} → HTTP ${result.status}：${result.body.slice(0, 200)}`);
+  };
+
   /** 应答体 → 帧：2xx 解帧；非 2xx 错误体还原错误帧原样返回（投形归 client） */
   const toFrame = (result: HttpResult, what: string): SdkWireFrame => {
     if (result.status >= 200 && result.status < 300) {
@@ -107,14 +126,7 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
         );
       }
     }
-    try {
-      // face 错误体与线协议错误帧同构（码→状态映射——词汇零第二套）
-      const frame = decodeWireLine(result.body);
-      if (!isSdkRequest(frame) && frame.kind === 'error') return frame;
-    } catch {
-      // 落到传输错——非帧形错误体
-    }
-    throw new SdkError('SDK_TRANSPORT', `${what} → HTTP ${result.status}：${result.body.slice(0, 200)}`);
+    return errorFrameOf(result, what);
   };
 
   const transport: SdkTransport = {
@@ -135,12 +147,15 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
       return toFrame(result, `${route.method} ${route.path}`);
     },
 
-    // 无应答档 HTTP 形：POST /v1/interrupt → 204 空体（写后即决）
+    // 无应答档 HTTP 形：POST /v1/interrupt → 204 空体（写后即决）；非 2xx 走
+    // toFrame 同款还原（errorFrameOf 共腿）——线面错误体投形 SdkError 抛出，
+    // 结构化码（如 SESSION_NOT_FOUND）原码透传不沦为 SDK_TRANSPORT 文本
     send: async (req: SdkRequest) => {
       const { verb: _verb, ...payload } = req;
       const result = await roundTrip('POST', SDK_HTTP_ENDPOINTS.interrupt, JSON.stringify(payload));
       if (result.status < 200 || result.status >= 300) {
-        throw new SdkError('SDK_TRANSPORT', `interrupt → HTTP ${result.status}：${result.body.slice(0, 200)}`);
+        const frame = errorFrameOf(result, 'interrupt');
+        throw new SdkError(frame.code, frame.message);
       }
     },
 

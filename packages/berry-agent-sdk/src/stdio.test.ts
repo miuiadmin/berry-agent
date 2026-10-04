@@ -14,7 +14,8 @@ import { SdkError } from './types.js';
 /**
  * 子进程应答机脚本：按动词回帧——prompt→ack〔messageId='m-bad' 时先吐坏行〕、
  * hello→hello+entries+replay-end+40ms 后直播 event〔sessionId='s-missing' 回
- * 错误帧〕、getEntries/sessions 常规、interrupt 静默（无应答档）。
+ * 错误帧〕、getEntries 常规〔's-missing' 回错误帧——事务自身错误锁〕、sessions
+ * 常规、interrupt 静默〔's-missing' 异步回无主 error 帧——对齐宿主 wire-core〕。
  */
 const RESPONDER_SCRIPT = `
 const rl = require('node:readline').createInterface({ input: process.stdin });
@@ -37,9 +38,20 @@ rl.on('line', (line) => {
     out({ kind: 'replay-end', sessionId: req.sessionId, lastReplayedSeq: 2 });
     setTimeout(() => out({ kind: 'event', seq: 3, sessionId: req.sessionId, event: { type: 'turn_end', turn: 1, stopReason: 'end_turn' } }), 40);
   } else if (req.verb === 'getEntries') {
+    // missing 会话错误应答（对齐宿主 wire-core handleGetEntries——事务自身错误帧锁）
+    if (req.sessionId === 's-missing') {
+      out({ kind: 'error', code: 'SESSION_NOT_FOUND', message: '会话 ' + req.sessionId + ' 不存在', sessionId: req.sessionId });
+      return;
+    }
     out({ kind: 'entries', sessionId: req.sessionId, entries: [], lastSeq: 0 });
   } else if (req.verb === 'sessions') {
     out({ kind: 'sessions', sessions: [] });
+  } else if (req.verb === 'interrupt') {
+    // 无应答档失败形：missing 会话异步回无主 error 帧（对齐宿主 wire-core
+    // handleInterrupt——SESSION_NOT_FOUND 携 sessionId；成功形静默无帧）
+    if (req.sessionId === 's-missing') {
+      out({ kind: 'error', code: 'SESSION_NOT_FOUND', message: '会话 ' + req.sessionId + ' 不存在', sessionId: req.sessionId });
+    }
   }
 });
 `;
@@ -202,6 +214,55 @@ describe('spawnServeTransport stdio 传输', () => {
       // 线仍可用（send 不占在队事务）
       const client = createSdkClient(transport);
       expect((await client.prompt({ messageId: 'm-1', content: 'x' })).kind).toBe('ack');
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it('send 档无主 error 帧吸收：interrupt missing 会话后紧接正当事务拿到自己的应答（修前串味红）', async () => {
+    const warns: string[] = [];
+    const transport = rig((m) => warns.push(m));
+    try {
+      const client = createSdkClient(transport);
+      // interrupt 失败形：服务端异步回无主 error 帧（FIFO 先于 getEntries 应答到线）
+      await client.interrupt('s-missing');
+      // 修前：该帧落进紧随事务期望集（恒含 'error'）——getEntries 吃到别人的
+      // SESSION_NOT_FOUND、真应答帧静默丢（reject 红出）
+      const frame = await withDeadline(client.getEntries({ sessionId: 's-1' }));
+      expect(frame).toMatchObject({ kind: 'entries', sessionId: 's-1' });
+      // 吸收可观察：诊断面 warn 一行（无主帧不入事务）
+      expect(warns.join('\n')).toContain('无主 error 帧吸收');
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it('无主 error 帧路由订阅面：吸收后 onFrame 可观察（interrupt 错误经事件流可观察契约）', async () => {
+    const transport = rig();
+    try {
+      const seen: string[] = [];
+      const handle = await transport.openLive({ sessionId: 's-1' }, (frame) => seen.push(frame.kind));
+      const client = createSdkClient(transport);
+      await client.interrupt('s-missing');
+      const frame = await withDeadline(client.getEntries({ sessionId: 's-1' }));
+      expect(frame.kind).toBe('entries');
+      // 吸收路由进订阅监听面（types.ts send 契约：错误帧走 onFrame 面）
+      expect(seen).toContain('error');
+      await handle.close();
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it('吸收位不误伤事务自身错误：armed 窗内同会话 error 应答照常归属（无悬挂回归锁）', async () => {
+    const transport = rig();
+    try {
+      const client = createSdkClient(transport);
+      await client.interrupt('s-1'); // 成功 interrupt：服务端静默——吸收位在飞空守
+      // 事务自身错误帧（sessionId 同锚）须照常回属——吸收只吃无主帧，不吞
+      // 正当应答（否则事务永挂——比串味更劣的回归形）
+      const frame = await withDeadline(transport.request({ verb: 'getEntries', sessionId: 's-missing', since: -1 }));
+      expect(frame).toMatchObject({ kind: 'error', code: 'SESSION_NOT_FOUND' });
     } finally {
       await transport.close();
     }

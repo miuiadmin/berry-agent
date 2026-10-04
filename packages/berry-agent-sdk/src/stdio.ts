@@ -14,7 +14,9 @@
  * 帧归属纪律：线协议无请求 id ⇒ 事务串行链（一次一事务——前一事务应答落定
  * 才发下一笔）；在队帧〔event/heartbeat/ask/重放 entries/replay-end〕入当前
  * 订阅监听面。订阅建立 = hello 帧（取快照高水位）→ replay-end（衔接界标即
- * resolve 位；界标帧本身也入监听面——重放段全量承诺）两段同事务。
+ * resolve 位；界标帧本身也入监听面——重放段全量承诺）两段同事务。无应答档
+ * （interrupt）失败形的无主 error 帧经吸收位路由诊断面/订阅面——不入事务
+ * （防串味下一事务，见 deliver 吸收位注）。
  *
  * 终局纪律（03 §10.6 传输腿错误面定形补笔①）：子进程终局（exit/error/close）
  * → 在飞事务 fail-loud 拒绝（SDK_TRANSPORT 含退出码）并清 inflight——串行链
@@ -76,12 +78,53 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
   let inflight:
     | {
         expect: ReadonlySet<string>;
+        /** 事务请求的会话锚（会话域动词在场——无主 error 帧归属判据用） */
+        anchor: string | undefined;
         resolve: (frame: SdkWireFrame) => void;
         reject: (err: SdkError) => void;
       }
     | undefined;
 
+  /**
+   * 无主 error 帧吸收位（send 无应答档专用窗）：interrupt 失败形（missing 会话）
+   * 的 error 帧无事务可归——串行链微任务时序下紧随事务先开动（期望集恒含
+   * 'error'），无主帧在飞到达即被 resolve 给正当事务（串味——正当事务吃到
+   * 别人的错误码、真应答帧静默丢）。「send 后至下一事务开动前」的裸窗在串行
+   * 链上恒空窗（下一事务微任务内即开动、无主帧要一个进程往返才到线），故窗
+   * 形采「send 武装—吸收一枚即解除」：armed 期间 deliver 对 error 帧做归属
+   * 判定——无在队事务、或帧携 sessionId 且异于在队事务请求会话锚（服务端
+   * wire-core emitError 纪律：会话域错误帧恒回携请求 sessionId、连接级错误帧
+   * 恒缺席）即无主，路由诊断 warn + 订阅面不入事务。
+   */
+  let orphanAbsorb = false;
+
+  /** error 帧是否属在队事务：帧无会话锚（连接级错）恒属之；携锚须与事务请求会话一致 */
+  const errorBelongsToInflight = (
+    frame: SdkWireFrame & { kind: 'error' },
+    txn: NonNullable<typeof inflight>,
+  ): boolean => frame.sessionId === undefined || frame.sessionId === txn.anchor;
+
+  /** 请求的会话锚（会话域动词在场——hello/prompt/interrupt/getEntries） */
+  const sessionAnchorOf = (req: SdkRequest): string | undefined =>
+    'sessionId' in req && typeof req.sessionId === 'string' ? req.sessionId : undefined;
+
   const deliver = (frame: SdkWireFrame): void => {
+    // 无主 error 帧吸收（B1）：吸收位 armed 且帧不属在队事务（无事务/携异会话
+    // 锚）——warn + 订阅面路由，不入事务；一枚即解除（send 再调再武装）
+    if (
+      frame.kind === 'error' &&
+      orphanAbsorb &&
+      (inflight === undefined || !errorBelongsToInflight(frame, inflight))
+    ) {
+      orphanAbsorb = false;
+      // 此处 frame 已窄化为 error 帧（kind 判别）——code/sessionId 直取
+      warn(
+        `无主 error 帧吸收（不入事务）：code=${frame.code}` +
+          (frame.sessionId !== undefined ? ` sessionId=${frame.sessionId}` : ''),
+      );
+      liveListener?.(frame); // 订阅在场面：interrupt 错误经事件流可观察（types.ts send 契约）
+      return;
+    }
     if (inflight !== undefined && inflight.expect.has(frame.kind)) {
       const done = inflight;
       inflight = undefined;
@@ -135,7 +178,7 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
             reject(gate);
             return;
           }
-          inflight = { expect: new Set(expect), resolve, reject };
+          inflight = { expect: new Set(expect), anchor: sessionAnchorOf(req), resolve, reject };
           child.stdin!.write(encodeWireLine(req));
         }),
     );
@@ -179,6 +222,7 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
         }
         inflight = {
           expect: new Set(['hello', 'error']),
+          anchor: undefined, // 连接级握手（无会话域——无主帧判据恒不吸收连接级错）
           resolve: (frame) => {
             if (frame.kind === 'error') {
               // 宿主版本闸（⑤ 不符即拒连）——错误帧原码投形毒丸化
@@ -238,6 +282,9 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
         // 事务面门检同律：终局/毒丸后写 stdin 是伪成功——诚实拒
         const gate = transactionGate();
         if (gate !== undefined) throw gate;
+        // 无主帧吸收位武装（deliver 吸收位注）：interrupt 失败形的 error 帧无
+        // 事务可归——armed 使其路由诊断/订阅面而非串味下一事务
+        orphanAbsorb = true;
         child.stdin!.write(encodeWireLine(req));
       }),
     openLive: (params: SdkLiveParams, onFrame: SdkFrameListener) =>
@@ -252,8 +299,10 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
             liveListener = onFrame;
             let highWaterSeq = -1;
             // 订阅两段同事务：hello（快照高水位）→ replay-end（衔接界标即建立点）
+            // 两段同携会话锚（同事务同锚——无主帧判据跨段一致）
             inflight = {
               expect: new Set(['hello', 'error']),
+              anchor: params.sessionId,
               resolve: (frame) => {
                 if (frame.kind === 'error') {
                   reject(new SdkError((frame as { code: string }).code, (frame as { message: string }).message));
@@ -262,6 +311,7 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
                 highWaterSeq = (frame as { highWaterSeq: number }).highWaterSeq;
                 inflight = {
                   expect: new Set(['replay-end']),
+                  anchor: params.sessionId,
                   resolve: (marker) => {
                     onFrame(marker); // 界标帧入监听面（重放段全量承诺）后再立柄
                     resolve({ sessionId: params.sessionId, highWaterSeq, close: liveClose });

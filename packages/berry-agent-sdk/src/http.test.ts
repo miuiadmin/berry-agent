@@ -72,8 +72,22 @@ async function startFace(): Promise<{ transport: SdkTransport; log: FaceLog; clo
     }
     if (req.method === 'POST' && url.pathname === '/v1/interrupt') {
       log.interrupts += 1;
-      res.writeHead(204);
-      res.end();
+      // 镜像宿主 face（src/sdk/http.ts respondCollected）：interrupt 失败形错误帧
+      // 经非 2xx + 线面错误体回达（SESSION_NOT_FOUND → 404）；成功形 204 空体
+      void readJson().then((body) => {
+        if (body.sessionId === 's-missing') {
+          sendJson(res, 404, { kind: 'error', code: 'SESSION_NOT_FOUND', message: '无此会话' });
+          return;
+        }
+        if (body.sessionId === 's-plain') {
+          // 非帧形错误体（还原失败回退锁——落 SDK_TRANSPORT）
+          res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end('boom');
+          return;
+        }
+        res.writeHead(204);
+        res.end();
+      });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/v1/entries') {
@@ -220,6 +234,29 @@ describe('httpSdkTransport 直连 HTTP 传输', () => {
     const client = createSdkClient(transport);
     await client.interrupt('s-1');
     expect(log.interrupts).toBe(1);
+  });
+
+  it('interrupt 非 2xx：线面错误体结构化码还原（SESSION_NOT_FOUND——修前沦为 SDK_TRANSPORT 红）', async () => {
+    const { transport, log } = await face();
+    const client = createSdkClient(transport);
+    const before = log.interrupts;
+    // 宿主 face 把 interrupt 失败的错误帧原样作响应体（码→状态映射）——传输
+    // 档须与 request 档同款还原，结构化码原码透传（对照 toFrame 正确还原位）
+    await expect(withDeadline(client.interrupt('s-missing'))).rejects.toMatchObject({
+      name: 'SdkError',
+      code: 'SESSION_NOT_FOUND',
+    });
+    expect(log.interrupts).toBe(before + 1); // 请求确达（非传输层拒）
+  });
+
+  it('interrupt 非 2xx 非帧错误体：还原失败落 SDK_TRANSPORT（回退锁）', async () => {
+    const { transport } = await face();
+    const client = createSdkClient(transport);
+    await expect(withDeadline(client.interrupt('s-plain'))).rejects.toMatchObject({
+      name: 'SdkError',
+      code: 'SDK_TRANSPORT',
+      message: expect.stringContaining('HTTP 500') as unknown,
+    });
   });
 
   it('getEntries：POST /v1/entries 体去 verb（since 透传）', async () => {

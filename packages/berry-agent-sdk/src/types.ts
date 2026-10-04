@@ -95,7 +95,15 @@ export interface SdkLiveHandle {
 export interface SdkTransport {
   /** 请求档：发一动词、取应答帧（错误帧原样返回不抛——由 client 投形 SdkError） */
   request(req: SdkRequest): Promise<SdkWireFrame>;
-  /** 无应答档（interrupt——受理经事件流可观察：错误帧走 onFrame 面） */
+  /**
+   * 无应答档（interrupt——受理经事件流可观察）。
+   *
+   * 错误呈现位两形分立：stdio 形 interrupt 失败（missing 会话）的 error 帧无主
+   * 在飞——传输吸收位路由诊断面/订阅面（onFrame 可观察，不入事务——防串味
+   * 下一事务，见 stdio 件 deliver 吸收位注）；HTTP 形错误不走 SSE 帧——随
+   * POST 应答（非 2xx + 线面错误体）到达，传输还原投形 SdkError 抛出（结构
+   * 化码原码透传——与 request 档共腿还原）。
+   */
   send(req: SdkRequest): Promise<void>;
   /** 直播档建立：重放帧与直播帧入 onFrame；replay-end 后 resolve 订阅柄 */
   openLive(params: SdkLiveParams, onFrame: SdkFrameListener): Promise<SdkLiveHandle>;
@@ -138,7 +146,7 @@ export interface SdkClient {
   getEntries(input: SdkEntriesInput): Promise<SdkEntriesFrame>;
   /** 会话清单（清单 = 最近 100 窗 + total 全量计数分立——截断披露判据；旧服务端 total 缺席回退清单长） */
   sessions(): Promise<SdkSessionsResult>;
-  /** 打断在飞 run（无应答档——写后即决；missing 会话错误帧走订阅帧面） */
+  /** 打断在飞 run（无应答档——写后即决；missing 会话错误：stdio 形走订阅帧面〔吸收位路由〕、HTTP 形随 POST 应答投形 SdkError 抛出） */
   interrupt(sessionId: string): Promise<void>;
   /** 审批应答（跨入口竞速回执——applied / superseded） */
   decide(approvalId: string, answer: ApprovalAskAnswer, note?: string): Promise<'applied' | 'superseded'>;

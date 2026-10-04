@@ -74,7 +74,11 @@ export function createSdkClient(transport: SdkTransport): SdkClient {
       return { sessions, total: total ?? sessions.length }; // 应答闭集 {sessions, error}
     },
 
-    // 无应答档（interrupt 受理经事件流可观察——写后即决；missing 会话错误帧走订阅帧面）
+    // 无应答档（interrupt 受理经事件流可观察——写后即决）。错误呈现两形
+    // 分立（types.ts send 契约注同源——第八轮 laneB 契约注随迁）：stdio 形
+    // missing 会话 error 帧无主在飞——传输吸收位路由诊断面/订阅面（onFrame
+    // 可观察，不入后续事务）；HTTP 形错误不走 SSE 帧——随 POST 应答（非
+    // 2xx + 线面错误体）到达，传输还原投形 SdkError 抛出（结构化码原码透传）
     interrupt: (sessionId: string) => transport.send({ verb: 'interrupt', sessionId }),
 
     decide: async (approvalId: string, answer: ApprovalAskAnswer, note?: string) => {
