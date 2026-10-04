@@ -186,7 +186,10 @@ describe('messageShapeGate 消息形状闸（词汇闸形状半句——05 §5.1
   });
 
   it('user/message 缺 content 拒；string 与块数组两契约形放行', () => {
-    expectCode(() => messageShapeGate([{ type: 'user/message', seq: 0, time: 1, data: {} }]), 'SESSION_IMPORT_BAD_FORMAT');
+    expectCode(
+      () => messageShapeGate([{ type: 'user/message', seq: 0, time: 1, data: {} }]),
+      'SESSION_IMPORT_BAD_FORMAT',
+    );
     expectCode(
       () => messageShapeGate([{ type: 'user/message', seq: 0, time: 1, data: { content: 42 } }]),
       'SESSION_IMPORT_BAD_FORMAT',

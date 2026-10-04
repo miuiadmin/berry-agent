@@ -648,7 +648,11 @@ export class SdkWireCore {
         // 优于谎报）。阶段已是 tool 态则保账不重置：进度属同阶段内推进，重置
         // 起点会把 stageElapsedMs 归零谎报短耗时。
         if (sub.stage?.type !== 'tool') {
-          sub.stage = { type: 'tool', name: sub.toolNames.get(event.toolCallId) ?? event.toolCallId, sinceMs: this.now() };
+          sub.stage = {
+            type: 'tool',
+            name: sub.toolNames.get(event.toolCallId) ?? event.toolCallId,
+            sinceMs: this.now(),
+          };
         }
         break;
       case 'tool_execution_end':

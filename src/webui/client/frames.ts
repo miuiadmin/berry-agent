@@ -287,8 +287,12 @@ function runCloseLine(
   // 分立）。段集构造仍单源 runRecapSegments，只对计数段追加披露后重组
   //（段头段尾同 runRecapLine 拼形——见 contracts durations 头注）。
   if (state.runStartedAt === null) {
-    const annotated = runRecapSegments({ durationMs, toolCount: state.runToolCount, retryCount: state.runRetryCount }).map(
-      (segment) => (segment.startsWith('工具 ') || segment.startsWith('重试 ') ? `${segment}（自本次附着起算）` : segment),
+    const annotated = runRecapSegments({
+      durationMs,
+      toolCount: state.runToolCount,
+      retryCount: state.runRetryCount,
+    }).map((segment) =>
+      segment.startsWith('工具 ') || segment.startsWith('重试 ') ? `${segment}（自本次附着起算）` : segment,
     );
     return `── ${joinSegments(...annotated)} ──`;
   }
@@ -615,7 +619,11 @@ export function dismissNotice(state: AppState, id: number): AppState {
 /** decide 应答后本地出清（applied 与 superseded 同出清——异口已答）；未见账随行出清（条目已撤——账不滞留） */
 export function appliedDecide(state: AppState, approvalId: string): AppState {
   const { [approvalId]: _tick, ...missTicks } = state.approvalMissTicks;
-  return { ...state, approvals: state.approvals.filter((a) => a.approvalId !== approvalId), approvalMissTicks: missTicks };
+  return {
+    ...state,
+    approvals: state.approvals.filter((a) => a.approvalId !== approvalId),
+    approvalMissTicks: missTicks,
+  };
 }
 
 /**

@@ -775,7 +775,11 @@ describe('竞窗守卫：刷新窗内人面 rm——收口不复活已删行（�
     const inflight = r.chain.tick();
     expect(d.fetch.calls).toHaveLength(1);
     r.store.deleteCredential(NS, 'github.refresh'); // 人面 rm 刷新行（窗内）
-    d.settle({ ok: true, status: 200, json: { access_token: 'at-new', refresh_token: 'rt-rotated', expires_in: 3600 } });
+    d.settle({
+      ok: true,
+      status: 200,
+      json: { access_token: 'at-new', refresh_token: 'rt-rotated', expires_in: 3600 },
+    });
     await inflight;
     expect(r.store.getCredential(NS, 'github.refresh')).toBeUndefined(); // 不复活
     expect(r.store.getCredential(NS, 'github')?.apiKey).toBe('at-new'); // 主行未被删——照常换新
