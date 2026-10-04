@@ -143,7 +143,7 @@ export function createRefreshChain(deps: RefreshChainDeps): RefreshChainHandle {
    * ——failures 计数 durable / EXPIRED 直落 / notify 转换位）——**与挂钟
    * 巡检共账**（裁决四·3：不因触发源不同双轨记账）。挂钟 refreshOne 与
    * refreshNow 两路共入本位（同 key 即同航班）。永不 reject（总折
-   * 'failed' 结局）。
+   * 'failed' 结局——失败记账自带防御壳：记账写/notify 抛折 warn 不洞穿）。
    */
   const flight = (flow: RegisteredOAuthFlow): Promise<RefreshNowOutcome> => {
     const ns = pluginNamespace(flow.pluginId);
@@ -204,32 +204,51 @@ export function createRefreshChain(deps: RefreshChainDeps): RefreshChainHandle {
         deps.onCredentialChanged?.({ namespace: ns, name, action: 'rotate', origin: 'oauth-flow' });
         return { status: 'refreshed' };
       } catch (err) {
-        // 失败保留旧值续用：值不动，failures 递增（durable）
-        const failures = (typeof meta.failures === 'number' ? meta.failures : 0) + 1;
-        // invalid_grant（EXPIRED 码）= 授权态坏——直落三振语义（重试无益不空转三拍）
-        const stateBroken = err instanceof BaseError && err.code === 'CREDENTIALS_OAUTH_EXPIRED';
-        const strike = stateBroken || failures >= maxFailures;
-        store.setCredential(ns, name, {
-          apiKey: row.apiKey, // 保留上次有效值（铁律——链不清删不清值）
-          meta: {
-            ...stripChainKeys(meta),
-            refreshName,
-            expiresAt: meta.expiresAt,
-            failures,
-            ...(strike ? { expired: true } : {}),
-          },
-        });
-        if (strike) {
-          // 三振 notify（只通知不执法——旧 token 可能仍有效；唯一转换位发，已 expired 行不重复告警）
-          if (!wasExpired) {
-            notify(
-              `凭证 ${ns}/${name} 刷新${stateBroken ? '被拒（授权态坏——refresh 凭据失效或行不完整）' : `连续 ${failures} 次失败`}——已标记过期，保留上次有效值；重新授权：/credentials oauth ${flow.pluginId} ${name}`,
-            );
+        // 失败记账防御壳（「永不 reject」契约治本位——第七轮 H1）：记账写/
+        // notify 同步抛修前会洞穿本 catch 体（catch 内再抛不被同 try 收）直
+        // reject——挂钟腿 start() 收口 catch 只自认挂钟拍（c43e50f 单腿补位），
+        // refreshNow 腿 return flight(flow) 无对偶而下游 driver 按契约 await
+        // 无 catch（04 §3.3 条 8 seam 消费面）直穿。治本：记账写/notify 全入
+        // 内层 try——写失败折 warn 留痕（三振账本拍未落、下拍重计），结算恒
+        // 返 failed 结局，「永不 reject」两腿同真。
+        try {
+          // 失败保留旧值续用：值不动，failures 递增（durable）
+          const failures = (typeof meta.failures === 'number' ? meta.failures : 0) + 1;
+          // invalid_grant（EXPIRED 码）= 授权态坏——直落三振语义（重试无益不空转三拍）
+          const stateBroken = err instanceof BaseError && err.code === 'CREDENTIALS_OAUTH_EXPIRED';
+          const strike = stateBroken || failures >= maxFailures;
+          store.setCredential(ns, name, {
+            apiKey: row.apiKey, // 保留上次有效值（铁律——链不清删不清值）
+            meta: {
+              ...stripChainKeys(meta),
+              refreshName,
+              expiresAt: meta.expiresAt,
+              failures,
+              ...(strike ? { expired: true } : {}),
+            },
+          });
+          if (strike) {
+            // 三振 notify（只通知不执法——旧 token 可能仍有效；唯一转换位发，已 expired 行不重复告警）
+            if (!wasExpired) {
+              notify(
+                `凭证 ${ns}/${name} 刷新${stateBroken ? '被拒（授权态坏——refresh 凭据失效或行不完整）' : `连续 ${failures} 次失败`}——已标记过期，保留上次有效值；重新授权：/credentials oauth ${flow.pluginId} ${name}`,
+              );
+            } else {
+              warn(`凭证 ${ns}/${name} 刷新仍失败（已过期告示在案，第 ${failures} 次）：${errText(err)}`);
+            }
           } else {
-            warn(`凭证 ${ns}/${name} 刷新仍失败（已过期告示在案，第 ${failures} 次）：${errText(err)}`);
+            warn(
+              `凭证 ${ns}/${name} 刷新失败（第 ${failures} 次，阈值 ${maxFailures}）：${errText(err)}——保留旧值续用`,
+            );
           }
-        } else {
-          warn(`凭证 ${ns}/${name} 刷新失败（第 ${failures} 次，阈值 ${maxFailures}）：${errText(err)}——保留旧值续用`);
+        } catch (accountingErr) {
+          // 记账自身失败（写面/notify 注入形抛）——折 warn 留痕不外溢；warn
+          // 注入形自身抛再吞（挂钟拍收口 catch 同律——日志面不可反杀契约）
+          try {
+            warn(`凭证 ${ns}/${name} 刷新失败记账异常（三振账本拍未落，下拍重计）：${errText(accountingErr)}`);
+          } catch {
+            // warn 注入形自身抛——终极吞
+          }
         }
         // 结局随行上游错误文本（seam failed 形的 notify 文案附注供源）
         return { status: 'failed', errorMessage: errText(err) };
@@ -355,8 +374,9 @@ export function createRefreshChain(deps: RefreshChainDeps): RefreshChainHandle {
       const ms = intervalMs ?? 60_000;
       timer = setInterval(
         () =>
-          // 挂钟拍收口 catch：flight 契约「永不 reject」只覆盖 try 体内——失败
-          // 记账写/notify 同步抛会洞穿 catch 体直穿 tick 整拍 reject；void 丢弃
+          // 挂钟拍收口 catch（外层安全网）：flight 失败记账已内包防御壳
+          // （「永不 reject」两腿同真——见 flight 核心 catch 体），本位兜
+          // 记账壳外的残余异常面（tick 整拍 unforeseen 抛）——void 丢弃
           // rejected promise 即 unhandled rejection，崩溃编舞杀无人值守宿主。
           // 折 warn 留痕不外溢；warn 面自身抛再吞（catch 内再抛即新的 unhandled
           // ——日志面不可反杀宿主）。

@@ -476,7 +476,7 @@ describe('护栏与自驱', () => {
     r.chain.stop(); // 幂等
   });
 
-  it('挂钟拍异常折 warn 不外溢 unhandled rejection（修前红：失败记账写同步抛穿透 flight catch 体 → tick 整拍 reject——void tick() 丢弃 rejected promise 落 unhandled 形，崩溃编舞杀无人值守宿主）', async () => {
+  it('挂钟拍零 unhandled rejection + 记账异常 warn 留痕（H1 治本随迁：失败记账写已在 flight catch 体内包防御壳——异常折「记账异常」warn 不再穿透 tick 整拍；修前谱 = 记账写穿透 catch 体 → tick 整拍 reject → void tick() 丢弃 rejected promise 落 unhandled 形，c43e50f 曾以挂钟拍收口 catch 单腿补位）', async () => {
     vi.useRealTimers(); // 真钟驱动（unref 钟不阻拍——测试在途即活）；防同文件 fake 钟泄漏
     const real = openTestStore();
     // 到期形主行 + 刷新行直种真库（毒化面只拦主行写位）
@@ -525,12 +525,105 @@ describe('护栏与自驱', () => {
       chain.stop();
       // 判据一：零 unhandled rejection（修前红——unhandled 数组非空）
       expect(unhandled).toEqual([]);
-      // 判据二：异常折 warn 留痕（不静默吞——挂钟面可见性）
-      expect(warns.some((w) => w.includes('挂钟拍异常'))).toBe(true);
+      // 判据二（H1 随迁）：记账异常折 warn 留痕（不静默吞——挂钟面可见性；
+      // 治本后异常在 flight catch 体内收口，warn 落「记账异常」位非挂钟拍位）
+      expect(warns.some((w) => w.includes('记账异常'))).toBe(true);
     } finally {
       process.off('unhandledRejection', onUnhandled);
       chain.stop();
     }
+  });
+});
+
+/* ---------------- refreshNow 腿「永不 reject」契约（第七轮 H1 治本锁） ---------------- */
+
+describe('refreshNow 腿「永不 reject」契约（记账写/notify 抛不洞穿）', () => {
+  const NS = pluginNamespace('demo');
+
+  /**
+   * 毒化编舞底座（上方挂钟案 :487 同手法换消费位——消费位 = refreshNow
+   * 直待而非挂钟 start）：主行绑定 modelProvider（refreshNow 解析面）+
+   * 到期形 + 刷新行在库；恒 500 应答（可重试形——逐次走失败记账位）。
+   * 毒面可插两形：主行记账写抛 / notify 注入形抛。
+   */
+  function rigPoisoned(opts?: {
+    /** 三振位 notify 抛（true 时主行写不毒——单毒 notify 面；seed failures 2 使一败即三振） */
+    readonly notifyThrows?: boolean;
+  }): {
+    readonly real: Store;
+    readonly chain: RefreshChainHandle;
+    readonly warns: string[];
+  } {
+    const real = openTestStore();
+    // failures 2 预垫（notifyThrows 形一败即到阈值 3——notify 转换位必经）
+    const failures = opts?.notifyThrows === true ? 2 : undefined;
+    seedMain(real, {
+      meta: {
+        source: 'oauth',
+        modelProvider: 'anthropic', // refreshNow provider→绑定行解析键
+        refreshName: 'github.refresh',
+        expiresAt: 1_000,
+        ...(failures !== undefined ? { failures } : {}),
+      },
+    });
+    real.setCredential(NS, 'github.refresh', { apiKey: 'rt-old', meta: { source: 'oauth' } });
+    const poisoned: CredentialsCommandStore = {
+      getCredential: (ns, name) => real.getCredential(ns, name),
+      setCredential:
+        opts?.notifyThrows === true
+          ? (ns, name, entry) => real.setCredential(ns, name, entry)
+          : (ns, name, entry) => {
+              // 主行位写即抛——失败记账写（catch 体内 setCredential）同步抛洞穿形
+              if (name === 'github') throw new Error('模拟记账写失败（磁盘满形）');
+              real.setCredential(ns, name, entry);
+            },
+      deleteCredential: (ns, name) => real.deleteCredential(ns, name),
+      listCredentialProviders: () => real.listCredentialProviders(),
+    };
+    const registry = createOAuthFlowRegistry();
+    registry.register('demo', { def: DEF, handler: async () => undefined }, () => () => undefined);
+    const fetchFn = (async () => ({
+      ok: false,
+      status: 500,
+      text: async () => JSON.stringify({ error: 'server_error' }),
+    })) as OAuthFetchLike;
+    const warns: string[] = [];
+    const chain = createRefreshChain({
+      store: poisoned,
+      registry,
+      fetchFn,
+      now: () => 0,
+      notify:
+        opts?.notifyThrows === true
+          ? () => {
+              throw new Error('模拟 notify 投递失败（通知面抛形）');
+            }
+          : () => undefined,
+      warn: (message) => warns.push(message),
+    });
+    return { real, chain, warns };
+  }
+
+  it('失败记账写同步抛——refreshNow 不 reject 折 failed + warn 留痕（修前红：catch 体内记账写抛洞穿 flight catch 体 → 破约 reject → 下游 driver 按契约 await 无 catch 直穿）', async () => {
+    const { real, chain, warns } = rigPoisoned();
+    // 契约锁：refreshNow 永不 reject——修前 reject 红（本行 await 即抛）
+    const outcome = await chain.refreshNow('anthropic');
+    expect(outcome).toMatchObject({ status: 'failed' });
+    // 记账失败折 warn 留痕（不静默吞——写面可见性）
+    expect(warns.some((w) => w.includes('记账异常'))).toBe(true);
+    // 主行保留旧值：记账写未落（值与三振账均未动，下拍重计——不自欺计数）
+    expect(real.getCredential(NS, 'github')?.apiKey).toBe('at-old');
+  });
+
+  it('三振位 notify 同步抛——同折 failed 不洞穿（记账先落账、notify 折 warn 补位）', async () => {
+    const { real, chain, warns } = rigPoisoned({ notifyThrows: true });
+    const outcome = await chain.refreshNow('anthropic');
+    expect(outcome).toMatchObject({ status: 'failed' });
+    expect(warns.some((w) => w.includes('记账异常'))).toBe(true);
+    // 记账写先于 notify——三振账已 durable（failures 3 + expired 位在案）
+    const meta = real.getCredential(NS, 'github')?.meta as CredentialMeta;
+    expect(meta.failures).toBe(3);
+    expect(meta.expired).toBe(true);
   });
 });
 
