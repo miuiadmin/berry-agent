@@ -796,6 +796,98 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
     expect(existsSync(paths.sockPath)).toBe(false); // face sockOwned 自清
   });
 
+  // —— 停机序竞速族（第九轮 laneA——α1 同族竞速的 daemon 门）——
+  it('停机序竞速：done 不在六步收口前落定（resolveExit 挂六步尽尾结算）', async () => {
+    // 修前红：sdk-http-face closer 内直接 resolveExit(0)——drain 步② 内即落定，
+    // 四层 async 返回链（runDaemonServe→dispatchCli→main）上 main 尾硬
+    // process.exit(code) 先于 ③ flush/④ session_shutdown/⑤ disposers/⑥ 关库
+    // 完成（write-behind 尾批丢失）。正形（承 serve-entry 前台形同款）：结算挂
+    // shutdown 在飞 promise 的 .then——幂等二调共享同柄，恰在六步收口尾结算。
+    // 断言形：done 落定时刻快照 ⑥ 关库进入 flag（shadow close 记序）——修前
+    // 快照 false、修后 true。
+    const faux = fauxProvider({ provider: 'faux-daemon-race', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'daemon-race-data-'));
+    dirs.push(dataDir);
+    const paths = daemonPaths(dataDir);
+    const lines: string[] = [];
+    let runtimeShutdown: (() => Promise<void>) | undefined;
+    let closeEntered = false; // ⑥ 关库进入记序（shadow 位——置位即证 ③④⑤ 已过）
+    let doneSawCloseEntered: boolean | undefined; // done 落定时刻的 flag 快照
+    const done = runDaemonServe({
+      flags: { noDelta: false },
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-daemon-race/m1',
+      env: {},
+      heartbeatIntervalMs: 60,
+      onRuntime: (runtime) => {
+        runtimeShutdown = () => runtime.shutdown();
+        // ⑥ 关库 shadow 记序（自有属性遮蔽原型——承 runtime.test flush 同款
+        // 注入法）：入口置 flag；shutdown 在飞体 await close 之后才 resolve，
+        // flag 必先于六步尽的 .then 结算
+        const persistence = runtime.persistence as { close: () => Promise<void> };
+        const origClose = persistence.close.bind(runtime.persistence);
+        persistence.close = async () => {
+          closeEntered = true;
+          await origClose();
+        };
+      },
+      writeErr: (l) => lines.push(l),
+    });
+    done.then(() => {
+      doneSawCloseEntered = closeEntered; // 落定时刻快照（时序断言的载体）
+    });
+    // 就绪等待：pid 登记 + 就绪披露行（承全环例式）
+    let ready = false;
+    for (let i = 0; i < 200 && !ready; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      ready = existsSync(paths.pidPath) && lines.some((l) => l.includes('daemon 就绪'));
+    }
+    expect(ready, `就绪行：${lines.join(' / ')}`).toBe(true);
+    await runtimeShutdown!();
+    await expect(done).resolves.toBe(0);
+    expect(doneSawCloseEntered).toBe(true); // 修前红：drain 步② 内即落定 → false
+    expect(existsSync(paths.pidPath)).toBe(false); // 足迹自清（承全环例式）
+  });
+
+  it('落盘失败折 1：③ flush 抛错 → done resolves 1（shutdownFlushFailure 观测位消费）', async () => {
+    // 修前红：closer 恒 resolveExit(0)——05 §6.3#6「flush 失败 = 退出非零码」在
+    // daemon 路径永不生效（serve-entry 前台形同款折位缺失）。修后：六步尽尾
+    // 结算读 runtime.shutdownFlushFailure——落盘两步任一失败折 1。
+    const faux = fauxProvider({ provider: 'faux-daemon-ff', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'daemon-ff-data-'));
+    dirs.push(dataDir);
+    const paths = daemonPaths(dataDir);
+    const lines: string[] = [];
+    let runtimeShutdown: (() => Promise<void>) | undefined;
+    const done = runDaemonServe({
+      flags: { noDelta: false },
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-daemon-ff/m1',
+      env: {},
+      heartbeatIntervalMs: 60,
+      onRuntime: (runtime) => {
+        runtimeShutdown = () => runtime.shutdown();
+        // 落盘失败注入：③ flush 抛错（六步序吞错续行 + 记失败态——自有属性
+        // 遮蔽法，承 runtime.test 同款；close 内含 this.flush() 终批同吃注入）
+        (runtime.persistence as { flush: () => Promise<void> }).flush = async () => {
+          throw new Error('flush 落盘失败注入');
+        };
+      },
+      writeErr: (l) => lines.push(l),
+    });
+    let ready = false;
+    for (let i = 0; i < 200 && !ready; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      ready = existsSync(paths.pidPath) && lines.some((l) => l.includes('daemon 就绪'));
+    }
+    expect(ready, `就绪行：${lines.join(' / ')}`).toBe(true);
+    await runtimeShutdown!();
+    await expect(done).resolves.toBe(1); // 修前红：恒 0
+    expect(existsSync(paths.pidPath)).toBe(false); // 足迹自清不受失败态影响
+  });
+
   it("`--port` 人面全环（18a-3'）：TCP 侧人面 + webui 路由同面 + 同面单 token，停后足迹清", async () => {
     const faux = fauxProvider({ provider: 'faux-daemon-port', models: [{ id: 'm1' }] });
     const dataDir = mkdtempSync(join(tmpdir(), 'daemon-port-data-'));
