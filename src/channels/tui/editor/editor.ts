@@ -39,6 +39,19 @@ export interface EditorOptions {
   maxVisibleLines?: number;
   /** 键位册（批 10j 迁册——缺省缺省册；用户覆盖形装配注入归 10k） */
   keymap?: Keymap;
+  /**
+   * 持久化史种子（B1——07 §4.1 呈现面件 2 定形注③种子路）：构造期一次性
+   * 新→旧序满灌内存史（host 装配根 recentTexts〔启动锚根〕供数——跨进程
+   * 存活位）。缺席 = 空史旧形（确定性测试零扰动）。
+   */
+  historySeed?: readonly string[];
+  /**
+   * 持久化史镜像钩（B1 写路）：真入册（trim 空与连续去重闸后）时随入册
+   * 触发——装配层闭包直写库（写点在编辑器入册位非 host onSubmit 位：ask
+   * 应答/退出词/本地命令三叉不达 onSubmit，镜像取编辑器级保两集恒等）。
+   * 缺席 = 纯内存旧形；写失败 best-effort 归闭包（不阻塞提交）。
+   */
+  onHistoryAdd?: (text: string) => void;
 }
 
 /** 可打印字符键判（jump 待靶态的靶字符判据——无修饰或仅 shift） */
@@ -58,12 +71,17 @@ export class Editor implements Renderable {
   /** 翻页步幅（= 呈现帽——帽随 resize 重算时同步，见 setMaxVisibleLines） */
   private pageSize: number;
   private readonly keymap: Keymap;
+  /** 持久化史镜像钩（B1 写路——真入册时触发；缺席 = 纯内存旧形） */
+  private readonly onHistoryAdd: ((text: string) => void) | undefined;
 
   constructor(options: EditorOptions = {}) {
     this.onSubmit = options.onSubmit;
     this.pageSize = Math.max(1, options.maxVisibleLines ?? 8);
     this.keymap = options.keymap ?? new Keymap();
+    this.onHistoryAdd = options.onHistoryAdd;
     this.model = new EditorModel();
+    // 持久化史种子（B1 种子路）：构造期一次满灌——缺席 = 空史旧形
+    if (options.historySeed !== undefined) this.model.seedHistory(options.historySeed);
     this.model.onChange = (text) => options.onChange?.(text);
     this.view = new EditorView(this.model, { maxVisibleLines: options.maxVisibleLines });
   }
@@ -310,12 +328,18 @@ export class Editor implements Renderable {
     return false; // 未绑定键归上层（escape / f 键 / tab…）
   }
 
-  /** 提交：模型全清取文、非空才入册 + 回调（候跑形携标记——调用方按键序分派） */
+  /**
+   * 提交：模型全清取文、非空才入册 + 回调（候跑形携标记——调用方按键序分派）。
+   * 入册序不变（addToHistory 先于 onSubmit）；B1 写路——真入册才触发镜像钩
+   * （与内存史同集恒等：两闸〔trim 空/连续去重〕下不镜像，onSubmit 照发）。
+   */
   private handleSubmit(opts?: EditorSubmitOptions): boolean {
     this.jumpPending = null;
     const text = this.model.submit();
     if (text !== '') {
-      this.model.addToHistory(text);
+      if (this.model.addToHistory(text)) {
+        this.onHistoryAdd?.(text);
+      }
       this.onSubmit?.(text, opts);
     }
     return true;

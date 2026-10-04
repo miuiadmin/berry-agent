@@ -2490,3 +2490,29 @@ describe('execResultRendererLines（bash 卡体呈现腿——纯函数）', () 
     expect(execResultRendererLines(contentOf(''))).toEqual([]); // 空文本零行——回落宿主缺省（不为空行占位） // 空文本一行空段
   });
 });
+
+describe('分项目输入历史面装配（B1——05 §9 input_history / 07 §4.1 呈现面件 2 定形注⑦）', () => {
+  it('inputHistory 柄在场：v14 表经 HOST_MIGRATION_TAIL 建就 + record/recentTexts 往返（装配根单源）', async () => {
+    const dir = tmpDir('host-asm-ih-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    expect(assembly.ok).toBe(true);
+    if (assembly.ok) {
+      try {
+        // v14 表在库（HOST_MIGRATION_TAIL 聚合——链头推进到 14）
+        expect(assembly.runtime.persistence.store.connection.pragma('user_version', { simple: true })).toBe(14);
+        // 柄可用：record 往返 + trim 去重闸 + recentTexts 读序（persist 件单测
+        // 已全覆盖——此处锁装配位：face 与 runtime 同库句柄接线）
+        expect(assembly.inputHistory.record({ workspaceRoot: '/ws/x', sessionId: 's1', text: ' hi ' })).toBe(true);
+        expect(assembly.inputHistory.record({ workspaceRoot: '/ws/x', text: 'hi' })).toBe(false); // trim 同文去重
+        expect(assembly.inputHistory.recentTexts('/ws/x')).toEqual(['hi']);
+      } finally {
+        await assembly.runtime.shutdown();
+      }
+    }
+  });
+});

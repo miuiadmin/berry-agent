@@ -93,7 +93,8 @@ import { createPluginRouteRegistry } from '../sdk/index.js';
 import { ISSUE_GITHUB_TOKEN_NAME, ISSUE_PARALLEL_LIMIT_DEFAULT, ISSUE_WEBHOOK_SECRET_NAME } from '../issue/index.js';
 import { HOST_NAMESPACE, createOAuthFlowRegistry } from '../credentials/index.js';
 // 进程级 durable 审计流面（05 §9 audit_events——U3 批 U3-5 载体真接线）
-import { createAuditFace, createLoadHistoryFace } from '../persist/index.js';
+import { createAuditFace, createInputHistoryFace, createLoadHistoryFace } from '../persist/index.js';
+import type { InputHistoryFace } from '../persist/index.js';
 import { mountWebuiOnFace } from './webui-bridge.js';
 
 /** 装配阶段词汇（TUI 启动动画「加载 XXX」的骨架刻度——装配序既有边界词汇化） */
@@ -231,6 +232,14 @@ export interface AssemblySuccess {
     readonly running: () => readonly JobEntry[];
     readonly list: () => readonly JobEntry[];
   };
+  /**
+   * 分项目输入历史面（2026-10-05 ZCode TUI 对标批 B1——05 §9 input_history
+   * / 07 §4.1 呈现面件 2 B1 定形注⑦）：tui-entry 注入 backend.history（种子
+   * = recentTexts〔启动锚根〕构造期一次满灌 EditorOptions.historySeed + 写路
+   * = record 闭包镜像直写）。装配根单源接线——host→channels 经闭包传值
+   * （28 席 DAG 零新边：channels 不 import persist，face 真源只经装配到达）。
+   */
+  readonly inputHistory: InputHistoryFace;
 }
 
 /** 宿主装配序主入口（async——装载管线内含 jiti ESM 求值） */
@@ -359,6 +368,13 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // ——双点单写点同源）；:memory: 诊断形同构接线（载体即内存库——durable
     // 性诚实于载体，audit 同律）
     const loadHistory = createLoadHistoryFace(runtime.persistence.store.connection);
+
+    // —— 分项目输入历史面（05 §9 input_history——2026-10-05 ZCode TUI 对标
+    // 批 B1 种写双路）：单写者 = 本装配根（tui-entry history 注入位唯一消费
+    // ——种子路 recentTexts 启动播种 + 写路 onRecord 闭包镜像直写，写失败
+    // best-effort warn 在 tui-entry 闭包内）；audit/loadHistory 同排同构
+    //（:memory: 诊断形同构接线——载体即内存库，durable 性诚实于载体）
+    const inputHistory = createInputHistoryFace(runtime.persistence.store.connection);
 
     // —— 插件道路由受理器（U5-2——03 §2.2 第十三面/§10.6 时序缝定形）：
     // host-owned 单真身（受理与挂载两时点解耦的账）；受理恰一笔审计落
@@ -1610,6 +1626,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         running: () => jobs.running(),
         list: () => jobs.list(),
       },
+      // 分项目输入历史面（B1 种写双路——tui-entry history 注入位消费）
+      inputHistory,
     };
   } catch (err) {
     // 意外异常 = 崩溃取证档：crash.log 先写（memory 形内建跳过）→ 资源收口 → 归一失败档

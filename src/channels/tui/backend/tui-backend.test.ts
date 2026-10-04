@@ -5057,3 +5057,50 @@ describe('TuiBackend /rewind 副屏装配（openRewindPicker——装配 seam �
     expect(requestRepaint).toHaveBeenCalled(); // 落位经装配 seam 请帧（笔误态零调用）
   });
 });
+
+describe('TuiBackend 持久化史透传（B1——07 §4.1 呈现面件 2 定形注⑦）', () => {
+  it('history 注入：seed 播种可 ↑ 召回 + 提交触发 onRecord 镜像（编辑器入册位全链）', () => {
+    const records: string[] = [];
+    const { io, pump } = makeInteractive({
+      history: { seed: ['prev-a', 'prev-b'], onRecord: (text) => records.push(text) },
+    });
+    // 种子路：空框 ↑ 直入历史回溯（跨进程史召回）
+    io.emitInput('\x1b[A'); // ↑
+    pump();
+    expect(io.bytes).toContain('prev-a');
+    // 写路：提交真入册触发镜像（经输入面 → editor.handleSubmit → onHistoryAdd）
+    io.emitInput('\x1b[B'); // ↓ 回今态（清框）
+    pump();
+    io.emitInput('fresh-input\r');
+    pump();
+    expect(records).toEqual(['fresh-input']);
+  });
+
+  it('history 注入去重形：连续同文第二笔不镜像（onSubmit 照发）', () => {
+    const records: string[] = [];
+    const { io, calls, pump } = makeInteractive({
+      history: { seed: [], onRecord: (text) => records.push(text) },
+    });
+    io.emitInput('dup\r');
+    pump();
+    io.emitInput('dup\r');
+    pump();
+    // 提交通道两笔照发（backend 分诊不因去重短路）；镜像只随真入册一笔
+    expect(calls.submitted).toEqual([
+      ['s1', 'dup'],
+      ['s1', 'dup'],
+    ]);
+    expect(records).toEqual(['dup']);
+  });
+
+  it('history 注入缺席 = 旧形零扰动（↑ 无史可翻、提交照旧）', () => {
+    const { io, calls, pump } = makeInteractive();
+    io.emitInput('plain\r');
+    pump();
+    expect(calls.submitted).toEqual([['s1', 'plain']]);
+    io.bytes = '';
+    io.emitInput('\x1b[A'); // ↑ 无史——不进浏览态不炸
+    pump();
+    expect(calls.submitted).toHaveLength(1);
+  });
+});

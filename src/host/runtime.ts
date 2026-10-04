@@ -22,6 +22,7 @@ import { join } from 'node:path';
 
 import {
   AUDIT_MIGRATION,
+  INPUT_HISTORY_MIGRATION,
   LOAD_GENERATIONS_MIGRATION,
   MEMORY_DB_PATH,
   Persistence,
@@ -33,8 +34,8 @@ import type { PersistenceOptions } from '../persist/index.js';
 // core: 表族迁移声明（05 §6.4 机械聚合——声明来自插件、执行在宿主；host 行
 // 拓扑边在册）。版本升序：scheduler v2 → goal v3 → memory v4-6·9·11 →
 // credentials v7 → audit v8 → load-generations v10 → goal v12 → session-archive
-// v13（audit v8 / load-generations v10 / session-archive v13 = 宿主域表——persist
-// export-only 声明，非 core: 表族）。
+// v13 → input-history v14（audit v8 / load-generations v10 / session-archive
+// v13 / input-history v14 = 宿主域表——persist export-only 声明，非 core: 表族）。
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../goal/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
@@ -72,6 +73,10 @@ export const HOST_MIGRATION_TAIL: readonly MigrationSpec[] = [
   // ——05 §9 专列兑现注：title/专列分家，读路合并单源 sessionDisplayTitleOf；
   // ALTER ADD COLUMN 迁移链首例，DDL 有意不折列）
   SESSION_ARCHIVE_MIGRATION,
+  // 2026-10-05 ZCode TUI 对标批 B1 聚合（input_history 分项目输入历史 v14
+  // ——05 §9 / 07 §4.1 呈现面件 2 B1 定形注：宿主输入历史读模型，单写者 =
+  // 装配根〔Editor onHistoryAdd 闭包镜像位〕，persist export-only 声明同形）
+  INPUT_HISTORY_MIGRATION,
 ];
 
 /** closer 项（收口动作 + 标签——drain 超时强杀的 warn 载荷） */

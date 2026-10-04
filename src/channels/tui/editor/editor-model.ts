@@ -865,13 +865,34 @@ export class EditorModel {
 
   /* ---------------- 输入历史 ---------------- */
 
-  /** 入册（提交后调用）：trim 空不加、连续重复不加、100 帽 */
-  addToHistory(text: string): void {
+  /**
+   * 持久化史种子注入（B1——07 §4.1 呈现面件 2 定形注③种子路）：一次性
+   * 新→旧序满灌、覆盖式（既有内存史整替非追加；浏览态随覆盖复位——种子
+   * 在构造期注入，浏览态残留属防御位）。超帽截前 HISTORY_LIMIT 条（新→旧
+   * 序的前帽 = 最新帽内集，与 addToHistory 的 pop 语义同边界）。
+   */
+  seedHistory(entries: readonly string[]): void {
+    this.history.length = 0;
+    for (const entry of entries) {
+      this.history.push(entry);
+      if (this.history.length >= HISTORY_LIMIT) break;
+    }
+    this.historyIndex = -1;
+    this.historyDraft = null;
+  }
+
+  /**
+   * 入册（提交后调用）：trim 空不加、连续重复不加、100 帽。
+   * 返值 = 真入册判据（B1 写路镜像位——真入册才触发 onHistoryAdd 闭包写库，
+   * 与持久层 record 三闸同语义镜像）。
+   */
+  addToHistory(text: string): boolean {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    if (this.history[0] === trimmed) return;
+    if (!trimmed) return false;
+    if (this.history[0] === trimmed) return false;
     this.history.unshift(trimmed);
     if (this.history.length > HISTORY_LIMIT) this.history.pop();
+    return true;
   }
 
   /** 翻阅（-1 向旧 / +1 向新）：draft 保底、尽头 no-op */

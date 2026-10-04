@@ -233,6 +233,18 @@ export interface TuiBackendOptions {
    * 空数组同义 = 面板退场（队列清空即退场条款的供数形）。
    */
   readonly queueFor?: (sessionId: string) => readonly string[] | null | undefined;
+  /**
+   * 持久化史透传（B1——07 §4.1 呈现面件 2 定形注⑦种写双路）：seed = 启动
+   * 种子（host 装配根构造期一次 recentTexts〔启动锚根〕满灌——编辑器内存
+   * 史跨进程存活位）；onRecord = 写路镜像（编辑器真入册位触发、装配闭包
+   * 直写库——ask 应答/退出词/本地命令三叉不达 onSubmit，镜像取编辑器级保
+   * 两集恒等；写失败 best-effort 归闭包）。缺席 = 纯内存旧形零扰动；数据
+   * 面全经装配注入（backend/persist 零触感——28 席 DAG 零新边）。
+   */
+  readonly history?: {
+    readonly seed: readonly string[];
+    readonly onRecord: (text: string) => void;
+  };
   /** 调度注入（启用渲染合并 + fps 帽 + tick 自驱——缺省同步直出测试语义） */
   readonly schedule?: (fn: () => void, ms: number) => unknown;
   /** 取消调度注入（与 schedule 配对——stop 时收在飞帧/tick/ESC 窗） */
@@ -910,6 +922,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       // Editor 自建缺省册与 backend 册两册分叉）；子编辑器（副屏搜索/导出行）
       // 经 viewer options 同册注入
       keymap: this.keymap,
+      // 持久化史透传（B1）：缺席 = undefined 直落编辑器缺省（纯内存旧形）
+      historySeed: options.history?.seed,
+      onHistoryAdd: options.history?.onRecord,
     });
     // 教学提示首画锚（V-3 注⑦②）：构造期空稿闲态即期翻转 footerHint
     //（refreshFooter 先行走 hint-off 基线——editor 就位后此处收敛真态）

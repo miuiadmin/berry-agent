@@ -54,6 +54,13 @@ export type {
   LoadGenerationSnapshot,
   LoadHistoryFace,
 } from './load-history.js';
+// 分项目输入历史（05 §9 input_history——2026-10-05 ZCode TUI 对标批 B1）：
+// 迁移项声明 export-only（宿主装配根 HOST_MIGRATION_TAIL 机械聚合——audit
+// v8 / load-generations v10 同形）；两方法窄面 record/recentTexts 经库句柄
+// 构造，单写者 = 宿主装配根（Editor onHistoryAdd 闭包镜像位——种写双路的
+// 写路；种子路 = recentTexts 启动播种）
+export { INPUT_HISTORY_MIGRATION, INPUT_HISTORY_CAP, createInputHistoryFace } from './input-history.js';
+export type { InputHistoryFace, InputHistoryRecordInput } from './input-history.js';
 // 派生库开库面（批 18b——03 §10.8 obs 自管库文件的执法位：物理卫生三拍
 // 单源复用，schema 主权归调用方）
 export { openAuxDatabase } from './aux.js';

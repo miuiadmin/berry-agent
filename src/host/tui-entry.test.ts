@@ -2205,3 +2205,69 @@ describe('上次会话未收尾提示（07 §4.1 可续提示注 2026-10-05—�
     expect(await third.entry).toBe(0);
   });
 });
+
+describe('持久化分项目输入历史（B1——07 §4.1 呈现面件 2 定形注：种写双路组合根全栈）', () => {
+  it('跨进程存活：首启提交落库（写路镜像 + 溯源列）→ 二启 ↑ 召回首启句（种子路全链）', async () => {
+    const dataDir = rigDir('entry-ih-data-');
+    const ws = rigDir('entry-ih-ws-');
+    // 首启：一句普通消息提交——写路镜像在编辑器入册位（提交通道全体）
+    const first = await rigEntry(dataDir, ws);
+    first.io.send('persisted-input\r');
+    await until(() => first.faux.state.callCount >= 1);
+    await until(() => first.io.output.includes('ok'));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+    // 库面行形：域键 = 启动锚根归一形；session_id 溯源列 = 提交时点聚焦会话；
+    // text = trim 全文（与编辑器内存史同语义）
+    const probe = Persistence.open({
+      dbPath: resolveDatabasePathIn(dataDir),
+      dataDir,
+      migrations: HOST_MIGRATION_TAIL,
+    });
+    const rows = probe.store.connection
+      .prepare('SELECT workspace_root, session_id, text FROM input_history ORDER BY id DESC')
+      .all() as { workspace_root: string; session_id: string | null; text: string }[];
+    await probe.close();
+    expect(rows).toEqual([
+      {
+        workspace_root: canonicalWorkspaceRoot(ws),
+        session_id: expect.any(String),
+        text: 'persisted-input',
+      },
+    ]);
+    // 二启：↑ 召回首启句——种子路全链（库 → recentTexts〔启动锚根〕→
+    // historySeed 满灌 → 内存史 → ↑ 翻阅进框）；composer 前缀区分回读呈现
+    //（transcript 重放行无 › 前缀——编辑器框行恒带）
+    const second = await rigEntry(dataDir, ws);
+    await until(() => second.io.output.includes('persisted-input')); // resume 首画回读锚（启动完成）
+    second.io.send('\x1b[A'); // ↑（空框直入历史回溯）
+    // '› ' 前缀段带 SGR 样式（界面美化役批⑦——stripAnsi 期望帧法，字面匹配
+    // 恒假）
+    await until(() => stripAnsi(second.io.output).includes('› persisted-input')); // 编辑器框内召回（种子路到达）
+    // 召回后框内有文——ctrl+d 两步序（A组 R5 翻档形）：首击清稿、窗内二击退
+    second.io.send('\x04');
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+  });
+
+  it('写失败 best-effort：库面故障（表被外因删除）提交照发不崩、退出码 0（warn 不呈用户面）', async () => {
+    const dataDir = rigDir('entry-ihf-data-');
+    const ws = rigDir('entry-ihf-ws-');
+    const rig = await rigEntry(dataDir, ws);
+    // 运行中 DROP 表（外因库面故障——另一连接写库；probe 形先例同「崩溃残留」
+    // 直铸测试）。镜像 record 语句重编译失败抛错 → 闭包 best-effort 吞
+    const probe = Persistence.open({
+      dbPath: resolveDatabasePathIn(dataDir),
+      dataDir,
+      migrations: HOST_MIGRATION_TAIL,
+    });
+    probe.store.connection.exec('DROP TABLE input_history');
+    await probe.close();
+    // 提交通道不受镜像写失败阻塞（修前若镜像抛错外溢即崩/阻塞）
+    rig.io.send('still-works\r');
+    await until(() => rig.faux.state.callCount >= 1);
+    await until(() => rig.io.output.includes('ok'));
+    rig.io.send('\x04');
+    expect(await rig.entry).toBe(0);
+  });
+});

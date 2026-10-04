@@ -456,6 +456,83 @@ describe('EditorModel 输入历史', () => {
   });
 });
 
+describe('EditorModel 持久化史钩（B1——07 §4.1 呈现面件 2 定形注）', () => {
+  it('addToHistory 返值两形：真入册 true；trim 空 / 连续重复 false', () => {
+    const m = new EditorModel();
+    expect(m.addToHistory('   ')).toBe(false); // trim 空
+    expect(m.addToHistory('first')).toBe(true); // 真入册
+    expect(m.addToHistory('first')).toBe(false); // 连续重复（top-1 全等）
+    expect(m.addToHistory('  second  ')).toBe(true); // trim 后真入册
+    // 入册集恒 trim 形（与持久层 record 同语义）
+    m.navigateHistory(-1);
+    expect(m.getText()).toBe('second');
+  });
+
+  it('seedHistory 新→旧序覆盖式注入：翻阅即按种子序召回', () => {
+    const m = new EditorModel();
+    m.seedHistory(['newest', 'mid', 'oldest']);
+    m.navigateHistory(-1);
+    expect(m.getText()).toBe('newest');
+    m.navigateHistory(-1);
+    expect(m.getText()).toBe('mid');
+    m.navigateHistory(-1);
+    expect(m.getText()).toBe('oldest');
+    m.navigateHistory(-1); // 尽头 no-op
+    expect(m.getText()).toBe('oldest');
+  });
+
+  it('seedHistory 覆盖式：既有内存史整替（非追加）', () => {
+    const m = new EditorModel();
+    m.addToHistory('runtime-only');
+    m.seedHistory(['seed-1']);
+    m.navigateHistory(-1);
+    expect(m.getText()).toBe('seed-1');
+    m.navigateHistory(-1); // 尽头——运行期旧条不残
+    expect(m.getText()).toBe('seed-1');
+  });
+
+  it('种子满 100 后续入册仍正确帽内 pop（帽交互）', () => {
+    const m = new EditorModel();
+    // 种子 100 条（新→旧序：seed-99 为最新 .. seed-0 为最旧）
+    m.seedHistory(Array.from({ length: 100 }, (_, i) => `seed-${99 - i}`));
+    // 运行期再入册两条——帽 100 内最旧两条被 pop
+    m.addToHistory('runtime-a');
+    m.addToHistory('runtime-b');
+    m.navigateHistory(-1);
+    expect(m.getText()).toBe('runtime-b');
+    m.navigateHistory(-1);
+    expect(m.getText()).toBe('runtime-a');
+    m.navigateHistory(-1);
+    expect(m.getText()).toBe('seed-99'); // 种子最新条仍在帽内
+    // 帽边界：seed-99..seed-2 在帽内（98 条），seed-1/seed-0 两条已被运行期
+    // 入册挤出（帽 pop 语义对种子史同适用）
+    for (let i = 0; i < 98; i++) m.navigateHistory(-1);
+    expect(m.getText()).toBe('seed-2');
+    m.navigateHistory(-1); // 越帽 no-op（seed-1 已挤出）
+    expect(m.getText()).toBe('seed-2');
+  });
+
+  it('seedHistory 清浏览态残留：注入后非浏览态', () => {
+    const m = new EditorModel();
+    m.addToHistory('h1');
+    m.navigateHistory(-1);
+    expect(m.isBrowsingHistory()).toBe(true);
+    m.seedHistory(['fresh']);
+    expect(m.isBrowsingHistory()).toBe(false); // 浏览态随覆盖复位
+    m.navigateHistory(-1);
+    expect(m.getText()).toBe('fresh');
+  });
+
+  it('种子入浏览态后回草稿恢复（与运行期史同浏览语义）', () => {
+    const m = modelWith('draft');
+    m.seedHistory(['seeded']);
+    m.navigateHistory(-1);
+    expect(m.getText()).toBe('seeded');
+    m.navigateHistory(1);
+    expect(m.getText()).toBe('draft'); // draft 保底对种子史同适用
+  });
+});
+
 describe('EditorModel 提交与设值', () => {
   it('提交返回 trim 全文并全清', () => {
     const m = modelWith('  hi there  ');

@@ -360,3 +360,68 @@ describe('Editor 候跑提交（挂账解挂批——alt+enter follow-up 排队�
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+describe('Editor 持久化史两键（B1——07 §4.1 呈现面件 2 定形注⑧）', () => {
+  it('onHistoryAdd 镜像触发形：真入册提交先镜像后 onSubmit（trim 形入参）', () => {
+    const order: string[] = [];
+    const editor = new Editor({
+      onSubmit: () => order.push('onSubmit'),
+      onHistoryAdd: (t) => order.push(`onHistoryAdd:${t}`),
+    });
+    editor.handleEvent(text('  hello  '));
+    editor.handleEvent(key('enter'));
+    // 镜像在 onSubmit 先（addToHistory 先于 onSubmit 回调——既有入册序不变）
+    expect(order).toEqual(['onHistoryAdd:hello', 'onSubmit']);
+  });
+
+  it('onHistoryAdd 去重不触发形：连续同文提交第二笔不镜像（onSubmit 照发）', () => {
+    const mirrored: string[] = [];
+    const submitted: string[] = [];
+    const editor = new Editor({
+      onSubmit: (t) => submitted.push(t),
+      onHistoryAdd: (t) => mirrored.push(t),
+    });
+    editor.handleEvent(text('same'));
+    editor.handleEvent(key('enter'));
+    editor.handleEvent(text('same'));
+    editor.handleEvent(key('enter'));
+    // onSubmit 两笔照发（提交通道不因去重短路）；镜像只随真入册一笔
+    expect(submitted).toEqual(['same', 'same']);
+    expect(mirrored).toEqual(['same']);
+  });
+
+  it('historySeed 构造期播种：↑ 召回种子条（跨进程史存活位）', () => {
+    const editor = new Editor({ historySeed: ['prev-1', 'prev-2'] });
+    editor.handleEvent(key('up')); // 空框 ↑ 直入历史回溯
+    expect(editor.getText()).toBe('prev-1');
+    editor.handleEvent(key('up'));
+    expect(editor.getText()).toBe('prev-2');
+  });
+
+  it('两键缺席 = 纯内存旧形零扰动（确定性测试基线不破）', () => {
+    // 缺席形：onSubmit 照发、入册照旧（既有测试全集即本形的行为锁——此处
+    // 锁构造与提交无异常路径）
+    const submitted: string[] = [];
+    const editor = new Editor({ onSubmit: (t) => submitted.push(t) });
+    editor.handleEvent(text('plain'));
+    editor.handleEvent(key('enter'));
+    expect(submitted).toEqual(['plain']);
+    editor.handleEvent(key('up'));
+    expect(editor.getText()).toBe('plain');
+  });
+
+  it('种子 + 运行期入册衔接：种子在场时连续去重以种子 top-1 为判（跨进程首条衔接）', () => {
+    const mirrored: string[] = [];
+    const editor = new Editor({ historySeed: ['seeded-top'], onHistoryAdd: (t) => mirrored.push(t) });
+    // 首提交与种子 top-1 同文 → 连续去重闸下（内存史 top-1 = 种子条）不镜像
+    editor.handleEvent(text('seeded-top'));
+    editor.handleEvent(key('enter'));
+    expect(mirrored).toEqual([]);
+    // 隔笔异文再录同文 → 真入册镜像
+    editor.handleEvent(text('other'));
+    editor.handleEvent(key('enter'));
+    editor.handleEvent(text('seeded-top'));
+    editor.handleEvent(key('enter'));
+    expect(mirrored).toEqual(['other', 'seeded-top']);
+  });
+});

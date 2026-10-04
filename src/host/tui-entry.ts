@@ -401,7 +401,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     process.stderr.write(`${assembly.crashed ? `TUI 运行失败：${assembly.message}` : assembly.message}\n`);
     return assembly.exitCode;
   }
-  const { runtime, stack, scope, logger, boot, reloader, dispatch, jobRows }: AssemblySuccess = assembly;
+  const { runtime, stack, scope, logger, boot, reloader, dispatch, jobRows, inputHistory }: AssemblySuccess = assembly;
 
   // 装配栈回调（注入面——见 TuiEntryOptions.onStack 注）
   options.onStack?.(stack);
@@ -1588,6 +1588,29 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 与注入缺席同义）。busy 判据不在接线层——面板帧首拉取在队快照即真源
       //（steer 顶注件与候跑件同池全量呈现）。
       queueFor: (sessionId) => stack.driverOf(sessionId)?.peekWaiting() ?? null,
+      // 持久化分项目输入历史（B1——07 §4.1 呈现面件 2 定形注③种写双路）：
+      // 域键 = 启动锚工作区根（session.workspaceRoot——resume/--session 续接
+      // 会话根与 openStartupSession 缺省 cwd 归一两路均已 canonical 归一形；
+      // 进程内恒定不随切焦漂移）。种子路 = 构造期一次 recentTexts 满灌（缺省
+      // 帽 100 与编辑器 HISTORY_LIMIT 同值镜像）；写路 = 编辑器入册位镜像直写
+      //（ask 应答/退出词/本地命令三叉不达 onSubmit——镜像取编辑器级保两集
+      // 恒等）；写失败 best-effort：warn 不阻塞提交不呈用户面。
+      history: {
+        seed: inputHistory.recentTexts(session.workspaceRoot),
+        onRecord: (text) => {
+          try {
+            inputHistory.record({
+              workspaceRoot: session.workspaceRoot,
+              sessionId: stack.channels.focusedId ?? session.sessionId,
+              text,
+            });
+          } catch (err) {
+            // best-effort 写失败（库锁死/磁盘满等）：不阻塞提交、不呈用户面
+            //（输入史是读模型物化——丢失可容忍，warn 留诊断面）
+            logger.warn(`输入历史写入失败：${err instanceof Error ? err.message : String(err)}`);
+          }
+        },
+      },
       autocomplete: {
         // 通道核命令表 + TUI 本地命令族 + TUI 本地退出词三源并流（07 §4.1
         // 2026-09-15 /exit 批定形注 + 命令面增补批扩编——本地族与退出词均不
