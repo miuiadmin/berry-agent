@@ -21,7 +21,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
+import type { AgentMessage, ApprovalAskRequest, ApprovalDecideAnswer } from '../contracts/index.js';
 import type { NotifyLevel, SessionEnvelope, TodoItem, UiBackend } from '../channels/index.js';
 
 /* ---------------- 常量（缺省值单源——03 §10.4 各条款钉死值） ---------------- */
@@ -329,9 +329,10 @@ export interface WebuiMountHandle {
 
 /* ---------------- 审批桥载荷（decide 应答回执与 ask 注入面共形） ---------------- */
 
-/** decide 端点应答体（typebox 闭集校验——ApprovalAskAnswer 四值） */
+/** decide 端点应答体（typebox 闭集校验——ApprovalDecideAnswer 四值；'unavailable'
+ * 属 answerer 产出面自报值非 decide 可传应答，类型面与运行时 schema 同拒——第十一轮深扫 L6-2） */
 export interface WebuiDecideBody {
-  readonly answer: ApprovalAskAnswer;
+  readonly answer: ApprovalDecideAnswer;
   readonly note?: string;
 }
 

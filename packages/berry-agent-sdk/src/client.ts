@@ -6,7 +6,7 @@
  * 全部走线协议词面（verb 判别 + 缺省填充——messageId 计数器形/since -1 哨兵），
  * 零第二套载荷形。
  */
-import type { ApprovalAskAnswer } from '../../../src/contracts/approval.js';
+import type { ApprovalDecideAnswer } from '../../../src/contracts/approval.js';
 import type { SdkErrorFrame, SdkWireFrame } from '../../../src/channels/sdk/protocol.js';
 
 import { SdkError } from './types.js';
@@ -81,7 +81,9 @@ export function createSdkClient(transport: SdkTransport): SdkClient {
     // 2xx + 线面错误体）到达，传输还原投形 SdkError 抛出（结构化码原码透传）
     interrupt: (sessionId: string) => transport.send({ verb: 'interrupt', sessionId }),
 
-    decide: async (approvalId: string, answer: ApprovalAskAnswer, note?: string) => {
+    // answer 四值闭集（ApprovalDecideAnswer——第十一轮深扫 L6-2 与 SdkDecideRequest.answer
+    // 单源同形；'unavailable' 编译期即拒，运行时线 schema 四值校验同拒）
+    decide: async (approvalId: string, answer: ApprovalDecideAnswer, note?: string) => {
       const frame = await transport.request({
         verb: 'decide',
         approvalId,

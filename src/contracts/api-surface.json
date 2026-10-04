@@ -93,6 +93,15 @@
       "sig": "e894ee1d2ec6808b"
     },
     {
+      "symbol": "ApprovalDecideAnswer",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "decide 消费面应答闭集（ApprovalAskAnswer 减 'unavailable'——第十一轮深扫 L6-2 定谳）：'unavailable' 只属于 answerer 产出面（全部后端无 approval capability 的结构性自报值——ApprovalService 侧落 outcome 用，见上注），不是 decide 调用方可传的应答",
+      "kind": "type",
+      "sig": "1ab121d91cba4e65"
+    },
+    {
       "symbol": "AssistantMessage",
       "module": "berry-agent",
       "tier": "stable",

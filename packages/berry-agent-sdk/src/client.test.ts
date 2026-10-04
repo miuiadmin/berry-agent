@@ -154,6 +154,20 @@ describe('createSdkClient 方法面', () => {
     expect(fake.requests[1]).toEqual({ verb: 'decide', approvalId: 'a-1', answer: 'reject', note: '不需要' });
   });
 
+  it('decide 应答值域锚（L6-2）：unavailable 编译期即拒——与运行时四值闭集校验同值域', async () => {
+    // 修前：decide 签名仍绑五值 ApprovalAskAnswer——该行无类型错误可抑制，tsc
+    // 报「Unused '@ts-expect-error' directive」红（红锚）；修后：收窄为
+    // ApprovalDecideAnswer 四值闭集，真实实参错误被本指令抑制——绿。运行时
+    // fake 传输照常应答（本锁是编译期值域锁，线形原样透传不作值断言）。
+    const fake = fakeTransport();
+    fake.setResponder(() => ({ kind: 'decide-result', approvalId: 'a-1', outcome: 'applied' }));
+    const client = createSdkClient(fake.transport);
+    // @ts-expect-error L6-2 红锚：'unavailable' 是 answerer 产出面结构性自报值，非 decide 可传应答
+    const outcome = await client.decide('a-1', 'unavailable');
+    expect(outcome).toBe('applied');
+    expect(fake.requests[0]?.verb).toBe('decide');
+  });
+
   it('subscribe/close：传输档透传', async () => {
     const fake = fakeTransport();
     const client = createSdkClient(fake.transport);

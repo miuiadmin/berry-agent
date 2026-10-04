@@ -11,7 +11,7 @@
  * HTTP = GET /v1/events SSE——重放帧与直播帧一律入 onFrame；订阅在
  * replay-end 落定后 resolve（衔接界标即建立点）〕。
  */
-import type { ApprovalAskAnswer } from '../../../src/contracts/approval.js';
+import type { ApprovalDecideAnswer } from '../../../src/contracts/approval.js';
 import type {
   SdkAckFrame,
   SdkEntriesFrame,
@@ -24,8 +24,10 @@ import type {
 
 /** 线事件词面（04 §2 开放词汇表——live 帧载荷单源 re-export，随主包增型自随、不在此计数） */
 export type { AgentEvent } from '../../../src/agent/events.js';
-/** 审批应答四值闭集（decide 动词入参） */
+/** 审批应答五值闭集（answerer 产出面——askApproval 应答与 fail-closed 注入位） */
 export type { ApprovalAskAnswer } from '../../../src/contracts/approval.js';
+/** decide 可传应答四值闭集（ApprovalAskAnswer 减 'unavailable'——第十一轮深扫 L6-2 与主包单源同形） */
+export type { ApprovalDecideAnswer } from '../../../src/contracts/approval.js';
 /** 线协议请求族（六动词——手工构造进阶位；常规用法走 client 方法面） */
 export type { SdkRequest } from '../../../src/channels/sdk/protocol.js';
 /** 线帧全族（kind 判别联合——onFrame 消费面 pattern-match 用） */
@@ -156,8 +158,8 @@ export interface SdkClient {
   sessions(): Promise<SdkSessionsResult>;
   /** 打断在飞 run（无应答档——写后即决；missing 会话错误：stdio 形走订阅帧面〔吸收位路由〕、HTTP 形随 POST 应答投形 SdkError 抛出） */
   interrupt(sessionId: string): Promise<void>;
-  /** 审批应答（跨入口竞速回执——applied / superseded） */
-  decide(approvalId: string, answer: ApprovalAskAnswer, note?: string): Promise<'applied' | 'superseded'>;
+  /** 审批应答（跨入口竞速回执——applied / superseded；answer 四值闭集 = ApprovalDecideAnswer，'unavailable' 是 answerer 产出面自报值编译期即拒〔第十一轮深扫 L6-2〕） */
+  decide(approvalId: string, answer: ApprovalDecideAnswer, note?: string): Promise<'applied' | 'superseded'>;
   /** 直播订阅（= hello 动词承载位——重放→衔接→直播；帧全量入 onFrame）；多会话并发订阅两传输同支（stdio 形按 sessionId 路由——与 HTTP 形对齐） */
   subscribe(params: SdkLiveParams, onFrame: SdkFrameListener): Promise<SdkLiveHandle>;
   /** 整连接收口（幂等） */

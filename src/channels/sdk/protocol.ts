@@ -13,7 +13,7 @@
  * 判别（NDJSON 行一级判别，编解码见 ./jsonl.ts）。
  */
 import type { AgentEvent } from '../../agent/index.js';
-import type { ApprovalAskAnswer, RetryProbe } from '../../contracts/index.js';
+import type { ApprovalDecideAnswer, RetryProbe } from '../../contracts/index.js';
 
 /** 线协议版本（③/⑤ 版本握手第一天就有：连接即 hello 双方携 protocolVersion 比对） */
 export const SDK_PROTOCOL_VERSION = 1;
@@ -319,14 +319,16 @@ export interface SdkInterruptRequest {
 /**
  * decide 请求（审批应答——汇入 10.4 跨入口审批同一 pending Promise 竞速：先
  * settle 者胜、后到 superseded 幂等回执）。answer 值域 = contracts
- * ApprovalAskAnswer 四值闭集（approve/reject/cancel/always——与 TUI/web 入口
- * 同一 settle 值域，跨入口竞速语义才闭合）；approvalId 与 ask 外推事件载荷
- * 同词同源（contracts ApprovalAskRequest.approvalId）。
+ * ApprovalDecideAnswer 四值闭集（approve/reject/cancel/always——与 TUI/web
+ * 入口同一 settle 值域，跨入口竞速语义才闭合；'unavailable' 是 answerer
+ * 产出面结构性自报值，decide 消费面类型与运行时 schema 同拒——第十一轮深扫
+ * L6-2 类型收窄对齐）；approvalId 与 ask 外推事件载荷同词同源（contracts
+ * ApprovalAskRequest.approvalId）。
  */
 export interface SdkDecideRequest {
   verb: 'decide';
   approvalId: string;
-  answer: ApprovalAskAnswer;
+  answer: ApprovalDecideAnswer;
   /** 应答附注（进审批审计面，可选） */
   note?: string;
 }

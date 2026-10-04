@@ -13,6 +13,7 @@ import {
   SDK_PROTOCOL_VERSION,
   SDK_REQUEST_VERBS,
   type SdkAskFrame,
+  type SdkDecideRequest,
   type SdkEventFrame,
 } from './protocol.js';
 import { decodeWireLine, encodeWireLine } from './jsonl.js';
@@ -160,5 +161,22 @@ describe('线协议帧样金样（D3——16 行 NDJSON：十帧 kind + 六请�
     const verbs = decoded.map((f) => f.verb).filter((v) => v !== undefined);
     expect([...new Set(kinds)].sort()).toEqual([...SDK_FRAME_KINDS].sort());
     expect([...new Set(verbs)].sort()).toEqual([...SDK_REQUEST_VERBS].sort());
+  });
+});
+
+describe('decide 应答值域（L6-2——类型面与运行时四值闭集校验同值域）', () => {
+  it('SdkDecideRequest.answer 编译期拒 unavailable（@ts-expect-error 红锚形）', () => {
+    // 修前：answer 仍绑五值 ApprovalAskAnswer——该行无类型错误可抑制，tsc 报
+    // 「Unused '@ts-expect-error' directive」红（红锚）；修后：收窄为
+    // ApprovalDecideAnswer 四值闭集，真实赋值错误被本指令抑制——绿。
+    // 运行时该对象字面量合法（本锁是编译期值域锁，非运行时行为断言）。
+    const req: SdkDecideRequest = {
+      verb: 'decide',
+      approvalId: 'approval-1',
+      // @ts-expect-error L6-2 红锚：'unavailable' 是 answerer 产出面结构性自报值，非 decide 可传应答
+      answer: 'unavailable',
+    };
+    expect(req.verb).toBe('decide');
+    expect(req.approvalId).toBe('approval-1');
   });
 });

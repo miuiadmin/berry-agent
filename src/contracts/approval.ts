@@ -20,6 +20,19 @@
 export type ApprovalAskAnswer = 'approve' | 'reject' | 'cancel' | 'always' | 'unavailable';
 
 /**
+ * decide 消费面应答闭集（ApprovalAskAnswer 减 'unavailable'——第十一轮深扫
+ * L6-2 定谳）：'unavailable' 只属于 answerer 产出面（全部后端无 approval
+ * capability 的结构性自报值——ApprovalService 侧落 outcome 用，见上注），
+ * 不是 decide 调用方可传的应答。运行时校验位（stdio 逐动词 schema / webui
+ * DecideSchema / sdk jsonl 结构快校）早已四值闭集拒收该值，本类型把同一
+ * 值域前移到编译期——decide 三消费位（SdkDecideRequest.answer /
+ * WebuiDecideBody.answer / SdkClient.decide 签名）统一绑本形，传
+ * 'unavailable' 编译即拒；ApprovalAskAnswer 五值形保留给 answerer 产出面
+ * （queue/ask 载荷与 fail-closed 注入位）不动。
+ */
+export type ApprovalDecideAnswer = Exclude<ApprovalAskAnswer, 'unavailable'>;
+
+/**
  * 审批 ask 呈现载荷（07 §4.3——通道侧形）：channels 与 safety 边表互无边
  * （02 §4.1），safety 侧 ApprovalRequest 经装配根映射注入本形；`suggestedEntry`
  * = 「始终允许」草案条目（04 §9 ③ 策略表 allow 条目回写目标；无草案 = always 选项
