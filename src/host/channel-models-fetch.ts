@@ -87,14 +87,26 @@ export async function fetchChannelModels(
   const url = channelModelsEndpoint(req.baseUrl, req.protocol);
   try {
     // 外层 race 同帽（R-2——DNS 腿帽覆盖；fetch 管线内 signal 仍在=双保险）
-    const response = await Promise.race([
-      guardedFetch(url, {
-        method: 'GET',
-        headers: channelModelsHeaders(req),
-        signal: AbortSignal.timeout(timeoutMs),
-      }),
-      rejectAfter(timeoutMs, `${Math.round(timeoutMs / 100) / 10} 秒未返回（超时）——网关慢或地址错，可重试或手填`),
-    ]);
+    const timeoutLeg = rejectAfter(
+      timeoutMs,
+      `${Math.round(timeoutMs / 100) / 10} 秒未返回（超时）——网关慢或地址错，可重试或手填`,
+    );
+    let response: Response;
+    try {
+      response = await Promise.race([
+        guardedFetch(url, {
+          method: 'GET',
+          headers: channelModelsHeaders(req),
+          signal: AbortSignal.timeout(timeoutMs),
+        }),
+        timeoutLeg.promise,
+      ]);
+    } finally {
+      // race 落定即清钟（第十一轮深扫 L2-2）：fetch 先胜/先拒都清——超时腿
+      // 句柄原先不外露，fetch 快胜后 8s 帽死钟仍武装至帽尽才对已死 promise
+      // reject；超时腿自胜时本 clearTimeout 对已发钟为 no-op（清账零副作用）
+      timeoutLeg.cancel();
+    }
     if (response.status >= 300 && response.status < 400) {
       // redirect:'manual' 钉死（守卫透传层）——3xx 即此分支；网关把 /models
       // 重定向到登录页/另域是中转站常见形态，提示用户填直连地址
@@ -141,9 +153,19 @@ export async function fetchChannelModels(
   }
 }
 
-/** 帽后拒（外层 race 腿——超时人话句单源，race 输与 catch 折共用形） */
-function rejectAfter(ms: number, message: string): Promise<never> {
-  return new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms));
+/**
+ * 帽后拒腿（外层 race 腿——超时人话句单源，race 输与 catch 折共用形）。
+ * 可清形（第十一轮深扫 L2-2）：返回 {promise, cancel}——race 落定后调用方
+ * cancel 清钟，不留武装至帽尽才对已死 promise reject 的死钟。同族参照：
+ * plugin-install / plugin-market 两处 withTimeoutMs 单源形（promise 落定即
+ * clearTimeout——本件最小修不跨文件收敛，形互指即可）。
+ */
+function rejectAfter(ms: number, message: string): { promise: Promise<never>; cancel: () => void } {
+  let timer: NodeJS.Timeout | undefined;
+  const promise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return { promise, cancel: () => clearTimeout(timer) };
 }
 
 /** 流式读帽（R-2——分块累计越帽即 cancel 返回 undefined；正常读完解码文本） */

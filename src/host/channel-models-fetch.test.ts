@@ -7,7 +7,7 @@
  * 零网络（桩 fetch + 守卫真跑 DNS 位用字面私网段——assertPublicHost 字面
  * 拒先于 DNS 解析）。
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { channelModelsEndpoint, fetchChannelModels } from './channel-models-fetch.js';
 import type { DnsResolver, FetchLike } from '../web/index.js';
@@ -215,4 +215,25 @@ describe('R-2 加固批（体帽流式前置 + 外层 race 覆盖 DNS 腿 + 守�
     );
     expect(result).toMatchObject({ kind: 'failed', message: expect.stringContaining('未返回') });
   });
+});
+
+describe('超时钟清账（第十一轮深扫 L2-2——race 落定即清钟）', () => {
+  it('fetch 先胜：race 落定后零 pending 定时器——修前红：rejectAfter 死钟仍武装至 8s 帽尽才对已死 promise reject', async () => {
+    // 假钟只假 setTimeout/clearTimeout（AbortSignal.timeout 为原生面不受假）——
+    // vi.getTimerCount 唯一计入位即 rejectAfter 的死钟（清账与否的直接观测）
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { fetchImpl } = stubFetch(); // 立即 200 应答——fetch 腿先胜（正常路径）
+    const result = await fetchChannelModels(
+      { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
+      { fetchImpl, resolveDns: publicDns, timeoutMs: 8_000 },
+    );
+    expect(result.kind).toBe('ok'); // 回执面不受清账影响（行为守恒）
+    expect(vi.getTimerCount()).toBe(0); // 死钟清账——修前为 1（超时腿句柄不外露无 clearTimeout）
+    vi.useRealTimers();
+  });
+});
+
+/* 计时器卫生兜底（假钟用例内联复位，此处防断言先抛漏网——真钟复位无副作用） */
+afterEach(() => {
+  vi.useRealTimers();
 });
