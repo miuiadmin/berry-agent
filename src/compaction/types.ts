@@ -7,7 +7,7 @@
  *    本模块零 llm import——拓扑边仅 contracts + session 的关键）；
  *  - CompactionConfig：阈值/区间/冷却/摘要参数全量（05 §2.1 摘要参数段定值）；
  *  - SegmentPlan：区间规划产物（policy.planSegment 输出——五步骨架的区间输入）；
- *  - CompactionService：服务面三入口（阈值触发 / 溢出应急 / 排空收口）。
+ *  - CompactionService：服务面四入口（阈值触发 / 溢出应急 / 手动压缩 / 排空收口）。
  */
 import type { ProjectedMessage, SessionLog } from '../session/index.js';
 
@@ -159,6 +159,47 @@ export interface SegmentPlan {
 /** 溢出兜底出口三值（05 §2.3——门三道归驱动执法，服务面只如实报结果） */
 export type OverflowOutcome = 'compacted' | 'nothing' | 'failed';
 
+/**
+ * 手动压缩出口五值（05 §2.2 第 6 条——五值 ManualOutcome）：立即形三值
+ * 'compacted'|'nothing'|'failed'（OverflowOutcome 同形）+ 排队形 'queued'
+ * （busy 期入手动排队位、run 终态排干自动执行）+ 防重入形 'pending'（撞
+ * 在飞压缩位或手动排队位已占——服务侧入口原子检查即拒）。07 词条回执五档
+ * 与本闭集一一映射（成功/薄会话/失败/排队/防重入）。
+ */
+export type ManualOutcome = 'compacted' | 'nothing' | 'failed' | 'queued' | 'pending';
+
+/**
+ * compactNow 入参（05 §2.2 第 6/7 条）：instructions = 摘要指引参（用户
+ * 拍板——承 ZCode `/compact <instructions>`；透传至摘要 prompt「补充指引：」
+ * 块，不入 compaction/start 载荷）；busy = 目标会话 run 在飞位（**命令
+ * handler 层执法后随参传入**——服务层无驱动边，DAG 不为 busy 判断新边；
+ * true = 排队形入手动排队位、false/缺席 = 立即形入全局串行链执行）。
+ */
+export interface ManualCompactOptions {
+  /** 摘要指引（/compact 尾参全文 join 复原；空串/缺席 = 无指引） */
+  readonly instructions?: string;
+  /** busy 位（handler 层读驱动 running 位判定后传入；缺省 false） */
+  readonly busy?: boolean;
+}
+
+/**
+ * 排队兑现告知载荷（05 §2.2 第 2 条——排干执行完成回执的事件载荷形）：本域
+ * 只造载荷，通道 notify 消费由 host 装配接线（TUI 命令面）。outcome 三值 =
+ * 立即形三值（排队兑现不可能是 'queued'/'pending' 入口档）；数字两件与
+ * compaction/end 载荷同笔（回执数字源 = end 载荷同笔——执行体内同一 plan
+ * 对象同刻携带，'nothing'/'failed' 档缺席）。
+ */
+export interface ManualQueuedSettledEvent {
+  /** 兑现的会话（多会话并存下的信封位） */
+  readonly sessionId: string;
+  /** 兑现结果（成功 / 薄会话 / 失败） */
+  readonly outcome: 'compacted' | 'nothing' | 'failed';
+  /** 已压缩消息条数（end 载荷同笔——outcome='compacted' 在场） */
+  readonly occludedMessages?: number;
+  /** 已压缩字符量（end 载荷同笔——outcome='compacted' 在场） */
+  readonly occludedChars?: number;
+}
+
 /** run 结算计量事实（handleRunSettled 入参——主 loop 的真 token 笔） */
 export interface RunUsageFact {
   /** 本轮请求的 input token 真值（provider 报数） */
@@ -189,6 +230,16 @@ export interface CompactionService {
    * nothing=区间不足无可压 / failed=摘要通道失败（已落 end-failed 闭段）。
    */
   compactForOverflow(log: SessionLog): Promise<OverflowOutcome>;
+  /**
+   * 手动压缩面（05 §2.2 第四入口——TUI /compact 服务侧单漏斗）：立即形
+   * （busy 缺省/false）入全局串行链执行返三值；排队形（busy=true）入手动
+   * 排队位返 'queued'（run 终态排干自动执行——兑现告知经 onManualQueuedSettled
+   * 载荷）；防重入形返 'pending'（撞在飞压缩位或手动排队位已占——入口原子
+   * 检查即拒，无 handler 前置读面需求）。恒宿主缺省算法（不派发接管缝、
+   * 不走 provider 槽）；不判阈、不等冷却（用户显式动作无机裁量面）；薄会话
+   * （planSegment 无合法段）诚实 'nothing'。
+   */
+  compactNow(log: SessionLog, options?: ManualCompactOptions): Promise<ManualOutcome>;
   /** 排空收口面：等此刻前已入队/在飞的一切压缩完成（快照语义；进程收口用） */
   drain(): Promise<void>;
 }

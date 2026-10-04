@@ -1,26 +1,33 @@
 /**
- * compaction 服务面（05 §2.1 五步骨架 + §2.3 溢出兜底——编排层）。
+ * compaction 服务面（05 §2.1 五步骨架 + §2.3 溢出兜底 + §2.2 手动压缩——
+ * 编排层）。
  *
- * 三入口（types.CompactionService）：handleRunSettled（阈值路 fire-and-forget）、
- * compactForOverflow（溢出应急可等待）、drain（排空收口）。
+ * 四入口（types.CompactionService）：handleRunSettled（阈值路 fire-and-forget；
+ * 亦是手动排队位的排干点——settle 先排干手动位再进阈值判定，05 §2.2 第 2 条）、
+ * compactForOverflow（溢出应急可等待）、compactNow（手动压缩——五值
+ * ManualOutcome）、drain（排空收口）。
  *
  * 并发模型（05 §2.1「多会话分账」）：后台压缩任务并发上限 = 1——全局串行链
- * ⊇ per-session 互斥；溢出路入同一链（「先排空已排队压缩再执行」由 FIFO 天然
- * 达成）。per-session 防抖状态（冷却锚/进行中标志）内存态、重启清零——丢一次
- * 压缩无正确性损失（下轮触发补上）；空闲态逐出帽 256（04 篇 Job 注册表同款
- * 帽值纪律——防长开进程无界累积）。
+ * ⊇ per-session 互斥；溢出路与手动路入同一链（「先排空已排队压缩再执行」由
+ * FIFO 天然达成）。per-session 防抖状态（冷却锚/进行中标志/手动排队位）内存态、
+ * 重启清零——丢一次压缩无正确性损失（下轮触发补上）；空闲态逐出帽 256（04 篇
+ * Job 注册表同款帽值纪律——防长开进程无界累积）。
  *
- * U4 槽位化（2026-09-09 落码）：三 seam 晚绑定——getConfig（配置槽·两路同
- * 生效）、getProvider（摘要 provider 槽·只作用阈值路）、onBeforeCompact
- * （接管缝·阈值路排队体内区间规划后派发——本模块零 context 边，host 装配把
- * dispatch.waterfall 接进来）。算法执行段 60s 预算、回落三律、三振熔断
- * （pluginId 合并计数、任一路成功复位）皆本件执法。
+ * U4 槽位化（2026-09-09 落码）：三 seam 晚绑定——getConfig（配置槽·阈值/溢出/
+ * 手动三路数值同生效）、getProvider（摘要 provider 槽·只作用阈值路）、
+ * onBeforeCompact（接管缝·阈值路排队体内区间规划后派发——本模块零 context
+ * 边，host 装配把 dispatch.waterfall 接进来）。算法执行段 60s 预算、回落三律、
+ * 三振熔断（pluginId 合并计数、任一路成功复位）皆本件执法。手动路（05 §2.2）
+ * 恒宿主缺省算法——两 seam 射程维持「只作用阈值路」不扩。
  */
 import type { ProjectedMessage, SessionLog } from '../session/index.js';
 import type {
   BeforeCompactResult,
   CompactionConfig,
   CompactionService,
+  ManualCompactOptions,
+  ManualOutcome,
+  ManualQueuedSettledEvent,
   OverflowOutcome,
   RunUsageFact,
   SegmentPlan,
@@ -49,6 +56,12 @@ interface SessionCompactionState {
   lastCompactAt: number | null;
   /** 进行中/已排队标志（防重入——触发层检查，排队体 finally 清） */
   pending: boolean;
+  /**
+   * 手动排队位（05 §2.2 第 2 条——busy 期 /compact 排队账 + instructions
+   * 暂存〔指引不因排队丢失——排干时透传〕；null = 无排队。单席位：已占时
+   * 后续手动命令入口即拒 'pending'；消费位 = handleRunSettled 排干路径）。
+   */
+  manualQueued: { instructions?: string } | null;
 }
 
 /** 空闲态逐出帽（在飞/排队态不逐——只逐空闲） */
@@ -100,6 +113,13 @@ export interface CompactionServiceOptions {
    * 覆写与 lastAdjustedBy 逐跳记录在装配层包装）——本模块零 context 边。
    */
   readonly onBeforeCompact?: (input: SessionBeforeCompactInput) => Promise<BeforeCompactResult>;
+  /**
+   * 排队兑现告知 seam（05 §2.2 第 2 条——排干执行完成回执的事件载荷）：
+   * 本域只造载荷（ManualQueuedSettledEvent——成功/薄会话/失败三档 + end 载荷
+   * 同笔数字），通道 notify 消费由 host 装配接线（TUI 命令面）。回调异常
+   * 隔离（warn 可观测不反噬排干路径——emit 族同律）。缺省无消费者。
+   */
+  readonly onManualQueuedSettled?: (event: ManualQueuedSettledEvent) => void;
   /** 算法执行段预算毫秒（U4 两帽分立之算法段——缺省 60s；provider 槽同帽） */
   readonly algoTimeoutMs?: number;
   /** 时钟注入（缺省 Date.now——测试假钟面） */
@@ -155,6 +175,7 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
   const getConfig = options.getConfig ?? (() => defaultConfig);
   const getProvider = options.getProvider;
   const onBeforeCompact = options.onBeforeCompact;
+  const onManualQueuedSettled = options.onManualQueuedSettled;
   const algoTimeoutMs = options.algoTimeoutMs ?? 60_000;
   const now = options.now ?? Date.now;
   const warn = options.warn ?? ((message: string) => process.stderr.write(`${message}\n`));
@@ -187,15 +208,15 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
   function stateOf(sessionId: string): SessionCompactionState {
     let state = states.get(sessionId);
     if (state === undefined) {
-      // 帽前逐出：只逐空闲态（在飞/排队的删了会破防重入账）；全在飞时暂超帽
-      // 可接受——帽执法不破在飞正确性
+      // 帽前逐出：只逐空闲态（在飞/手动排队中的删了会破防重入与排队兑现账）；
+      // 全在飞时暂超帽可接受——帽执法不破在飞正确性
       if (states.size >= IDLE_STATES_CAP) {
         for (const [key, value] of states) {
           if (states.size < IDLE_STATES_CAP) break;
-          if (!value.pending) states.delete(key);
+          if (!value.pending && value.manualQueued === null) states.delete(key);
         }
       }
-      state = { lastCompactAt: null, pending: false };
+      state = { lastCompactAt: null, pending: false, manualQueued: null };
       states.set(sessionId, state);
     }
     return state;
@@ -219,12 +240,13 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
 
   /**
    * 宿主通道执行（直选路与回落位共用）：五段结构 prompt + 迭代链前次摘要 +
-   * 字符制预算。素材超预算先降级再进 prompt（行为纪律三条之③——宿主缺省
-   * 算法内政；降级档位走 warn 可观测面不立 durable 位，触发低频审计价值低）。
+   * 字符制预算 + 补充指引块（05 §2.2 第 7 条——手动路 instructions 透传位，
+   * 自动两路恒缺席）。素材超预算先降级再进 prompt（行为纪律三条之③——宿主
+   * 缺省算法内政；降级档位走 warn 可观测面不立 durable 位，触发低频审计价值低）。
    * 产物两查：空文本、显著超预算（超 maxChars 两倍——行为纪律三条之②防
    * 「遮五千换一万二」负收益压缩）皆按通道失败收口。
    */
-  async function runHost(log: SessionLog, plan: SegmentPlan): Promise<string> {
+  async function runHost(log: SessionLog, plan: SegmentPlan, instructions?: string): Promise<string> {
     const maxChars = summaryBudgetFor(plan.occludedChars, getConfig());
     const material = prepareTranscript(plan.occluded, getConfig().materialBudgetChars);
     if (material.stage !== 'full') {
@@ -237,6 +259,9 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
         occluded: material.messages,
         previousSummary: previousSummaryText(log.events()),
         maxChars,
+        // 补充指引（手动路 /compact 尾参——指引作用于摘要生成非区间规划；
+        // 空白视为缺席，自动两路恒 undefined）
+        ...(instructions !== undefined && instructions.trim().length > 0 ? { instructions } : {}),
       }),
       maxChars,
       // 归因穿线（04 §5 单发计量批 mq）：压缩会话 id 供通道真身落 llm/usage——
@@ -274,15 +299,17 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
    * 算法执行（U4）：host 直选失败原样上抛；插件路三段执法——60s 预算 → 失败
    * fallback 记账 + 三振推进 → 回落直达宿主（不串联试下一层）。回落成功记
    * summarizer='host'（谁失败由 fallback 词承载——05 §1.1 词表）；回落失败
-   * 上抛（失败终局恒宿主通道失败）。
+   * 上抛（失败终局恒宿主通道失败）。instructions 只进宿主通道（手动路恒
+   * host 直选——插件分支仅在阈值路，无指引形）。
    */
   async function runAlgo(
     log: SessionLog,
     plan: SegmentPlan,
     algo: Algo,
+    instructions?: string,
   ): Promise<{ text: string; summarizer: string }> {
     if (algo.kind === 'host') {
-      return { text: await runHost(log, plan), summarizer: 'host' };
+      return { text: await runHost(log, plan, instructions), summarizer: 'host' };
     }
     try {
       const maxChars = summaryBudgetFor(plan.occludedChars, getConfig());
@@ -323,26 +350,31 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
   }
 
   /**
-   * 五步骨架（05 §2.1）：算法解析先行 → start（携 summarizer 归因终局值）→
-   * 摘要普通 append → compaction/surface 经正门携信封 → end。失败即 end-failed
-   * 闭段（防孤 start 悬挂）后原样上抛——上层按路收口（阈值路 warn、溢出路
-   * 'failed'）。start 后置于算法解析：归因位随执行终局定形（插件路成功记
-   * plugin:<id>、回落后记 'host'；失败闭段归因恒 'host'——一切失败终局都是
-   * 宿主通道失败，插件失败已由 fallback 词承载）。
+   * 五步骨架（05 §2.1；手动路 05 §2.2 复用同一漏斗）：算法解析先行 → start
+   * （携 summarizer 归因终局值）→ 摘要普通 append → compaction/surface 经正门
+   * 携信封 → end。失败即 end-failed 闭段（防孤 start 悬挂）后原样上抛——上层
+   * 按路收口（阈值路 warn、溢出路/手动路 'failed'）。start 后置于算法解析：
+   * 归因位随执行终局定形（插件路成功记 plugin:<id>、回落后记 'host'；失败
+   * 闭段归因恒 'host'——一切失败终局都是宿主通道失败，插件失败已由 fallback
+   * 词承载）。manual 路（05 §2.2 第 1 条）：willRetry 恒 false（现式
+   * reason==='threshold' 自然覆盖——一次性，重试归用户再发命令）、basis 恒
+   * 缺席（不判阈即无判据快照——undefined 展开零键）、algo 恒宿主直选（调用
+   * 方不传——两 seam「只作用阈值路」射程维持）。
    */
   async function fiveStep(
     log: SessionLog,
-    reason: 'threshold' | 'overflow',
+    reason: 'threshold' | 'overflow' | 'manual',
     plan: SegmentPlan,
     basis?: ThresholdBasis,
     algo: Algo = { kind: 'host' },
+    instructions?: string,
   ): Promise<void> {
     // 步 2 前置（算法解析——U4）：willRetry 语义不变（阈值路失败后下轮触发自然
-    // 重做，溢出路一次性）
+    // 重做，溢出路/手动路一次性）
     let text: string;
     let summarizer: string;
     try {
-      ({ text, summarizer } = await runAlgo(log, plan, algo));
+      ({ text, summarizer } = await runAlgo(log, plan, algo, instructions));
     } catch (err) {
       // 失败即时闭段（防孤 start 悬挂——§4 恢复协议按未完成压缩重做）
       log.append('compaction/start', {
@@ -454,115 +486,204 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
     return { algo, plan };
   }
 
-  return {
-    handleRunSettled(input: { log: SessionLog; usage?: RunUsageFact }): void {
-      // —— obs-b 判序定形（05 §2.1）：阈值评估先行（纯函数零副作用）——
-      //    below 不落任何账（判据素材可后算，不为 below 防 durable 膨胀落
-      //    skip）；fire 而被门挡才落 compaction/skip（五门词 05 §1.1）。
-      // 判阈双源：真 token 主判（usage.input）、投影字符兜底（chars/4）
-      const cfg = getConfig();
-      const verdict = evaluateThreshold({
-        usageInput: input.usage?.input ?? null,
-        contextWindow: input.usage?.contextWindow,
-        projectedChars: input.log.projectedChars(),
-        config: cfg,
-      });
-      if (verdict === null || !verdict.fire) return;
-      // basis 五件（RP4 扩值）：fire 判据快照——触发时刻判据素材（与 start
-      // 同律；cache 两桶从主 loop 真值笔同笔透传，estimate 兜底路恒缺省不落）
-      const basis: ThresholdBasis = {
-        basis: verdict.basis,
-        estTokens: verdict.estTokens,
-        effectiveWindow: verdict.effectiveWindow,
-        ...(input.usage?.cacheRead !== undefined ? { cacheRead: input.usage.cacheRead } : {}),
-        ...(input.usage?.cacheWrite !== undefined ? { cacheWrite: input.usage.cacheWrite } : {}),
-      };
-      // 门① no-channel（装配级永久门最先呈报最诊断）：通道缺席——首触落
-      // 一条 skip 后静默（与 warn-once 同锚——缺配是装配错误不是运行抖动）
-      if (channel === undefined) {
-        if (!warnedNoChannel) {
-          warnedNoChannel = true;
-          warn('[COMPACTION_NO_CHANNEL] 摘要通道缺席——阈值压缩停用（溢出面将报 failed）');
-          appendSkip(input.log, 'no-channel', basis);
+  /**
+   * 手动压缩执行内核（05 §2.2——立即形与排干兑现形共用）：planSegment 单源
+   * 区间规划（配置槽数值参数三路同生效）→ 无合法段诚实 'nothing'（薄会话
+   * ——head+tail 全兜压无可压，非错误；手动路零 skip 词，用户当面知情回执即
+   * 回音）→ fiveStep 恒宿主算法（reason='manual'：不判阈无 basis、willRetry
+   * 恒 false、summarizer 恒 'host'）。成功推进冷却锚（防紧随阈值触发对刚压
+   * 区间重复开工）；'nothing'/'failed' 不动锚（skip 非 completed 同判）。
+   * 返回兑现结果（数字两件与 end 载荷同笔——回执数字源）。
+   */
+  async function runManualCompact(
+    log: SessionLog,
+    instructions?: string,
+  ): Promise<Omit<ManualQueuedSettledEvent, 'sessionId'>> {
+    // 通道缺席防御（入口已拦；装配期常量缺席下排队位不可能在场——兜底形）
+    if (channel === undefined) return { outcome: 'failed' };
+    const plan = planSegment({
+      events: log.events(),
+      messages: log.projection(),
+      tailKeep: getConfig().tailKeep, // 数值参数三路同生效（05 §2.2 第 4 条）
+    });
+    if (plan === null) return { outcome: 'nothing' };
+    try {
+      // 手动路：恒宿主缺省算法、不派发接管缝/不走 provider 槽（显式动作的算法
+      // 归因应确定——两 seam「只作用阈值路」射程维持）
+      await fiveStep(log, 'manual', plan, undefined, { kind: 'host' }, instructions);
+    } catch {
+      return { outcome: 'failed' }; // fiveStep 已落 end-failed 闭段——诚实报败
+    }
+    // 成功推进冷却锚（与溢出路同律——'nothing'/'failed' 分支已提前返回不动锚）
+    stateOf(log.sessionId).lastCompactAt = now();
+    return { outcome: 'compacted', occludedMessages: plan.occludedMessages, occludedChars: plan.occludedChars };
+  }
+
+  /**
+   * 排队兑现告知（05 §2.2 第 2 条——排干执行完成回执的事件载荷）：本域只造
+   * 载荷，通道 notify 消费由 host 装配接线。回调异常隔离（emit 族同律——单
+   * 消费者故障不反噬排干路径，warn 可观测）。
+   */
+  function emitManualSettled(sessionId: string, result: Omit<ManualQueuedSettledEvent, 'sessionId'>): void {
+    if (onManualQueuedSettled === undefined) return;
+    try {
+      onManualQueuedSettled({ sessionId, ...result });
+    } catch (err) {
+      warn(`[COMPACTION_MANUAL_SETTLED_FAILED] ${sessionId}: ${String(err)}`);
+    }
+  }
+
+  /**
+   * 手动排队位排干（05 §2.2 第 2 条——排干点 = onRunSettled 既有钩子，即
+   * handleRunSettled 头部）：消费 manualQueued 位（同步段清账——双 settle 不
+   * 双消费）→ 入全局串行链执行（在飞互斥同账）→ 兑现告知载荷。置 pending
+   * 在 enqueue 前同步段（排队期间入口防重入检查同账）。
+   */
+  async function drainManualQueued(log: SessionLog): Promise<void> {
+    const state = stateOf(log.sessionId);
+    const queued = state.manualQueued;
+    if (queued === null) return; // 防御：并发排干已消费（消费位在同步段）
+    state.manualQueued = null; // 消费即清（单席位）
+    state.pending = true;
+    await enqueue(async () => {
+      try {
+        // 指引不因排队丢失：暂存 instructions 排干时透传（05 §2.2 第 7 条）
+        emitManualSettled(log.sessionId, await runManualCompact(log, queued.instructions));
+      } finally {
+        state.pending = false;
+      }
+    });
+  }
+
+  /**
+   * 阈值判定原体（handleRunSettled 拆出的共用段——排干缺席时同步路径零扰动）：
+   * obs-b 判序（阈值评估先行、fire 才查门）与五门 skip 词全在此。
+   */
+  function runThresholdEvaluation(input: { log: SessionLog; usage?: RunUsageFact }): void {
+    // —— obs-b 判序定形（05 §2.1）：阈值评估先行（纯函数零副作用）——
+    //    below 不落任何账（判据素材可后算，不为 below 防 durable 膨胀落
+    //    skip）；fire 而被门挡才落 compaction/skip（五门词 05 §1.1）。
+    // 判阈双源：真 token 主判（usage.input）、投影字符兜底（chars/4）
+    const cfg = getConfig();
+    const verdict = evaluateThreshold({
+      usageInput: input.usage?.input ?? null,
+      contextWindow: input.usage?.contextWindow,
+      projectedChars: input.log.projectedChars(),
+      config: cfg,
+    });
+    if (verdict === null || !verdict.fire) return;
+    // basis 五件（RP4 扩值）：fire 判据快照——触发时刻判据素材（与 start
+    // 同律；cache 两桶从主 loop 真值笔同笔透传，estimate 兜底路恒缺省不落）
+    const basis: ThresholdBasis = {
+      basis: verdict.basis,
+      estTokens: verdict.estTokens,
+      effectiveWindow: verdict.effectiveWindow,
+      ...(input.usage?.cacheRead !== undefined ? { cacheRead: input.usage.cacheRead } : {}),
+      ...(input.usage?.cacheWrite !== undefined ? { cacheWrite: input.usage.cacheWrite } : {}),
+    };
+    // 门① no-channel（装配级永久门最先呈报最诊断）：通道缺席——首触落
+    // 一条 skip 后静默（与 warn-once 同锚——缺配是装配错误不是运行抖动）
+    if (channel === undefined) {
+      if (!warnedNoChannel) {
+        warnedNoChannel = true;
+        warn('[COMPACTION_NO_CHANNEL] 摘要通道缺席——阈值压缩停用（溢出面将报 failed）');
+        appendSkip(input.log, 'no-channel', basis);
+      }
+      return;
+    }
+    const state = stateOf(input.log.sessionId);
+    // 门② pending：防重入挡（进行中/已排队期重复 fire 可观测）
+    if (state.pending) {
+      appendSkip(input.log, 'pending', basis);
+      return;
+    }
+    // 门③ cooldown：冷却窗挡（判据与 policy.inCooldown 同式就地展开——
+    // remainMs 窗余值需要差值，单一 now() 采样点保证两值同账。2026-09-13
+    // 复盘发现 ⑰：修前判据与余值各采一次——挂钟跨采样推进可出负余值
+    // （判据说「窗内」而回执窗余为负，不同账），就此单采样）
+    const nowMs = now();
+    if (state.lastCompactAt !== null && nowMs - state.lastCompactAt < cfg.cooldownMs) {
+      appendSkip(input.log, 'cooldown', basis, cfg.cooldownMs - (nowMs - state.lastCompactAt));
+      return;
+    }
+    state.pending = true;
+    // fire-and-forget：排队体内部全收口（不外抛）；冷却锚只在成功时推进
+    void enqueue(async () => {
+      try {
+        // 锁内复评（幻影触发闸）：全局串行链排队期间判据面可能已变（投影
+        // 被他路压缩改写 / 配置槽翻值）；原 usage 笔不重放——真 token 计量
+        // 是请求事实非投影派生，token-basis 复评不受投影影响
+        const freshVerdict = evaluateThreshold({
+          usageInput: input.usage?.input ?? null,
+          contextWindow: input.usage?.contextWindow,
+          projectedChars: input.log.projectedChars(),
+          config: getConfig(),
+        });
+        if (freshVerdict === null || !freshVerdict.fire) {
+          // 门④ retracted：入队时 fire、锁内已不 fire——幻影触发可查（basis
+          // 用原 verdict 快照——触发时刻判据，非复评时刻）
+          appendSkip(input.log, 'retracted', basis);
+          return; // 不动冷却锚（skip 非 completed）
         }
-        return;
-      }
-      const state = stateOf(input.log.sessionId);
-      // 门② pending：防重入挡（进行中/已排队期重复 fire 可观测）
-      if (state.pending) {
-        appendSkip(input.log, 'pending', basis);
-        return;
-      }
-      // 门③ cooldown：冷却窗挡（判据与 policy.inCooldown 同式就地展开——
-      // remainMs 窗余值需要差值，单一 now() 采样点保证两值同账。2026-09-13
-      // 复盘发现 ⑰：修前判据与余值各采一次——挂钟跨采样推进可出负余值
-      // （判据说「窗内」而回执窗余为负，不同账），就此单采样）
-      const nowMs = now();
-      if (state.lastCompactAt !== null && nowMs - state.lastCompactAt < cfg.cooldownMs) {
-        appendSkip(input.log, 'cooldown', basis, cfg.cooldownMs - (nowMs - state.lastCompactAt));
-        return;
-      }
-      state.pending = true;
-      // fire-and-forget：排队体内部全收口（不外抛）；冷却锚只在成功时推进
-      void enqueue(async () => {
-        try {
-          // 锁内复评（幻影触发闸）：全局串行链排队期间判据面可能已变（投影
-          // 被他路压缩改写 / 配置槽翻值）；原 usage 笔不重放——真 token 计量
-          // 是请求事实非投影派生，token-basis 复评不受投影影响
-          const freshVerdict = evaluateThreshold({
-            usageInput: input.usage?.input ?? null,
-            contextWindow: input.usage?.contextWindow,
-            projectedChars: input.log.projectedChars(),
-            config: getConfig(),
-          });
-          if (freshVerdict === null || !freshVerdict.fire) {
-            // 门④ retracted：入队时 fire、锁内已不 fire——幻影触发可查（basis
-            // 用原 verdict 快照——触发时刻判据，非复评时刻）
-            appendSkip(input.log, 'retracted', basis);
-            return; // 不动冷却锚（skip 非 completed）
-          }
-          // 锁内新投影（全局串行链 = 互斥锁——排队期间他路压缩可能已改写投影，
-          // 规划与落账同账零迟滞窗）
-          const messages = input.log.projection();
-          const plan = planSegment({
-            events: input.log.events(),
-            messages,
-            tailKeep: getConfig().tailKeep,
-          });
-          if (plan === null) {
-            // 门⑤ no-segment：fire 但区间规划无合法段（head+tail 全兜的薄会话形）
-            appendSkip(input.log, 'no-segment', basis);
-            return; // 不动冷却锚——诚实无操作可观测
-          }
-          // —— 接管缝（U4）：阈值路排队体内、区间规划后、start 落账前派发 ——
-          let algo: Algo = { kind: 'host' };
-          let effectivePlan = plan;
-          if (onBeforeCompact !== undefined) {
-            const dispatched = await dispatchBeforeCompact(input.log, plan, basis, messages);
-            if (dispatched === null) return; // veto 收场（冷却锚不推进——否决非完成）
-            ({ algo, plan: effectivePlan } = dispatched);
-          }
-          // provider 槽（常设注册——takeover 缺席/被熔断忽略时顶上；熔断视为空；
-          // 只作用阈值路——溢出 路 compactForOverflow 不经此段）
-          if (algo.kind === 'host' && getProvider !== undefined) {
-            const provider = getProvider();
-            if (provider !== undefined) {
-              if (isTripped(provider.pluginId)) {
-                warn(`[COMPACTION_CIRCUIT_IGNORE] provider 槽被熔断视为空: ${provider.pluginId}`);
-              } else {
-                algo = { kind: 'plugin', pluginId: provider.pluginId, fn: provider.fn };
-              }
+        // 锁内新投影（全局串行链 = 互斥锁——排队期间他路压缩可能已改写投影，
+        // 规划与落账同账零迟滞窗）
+        const messages = input.log.projection();
+        const plan = planSegment({
+          events: input.log.events(),
+          messages,
+          tailKeep: getConfig().tailKeep,
+        });
+        if (plan === null) {
+          // 门⑤ no-segment：fire 但区间规划无合法段（head+tail 全兜的薄会话形）
+          appendSkip(input.log, 'no-segment', basis);
+          return; // 不动冷却锚——诚实无操作可观测
+        }
+        // —— 接管缝（U4）：阈值路排队体内、区间规划后、start 落账前派发 ——
+        let algo: Algo = { kind: 'host' };
+        let effectivePlan = plan;
+        if (onBeforeCompact !== undefined) {
+          const dispatched = await dispatchBeforeCompact(input.log, plan, basis, messages);
+          if (dispatched === null) return; // veto 收场（冷却锚不推进——否决非完成）
+          ({ algo, plan: effectivePlan } = dispatched);
+        }
+        // provider 槽（常设注册——takeover 缺席/被熔断忽略时顶上；熔断视为空；
+        // 只作用阈值路——溢出 路 compactForOverflow 不经此段）
+        if (algo.kind === 'host' && getProvider !== undefined) {
+          const provider = getProvider();
+          if (provider !== undefined) {
+            if (isTripped(provider.pluginId)) {
+              warn(`[COMPACTION_CIRCUIT_IGNORE] provider 槽被熔断视为空: ${provider.pluginId}`);
+            } else {
+              algo = { kind: 'plugin', pluginId: provider.pluginId, fn: provider.fn };
             }
           }
-          await fiveStep(input.log, 'threshold', effectivePlan, basis, algo);
-          state.lastCompactAt = now();
-        } catch (err) {
-          // fiveStep 已落 end-failed 闭段——此处只兜五步之外的意外（可观测不静默）
-          warn(`[COMPACTION_FAILED] ${input.log.sessionId}: ${String(err)}`);
-        } finally {
-          state.pending = false;
         }
-      });
+        await fiveStep(input.log, 'threshold', effectivePlan, basis, algo);
+        state.lastCompactAt = now();
+      } catch (err) {
+        // fiveStep 已落 end-failed 闭段——此处只兜五步之外的意外（可观测不静默）
+        warn(`[COMPACTION_FAILED] ${input.log.sessionId}: ${String(err)}`);
+      } finally {
+        state.pending = false;
+      }
+    });
+  }
+
+  return {
+    handleRunSettled(input: { log: SessionLog; usage?: RunUsageFact }): void {
+      // 排干路径（05 §2.2 第 2 条）：settle 时先排干手动排队位（用户显式动作
+      // 优先）再进阈值判定——手动压缩成功推进冷却锚 → 紧随阈值判定自然被冷却
+      // 门挡下（冷却是「值不值得」裁量而手动已裁，锚推进防重复开工非否决用户
+      // 意志）。排干缺席时走同步判定路径零扰动（below/skip 词同步落账时序不变）。
+      const state = states.get(input.log.sessionId);
+      if (state !== undefined && state.manualQueued !== null) {
+        void (async () => {
+          await drainManualQueued(input.log);
+          runThresholdEvaluation(input);
+        })();
+        return;
+      }
+      runThresholdEvaluation(input);
     },
 
     async compactForOverflow(log: SessionLog): Promise<OverflowOutcome> {
@@ -589,6 +710,35 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
         // 溢出压缩同样推进冷却锚：防紧随的阈值触发对刚压过的区间重复开工
         stateOf(log.sessionId).lastCompactAt = now();
         return 'compacted';
+      });
+    },
+
+    async compactNow(log: SessionLog, options?: ManualCompactOptions): Promise<ManualOutcome> {
+      // 通道缺席 = 无摘要则无压缩（与溢出路同判；busy 形同拒——排队后排干必败，
+      // 诚实立即失败优于排队后失败，不入排队位）
+      if (channel === undefined) return 'failed';
+      const state = stateOf(log.sessionId);
+      // 防重入原子检查（05 §2.2 第 6 条——enqueue 入口即拒，无 handler 前置读面
+      // 需求）：两撞位 = 在飞压缩位（阈值路/溢出路/手动路任一在飞）或手动排队位
+      // 已占。同步段检查原子成立（单线程——await 前无让出点）
+      if (state.pending || state.manualQueued !== null) return 'pending';
+      if (options?.busy === true) {
+        // 排队形：入手动排队位（busy 判据 = 驱动 running 位——命令 handler 层
+        // 执法后随参传入，服务层无驱动边）；排干点 = handleRunSettled 头部
+        // （onRunSettled 既有钩子——同一接线位）。instructions 暂存位上，
+        // 排干时透传（指引不因排队丢失）
+        state.manualQueued = { ...(options.instructions !== undefined ? { instructions: options.instructions } : {}) };
+        return 'queued';
+      }
+      // 立即形：入全局串行链执行（与自动路在飞互斥同账）；置 pending 在 enqueue
+      // 前同步段（排队期间后续入口检查同账）
+      state.pending = true;
+      return enqueue(async () => {
+        try {
+          return (await runManualCompact(log, options?.instructions)).outcome;
+        } finally {
+          state.pending = false;
+        }
       });
     },
 

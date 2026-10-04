@@ -277,19 +277,30 @@ export function prepareTranscript(
 
 /**
  * 摘要提示词组装：五段结构（任务概述/关键决策/未竟事项/工具与文件痕迹/下一步
- * 建议）+ 迭代链前次摘要并入 + 目标长度预算行 + 保真纪律行。对话原文以 JSON
- * 透传（素材降级由调用方先行——service 组装序 prepareTranscript → 本函数；
- * complete 通道对素材自行取舍——投影消息形即对话真身）。
+ * 建议）+ 迭代链前次摘要并入 + 目标长度预算行 + 保真纪律行 + 补充指引块
+ * （05 §2.2 第 7 条——手动路 instructions 透传位；ZCode buildCompactPrompt
+ * 「Additional Instructions:」同构：指引作用于摘要生成、非区间规划）。
+ * 对话原文以 JSON 透传（素材降级由调用方先行——service 组装序
+ * prepareTranscript → 本函数；complete 通道对素材自行取舍——投影消息形即
+ * 对话真身）。
  */
 export function buildSummaryPrompt(input: {
   occluded: readonly ProjectedMessage[];
   previousSummary: string | null;
   maxChars: number;
+  /** 补充指引（手动路 /compact 尾参；缺席/空白 = 不追加块——自动两路恒缺席） */
+  instructions?: string;
 }): string {
   const transcript = JSON.stringify(input.occluded, null, 2);
   const previous = input.previousSummary
     ? `\n\n## 前次压缩摘要（迭代链——此前历史已并入其中，本摘要须承接不可丢）\n${input.previousSummary}`
     : '';
+  // 补充指引块（05 §2.2 第 7 条）：置尾独立段——用户对本次摘要的额外要求，
+  // 优先承接；空白视为缺席（尾参 join 后空串 = 无指引）
+  const guidance =
+    input.instructions !== undefined && input.instructions.trim().length > 0
+      ? `\n\n## 补充指引（用户对本次摘要的额外要求——优先承接）\n${input.instructions.trim()}`
+      : '';
   return [
     '请将以下对话压缩为一份上下文摘要，供后续轮次代替被压缩的原文使用。',
     `目标长度：不超过 ${input.maxChars} 字符。`,
@@ -302,7 +313,7 @@ export function buildSummaryPrompt(input: {
     // 保真纪律（05 §2.1 行为纪律三条之①）：关键精确标识逐字保留——「差不多」
     // 改写破坏后续执行（路径/错误码/行号错一个字符即不可用）
     '保真纪律：摘要须逐字保留关键精确标识——文件路径、错误码与错误文本要点、行号、命令与参数、数字阈值/版本号/配置值；这些内容不得意译、不得改写成相近表述、不得省略。',
-    '只输出摘要正文，不要输出其他说明。' + previous,
+    '只输出摘要正文，不要输出其他说明。' + previous + guidance,
     '',
     '## 待压缩对话（投影消息 JSON）',
     transcript,

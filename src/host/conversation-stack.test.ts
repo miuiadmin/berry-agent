@@ -660,6 +660,8 @@ describe('阈值触发 usage 真值笔', () => {
           settled.push({ usage: input.usage, logSessionId: input.log.sessionId });
         },
         compactForOverflow: async () => 'nothing' as const,
+        // 手动路桩腿（05 §2.2 第四入口——接口扩面随迁；本测试不消费手动路）
+        compactNow: async () => 'failed' as const,
         drain: async () => undefined,
       },
     });

@@ -285,7 +285,8 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     category: 'log-only',
     owner: 'compaction',
     tier: 'stable',
-    description: '压缩意图与判据快照（reason=threshold/overflow + willRetry + basis?；05 §2.1 五步之一）',
+    description:
+      '压缩意图与判据快照（reason=threshold/overflow/manual + willRetry + basis?；05 §2.1 五步之一；manual=手动路〔05 §2.2〕——basis 恒缺席、willRetry 恒 false、summarizer 恒 host）',
   },
   {
     type: 'compaction/surface',

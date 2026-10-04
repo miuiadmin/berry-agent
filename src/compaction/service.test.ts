@@ -373,6 +373,229 @@ describe('compactForOverflow', () => {
   });
 });
 
+/* ---------------- compactNow 手动路（05 §2.2——五值 ManualOutcome） ---------------- */
+
+describe('compactNow 立即形（三值——OverflowOutcome 同形）', () => {
+  it('成功：compacted + 四事件（manual 路 reason/willRetry:false/summarizer:host、basis 缺席零键；end 载荷携规模数字）', async () => {
+    const rig = makeRig(['手动压缩摘要']);
+    const log = sixTurnLog();
+    const outcome = await rig.service.compactNow(log);
+    expect(outcome).toBe('compacted');
+    // 事件序与阈值路同构：start → 摘要 → surface(信封) → end
+    const tailTypes = log
+      .events()
+      .slice(-4)
+      .map((e) => e.type);
+    expect(tailTypes).toEqual(['compaction/start', 'user/message', 'compaction/surface', 'compaction/end']);
+    const [start, , surface, end] = log.events().slice(-4);
+    // start 载荷判据词零污染：精确形锁（无 basis 键、willRetry=false、恒宿主归因）
+    expect(start!.data).toEqual({ reason: 'manual', willRetry: false, summarizer: 'host' });
+    expect(surface!.surfaceOp).toEqual({ op: 'replace', start: 4, end: 12 });
+    // end 载荷 = 回执数字源同笔（occludedMessages/occludedChars）
+    expect(end!.data).toMatchObject({ reason: 'completed', occludedMessages: 4 });
+    expect((end!.data as { occludedChars: number }).occludedChars).toEqual(
+      (surface!.data as { occludedChars: number }).occludedChars,
+    );
+    // 投影换摘要（与阈值路同漏斗）
+    const texts = JSON.stringify(log.projection());
+    expect(texts).toContain('手动压缩摘要');
+    expect(texts).not.toContain('任务指令 2');
+  });
+
+  it('薄会话：nothing（head+tail 全兜压无可压——非错误；手动路零 skip 词，零通道调用）', async () => {
+    const rig = makeRig(['不应被调']);
+    const log = new SessionLog({ sessionId: 's-manual-small' });
+    log.append('turn/start', {});
+    log.append('user/message', { content: '只有一轮', source: 'user' });
+    log.append('turn/end', { reason: 'completed' });
+    expect(await rig.service.compactNow(log)).toBe('nothing');
+    // 手动路用户当面知情零 durable 陪审：不落 start/skip 任何 compaction 词
+    expect(log.events().map((e) => e.type)).toEqual(['turn/start', 'user/message', 'turn/end']);
+    expect(rig.calls).toHaveLength(0);
+  });
+
+  it('通道失败：failed（end-failed 闭段防孤 start 悬挂；冷却锚不动——紧随阈值判定不被冷却门挡）', async () => {
+    const rig = makeRig([new Error('手动通道断电'), '阈值路随后照常跑'], { config: { cooldownMs: 600_000 } });
+    const log = sixTurnLog();
+    expect(await rig.service.compactNow(log)).toBe('failed');
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'failed' });
+    // 锚不动：手动失败后阈值 fire 照常入列（未被 cooldown 门挡——skip 词零）
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/skip')).toHaveLength(0);
+    expect(log.eventsOfType('compaction/start').map((e) => (e.data as { reason: string }).reason)).toEqual([
+      'manual',
+      'threshold',
+    ]);
+  });
+
+  it('通道缺席：failed（无摘要则无压缩——立即形与 busy 排队形同判，排队无意义不入位）', async () => {
+    const service = createCompactionService({ warn: () => undefined });
+    expect(await service.compactNow(sixTurnLog())).toBe('failed');
+    expect(await service.compactNow(sixTurnLog(), { busy: true })).toBe('failed');
+  });
+
+  it('instructions 透传（立即形）：prompt 追加「补充指引：」块；start 载荷不动（非判据非审计位）', async () => {
+    const rig = makeRig(['带指引摘要']);
+    const log = sixTurnLog();
+    const outcome = await rig.service.compactNow(log, { instructions: '重点保留错误码与文件路径' });
+    expect(outcome).toBe('compacted');
+    expect(rig.calls).toHaveLength(1);
+    expect(rig.calls[0]!.prompt).toContain('补充指引');
+    expect(rig.calls[0]!.prompt).toContain('重点保留错误码与文件路径');
+    // 载荷不动：start 精确形锁（instructions 不入 compaction/start）
+    expect(log.eventsOfType('compaction/start')[0]!.data).toEqual({
+      reason: 'manual',
+      willRetry: false,
+      summarizer: 'host',
+    });
+  });
+
+  it('成功推进冷却锚：手动压缩后冷却窗内阈值 fire 被冷却门挡（防对刚压区间重复开工）', async () => {
+    const rig = makeRig(['手动摘要'], { config: { cooldownMs: 600_000 } });
+    const log = sixTurnLog();
+    await rig.service.compactNow(log);
+    rig.advance(1_000); // 冷却窗内（600s 远未过）
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/skip')[0]!.data).toMatchObject({ gate: 'cooldown' });
+    expect(rig.calls).toHaveLength(1); // 只有手动那次通道调用
+  });
+});
+
+describe('compactNow 防重入（pending 两撞位）', () => {
+  it('撞在飞（手动立即形在飞）：屏障期内二次 compactNow 即拒 pending；释放后首单收 compacted', async () => {
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => (release = resolve));
+    const rig = makeRig([barrier]);
+    const log = sixTurnLog();
+    const first = rig.service.compactNow(log); // 在飞（阻塞在屏障）
+    expect(await rig.service.compactNow(log)).toBe('pending'); // 撞在飞位
+    expect(await rig.service.compactNow(log, { busy: true })).toBe('pending'); // busy 形同拒
+    release();
+    expect(await first).toBe('compacted');
+  });
+
+  it('撞在飞（阈值路在飞）：阈值压缩执行期手动命令诚实拒绝（防重入与自动路同账）', async () => {
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => (release = resolve));
+    const rig = makeRig([barrier]);
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE }); // 阈值路在飞
+    expect(await rig.service.compactNow(log)).toBe('pending');
+    release();
+    await rig.service.drain();
+  });
+
+  it('撞排队（手动排队位已占）：busy 排队后一切后续手动命令即拒 pending', async () => {
+    const rig = makeRig();
+    const log = sixTurnLog();
+    expect(await rig.service.compactNow(log, { busy: true })).toBe('queued');
+    expect(await rig.service.compactNow(log, { busy: true })).toBe('pending'); // 撞排队位
+    expect(await rig.service.compactNow(log)).toBe('pending'); // idle 形同拒（位已占）
+  });
+});
+
+describe('compactNow 排队形（busy 排队 → run 终态排干兑现）', () => {
+  it('busy 排队返 queued（零 durable 词零通道调用）；排干点 = onRunSettled 既有钩子（handleRunSettled 同一接线位）', async () => {
+    const settled: unknown[] = [];
+    const rig = makeRig(['排干兑现摘要'], { onManualQueuedSettled: (e) => settled.push(e) });
+    const log = sixTurnLog();
+    expect(await rig.service.compactNow(log, { busy: true, instructions: '保留部署步骤' })).toBe('queued');
+    expect(log.events().map((e) => e.type)).toHaveLength(24); // 零 durable 词（六轮原样）
+    expect(rig.calls).toHaveLength(0);
+    // run 终态（agent_end 后）——既有钩子接线位触发排干
+    rig.service.handleRunSettled({ log });
+    await rig.service.drain();
+    const start = log.eventsOfType('compaction/start')[0]!;
+    expect(start.data).toEqual({ reason: 'manual', willRetry: false, summarizer: 'host' });
+    // 指引不因排队丢失：排干时透传进摘要 prompt
+    expect(rig.calls[0]!.prompt).toContain('保留部署步骤');
+    // 兑现告知载荷：outcome + 数字两件与 end 载荷同笔
+    expect(settled).toEqual([
+      {
+        sessionId: 's-1',
+        outcome: 'compacted',
+        occludedMessages: 4,
+        occludedChars: (log.eventsOfType('compaction/end')[0]!.data as { occludedChars: number }).occludedChars,
+      },
+    ]);
+  });
+
+  it('排干先于阈值判定：settle 时手动排队位先兑现（用户显式动作优先）→ 冷却锚推进 → 紧随阈值判定被冷却门挡', async () => {
+    const rig = makeRig(['手动先压'], { config: { cooldownMs: 600_000 } });
+    const log = sixTurnLog();
+    await rig.service.compactNow(log, { busy: true });
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE }); // settle：排干 + 判阈同钩
+    await rig.service.drain();
+    await rig.service.drain(); // 排干体经串行链——二次 drain 收阈值判定若再入列的尾巴
+    expect(log.eventsOfType('compaction/start').map((e) => (e.data as { reason: string }).reason)).toEqual(['manual']); // 阈值路被冷却门挡——只有手动 start
+    expect(log.eventsOfType('compaction/skip')[0]!.data).toMatchObject({ gate: 'cooldown' });
+    expect(rig.calls).toHaveLength(1);
+  });
+
+  it('兑现失败档：载荷 outcome=failed、数字缺席（end-failed 闭段已落账）', async () => {
+    const settled: unknown[] = [];
+    const rig = makeRig([new Error('排干时通道败')], { onManualQueuedSettled: (e) => settled.push(e) });
+    const log = sixTurnLog();
+    await rig.service.compactNow(log, { busy: true });
+    rig.service.handleRunSettled({ log });
+    await rig.service.drain();
+    expect(settled).toEqual([{ sessionId: 's-1', outcome: 'failed' }]);
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'failed' });
+  });
+
+  it('兑现薄会话档：排干时他路已压薄（planSegment 无合法段）→ 载荷 outcome=nothing、零通道调用', async () => {
+    const settled: unknown[] = [];
+    const rig = makeRig([], { onManualQueuedSettled: (e) => settled.push(e) });
+    const log = new SessionLog({ sessionId: 's-queued-small' });
+    log.append('turn/start', {});
+    log.append('user/message', { content: '只有一轮', source: 'user' });
+    log.append('turn/end', { reason: 'completed' });
+    expect(await rig.service.compactNow(log, { busy: true })).toBe('queued');
+    rig.service.handleRunSettled({ log });
+    await rig.service.drain();
+    expect(settled).toEqual([{ sessionId: 's-queued-small', outcome: 'nothing' }]);
+    expect(rig.calls).toHaveLength(0);
+  });
+
+  it('告知回调异常隔离：兑现载荷消费者抛错不反噬排干路径（压缩事实照常落账）', async () => {
+    const rig = makeRig(['照常完成'], {
+      onManualQueuedSettled: () => {
+        throw new Error('notify 消费者炸了');
+      },
+    });
+    const log = sixTurnLog();
+    await rig.service.compactNow(log, { busy: true });
+    rig.service.handleRunSettled({ log });
+    await rig.service.drain(); // 不因回调抛错 reject
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'completed' });
+    expect(rig.warns.some((w) => w.includes('COMPACTION_MANUAL_SETTLED_FAILED'))).toBe(true);
+  });
+});
+
+describe('compactNow 全局串行链（在飞互斥同账）', () => {
+  it('手动路与自动路同链：两会话并发（手动 + 阈值触发）通道在飞峰值恒 1', async () => {
+    const rig = makeRig(['手动摘要', '阈值摘要']);
+    const manualLog = sixTurnLog('s-manual');
+    const thresholdLog = sixTurnLog('s-threshold');
+    const manual = rig.service.compactNow(manualLog); // 手动立即形
+    rig.service.handleRunSettled({ log: thresholdLog, usage: FIRE_USAGE }); // 阈值路
+    expect(await manual).toBe('compacted');
+    await rig.service.drain();
+    expect(rig.maxInFlight()).toBe(1); // complete 不自竞争
+  });
+
+  it('drain 收口含排干体：排队 → settle → drain 后手动压缩事实已落账', async () => {
+    const rig = makeRig(['drain 收口摘要']);
+    const log = sixTurnLog();
+    await rig.service.compactNow(log, { busy: true });
+    rig.service.handleRunSettled({ log });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/end')).toHaveLength(1);
+  });
+});
+
 /* ---------------- 通道缺席（阈值路停用） ---------------- */
 
 describe('通道缺席', () => {
