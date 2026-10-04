@@ -221,7 +221,14 @@ export interface SubagentRequest {
   readonly systemPrompt?: string;
   /** 诊断名（Job 名与通知文案的显示位；缺省机器派生） */
   readonly name?: string;
-  /** 机器注入位——父会话 id（background 结算通知路由） */
+  /**
+   * 机器注入位——父会话 id（one-shot/background 请求基底均携带——非
+   * background 专属）。三消费：① 审批升父路由（host 工厂 askApproval 条件
+   * 装配——子会话审批落父会话呈现面，缺席 = 无父面路由）；② 锚继承（子会话
+   * workspaceRoot = 父登记行锚，缺席回落栈级归一锚）；③ background 结算
+   * 通知 owner 归属（通知路由键 + Job 归属围栏 owner）。前两消费执法位在
+   * host/subagent-factory.ts。
+   */
   readonly parentSessionId?: string;
   /** 机器注入位——收场形态（one-shot 缺省 / background 托管） */
   readonly background?: boolean;

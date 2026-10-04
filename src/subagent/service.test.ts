@@ -14,7 +14,7 @@ import {
 import { createJobRegistry, type JobHandle, type JobRegistry } from './registry.js';
 import { createSubagentService, resolveSubagentFanoutLimit, type SubagentService } from './service.js';
 import { createDeclarativeAgentTool } from './tool.js';
-import type { SubagentNotifyFace } from './types.js';
+import type { DelegationInput, SubagentNotifyFace } from './types.js';
 
 /** 断言 async 抛指定码（返错误供 message 断言） */
 async function expectCode(promise: Promise<unknown>, code: string): Promise<BaseError> {
@@ -209,8 +209,18 @@ describe('one-shot 收场（黑盒）', () => {
     expect(request.model).toBe('m1');
     expect(request.notifyApproval).toBeUndefined(); // one-shot 不注入
     expect(request.background).toBeUndefined();
-    expect(request.parentSessionId).toBeUndefined(); // 机器注入位仅 background 形携带
+    expect(request.parentSessionId).toBe('s1'); // 机器注入位随请求基底携带（one-shot 审批升父面/子承父锚两消费在 host/subagent-factory.ts）
     expect(order).toEqual([]); // 零通知零钩子
+  });
+
+  it('输入不带 parentSessionId 时 request.parentSessionId 仍 undefined（条件展开不铸空串/假值）', async () => {
+    const { service, provider } = assemble({ auto: { output: 'ok', stopReason: 'stop' } });
+    // 契约位 parentSessionId 必填（DelegationInput）——缺位形以断言收窄
+    // 模拟 JS 调用方/类型擦除面：缺席保持 undefined（工厂两消费按缺席形
+    // 回落：审批无升父路由/锚回落栈级归一锚——不因铸空串而走「在场」腿）
+    const bare = { prompt: '无父语境直呼', depth: 1 } as DelegationInput;
+    await service.run(bare);
+    expect(provider.requests[0]!.parentSessionId).toBeUndefined();
   });
 
   it('provider 异常折 error 结果不重试（run 恰一次）', async () => {

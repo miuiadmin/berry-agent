@@ -5,8 +5,9 @@
  * 无条件先于归属释放——「完成了但父永远不知道」不存在）；one-shot
  * 父同步等结果（黑盒——结果不重试，error 形立即结算给父）。
  *
- * 委派边界三层执法位：① 审批路由 = notifyApproval 闭包注入 request
- * （组合根桥父会话审批面）；② 档位快照 = in-process 工厂自带（host
+ * 委派边界三层执法位：① 审批路由 = parentSessionId 随请求基底携带
+ * （one-shot 同携——升父路由键）+ notifyApproval 闭包注入（组合根桥
+ * 父会话审批面）；② 档位快照 = in-process 工厂自带（host
  * 装配位——本件不立法）；③ 深度帽 + bash 排除 = 本件（深度拒 +
  * 派生面结构性剔除五名）。
  *
@@ -360,6 +361,13 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
         ...(effectiveTools !== undefined ? { tools: [...effectiveTools] } : {}),
         ...(input.model !== undefined ? { model: input.model } : {}),
         ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
+        // 父会话 id 随请求基底携带（one-shot/background 两形态同携）——
+        // in-process 工厂两消费以在场为前提：① 审批升父面（askApproval 条件
+        // 装配，缺席 = 子会话审批无父面路由）② 子承父锚（父登记行锚缺席
+        // = 回落栈级归一锚〔进程根〕——父锚≠进程根时子代理可写根升格）。
+        // 执法位在 host/subagent-factory.ts；条件展开缺席形保持 undefined
+        // （不铸空串/假值）
+        ...(input.parentSessionId !== undefined ? { parentSessionId: input.parentSessionId } : {}),
         name: jobName,
         depth: input.depth + 1, // 子栈委派工具的深度位（机器注入逐层 +1）
       };
