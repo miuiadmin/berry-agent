@@ -305,10 +305,11 @@ describe('frames 工具族与状态行', () => {
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }));
     expect(state.status).toBeNull();
     // 工具 run 成功终态 → run 收尾行瞬时追加（run_close 角色——非对话消息；
-    // 无 agent_start 中途附着形：耗时段诚实缺席、工具段独场——修前红旧形时刻段独场）
+    // 无 agent_start 中途附着形：耗时段诚实缺席、工具段独场——计数是附着点
+    // 起算的部分观察值，加注不冒充整 run 口径〔第九轮 laneE2 件3〕）
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0]).toMatchObject({ role: RUN_CLOSE_ROLE, streaming: false });
-    expect(state.messages[0]?.text).toBe('── 工具 1 次 ──');
+    expect(state.messages[0]?.text).toBe('── 工具 1 次（自本次附着起算） ──');
     state = applyEnvelope(state, display({ type: 'agent_start' }));
     state = applyEnvelope(state, display({ type: 'turn_start', turn: 1 }));
     state = applyEnvelope(state, display({ type: 'turn_end', turn: 1, stopReason: 'end_turn' }));
@@ -529,7 +530,7 @@ describe('frames run 收尾行（界面美化役批⑪ + V-0 注⑥对端翻形�
     expect(state.messages[0]?.text).toBe('── 用时 1m 35s · 工具 1 次 ──');
   });
 
-  it('中途附着（无 agent_start）：耗时段诚实缺席、工具段独场行仍落', () => {
+  it('中途附着（无 agent_start）：耗时段诚实缺席、计数段加注起算口径（工具/重试部分观察值不冒充整 run——第九轮 laneE2 件3）', () => {
     // 页面加载时 run 已在飞——收不到 agent_start；收尾行不虚造耗时
     let state = applyEnvelope(
       initialAppState,
@@ -537,7 +538,18 @@ describe('frames run 收尾行（界面美化役批⑪ + V-0 注⑥对端翻形�
     );
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }), T0);
     expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]?.text).toBe('── 工具 1 次 ──'); // 修前红：旧形时刻段独场
+    expect(state.messages[0]?.text).toBe('── 工具 1 次（自本次附着起算） ──'); // 修前红：旧形「工具 1 次」整 run 口径词面
+    // 双计数段皆加注 + durationMs 载荷在场不加注（服务端真值即整 run 口径
+    // ——耗时段与计数段的口径分立）
+    let both = applyEnvelope(
+      initialAppState,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+    );
+    both = applyEnvelope(both, display({ type: 'retry_wait_start' }), T0);
+    both = applyEnvelope(both, display({ type: 'agent_end', status: 'completed', durationMs: 95_000 }), T0 + 1_000);
+    const close = both.messages[both.messages.length - 1]!;
+    expect(close.role).toBe(RUN_CLOSE_ROLE);
+    expect(close.text).toBe('── 用时 1m 35s · 工具 1 次（自本次附着起算） · 重试 1（自本次附着起算） ──');
   });
 
   it('瞬时追加位：loadedMessages 投影重置即清（不落投影、回放不可见）', () => {
