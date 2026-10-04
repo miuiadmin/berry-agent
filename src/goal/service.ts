@@ -436,9 +436,13 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         throw new BaseError('GOAL_GOAL_INVALID', `objective 不能为空且不超过 16KiB（当前 ${bytes} 字节）`);
       }
       if (dao.activeFor(req.sessionId)) {
+        // 撞席指路文案诚实化（1664154 批漏网姊妹位）：不承诺 /goal 不存在的
+        // 终态动词（动词闭集 = create/list/show/wake/approve——「放弃」非用户
+        // 动词）；abandon 经 goal update 工具由模型在目标会话触达（scheduler
+        // /tick rm 守卫文案同族定谳形——scheduler/service.ts）
         throw new BaseError(
           'GOAL_TRANSITION_INVALID',
-          `会话 ${req.sessionId} 已有 active goal——先完成或放弃它，再建新的`,
+          `会话 ${req.sessionId} 已有 active goal——先完成当前目标，或在目标会话中让模型放弃它，再建新的`,
         );
       }
       const ts = now();

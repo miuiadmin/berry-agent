@@ -281,7 +281,12 @@ describe('rm 内置 goal 挂钟行守卫（真 service——H2）', () => {
       expect(err).toBeInstanceOf(BaseError);
       expect((err as BaseError).code).toBe('SCHEDULER_JOB_INVALID');
     }
-    expect(getRow('goal-g1')).toBeDefined(); // 行不删——goal 挂钟行生死归 /goal 终态动词
+    // 行不删——终态走 disable 行留史（complete/abandon 同笔停摆、enable 可复
+    // 活）；abandon 经 goal update 工具由模型在目标会话触达（/goal 动词闭集
+    // = create/list/show/wake/approve——无终态动词）。挂账立题：/goal abandon
+    // 用户动词与 goalJobs.remove 消费位需规范先行（scheduler/service.ts 守卫
+    // 注同形——本注为 1664154 勘正后的现状描述残谎改写〔sweep10 laneE 件3〕）
+    expect(getRow('goal-g1')).toBeDefined();
   });
 
   it('/tick rm builtin goal 行折指路文本 + 行仍在 + enable 仍可复活（可恢复性锁）', async () => {

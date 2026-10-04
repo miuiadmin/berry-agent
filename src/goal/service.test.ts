@@ -151,10 +151,15 @@ describe('activate（建行守卫 + 挂钟注册编舞）', () => {
   it('单 active 撞席拒；他会话不撞', async () => {
     const { service } = openService();
     await service.activate({ sessionId: 's1', objective: 'a', schedule: 'every:1h' });
-    await expectCode(
+    // 撞席指路文案诚实化（1664154 文案批漏网姊妹位——sweep10 laneE 件2）：
+    // 不承诺 /goal 不存在的终态动词（动词闭集 = create/list/show/wake/approve
+    // ——「放弃」非用户动词，abandon 经 goal update 工具由模型在目标会话触达）；
+    // 新锚与 scheduler /tick rm 守卫文案同族（scheduler/service.ts 同批定谳形）
+    const err = await expectCode(
       service.activate({ sessionId: 's1', objective: 'b', schedule: 'every:1h' }),
       'GOAL_TRANSITION_INVALID',
     );
+    expect(err.message).toContain('在目标会话中让模型放弃它');
     await expect(service.activate({ sessionId: 's2', objective: 'b', schedule: 'every:1h' })).resolves.toBeDefined();
   });
 

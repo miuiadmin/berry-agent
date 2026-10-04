@@ -363,13 +363,18 @@ describe('/goal create（U10 生产创建入口——03 §10.5 U10 落码定形�
   });
 
   it('服务面守卫错折文本不抛：单 active 撞席/挂钟坏串回执（GOAL_TRANSITION_INVALID 码直呈）', async () => {
+    // 撞席文案随 service.ts 诚实化随迁（sweep10 laneE 件2——镜像真身守卫文
+    // 案，不承诺 /goal 不存在的终态动词；真路径锚「在目标会话中让模型放弃它」）
     const clash = fakeService({
       activateImpl: () => {
-        throw new BaseError('GOAL_TRANSITION_INVALID', '会话 s1 已有 active goal——先完成或放弃它，再建新的');
+        throw new BaseError(
+          'GOAL_TRANSITION_INVALID',
+          '会话 s1 已有 active goal——先完成当前目标，或在目标会话中让模型放弃它，再建新的',
+        );
       },
     });
     expect(await runGoalCommand(['create', 'every:60s', '目标'], { service: clash, eventsFor: NO_EVENTS }, 's1')).toBe(
-      'GOAL_TRANSITION_INVALID：会话 s1 已有 active goal——先完成或放弃它，再建新的',
+      'GOAL_TRANSITION_INVALID：会话 s1 已有 active goal——先完成当前目标，或在目标会话中让模型放弃它，再建新的',
     );
     const badClock = fakeService({
       activateImpl: () => {
