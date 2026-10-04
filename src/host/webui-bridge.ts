@@ -11,9 +11,10 @@
  *   例锁死）+ detach 摘挂（幂等——closer 归调用方接线）；
  * - openWebuiFace：**前台自持面开面**（TUI / serve 前台 `--port` 形）——
  *   自起统一 HTTP 面 TCP 人面（恒回环；SPA + /api/* + /v1/* 三族同面；
- *   bridge 走 createServeBridge 零第二套映射）+ 披露两行 + closer 整体
- *   收口；daemon 常驻面 `--port` 侧不起本面——serve-daemon 件内组态人面
- *   监听后走共用挂载段（面归 daemon 单源）。
+ *   bridge 走 createServeBridge 零第二套映射）+ face.backend 挂通道核
+ *   （SDK 线信封回流——12f-2c 同族姊妹位，第八轮深扫 C1 补挂）+ 披露
+ *   两行 + closer 整体收口；daemon 常驻面 `--port` 侧不起本面——
+ *   serve-daemon 件内组态人面监听后走共用挂载段（面归 daemon 单源）。
  *
  * 批 19e 件在场分档：openWebuiFace 挂载改经 mountKit（core:webui 件
  * provide 'webui-face-mount' 的 kit——入口装配根 tryGet 后注入）；kit
@@ -182,9 +183,18 @@ export async function openWebuiFace(
   // U5-2 晚注册路挂接：此后受理（/reload 换代重注册）走 face.register——
   // 构造期已注入 snapshot，此处不重放（双注册 throw 防线）
   options.pluginRoutes?.attachFace(face);
+  // 信封回流自动馈送（conversation-stack onEvent → emit）——12f-2c 同族
+  // 姊妹位：daemon（serve-daemon）/mcp（mcp-entry）/stdio（serve-entry）三
+  // 装配位均显式挂 face.backend，本面修前只经 mountKit 挂 webui.backend
+  // （claim 桥）而 face.backend（SDK 线信封回流 + 审批腿）从未入通道核——
+  // /v1/events 直播零帧、ask 不达、decide 恒 superseded（第八轮深扫 C1）
+  options.stack.channels.addBackend(face.backend);
   const stop = async (): Promise<void> => {
     mount?.detach(); // 幂等（backend 摘除 + 全路由摘除 + 全流收口 + 审批清槽丢弃性）
     options.pluginRoutes?.detachFace(); // 受理账回 pending 态（活面解挂——收口对称）
+    // face.backend 对称位自查：daemon 装配位收口同形——无 removeBackend 面，
+    // face.stop → handle.dispose（core.close 后续全静默）幂等收口承载（通道
+    // 核随 runtime 同寿，不摘 backend 无泄漏面）
     await face.stop(); // 幂等（全流收口 + 关监听）
   };
   const disclose = options.disclose ?? ((line) => process.stderr.write(`${line}\n`));

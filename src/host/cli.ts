@@ -351,6 +351,8 @@ const RUN_SCHEMAS: readonly FlagSchema[] = [
 
 const SERVE_SCHEMAS: readonly FlagSchema[] = [
   PORT_FLAG,
+  // 前台形收（logger 提级——serve-entry 实消费）；--daemon × --debug 互斥
+  // 在 parseServe 执法（daemon 形 env-only——07 §5 2026-10-04 注）
   DEBUG_FLAG,
   { name: 'daemon', kind: 'boolean' },
   { name: 'no-delta', kind: 'boolean' },
@@ -458,6 +460,15 @@ function parseServe(rest: readonly string[]): CliParseResult {
   // sdk HTTP 面 TCP 侧可选（07 §5 落码定名批）——前台 stdio 形传入即用法错
   if (!scan.booleans.has('daemon') && (scan.values.has('sdk-port') || scan.values.has('sdk-host'))) {
     return usageFail('--sdk-port/--sdk-host 只在 --daemon 时可用（前台 stdio 形态没有 HTTP 服务）');
+  }
+  // --daemon × --debug 互斥（07 §5 2026-10-04 注——第八轮深扫 C2）：daemon
+  // 子进程日志级 env-only（BERRY_AGENT_LOG_LEVEL），child 侧恒零旗标面——
+  // 修前「解析受理 + spawner 转发 + 子进程静默丢弃」两头不靠，拒收对称
+  // 封口（同 --sdk-port 前台拒族）
+  if (scan.booleans.has('daemon') && scan.booleans.has('debug')) {
+    return usageFail(
+      '--daemon 与 --debug 互斥（daemon 日志级只走环境变量 BERRY_AGENT_LOG_LEVEL——调试日志请在环境里开启）',
+    );
   }
   const port = scan.values.get('port');
   const sdkPort = scan.values.get('sdk-port');

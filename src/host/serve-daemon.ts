@@ -646,7 +646,8 @@ export interface DaemonChildHandle {
  *
  * 编舞：win32 诚实拒（07 §5——随 TUI 支持矩阵 v1 不背书同裁）→ 开面判定
  * 预拦（非回环 × 无 token 退 2——免无谓 spawn）→ stderr 追加重定向 daemon.log
- * → spawn detached child（env 注 CHILD 标记防递归；argv 原样传 serve 旗标）
+ * → spawn detached child（env 注 CHILD 标记防递归；argv 只传 daemon 形实
+ * 消费旗标——--debug 不转发，child 日志级 env-only）
  * → 起活确认窗（SPAWN_CONFIRM_TIMEOUT_MS）轮询 pid 登记：pid 现 = 起活成功
  * 退 0；child 先退 = 转发其退出码 + 转述 daemon.log 尾行；窗尽未现 = 退 1
  * 报确认超窗（罕见——组装超 10s）。
@@ -672,6 +673,9 @@ export async function spawnDaemonServe(options: SpawnDaemonOptions): Promise<num
   }
 
   const self = options.self ?? { execPath: process.execPath, mainPath: process.argv[1] ?? 'dist/host/main.js' };
+  // argv 只传 daemon 形实消费的旗标——--debug 不转发（child 恒 env-only 零
+  // 旗标面：日志级只走 BERRY_AGENT_LOG_LEVEL；parseServe 已 --daemon ×
+  // --debug 互斥拒收，此处不转发是同族对称封口——07 §5 2026-10-04 注）
   const args = [
     self.mainPath,
     'serve',
@@ -680,7 +684,6 @@ export async function spawnDaemonServe(options: SpawnDaemonOptions): Promise<num
     ...(options.flags.sdkPort !== undefined ? ['--sdk-port', String(options.flags.sdkPort)] : []),
     ...(options.flags.sdkHost !== undefined ? ['--sdk-host', options.flags.sdkHost] : []),
     ...(options.flags.noDelta ? ['--no-delta'] : []),
-    ...(options.flags.debug ? ['--debug'] : []),
   ];
   // spawn 面注入：logFd 的开落在缺省实现内（测试注假 spawn 不触真 fs——
   // serve/ 目录建与日志开同属产码缺省路径）

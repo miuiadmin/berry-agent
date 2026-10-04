@@ -393,6 +393,24 @@ describe('serve 族 + 管理动词', () => {
     expectUsage(['serve', '--daemon', '--sdk-port', 'abc'], '1–65535');
   });
 
+  it('--daemon × --debug 互斥：daemon 形 env-only，传入即用法错退 2（07 §5 2026-10-04 注——第八轮深扫 C2）', () => {
+    // 修前两头不靠坏形：解析受理（无互斥拦）+ spawner argv 转发 --debug +
+    // 子进程恒 debug:false（env-only 设计）静默吞旗标。拒收对称封口——
+    // 与 --sdk-port 前台拒同族互斥法（执法⑤）
+    expectUsage(['serve', '--daemon', '--debug'], '互斥');
+  });
+
+  it('前台 serve 照收 --debug（logger 提级实消费——daemon 互斥不伤前台形）', () => {
+    const r = parseCli(['serve', '--debug']);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.command.kind === 'serve') {
+      expect(r.command.flags.debug).toBe(true);
+      expect(r.command.flags.daemon).toBe(false);
+    } else {
+      expect.unreachable('serve --debug 解析应成功');
+    }
+  });
+
   it('serve status / serve stop 管理动词（零旗标零参）', () => {
     expect(expectCommand(['serve', 'status'])).toMatchObject({ kind: 'serve-status' });
     expect(expectCommand(['serve', 'stop'])).toMatchObject({ kind: 'serve-stop' });

@@ -156,6 +156,13 @@ interface SseFrame {
   };
 }
 
+/** /v1/events 帧形（SDK 线协议帧——判帧只看 kind/sessionId/event 三位） */
+interface V1Frame {
+  readonly kind: string;
+  readonly sessionId?: string;
+  readonly event?: { readonly type?: string };
+}
+
 /** SSE 后台泵读取腿（Bearer 开流；next 顺序取帧——ping 注释行天然跳过；abort 收线） */
 async function openSse(
   port: number,
@@ -246,6 +253,99 @@ async function untilFrame(
     const frame = await sse.next();
     if (frame !== undefined && predicate(frame)) return frame;
   }
+}
+
+/** /v1/events 取帧至谓词真（untilFrame 的 V1Frame 同款——SDK 线面帧形） */
+async function untilV1Frame(
+  sse: { next(timeoutMs?: number): Promise<V1Frame | undefined> },
+  predicate: (frame: V1Frame) => boolean,
+  budgetMs = 2000,
+): Promise<V1Frame> {
+  const start = Date.now();
+  for (;;) {
+    if (Date.now() - start > budgetMs) throw new Error('/v1/events 取帧超时（信封未达）');
+    const frame = await sse.next();
+    if (frame !== undefined && predicate(frame)) return frame;
+  }
+}
+
+/**
+ * /v1/events 直播流泵（SDK 线面——Bearer + 协议版本头；hello → entries →
+ * replay-end 后入直播段；单消费者 next 语义与 openSse 同款——ping 注释行
+ * 天然跳过、超时帧留队不吞）。
+ */
+async function openV1Events(
+  port: number,
+  sessionId: string,
+  token: string,
+): Promise<{ next(timeoutMs?: number): Promise<V1Frame | undefined>; abort(): void }> {
+  const controller = new AbortController();
+  const res = await fetch(`http://127.0.0.1:${port}/v1/events?sessionId=${encodeURIComponent(sessionId)}`, {
+    headers: { authorization: `Bearer ${token}`, 'x-sdk-protocol': '1' },
+    signal: controller.signal,
+  });
+  expect(res.status).toBe(200);
+  expect(res.headers.get('content-type')).toContain('text/event-stream');
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  const queue: V1Frame[] = [];
+  let wake: (() => void) | undefined;
+  let buffer = '';
+  let done = false;
+  // 唤醒一次性（取走即清）：同 chunk 帧簇内僵尸 poll 不逐帧吞光队列（openSse 同注）
+  const nudge = (): void => {
+    const w = wake;
+    wake = undefined;
+    w?.();
+  };
+  void (async (): Promise<void> => {
+    try {
+      for (;;) {
+        const { value, done: finished } = await reader.read();
+        if (finished) break;
+        buffer += decoder.decode(value, { stream: true });
+        for (;;) {
+          const idx = buffer.indexOf('\n\n');
+          if (idx === -1) break;
+          const block = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const dataLine = block.split('\n').find((line) => line.startsWith('data: '));
+          if (dataLine === undefined) continue; // ping 注释行
+          queue.push(JSON.parse(dataLine.slice(6)) as V1Frame);
+          nudge();
+        }
+      }
+    } catch {
+      // abort 收线——泵终止
+    }
+    done = true;
+    nudge();
+  })();
+  return {
+    next: (timeoutMs = 500) =>
+      new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          wake = undefined;
+          resolve(undefined);
+        }, timeoutMs);
+        const poll = () => {
+          if (queue.length > 0) {
+            clearTimeout(timer);
+            wake = undefined;
+            resolve(queue.shift());
+            return;
+          }
+          if (done) {
+            clearTimeout(timer);
+            resolve(undefined);
+            return;
+          }
+          wake = poll;
+        };
+        poll();
+      }),
+    abort: () => controller.abort(),
+  };
 }
 
 /* ---------------- 桥单元（三窄面映射真身） ---------------- */
@@ -754,6 +854,46 @@ describe("18a-3' 三入口咬合：共用挂载段", () => {
     } finally {
       sse?.abort();
       await rt.shutdown(); // closer 内含 stop（detach + 面 stop）
+    }
+  });
+
+  it('开面即挂 face.backend：/v1/events 直播腿出 event 帧（第八轮深扫 C1——12f-2c 同族姊妹位漏挂修前红锁）', async () => {
+    // 修前红锚：openWebuiFace 只经 mountKit 挂 webui.backend（claim 桥），
+    // face.backend（SDK 线信封回流 + 审批腿）从未 addBackend——对照四装配位
+    // （daemon/mcp/serve-entry/tui）均显式挂，修前 serve/run 前台 --port 形
+    // /v1/events SSE 只出 hello/replay-end、直播零帧、ask 不达、decide 恒
+    // superseded。
+    const rt = createHostRuntime({ dataDir: rigDir('webui-v1live-data-') });
+    const { faux, stack } = rigStack(rt);
+    let opened: { port: number; token: string } | undefined;
+    await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      // mountKit 缺席（件禁用形）：face.backend 信封回流腿独立于 webui claim
+      // 桥 backend——裸面形把锁面隔离到 /v1/* 族（sdk 面本体恒在场）
+      disclose: () => undefined,
+      onOpen: (info) => {
+        opened = info;
+      },
+    });
+    let sse: { next(timeoutMs?: number): Promise<V1Frame | undefined>; abort(): void } | undefined;
+    try {
+      const sessionId = stack.manager.create().sessionId; // 真开驱动（订阅存在性先决）
+      // 直播流先开——hello → replay-end（订阅三步：快照→重放→界标）后入直播段
+      sse = await openV1Events(opened!.port, sessionId, opened!.token);
+      const mark = await untilV1Frame(sse, (f) => f.kind === 'replay-end');
+      expect(mark).toBeDefined();
+      faux.setResponses([() => messageOf()]);
+      void stack.submitText(sessionId, 'v1 直播帧贯通');
+      // 信封全链（SDK 线）：driver 事件 → conversation-stack onEvent →
+      // channels emit → face.backend.onEnvelope → 线核 pushEvent → SSE event 帧
+      //（修前 face.backend 不在 backends 册——emit 零观众，untilV1Frame 超时即红）
+      const live = await untilV1Frame(sse, (f) => f.kind === 'event');
+      expect(live.sessionId).toBe(sessionId);
+    } finally {
+      sse?.abort();
+      await rt.shutdown(); // closer 内含 stop
     }
   });
 

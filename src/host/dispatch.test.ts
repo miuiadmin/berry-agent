@@ -92,20 +92,37 @@ describe('dispatchCli 非 TTY 卫兵（TUI 入口单源谓词）', () => {
   });
 });
 
-describe('dispatchCli HELP_TEXT 旗标归属注（--no-plugins 入口归属勘正）', () => {
-  it('--no-plugins 行带归属括注：TUI / run / dump-config 收——serve/mcp 不透传', () => {
-    // 帮助文案是用户拼命令的第一真源：无归属注时照抄 `berry serve --no-plugins`
-    // 即用法错退 2（SERVE_SCHEMAS 不收、mcp 零旗标面）。锁归属注在文。
+describe('dispatchCli HELP_TEXT 旗标归属注（括注挂靠勘正——第八轮深扫 C3）', () => {
+  it('--no-plugins 独行归属括注：仅 TUI / run / dump-config 收——serve/mcp 传入即用法错退 2', () => {
+    // 帮助文案是用户拼命令的第一真源：照抄 `berry serve --no-plugins` 即
+    // 用法错退 2（SERVE_SCHEMAS 不收、mcp 零旗标面）。第八轮深扫勘正：修前
+    // 「TUI / run / dump-config 收——serve/mcp 不透传」括注误挂五旗标整行
+    // （bf8989f 本意只对 --no-plugins 为真），收窄独行防 --debug/--port 误读。
     const line = HELP_TEXT.split('\n').find((l) => l.includes('--no-plugins'));
     expect(line).toBeDefined();
     expect(line).toContain('TUI / run / dump-config');
-    expect(line).toContain('serve/mcp 不透传');
+    expect(line).toContain('serve/mcp 传入即用法错退 2');
+  });
+
+  it('四旗标行归属括注：TUI / run / serve / dump-config 收；mcp 零旗标面——不再挂「不透传」', () => {
+    // serve 前台实收且消费 --debug/--port（07 §5 旗标表现句）——修前整行
+    // 「serve/mcp 不透传」对四旗标中两位是假话，随 C3 收窄翻新
+    const line = HELP_TEXT.split('\n').find((l) => l.includes('--debug'));
+    expect(line).toBeDefined();
+    expect(line).toContain('TUI / run / serve / dump-config 收');
+    expect(line).toContain('mcp 零旗标面');
+    expect(line).not.toContain('不透传');
   });
 
   it('归属注与解析真源对拍为真：serve / mcp 传 --no-plugins 确为用法错', () => {
     // 注非虚文——解析面两入口确不收该旗标（未识别 → !ok → 分派层退 2）
     expect(parseCli(['serve', '--no-plugins']).ok).toBe(false);
     expect(parseCli(['mcp', '--no-plugins']).ok).toBe(false);
+  });
+
+  it('四旗标行对拍为真：serve 前台实收 --debug/--port（07 §5 serve 同收句）', () => {
+    expect(parseCli(['serve', '--debug']).ok).toBe(true);
+    expect(parseCli(['serve', '--port', '8080']).ok).toBe(true);
   });
 });
 

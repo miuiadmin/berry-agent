@@ -364,7 +364,7 @@ describe('spawnDaemonServe（spawner 编舞——注入面）', () => {
     expect(lines[0]).toContain('BERRY_AGENT_SDK_TOKEN');
   });
 
-  it('正常拉起：argv 原样传旗标 + env CHILD 标记；pid 登记现即退 0', async () => {
+  it('正常拉起：argv 传 daemon 形实消费旗标（--debug 不转发）+ env CHILD 标记；pid 登记现即退 0', async () => {
     const fs = memFs();
     const paths = daemonPaths('/data');
     const spawns: Array<{
@@ -374,6 +374,9 @@ describe('spawnDaemonServe（spawner 编舞——注入面）', () => {
     }> = [];
     let clock = 0;
     const code = await spawnDaemonServe({
+      // debug: true 是防御锚：parseServe 已 --daemon × --debug 互斥拒收（产
+      // 线不可达态），此处故意注入锁「即便到达 spawner 也不转发」——child
+      // 恒 env-only 零旗标面（第八轮深扫 C2 随迁：修前 '--debug' 在 argv）
       flags: { daemon: true, noDelta: true, sdkPort: 8080, debug: true },
       dataDir: '/data',
       env: baseEnv,
@@ -396,7 +399,9 @@ describe('spawnDaemonServe（spawner 编舞——注入面）', () => {
     expect(code).toBe(0);
     expect(spawns).toHaveLength(1);
     expect(spawns[0]!.cmd).toBe('node-bin');
-    expect(spawns[0]!.args).toEqual(['main.js', 'serve', '--daemon', '--sdk-port', '8080', '--no-delta', '--debug']);
+    // --debug 不在 argv（env-only 对称封口——第八轮深扫 C2 随迁断言）
+    expect(spawns[0]!.args).toEqual(['main.js', 'serve', '--daemon', '--sdk-port', '8080', '--no-delta']);
+    expect(spawns[0]!.args).not.toContain('--debug');
     expect(spawns[0]!.opts.env[DAEMON_CHILD_ENV]).toBe('1'); // 防递归标记
     expect(spawns[0]!.opts.env.PATH).toBe('/usr/bin'); // 原 env 透传
     expect(spawns[0]!.opts.logPath).toBe(paths.logPath); // stderr 重定向位
