@@ -335,6 +335,160 @@ describe('messageShapeGate 消息形状闸（词汇闸形状半句——05 §5.1
       expect(() => runImportGates(good)).not.toThrow();
     });
   });
+
+  describe('形状闸射界再扩三位（05 §5.1 第十一轮深扫补笔——assistant 块元素 / tool call arguments / tool result content）', () => {
+    // 修前三形坏形全过四闸（词汇闸只认 type 注册面、形状闸射界不含此三位——
+    // assistant 只查「是数组」、tool/call 只查 data 对象+name 字符串、tool/result
+    // 只查 data 对象），导入成功后导出面 renderSessionMarkdown 裸 TypeError：
+    // ① assistant text 块 sanitizeBodyText(block.text) 的 .replace 位；
+    // ② tool/call 工具卡简行 foldLine(call.arguments, 160) 字符串方法位
+    //   （session-export.ts:123——修前闸 JSDoc「其余键判形不预铺」半句为错误
+    //   事实锚，随批勘正）；
+    // ③ tool/result textOf(message.output) 的遍历位（session-export.ts:131）。
+    // 错误现场远离导入位难归因——拦截钉回导入位（红锚 = 闸位断言形）。
+
+    it('① assistant/message 块元素细校：元素非对象 / type 非字符串 / text 块 text 非字符串拒（修前只查「是数组」→ 过全闸放行，导出面按块分派与 .replace 位裸 TypeError）', () => {
+      // 全文件红锚：text 块 text=42 修前过四闸——导出面 sanitizeBodyText(42).replace 裸 TypeError
+      const bad = [
+        JSON.stringify({ format: 'berry-agent/session', version: 1 }),
+        line(0, 'turn/start'),
+        line(1, 'user/message', { content: 'hi' }),
+        line(2, 'assistant/message', { content: [{ type: 'text', text: 42 }] }),
+        line(3, 'turn/end', { reason: 'completed' }),
+      ].join('\n');
+      try {
+        runImportGates(bad);
+        expect.unreachable('未拒绝');
+      } catch (err) {
+        expect(err).toBeInstanceOf(BaseError);
+        expect((err as BaseError).code).toBe('SESSION_IMPORT_BAD_FORMAT');
+        expect((err as BaseError).message).toContain('seq#2');
+        expect((err as BaseError).message).toContain('assistant/message');
+      }
+      // 直闸单元变体：块元素非对象（数字/null）、块对象但 type 缺席/非字符串
+      // ——判粒度对齐 user/message 既有同判
+      expectCode(
+        () => messageShapeGate([{ type: 'assistant/message', seq: 0, time: 1, data: { content: [42] } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () => messageShapeGate([{ type: 'assistant/message', seq: 0, time: 1, data: { content: [null] } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () => messageShapeGate([{ type: 'assistant/message', seq: 0, time: 1, data: { content: [{ text: 'x' }] } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () =>
+          messageShapeGate([
+            { type: 'assistant/message', seq: 0, time: 1, data: { content: [{ type: 7, text: 'x' }] } },
+          ]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+    });
+
+    it('② tool/call data.arguments 须字符串：数字/null/缺席拒（修前零校验过全闸——导出面 foldLine(call.arguments) 即字符串方法消费位，session-export.ts:123）', () => {
+      // 全文件红锚：arguments=42 修前过四闸（data 对象 + name 字符串即放行）
+      const bad = [
+        JSON.stringify({ format: 'berry-agent/session', version: 1 }),
+        line(0, 'turn/start'),
+        line(1, 'user/message', { content: 'hi' }),
+        line(2, 'assistant/message', { content: [{ type: 'text', text: 'yo' }] }),
+        line(3, 'tool/call', { toolCallId: 'c1', name: 'fs_read', arguments: 42 }),
+        line(4, 'turn/end', { reason: 'completed' }),
+      ].join('\n');
+      try {
+        runImportGates(bad);
+        expect.unreachable('未拒绝');
+      } catch (err) {
+        expect(err).toBeInstanceOf(BaseError);
+        expect((err as BaseError).code).toBe('SESSION_IMPORT_BAD_FORMAT');
+        expect((err as BaseError).message).toContain('seq#3');
+        expect((err as BaseError).message).toContain('tool/call');
+      }
+      // 直闸单元变体：null / 缺席（契约必填键——缺席同坏形）
+      expectCode(
+        () =>
+          messageShapeGate([
+            { type: 'tool/call', seq: 0, time: 1, data: { toolCallId: 'c1', name: 't', arguments: null } },
+          ]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () => messageShapeGate([{ type: 'tool/call', seq: 0, time: 1, data: { toolCallId: 'c1', name: 't' } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+    });
+
+    it('③ tool/result data.content 须字符串或块数组：数字/null/缺席拒 + 块数组元素坏形拒（修前零校验过全闸——导出面 textOf 遍历位裸 TypeError）', () => {
+      // 全文件红锚：content=42 修前过四闸——导出面 textOf 对非字符串非数组遍历位裸 TypeError
+      const bad = [
+        JSON.stringify({ format: 'berry-agent/session', version: 1 }),
+        line(0, 'turn/start'),
+        line(1, 'tool/call', { toolCallId: 'c1', name: 'fs_read', arguments: '{}' }),
+        line(2, 'tool/result', { toolCallId: 'c1', content: 42 }),
+        line(3, 'turn/end', { reason: 'completed' }),
+      ].join('\n');
+      try {
+        runImportGates(bad);
+        expect.unreachable('未拒绝');
+      } catch (err) {
+        expect(err).toBeInstanceOf(BaseError);
+        expect((err as BaseError).code).toBe('SESSION_IMPORT_BAD_FORMAT');
+        expect((err as BaseError).message).toContain('seq#2');
+        expect((err as BaseError).message).toContain('tool/result');
+      }
+      // 直闸单元变体：content 缺席/null（契约必填键）、块数组元素坏形
+      // （元素非对象 / text 块 text 非字符串——粒度随导出面 textOf 实读）
+      expectCode(
+        () => messageShapeGate([{ type: 'tool/result', seq: 0, time: 1, data: { toolCallId: 'c1' } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () => messageShapeGate([{ type: 'tool/result', seq: 0, time: 1, data: { toolCallId: 'c1', content: null } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () =>
+          messageShapeGate([
+            { type: 'tool/result', seq: 0, time: 1, data: { toolCallId: 'c1', content: [{ type: 'text', text: 42 }] } },
+          ]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+      expectCode(
+        () => messageShapeGate([{ type: 'tool/result', seq: 0, time: 1, data: { toolCallId: 'c1', content: [42] } }]),
+        'SESSION_IMPORT_BAD_FORMAT',
+      );
+    });
+
+    it('对照组：三位合法形照常过全闸零误伤（assistant thinking 块 / tool/call arguments 空串与 JSON 串 / tool/result content 两契约形）', () => {
+      const good = [
+        JSON.stringify({ format: 'berry-agent/session', version: 1 }),
+        line(0, 'turn/start'),
+        line(1, 'user/message', { content: '帮我查天气' }),
+        line(2, 'assistant/message', {
+          content: [
+            { type: 'thinking', thinking: '先查再答' },
+            { type: 'text', text: '这就去查' },
+          ],
+        }),
+        line(3, 'tool/call', { toolCallId: 'c1', name: 'fs_read', arguments: '' }),
+        line(4, 'tool/result', { toolCallId: 'c1', content: [{ type: 'text', text: '文件内容' }], error: false }),
+        line(5, 'turn/end', { reason: 'completed' }),
+      ].join('\n');
+      expect(() => runImportGates(good)).not.toThrow();
+      // tool/result content 纯字符串契约形（恢复合成 closer 同形——content 为串）
+      const goodStringContent = [
+        JSON.stringify({ format: 'berry-agent/session', version: 1 }),
+        line(0, 'turn/start'),
+        line(1, 'tool/call', { toolCallId: 'c1', name: 'fs_read', arguments: '{"path":"a.txt"}' }),
+        line(2, 'tool/result', { toolCallId: 'c1', content: 'ok: session recovered before completion', error: true }),
+        line(3, 'turn/end', { reason: 'completed' }),
+      ].join('\n');
+      expect(() => runImportGates(goodStringContent)).not.toThrow();
+    });
+  });
 });
 
 describe('SessionSpawnLimiter 洪水闸', () => {
