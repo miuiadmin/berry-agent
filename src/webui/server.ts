@@ -306,9 +306,9 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     },
     askApproval: (sessionId: string, request, opts) =>
       new Promise<ApprovalAskAnswer>((resolve) => {
-        // 进程作用域语义（定形注④）：不采无连接即时 cancel——开面在场即持
-        // 应答能力，浏览器迟到也可应答；纯 webui 无浏览器时 ask 挂起至
-        // run 打断/会话收口（核保守值兜底）。
+        // 进程作用域语义（定形注④）：不采无连接即时落值（cancel/unavailable
+        // 皆不采）——开面在场即持应答能力，浏览器迟到也可应答；纯 webui 无
+        // 浏览器时 ask 挂起至 run 打断/会话收口（核保守值兜底）。
         const approvalId = request.approvalId ?? `webui-${++askSeq}`;
         const entry: PendingApproval = {
           sessionId,

@@ -9,8 +9,10 @@
  *
  * CLI 零旗标面（07 §5：`mcp` 不收 --debug 等——MCP stdio 面不落日志噪音）；
  * stdout = 协议线（一行一 JSON-RPC），诊断走 stderr。审批 v1 无应答通道
- * （工具面不含 decide）：ask 无订阅者 fail-closed cancel——04 §9 headless
- * 律不豁免（03 §10.6 批 13f 落码定形）。
+ * （工具面不含 decide）：ask 无订阅者 fail-closed unavailable（连接收口
+ * 语义——2026-09-13 edf2e83 起 cancel 与 unavailable 分立：通道消失=
+ * unavailable、用户主动打断=cancel）——04 §9 headless 律不豁免（03 §10.6
+ * 批 13f 落码定形）。
  */
 import type { Readable, Writable } from 'node:stream';
 import { stdin, stdout, stderr } from 'node:process';
