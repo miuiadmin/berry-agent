@@ -11,6 +11,9 @@
  *   唯一渲染源」的物理形）；流式槽原位换装是视口内唯一差分。序列化单源走
  *   renderBlockLines（批 10f-4 提取——件 8 回看器全量档复用同一渲染管线，
  *   零第二渲染器）。
+ * - **空态引导**（07 §4.1 空转写态注 2026-10-05）：零块态在 durable 末起笔
+ *   画引导行集（E' 段——纯状态位 setEmptyGuide + 签名差分）；引导不入
+ *   durable 账、占位行并入余行清除上界（首块/槽/瞬时行到达零滞退场）。
  *
  * 编舞状态模型：**绝对行跟踪**。件内维护光标绝对行 cursorRow 与 durable
  * 末行 durableEndRow（= 下一条追加的落笔行 = 流式槽首行），每次写行经
@@ -90,6 +93,19 @@ export class MainScreen {
   private fixedGrid: CellGrid | null = null;
   /** 固定区上次呈现网格（行级差分基准；null = 全量重画） */
   private prevFixed: CellGrid | null = null;
+  /**
+   * 空态引导行集（07 §4.1 空转写态注 2026-10-05）：null = 不呈。纯状态位
+   *（setEmptyGuide 零写出）——呈现归 present E' 段按签名差分落画；引导行
+   * 不入 durable 账（durableEndRow 不因引导推进），占位行经 guideRows 并入
+   * 余行清除上界（D 段/瞬时行路同尺——首块到达零滞退场）。
+   */
+  private emptyGuide: readonly string[] | null = null;
+  /** 空态引导已直写行数（余行清除上界并账——与 slotLineCount 同族） */
+  private guideRows = 0;
+  /** 空态引导已直写签名（行集拼接——同签名同几何短路零重画，防稳态帧闪烁） */
+  private guideSig = '';
+  /** 空态引导已直写列宽（resize 后同签名仍失效重画的判据） */
+  private guideColumns = -1;
 
   constructor(io: TerminalIO, options: MainScreenOptions) {
     this.io = io;
@@ -124,8 +140,29 @@ export class MainScreen {
     const last = blocks.length > 0 ? blocks[blocks.length - 1]! : null;
     const slot = last !== null && last.kind === 'streaming' ? last : null;
     const durableCount = slot === null ? blocks.length : blocks.length - 1;
-    // 余行清除上界：上次呈现的槽末行（= durable 末 + 槽行数 - 1——本帧前的账）
-    const prevBottomRow = Math.min(this.rows - this.fixedHeight - 1, this.durableEndRow + this.slotLineCount - 1);
+    // 余行清除上界：上次呈现的槽末行（= durable 末 + 槽行数 - 1——本帧前的账）；
+    // 空态引导占位行并账（07 §4.1 空转写态注——guideRows 与槽行数同尺取大：
+    // 引导尾行也是「上次呈现的物理末行」，漏并即首块/槽到达后引导尾行残屏）
+    const prevBottomRow = Math.min(
+      this.rows - this.fixedHeight - 1,
+      this.durableEndRow + Math.max(this.slotLineCount, this.guideRows) - 1,
+    );
+    // E'. 空态引导稳态短路（07 §4.1 空转写态注）：零块无槽且引导已按当前行集
+    // 与几何直写（签名 + 列宽双对账）——内容区已正确，B/C/D/E' 全免零写出
+    //（稳态每帧 present 空转防线），只归位固定区。签名失配（状态翻转/几何
+    // 变化）落正常编舞重画
+    const guide = this.emptyGuide;
+    const guideDue = guide !== null && slot === null && durableCount === 0 && blocksOffset === 0;
+    if (
+      guideDue &&
+      this.guideRows === guide.length &&
+      this.guideSig === guide.join('\n') &&
+      this.guideColumns === this.columns
+    ) {
+      this.redrawFixed();
+      this.slotLineCount = 0;
+      return;
+    }
 
     // 光标归 durable 末（B/C 共同起点——无新增块时 C 段也从这里起笔）
     this.gotoRow(this.durableEndRow);
@@ -220,8 +257,52 @@ export class MainScreen {
     }
 
     // E. 固定区差分重画 + 光标归位（呈现不变式）
+    // E'. 空态引导呈现（07 §4.1 空转写态注 2026-10-05）：零块无槽态在 durable
+    // 末（零块 = 内容区顶）起笔画引导；非呈态清账（guideRows 已并入 D 段
+    // 清除上界——引导尾行随首块/槽到达 EL 清零滞退场）
+    if (guideDue) {
+      this.drawEmptyGuide();
+    } else {
+      this.guideRows = 0;
+      this.guideSig = '';
+    }
     this.redrawFixed();
     this.slotLineCount = slot === null ? 0 : Math.max(0, slotTotal - this.frozenSlotLines);
+  }
+
+  /**
+   * 空态引导直写（present E' 段主体）：durable 末起笔逐行写（纯文本行集
+   * ——字形与文案归装配层 EMPTY_GUIDE_LINES 单源）；滚动区容不下全组行
+   * （极小终端）诚实缺席零画出；写后记账（行数/签名/列宽——稳态短路判据）。
+   * durableEndRow 不动（引导非 durable 内容——瞬时行/首块落位自然覆写）。
+   */
+  private drawEmptyGuide(): void {
+    const lines = this.emptyGuide;
+    if (lines === null) return;
+    if (lines.length > this.rows - this.fixedHeight) {
+      // 极小终端诚实缺席：截半字形无意义——零画出零占账（guideSig 记当前签
+      // 名防稳态帧反复试探重画；行账 0 = 不占清除上界）
+      this.guideRows = 0;
+      this.guideSig = lines.join('\n');
+      this.guideColumns = this.columns;
+      return;
+    }
+    this.gotoRow(this.durableEndRow);
+    for (const line of lines) {
+      this.writeLine(line);
+    }
+    this.guideRows = lines.length;
+    this.guideSig = lines.join('\n');
+    this.guideColumns = this.columns;
+  }
+
+  /**
+   * 空态引导状态更新（07 §4.1 空转写态注）：纯状态位零写出——呈现归
+   * present/appendTransient 编舞路按签名差分收敛（调用方 TuiBackend.
+   * syncEmptyGuide 门控单源）。
+   */
+  setEmptyGuide(lines: readonly string[] | null): void {
+    this.emptyGuide = lines === null ? null : [...lines];
   }
 
   /** 本帧槽写出字节数（冻结 + 换装合计——装配层字节帽判据） */
@@ -242,9 +323,18 @@ export class MainScreen {
     }
     this.durableEndRow = this.cursorRow;
     const fixedTop = this.rows - this.fixedHeight;
-    const clearEnd = Math.min(fixedTop - 1, this.durableEndRow + this.slotLineCount - 1);
+    // 余行清除上界并账空态引导（07 §4.1 空转写态注）：瞬时行占位后引导旧位
+    // 行（含未被覆写的尾行）一并 EL 清，随后按新 durable 末重画引导（零块
+    // 态引导恒随内容底重定位——瞬时行是过客不入块集，durable 末已推进）
+    const clearEnd = Math.min(fixedTop - 1, this.durableEndRow + Math.max(this.slotLineCount, this.guideRows) - 1);
     for (let row = this.cursorRow; row <= clearEnd; row++) {
       this.io.write((row > this.cursorRow ? cud(1) : '') + CR + EL_TO_EOL);
+    }
+    if (this.emptyGuide !== null) {
+      this.drawEmptyGuide(); // 引导重归位（新 durable 末——签名失配重画）
+    } else {
+      this.guideRows = 0;
+      this.guideSig = '';
     }
     this.redrawFixed();
   }
@@ -268,6 +358,14 @@ export class MainScreen {
       this.prevFixed = null; // 高度变化——差分基准失效全量重画；durable 末行按区底钳
       this.durableEndRow = Math.min(this.durableEndRow, this.rows - this.fixedHeight - 1);
       this.slotLineCount = 0;
+      // 空态引导账随几何重推（07 §4.1 空转写态注）：引导底行仍在新区内 = 屏上
+      // 原位仍有效（固定区只覆写自身行——账保持，防「账清零 + 屏上残画」分叉
+      // 漏清残行）；底行越入固定区（durable 末被钳或区缩）= 固定区全量重画已
+      // 覆写该行——账清零（下帧 present 按态重画于新位）
+      if (this.durableEndRow + this.guideRows - 1 > this.rows - this.fixedHeight - 1) {
+        this.guideRows = 0;
+        this.guideSig = '';
+      }
     }
     this.fixedGrid = grid;
     this.redrawFixed();
@@ -283,6 +381,8 @@ export class MainScreen {
     this.frozenSlotLines = 0;
     this.slotEpoch = null;
     this.durableEndRow = 0;
+    this.guideRows = 0; // 空态引导账随清屏失效（emptyGuide 态位存续——present 按态重画）
+    this.guideSig = '';
     this.prevFixed = null; // 差分基准随清屏失效（2026-09-17 收官批）：清屏抹掉屏上固定区而模型 grid 不变——基准不失效则同值 diff 零写出、屏恒空白（tmux e2e 抓获启动抹屏形：会话注册即 repaint 空 transcript + 调用方 renderFixed 同值 grid 再 diff；resize 同高度形同洞）
     this.io.write(CLEAR_SCREEN);
     this.applyScrollRegion();

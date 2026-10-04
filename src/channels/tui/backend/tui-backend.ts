@@ -346,6 +346,21 @@ const QUIT_CONFIRM_WINDOW_MS = 2000;
 /** footer 教学提示闲态文案（V-3 注⑦④——`?` 键投影与 footer 提示同文单源） */
 const FOOTER_HINT_TEXT = '? 快捷键';
 /**
+ * footer 教学提示忙态文案（07 §4.1 教学位扩双态注 2026-10-05）：忙态空稿
+ * （应答进行中输入仍可用）——Enter 追加本轮 / Alt+Enter 排队后继 run 的
+ * 键位教学，与闲态文案同位（footer 行 2 教学位）分态呈现。`?` 教学键仍
+ * 闲态专属（忙态 `?` 落编辑器是字符——提示面与键位实况对齐，键位门控
+ * 不随本批扩忙态）。
+ */
+const FOOTER_HINT_BUSY_TEXT = '回复进行中——输入仍可用：Enter 追加 / Alt+Enter 排队后继';
+/**
+ * 主屏空态引导行集（07 §4.1 空转写态注 2026-10-05）：零块空稿态转录区引
+ * 导——logo 字形随启动动画字形语系（纯文本零 CSI）+ 提示行。与 ob-2 启动
+ * 引导面板分职（彼系零凭证 boot 期一次性 cooked 窗，此系就绪后空会话常
+ * 态）；呈现归 MainScreen E' 段编舞（本件只持文案与门控）。
+ */
+const EMPTY_GUIDE_LINES: readonly string[] = ['   _', '  (_)', ' berry-agent', '', ' 输入消息开始对话——? 查看快捷键'];
+/**
  * 模型全形 → 短名（V-4 注⑪②——行1 模型槽）：id 尾段（`zai/glm-4.7` →
  * `glm-4.7`；裸 id 自返）。全形呈现归 /status 副屏——footer 只持短名。
  */
@@ -769,10 +784,37 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private speedSuppressed = false;
   /**
-   * 教学提示门控位（V-3 注⑦②——`? 快捷键` 空稿闲态呈现）：syncFooterHint
+   * 教学提示门控三态位（V-3 注⑦② + 07 §4.1 教学位扩双态注 2026-10-05）：
+   * 'off' 非空稿或应答窗；'idle' 空稿闲态（`? 快捷键`）；'busy' 空稿忙态
+   * （「输入仍可用」教学——忙态恰是空稿可输入的教学窗）。syncFooterHint
    * 翻转才重建（缓存短路——编辑器每键消费后/agent 起停锚对账，未翻转零重画）。
    */
-  private footerHintOn = false;
+  private footerHint: 'off' | 'idle' | 'busy' = 'off';
+  /**
+   * 空态引导门控位（07 §4.1 空转写态注 2026-10-05）：零块（快照空 + 无裁块
+   * 前史）× 空稿 × 闲态 × 非等回声窗 → 主屏转录区呈引导；syncEmptyGuide
+   * 翻转才推屏（缓存短路零重画——与 footerHint 同形单源对账模式）。
+   */
+  private emptyGuideOn = false;
+  /**
+   * 等回声抑制位（空态引导闪现防线——07 §4.1 空转写态注落码定值）：提交清
+   * 稿瞬间块集仍零，用户块回声信封（host 契约必达）到达前引导会闪现一帧；
+   * 提交键在编辑器清稿**前**置位（routeEvent 层④尾——清稿 change 先于
+   * onSubmit 到达，事后置位拦不住），回声落地（块集非零）或再键入（非空
+   * 稿）复位。'/' 起草稿走命令族（无用户块回声）不置位——命令清稿后引导
+   * 复现是正确终态。
+   */
+  private awaitingEcho = false;
+  /**
+   * 瞬时行落地门（空态引导第四门——07 §4.1 空转写态注落码定值）：任何瞬时行
+   * （notify / 任务收条 / 摘要行——当场档与保全档同律）在零块态落屏即收引导
+   * 不沉底追画——瞬时行推进 durable 末，引导逐次随底重画即逐次下潜、触区底
+   * 即滚（durable 账漂移族——多行 notify 回执不漂账锁抓获形）。权威清点
+   * （onRepaint/handleResize）重置为清点量：rescued 空 = 重建后转录区纯净，
+   * 引导按门复现。置位锚 = flush 瞬时 op 直写位 + appendTransientCapped
+   * （重放/排空共通收口路——replayTransients 全系经此）。
+   */
+  private transientLanded = false;
   /**
    * footer 门控位（挂载解挂批 2026-09-15 显式化）：footer 选项注入在场才开
    * 常驻段——注入缺席 = 状态行旧形零扰动。
@@ -853,7 +895,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       // 经 viewer options 同册注入
       keymap: this.keymap,
     });
-    // 教学提示首画锚（V-3 注⑦②）：构造期空稿闲态即期翻转 footerHintOn
+    // 教学提示首画锚（V-3 注⑦②）：构造期空稿闲态即期翻转 footerHint
     //（refreshFooter 先行走 hint-off 基线——editor 就位后此处收敛真态）
     this.syncFooterHint();
     // 补全三件（R6 批 10j 异步形）：provider 路由单源 → 弹层纯落位面 → 防抖
@@ -912,6 +954,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
     this.stack.onChange = () => this.touchFixed();
     this.screen = new MainScreen(io, { fixedHeight: 4 }); // 初始高：编辑器 3 + 状态行 1（动态更新经 setFixed）
+    // 空态引导置态锚（07 §4.1 空转写态注 2026-10-05）：构造期零块空稿即置
+    // 态入队（screen 就位后——起屏首画随 start 驱达；requestRender 未启
+    // no-op，op 在队候 flush）
+    this.syncEmptyGuide();
     // 副屏宿主（构造放 constructor 尾——io 与注入面已赋值；引擎选项与主屏同源：
     // 假钟 / 帧帽 / lone-ESC 窗直通，调度无注入时给同步直出包装——副屏首帧
     // 确定性与 lone-ESC 即决同主屏测试语义）
@@ -966,6 +1012,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 显式放流（共享 io 换防接缝——副屏 Engine 复用同 io 场景；首启 no-op）
     this.io.resume();
     this.screen.start();
+    // 空态引导首画锚（07 §4.1 空转写态注 2026-10-05）：构造期已置态（syncEmptyGuide
+    // 入队 present op），起屏清屏后驱动 flush 落画（同步直出档立即；注入调度档随
+    // 首帧——repaint 权威重建路随后覆盖同态）
+    if (this.emptyGuideOn) {
+      this.enqueuePresent();
+      this.requestRender();
+    }
     this.renderFixed();
     this.unsubResize = this.io.onResize(() => this.handleResize());
     if (this.scheduleFn !== null) this.armTick();
@@ -1341,6 +1394,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onSelect: (index) => {
           const invocation = invokeAt(index);
           this.editor.setText(invocation); // 回填调用形（不提交——提交路归用户 enter）
+          this.syncEmptyGuide(); // 空态引导对账（setText 旁路——回填非空稿引导即收）
           this.touchFixed();
         },
         sessionId: this.sessionId,
@@ -1867,7 +1921,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.statusLine.setFooter({
       instruments: () => this.instrumentSlots(),
       env: () => this.envSlots(),
-      hint: this.footerHintOn ? FOOTER_HINT_TEXT : '',
+      // 教学位双态文案（07 §4.1 教学位扩双态注 2026-10-05）：闲态 `? 快捷键`
+      // / 忙态「输入仍可用」——off 空串
+      hint: this.footerHint === 'idle' ? FOOTER_HINT_TEXT : this.footerHint === 'busy' ? FOOTER_HINT_BUSY_TEXT : '',
       modeDanger: this.footerModeDanger,
     });
     this.touchFixed();
@@ -1966,19 +2022,69 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 教学提示门控对账（V-3 注⑦②——空稿闲态呈现 `? 快捷键`）：期望态翻转
-   * 才重建（缓存短路——编辑器每键消费后/agent 起停锚高频对账零重画）。
-   * 期望态 = 空稿且闲态（overlay 在场性不入判——浮层收屏后随下一键对账；
-   * 第二例外注记：inputAsk 在场同不入判——应答窗内编辑器空稿且闲态，但
-   * `?` 按 routeEvent 层门控是应答稿字符非帮助捷键，判式漏 inputAsk 半则
-   * footer 示假键位——提示面与键位实况对齐，2026-10-04 并入）。
+   * 教学提示门控对账（V-3 注⑦② + 07 §4.1 教学位扩双态注 2026-10-05）：
+   * 期望态翻转才重建（缓存短路——编辑器每键消费后/agent 起停锚高频对账零
+   * 重画）。三态收敛：非空稿或应答窗（inputAsk）恒 off——应答窗 Enter 是
+   * 收窗非提交，两态文案皆示假键位（overlay 在场性不入判——浮层收屏后随
+   * 下一键对账）；余按忙闲分态：闲态 `? 快捷键`（`?` 键教学投影）、忙态
+   * 「输入仍可用」（忙态恰是空稿可输入的教学窗——Enter 追加/Alt+Enter
+   * 排队键位实况）。
    */
   private syncFooterHint(): void {
     if (!this.footerEnabled) return;
-    const on = this.editor.model.isEmpty() && !this.progressBusy && this.inputAsk === null;
-    if (on === this.footerHintOn) return;
-    this.footerHintOn = on;
+    let next: 'off' | 'idle' | 'busy';
+    if (!this.editor.model.isEmpty() || this.inputAsk !== null) next = 'off';
+    else if (this.progressBusy) next = 'busy';
+    else next = 'idle';
+    if (next === this.footerHint) return;
+    this.footerHint = next;
     this.rebuildFooter();
+  }
+
+  /**
+   * 空态引导门控对账（07 §4.1 空转写态注 2026-10-05）：零块（快照空且无
+   * 裁块前史——trimmed 计数非零即曾有块，非「空会话」语义）× 空稿 × 闲态
+   * × 非等回声窗 × 无瞬时行落地 → 主屏转录区空态引导；任一破即收。翻转才
+   * 推屏（缓存短路）：状态置 MainScreen.setEmptyGuide（纯状态零写出）+
+   * present 入队（E' 段编舞收敛——首块到达 D 段并账 EL 清零滞退场）。锚位 =
+   * 构造期/ start 首画 / onEnvelope（块集与忙闲翻转源之后）/ onRepaint 与
+   * handleResize（权威清点——瞬时行清点量重置第四门后、全量重画前）/
+   * handleEditorChange（稿件翻转）/ ctrl+d 清稿与 /skills 回填两 setText
+   * 旁路位。瞬时行落地路的收引导不走本对账（retireEmptyGuideAtLanding
+   * ——appendTransient 自身以旧 guideRows 并账清尾，零额外帧）。
+   */
+  private syncEmptyGuide(): void {
+    const on =
+      this.editor.model.isEmpty() &&
+      this.transcript.snapshot.length === 0 &&
+      this.transcript.trimmedBlockCount === 0 &&
+      !this.awaitingEcho &&
+      !this.progressBusy &&
+      !this.transientLanded;
+    if (on === this.emptyGuideOn) return;
+    this.emptyGuideOn = on;
+    this.screen.setEmptyGuide(on ? EMPTY_GUIDE_LINES : null);
+    this.enqueuePresent();
+    this.requestRender();
+  }
+
+  /**
+   * 瞬时行落地即收空态引导（第四门置位 + 无帧翻转——flush 直写位与
+   * appendTransientCapped 收口路的前置调用）：先置 MainScreen 状态 null 再
+   * 进 appendTransient——其余行清除上界仍以旧 guideRows 并账（引导尾行随
+   * 瞬时行 EL 清），随后走「无引导」支清账；不 enqueue present（清尾由
+   * appendTransient 本帧完成，追加帧只产空转重画噪声）。
+   */
+  private retireEmptyGuideAtLanding(): void {
+    this.transientLanded = true;
+    if (!this.emptyGuideOn) return;
+    this.emptyGuideOn = false;
+    this.screen.setEmptyGuide(null);
+  }
+
+  /** 等回声复位（块集非零 = 用户块回声已落——onEnvelope/onRepaint 两锚共用） */
+  private settleAwaitingEcho(): void {
+    if (this.awaitingEcho && this.transcript.snapshot.length > 0) this.awaitingEcho = false;
   }
 
   /**
@@ -2006,10 +2112,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 活体信封呈现：渲染归约 + 聚焦态状态面消费（非聚焦摘要行瀑布已退役——07 §4.1 V-0 注①） */
   onEnvelope(env: SessionEnvelope, focused: boolean): void {
     this.transcript.applyEvent(env, focused);
+    this.settleAwaitingEcho(); // 等回声复位（用户块回声落地——空态引导闪现防线解锭）
     this.enqueuePresent();
     this.requestRender();
     this.trackProgress(env); // 件 7：按会话净计数（终端级注意力——任一会话在飞即忙）
     if (focused) this.applyFocusedEvent(env.event);
+    this.syncEmptyGuide(); // 空态引导对账（块集/忙闲两翻转源之后——本帧驱动收敛）
   }
 
   /** 重画呈现：投影重建行集 + 清屏全量重写（widget 槽值不支撑——忽略） */
@@ -2020,6 +2128,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.refreshTodo(); // 件 4：todo 源锚新焦（refreshTodo 三时点之外的本位）
     // 模型半场照常（repaint 是新真相——挂起期也不丢投影：复起全帧重画携带）
     this.transcript.loadProjection(projection);
+    this.settleAwaitingEcho(); // 等回声复位（投影非零即回声已落——切焦清账同律）
     this.resetUsage(); // 件 6：清行并归零（切焦清账重计——尾注射界）
     // 全域清扫 G2：repaint 清账面连清转轮与工具名——旧焦 run 的 agent_end 以
     // 非聚焦态到达不触 applyFocusedEvent 的停帧（修前转轮/旧工具名跨会话永久
@@ -2042,6 +2151,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 抢救合并窗内未落帧瞬时行（第五役 S1-a——suspendMain 挂起转账律的对称
     // 面：裸清会永失竞窗内 notify 行，不入 scrollback 不复显）
     const rescued = this.collectAllTransients();
+    // 空态引导第四门随权威清点重置（07 §4.1 空转写态注）：rescued 全量即将
+    // 重放落地——清点空 = 重建后转录区纯净（引导按门复现）；对账随后、
+    // repaint 全量重画前（present 编舞按态落画/清账；挂起闸支翻转的
+    // present op 入队即弃——suspendMain/resumeMain/复起 handleResize 前恒清队）
+    this.transientLanded = rescued.length > 0;
+    this.syncEmptyGuide();
     this.pendingOps = [];
     this.needFixed = false;
     if (this.suspendedMain) {
@@ -2108,6 +2223,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 后补吐走 replayTransients 现宽收口（抢救行可能是 resize 前旧宽折行产物
     //——新几何逐行重截，保账优先截宽非丢行）
     const rescued = this.collectAllTransients();
+    // 空态引导第四门随权威清点重置 + 对账（07 §4.1 空转写态注——序同
+    // onRepaint）：清点后、几何重取全量重画前（引导按新态新几何落画）
+    this.transientLanded = rescued.length > 0;
+    this.syncEmptyGuide();
     this.pendingOps = [];
     this.needFixed = false;
     this.screen.handleResize(this.transcript.snapshot, this.transcript.trimmedBlockCount);
@@ -2388,6 +2507,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.notify('已清空——再按 Ctrl+D 退出');
           this.armQuitConfirmWindow();
           this.syncFooterHint(); // 教学提示门控对账（setText 绕 handleEvent 单源锚）
+          this.syncEmptyGuide(); // 空态引导对账（同 setText 旁路——零块态清稿即复现）
           this.touchFixed();
           return;
         } else if (this.quitConfirmArmed) {
@@ -2476,6 +2596,26 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     ) {
       this.onHelpShortcut();
       return;
+    }
+    // 空态引导等回声预置（07 §4.1 空转写态注落码定值）：非 '/' 起草稿的提交
+    // 键（enter / alt+enter 候跑腿同形）在编辑器清稿**前**置位——清稿的
+    // change 事件先于 onSubmit 到达，事后置位拦不住零块空稿瞬间的引导闪现帧。
+    // '/' 起草稿走命令族（exit/本地/通道命令——无用户块回声）不置位：命令
+    // 清稿后引导复现是正确终态；未注册 '/' 词兜底进消息（03 §2.2 驱动侧语
+    // 义）形接受一次瞬现（回声到达即收——罕见形注记）。应答窗（inputAsk）
+    // 的 enter 是收窗非提交，不入本预置
+    if (
+      ev.kind === 'key' &&
+      ev.phase === 'press' &&
+      ev.key === 'enter' &&
+      !ev.ctrl &&
+      !ev.shift &&
+      !ev.meta &&
+      this.inputAsk === null &&
+      !this.editor.model.isEmpty() &&
+      !(this.editor.model.getLines()[0] ?? '').startsWith('/')
+    ) {
+      this.awaitingEcho = true;
     }
     if (this.editor.handleEvent(ev)) this.touchFixed(); // 稿件变更对账走 handleEditorChange 单源锚
   }
@@ -2616,6 +2756,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // ——若 touchFixed 在前，同步直出档会先落一帧旧 hint 态再落新态（应答窗
     // 开窗帧混入假键位残影）；注入调度档两请求虽合并无害，序仍以对账先行定形
     this.syncFooterHint(); // 教学提示门控对账（空稿翻转单源锚——一切稿件变更经此）
+    // 等回声复位（非空稿 = 新键入意图）：提交流的抑制位不复位会永锁空态引导
+    if (!this.editor.model.isEmpty()) this.awaitingEcho = false;
+    this.syncEmptyGuide(); // 空态引导对账（稿件翻转锚——同 B2 序：对账先于触脏）
     this.touchFixed();
   }
 
@@ -2808,6 +2951,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // 开槽 present 在其下起笔）；drainSlotTransients 防御序保留（snapshot 现
         // 判无槽时排空陈缓冲——replayTransients 同形）
         if (op.persist) this.landedTransients.push(...op.lines); // 保全档落屏入账（权威重建补吐源——竞窗根因修）
+        // 空态引导第四门：瞬时行落地即收引导（先置态 null——appendTransient
+        // 余行清除仍以旧 guideRows 并账清引导尾，随后走无引导支清账）
+        this.retireEmptyGuideAtLanding();
         this.screen.appendTransient(op.lines);
         this.drainSlotTransients();
       }
@@ -2845,6 +2991,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 保全档入账取原始行（非截宽产物）——重放走本路按重建时刻新宽收口（与
     // 第五役「抢救行是清点前旧宽产物、重放逐行重截」同语义——账面恒存原文）
     if (opts?.persist === true) this.landedTransients.push(...lines); // 落屏入账（权威重建补吐源——竞窗根因修）
+    // 空态引导第四门（重放/排空共通收口路——replayTransients 全系经此）：瞬时
+    // 行落地即收引导，同 flush 直写位前置形
+    this.retireEmptyGuideAtLanding();
     this.screen.appendTransient(lines.map((line) => capAnsiLine(line, columns)));
   }
 

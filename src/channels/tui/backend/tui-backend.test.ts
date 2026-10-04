@@ -3801,18 +3801,20 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
     expect(io.bytes).toContain('? 快捷键');
   });
 
-  it('忙态教学提示退场（agent 起停翻转锚）', () => {
+  it('忙态教学提示双态（07 §4.1 教学位扩双态注——忙态空稿呈「输入仍可用」教学非退场）', () => {
     const { io, backend } = makeBackend({
       sessionId: SESSION,
       footer: { tiers: () => ({ mode: null, thinking: null, sandbox: null }) },
     });
-    expect(io.bytes).toContain('? 快捷键');
+    expect(io.bytes).toContain('? 快捷键'); // 闲态空稿基线（`?` 教学键闲态专属）
     io.bytes = '';
     emit(backend, { type: 'agent_start' });
-    expect(io.bytes).not.toContain('? 快捷键'); // 忙态退场
+    expect(io.bytes).toContain('回复进行中——输入仍可用：Enter 追加 / Alt+Enter 排队后继'); // 忙态空稿——busy 文案在场（修前红：忙态退场零文案）
+    expect(io.bytes).not.toContain('? 快捷键'); // 闲态文案退场（忙态 `?` 落编辑器是字符——提示面与键位实况对齐）
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
-    expect(io.bytes).toContain('? 快捷键'); // 闲态复现
+    expect(io.bytes).toContain('? 快捷键'); // agent 收尾闲态复现
+    expect(io.bytes).not.toContain('回复进行中'); // busy 文案退场
   });
 
   it('应答窗教学提示退场 / 收场复现（inputAsk 并入门控——提示面与键位实况对齐）', async () => {
@@ -3887,6 +3889,74 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
     expect(helps).toHaveLength(0); // 修前红位：inputAsk 缺席于门控——应答期被误判闲态教学窗
     io.emitInput('\r');
     await expect(asked).resolves.toBe('?'); // ? 是应答内容非教学键
+  });
+});
+
+describe('主屏空态引导（07 §4.1 空转写态注 2026-10-05——零块空稿态转录区引导）', () => {
+  it('零块空稿态引导在场 / 输稿退场 / 清稿复现（门控三源：块集 × 稿件 × 忙闲）', () => {
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, { sessionId: SESSION });
+    backend.start();
+    expect(io.bytes).toContain('输入消息开始对话——? 查看快捷键'); // 零块空稿闲态——引导在场（修前红：无引导）
+    expect(io.bytes).toContain('berry-agent'); // logo 字形行（启动动画字形语系）
+    io.reset();
+    io.emitInput('字'); // 输稿——稿件翻转退场
+    expect(io.bytes).not.toContain('输入消息开始对话'); // 非空稿退场
+    io.reset();
+    io.emitInput('\x7f'); // 退格清稿——复现
+    expect(io.bytes).toContain('输入消息开始对话——? 查看快捷键');
+    io.reset();
+    emit(backend, { type: 'agent_start' }); // 忙态——空转写态是就绪态概念，忙期归任务行/busy 教学位
+    expect(io.bytes).not.toContain('输入消息开始对话'); // 忙态退场
+    io.reset();
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('输入消息开始对话——? 查看快捷键'); // 收尾复现（仍零块空稿）
+  });
+
+  it('首块到达即退场零滞留（D 段并账 EL 清引导尾行——append-only 区不残屏）', () => {
+    const { io, backend } = makeBackend({ sessionId: SESSION });
+    expect(io.bytes).toContain('输入消息开始对话'); // 基线在场（5 行引导：字形 3 + 空 1 + 提示 1）
+    io.reset();
+    emit(backend, { type: 'message_end', message: { role: 'user', content: '你好', timestamp: 1 } });
+    expect(io.bytes).toContain('你好'); // 首块（user 块 3 行：空行包夹 + › 前缀行）覆写引导首三行
+    expect(io.bytes).not.toContain('输入消息开始对话'); // 引导退场（块集非零门控）
+    // 零滞留锁：引导 5 行 − 块 3 行 = 尾 2 行必须 EL 清（修前红：无引导账可清——
+    // EL 数 0；实现后恰 2——多余 EL 即清账漂移，少即残屏）
+    expect(io.bytes.match(/\x1b\[K/g)?.length ?? 0).toBe(2);
+  });
+
+  it('提交清稿的等回声抑制：非命令草稿提交后回声未落前不闪引导', () => {
+    const submitted: string[] = [];
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, { sessionId: SESSION, onSubmit: (_sid, text) => submitted.push(text) });
+    backend.start();
+    expect(io.bytes).toContain('输入消息开始对话'); // 基线在场
+    io.reset();
+    io.emitInput('字');
+    io.emitInput('\r'); // 提交清稿——裸 onSubmit 形无用户块回声（等回声窗）
+    expect(submitted).toEqual(['字']); // 提交已达（防空洞断言——清稿确已发生）
+    expect(io.bytes).not.toContain('输入消息开始对话'); // 修前红位：清稿瞬间零块空稿——引导闪现一帧
+    io.emitInput('再'); // 再键入（非空稿）——等回声抑制位复位
+    io.emitInput('\x7f'); // 清稿回零块空稿
+    expect(io.bytes).toContain('输入消息开始对话'); // 复现（抑制已复位——诚实态非残锁）
+  });
+
+  it('瞬时行落地即收引导不沉底（第四门——notify 推进 durable 末，引导不随行追画）', () => {
+    const { io, backend } = makeBackend({ sessionId: SESSION });
+    expect(io.bytes).toContain('输入消息开始对话'); // 基线在场
+    io.reset();
+    backend.notify('一行通知');
+    expect(io.bytes).toContain('一行通知');
+    expect(io.bytes).not.toContain('输入消息开始对话'); // 修前红位：引导随瞬时行沉底追画（逐次下潜触滚漂账）
+    io.reset();
+    backend.notify('后继通知');
+    expect(io.bytes).toContain('后继通知');
+    expect(io.bytes).not.toContain('输入消息开始对话'); // 追画修前红第二面：后续瞬时行下不再现引导
+    // 权威清点门重置语义：notify 保全档行入清点账——repaint 重放后仍占转录区，
+    // 引导按门保持退场（清点量非零 = 重建后转录区非纯净）
+    backend.onRepaint(SESSION, [], null);
+    expect(io.bytes).toContain('一行通知'); // 保全档重放（权威重建补吐——竞窗根因修锁面）
+    expect(io.bytes).not.toContain('输入消息开始对话');
   });
 });
 

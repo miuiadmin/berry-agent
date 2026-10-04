@@ -2124,3 +2124,84 @@ describe('foldErrorText 收口与行为件（alpha.33 处置批 Lane2）', () =>
     expect(await second.entry).toBe(0);
   });
 });
+
+describe('上次会话未收尾提示（07 §4.1 可续提示注 2026-10-05——boot 完成后一次性）', () => {
+  /** 库面直铸「崩溃残留」会话：turn/start + user/message 无 turn/end（终态位缺席——05 §4 recoverClosers 有合成物即检出） */
+  async function seedCrashedSession(dataDir: string, ws: string, id: string): Promise<void> {
+    const probe = Persistence.open({
+      dbPath: resolveDatabasePathIn(dataDir),
+      dataDir,
+      migrations: HOST_MIGRATION_TAIL,
+    });
+    const registration = {
+      origin: 'conversation' as const,
+      parentId: undefined,
+      seedLength: 0,
+      workspaceRoot: canonicalWorkspaceRoot(ws),
+      title: undefined,
+    };
+    probe.store.registerSessionRow(id, registration);
+    probe.store.writeEvents([
+      { sessionId: id, event: { type: 'turn/start', seq: 0, time: 1000, data: {} }, registration },
+      {
+        sessionId: id,
+        event: { type: 'user/message', seq: 1, time: 1001, data: { content: '崩溃前最后一轮' } },
+        registration,
+      },
+    ]);
+    await probe.close();
+  }
+
+  it('触发：最新人面会话未收尾且非当前启动会话 → 首画后一行提示（纯提示零自动恢复）', async () => {
+    const dataDir = rigDir('entry-unc-data-');
+    const ws = rigDir('entry-unc-ws-');
+    // 首启：干净收尾一轮（turn/end 在场——正常退出档），退出
+    const first = await rigEntry(dataDir, ws);
+    first.io.send('干净一轮\r');
+    await until(() => first.faux.state.callCount >= 1);
+    await until(() => first.io.output.includes('ok'));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+    // 在册干净会话 id 反查（该 cwd 唯一会话——库面锚定 dataDir 探针同解析）
+    const probe = Persistence.open({
+      dbPath: resolveDatabasePathIn(dataDir),
+      dataDir,
+      migrations: HOST_MIGRATION_TAIL,
+    });
+    const [cleanRow] = probe.store.listSessions({ workspaceRoot: canonicalWorkspaceRoot(ws) });
+    await probe.close();
+    expect(cleanRow).toBeDefined();
+    // 库面直铸崩溃残留（晚于首启写入 = updated_at 序最新人面会话）
+    await seedCrashedSession(dataDir, ws, 'crash-aaaaaaaaaa');
+    // 二启：指定干净会话 id 续接（当前会话 ≠ 崩溃残留）——崩溃残留即「上次会话」
+    const second = await rigEntry(dataDir, ws, { resumeSessionId: cleanRow!.id });
+    await until(() => second.io.output.includes('上次会话未正常收尾——/resume 可继续')); // 首画后提示落屏（修前红：无此提示）
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+  });
+
+  it('静默两形：无参启动自动续接最新（续接即收形——当前会话排除）与全净库（零检出零呈现）', async () => {
+    const dataDir = rigDir('entry-unc2-data-');
+    const ws = rigDir('entry-unc2-ws-');
+    const first = await rigEntry(dataDir, ws);
+    first.io.send('基线一轮\r');
+    await until(() => first.faux.state.callCount >= 1);
+    await until(() => first.io.output.includes('ok'));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+    // 形一：崩溃残留是最新会话 + 无参启动——07 §5 自动续接锚定的正是它
+    //（当前启动会话排除律：续接即恢复收形，再指 /resume 是假动作）——静默
+    await seedCrashedSession(dataDir, ws, 'crash-bbbbbbbbbb');
+    const second = await rigEntry(dataDir, ws); // 无参——自动续接最新（崩溃残留被 heal 收形）
+    await until(() => second.io.output.includes('崩溃前最后一轮')); // resume 首画回读（启动完成锚）
+    expect(second.io.output).not.toContain('上次会话未正常收尾'); // 当前会话排除——静默
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+    // 形二：全净库（形一续接即 heal 收形——终态位已在）——零检出零呈现
+    const third = await rigEntry(dataDir, ws);
+    await until(() => third.io.output.includes('崩溃前最后一轮'));
+    expect(third.io.output).not.toContain('上次会话未正常收尾');
+    third.io.send('\x04');
+    expect(await third.entry).toBe(0);
+  });
+});

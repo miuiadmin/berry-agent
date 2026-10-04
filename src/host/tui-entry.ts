@@ -54,6 +54,8 @@ import type { Provider } from '../llm/index.js';
 import { SANDBOX_MODES, type SandboxMode } from '../safety/index.js';
 import type { CheckpointStore } from '../checkpoint/index.js';
 import type { JobEntry } from '../contracts/index.js';
+import type { SessionEvent } from '../contracts/index.js';
+import { recoverClosers } from '../session/index.js';
 
 import type { TuiFlags } from './cli.js';
 import { assembleHostStack } from './assembly.js';
@@ -319,6 +321,37 @@ function panelBusyNotice(name: string): string {
  */
 function keybindingRejectionNote(rejection: { readonly detail: string }): string {
   return `键位覆盖未生效：${rejection.detail}`;
+}
+
+/**
+ * 上次会话未收尾检出（07 §4.1 可续提示注 2026-10-05——boot 完成后一次性）：
+ * 候选 = rows 按 updated_at 序（manager.list 同序）首个**人面**会话（origin ∈
+ * conversation/fork/import——delegation 子会话与 trigger 无头会话不入「上次
+ * 会话」语感）且 ≠ 当前启动会话；判据 = 终态位缺席——05 §4 恢复协议同一把尺
+ * （recoverClosers 有合成物 = 存在未闭合结构〔未闭合 turn/压缩对/孤儿 call〕，
+ * 正常收尾与用户主动打断皆落真实 closer 不入此列）。当前启动会话排除律：
+ * 07 §5 无参启动已自动续接最新会话——续接即恢复收形，再指 /resume 是假动
+ * 作；本提示覆盖残余缺口 = 指定 id 续接启动（resumeSessionId 形）时最新
+ * 人面会话另有其人且未收尾。会话索引无终位列（05 §9 sessions 表）——「未
+ * 正常收尾」从事件日志可推形，本函数即推形。检出返提示文案，零检出返
+ * null（零检出零呈现）；纯提示零自动恢复（用户主权——/resume 与否归用户）。
+ */
+function unclosedSessionNotice(deps: {
+  readonly rows: readonly { readonly id: string; readonly origin: string }[];
+  readonly currentSessionId: string;
+  readonly loadEvents: (sessionId: string) => readonly SessionEvent[];
+}): string | null {
+  const HUMAN_ORIGINS: ReadonlySet<string> = new Set(['conversation', 'fork', 'import']);
+  let candidate: { readonly id: string } | null = null;
+  for (const row of deps.rows) {
+    if (row.id === deps.currentSessionId) continue; // 当前启动会话排除（头注定形注）
+    if (!HUMAN_ORIGINS.has(row.origin)) continue; // 人面会话才入「上次会话」语感
+    candidate = row;
+    break; // rows 按 updated_at 序——首个命中即最新人面会话
+  }
+  if (candidate === null) return null;
+  const events = deps.loadEvents(candidate.id);
+  return recoverClosers(events).length > 0 ? '上次会话未正常收尾——/resume 可继续' : null;
 }
 
 /**
@@ -1750,6 +1783,18 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     for (const rejection of backend.keybindingRejections) {
       backend.notify(keybindingRejectionNote(rejection), { level: 'warn' });
     }
+
+    // —— 上次会话未收尾提示（07 §4.1 可续提示注 2026-10-05）：boot 完成 + 首
+    // 画后一次性检出（判据/排除律见 unclosedSessionNotice 头注——05 §4 恢复
+    // 协议同一把尺 + 当前启动会话排除）；工作区作用域与 07 §5 启动选取键同
+    // 锚（会话自身工作区根）。纯提示零自动恢复；零检出零呈现（notify 只在
+    // 检出时触达——不落「无异常」噪音行）
+    const unclosedNotice = unclosedSessionNotice({
+      rows: stack.manager.list({ workspaceRoot: session.workspaceRoot, limit: 50 }),
+      currentSessionId: session.sessionId,
+      loadEvents: (id) => runtime.persistence.store.loadEvents(id),
+    });
+    if (unclosedNotice !== null) backend.notify(unclosedNotice, { level: 'warn' });
 
     // —— /help 命令注册（R7 批 10k——host 装配侧直挂）：开屏体 = 上
     // openHelpPanel 闭包（V-3 注⑦④——与 `?` 闲态教学键同一本体）
