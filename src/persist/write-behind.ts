@@ -5,7 +5,9 @@
  * 落库编舞全在本文件：微任务节流 + 批尺寸帽 64、事务序 = 入队序（单全局
  * 队列——多会话事件按全局入队序交织落库，同会话序天然保真）、批级失败
  * 退避重试（指数退避，耗尽 3 次 fail-loud）、毒丸分类（约束违例逐行诊断：
- * 单条隔离不重试 + durable 标记 + 会话 durability 切断）、flush 屏障。
+ * 单条隔离不重试 + durable 标记 + 会话 durability 切断）、flush 屏障、
+ * 单会话同步排干面（drainSessionNow——loadSession 读前屏障，05 §5.0
+ * 2026-10-04 注：retire→reopen 竞窗的陈旧前缀消除）。
  *
  * 关库终态（件D1——05 §6.3#6）：close() 后链入 closed 态——晚到事件（停机
  * 序与在飞 run 收尾的竞速窗）不再 fail-loud（对已关库重试耗尽重抛 = 未捕获
@@ -177,6 +179,62 @@ export class WriteBehind {
         // 节流旗在排但 drain 未点火——让一个微任务（点火位先行）后再查
         await new Promise<void>((resolve) => queueMicrotask(resolve));
       }
+    }
+  }
+
+  /**
+   * 指定会话在队事件同步排干（05 §5.0 2026-10-04 读前屏障注——loadSession
+   * 装载读面的前置腿）：把该会话尚未落库的在队事件按既定入队序单批同步
+   * 写出并出队。返回后 store 对该会话的读面即含全部已 append 事件——
+   * retire→reopen 竞窗的陈旧 durable 前缀消除（recoverClosers 不再对在队
+   * 真实收尾事件误判孤儿、合成物不与真身撞 seq）。
+   *
+   * 与异步 drain 的互斥论证（单线程事件环，本方法全程同步零挂起）：
+   * drain() 唯一的挂起点是批级失败的退避等待（failOrBackoff 的 sleep），
+   * 而两处挂起前，失败批/行都已原样放回队首（unshift）——即**任何同步
+   * 代码运行的时刻，queue 恰含全部未成功写出的事件且原序保持**（批内的
+   * store 写全发生在 drain 的同步段，同步段内他者无从插入执行）。故本
+   * 方法不可能与 drain 的写段交错：抽走的会话事件单独成批写成功，与
+   * 「留在队列等异步 drain 落」在事务序上等价（单会话序的保真不因跨会话
+   * 交织而变）；剩余队列原序不动，挂起中的 drain 恢复后照旧消费。
+   *
+   * 失败面（fail-loud，不改任何静默纪律）：
+   *  - 链已熔断：抛 PERSIST_WRITE_EXHAUSTED——在队事件无从落库，装载读面
+   *    不能对着永远落不了的前缀合成 closer，诚实拒读；
+   *  - 同步写失败（瞬态错/写序违约/约束违例皆同路）：事件按原索引放回
+   *    队列（数组形完全还原——异步 drain 照旧退避重试或行模式毒丸分类，
+   *    本层不做第二套账务）后原样重抛，loadSession fail-loud 不吞不猜；
+   *  - 切断会话（severed）不在排干面：其 durable 前缀已终（incident 在案），
+   *    在队事件留给异步 drain 按既有纪律静默丢弃。
+   */
+  drainSessionNow(sessionId: string): void {
+    if (this.broken) {
+      throw new BaseError(
+        'PERSIST_WRITE_EXHAUSTED',
+        '写链已熔断——会话在队事件无从同步排干，装载读面拒读（进程应退出）',
+      );
+    }
+    // 切断会话早退（见头注——静默丢弃纪律归异步 drain）
+    if (this.severed.has(sessionId)) return;
+    // 收集该会话在队条目的原索引与引用（原序——入队序即 per-session seq 序）
+    const indices: number[] = [];
+    const writes: EventWrite[] = [];
+    for (let i = 0; i < this.queue.length; i++) {
+      if (this.queue[i]!.sessionId === sessionId) {
+        indices.push(i);
+        writes.push(this.queue[i]!);
+      }
+    }
+    if (writes.length === 0) return;
+    // 先出队再写（降序 splice 摘除）；失败按原索引升序放回——数组形完全还原
+    for (let j = indices.length - 1; j >= 0; j--) this.queue.splice(indices[j]!, 1);
+    try {
+      // 单批单事务同步写出（与异步 drain 批路径同一写面——游标推进/行
+      // upsert/FTS 同批皆由 Store.writeEvents 自持，本层零额外面）
+      this.target.writeEvents(writes);
+    } catch (err) {
+      for (let j = 0; j < indices.length; j++) this.queue.splice(indices[j]!, 0, writes[j]!);
+      throw err;
     }
   }
 

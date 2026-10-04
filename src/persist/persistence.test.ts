@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 import type { SessionEvent } from '../contracts/index.js';
+import { recoverClosers } from '../session/index.js';
 import { ephemeralSecretKey } from './secret-box.js';
 import { Persistence } from './persistence.js';
 import { SESSION_ARCHIVE_MIGRATION, sessionDisplayTitleOf } from './store.js';
@@ -198,6 +199,43 @@ describe('删除与退出序', () => {
     });
     ps.push(b);
     expect(b.store.loadEvents(log.sessionId)).toHaveLength(2);
+  });
+});
+
+describe('loadSession 读前屏障（05 §5.0 2026-10-04 注——retire→reopen 竞窗）', () => {
+  it('同 tick 在队真实收尾事件先落再读：全前缀装载、recoverClosers 零合成、flush 净（修前红：陈旧前缀 2 条误判合成物 + 撞 seq 写序违约）', async () => {
+    const p = Persistence.open({
+      dbPath: join(dir, 'barrier.db'),
+      dataDir: join(dir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+      // 退避快进（修前红的写序违约三连败不真等墙钟——测试位旋钮）
+      writeBehind: { sleep: async () => {}, backoffBaseMs: 1 },
+    });
+    ps.push(p);
+    const log = p.createSession({ origin: 'conversation' });
+    // durable 前缀 0..3：未闭合 turn + 孤儿 tool/call（真实收尾仍在队时
+    // recoverClosers 的误判面——05 §4 配对扫描只看已落库前缀）
+    log.append('turn/start', {});
+    log.append('user/message', { content: '跑一轮工具', source: 'user' });
+    log.append('assistant/message', { content: [], stopReason: 'toolUse' });
+    log.append('tool/call', { toolCallId: 'call-0', name: 'bash', arguments: '{}' });
+    await p.flush();
+    expect(p.store.loadEvents(log.sessionId)).toHaveLength(4);
+    // retire→reopen 竞窗：同 tick 追加真实收尾事件（入队、drain 微任务未点火）
+    // 随即装载——SessionManager.open 同两步（loadSession → recoverClosers →
+    // appendSynthetic，sessions.ts open 位）
+    log.append('tool/result', { toolCallId: 'call-0', content: 'done' });
+    log.append('turn/end', { reason: 'completed' });
+    const loaded = p.loadSession(log.sessionId);
+    // 屏障后：在队事件已同步落库——装载读到全前缀（修前：4 条陈旧前缀）
+    expect(loaded.log.events()).toHaveLength(6);
+    const drafts = recoverClosers(loaded.log.events());
+    expect(drafts).toEqual([]); // 修前：孤儿 tool/call + 未闭合 turn → 2 条误判合成物
+    for (const draft of drafts) loaded.log.appendSynthetic(draft);
+    // 修前：合成物 seq 4/5 与在队真身撞 → 写序违约重试耗尽 → flush rejects
+    await p.flush();
+    expect(p.store.loadEvents(log.sessionId).map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5]);
   });
 });
 

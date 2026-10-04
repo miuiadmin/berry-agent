@@ -173,14 +173,22 @@ export class Persistence {
   }
 
   /**
-   * 装载既有会话（恢复重放面）：events 全量读（撕裂尾 heal 在 Store）→
-   * 种子前缀重建 SessionLog → onAppend 接写队列续写。
+   * 装载既有会话（恢复重放面）：**读前屏障**（write-behind 该会话在队事件
+   * 同步排干——05 §5.0 2026-10-04 注）→ events 全量读（撕裂尾 heal 在
+   * Store）→ 种子前缀重建 SessionLog → onAppend 接写队列续写。
    * closer 合成（孤儿 tool/未闭合 turn 等，§4）归调用方——在返回的 log 上
    * appendSynthetic 补形即可（合成物同权入日志）。
    * @throws 会话不存在（fail-loud——读未落库 id 属调用方 bug）
+   * @throws 读前屏障失败（写链熔断 PERSIST_WRITE_EXHAUSTED / 同步排干写
+   *   失败原样重抛——对着落不了库的前缀合成 closer 即造撞 seq 违约）
    */
   loadSession(sessionId: string): LoadedSession {
     this.ensureOpen();
+    // 读前屏障（05 §5.0 2026-10-04 注）：retire→reopen 竞窗内该会话真实收尾
+    // 事件可仍在 write-behind 在队未落——先同步排干再读，防 recoverClosers
+    // 对在队事件误判孤儿（合成物与真身撞 seq → 写序违约熔断）。置于行读
+    // 之前：行（last_seq/updated_at）同随排干刷新，装载快照整体一致。
+    this.writeBehind.drainSessionNow(sessionId);
     const row = this.store.getSessionRow(sessionId);
     if (!row) {
       throw new BaseError('PERSIST_DATA_CORRUPT', `会话 ${sessionId} 不存在（读未保存 id 或已删除——调用序检视）`);
