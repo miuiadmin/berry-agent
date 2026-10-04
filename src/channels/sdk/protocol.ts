@@ -286,8 +286,11 @@ export interface SdkHelloRequest {
   after?: number;
   /**
    * 退订 message_update delta（`--no-delta` 线面承载位——07 §5 serve 细则：
-   * 降流量档；durable 定稿事件不受影响——只剥直播 delta 流）。受理后本连接
-   * 不再外推 message_update 帧（Ended 帧/重放面照常）。
+   * 降流量档；durable 定稿事件不受影响——只剥直播 delta 流）。同会话多流
+   * 形（一核多观众——daemon 扇出/重订阅）并集保守归并：任一在订流要
+   * delta 即推 delta；本位系「本连接」请求位非会话覆写位（03 §10.6 ①
+   * 2026-10-04 定形注——重订阅既有 live 账保账不覆写，wire-core 保账位
+   * 执法）；Ended 帧/重放面照常。
    */
   noDelta?: boolean;
 }

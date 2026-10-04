@@ -272,7 +272,7 @@ describe('prompt 腿（④ admit 三档 + 自动订阅 + 会话受理门）', ()
     expect(h.frames.at(-1)).toMatchObject({ kind: 'ack', sessionId: 's1', routedChannel: 'steer', duplicate: false });
   });
 
-  it('prompt 不覆写既有 hello 订阅（订阅参数胜出——noDelta 不被连接缺省冲掉）', () => {
+  it('prompt 不覆写既有 hello 订阅（hello 订阅 noDelta 保账——不被连接缺省冲掉）', () => {
     const h = createHarness();
     seedS1(h);
     h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1', noDelta: true });
@@ -561,6 +561,96 @@ describe('close 生命周期间隙', () => {
     expect(h.core.isClosed).toBe(false);
     h.core.close();
     expect(h.core.isClosed).toBe(true);
+  });
+});
+
+describe('中途入订与一核多流订阅保账（lens5 处置批——03 §10.6 ① 2026-10-04 定形注：noDelta 系「本连接」位非会话覆写位）', () => {
+  it('迟到入订活体自证：订阅晚于 agent_start——message 族事件自证 running、elapsedMs 下界诚实、agent_end 尾值零 epoch 幻影（修前红）', () => {
+    const h = createHarness();
+    seedS1(h);
+    // run 先于订阅起跑（HTTP 形 prompt 后开 SSE / 断线重连中途入订）——本核未见 agent_start
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' }); // 中途入订（新鲜订阅态）
+    h.frames.length = 0;
+    // 在飞活体事件迟到入订自证：running=true、起点取首见活体时刻（近似——elapsedMs 恒为下界）
+    h.core.pushEvent('s1', { type: 'message_update', role: 'assistant', partial: partialMsg() }); // t=1_000_000
+    h.clock.now += 5_000;
+    h.frames.length = 0; // 清事件帧账——只观测心跳
+    h.core.heartbeatTick();
+    // 修前红锚①：修前 runState=idle + stage=thinking 矛盾帧、elapsedMs=0（lastElapsedMs 哨兵值）
+    expect(h.frames[0]).toMatchObject({
+      kind: 'heartbeat',
+      sessionId: 's1',
+      runState: 'running',
+      stage: { type: 'thinking' },
+      elapsedMs: 5_000,
+    });
+    // agent_end 尾值 = now − 近似起点（下界诚实——修前红锚②：修前 now − 0 ≈ epoch 尺度幻影）
+    h.clock.now += 2_000;
+    h.core.pushEvent('s1', { type: 'agent_end', status: 'completed' }); // 尾值 7_000
+    h.frames.length = 0;
+    h.clock.now += 5_000;
+    h.core.heartbeatTick();
+    expect(h.frames[0]).toMatchObject({ kind: 'heartbeat', runState: 'idle', elapsedMs: 7_000 });
+  });
+
+  it('agent_end 哨兵形不记账：迟到入订零见活体即收 run 尾——lastElapsedMs 保原值（修前红——修前 now−0 落 epoch 尺度幻影）', () => {
+    const h = createHarness();
+    seedS1(h);
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' }); // 中途入订（run 在飞但活体零见）
+    h.frames.length = 0;
+    h.clock.now += 10_000;
+    h.core.pushEvent('s1', { type: 'agent_end', status: 'completed' }); // runStartAt=0 哨兵形（未见任何活体）
+    h.frames.length = 0;
+    h.clock.now += 5_000;
+    h.core.heartbeatTick();
+    // 修前红锚：修前 lastElapsedMs = now − 0 ≈ 1.0e6（假钟尺度即幻影形——生产 Date.now 为 epoch 尺度）；
+    // 修后保 0 原值（起点缺席不虚构耗时）
+    expect(h.frames[0]).toMatchObject({ kind: 'heartbeat', runState: 'idle', stage: null, elapsedMs: 0 });
+  });
+
+  it('一核多流 hello 保账：B 流 noDelta 入订不覆写既有订阅——run 态账保账 + noDelta 并集执法（修前红）', () => {
+    const h = createHarness();
+    seedS1(h);
+    // A 流入订（delta 开）+ run 起跑
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' });
+    h.core.pushEvent('s1', { type: 'agent_start' }); // t=1_000_000 起跑
+    // B 流同会话 noDelta:true 入订（一核多流——daemon HTTP 扇出/同会话多观众）
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1', noDelta: true });
+    h.frames.length = 0;
+    // run 态账保账：run 在飞不因后入流重置（修前红锚①：修前覆写回 idle/elapsedMs=0 矛盾帧）
+    h.clock.now += 5_000;
+    h.core.heartbeatTick();
+    expect(h.frames[0]).toMatchObject({ kind: 'heartbeat', runState: 'running', elapsedMs: 5_000 });
+    // noDelta 并集执法：任一流要 delta 即推 delta——B 流 noDelta 不掐 A 流（修前红锚②：修前会话级覆写断流）
+    h.core.pushEvent('s1', { type: 'message_update', role: 'assistant', partial: partialMsg() });
+    expect(h.frames.filter((f) => f.kind === 'event')).toHaveLength(1);
+    // 受理钩照发（重连补推语义——保账不等于拒受理）
+    expect(h.calls.subscribed).toEqual(['s1', 's1']);
+  });
+
+  it('hello 保账：run 尾值 lastElapsedMs 不因后入流重置（idle 回显原值）（修前红）', () => {
+    const h = createHarness();
+    seedS1(h);
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' });
+    h.core.pushEvent('s1', { type: 'agent_start' });
+    h.clock.now += 2_000;
+    h.core.pushEvent('s1', { type: 'agent_end', status: 'completed' }); // 尾值 2_000
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' }); // B 流入订（run 已收尾）
+    h.frames.length = 0;
+    h.clock.now += 5_000;
+    h.core.heartbeatTick();
+    // 修前红锚：修前覆写 lastElapsedMs=0；修后保账回显尾值 2_000
+    expect(h.frames[0]).toMatchObject({ kind: 'heartbeat', runState: 'idle', elapsedMs: 2_000 });
+  });
+
+  it('noDelta 并集对称护栏：A 流 noDelta 入订后 B 流显式要 delta——增量恢复（任一流要 delta 即推 delta，双向执法）', () => {
+    const h = createHarness();
+    seedS1(h);
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1', noDelta: true });
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1', noDelta: false });
+    h.frames.length = 0;
+    h.core.pushEvent('s1', { type: 'message_update', role: 'assistant', partial: partialMsg() });
+    expect(h.frames.filter((f) => f.kind === 'event')).toHaveLength(1); // 并集开闸——delta 恢复外推
   });
 });
 

@@ -290,7 +290,7 @@ export class SdkWireCore {
     }
   }
 
-  /** hello：版本握手（⑤）→ 会话订阅 + 游标重放（③）→ 衔接界标 */
+  /** hello：版本握手（⑤）→ 会话订阅 + 游标重放（③）→ 衔接界标（既有 live 订阅保账——见订阅位注） */
   private handleHello(
     protocolVersion: number,
     sessionId: string | undefined,
@@ -343,6 +343,19 @@ export class SdkWireCore {
       }
     }
     this.emit({ kind: 'replay-end', sessionId, lastReplayedSeq: lastReplayed });
+    // 既有 live 订阅保账（lens5[1]——03 §10.6 ① 2026-10-04 定形注「noDelta 系
+    // 「本连接」位非会话覆写位」）：一核多流（daemon HTTP 扇出/同会话多观众）
+    // 形态下后入流不覆写会话级订阅账——只并 lastFrameAt 与 noDelta 并集（任一
+    // 流要 delta 即推 delta——保守形；缺席承连接缺省后再并），run 态账
+    // running/runStartAt/lastElapsedMs/stage 原值保账（对照 handlePrompt 幂等
+    // 守卫同律）；onSubscribed 照发（重连补推语义——保账不等于拒受理）
+    const existing = this.subs.get(sessionId);
+    if (existing !== undefined && existing.phase === 'live') {
+      existing.noDelta = existing.noDelta && (noDelta ?? this.connectionNoDelta);
+      existing.lastFrameAt = this.now();
+      this.deps.onSubscribed?.(sessionId);
+      return;
+    }
     this.subs.set(sessionId, {
       noDelta: noDelta ?? this.connectionNoDelta,
       phase: 'live',
@@ -414,8 +427,9 @@ export class SdkWireCore {
     this.messageIndex.set(messageId, outcome.sessionId);
     this.trimAdmitAccounts(); // 双账齐插（幂等账帽执法位三——主插账点）
     // 自动订阅（13b 落码定形）：prompt 落定会话即挂直播（ack 携句柄 → 事件随后
-    // 即流；只直播不重放——重放走显式 hello.after）。既有订阅不覆写（hello 订阅
-    // 携 noDelta 等订阅参数胜出）；新会话无未决 ask，onSubscribed 只对新挂者发。
+    // 即流；只直播不重放——重放走显式 hello.after）。既有订阅不覆写（订阅参数
+    // 面归 hello 位——hello 对既有订阅亦保账并集不重置，见 handleHello 订阅位注）；
+    // 新会话无未决 ask，onSubscribed 只对新挂者发。
     if (!this.subs.has(outcome.sessionId)) {
       this.subs.set(outcome.sessionId, {
         noDelta: this.connectionNoDelta,
@@ -555,6 +569,24 @@ export class SdkWireCore {
 
   /** 心跳账推导（事件流 → runState/stage——非事件型 probe 走 tick 时查面） */
   private trackHeartbeat(sub: SubState, event: AgentEvent): void {
+    // 活体自证（lens5[0] 修形①——迟到入订）：run 起跑未被本订阅观察（running=false
+    // 且 runStartAt=0 哨兵——订阅晚于 agent_start 的中途入订形）时，message 族/
+    // tool 族活体事件即「run 在飞」的实证——就地置 running=true、runStartAt=now()。
+    // 起点取首见活体时刻（迟到入订近似：真实起点缺席，elapsedMs 恒为下界——
+    // 诚实下界优于 idle 谎报与 epoch 幻影）
+    if (
+      !sub.running &&
+      sub.runStartAt === 0 &&
+      (event.type === 'message_start' ||
+        event.type === 'message_update' ||
+        event.type === 'message_end' ||
+        event.type === 'tool_execution_start' ||
+        event.type === 'tool_execution_update' ||
+        event.type === 'tool_execution_end')
+    ) {
+      sub.running = true;
+      sub.runStartAt = this.now();
+    }
     switch (event.type) {
       case 'agent_start':
         sub.running = true;
@@ -563,7 +595,12 @@ export class SdkWireCore {
         break;
       case 'agent_end':
         sub.running = false;
-        sub.lastElapsedMs = Math.max(0, this.now() - sub.runStartAt);
+        // 哨兵形不记账（lens5[0] 修形②）：迟到入订零见活体即收 run 尾时
+        // runStartAt=0——now−0≈epoch 尺度幻影。保持 lastElapsedMs 原值
+        //（起点缺席不虚构耗时；活体自证命中者 runStartAt 非零、走正常记账腿）
+        if (sub.runStartAt !== 0) {
+          sub.lastElapsedMs = Math.max(0, this.now() - sub.runStartAt);
+        }
         sub.stage = null;
         break;
       case 'message_start':
