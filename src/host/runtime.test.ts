@@ -168,6 +168,43 @@ describe('退出序六步编舞（04 §1 全序有界）', () => {
     expect(Date.now() - t0).toBeLessThan(400); // 未等满慢 closer（等满形 ≥500）
   });
 
+  // —— drain 全程总帽（第九轮深扫 laneA——04 §1 定形注：帽非逐 closer 各享）——
+  it('drain 全程总帽：帽 60ms 两 closer 各 50ms——首件帽内完成、第二件超时强杀未完成', async () => {
+    // 修前红：帽按每 closer 各自重置计时（N closer 最坏 N×5s）——第二件也在
+    // 自己的 50ms < 60ms 内等满完成（完成 flag true）。总帽形（deadline 首
+    // closer 起算全程共享）：第二件只分到余量 ~10ms → 超时强杀，完成 flag
+    // false + 剩余 closer 不再等待。真实定时器 + 完成断言为主；耗时断言放
+    // 宽容差防 flake（timer 发火延迟右尾——承上例 CI 定稳谱）。
+    const { rt } = rig({ exitBudget: { closersMs: 60 } });
+    let firstDone = false;
+    let secondDone = false;
+    rt.registerCloser({
+      label: 'first',
+      fn: () =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            firstDone = true;
+            resolve();
+          }, 50),
+        ),
+    });
+    rt.registerCloser({
+      label: 'second',
+      fn: () =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            secondDone = true;
+            resolve();
+          }, 50),
+        ),
+    });
+    const t0 = Date.now();
+    await rt.shutdown();
+    expect(firstDone).toBe(true); // 首件在帽内完成（总帽不误伤帽内首件）
+    expect(secondDone).toBe(false); // 修前红：第二件等满自己的 50ms 完成
+    expect(Date.now() - t0).toBeLessThan(200); // 总耗 ~帽值 + 容差（修前 ~100ms 起步）
+  });
+
   it('一步崩不阻后续：closer 抛错 → flush/标记释放照达', async () => {
     const { dir, rt } = rig();
     rt.registerCloser({

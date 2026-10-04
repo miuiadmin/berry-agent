@@ -4,7 +4,7 @@
  * 启动序：解析数据目录（memory 形豁免）→ 单活跃机占标记（先占标记再开库——
  * 拒双开于开库之前）→ Persistence 开库（openStore 门禁序内嵌）→ 披露段组装。
  * 退出序（04 §1 六步全序有界）：① abort 置位（在飞 run 收打断信号）→
- * ② closer 队列 drain（有界 5s——在飞子代理/子进程结算，超时强杀）→
+ * ② closer 队列 drain（有界 5s = drain 全程总帽——在飞子代理/子进程结算，超时强杀）→
  * ③ write-behind flush（durable 落盘）→ ④ session_shutdown 并行有界 2s
  * （件级收口钩子）→ ⑤ 作用域 LIFO 回卷（dispose 全序）→ ⑥ 释放活跃标记 +
  * 关库。一步崩不阻后续步（退出序容错——落盘步永达）；落盘两步（③ flush /
@@ -82,7 +82,7 @@ export interface HostCloser {
 
 /** 退出序时间帽（04 §1 钉值——测试可调小） */
 export interface ExitSequenceBudget {
-  /** closer drain 帽（缺省 5000——超时强杀） */
+  /** closer drain 帽（缺省 5000——drain 全程总帽非逐 closer 各享；超时强杀） */
   readonly closersMs?: number;
   /** session_shutdown 并行帽（缺省 2000） */
   readonly shutdownHooksMs?: number;
@@ -127,7 +127,7 @@ export interface HostRuntime {
   /** 环境披露段（每请求重算——04 §environment 装配注入条款；可选 sessionId =
    * per-session 解档消费键〔F2 第六件——沙箱行按会话现值〕） */
   readonly disclosure: (sessionId?: string) => string | null;
-  /** 注册收口动作（drain 序 = 注册序，有界 5s） */
+  /** 注册收口动作（drain 序 = 注册序，有界 5s 全程总帽） */
   readonly registerCloser: (closer: HostCloser) => void;
   /** 注册件级收口钩子（并行有界 2s） */
   readonly registerShutdownHook: (hook: () => Promise<void> | void) => void;
@@ -249,10 +249,20 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
       shutdownInFlight = (async () => {
         // ① abort 置位（在飞 run 收打断信号——不再收新输入）
         abortController.abort();
-        // ② closer drain（注册序串行，有界 5s——超时强杀 = 放弃等待）
+        // ② closer drain（注册序串行，有界 5s = drain 全程总帽——04 §1 第九轮
+        // 深扫定形注：deadline 整段循环共享〔首 closer 起算〕非逐 closer 各
+        // 5s〔修前 N closer 最坏 N×5s〕；超时强杀 = 放弃等待）
+        const closersDeadline = Date.now() + closersMs;
         for (const closer of closers) {
+          const remaining = closersDeadline - Date.now();
+          if (remaining <= 0) {
+            // 总帽已尽：剩余 closer 不再等待（放弃等待不放弃已执行标记——已
+            // 执行的收口动作不回卷）；跳过行留诊断面
+            console.error(`[exit] closer ${closer.label} 跳过（drain 总帽 ${closersMs}ms 已尽——剩余 closer 不再等待）`);
+            break;
+          }
           try {
-            await withTimeout(Promise.resolve(closer.fn()), closersMs, `closer ${closer.label}`);
+            await withTimeout(Promise.resolve(closer.fn()), remaining, `closer ${closer.label}`);
           } catch (err) {
             console.error(`[exit] closer ${closer.label} 超时或抛错（强杀继续）: ${describe(err)}`);
           }
