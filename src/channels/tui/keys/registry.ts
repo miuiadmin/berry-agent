@@ -10,8 +10,10 @@
  * tools.toggle-expand 两动作 + **编辑器族 dispatch 迁册**（批 10j——editor.ts
  * 内部键表退役，册为唯一真源；yank / yank-pop 两动作随 R3 kill-ring 同批入册）。
  * keyText 与冲突检测的判据域随册走。缺省册自身的历史双绑（ctrl+d = 全局退出 /
- * 编辑器删字——分层消解的既定形：空框退出、非空删字）按「键 → 动作集」整集
- * 对拍缺省册放行（见 conflict 检测注）。
+ * 编辑器删字——分层消解的既定形：路由层① quit 序判先消费——空稿直退、非空
+ * 草稿首击清稿两步（2026-10-05 ZCode 对标批翻档），编辑器侧 ctrl+d 删字腿
+ * 路由上不可达、delete 键仍在）按「键 → 动作集」整集对拍缺省册放行（见
+ * conflict 检测注）。
  *
  * 用户覆盖（settings.json `keybindings` 键——10k 装配接线）经
  * resolveKeybindings 四形校验 fail-loud 点名拒载：未知动作 / 不可覆盖动作 /
@@ -50,6 +52,18 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
     scope: 'global',
     label: '切换模型（下一轮对话起生效）',
     keys: ['ctrl+p'],
+    overridable: true,
+  },
+  // 档位模式循环（2026-10-05 ZCode TUI 对标批增册至 31——shift+tab 轮换沙箱档位
+  // 模式：计划/Auto/YOLO 循环前进；与 ctrl+p model-cycle 同构循环族——模式词/
+  // 模型词两循环分立；数据源与 footer 行1 模式词同源单源（MODE_SHORT 换词表），
+  // 循环即时换词、下一 run 起生效不写盘（写盘正门仍是 /sandbox 等命令族——
+  // 07 §4.1 R5 增册注）；可覆盖位——非「打断永可达」安全位族）
+  {
+    id: 'global.mode-cycle',
+    scope: 'global',
+    label: '循环切换沙箱模式（下一轮起生效）',
+    keys: ['shift+tab'],
     overridable: true,
   },
   // 闲态教学键（V-3 注⑦④——`?` 开 /help 帮助副屏）：**投影位**——`?` 是可打印

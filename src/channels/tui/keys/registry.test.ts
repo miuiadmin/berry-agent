@@ -170,8 +170,8 @@ describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字�
 });
 
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
-  it('册数 30：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）', () => {
-    expect(ACTION_CATALOG).toHaveLength(30);
+  it('册数 31：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）', () => {
+    expect(ACTION_CATALOG).toHaveLength(31);
     const followUp = ACTION_CATALOG.find((d) => d.id === 'editor.queue-followup');
     expect(followUp).toMatchObject({ scope: 'editor', keys: ['alt+enter'], overridable: true });
     const modelCycle = ACTION_CATALOG.find((d) => d.id === 'global.model-cycle');
@@ -179,6 +179,10 @@ describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模�
     // 教学键投影位：不可覆盖（text 路分诊真源在 backend——绑定永不命中）
     const help = ACTION_CATALOG.find((d) => d.id === 'global.help');
     expect(help).toMatchObject({ scope: 'global', keys: ['?'], overridable: false });
+    // 档位模式循环（2026-10-05 ZCode TUI 对标批——shift+tab；可覆盖位——
+    // 非「打断永可达」安全位族，ctrl+p 同构循环族）
+    const modeCycle = ACTION_CATALOG.find((d) => d.id === 'global.mode-cycle');
+    expect(modeCycle).toMatchObject({ scope: 'global', keys: ['shift+tab'], overridable: true });
   });
 
   it('alt+enter 命中候跑动作（与 editor.submit 键序分立——enter 不误触）', () => {
@@ -201,5 +205,20 @@ describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模�
     const r = resolveKeybindings({ 'editor.submit': 'alt+enter' });
     expect(r.rejections.some((x) => x.kind === 'conflict' && x.actionId === 'editor.submit')).toBe(true);
     expect(r.keysByAction.get('editor.submit')).toEqual(['enter']); // 回退缺省
+  });
+});
+
+describe('档位模式循环增册（2026-10-05 ZCode TUI 对标批——shift+tab / global.mode-cycle）', () => {
+  it('shift+tab 命中档位模式循环（裸 tab 不误触——编辑器键面零扰动）', () => {
+    const map = new Keymap();
+    expect(map.actionMatches(key('tab', { shift: true }), 'global.mode-cycle')).toBe(true);
+    expect(map.actionMatches(key('tab'), 'global.mode-cycle')).toBe(false); // 裸 tab 不属循环
+  });
+
+  it('用户覆盖合法：迁走不冲突（可覆盖位——ctrl+p 同形，不与不可覆盖键同拒载面）', () => {
+    const remapped = new Keymap({ 'global.mode-cycle': 'ctrl+n' });
+    expect(remapped.rejections).toEqual([]);
+    expect(remapped.actionMatches(key('n', { ctrl: true }), 'global.mode-cycle')).toBe(true);
+    expect(remapped.actionMatches(key('tab', { shift: true }), 'global.mode-cycle')).toBe(false); // 迁离缺省位
   });
 });

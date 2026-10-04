@@ -655,12 +655,15 @@ describe('TuiBackend 输入管线（自持——不经 Engine）', () => {
     expect(calls.quit).toBe(1);
   });
 
-  it('ctrl+d 有文不退出（编辑器吞）；ask 浮层在场同路收层转 onQuit（E4 翻档——修前占焦纯吞死键）', async () => {
+  it('ctrl+d 非空草稿首击 = 清稿 + 回执不退（两步序②——2026-10-05 ZCode 对标批）；ask 浮层在场同路收层转 onQuit（E4 翻档——修前占焦纯吞死键）', async () => {
     const first = makeInteractive();
     first.io.emitInput('ab');
     first.pump();
-    first.io.emitInput('\x04'); // 光标在文尾——delete forward 无事
-    expect(first.calls.quit).toBe(0);
+    first.io.bytes = ''; // 首击帧起收窗
+    first.io.emitInput('\x04'); // 首击：清稿 + notify + 2 秒双击窗（非旧 delete-forward 编辑器吞）
+    first.pump();
+    expect(first.calls.quit).toBe(0); // 首击不退
+    expect(first.io.bytes).toContain('已清空——再按 Ctrl+D 退出'); // 回执形（07 §4.1 R5 翻档）
 
     // 修前：浮层占焦期 ctrl+d 修饰键分支纯吞（完全死键）；现与副屏件族同路
     // ——先与 esc 同语义保守收层（confirm → false）再转装配 onQuit
@@ -4006,6 +4009,61 @@ describe('TuiBackend 候跑提交 + 模型循环键（挂账解挂批 2026-09-15
     bare.start();
     io.bytes = '';
     io.emitInput('\x10'); // 不炸（缺席 = 键不劫持）
+    expect(io.bytes).toBe('');
+  });
+});
+
+describe('TuiBackend ctrl+d 防误退两步序 + 档位模式循环键（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 翻档/增册）', () => {
+  it('两步序①②：非空草稿首击 = 清稿 + 回执「已清空——再按 Ctrl+D 退出」不退；窗内二击 → onQuit（退闸）', () => {
+    const { io, calls, pump } = makeInteractive();
+    io.emitInput('ab');
+    pump();
+    io.bytes = ''; // 首击帧起收窗
+    io.emitInput('\x04'); // 首击：清稿 + 回执 + 2 秒双击窗装排
+    pump();
+    expect(calls.quit).toBe(0); // 首击不退
+    expect(io.bytes).toContain('已清空——再按 Ctrl+D 退出'); // 回执形（07 §4.1 R5 翻注定值）
+    expect(io.bytes).not.toContain('ab'); // 清稿——重画帧不再持旧稿
+    io.emitInput('\x04'); // 二击（ManualClock t≈2 < 2000——窗内）
+    pump();
+    expect(calls.quit).toBe(1); // 窗内二击才进退闸
+  });
+
+  it('两步序窗过期复位：首击后 2 秒窗到点自愈，窗外语归空稿单击直退（无清稿回执——文案红锚 absent 形）', () => {
+    const { io, calls, clock, pump } = makeInteractive();
+    io.emitInput('ab');
+    pump();
+    io.emitInput('\x04'); // 首击清稿 + 装窗
+    pump();
+    expect(calls.quit).toBe(0);
+    clock.advance(2001); // 双击窗到点复位（定时器测试可控——schedule 注入形）
+    io.bytes = '';
+    io.emitInput('\x04'); // 窗外语 = 空稿单击直退（③——无清稿步无回执）
+    pump();
+    expect(calls.quit).toBe(1);
+    expect(io.bytes).not.toContain('已清空——再按 Ctrl+D 退出'); // 直退形不复发回执
+  });
+
+  it('两步序③：空稿 + 无浮层 = 单击直退（不变位——无清稿回执）', () => {
+    const { io, calls, pump } = makeInteractive();
+    io.emitInput('\x04');
+    pump();
+    expect(calls.quit).toBe(1);
+    expect(io.bytes).not.toContain('已清空——再按 Ctrl+D 退出');
+  });
+
+  it('shift+tab → onModeCycle 柄（层③.5 应用动作路——ctrl+p 同构接法）；柄缺席不炸', () => {
+    const modeCycles: number[] = [];
+    const withHandle = makeInteractive({ onModeCycle: () => modeCycles.push(1) });
+    withHandle.io.emitInput('\x1b[Z'); // CSI Z = shift+tab
+    withHandle.pump();
+    expect(modeCycles).toHaveLength(1);
+
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const bare = new TuiBackend(io, { sessionId: 's1' }); // 柄缺席形
+    bare.start();
+    io.bytes = '';
+    io.emitInput('\x1b[Z'); // 不炸（缺席 = 键不劫持——透传编辑器终局丢弃）
     expect(io.bytes).toBe('');
   });
 });

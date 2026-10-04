@@ -184,6 +184,13 @@ export interface TuiBackendOptions {
    */
   readonly onModelCycle?: () => void;
   /**
+   * 装配向接线柄：档位模式循环（2026-10-05 ZCode TUI 对标批——shift+tab
+   * 层③.5 应用动作路，ctrl+p onModelCycle 同构接法）。语义 = 沙箱档位模式
+   * 循环前进（数据源与 footer 行1 模式词同源单源——装配闭包现取 fold 现值）；
+   * 缺席 = 键不劫持不炸（透传编辑器——无绑定归终局丢弃）。
+   */
+  readonly onModeCycle?: () => void;
+  /**
    * 装配向接线柄：闲态教学键（V-3 注⑦④——`?` 开 /help 帮助副屏）。`?` 是
    * 可打印字符走 text 事件（引擎地面态——key 路恒不命中；键位册条目仅投影
    * 可发现性）；门控 = 空稿 + 闲态 + overlay/弹层不在场；柄缺席不劫键（'?'
@@ -331,7 +338,12 @@ const DEFAULT_FPS_CAP = 60;
 const STREAM_FRAME_BYTE_CAP = 256 * 1024;
 /** lone-ESC 判定窗缺省（对齐 Engine DEFAULT_ESCAPE_WINDOW_MS） */
 const DEFAULT_ESCAPE_WINDOW_MS = 30;
-/** footer 教学提示文案（V-3 注⑦④——`?` 键投影与 footer 提示同文单源） */
+/**
+ * ctrl+d 防误退双击窗（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 ctrl+d 翻档
+ * 注定值 2 秒）：非空草稿首击清稿 + 回执后，窗内二击才进退闸、窗过期复位。
+ */
+const QUIT_CONFIRM_WINDOW_MS = 2000;
+/** footer 教学提示闲态文案（V-3 注⑦④——`?` 键投影与 footer 提示同文单源） */
 const FOOTER_HINT_TEXT = '? 快捷键';
 /**
  * 模型全形 → 短名（V-4 注⑪②——行1 模型槽）：id 尾段（`zai/glm-4.7` →
@@ -500,11 +512,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 补全防抖调度器（R6 批 10j：尾沿 20ms / AbortSignal / 错序丢弃三律） */
   private readonly autocompleteCompleter: AutocompleteCompleter;
   private readonly stack = new OverlayStack();
-  /** 装配柄（07 §4.3 两柄 + 命令柄 + 模型循环柄〔挂账解挂批 2026-09-15〕） */
+  /** 装配柄（07 §4.3 两柄 + 命令柄 + 模型循环柄〔挂账解挂批 2026-09-15〕+ 档位模式循环柄〔2026-10-05 ZCode 对标批〕） */
   private readonly onSubmit: ((sessionId: string, text: string, opts?: EditorSubmitOptions) => void) | undefined;
   private readonly onInterrupt: ((sessionId: string) => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
   private readonly onModelCycle: (() => void) | undefined;
+  private readonly onModeCycle: (() => void) | undefined;
   /** 闲态教学键柄（V-3 注⑦④——`?` text 路分诊消费；缺席不劫键） */
   private readonly onHelpShortcut: (() => void) | undefined;
   private readonly dispatchCommand: ((input: string) => Promise<boolean>) | undefined;
@@ -513,6 +526,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly decoder: InputDecoder;
   private readonly escapeWindowMs: number;
   private escapeHandle: unknown = null;
+  /**
+   * ctrl+d 防误退双击窗态（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 翻档）：
+   * armed 位 = 非空草稿首击清稿后确认窗在飞（窗内二击才进退闸）；窗到点/
+   * 退闸/stop/挂起随手复位（窗过期复位）。scheduleFn null 同步直出档（测试
+   * 语义）无定时器——armed 位无 expiry，空稿二击同归直退（行为等价、态自洽）。
+   */
+  private quitConfirmArmed = false;
+  /** 双击窗定时器柄（schedule 注入可控——测试 advance 定窗） */
+  private quitConfirmHandle: unknown = null;
   private unsubInput: (() => void) | null = null;
   private unsubResize: (() => void) | null = null;
   private running = false;
@@ -766,6 +788,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.onModelCycle = options.onModelCycle;
+    this.onModeCycle = options.onModeCycle;
     this.onHelpShortcut = options.onHelpShortcut;
     this.dispatchCommand = options.dispatchCommand;
     this.localCommands = options.localCommands ?? [];
@@ -966,6 +989,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.cancelTimer('frame');
     this.cancelTimer('tick');
     this.cancelTimer('escape');
+    this.disarmQuitConfirmWindow(); // ctrl+d 双击窗收口（定时器全收面——armed 位同复位）
     this.autocompleteCompleter.cancel(); // 补全在途全收（停机后零迟到交付）
     this.osc.restore(); // 件 7：复原两写点（title 基线 + 进度清零）+ 保活停针（名册语义）
     this.disarmExitRestore?.();
@@ -1028,6 +1052,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.cancelTimer('frame'); // 在飞帧收口（挂起期零写出的调度半边）
     this.cancelTimer('tick'); // 任务行转轮停摆（防后台空转——复起重摆）
     this.cancelTimer('escape'); // lone-ESC 窗收口（decoder 已弃在途态）
+    this.disarmQuitConfirmWindow(); // ctrl+d 双击窗收口（复起后陈窗不续——下次首击重装）
     // 硬退复原钩换挂起档（不 disarm）：副屏 Engine 的 exit 钩只复原其屏形
     //（LEAVE_MODES[alt] + raw），本件挂起期保活的终端级写点无人接管——挂起档
     // 收口体见 armSuspendExitRestore
@@ -2276,6 +2301,38 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     );
   }
 
+  /**
+   * ctrl+d 防误退双击窗装排（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 翻档
+   * 注定值 2 秒）：非空草稿首击清稿 + 回执后装窗，窗内二击才进退闸。重击
+   * 重排（再击非空草稿即续新窗——旧窗先收再装，无重叠定时器）。同步直出档
+   * （schedule 无注入）无定时器——armed 位无 expiry，空稿二击同归直退
+   * （行为等价、态自洽——测试语义同 lone-ESC 先例）。
+   */
+  private armQuitConfirmWindow(): void {
+    if (this.scheduleFn === null) {
+      this.quitConfirmArmed = true; // 同步直出档无定时器（armed 无 expiry——行为等价）
+      return;
+    }
+    this.disarmQuitConfirmWindow(); // 重击重排（旧窗先收）
+    this.quitConfirmArmed = true; // disarm 清了 armed 位——重排后复装
+    this.quitConfirmHandle = this.scheduleFn(() => {
+      this.quitConfirmHandle = null;
+      this.quitConfirmArmed = false; // 窗过期复位（到点未二击——下次首击重走两步序）
+    }, QUIT_CONFIRM_WINDOW_MS);
+  }
+
+  /**
+   * ctrl+d 双击窗收口（armed 位 + 定时器双清）：二击进退闸随手清账 / stop
+   * 定时器全收面 / suspend 复起陈窗不续。幂等——未装窗调用零副作用。
+   */
+  private disarmQuitConfirmWindow(): void {
+    if (this.quitConfirmHandle !== null) {
+      this.cancelFn(this.quitConfirmHandle);
+      this.quitConfirmHandle = null;
+    }
+    this.quitConfirmArmed = false;
+  }
+
   /** 排空 decoder 事件队列并逐件路由 */
   private flushDecoderEvents(): void {
     for (const ev of this.decoder.take()) this.routeEvent(ev);
@@ -2284,13 +2341,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /**
    * 事件路由四层（07 §4.3 拦截链序）。
    * 层① 全局键先于 overlay（ctrl+c 打断 run——ask 链收口经装配侧信号折入；
-   * ctrl+d 仅 overlay 空 + 编辑器空框才全局退出，否则让路面板/编辑器）；
+   * ctrl+d 两步序——浮层在场让路、非空草稿首击清稿+双击窗、空稿单击直退，
+   * 2026-10-05 ZCode 对标批翻档）；
    * 层② overlay 模态独占（未消费键不穿透）；层③ 补全弹层非模态穿透；
    * 层④ 编辑器（未消费键终局丢弃——escape 等无全局绑定）。
    */
   private routeEvent(ev: import('../../engine/types.js').InputEvent): void {
     // 层① 全局键经键位注册表解析（批 10i R5——册单源取代硬编码判键；ctrl+d
-    // 的 overlay 在场/编辑器非空让路守卫留在路由层：册只管键匹配、分层消解
+    // 两步序的浮层让路/草稿分诊留在路由层：册只管键匹配、分层消解
     // 归层序——不可覆盖动作无用户改键面）。ESC 接线让路（界面美化役批 2）：
     // escape 扩入中断键集后在此分诊——浮层（overlay/补全弹层）在场归浮层
     // 收屏（不穿透打断）、栈空且忙态才打断、闲态终局丢弃（编辑器无绑定）；
@@ -2313,9 +2371,36 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           return;
         }
       }
-      if (this.keymap.actionMatches(ev, 'global.quit') && this.stack.size === 0 && this.editor.model.isEmpty()) {
-        this.onQuit?.();
-        return;
+      // ctrl+d 防误退两步序（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 ctrl+d
+      // 翻档注）：自「三条件闸单击直退」翻档为序判——①浮层在场=让路不退
+      // （不变——透传浮层，面板族自持「先收屏再转 onQuit」）；②非空草稿首击
+      // =清稿 + notify「已清空——再按 Ctrl+D 退出」+ 2 秒双击窗（窗内二击才
+      // 进退闸、窗过期复位）；③空稿+无浮层=单击直退（空稿无清稿步、维持
+      // 即时性——含二击形同归退闸）。global.quit 不可覆盖位语义不变（册面零动）
+      if (this.keymap.actionMatches(ev, 'global.quit')) {
+        if (this.stack.size > 0) {
+          // ① 让路：浮层模态先消费（ctrl+d 归面板——不在此退）
+        } else if (!this.editor.model.isEmpty()) {
+          // ② 首击：清稿 + 回执 + 装窗（重击重排——再击非空稿即续新窗）
+          this.editor.setText('');
+          this.autocompleteCompleter.cancel(); // 补全弹层锚在草稿前缀——清稿即撤层
+          this.popup.applyResult(null);
+          this.notify('已清空——再按 Ctrl+D 退出');
+          this.armQuitConfirmWindow();
+          this.syncFooterHint(); // 教学提示门控对账（setText 绕 handleEvent 单源锚）
+          this.touchFixed();
+          return;
+        } else if (this.quitConfirmArmed) {
+          // ③ 二击进退闸（双击窗内——armed 位随手清账）
+          this.disarmQuitConfirmWindow();
+          this.onQuit?.();
+          return;
+        } else {
+          // ③ 直退（空稿单击——无清稿步，维持即时性）
+          this.disarmQuitConfirmWindow();
+          this.onQuit?.();
+          return;
+        }
       }
     }
     // 主屏 overlay 栈吃键即返——补帧对齐副屏路（mp-5 家族修同形）：SelectPanel
@@ -2331,7 +2416,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     }
     // 层③.5 应用动作键（批 10i——思考块/工具卡会话级折叠展开；overlay 模态
     // 已在上层独占、补全弹层未消费才达此，编辑器不绑 ctrl+t/ctrl+o 无争键）。
-    // 模型循环（挂账解挂批 2026-09-15——ctrl+p）同层入册：柄缺席不劫键不炸
+    // 模型循环（挂账解挂批 2026-09-15——ctrl+p）与档位模式循环（2026-10-05
+    // ZCode 对标批——shift+tab）同层入册：柄缺席不劫键不炸
     // （透传编辑器——无绑定归终局丢弃）
     if (ev.kind === 'key' && ev.phase === 'press') {
       if (this.keymap.actionMatches(ev, 'thinking.toggle')) {
@@ -2344,6 +2430,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       }
       if (this.onModelCycle !== undefined && this.keymap.actionMatches(ev, 'global.model-cycle')) {
         this.onModelCycle();
+        return;
+      }
+      // 档位模式循环（2026-10-05 ZCode TUI 对标批——shift+tab 层③.5 应用动作
+      // 路，ctrl+p 同构接法）：动作体在装配闭包（单源消费 fold 现值 + 走
+      // selectSandbox 写面——两入口一动作）；路由层只判键分发
+      if (this.onModeCycle !== undefined && this.keymap.actionMatches(ev, 'global.mode-cycle')) {
+        this.onModeCycle();
         return;
       }
       // 后台任务段光标翻页态（界面美化役批6——UX 批6 B 件）：alt+↑/↓ 段内

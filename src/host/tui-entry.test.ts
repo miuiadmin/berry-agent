@@ -1182,6 +1182,27 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     expect(modelsByCall[1]).toContain('m2'); // 生效语义 = 下一 run 起跑
   });
 
+  it('shift+tab 档位模式循环全链：footer 模式词同源换词（Auto→YOLO→计划→Auto 环回）+ 回执单源 + fold 现值取数（2026-10-05 ZCode 对标批）', async () => {
+    const { entry, io } = await rigEntry(rigDir('entry-mcyc-'), rigDir('entry-ws-mcyc-'));
+    await until(() => stripAnsi(io.output).includes('工作区写')); // footer 就绪门（行2 沙箱原词——boot 档 workspace-write）
+    // 三步循环：workspace-write → danger → read-only → workspace-write
+    //（SANDBOX_MODES 词序单源——/sandbox picker 行集同源；第二三击从 fold 现值
+    // 前进而非栈基线重发 danger——「数据源与 footer 档位模式词同源单源」行为锁）
+    io.send('\x1b[Z'); // shift+tab（CSI Z）
+    await until(() => stripAnsi(io.output).includes('YOLO')); // 行1 模式词（MODE_SHORT 同源换词）
+    await until(() => stripAnsi(io.output).includes('沙箱模式：danger')); // 回执（sandboxModeReceipt 单源）
+    io.output = '';
+    io.send('\x1b[Z');
+    await until(() => stripAnsi(io.output).includes('计划'));
+    await until(() => stripAnsi(io.output).includes('沙箱模式：read-only'));
+    io.output = '';
+    io.send('\x1b[Z'); // 环回（danger → read-only → workspace-write）
+    await until(() => stripAnsi(io.output).includes('Auto'));
+    await until(() => stripAnsi(io.output).includes('沙箱模式：workspace-write'));
+    io.send('\x04'); // 空稿退出收口
+    expect(await entry).toBe(0);
+  });
+
   it('/model 面板全链：命令开屏 + 分组头/当前 ● + ↓ enter 选定回执 + footer 模型段活写（V-4 注⑪② 回迁）', async () => {
     // 2026-09-30 UX 对标批 ux-4：/model 命令 → ModelPicker 副屏 → 选定回调
     // 装配闭包（setModel + notify 回执）整链锁——面板件单测（model-picker.test）
@@ -2014,8 +2035,10 @@ describe('foldErrorText 收口与行为件（alpha.33 处置批 Lane2）', () =>
   it('词法锁（R-1 同法）：六折点 foldErrorText + /jobs 占用降级接线 + 模型切换动作单源 + todoFor memo 双因子键（修前红：四串全缺/双拷贝在场）', () => {
     const source = readFileSync(new URL('./tui-entry.ts', import.meta.url), 'utf8');
     // A 族六折点收口（thinking/sandbox/marketplace/update/wizard/stderr）：
-    // 调用位 7 处 = 既有切换回执 1 + 新收 6（修前仅 1 处——单源律残漏面）
-    expect(source.split('foldErrorText(').length - 1).toBe(7);
+    // 调用位 7 处 = 既有切换回执 1 + 新收 6（修前仅 1 处——单源律残漏面）；
+    // +1 = mode-cycle 档位循环 fold 坏词回执（2026-10-05 ZCode 对标批——
+    // onModeCycle 同 openSandboxPanel 律）→ 8
+    expect(source.split('foldErrorText(').length - 1).toBe(8);
     // #9 /jobs 弃接布尔收口：副屏占用降级回执接线（修前 run 体 void 直弃）
     expect(source.split("panelBusyNotice('后台任务页')").length - 1).toBe(1);
     // #11 模型切换动作单源：回执模板字面量恰一处（修前 onModelCycle 与

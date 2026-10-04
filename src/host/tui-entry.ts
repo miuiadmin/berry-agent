@@ -1491,6 +1491,36 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         // 切栈/活写 footer/回执三行不再持第二拷贝）
         selectModel(next);
       },
+      // 档位模式循环柄（2026-10-05 ZCode TUI 对标批——shift+tab 层③.5 应用
+      // 动作路，ctrl+p onModelCycle 同构接法）：循环宇宙 = SANDBOX_MODES 三档
+      // 单源（词序即循环序）；当前档 = fold 现值（fallback stack.sandboxMode——
+      // 与 footer 行1 模式词同源取数，V-4 注⑪①；无第二真相源）。循环即时
+      // 改会话内档位词（footer 刷新随 selectSandbox）——durable 会话事件 append
+      // 是档位面单写者正门（05 §1.1），非设置面写盘；写盘正门（设置面）仍是
+      // /sandbox 等命令族。本闭包只算下一档，动作体单源走 selectSandbox
+      //（两入口一动作——setSessionMode 单写者 + 回执 + footer 刷新零第二拷贝）
+      onModeCycle: () => {
+        const sid = stack.channels.focusedId ?? session.sessionId;
+        const driver = stack.driverOf(sid);
+        let current: SandboxMode;
+        if (driver !== undefined) {
+          try {
+            current = foldSessionSandboxMode(driver.session.events(), stack.sandboxMode);
+          } catch (err) {
+            // fold 坏词 fail-loud 收为错误回执——循环不裸炸（openSandboxPanel 同律）
+            backend.notify(`沙箱模式读取失败：${foldErrorText(err)}`, { level: 'error' });
+            return;
+          }
+        } else {
+          // 无驱动会话：selectSandbox 自持 warn 回执（「先进入一个会话」）——
+          // 缺席不静默，两入口同回执面
+          selectSandbox(stack.sandboxMode);
+          return;
+        }
+        const index = SANDBOX_MODES.indexOf(current);
+        const next = SANDBOX_MODES[(index + 1) % SANDBOX_MODES.length]!; // 不在册（-1+1=0）→ 首位
+        selectSandbox(next);
+      },
       onQuit: () => quitResolve(),
       // 命令执行窗自动锚（ix-2——07 §4.3 档位 2）：发起会话 = 聚焦会话
       //（兜底启动会话——焦点空悬时命令仍属 TUI 主会话）；ALS 语境继承语义
