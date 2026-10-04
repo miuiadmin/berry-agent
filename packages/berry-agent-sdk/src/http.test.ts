@@ -184,11 +184,12 @@ async function startFace(): Promise<{ transport: SdkTransport; log: FaceLog; clo
       data({ kind: 'entries', sessionId, entries: [] });
       data({ kind: 'replay-end', sessionId, lastReplayedSeq: 8 });
       setTimeout(() => {
+        // stopReason 真值 'stop'（七值闭集真源 = src/contracts/llm.ts——sweep11 L7-3a）
         data({
           kind: 'event',
           seq: 9,
           sessionId,
-          event: { type: 'turn_end', turn: 1, stopReason: 'end_turn' },
+          event: { type: 'turn_end', turn: 1, stopReason: 'stop' },
         });
       }, 30);
       return;

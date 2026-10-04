@@ -39,18 +39,24 @@ rl.on('line', (line) => {
       return;
     }
     out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: req.sessionId, highWaterSeq: 3 });
-    out({ kind: 'entries', sessionId: req.sessionId, entries: [{ type: 'user/message', seq: 1, time: 1, data: {} }], lastSeq: 2 });
+    // entries 帧生产发射形携 nextCursor 分页续读游标（wire-core handleHello/
+    // handleGetEntries 同源）——lastSeq 系线协议不存在字段（sweep11 L7-1）
+    out({ kind: 'entries', sessionId: req.sessionId, entries: [{ type: 'user/message', seq: 1, time: 1, data: {} }], nextCursor: 'c-2' });
     out({ kind: 'replay-end', sessionId: req.sessionId, lastReplayedSeq: 2 });
-    setTimeout(() => out({ kind: 'event', seq: 3, sessionId: req.sessionId, event: { type: 'turn_end', turn: 1, stopReason: 'end_turn' } }), 40);
+    // stopReason 七值闭集真源 = src/contracts/llm.ts StopReason——'end_turn' 系
+    // 闭集外伪值（sweep11 L7-3a），真值 'stop' 防再犯
+    setTimeout(() => out({ kind: 'event', seq: 3, sessionId: req.sessionId, event: { type: 'turn_end', turn: 1, stopReason: 'stop' } }), 40);
   } else if (req.verb === 'getEntries') {
     // missing 会话错误应答（对齐宿主 wire-core handleGetEntries——事务自身错误帧锁）
     if (req.sessionId === 's-missing') {
       out({ kind: 'error', code: 'SESSION_NOT_FOUND', message: '会话 ' + req.sessionId + ' 不存在', sessionId: req.sessionId });
       return;
     }
-    out({ kind: 'entries', sessionId: req.sessionId, entries: [], lastSeq: 0 });
+    // 空页跟尽形：nextCursor 缺席 = 已跟尽（生产同形——lastSeq 已删）
+    out({ kind: 'entries', sessionId: req.sessionId, entries: [] });
   } else if (req.verb === 'sessions') {
-    out({ kind: 'sessions', sessions: [] });
+    // total 恒发（wire-core sessions 位——清单与全量计数分立；sweep11 L7-2）
+    out({ kind: 'sessions', sessions: [], total: 0 });
   } else if (req.verb === 'interrupt') {
     // 无应答档失败形：missing 会话异步回无主 error 帧（对齐宿主 wire-core
     // handleInterrupt——SESSION_NOT_FOUND 携 sessionId；成功形静默无帧）。
@@ -142,8 +148,10 @@ rl.on('line', (line) => {
     return;
   }
   if (req.verb === 'getEntries') {
-    out({ kind: 'event', seq: 1, sessionId: req.sessionId, event: { type: 'turn_end', turn: 1, stopReason: 'end_turn' } });
-    out({ kind: 'entries', sessionId: req.sessionId, entries: [], lastSeq: 0 });
+    // stopReason 真值 'stop'（七值闭集真源 = src/contracts/llm.ts——sweep11 L7-3a）
+    out({ kind: 'event', seq: 1, sessionId: req.sessionId, event: { type: 'turn_end', turn: 1, stopReason: 'stop' } });
+    // 空页跟尽形：nextCursor 缺席 = 已跟尽（lastSeq 已删——sweep11 L7-1）
+    out({ kind: 'entries', sessionId: req.sessionId, entries: [] });
     return;
   }
 });
