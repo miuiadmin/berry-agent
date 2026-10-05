@@ -69,12 +69,33 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
   // 闲态教学键（V-3 注⑦④——`?` 开 /help 帮助副屏）：**投影位**——`?` 是可打印
   // 字符走 text 事件（引擎地面态恒产 text——key 路恒不命中），分诊真源在 backend
   // 路由层 text 路（空稿闲态门控）；本条目仅供 /help 册与 keyText 可发现性投影，
-  // 绑定永不命中（overridable: false + 空键集防误配）。
+  // 绑定永不命中（overridable: false + 空键集防误配）。B4（2026-10-05 ZCode
+  // TUI 对标批）扩双面键集：'?', 'ctrl+x h'——后者是 leader 前缀键系复合投影
+  //（同下两席投影位；'?' 居首 = keyText 首键显示单源不随双面漂移）
   {
     id: 'global.help',
     scope: 'global',
     label: '打开快捷键帮助',
-    keys: ['?'],
+    keys: ['?', 'ctrl+x h'],
+    overridable: false,
+  },
+  // leader 前缀键分支投影两席（B4——2026-10-05 ZCode TUI 对标批增册至 33）：
+  // 键串文法不扩——'ctrl+x b' 复合串是册面**投影位**（/help 可发现性），绑定
+  // 永不命中（单段文法解析器天然不产此形，用户覆盖表恒拒复合串——
+  // malformed-binding 形；分诊真源 = backend 层③.4 leader 态机，见
+  // keys/leader.ts）。overridable: false——分支面无用户改键面
+  {
+    id: 'global.jobs',
+    scope: 'global',
+    label: '打开后台任务清单',
+    keys: ['ctrl+x b'],
+    overridable: false,
+  },
+  {
+    id: 'global.model-picker',
+    scope: 'global',
+    label: '打开模型选择页',
+    keys: ['ctrl+x m'],
     overridable: false,
   },
   // 思考块开关（批 10i——会话级折叠/展开）
@@ -357,5 +378,19 @@ export class Keymap {
       keys: this.keysByAction.get(def.id) ?? def.keys,
       overridable: def.overridable,
     }));
+  }
+
+  /**
+   * 键占用者判定（B4——2026-10-05 ZCode TUI 对标批——leader arm 键占用
+   * fail-loud 判据）：解析后生效键集里恰含该键串的动作（用户覆盖把某动作
+   * 挪上 ctrl+x 即命中——装配位点名 warn + leader 族整体禁用）。册面复合
+   * 投影串（'ctrl+x b' 形）与单段键串恒不等——不误咬。无占用返 null
+   * （缺省册 ctrl+x 零占用）。
+   */
+  actionOccupying(binding: string): ActionView | null {
+    for (const view of this.actions) {
+      if (view.keys.includes(binding)) return view;
+    }
+    return null;
   }
 }

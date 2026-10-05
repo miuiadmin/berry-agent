@@ -2074,6 +2074,22 @@ describe('foldErrorText 收口与行为件（alpha.33 处置批 Lane2）', () =>
     expect(source.split('keybindingRejectionNote(rejection)').length - 1).toBe(2);
   });
 
+  // B4（2026-10-05 ZCode TUI 对标批——07 §4.1 定形注「leader 分支复用命令
+  // dispatch 单源，非新开面板路」）：装配位分支柄词法锁——修前红实证经
+  // HEAD 前源零 onLeaderBranch 位（grep 计 0）；行为半边（arm/分支/吞字/
+  // 解除/超时/占用）锁在 backend 组合面（tui-backend.test.ts leader describe）
+  it('词法锁（B4——leader 分支柄装配位）：分支复用命令 dispatch 单源 + 占用呈报接线', () => {
+    const source = readFileSync(new URL('./tui-entry.ts', import.meta.url), 'utf8');
+    // 分支柄在场（恰一处——backend options 注入位）
+    expect(source.split('onLeaderBranch:').length - 1).toBe(1);
+    // 分支复用命令 dispatch 单源：查表形非新开面板路（b/m → localCommands
+    // 表名同文查 run；h → openHelpPanel 与 `?` / /help 同一本体）
+    expect(source.split('localCommands.find((command) => command.name === branch)?.run();').length - 1).toBe(1);
+    // 占用呈报接线：leaderArmBlockedNotice 消费恰一处（零占用零呈现——
+    // 非拒载四形闭集内成员，独立 warn 位）
+    expect(source.split('backend.leaderArmBlockedNotice').length - 1).toBe(1);
+  });
+
   it('todoFor 折叠 memo 双因子行为锁（词法锁外的行为半边）：命中路同引用不重折 + 尾追加长度增长即失效重折', async () => {
     const dataDir = rigDir('entry-todomemo-data-');
     const ws = rigDir('entry-todomemo-ws-');

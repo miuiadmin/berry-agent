@@ -116,7 +116,8 @@ import {
 import { buildSgr, capAnsiLine, SGR_RESET } from './ansi-rows.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
 import { toolFaceZh } from '../../../contracts/index.js';
-import { keyEventToBinding, Keymap, type KeybindingRejection } from '../keys/registry.js';
+import { keyEventToBinding, Keymap, type ActionView, type KeybindingRejection } from '../keys/registry.js';
+import { LEADER_WINDOW_MS, resolveLeaderIntent, type LeaderBranch, type LeaderIntent } from '../keys/leader.js';
 import { Editor, type EditorSubmitOptions } from '../editor/editor.js';
 import { editorHeightCap } from '../editor/height-cap.js';
 import { OverlayStack, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
@@ -199,6 +200,14 @@ export interface TuiBackendOptions {
    * 作普通字符入稿——确定性测试基线零扰动）。
    */
   readonly onHelpShortcut?: () => void;
+  /**
+   * 装配向接线柄：leader 前缀键分支（B4——2026-10-05 ZCode TUI 对标批：
+   * ctrl+x 待续窗内裸字母 b/m/h 分发）。分支语义 = 装配位命令 dispatch 单源
+   *（jobs/model 查 localCommands 表、help 与 `?` 教学键同一开屏本体——
+   * backend 不自持面板路由）；缺席 = 族不激活（ctrl+x 透传编辑器——无绑定
+   * 归终局丢弃，不劫键不炸）。ctrl+x 硬编码不可配置（键串文法不扩）。
+   */
+  readonly onLeaderBranch?: (branch: LeaderBranch) => void;
   /** 装配向接线柄：退出（ctrl+d 空框） */
   readonly onQuit?: () => void;
   /** 命令柄（'/' 起手文本——03 §2.2 dispatch；false = 未命中落 onSubmit 兜底） */
@@ -364,8 +373,9 @@ const DEFAULT_ESCAPE_WINDOW_MS = 30;
 /**
  * ctrl+d 防误退双击窗（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 ctrl+d 翻档
  * 注定值 2 秒）：非空草稿首击清稿 + 回执后，窗内二击才进退闸、窗过期复位。
+ * B4（同批 leader 前缀键系）起引 keys/leader.ts 单源——两窗同定值共用一源。
  */
-const QUIT_CONFIRM_WINDOW_MS = 2000;
+const QUIT_CONFIRM_WINDOW_MS = LEADER_WINDOW_MS;
 /** footer 教学提示闲态文案（V-3 注⑦④——`?` 键投影与 footer 提示同文单源） */
 const FOOTER_HINT_TEXT = '? 快捷键';
 /**
@@ -376,6 +386,12 @@ const FOOTER_HINT_TEXT = '? 快捷键';
  * 不随本批扩忙态）。
  */
 const FOOTER_HINT_BUSY_TEXT = '回复进行中——输入仍可用：Enter 追加 / Alt+Enter 排队后继';
+/**
+ * footer 教学提示待续态文案（B4——2026-10-05 ZCode TUI 对标批 07 §4.1 定形
+ * 注）：ctrl+x 入待续态期间示分支菜单（待续提示随窗定时退场——不搬 ZCode
+ * 提示滞留 wart）；三键名与册面复合投影串同文（b 任务 / m 模型 / h 帮助）。
+ */
+const FOOTER_HINT_LEADER = 'Ctrl+X 已按 · b 任务 · m 模型 · h 帮助';
 /**
  * 主屏空态引导行集（07 §4.1 空转写态注 2026-10-05）：零块空稿态转录区引
  * 导——logo 字形随启动动画字形语系（纯文本零 CSI）+ 提示行。与 ob-2 启动
@@ -558,6 +574,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly onModeCycle: (() => void) | undefined;
   /** 闲态教学键柄（V-3 注⑦④——`?` text 路分诊消费；缺席不劫键） */
   private readonly onHelpShortcut: (() => void) | undefined;
+  /** leader 前缀键分支柄（B4——层⓪ 待续分诊消费；缺席族不激活） */
+  private readonly onLeaderBranch: ((branch: LeaderBranch) => void) | undefined;
+  /**
+   * ctrl+x 占用者（B4 装配期一次判定）：用户覆盖把某动作挪上 ctrl+x 即
+   * 非 null——leader 族整体禁用（arm 键被占则前缀语义不成立，fail-loud
+   * 呈报归装配位 leaderArmBlockedNotice）。
+   */
+  private readonly leaderArmOccupant: ActionView | null;
   private readonly dispatchCommand: ((input: string) => Promise<boolean>) | undefined;
 
   /* ---- 输入管线态 ---- */
@@ -573,6 +597,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private quitConfirmArmed = false;
   /** 双击窗定时器柄（schedule 注入可控——测试 advance 定窗） */
   private quitConfirmHandle: unknown = null;
+  /**
+   * leader 待续窗到期锚（B4——2026-10-05 ZCode TUI 对标批）：null = 未待续；
+   * 窗判恒惰性（nowMs <= armedUntilMs）无自愈定时器位，陈锚不碍事（下次
+   * arm 覆写；解除/stop/挂起随手清——stop/suspend 全收面）。
+   */
+  private leaderArmedUntilMs: number | null = null;
+  /**
+   * 待续提示退场定时器柄（B4）：窗到点重建 footer 收提示（armEscapeWindow
+   * 自愈形——不搬 ZCode 提示滞留 wart）。同步直出档（schedule 无注入）无
+   * 定时器——提示位由后续 syncFooterHint 对账收敛（quit 双击窗同先例）。
+   */
+  private leaderHintHandle: unknown = null;
   private unsubInput: (() => void) | null = null;
   private unsubResize: (() => void) | null = null;
   private running = false;
@@ -819,7 +855,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * （「输入仍可用」教学——忙态恰是空稿可输入的教学窗）。syncFooterHint
    * 翻转才重建（缓存短路——编辑器每键消费后/agent 起停锚对账，未翻转零重画）。
    */
-  private footerHint: 'off' | 'idle' | 'busy' = 'off';
+  private footerHint: 'off' | 'idle' | 'busy' | 'leader' = 'off';
   /**
    * 空态引导门控位（07 §4.1 空转写态注 2026-10-05）：零块（快照空 + 无裁块
    * 前史）× 空稿 × 闲态 × 非等回声窗 → 主屏转录区呈引导；syncEmptyGuide
@@ -862,6 +898,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.onModelCycle = options.onModelCycle;
     this.onModeCycle = options.onModeCycle;
     this.onHelpShortcut = options.onHelpShortcut;
+    this.onLeaderBranch = options.onLeaderBranch;
     this.dispatchCommand = options.dispatchCommand;
     this.localCommands = options.localCommands ?? [];
     this.todoFor = options.todoFor;
@@ -896,6 +933,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 键位注册表（批 10i R5 基座 + 10k 用户覆盖）：settings keybindings 键
     // 透传——四形拒载 fail-loud（拒载弃该键回退缺省，rejections 观测面呈报）
     this.keymap = new Keymap(options.keybindings);
+    // leader arm 键占用判定（B4——构造期一次）：册面复合投影串（'ctrl+x b'
+    // 形）与单段 'ctrl+x' 恒不等不误咬；用户覆盖占用即族禁用 + 装配位点名
+    this.leaderArmOccupant = this.keymap.actionOccupying('ctrl+x');
     // footer 三行栈供数闭包（批B→V-4 注⑪ 笔3）：注入缺席缩位（老形选项零
     // 扰动——既有测试不传新键常驻段不变）；模型短名自全形取尾段（modelShortOf）
     this.footerTiers = options.footer?.tiers;
@@ -1078,6 +1118,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.cancelTimer('tick');
     this.cancelTimer('escape');
     this.disarmQuitConfirmWindow(); // ctrl+d 双击窗收口（定时器全收面——armed 位同复位）
+    this.disarmLeaderWindow(); // leader 待续窗收口（B4——提示定时器同收、复起陈窗不续）
     this.autocompleteCompleter.cancel(); // 补全在途全收（停机后零迟到交付）
     this.osc.restore(); // 件 7：复原两写点（title 基线 + 进度清零）+ 保活停针（名册语义）
     this.disarmExitRestore?.();
@@ -1141,6 +1182,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.cancelTimer('tick'); // 任务行转轮停摆（防后台空转——复起重摆）
     this.cancelTimer('escape'); // lone-ESC 窗收口（decoder 已弃在途态）
     this.disarmQuitConfirmWindow(); // ctrl+d 双击窗收口（复起后陈窗不续——下次首击重装）
+    this.disarmLeaderWindow(); // leader 待续窗收口（B4——复起后陈窗不续，挂起期提示定时器零后台空转）
     // 硬退复原钩换挂起档（不 disarm）：副屏 Engine 的 exit 钩只复原其屏形
     //（LEAVE_MODES[alt] + raw），本件挂起期保活的终端级写点无人接管——挂起档
     // 收口体见 armSuspendExitRestore
@@ -1767,6 +1809,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * leader arm 键占用观测面（B4——2026-10-05 ZCode TUI 对标批）：ctrl+x 被
+   * 用户覆盖占用某动作时非 null（占用者点名——装配位 warn 呈报「前缀键族
+   * 不可用」；族已整体禁用——占用者保其既有语义）。null = leader 族可用。
+   * 占用不是键位拒载第五形（覆盖本身合法生效）——呈报位独立于此四形闭集。
+   */
+  get leaderArmBlockedNotice(): string | null {
+    const occupant = this.leaderArmOccupant;
+    return occupant === null ? null : `ctrl+x 已被 ${occupant.label}（${occupant.id}）占用——前缀键族不可用`;
+  }
+
+  /**
    * 收副屏（UiBackend 可选能力面实装——UiCore ask 入口扇出「先收副屏再入
    * 提问队列」，07 §4.1 件 8 注意力优先级 ask > 回看条款；viewer 退出键
    * 同路收口；/history 与 /memory 两件共口——在场者谁收谁）。幂等：无副屏 no-op。
@@ -1983,9 +2036,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.statusLine.setFooter({
       instruments: () => this.instrumentSlots(),
       env: () => this.envSlots(),
-      // 教学位双态文案（07 §4.1 教学位扩双态注 2026-10-05）：闲态 `? 快捷键`
-      // / 忙态「输入仍可用」——off 空串
-      hint: this.footerHint === 'idle' ? FOOTER_HINT_TEXT : this.footerHint === 'busy' ? FOOTER_HINT_BUSY_TEXT : '',
+      // 教学位多态文案（07 §4.1 教学位扩双态注 2026-10-05 + B4 待续态同批）：
+      // 闲态 `? 快捷键` / 忙态「输入仍可用」/ 待续态分支菜单（leader）——off 空串
+      hint:
+        this.footerHint === 'leader'
+          ? FOOTER_HINT_LEADER
+          : this.footerHint === 'idle'
+            ? FOOTER_HINT_TEXT
+            : this.footerHint === 'busy'
+              ? FOOTER_HINT_BUSY_TEXT
+              : '',
       modeDanger: this.footerModeDanger,
     });
     this.touchFixed();
@@ -2084,18 +2144,21 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 教学提示门控对账（V-3 注⑦② + 07 §4.1 教学位扩双态注 2026-10-05）：
-   * 期望态翻转才重建（缓存短路——编辑器每键消费后/agent 起停锚高频对账零
-   * 重画）。三态收敛：非空稿或应答窗（inputAsk）恒 off——应答窗 Enter 是
-   * 收窗非提交，两态文案皆示假键位（overlay 在场性不入判——浮层收屏后随
-   * 下一键对账）；余按忙闲分态：闲态 `? 快捷键`（`?` 键教学投影）、忙态
+   * 教学提示门控对账（V-3 注⑦② + 07 §4.1 教学位扩双态注 2026-10-05 + B4
+   * leader 待续态同批扩四态）：期望态翻转才重建（缓存短路——编辑器每键
+   * 消费后/agent 起停锚高频对账零重画）。四态收敛：非空稿或应答窗
+   * （inputAsk）恒 off——应答窗 Enter 是收窗非提交，两态文案皆示假键位
+   * （overlay 在场性不入判——浮层收屏后随下一键对账）；待续态（B4——
+   * ctrl+x 窗内）leader 优先于忙闲（窗内恰是分支菜单呈现窗——arm 后转忙
+   * 仍示分支）；余按忙闲分态：闲态 `? 快捷键`（`?` 键教学投影）、忙态
    * 「输入仍可用」（忙态恰是空稿可输入的教学窗——Enter 追加/Alt+Enter
    * 排队键位实况）。
    */
   private syncFooterHint(): void {
     if (!this.footerEnabled) return;
-    let next: 'off' | 'idle' | 'busy';
+    let next: 'off' | 'idle' | 'busy' | 'leader';
     if (!this.editor.model.isEmpty() || this.inputAsk !== null) next = 'off';
+    else if (this.leaderArmedUntilMs !== null) next = 'leader';
     else if (this.progressBusy) next = 'busy';
     else next = 'idle';
     if (next === this.footerHint) return;
@@ -2514,6 +2577,85 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.quitConfirmArmed = false;
   }
 
+  /**
+   * leader 族激活位（B4——2026-10-05 ZCode TUI 对标批）：分支柄在场 + arm
+   * 键未被占用两条件同时成立。柄缺席 = 族不激活（ctrl+x 透传编辑器——无
+   * 绑定归终局丢弃，`?` 教学键 / ctrl+p 循环族「柄缺席不劫键」同律）；占用
+   * = 族整体禁用（fail-loud 呈报归装配位 leaderArmBlockedNotice）。
+   */
+  private leaderFamilyActive(): boolean {
+    return this.onLeaderBranch !== undefined && this.leaderArmOccupant === null;
+  }
+
+  /**
+   * 教学窗五闸（`?` 教学键与 leader arm 共用门判——B4「复用门判函数勿复制」）：
+   * 空稿 + 闲态 + overlay 不在场 + 弹层不在场 + 无 input-ask 应答窗。任一
+   * 不满足 = 键透传编辑器（终局丢弃——零打扰）。
+   */
+  private teachingGatesOpen(): boolean {
+    return (
+      this.inputAsk === null &&
+      this.editor.model.isEmpty() &&
+      !this.progressBusy &&
+      this.stack.size === 0 &&
+      !this.popup.visible
+    );
+  }
+
+  /**
+   * leader 分支门四闸（B4——arm 门减闲态）：忙期不设闸——arm 后忙态起、窗内
+   * 分支照开（忙期查 /jobs 任务清单正是高频用法）。
+   */
+  private leaderBranchGatesOpen(): boolean {
+    return this.inputAsk === null && this.editor.model.isEmpty() && this.stack.size === 0 && !this.popup.visible;
+  }
+
+  /**
+   * leader 事件分诊单源（B4）：头部（层⓪——armed 分诊）与层③.4（arm 位）
+   * 两调用位共用同一纯函数（keys/leader.ts resolveLeaderIntent——机制语义
+   * 照搬 ZCode leader 态机）。escape 忙态例外判据 = taskLine.isBusy（与层①
+   * escape 打断判据同源——打断生命线优先）。
+   */
+  private leaderIntentFor(ev: import('../../engine/types.js').InputEvent): LeaderIntent {
+    return resolveLeaderIntent({ armedUntilMs: this.leaderArmedUntilMs }, ev, this.now(), {
+      armGatesOpen: this.teachingGatesOpen(),
+      branchGatesOpen: this.leaderBranchGatesOpen(),
+      busy: this.taskLine.isBusy,
+    });
+  }
+
+  /**
+   * leader 待续窗装排（B4）：锚 + 提示位翻待续态 + 窗到点退场定时器
+   * （armEscapeWindow 自愈形——不搬 ZCode 提示滞留 wart）。重按重排（旧
+   * 提示定时器先收再装，无重叠定时器——quit 双击窗同形）。同步直出档
+   * （schedule 无注入）无定时器——提示位由后续 syncFooterHint 对账收敛。
+   */
+  private armLeaderWindow(): void {
+    this.leaderArmedUntilMs = this.now() + LEADER_WINDOW_MS;
+    this.syncFooterHint(); // 提示位升待续态（缓存守——翻转才重建）
+    if (this.scheduleFn === null) return;
+    if (this.leaderHintHandle !== null) this.cancelFn(this.leaderHintHandle);
+    this.leaderHintHandle = this.scheduleFn(() => {
+      this.leaderHintHandle = null;
+      this.leaderArmedUntilMs = null; // 窗到点收锚（惰性窗判的主动清账半边）
+      this.syncFooterHint(); // 提示随窗退场（重建 footer 收分支菜单）
+    }, LEADER_WINDOW_MS);
+  }
+
+  /**
+   * leader 待续窗收口（锚 + 提示定时器双清 + 提示位对账）：分支命中/取消/
+   * 非匹配解除随手清账 / stop 定时器全收面 / suspend 复起陈窗不续。幂等
+   * ——未装窗调用零副作用（syncFooterHint 缓存短路）。
+   */
+  private disarmLeaderWindow(): void {
+    this.leaderArmedUntilMs = null;
+    if (this.leaderHintHandle !== null) {
+      this.cancelFn(this.leaderHintHandle);
+      this.leaderHintHandle = null;
+    }
+    this.syncFooterHint();
+  }
+
   /** 排空 decoder 事件队列并逐件路由 */
   private flushDecoderEvents(): void {
     for (const ev of this.decoder.take()) this.routeEvent(ev);
@@ -2521,13 +2663,40 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /**
    * 事件路由四层（07 §4.3 拦截链序）。
+   * 层⓪ leader 待续态分诊（B4——2026-10-05 ZCode TUI 对标批）：armed 态对
+   * 每输入事件先判——分支字母命中即消费（字母不入稿）、escape 取消即消费、
+   * 其余任意事件解除 + 透传（吞零键——层①②③先消费的键也在此解除，待续
+   * 态不滞留成陈态）；arm 意图在此不消费（归层③.4——模态期间不 arm 的
+   * 结构位）；
    * 层① 全局键先于 overlay（ctrl+c 打断 run——ask 链收口经装配侧信号折入；
    * ctrl+d 两步序——浮层在场让路、非空草稿首击清稿+双击窗、空稿单击直退，
    * 2026-10-05 ZCode 对标批翻档）；
    * 层② overlay 模态独占（未消费键不穿透）；层③ 补全弹层非模态穿透；
+   * 层③.4 leader arm 位（B4——ctrl+x 五闸入待续态，见下点位注）；
    * 层④ 编辑器（未消费键终局丢弃——escape 等无全局绑定）。
    */
   private routeEvent(ev: import('../../engine/types.js').InputEvent): void {
+    // 层⓪ leader 待续态分诊（B4）：族激活（柄在场 + ctrl+x 未被占用）才参与。
+    // followup 分发复用装配柄（命令 dispatch 单源——backend 不自持面板路由）；
+    // 合并游程余字素补入稿（jump 待靶态同律——不随分支字母丢字）
+    if (this.leaderFamilyActive()) {
+      const intent = this.leaderIntentFor(ev);
+      if (intent.kind === 'followup') {
+        this.disarmLeaderWindow(); // 分支命中随手收窗
+        if (intent.rest !== '') {
+          this.editor.model.insertText(intent.rest); // 余字素入稿（'bm' 合并形）
+          this.touchFixed();
+        }
+        this.onLeaderBranch!(intent.branch); // 族激活位已保柄在场（非空断言安全）
+        return;
+      }
+      if (intent.kind === 'cancel') {
+        this.disarmLeaderWindow(); // escape 取消（闲态）——消费
+        return;
+      }
+      if (intent.kind === 'disarm') this.disarmLeaderWindow(); // 解除 + 透传（吞零键）
+      // 'arm' / 'none' 透传——arm 归层③.4（模态期间不 arm 结构位）
+    }
     // 层① 全局键经键位注册表解析（批 10i R5——册单源取代硬编码判键；ctrl+d
     // 两步序的浮层让路/草稿分诊留在路由层：册只管键匹配、分层消解
     // 归层序——不可覆盖动作无用户改键面）。ESC 接线让路（界面美化役批 2）：
@@ -2596,6 +2765,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.touchFixed(); // 弹层高亮/隐层——固定区重建
       return;
     }
+    // 层③.4 leader arm 位（B4——2026-10-05 ZCode TUI 对标批）：ctrl+x 经五闸
+    //（= `?` 教学键同门——teachingGatesOpen 单源）入待续态。插入位结构性保
+    //「模态期间不 arm」：overlay/弹层先消费的键到不了此（门判与层序各执
+    // 一半——双保险）；门不开透传编辑器（ctrl+x 无绑定终局丢弃——零打扰）。
+    // 待续中再按 ctrl+x 已在层⓪解除——此处恒为全新装窗（重按续窗语义）
+    if (this.leaderFamilyActive() && this.leaderIntentFor(ev).kind === 'arm') {
+      this.armLeaderWindow();
+      return;
+    }
     // 层③.5 应用动作键（批 10i——思考块/工具卡会话级折叠展开；overlay 模态
     // 已在上层独占、补全弹层未消费才达此，编辑器不绑 ctrl+t/ctrl+o 无争键）。
     // 模型循环（挂账解挂批 2026-09-15——ctrl+p）与档位模式循环（2026-10-05
@@ -2642,20 +2820,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     }
     // 层③.7 闲态教学键（V-3 注⑦④——`?` 开 /help 帮助副屏）：`?` 是可打印
     // 字符走 text 事件（引擎地面态恒产 text——key 路永不命中；键位册条目仅
-    // 投影可发现性）。门控 = 柄在场 + 空稿 + 闲态 + overlay/弹层不在场 +
-    // 无 input-ask 应答窗（应答期问题行在场、编辑器空、闲态——三闸全开但
-    // 稿位属应答车道，`?` 应作普通字符入应答稿而非劫去开 /help）——任一
-    // 不满足透传编辑器（'?' 作普通字符入稿——确定性测试基线零扰动）。
-    if (
-      ev.kind === 'text' &&
-      ev.text === '?' &&
-      this.onHelpShortcut !== undefined &&
-      this.inputAsk === null &&
-      this.editor.model.isEmpty() &&
-      !this.progressBusy &&
-      this.stack.size === 0 &&
-      !this.popup.visible
-    ) {
+    // 投影可发现性）。门控 = 柄在场 + 五闸（teachingGatesOpen——B4 起 leader
+    // arm 同门复用此判：空稿 + 闲态 + overlay/弹层不在场 + 无 input-ask 应答
+    // 窗〔应答期问题行在场、编辑器空、闲态——三闸全开但稿位属应答车道，`?`
+    // 应作普通字符入应答稿而非劫去开 /help〕）——任一不满足透传编辑器
+    //（'?' 作普通字符入稿——确定性测试基线零扰动）。
+    if (ev.kind === 'text' && ev.text === '?' && this.onHelpShortcut !== undefined && this.teachingGatesOpen()) {
       this.onHelpShortcut();
       return;
     }

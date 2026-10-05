@@ -170,15 +170,16 @@ describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字�
 });
 
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
-  it('册数 31：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）', () => {
-    expect(ACTION_CATALOG).toHaveLength(31);
+  it('册数 33：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影两席（B4 同批）', () => {
+    expect(ACTION_CATALOG).toHaveLength(33);
     const followUp = ACTION_CATALOG.find((d) => d.id === 'editor.queue-followup');
     expect(followUp).toMatchObject({ scope: 'editor', keys: ['alt+enter'], overridable: true });
     const modelCycle = ACTION_CATALOG.find((d) => d.id === 'global.model-cycle');
     expect(modelCycle).toMatchObject({ scope: 'global', keys: ['ctrl+p'], overridable: true });
-    // 教学键投影位：不可覆盖（text 路分诊真源在 backend——绑定永不命中）
+    // 教学键投影位：不可覆盖（text 路分诊真源在 backend——绑定永不命中）；
+    // B4 扩 leader 复合面（精确形另锁于下 leader 投影 describe）
     const help = ACTION_CATALOG.find((d) => d.id === 'global.help');
-    expect(help).toMatchObject({ scope: 'global', keys: ['?'], overridable: false });
+    expect(help).toMatchObject({ scope: 'global', keys: ['?', 'ctrl+x h'], overridable: false });
     // 档位模式循环（2026-10-05 ZCode TUI 对标批——shift+tab；可覆盖位——
     // 非「打断永可达」安全位族，ctrl+p 同构循环族）
     const modeCycle = ACTION_CATALOG.find((d) => d.id === 'global.mode-cycle');
@@ -220,5 +221,37 @@ describe('档位模式循环增册（2026-10-05 ZCode TUI 对标批——shift+t
     expect(remapped.rejections).toEqual([]);
     expect(remapped.actionMatches(key('n', { ctrl: true }), 'global.mode-cycle')).toBe(true);
     expect(remapped.actionMatches(key('tab', { shift: true }), 'global.mode-cycle')).toBe(false); // 迁离缺省位
+  });
+});
+
+describe('leader 前缀键分支投影位（2026-10-05 ZCode TUI 对标批 B4——ctrl+x b/m/h 复合串）', () => {
+  it('三投影在册：jobs/model-picker 复合串 + help 双面键集（? 居首 = keyText 显示单源）', () => {
+    const jobs = ACTION_CATALOG.find((d) => d.id === 'global.jobs');
+    expect(jobs).toMatchObject({ scope: 'global', keys: ['ctrl+x b'], overridable: false });
+    const picker = ACTION_CATALOG.find((d) => d.id === 'global.model-picker');
+    expect(picker).toMatchObject({ scope: 'global', keys: ['ctrl+x m'], overridable: false });
+    const help = ACTION_CATALOG.find((d) => d.id === 'global.help');
+    expect(help).toMatchObject({ keys: ['?', 'ctrl+x h'], overridable: false });
+    expect(new Keymap().keyText('global.help')).toBe('?'); // 首键显示单源——footer 提示不随双面漂移
+  });
+
+  it('键串文法不扩：用户覆盖表恒拒复合串（malformed-binding 形）——分诊真源在 backend 态机', () => {
+    const r = resolveKeybindings({ 'editor.submit': 'ctrl+x b', 'editor.new-line': 'ctrl+x' });
+    expect(r.rejections.map((x) => x.kind)).toEqual(['malformed-binding']);
+    expect(r.keysByAction.get('editor.submit')).toEqual(['enter']); // 回退缺省
+    expect(r.keysByAction.get('editor.new-line')).toEqual(['ctrl+x']); // 单段合法照收（占用呈报归装配位）
+  });
+
+  it('投影条目不可覆盖（overridable: false——not-overridable 拒载面）', () => {
+    const r = resolveKeybindings({ 'global.jobs': 'ctrl+j' });
+    expect(r.rejections[0]).toMatchObject({ kind: 'not-overridable', actionId: 'global.jobs' });
+  });
+
+  it('actionOccupying 占用判定：缺省 ctrl+x 零占用；用户覆盖占用后点名（复合投影串不误咬）', () => {
+    expect(new Keymap().actionOccupying('ctrl+x')).toBeNull(); // 缺省册无单段 ctrl+x——复合串恒不等
+    const occupied = new Keymap({ 'editor.move-left': 'ctrl+x' });
+    const occupant = occupied.actionOccupying('ctrl+x');
+    expect(occupant).toMatchObject({ id: 'editor.move-left' }); // 占用者可点名（fail-loud warn 判据）
+    expect(new Keymap({ 'editor.move-left': 'ctrl+x' }).actionOccupying('ctrl+b')).toBeNull(); // 迁离后原键位零占用
   });
 });

@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
 import { ansiColor, colorRgb, stringWidth } from '../../engine/index.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
+import { LEADER_WINDOW_MS } from '../keys/leader.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
 import { builtinPalette, detectColorDepth, resolveTheme } from '../theme/index.js';
 import { AltScreenHost } from '../overlay/alt-screen.js';
@@ -4178,6 +4179,263 @@ describe('TuiBackend ctrl+d 防误退两步序 + 档位模式循环键（2026-10
     io.bytes = '';
     io.emitInput('\x1b[Z'); // 不炸（缺席 = 键不劫持——透传编辑器终局丢弃）
     expect(io.bytes).toBe('');
+  });
+});
+
+describe('TuiBackend Ctrl+X leader 前缀键系（2026-10-05 ZCode TUI 对标批 B4——07 §4.1 定形注）', () => {
+  /** leader rig：footer 注入（提示位观测）+ 分支柄记录 */
+  function leaderRig(options: Partial<TuiBackendOptions> = {}) {
+    const branches: string[] = [];
+    const rig = makeInteractive({
+      footer: { tiers: () => ({ mode: null, thinking: null, sandbox: null }) },
+      onLeaderBranch: (branch) => branches.push(branch),
+      ...options,
+    });
+    return { ...rig, branches };
+  }
+
+  it('arm 入态 + 待续提示在场；三分支字母命中即消费（字母不入稿——吞字锁）', () => {
+    const { io, calls, branches, pump } = leaderRig();
+    io.emitInput('\x18'); // ctrl+x——五闸全开（空稿闲态无浮层）入待续态
+    pump();
+    expect(io.bytes).toContain('Ctrl+X 已按 · b 任务 · m 模型 · h 帮助'); // 待续提示（footer 教学位）
+    io.bytes = '';
+    io.emitInput('b'); // 分支字母——text 路拦截
+    pump();
+    expect(branches).toEqual(['jobs']); // 分发命中
+    expect(io.bytes).not.toContain('b'); // 修前红锚：字母不入稿（提示/稿面零裸 b——b 被分支消费）
+    io.emitInput('\r'); // 空稿提交零动作——证稿恒空
+    pump();
+    expect(calls.submitted).toEqual([]);
+    // m / h 两分支同形（各自重新 arm）
+    io.emitInput('\x18');
+    pump();
+    io.emitInput('m');
+    pump();
+    io.emitInput('\x18');
+    pump();
+    io.emitInput('h');
+    pump();
+    expect(branches).toEqual(['jobs', 'model', 'help']);
+  });
+
+  it('非匹配字母解除 + 透传入稿（吞零键）；提示随解除退场', () => {
+    const { io, branches, pump } = leaderRig();
+    io.emitInput('\x18');
+    pump();
+    io.bytes = '';
+    io.emitInput('c'); // 非分支字母——解除 + 透传
+    pump();
+    expect(branches).toEqual([]); // 零分发
+    expect(io.bytes).toContain('c'); // 入稿（透传不吞）
+    expect(io.bytes).not.toContain('Ctrl+X 已按'); // 提示退场（ disarm 对账）
+    io.emitInput('b'); // 待续态已解除——后续 b 是普通字符
+    pump();
+    expect(branches).toEqual([]); // 无迟到分发
+    expect(io.bytes).toContain('cb'); // 连缀成稿
+  });
+
+  it('2 秒窗到点：提示定时退场 + 窗外分支字母归普通字符（惰性窗判）', () => {
+    const { io, branches, clock, pump } = leaderRig();
+    io.emitInput('\x18');
+    pump();
+    io.bytes = '';
+    clock.advance(LEADER_WINDOW_MS + 1); // 窗到点——提示退场定时器自愈（armEscapeWindow 形）
+    expect(io.bytes).not.toContain('Ctrl+X 已按'); // 修前红锚：ZCode 滞留提示 wort 不搬
+    io.emitInput('b');
+    pump();
+    expect(branches).toEqual([]); // 窗外非分支
+    expect(io.bytes).toContain('b'); // 普通字符入稿
+  });
+
+  it('重按 ctrl+x 续新窗（disarm + 重 arm 两跳——窗刷新）', () => {
+    const { io, branches, clock, pump } = leaderRig();
+    io.emitInput('\x18');
+    pump();
+    clock.advance(1500); // 首窗过半
+    io.emitInput('\x18'); // 再按——解除 + 重装（新窗起点）
+    pump();
+    clock.advance(1500); // 距首 arm 已 3000ms——旧窗已外、新窗内
+    io.emitInput('b');
+    pump();
+    expect(branches).toEqual(['jobs']); // 修前红锚：无续窗则此 b 已是普通字符
+  });
+
+  it('arm 五闸各腿：非空稿 / 忙态 / overlay 在场 / 弹层在场 / input-ask 应答窗——皆不 arm', async () => {
+    // ① 非空稿
+    {
+      const { io, branches, pump } = leaderRig();
+      io.emitInput('a');
+      pump();
+      io.bytes = '';
+      io.emitInput('\x18');
+      pump();
+      expect(io.bytes).not.toContain('Ctrl+X 已按'); // 不 arm
+      io.emitInput('b');
+      pump();
+      expect(branches).toEqual([]);
+      expect(io.bytes).toContain('ab'); // ctrl+x 透传（编辑器终局丢弃）+ b 连缀
+    }
+    // ② 忙态（`?` 教学键同门——复用门判）
+    {
+      const { io, backend, branches, pump } = leaderRig();
+      emit(backend, { type: 'agent_start' });
+      pump();
+      io.bytes = '';
+      io.emitInput('\x18');
+      pump();
+      expect(io.bytes).not.toContain('Ctrl+X 已按');
+      io.emitInput('b');
+      pump();
+      expect(branches).toEqual([]);
+      expect(io.bytes).toContain('b');
+      emit(backend, { type: 'agent_end', status: 'completed' });
+    }
+    // ③ overlay 在场（select 浮层模态独占）
+    {
+      const { io, backend, branches, clock, pump } = leaderRig();
+      const picked = backend.select('选一个', [{ value: 'a', label: '甲' }]);
+      pump();
+      io.bytes = '';
+      io.emitInput('\x18');
+      pump();
+      expect(io.bytes).not.toContain('Ctrl+X 已按');
+      io.emitInput('b');
+      pump();
+      expect(branches).toEqual([]); // 模态期零分发
+      io.emitInput('\x1b'); // escape 关层（收浮层）
+      escapePump(clock);
+      await expect(picked).resolves.toBe('');
+    }
+    // ④ 弹层在场（补全弹层）
+    {
+      const rig = leaderRig({
+        autocomplete: {
+          commands: (query) => (query === 'he' ? [{ label: '/help', detail: '帮助', replacement: '/help ' }] : []),
+        },
+      });
+      rig.io.emitInput('/he');
+      rig.clock.advance(AUTOCOMPLETE_DEBOUNCE_MS + 1); // 防抖窗到——弹层在场
+      expect(rig.io.bytes).toContain('帮助'); // 弹层在场锚（非空洞断言）
+      rig.io.bytes = '';
+      rig.io.emitInput('\x18');
+      rig.pump();
+      expect(rig.io.bytes).not.toContain('Ctrl+X 已按');
+      rig.io.emitInput('\x1b');
+      escapePump(rig.clock);
+      expect(rig.branches).toEqual([]);
+    }
+    // ⑤ input-ask 应答窗
+    {
+      const { io, backend, branches, pump } = leaderRig();
+      const asked = backend.input('补充说明？');
+      pump();
+      io.bytes = '';
+      io.emitInput('\x18');
+      pump();
+      expect(io.bytes).not.toContain('Ctrl+X 已按');
+      io.emitInput('b');
+      io.emitInput('\r');
+      pump();
+      await expect(asked).resolves.toBe('b'); // b 是应答内容非分支
+      expect(branches).toEqual([]);
+    }
+  });
+
+  it('分支门四闸（arm 门减闲态）：arm 后忙态起——窗内分支照开（忙期查任务清单正是高频用法）', () => {
+    const { io, backend, branches, pump } = leaderRig();
+    io.emitInput('\x18'); // 闲态 arm（五闸开）
+    pump();
+    io.bytes = '';
+    emit(backend, { type: 'agent_start' }); // 窗内转忙——若忙态优先于待续，此帧即翻「输入仍可用」
+    pump();
+    expect(io.bytes).not.toContain('回复进行中'); // 修前红锚：leader 优先于 busy——提示位不随忙态翻
+    io.emitInput('b');
+    pump();
+    expect(branches).toEqual(['jobs']); // 四闸不含闲态——忙期照分发
+    expect(io.bytes).toContain('回复进行中'); // 分支解除后提示位归忙态（正向对照——busy 文案并非不可达）
+  });
+
+  it('escape 闲态取消消费（零分发零入稿）；忙态让路层①打断（打断生命线优先）', () => {
+    // 闲态取消
+    {
+      const { io, calls, branches, pump, clock } = leaderRig();
+      io.emitInput('\x18');
+      pump();
+      io.emitInput('\x1b');
+      escapePump(clock);
+      expect(branches).toEqual([]);
+      expect(calls.interrupted).toEqual([]); // 闲态 escape 是取消非打断
+      io.emitInput('b'); // 待续态已收——普通字符
+      pump();
+      expect(io.bytes).toContain('b');
+      expect(branches).toEqual([]);
+    }
+    // 忙态让路
+    {
+      const { io, backend, calls, branches, pump, clock } = leaderRig();
+      io.emitInput('\x18');
+      pump();
+      emit(backend, { type: 'agent_start' });
+      pump();
+      io.emitInput('\x1b'); // 忙态 escape——解除 + 让路打断
+      escapePump(clock);
+      expect(calls.interrupted).toEqual(['s1']); // 打断先消费（层①）
+      io.emitInput('b'); // 待续已解除——普通字符
+      pump();
+      expect(branches).toEqual([]);
+      expect(io.bytes).toContain('b');
+    }
+  });
+
+  it('窗内 shift+tab：解除透传——档位模式循环照常触发（三键空间互斥零冲突）', () => {
+    const modeCycles: number[] = [];
+    const { io, branches, pump } = leaderRig({ onModeCycle: () => modeCycles.push(1) });
+    io.emitInput('\x18');
+    pump();
+    io.bytes = '';
+    io.emitInput('\x1b[Z'); // shift+tab——非分支非 escape：解除 + 透传
+    pump();
+    expect(modeCycles).toHaveLength(1); // 层③.5 照常触发
+    expect(io.bytes).not.toContain('Ctrl+X 已按'); // 提示退场
+    io.emitInput('b');
+    pump();
+    expect(branches).toEqual([]); // 已解除
+  });
+
+  it('窗内 ctrl+d：解除透传进退闸序（空稿直退——两步序键空间互不干扰）', () => {
+    const { io, calls, branches, pump } = leaderRig();
+    io.emitInput('\x18');
+    pump();
+    io.bytes = '';
+    io.emitInput('\x04'); // ctrl+d——解除 + 透传 → 层① 空稿直退
+    pump();
+    expect(calls.quit).toBe(1);
+    expect(branches).toEqual([]);
+  });
+
+  it('arm 键占用 fail-loud：用户覆盖 ctrl+x 到他动作 → leader 族整体禁用 + 占用者可点名', () => {
+    const { io, backend, branches, pump } = leaderRig({ keybindings: { 'editor.move-left': 'ctrl+x' } });
+    expect(backend.leaderArmBlockedNotice).toContain('editor.move-left'); // 点名占用者
+    expect(backend.leaderArmBlockedNotice).toContain('前缀键族不可用');
+    io.emitInput('\x18');
+    pump();
+    expect(io.bytes).not.toContain('Ctrl+X 已按'); // 不 arm（族禁用）
+    io.emitInput('b');
+    pump();
+    expect(branches).toEqual([]); // 零分发
+    expect(io.bytes).toContain('b'); // b 普通入稿（ctrl+x 归 move-left 语义）
+  });
+
+  it('柄缺席不劫键：onLeaderBranch 缺席 = ctrl+x 透传编辑器（终局丢弃）+ b 普通字符', () => {
+    const submitted: string[] = [];
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, { sessionId: 's1', onSubmit: (_sid, text) => submitted.push(text) });
+    backend.start();
+    io.emitInput('\x18'); // 无柄——族不激活
+    io.emitInput('b');
+    io.emitInput('\r');
+    expect(submitted).toEqual(['b']); // b 入稿提交
   });
 });
 

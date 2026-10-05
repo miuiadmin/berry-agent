@@ -1691,6 +1691,18 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // `?` 闲态教学键柄（V-3 注⑦④——text 路分诊）：与 /help 命令同一开屏
       // 本体（上 openHelpPanel 闭包）；backend 空稿闲态门控后回调（层③.7）
       onHelpShortcut: () => openHelpPanel(),
+      // Ctrl+X leader 前缀键分支柄（B4——2026-10-05 ZCode TUI 对标批 07
+      // §4.1 定形注）：分支复用命令 dispatch 单源非新开面板路——b/m 分支名
+      // 与 localCommands 表名严格同文（查表 run，与 /jobs、/model 命令同一
+      // 动作体）；h 分支与 `?` 教学键 / /help 命令同一 openHelpPanel 本体
+      //（三入口一动作）。backend 五闸/四闸门控后回调（层⓪/层③.4）
+      onLeaderBranch: (branch) => {
+        if (branch === 'help') {
+          openHelpPanel();
+          return;
+        }
+        localCommands.find((command) => command.name === branch)?.run();
+      },
       ...(options.version !== undefined ? { version: options.version } : {}),
       // 生产定时器注入（保活/帧帽真定时——缺省同步直出仅测试语义）
       schedule: (fn, ms) => setTimeout(fn, ms),
@@ -1809,6 +1821,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // 坏覆盖逐条 warn（不炸启动——坏项忽略、好项照常生效；首画后落屏可见）
     for (const rejection of backend.keybindingRejections) {
       backend.notify(keybindingRejectionNote(rejection), { level: 'warn' });
+    }
+
+    // —— leader arm 键占用呈报（B4——2026-10-05 ZCode TUI 对标批）：用户
+    // 覆盖把某动作挪上 ctrl+x → 前缀键族整体禁用点名 warn（占用非拒载——
+    // 四形拒载闭集外的独立呈报位；零占用零呈现不落噪音行）
+    const leaderBlockedNotice = backend.leaderArmBlockedNotice;
+    if (leaderBlockedNotice !== null) {
+      backend.notify(leaderBlockedNotice, { level: 'warn' });
     }
 
     // —— 上次会话未收尾提示（07 §4.1 可续提示注 2026-10-05）：boot 完成 + 首
