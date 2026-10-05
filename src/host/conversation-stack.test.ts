@@ -910,6 +910,63 @@ describe('压缩槽位装配（U4-3 装配批）', () => {
         .some((event) => event.type === 'user/message' && (event.data as { source?: string }).source === 'compaction'),
     ).toBe(false);
   });
+
+  it('B2 批 2 排队兑现接线 e2e：busy 形入手动排队位 → run 终态排干 → onManualQueuedSettled 回执经 channels.notify 回流', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    // 手动路专用配置：tail 2（3 轮 6 条即可压）+ 阈值比 10（阈值路永不触发
+    // ——本测只走手动排队位，排干后 runThresholdEvaluation 自然静默）
+    stack.compactionSlots
+      .bindForPlugin({ pluginId: 'acme-manual', inLoadWindow: () => true })
+      .setConfig({ thresholdRatio: 10, cooldownMs: 0, tailKeep: 2 });
+    const notified: string[] = [];
+    stack.channels.addBackend({
+      id: 'compact-notify-probe',
+      capabilities: {
+        notify: true,
+        confirm: false,
+        select: false,
+        input: false,
+        approval: false,
+        setStatus: false,
+        setWidget: false,
+      },
+      hasAudience: () => true,
+      notify: (message) => void notified.push(message),
+    });
+    const session = stack.openStartupSession(rigWorkspace());
+    const log = stack.driverOf(session.sessionId)!.session;
+    // 前两轮常闭（head 首 turn + 中段素材）；第三轮闸门挂起（busy 位真源）
+    for (let i = 1; i <= 2; i++) {
+      faux.setResponses([() => messageOf('stop')]);
+      await stack.submitText(session.sessionId, `第${i}轮任务`);
+    }
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    faux.setResponses([
+      () => gate.then(() => messageOf('stop')),
+      () => messageOf('stop'), // 摘要单发（faux 队列次位——排干 complete 消费）
+    ]);
+    const run = stack.submitText(session.sessionId, '第三轮（挂起）');
+    expect(run).toBeDefined();
+    // busy 位在飞：排队形入手动排队位（回执档 'queued'——命令 handler 层
+    // busy 判据在此由测试直接传位，服务面单漏斗不变）
+    await expect(stack.compaction.compactNow(log, { busy: true })).resolves.toBe('queued');
+    release();
+    await run;
+    await rt.shutdown(); // closer 序含 compaction-drain——排空后才断言
+    // 兑现告知经通道 notify 回流（compacted 档：数字源 = 事件载荷 occludedMessages）
+    expect(notified.some((t) => t.includes('✓ 已压缩：2 条早期对话已整理为摘要'))).toBe(true);
+    // durable 面：manual 五步闭段落账（reason=manual + 载体在场）
+    expect(log.eventsOfType('compaction/start').at(-1)?.data).toMatchObject({ reason: 'manual' });
+    expect(
+      log
+        .events()
+        .some((event) => event.type === 'user/message' && (event.data as { source?: unknown }).source === 'compaction'),
+    ).toBe(true);
+  });
 });
 
 /* ---------------- 跨会话操控装配（e4-3——受理器栈级单例 + 工具族 + controlCross seam） ---------------- */

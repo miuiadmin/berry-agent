@@ -107,6 +107,9 @@ import type { HostRuntime } from './runtime.js';
 import type { HookDispatchGuardFace } from './hook-dispatch-guard.js';
 import type { GoalFace } from './core-plugins.js';
 import { TOOL_POLICY_BASENAME } from './tool-policy-store.js';
+// /compact 回执文案与 end 载荷采数单源（B2 批 2——onManualQueuedSettled
+// 排队兑现接线消费；命令腿本体在 host/compact-cmd.ts，assembly 装配位直引）
+import { compactOutcomeText, lastCompactionEndFactsOf } from './compact-cmd.js';
 import { createSessionTools, createSessionView, OBSERVE_CROSS_CAPABILITY } from '../obs/index.js';
 import type { SessionObserveUsedRecord, SessionView } from '../obs/index.js';
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
@@ -407,6 +410,14 @@ export interface ConversationStack {
    * onBeforeCompact 在栈内接线）。
    */
   readonly compactionSlots: CompactionSlotsHandle;
+  /**
+   * 压缩服务真身（07 §4.1 ZCode TUI 对标批 B2 批 2——/compact 命令面消费位）：
+   * assembly 通道命令 register('compact') 经本面调 compactNow（busy 判据 =
+   * 命令 handler 层读驱动 running 位后随参传入——05 §2.2「服务层无驱动边」，
+   * 服务真身与席位容器同源接线不另铸）。注入替身形（options.compaction）经
+   * 本面同透传——测试覆盖语义与席位容器一致。
+   */
+  readonly compaction: CompactionService;
   /**
    * 流活性 watchdog 双帽读面（04 §3.8——批 A）：流层 idle 帽已闭包装进
    * streamFn（本栈内部接线），编排层时滞帽由装配根经 issue 工厂注入第三
@@ -911,6 +922,26 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       getConfig: compactionSlots.getConfig,
       getProvider: compactionSlots.getProvider,
       onBeforeCompact: dispatchBeforeCompact,
+      // 排队兑现告知接线（07 B2 批 2——05 §2.2 第 6 条 onManualQueuedSettled
+      // seam 的 host 消费位）：排干执行完成的回执经通道 notify 归因 'compact'
+      // 回流（与 /export 回执同律）。三值档文案单源 host/compact-cmd：
+      // compacted 档数字优先取事件载荷（end 载荷同笔携带）；failed 档原因句
+      // 事件不携（载荷只三件）——经日志末条 end 同笔补读（driverOf 活体真源
+      // ；回写后必在场）。channels/manager 均晚于本构造位声明——TDZ 晚绑
+      // （回调只在 run 终态排干时触发，构造期零调用；channels 选项闭包同位
+      // 先例）。回调异常已在服务侧隔离（emitManualSettled try/catch warn——
+      // 单消费者故障不反噬排干路径，本处零包装）
+      onManualQueuedSettled: (event) => {
+        const log = manager.driverOf(event.sessionId)?.session;
+        const endFacts = log !== undefined ? lastCompactionEndFactsOf(log.events()) : undefined;
+        const facts =
+          event.outcome === 'compacted'
+            ? { occludedMessages: event.occludedMessages ?? endFacts?.occludedMessages }
+            : event.outcome === 'failed'
+              ? { error: endFacts?.error }
+              : undefined;
+        void channels.notify(event.sessionId, compactOutcomeText(event.outcome, facts));
+      },
       warn,
     });
 
@@ -1572,6 +1603,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     sessionView,
     sessionsControl,
     compactionSlots,
+    compaction,
     // watchdog 双帽读面（04 §3.8——装配根单次解析单源；issue-session 工厂
     // 第三判据经 assembly 接线消费 stack.watchdog.sessionStallTimeoutMs）
     watchdog: {

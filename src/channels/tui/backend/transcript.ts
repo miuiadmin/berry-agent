@@ -68,7 +68,7 @@ import {
   type ToolCardRenderInput,
   type ToolCardStatus,
 } from '../blocks/tool-card.js';
-import { argKeyZh, TOOL_RUN_MARK, toolFaceZh } from '../../../contracts/index.js';
+import { argKeyZh, TOOL_RUN_MARK, toolFaceZh, lastCcrEntryOf } from '../../../contracts/index.js';
 import { CURSOR_MARK } from '../panels/panel-chrome.js';
 import { ACTION_CATALOG } from '../keys/registry.js';
 import type { SessionEnvelope } from '../../types.js';
@@ -161,6 +161,18 @@ export type TranscriptBlock =
       readonly kind: 'error';
       readonly text: string;
       readonly theme: ResolvedTheme;
+    }
+  | {
+      /**
+       * 压缩时间线分隔块（07 B2 批 2——摘要载体 user 消息的替换呈现形）：
+       * 载体本体（source='compaction' 的 user 消息——可能是数千字摘要）零
+       * user 块直呈，落一行 dim 分隔线「── 已压缩 N 条对话 ──」（回合记账
+       * 线族同款）。count = CCR 标记段末行解析的遮蔽条数；缺席 = CCR 批前
+       * 历史载体降级形「── 已压缩 ──」。
+       */
+      readonly kind: 'compaction';
+      /** 已压缩对话条数（旧载体降级形缺席） */
+      readonly count?: number;
     }
   | {
       readonly kind: 'streaming';
@@ -334,6 +346,10 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
       const marker = `  ⋯（错误详情已省 ${dropped} 行）`;
       return [...kept, { plain: marker, runs: [{ start: 0, end: marker.length, style }] }];
     }
+    case 'compaction':
+      // 压缩时间线分隔行（B2 批 2）：dim 单行（回合记账线族同款——不占全宽
+      // 染色、无背景带）；N 缺席 = 旧载体降级形
+      return [dimStyledLine(block.count === undefined ? '── 已压缩 ──' : `── 已压缩 ${block.count} 条对话 ──`)];
     case 'streaming': {
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
       // markdown 直推档走网格管线（bullet 槽同轴——与定稿 markdown 块逐行同形）；
@@ -767,13 +783,34 @@ interface ExecWindowEntry {
  * 过滤位）：subagent 结算/审批挂起注入的 user 块用户面零呈现（终态呈现归
  * JobPanel 收口行）；真用户消息（source 缺省/user/channel:/schedule 等用户
  * 通道族）渲染律不变。durable 注入维持（模型面知情不动——呈现层过滤）。
+ * B2 批 2 扩 'compaction'（07 B2 定形注——V-0 注① 集扩位）：压缩摘要载体
+ * user 块零呈现（替换为 compaction 分隔块——见 compactionSeparatorBlockOf；
+ * ZCode inputVisibility=model-only 同构：durable 注入与模型面不动）。
  */
-const MACHINE_INJECTED_USER_SOURCES: ReadonlySet<string> = new Set(['subagent-settled', 'subagent-approval-pending']);
+const MACHINE_INJECTED_USER_SOURCES: ReadonlySet<string> = new Set([
+  'subagent-settled',
+  'subagent-approval-pending',
+  'compaction',
+]);
 
 /** user 消息呈现判据（直播/投影两路单源——机器注入族滤除） */
 function rendersAsUserBlock(message: AgentMessage): boolean {
   if (!isStandardMessage(message)) return false;
   return message.role === 'user' && !MACHINE_INJECTED_USER_SOURCES.has(message.source ?? 'user');
+}
+
+/**
+ * 压缩摘要载体 → 分隔块（B2 批 2 呈现层单源——两路消费同判据）：判据 =
+ * 标准 user 消息且 source='compaction'（摘要载体专用源——fiveStep 落账形）；
+ * N 解析自 CCR 标记段末行（contracts/ccr-marker 单源解析——呈现层零复刻
+ * 格式串），CCR 批前历史载体无标记段 → count 缺席（渲染降级形）。非载体
+ * 返回 null（真用户/其余机器注入族各归其位）。
+ */
+function compactionSeparatorBlockOf(message: AgentMessage): TranscriptBlock | null {
+  if (!isStandardMessage(message)) return null;
+  if (message.role !== 'user' || message.source !== 'compaction') return null;
+  const entry = lastCcrEntryOf(textOf(message));
+  return { kind: 'compaction', ...(entry !== null ? { count: entry.messages } : {}) };
 }
 
 /**
@@ -903,7 +940,13 @@ export class LiveTranscript {
     this.execWindow = []; // exec 折叠组窗随投影重建（走查中暂存、段切分/走查毕收口）
     for (const message of messages) {
       switch (message.role) {
-        case 'user':
+        case 'user': {
+          // 压缩摘要载体 → 分隔块（B2 批 2——判据先于 user 块路：载体零直呈）
+          const separator = compactionSeparatorBlockOf(message);
+          if (separator !== null) {
+            rebuilt.push(separator);
+            break;
+          }
           // 机器注入 source 族零呈现（V-0 注① source 过滤位——两路单源判据）
           if (rendersAsUserBlock(message)) {
             // exec 折叠组窗段切分（07 §4.1 V-3 注⑩——投影路窗边界近似：投影
@@ -915,6 +958,7 @@ export class LiveTranscript {
             rebuilt.push({ kind: 'user', text: textOf(message), theme: this.theme });
           }
           break;
+        }
         case 'assistant':
           this.appendAssistantFinal(rebuilt, message);
           break;
@@ -1013,8 +1057,13 @@ export class LiveTranscript {
           }
           this.appendAssistantFinal(this.blocks, message, thinkingClock);
         } else if (message.role === 'user') {
-          // 机器注入 source 族零呈现（V-0 注①——两路单源判据）
-          if (rendersAsUserBlock(message)) {
+          // 压缩摘要载体 → 分隔块（B2 批 2——判据先于 user 块路；载体不切
+          // exec 窗〔机器注入族同律——窗边界只认真用户消息〕）
+          const separator = compactionSeparatorBlockOf(message);
+          if (separator !== null) {
+            this.blocks.push(separator);
+          } else if (rendersAsUserBlock(message)) {
+            // 机器注入 source 族零呈现（V-0 注①——两路单源判据）
             // exec 折叠组窗收口（07 §4.1 V-3 注⑩——窗不跨 user 消息）：先收口
             // 落卡、user 块在后（agent_end 之外的防御位收口锚——转写打断形窗
             // 不跨轮滞留；与投影路 user 段切分同边界判据 rendersAsUserBlock）

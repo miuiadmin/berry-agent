@@ -138,6 +138,15 @@
       "sig": "f4be1eb8a66b83c4"
     },
     {
+      "symbol": "CCR_MARKER_PREFIX",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "CCR 标记行前缀（<<ccr:HASH>> ——标记段构造与剥离的判据锚）",
+      "kind": "const",
+      "sig": "0184da7e5cf9412b"
+    },
+    {
       "symbol": "CORE_EVENT_TYPE_NAMES",
       "module": "berry-agent",
       "tier": "stable",
@@ -154,6 +163,15 @@
       "desc": "引用形 sigil 前缀（含冒号——`@credentials:`；名 = 前缀后的非空余段）",
       "kind": "const",
       "sig": "ab1169de837d8d9b"
+    },
+    {
+      "symbol": "CcrDirectoryEntry",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "归档目录条目（surface 事件载荷三件的检索面形——05 §2.1 子节单源字段）",
+      "kind": "interface",
+      "sig": "61510b237045419e"
     },
     {
       "symbol": "CredentialEnvRef",
@@ -916,6 +934,15 @@
       "sig": "ab0100b1a34fc82d"
     },
     {
+      "symbol": "ccrMarkerLine",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "标记行（单条）：`<<ccr:HASH>> 原文已归档（N 条消息 / M 字符）`",
+      "kind": "function",
+      "sig": "242eef9f9edc8e86"
+    },
+    {
       "symbol": "compareApiVersions",
       "module": "berry-agent",
       "tier": "stable",
@@ -1015,6 +1042,15 @@
       "sig": "e2b724cf5450ea13"
     },
     {
+      "symbol": "lastCcrEntryOf",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "载体正文末条目录条目提取：逐行扫描取**最后一条**可解析标记行（写入序目录恒链当次条目在末位——末条即当次归档规模；倒扫首条同值，正扫末条与「模型在正文前段回声标记形」的鲁棒性取舍一致：正文回声在后也误伤，取严格末位是既定序的最强锚）",
+      "kind": "function",
+      "sig": "17b05de6abe095af"
+    },
+    {
       "symbol": "listErrorCodes",
       "module": "berry-agent",
       "tier": "stable",
@@ -1040,6 +1076,15 @@
       "desc": "在册自定义角色名枚举（诊断/目录面）",
       "kind": "function",
       "sig": "384ed3de7b398207"
+    },
+    {
+      "symbol": "parseCcrMarkerLine",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "标记行逆解析（构造函数 ccrMarkerLine 的严格逆——格式知识单源，呈现层解析零复刻格式串）",
+      "kind": "function",
+      "sig": "4e6d58b918534965"
     },
     {
       "symbol": "parseCredentialEnvRef",

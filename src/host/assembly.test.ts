@@ -1041,6 +1041,95 @@ describe('/export TUI 命令面 e2e（宿主级直注册 + 活体事件源 + 落
   });
 });
 
+/* ---------------- /compact TUI 命令面 e2e（07 B2 批 2——手动压缩命令面） ---------------- */
+
+describe('/compact TUI 命令面 e2e（宿主级直注册 + 五档回执 + /help 投影自动进）', () => {
+  /** notify 捕获后端（/export e2e 同形） */
+  const captureBackend = (notified: string[]): UiBackend<never> => ({
+    id: 'compact-probe',
+    capabilities: {
+      notify: true,
+      confirm: false,
+      select: false,
+      input: false,
+      approval: false,
+      setStatus: false,
+      setWidget: false,
+    },
+    hasAudience: () => true,
+    notify: (_message, opts) => void notified.push(`${opts?.level ?? 'info'}|${_message}`),
+  });
+
+  it('全链：焦点空悬诚实拒 → 薄会话档 → 五轮对话手动压缩成功档（数字源 = end 载荷）+ /help 行在场', async () => {
+    const dir = tmpDir('host-asm-compact-');
+    const faux = fauxProvider({ provider: 'faux-compact-asm', models: [{ id: 'm1' }] });
+    faux.setResponses([() => fauxText('压缩探针答')]);
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true, // 命令注册在装配根（不随插件装载）——/export 同位族
+      debug: false,
+      version: '9.9.9-test',
+      providers: [faux.provider],
+      model: 'faux-compact-asm/m1',
+      env: {},
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      // /help 投影自动进：description 位注册即收（list 面 = /help 与补全消费源）
+      const rows = assembly.stack.channels.commands.list();
+      expect(rows.some((r) => r.name === 'compact' && r.description?.includes('手动压缩早期对话为摘要'))).toBe(true);
+      // 焦点空悬 + 无锚：无参形（= 焦点会话）诚实拒
+      expect(await assembly.stack.channels.dispatchCommand('/compact')).toBe(true);
+      expect(notified.some((t) => t.includes('无焦点会话可压缩'))).toBe(true);
+      // 建真会话 + 焦点在位 + 零轮对话：薄会话档（planSegment 无合法段非错误）
+      const session = assembly.stack.openStartupSession();
+      assembly.stack.channels.registerSession(session.sessionId);
+      await assembly.stack.channels.focus(session.sessionId);
+      expect(await assembly.stack.channels.dispatchCommand('/compact')).toBe(true);
+      expect(notified.some((t) => t.includes('本会话还很短，无需压缩'))).toBe(true);
+      // 五轮对话（默认 tailKeep=6：head 首 turn 2 条 + 中段 ≥1 条 + tail 6 条
+      // ——4 轮 8 条中段为空仍 nothing，5 轮 10 条中段 2 条才可压）
+      for (let i = 1; i <= 5; i++) {
+        faux.setResponses([() => fauxText(`第${i}答`)]);
+        const run = assembly.stack.submitText(session.sessionId, `第${i}问`, { source: 'user' });
+        expect(run).toBeDefined();
+        await run;
+      }
+      // 摘要通道单发（faux 消费一笔；捕获 prompt 验指引透传链）+ 手动压缩：
+      // 成功档回执数字源 = end 载荷
+      let summaryPrompt = '';
+      faux.setResponses([
+        (context) => {
+          summaryPrompt = JSON.stringify(context.messages ?? []);
+          return fauxText('压缩摘要产物');
+        },
+      ]);
+      expect(await assembly.stack.channels.dispatchCommand('/compact 侧重文件路径')).toBe(true);
+      expect(notified.some((t) => t.includes('✓ 已压缩：2 条早期对话已整理为摘要'))).toBe(true);
+      // 指引透传链（05 §2.2 第 7 条）：尾参进摘要 prompt「补充指引」块
+      expect(summaryPrompt).toContain('## 补充指引（用户对本次摘要的额外要求——优先承接）');
+      expect(summaryPrompt).toContain('侧重文件路径');
+      // durable 落账核验：manual 五步闭段在事件流（start/end 成对 + 载体源）
+      const events = assembly.stack.driverOf(session.sessionId)!.session.events();
+      const start = events.find((e) => e.type === 'compaction/start');
+      expect((start?.data as { reason?: string })?.reason).toBe('manual');
+      const end = events.filter((e) => e.type === 'compaction/end').at(-1)?.data as {
+        reason?: string;
+        occludedMessages?: number;
+      };
+      expect(end).toMatchObject({ reason: 'completed', occludedMessages: 2 });
+      const carrier = events.find(
+        (e) => e.type === 'user/message' && (e.data as { source?: string }).source === 'compaction',
+      );
+      expect(String((carrier?.data as { content?: unknown }).content)).toContain('压缩摘要产物');
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
+
 /* ---------------- /doors TUI 命令面 e2e（03 §4.6 doors 段编辑腿——g-2） ---------------- */
 
 describe('/doors TUI 命令面 e2e（注册 + 段写回 + doors/updated origin tui-cmd + 门即时生效）', () => {

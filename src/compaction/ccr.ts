@@ -17,20 +17,15 @@
  */
 import { createHash } from 'node:crypto';
 import type { SessionEvent } from '../contracts/index.js';
+// 标记行格式单源（B2 批 2 迁 contracts/ccr-marker——呈现面 channels 无本模块
+// 边不可反向引用；本模块是写入面消费者）：前缀/条目型/行构造从公开根取用
+import { CCR_MARKER_PREFIX, ccrMarkerLine } from '../contracts/index.js';
+import type { CcrDirectoryEntry } from '../contracts/index.js';
 import type { ProjectedMessage } from '../session/index.js';
 
-/** CCR 标记行前缀（<<ccr:HASH>> ——标记段构造与剥离的判据锚） */
-export const CCR_MARKER_PREFIX = '<<ccr:';
-
-/** 归档目录条目（surface 事件载荷三件的检索面形——05 §2.1 子节单源字段） */
-export interface CcrDirectoryEntry {
-  /** 归档哈希（sha256 前 16 hex） */
-  readonly hash: string;
-  /** 遮蔽消息条数 */
-  readonly messages: number;
-  /** 遮蔽字符量（与 fold.chars 同尺：逐消息 JSON 长度和） */
-  readonly chars: number;
-}
+// 公开面维持（消费腿 ccr-tools.ts / policy.ts 经 './ccr.js' 取用不随迁晃动；
+// 符号真身已在 contracts——本处纯转发）
+export { CCR_MARKER_PREFIX, type CcrDirectoryEntry } from '../contracts/index.js';
 
 /**
  * 规范序列化：对象键递归排序的确定性 JSON（哈希源的单义形——ProjectedMessage
@@ -69,11 +64,6 @@ export function ccrDirectoryOf(events: readonly SessionEvent[]): CcrDirectoryEnt
     entries.push({ hash: data.ccrHash, messages: data.occludedMessages, chars: data.occludedChars });
   }
   return entries;
-}
-
-/** 标记行（单条）：`<<ccr:HASH>> 原文已归档（N 条消息 / M 字符）` */
-function ccrMarkerLine(entry: CcrDirectoryEntry): string {
-  return `${CCR_MARKER_PREFIX}${entry.hash}>> 原文已归档（${entry.messages} 条消息 / ${entry.chars} 字符）`;
 }
 
 /**

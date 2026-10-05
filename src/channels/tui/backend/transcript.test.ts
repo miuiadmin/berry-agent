@@ -12,6 +12,7 @@ import type { AgentMessage, AssistantMessage } from '../../../contracts/index.js
 import { LIGHT_PALETTE, resolveTheme, DEFAULT_THEME } from '../theme/index.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
+import { DIM_STYLE } from '../markdown/layout.js';
 import { renderThinkingStyledLines } from '../blocks/thinking.js';
 import {
   LiveTranscript,
@@ -303,6 +304,53 @@ describe('LiveTranscript user 块 source 过滤（批 V-1 笔2——subagent 族
     ]);
     const users = t.snapshot.filter((b) => b.kind === 'user');
     expect(users.map((b) => (b as { text: string }).text)).toEqual(['真用户']);
+  });
+});
+
+/* ---------------- 压缩时间线分隔行（07 B2 批 2——source='compaction' 载体替换呈现） ---------------- */
+
+/** 摘要载体速构（fiveStep 真实落账形：前缀 + 正文 + CCR 标记段末行） */
+const compactionCarrier = (markerLine?: string): AgentMessage =>
+  userMsg(`[COMPACTION-SUMMARY] 摘要正文${markerLine !== undefined ? `\n\n${markerLine}` : ''}`, 'compaction');
+
+const CARRIER_WITH_MARKER = compactionCarrier('<<ccr:abcdef0123456789>> 原文已归档（5 条消息 / 287 字符）');
+
+describe('LiveTranscript 压缩时间线分隔行（B2 批 2——载体 user 块零呈现替换为分隔行）', () => {
+  it('直播路：载体零 user 块、落 compaction 分隔块（N 解析自 CCR 标记段末行）', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_end', message: CARRIER_WITH_MARKER });
+    expect(t.snapshot.filter((b) => b.kind === 'user')).toHaveLength(0); // 修前红锚：改前呈 user 块
+    const separators = t.snapshot.filter((b) => b.kind === 'compaction');
+    expect(separators).toHaveLength(1);
+    expect(separators[0]).toMatchObject({ kind: 'compaction', count: 5 });
+  });
+
+  it('投影路（loadProjection）：同判据两路一致——分隔块在位、user 块零', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([userMsg('压缩前的真用户'), CARRIER_WITH_MARKER, userMsg('压缩后的真用户')]);
+    const users = t.snapshot.filter((b) => b.kind === 'user');
+    expect(users.map((b) => (b as { text: string }).text)).toEqual(['压缩前的真用户', '压缩后的真用户']);
+    const separators = t.snapshot.filter((b) => b.kind === 'compaction');
+    expect(separators).toHaveLength(1);
+    expect(separators[0]).toMatchObject({ kind: 'compaction', count: 5 });
+  });
+
+  it('旧载体降级（CCR 批前历史——无标记段）：count 缺席形', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([compactionCarrier()]);
+    const separators = t.snapshot.filter((b) => b.kind === 'compaction');
+    expect(separators).toHaveLength(1);
+    expect(separators[0]).toMatchObject({ kind: 'compaction' });
+    expect((separators[0] as { count?: number }).count).toBeUndefined();
+  });
+
+  it('渲染：dim 分隔行（N 形 / 降级形）── 回合记账线族同款', () => {
+    expect(renderBlockStyledLines({ kind: 'compaction', count: 5 }, 80)).toEqual([
+      { plain: '── 已压缩 5 条对话 ──', runs: [{ start: 0, end: '── 已压缩 5 条对话 ──'.length, style: DIM_STYLE }] },
+    ]);
+    expect(renderBlockStyledLines({ kind: 'compaction' }, 80)).toEqual([
+      { plain: '── 已压缩 ──', runs: [{ start: 0, end: '── 已压缩 ──'.length, style: DIM_STYLE }] },
+    ]);
   });
 });
 

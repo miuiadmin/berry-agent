@@ -43,6 +43,11 @@ export * from './tool-face.js';
 // 出口治理③ 凭据消毒纯函数族（04 §7 执行段 2026-09-08 落码定形）：tools 管道
 // 链尾（模式+值基两腿）与 agent 错误包装位（纯模式腿）两方消费，同律零新边
 export * from './redact.js';
+// CCR 标记行格式单源（05 §2.1 压缩可逆性——B2 批 2 迁入，原居 compaction/ccr）：
+// 写入面（compaction 标记段构造）与呈现面（channels/tui transcript 压缩时间线
+// 分隔行 N 数解析）双消费——channels 无 compaction 边（02 §4.1 边表），零依赖
+// 纯件居本域即零新边（durations / tool-face 同律）
+export * from './ccr-marker.js';
 export * from './llm.js';
 export * from './messages.js';
 export * from './approval.js';

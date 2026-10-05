@@ -74,6 +74,7 @@ import { createPluginReloader, emptyRollbackReceipt, rollbackFromReport } from '
 import type { PluginReloader } from './plugin-reload.js';
 import { PLUGINS_CMD_USAGE, runPluginsCommand } from './plugins-command.js';
 import { runSessionExportCommand, SESSION_EXPORT_USAGE } from './session-export.js';
+import { COMPACT_USAGE, runCompactCommand } from './compact-cmd.js';
 import { runPluginConfigForm } from './plugins-config.js';
 import { DOORS_USAGE, parseDoorsArgv, runDoorsCommand } from './doors-cmd.js';
 import { createDefaultSpawnRunner, createPluginLifecycleTools } from './plugin-tools.js';
@@ -1604,6 +1605,29 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         void stack.channels.notify('export', outcome.text);
       },
       SESSION_EXPORT_USAGE,
+    );
+
+    // —— /compact TUI 命令面（07 §4.1 ZCode TUI 对标批 B组 B2 批 2）：宿主级
+    // 直注册（/export 同位族——机制宿主有不随插件换代卸除）；命令腿单源
+    // host/compact-cmd.ts（回执五档 07 定形注一字不差；CLI 对等律豁免——
+    // 零 CLI 动词、webui 挂账零改、键面无 ACTION_CATALOG 不动）。busy 判据
+    // = handler 层读驱动 running 位随参传入（05 §2.2 第 2 条「服务层无驱动
+    // 边」——DAG 不为 busy 判断新边）；数字/原因 = 日志末条 compaction/end
+    // 载荷同笔补读（compactNow 立即形只返枚举）。排队兑现回执不经本位——
+    // conversation-stack onManualQueuedSettled 接线（排干时点在 run 终态）。
+    // /help 投影自动进（description 位注册即收）。
+    stack.channels.commands.register(
+      'compact',
+      async (args) => {
+        const outcome = await runCompactCommand(args.argv, args.sessionId, {
+          logOf: (sessionId) => stack.driverOf(sessionId)?.session,
+          busyOf: (sessionId) => stack.driverOf(sessionId)?.running === true,
+          focusedId: () => stack.channels.focusedId,
+          compactNow: (log, options) => stack.compaction.compactNow(log, options),
+        });
+        void stack.channels.notify('compact', outcome.text);
+      },
+      COMPACT_USAGE,
     );
 
     // ready 瞬时相位只发 end（start/end 成对落在耗时阶段——收尾行无起跑行）
