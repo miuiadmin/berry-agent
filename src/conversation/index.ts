@@ -73,6 +73,10 @@ export {
 // 会话用量折叠（R7 批 10k /usage——全 run 累计投影；装配注入通道核）
 export type { SessionUsageSummary } from './usage.js';
 export { foldSessionUsage, ZERO_SESSION_USAGE } from './usage.js';
+// 模型调用台账折叠（ZCode TUI 对标批 B3 /calls——调用明细投影：尾窗行集 +
+// 全量计数；装配注入通道核，同 usage 位姊妹）
+export type { CallLogEntry, CallLogStatus, CallLedger } from './calls.js';
+export { CALL_LEDGER_LIMIT, foldCallLedger } from './calls.js';
 // 档位切换面 thinking 半边（2026-09-17 会话档位切换面批 F1——05 §1.1
 // session/thinking-level 行写入者兑现：append 面 + fold 读面 + 七档词表单源；
 // 单写者律 = 宿主装配独占，host 跨模块消费走本公开面）

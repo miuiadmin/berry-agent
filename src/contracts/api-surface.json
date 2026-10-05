@@ -823,7 +823,34 @@
       "since": "1.0",
       "desc": "通道后端接口（通道核的呈现消费面）",
       "kind": "interface",
-      "sig": "e5213270d5cbaee8"
+      "sig": "de8d34f5ef5a4421"
+    },
+    {
+      "symbol": "UiCallLedger",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "调用台账折叠产物（07 §4.1 ZCode TUI 对标批 B3——`/calls` 注入载荷）：尾窗行集（帽 50——呈现面只持尾窗）+ 全量计数（截断披露真源，帽内恒 = entries.length）",
+      "kind": "interface",
+      "sig": "66c9267c44e30722"
+    },
+    {
+      "symbol": "UiCallLedgerEntry",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "调用台账行（07 §4.1 ZCode TUI 对标批 B3 `/calls` 副屏载荷——行两类同型， source 判别）：①主对话轮行（conversation——源 = assistant/message 事件，含被遮蔽 retry 形）；②单发路行（oneshot——源 = 归因本会话的 llm/usage 事件，run: 桥接条目已去重）",
+      "kind": "interface",
+      "sig": "f257b9c26966261b"
+    },
+    {
+      "symbol": "UiCallStatus",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "台账行状态键（07 §4.1 ZCode TUI 对标批 B3 定形注——stopReason 五终值闭集原样透传）：用户面词族（完成/调工具/截断/失败/中止）的分档映射归呈现层（TUI CallsViewer），数据层零翻译",
+      "kind": "type",
+      "sig": "b2d1705c2ab108a1"
     },
     {
       "symbol": "UiCapabilities",

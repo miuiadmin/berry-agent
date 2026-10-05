@@ -331,6 +331,31 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     );
   }
 
+  // /calls 注册面（07 §4.1 ZCode TUI 对标批 B3 定形注——calls 注入在场即
+  // 注册、缺席不注册不虚报；注册面律同 /usage）：真源 = 聚焦会话 → 拉台账
+  // （快照档 dispatch 现读——尾窗行集 + 全量计数）→ 扇出后端 openCalls
+  // （entries/totalCount 透传——截断披露位）；焦点空悬静默返回（无台账
+  // 对象不虚报）；全体 falsy 时 notify 降级提示
+  if (opts.calls !== undefined) {
+    const fetchCalls = opts.calls;
+    commands.register(
+      'calls',
+      async () => {
+        const sessionId = registry.focusedId;
+        if (sessionId === null) return; // 焦点空悬——无台账对象（静默返回不虚报）
+        const ledger = await fetchCalls(sessionId);
+        let opened = false;
+        for (const b of allBackends()) {
+          if (b.openCalls?.(sessionId, ledger.entries, ledger.total) === true) opened = true;
+        }
+        if (!opened) {
+          uiCore.notify('当前界面不支持调用台账', { level: 'warn' });
+        }
+      },
+      '会话调用台账（模型调用明细·最近 50 条）',
+    );
+  }
+
   return {
     commands,
     addBackend(backend) {

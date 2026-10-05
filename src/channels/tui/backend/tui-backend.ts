@@ -67,6 +67,7 @@ import type {
   TodoItem,
   UiAskOptions,
   UiBackend,
+  UiCallLedgerEntry,
   UiInputOptions,
   UiSelectChoice,
   UiSessionSummary,
@@ -123,6 +124,7 @@ import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
 import { HistoryViewer } from '../history/history-viewer.js';
 import { SessionPicker } from '../history/session-picker.js';
 import { HelpViewer, type HelpCommandEntry } from '../panels/help-viewer.js';
+import { CallsViewer } from '../panels/calls-viewer.js';
 import { formatCount, formatTokensCompact, formatTokensPerSecond, UsageViewer } from '../panels/usage-viewer.js';
 import { gitHeadSuffix, readGitHead } from '../status/footer.js';
 import { StatusViewer, type StatusPanelData } from '../panels/status-viewer.js';
@@ -1308,6 +1310,33 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       new UsageViewer({
         sessionId,
         summary,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏调用台账（UiBackend 可选能力面实装——07 §4.1 ZCode TUI 对标批 B3
+   * `/calls`）：模型调用明细（最近 50 条 + 全量计数截断披露——装配位
+   * foldCallLedger 快照档现读）。返 boolean 同 openUsage 律：true = 已开；
+   * false = 不支持或已在副屏（核侧 notify 降级）。键面三件套面板自持
+   * （q/Esc/Ctrl+C/Ctrl+D——本件只挂载零键位接线）；entries 同形直传
+   * （UiCallLedgerEntry 结构兼容 CallsViewerEntry——零映射层）。打断柄锚
+   * 台账会话位（onInterrupt 面板自携 sessionId——聚焦会话即目标）。
+   */
+  openCalls(sessionId: string, entries: readonly UiCallLedgerEntry[], totalCount?: number): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new CallsViewer({
+        sessionId,
+        entries,
+        totalCount,
+        theme: this.theme, // 头行 accent 着色（rewind-picker 同形——装配位接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,

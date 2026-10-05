@@ -63,6 +63,7 @@ import {
   CONTROL_CROSS_CAPABILITY,
   DEFAULT_RETRY_POLICY,
   ensureTodoRole,
+  foldCallLedger,
   foldSessionSandboxMode,
   foldSessionThinkingLevel,
   foldSessionUsage,
@@ -977,6 +978,14 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     usage: (sessionId) => {
       const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
       return Promise.resolve(foldSessionUsage(log.events()));
+    },
+    // /calls 数据源注入（07 §4.1 ZCode TUI 对标批 B3 定形注）：同 usage 双
+    // 事实源纪律（驱动活体优先、未开回库装载——/rewind ③ 面板快照同谱）；
+    // 快照档语义 = dispatch 时现读（开屏后新调用不进在场面板，重开重取）；
+    // fold 产物 = 尾窗 50 行集 + 全量计数（截断披露真源）
+    calls: (sessionId) => {
+      const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
+      return Promise.resolve(foldCallLedger(log.events()));
     },
     // /rename 写面注入（07 §4.1 2026-09-30 会话管理命令批）：净化+200 帽
     // 组合单源 clampTitleText（与 CLI `sessions rename` 第七动词同源——通道

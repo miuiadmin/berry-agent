@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 import { createChannels, foldErrorText } from './service.js';
-import type { ApprovalAskAnswer, SessionEnvelope, UiBackend, UiCapabilities } from './types.js';
+import type { ApprovalAskAnswer, SessionEnvelope, UiBackend, UiCapabilities, UiCallLedger } from './types.js';
 import type { AgentEvent } from '../agent/index.js';
 
 /** 单次阻塞问询的手控柄（resolve/reject + 该次收到的 signal） */
@@ -51,6 +51,8 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
   let sessionsOpenReturn = false;
   const usageOpens: { sessionId: string; summary: unknown }[] = [];
   let usageOpenReturn = false;
+  const callsOpens: { sessionId: string; entries: readonly unknown[]; totalCount?: number }[] = [];
+  let callsOpenReturn = false;
   let audience = true;
 
   function deferredPush<T>(asks: AskHandle<T>[], message: string, signal: AbortSignal | undefined): Promise<T> {
@@ -92,6 +94,10 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
             usageOpens.push({ sessionId, summary });
             return usageOpenReturn;
           },
+          openCalls: (sessionId: string, entries: readonly never[], totalCount?: number) => {
+            callsOpens.push({ sessionId, entries, totalCount });
+            return callsOpenReturn;
+          },
         }
       : {}),
   };
@@ -112,6 +118,10 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
     setUsageOpen(v: boolean) {
       usageOpenReturn = v;
     },
+    /** openCalls 返值编程（缺省 false） */
+    setCallsOpen(v: boolean) {
+      callsOpenReturn = v;
+    },
     notified,
     confirmAsks,
     selectAsks,
@@ -126,6 +136,7 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
     memoryOpens,
     sessionsOpens,
     usageOpens,
+    callsOpens,
   };
 }
 
@@ -1050,6 +1061,83 @@ describe('/usage 命令面（07 §4.1 R7 批 10k——聚焦会话为真源；�
     s.addBackend(b.backend);
     expect(s.listCommands().map((c) => c.name)).not.toContain('usage');
     expect(await s.dispatchCommand('/usage')).toBe(false);
+  });
+});
+
+describe('/calls 命令面（07 §4.1 ZCode TUI 对标批 B3——调用台账副屏：注入在场即注册；快照档 dispatch 现读）', () => {
+  /** fold 尾窗产物夹具（CallLedger 结构兼容形——两路行 + 截断披露位；注解
+   * 钉形防 source/status 字面量宽化成 string） */
+  const ledger: UiCallLedger = {
+    entries: [
+      { source: 'conversation', time: 2, seq: 4, model: 'faux/m1', status: 'stop', attempt: 1, tokens: 30 },
+      {
+        source: 'oneshot',
+        time: 3,
+        seq: 7,
+        status: 'stop',
+        attempt: 1,
+        tokens: 12,
+        elapsedMs: 800,
+        attribution: 'probe',
+      },
+    ],
+    total: 60,
+  };
+
+  it('calls 注入在场：注册 + 分发拉聚焦会话台账扇出 openCalls（entries/totalCount 透传，返 true 零 notify）', async () => {
+    const fetched: string[] = [];
+    const s = createChannels({
+      calls: async (sessionId) => {
+        fetched.push(sessionId);
+        return ledger;
+      },
+    });
+    const b1 = fakeBackend('tui', {}, true);
+    b1.setCallsOpen(true);
+    const b2 = fakeBackend('web');
+    s.addBackend(b1.backend);
+    s.addBackend(b2.backend);
+    s.registerSession('a');
+    await s.focus('a');
+    expect(s.listCommands().map((c) => c.name)).toContain('calls');
+    expect(await s.dispatchCommand('/calls')).toBe(true);
+    expect(fetched).toEqual(['a']); // 聚焦会话为真源（dispatch 时现读——快照档）
+    expect(b1.callsOpens).toEqual([{ sessionId: 'a', entries: ledger.entries, totalCount: 60 }]); // 台账透传（尾窗 + 全量计数）
+    expect(b1.notified).toEqual([]);
+  });
+
+  it('焦点空悬：分发即返静默（无台账对象不拉取不虚报不报错）', async () => {
+    const fetched: string[] = [];
+    const s = createChannels({
+      calls: async (sessionId) => {
+        fetched.push(sessionId);
+        return ledger;
+      },
+    });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    expect(await s.dispatchCommand('/calls')).toBe(true); // 命令在场被消费
+    expect(fetched).toEqual([]); // 零拉取
+    expect(b.callsOpens).toEqual([]); // 零扇出
+    expect(b.notified).toEqual([]); // 静默——非降级提示面
+  });
+
+  it('全体 falsy：notify warn 降级提示（文案红锚——调用台账词面）', async () => {
+    const s = createChannels({ calls: async () => ledger });
+    const b = fakeBackend('web');
+    s.addBackend(b.backend);
+    s.registerSession('a');
+    await s.focus('a');
+    await s.dispatchCommand('/calls');
+    expect(b.notified).toEqual([{ message: '当前界面不支持调用台账', level: 'warn' }]);
+  });
+
+  it('calls 注入缺席：不注册不虚报（/calls 不在命令面，分发返 false）', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    expect(s.listCommands().map((c) => c.name)).not.toContain('calls');
+    expect(await s.dispatchCommand('/calls')).toBe(false);
   });
 });
 

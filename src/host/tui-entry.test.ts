@@ -1708,6 +1708,23 @@ describe('编辑器高度帽几何自适应（生产路撤启动快照注入；T
   });
 });
 
+describe('/calls 命令补全投影（07 B3 批 2——通道核命令表自动进，completion 零新位）', () => {
+  it('/ca 前缀补全含 calls 条目（list 面 → commandItems 单源投影——/se 腿同形）', async () => {
+    const dataDir = rigDir('tui-calls-fuzzy-data-');
+    const ws = rigDir('tui-calls-fuzzy-ws-');
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      env: { FAUX_ENTRY_API_KEY: 'ready-key' },
+    });
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门（起屏完成）
+    const before = io.output.length;
+    io.send('/ca');
+    await until(() => io.output.slice(before).includes('/calls'));
+    io.send('\x15'); // ctrl+u 清框
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+});
+
 describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验证改裁注）', () => {
   it('零参开向导 + #3 官方桶 = 内置目录 ∩ 运行时在册：注入 id（faux-entry）不入官方桶 + esc 中止收场（零改动回执；修前红：运行时全集派生桶含 faux-entry 冒充官方渠道）', async () => {
     const dataDir = rigDir('tui-setup-data-');

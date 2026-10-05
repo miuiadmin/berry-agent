@@ -143,6 +143,17 @@ export interface UiBackend<TProjection> {
    */
   openUsage?(sessionId: string, summary: UiUsageSummary): boolean;
   /**
+   * 开副屏调用台账（07 §4.1 ZCode TUI 对标批 B3 定形注——`/calls` 命令的
+   * 呈现面；三职分立：件 6 = run 级清账态、/usage = 会话全 run 累计分表、
+   * /calls = 调用明细台账——聚合与明细分职不互替）。载荷 = fold 尾窗行集
+   * （entries 最新在尾）+ 全量计数（totalCount——截断披露位：超窗时头行
+   * 注记「N 条（仅显示最近 50）」）；快照档开屏现读（开屏后新调用不进在
+   * 场面板，重开重取）。返 boolean 同 openSessions 律：true = 已开；false
+   * = 不支持或已在副屏——核据此 notify 降级提示。缺席 = 不支持台账的后端
+   * （webui 等——openCalls 缺席 = 不支持，既有 law）。
+   */
+  openCalls?(sessionId: string, entries: readonly UiCallLedgerEntry[], totalCount?: number): boolean;
+  /**
    * 开副屏回退点选择器（2026-09-30 会话管理命令批批3 `/rewind` 无参形的
    * 呈现面——机制/事务真源 05 §5.3 该批翻案笔；命令处理器留 core:checkpoint
    * 插件域，面板载荷经 host deps 注入流转——非通道核注册）。载荷 = manifest
@@ -225,4 +236,56 @@ export interface UiUsageSummary {
   readonly cost: number;
   /** 币种（首见定着；null = 无 cost 上报） */
   readonly currency: string | null;
+}
+
+/**
+ * 台账行状态键（07 §4.1 ZCode TUI 对标批 B3 定形注——stopReason 五终值
+ * 闭集原样透传）：用户面词族（完成/调工具/截断/失败/中止）的分档映射归
+ * 呈现层（TUI CallsViewer），数据层零翻译。
+ */
+export type UiCallStatus = 'stop' | 'toolUse' | 'length' | 'error' | 'aborted';
+
+/**
+ * 调用台账行（07 §4.1 ZCode TUI 对标批 B3 `/calls` 副屏载荷——行两类同型，
+ * source 判别）：①主对话轮行（conversation——源 = assistant/message 事件，
+ * 含被遮蔽 retry 形）；②单发路行（oneshot——源 = 归因本会话的 llm/usage
+ * 事件，run: 桥接条目已去重）。字段缺席 = durable 无此事实（呈现诚实缺席
+ * 不冒充——如主路无 per-request 耗时位）。conversation 侧 foldCallLedger
+ * 产物 CallLogEntry 的结构兼容真源形（同形直传零映射层——装配透传）。
+ */
+export interface UiCallLedgerEntry {
+  /** 行来源：conversation = 主对话轮行；oneshot = 单发路行 */
+  readonly source: 'conversation' | 'oneshot';
+  /** 时刻（信封 time 毫秒） */
+  readonly time: number;
+  /** 信封 seq（两路行并序锚） */
+  readonly seq: number;
+  /** 模型（provider+model 响应实录全形；实录缺席不带——不冒充请求标识） */
+  readonly model?: string;
+  /** 状态（主路 = stopReason 五终值透传；单发路 = 'stop'——成功路才落账） */
+  readonly status?: UiCallStatus;
+  /** 失败短因（stopReason=error 携带——失败行呈现位） */
+  readonly errorMessage?: string;
+  /** 尝试序号（前位 llm/retry(scheduled) 推继 attempt+1；缺省 1 = 首试） */
+  readonly attempt: number;
+  /** 重试帽（配对 llm/retry 的 maxAttempts 在场才带） */
+  readonly maxAttempts?: number;
+  /** tokens（主路 = usage.totalTokens 累计口径含缓存桶；单发路 = 四桶合计） */
+  readonly tokens?: number;
+  /** 耗时毫秒（单发路在场必带；主路 durable 无 per-request 位——诚实缺席不带） */
+  readonly elapsedMs?: number;
+  /** 归因前缀（单发路 callId 冒号前段——probe 等调用位宽容透传） */
+  readonly attribution?: string;
+}
+
+/**
+ * 调用台账折叠产物（07 §4.1 ZCode TUI 对标批 B3——`/calls` 注入载荷）：
+ * 尾窗行集（帽 50——呈现面只持尾窗）+ 全量计数（截断披露真源，帽内恒 =
+ * entries.length）。conversation 侧 CallLedger 的结构兼容真源形。
+ */
+export interface UiCallLedger {
+  /** 尾窗行集（seq 升序——呈现层自定新旧序〔最新在前〕） */
+  readonly entries: readonly UiCallLedgerEntry[];
+  /** 全量行数（截断披露位——超帽行「N 条（仅显示最近 50）」） */
+  readonly total: number;
 }

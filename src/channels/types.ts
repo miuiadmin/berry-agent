@@ -23,6 +23,9 @@ export type {
   UiBackend,
   UiSessionSummary,
   UiUsageSummary,
+  UiCallStatus,
+  UiCallLedgerEntry,
+  UiCallLedger,
   UiRewindEntry,
   UiRewindPreview,
   UiRewindActions,
@@ -34,7 +37,7 @@ export type { ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.j
 
 // 本面内用的契约类型（R7 批 10k——ChannelsOptions 两注入位的载荷形；re-export
 // 块不进本文件作用域，值用须显式 import）
-import type { UiSessionSummary, UiUsageSummary } from '../contracts/index.js';
+import type { UiSessionSummary, UiUsageSummary, UiCallLedger } from '../contracts/index.js';
 
 /**
  * todo 条目（07 §4.1 呈现面件 4——todoFor 注入载荷）：items 全量快照真源 =
@@ -131,6 +134,14 @@ export interface ChannelsOptions<TProjection> {
    * 件 6 清账态。真源 = 聚焦会话 → 拉汇总 → 扇出后端 openUsage。
    */
   readonly usage?: (sessionId: string) => Promise<UiUsageSummary>;
+  /**
+   * 会话调用台账注入（07 §4.1 ZCode TUI 对标批 B3 定形注——`/calls`——
+   * 注册面律同 usage：注入在场即注册、缺席不注册不虚报）。真源 = 聚焦会话
+   * → 双事实源折叠台账（conversation 侧 foldCallLedger 尾窗产物 + 全量
+   * 计数）→ 扇出后端 openCalls；快照档语义（dispatch 时现读——开屏后新
+   * 调用不进在场面板，重开重取；无订阅无推送面）。
+   */
+  readonly calls?: (sessionId: string) => Promise<UiCallLedger>;
   /**
    * 会话显式题改名注入（07 §4.1 2026-09-30 会话管理命令批 `/rename`——
    * 注册面律同 sessions：注入在场即注册、缺席不注册不虚报）。写面净化+200

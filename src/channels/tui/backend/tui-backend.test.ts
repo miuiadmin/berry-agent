@@ -34,6 +34,7 @@ import type {
   AgentMessage,
   AssistantMessage,
   JobEntry,
+  UiCallLedgerEntry,
   UiRewindPreview,
   UiSessionSummary,
   UiUsageSummary,
@@ -2801,6 +2802,47 @@ describe('TuiBackend /sessions · /usage · /help 副屏装配（R7 批 10k）',
     expect(io.bytes).toContain('0.5000 USD'); // 费用行
   });
 
+  // B3 批 2：台账载荷（结构兼容真源形——conversation 侧 foldCallLedger 产物
+  // 同形直传零映射；两条 = 主路 stop + 单发路带归因/耗时）
+  const CALL_ENTRIES: readonly UiCallLedgerEntry[] = [
+    {
+      source: 'conversation',
+      time: new Date(2026, 8, 15, 10, 30).getTime(),
+      seq: 4,
+      model: 'faux/m1',
+      status: 'stop',
+      attempt: 1,
+      tokens: 1234,
+    },
+    {
+      source: 'oneshot',
+      time: new Date(2026, 8, 15, 10, 31).getTime(),
+      seq: 7,
+      status: 'stop',
+      attempt: 1,
+      tokens: 5678,
+      elapsedMs: 800,
+      attribution: 'probe',
+    },
+  ];
+
+  it('openCalls 编舞：台账面板首帧（短 id 头行 + 截断披露 + 行段最新在前）', () => {
+    const { io, backend } = rig();
+    expect(backend.openCalls('sess-dddddddddd', CALL_ENTRIES, 60)).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE); // 进序：主屏挂起出屏串在前
+    expect(io.frames[1]).toBe(ALT_ENTER); // 副屏 Engine 进屏
+    expect(io.bytes).toContain('◉ 调用台账 · sess-ddd · 60 条（仅显示最近 2）'); // 头行 + 截断披露（超窗注记）
+    expect(io.bytes).toContain('m1'); // 模型短名段（id 尾段）
+    expect(io.bytes).toContain('完成'); // 状态词（stop → 完成——词面映射归面板）
+    expect(io.bytes).toContain('连通测试'); // 归因段（probe → 用户面词）
+    // 最新在前：单发路行（seq 7）在主路行（seq 4）之前
+    const oneshotAt = io.bytes.indexOf('连通测试');
+    const mainAt = io.bytes.indexOf('m1');
+    expect(oneshotAt).toBeGreaterThan(-1);
+    expect(mainAt).toBeGreaterThan(oneshotAt);
+  });
+
   it('openHelp 编舞：命令册 + 键位册双源首帧', () => {
     const { io, backend } = rig();
     expect(backend.openHelp([{ name: 'exit', description: '退出 TUI' }])).toBe(true);
@@ -2818,6 +2860,7 @@ describe('TuiBackend /sessions · /usage · /help 副屏装配（R7 批 10k）',
     io.reset();
     expect(backend.openSessions(SESSIONS, () => {})).toBe(false);
     expect(backend.openUsage(SESSION, SUMMARY)).toBe(false);
+    expect(backend.openCalls(SESSION, CALL_ENTRIES)).toBe(false); // B3 批 2——台账面同互斥族
     expect(backend.openHelp([])).toBe(false);
     expect(io.bytes).toBe(''); // 拒开零写出
     backend.collapseAltScreen();

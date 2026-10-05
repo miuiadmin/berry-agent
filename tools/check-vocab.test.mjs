@@ -207,4 +207,19 @@ describe('check-vocab 守护炮自测（spawn 全闸形态）', () => {
     expect(status).toBe(0);
     expect(out).toContain('check-vocab 绿');
   });
+
+  // —— 查四批准词锁（07 §4.1 ZCode TUI 对标批 B3 批 2——查四是禁替黑名单无
+  //    正词册，规范新造的用户面词以此腿登记：后续滚动补词若撞车此处先红）———
+
+  it('查四批准词锁：B3 定形注词族「调用台账/调工具」+ 状态词串面 → 绿（规范新造词不咬）', () => {
+    const root = fixture('userface-approved-b3', {
+      'src/channels/service.ts':
+        "export const a = '会话调用台账（模型调用明细·最近 50 条）';\nexport const b = '当前界面不支持调用台账';\n",
+      'src/channels/tui/panels/calls-viewer.ts':
+        "export const words = { stop: '完成', toolUse: '调工具', length: '截断', error: '失败', aborted: '中止' };\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(0);
+    expect(out).toContain('check-vocab 绿');
+  });
 });

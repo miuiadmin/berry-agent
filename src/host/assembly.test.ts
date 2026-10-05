@@ -34,7 +34,13 @@ import type { PluginRouteRegistry } from '../sdk/index.js';
 import { createAuditFace } from '../persist/index.js';
 import { openCheckpointStore } from '../checkpoint/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
-import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest, GateInput } from '../contracts/index.js';
+import type {
+  AgentMessage,
+  ApprovalAskAnswer,
+  ApprovalAskRequest,
+  GateInput,
+  UiCallLedgerEntry,
+} from '../contracts/index.js';
 import type { UiBackend } from '../channels/index.js';
 import type { GoalService } from '../goal/index.js';
 import type { JobRegistry } from '../subagent/index.js';
@@ -1124,6 +1130,90 @@ describe('/compact TUI 命令面 e2e（宿主级直注册 + 五档回执 + /help
         (e) => e.type === 'user/message' && (e.data as { source?: string }).source === 'compaction',
       );
       expect(String((carrier?.data as { content?: unknown }).content)).toContain('压缩摘要产物');
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
+
+/* ---------------- /calls TUI 命令面 e2e（07 B3 批 2——调用台账命令面） ---------------- */
+
+describe('/calls TUI 命令面 e2e（通道核条件注册 + 双事实源折叠 + /help 投影自动进）', () => {
+  /** openCalls 捕获后端（/compact captureBackend 同形 + 台账记录面） */
+  const captureBackend = (
+    notified: string[],
+    callsOpens: Array<{ sessionId: string; entries: readonly UiCallLedgerEntry[]; totalCount?: number }>,
+  ): UiBackend<never> => ({
+    id: 'calls-probe',
+    capabilities: {
+      notify: true,
+      confirm: false,
+      select: false,
+      input: false,
+      approval: false,
+      setStatus: false,
+      setWidget: false,
+    },
+    hasAudience: () => true,
+    notify: (_message, opts) => void notified.push(`${opts?.level ?? 'info'}|${_message}`),
+    openCalls: (sessionId, entries, totalCount) => {
+      callsOpens.push({ sessionId, entries, totalCount });
+      return true;
+    },
+  });
+
+  it('全链：注入在场注册进 /help → 焦点空悬静默 → 真会话一轮后 dispatch 现读折叠（主路行实录透传）', async () => {
+    const dir = tmpDir('host-asm-callscmd-');
+    const faux = fauxProvider({ provider: 'faux-calls-asm', models: [{ id: 'm1' }] });
+    faux.setResponses([() => fauxText('台账探针答')]);
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true, // calls 注入在装配根（conversation-stack）——不随插件装载
+      debug: false,
+      version: '9.9.9-test',
+      providers: [faux.provider],
+      model: 'faux-calls-asm/m1',
+      env: {},
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const notified: string[] = [];
+      const callsOpens: Array<{ sessionId: string; entries: readonly UiCallLedgerEntry[]; totalCount?: number }> = [];
+      assembly.stack.channels.addBackend(captureBackend(notified, callsOpens));
+      // 注册律 + /help 投影自动进（list 面 = /help 与补全消费源——completion 零新位）
+      const rows = assembly.stack.channels.commands.list();
+      expect(rows.some((r) => r.name === 'calls' && r.description?.includes('会话调用台账'))).toBe(true);
+      // 焦点空悬：dispatch 受理但静默返回（无台账对象不虚报——零 openCalls 零 notify）
+      expect(await assembly.stack.channels.dispatchCommand('/calls')).toBe(true);
+      expect(callsOpens).toEqual([]);
+      // 建真会话 + 一轮对话 → dispatch 现读（快照档——双事实源活体腿）
+      const session = assembly.stack.openStartupSession();
+      assembly.stack.channels.registerSession(session.sessionId);
+      await assembly.stack.channels.focus(session.sessionId);
+      const run = assembly.stack.submitText(session.sessionId, '台账探针问', { source: 'user' });
+      expect(run).toBeDefined();
+      await run;
+      expect(await assembly.stack.channels.dispatchCommand('/calls')).toBe(true);
+      expect(callsOpens).toEqual([
+        {
+          sessionId: session.sessionId,
+          // 主路行实录透传：provider/model 全形 + stop 终值 + attempt 缺省 1 +
+          // tokens 在场面（faux 零用量经流式估算器补数——值面非定值只锁在场）
+          // + 主路 elapsedMs 诚实缺席（durable 无此位）
+          entries: [
+            {
+              source: 'conversation',
+              time: expect.any(Number),
+              seq: expect.any(Number),
+              model: 'faux-calls-asm/m1',
+              status: 'stop',
+              attempt: 1,
+              tokens: expect.any(Number),
+            },
+          ],
+          totalCount: 1,
+        },
+      ]);
     } finally {
       await assembly.runtime.shutdown();
     }
