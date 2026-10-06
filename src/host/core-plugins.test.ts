@@ -867,7 +867,15 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       llm: { canAfford: (_tier: string) => affordOk },
       submitText: (sessionId: string, _text: string, opts?: { source?: string }) => {
         submits.push({ sessionId, source: opts?.source });
-        return submitMode === 'undefined' ? undefined : Promise.resolve({ status: 'wake-refused' });
+        if (submitMode === 'undefined') {
+          // sweep12 L3 自愈形适配：undefined 分支现已重落停靠登记（广播复挂）——
+          // 电平仍真会在下轮再触发唤醒形成第二笔 submit，本例 until(==1/==2) 的
+          // 精确笔数锁必被击穿。首笔同步落闸锁单笔观测面（自愈收敛行为 goal6
+          // 专例锁），后续再停靠/拒收腿不受扰
+          affordOk = false;
+          return undefined;
+        }
+        return Promise.resolve({ status: 'wake-refused' });
       },
     } as unknown as ConversationStack;
     const broadcast = createBudgetBroadcast({ canAfford: () => affordOk, pollMs: 5 });
@@ -2161,6 +2169,218 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
 
     broadcast.dispose();
     await persistence.close();
+  });
+
+  it('goal 停靠唤醒触发时失效门（sweep12 L2 场景 A）：manual /goal wake 人工接管后陈旧广播 entry 只摘双侧登记零 submit——已复活 goal 不双跑', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-goal4-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session = new SessionLog({ sessionId: 's-goal4' });
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-goal4' ? session.events() : []),
+      length: (sid) => (sid === 's-goal4' ? session.events().length : 0),
+      appendPaused: (sid) => {
+        if (sid === 's-goal4') session.append('session/paused', { reason: 'budget' });
+      },
+    };
+    // 电平可控 + 假 stack：submit 达岸即红锚——回执永悬不介入（本例只锁 submit 笔数）
+    let affordOk = false;
+    const submits: { sessionId: string; source?: string }[] = [];
+    const fakeConversationStack = {
+      llm: { canAfford: (_tier: string) => affordOk },
+      submitText: (sessionId: string, _text: string, opts?: { source?: string }) => {
+        submits.push({ sessionId, source: opts?.source });
+        return new Promise<unknown>(() => {}); // 永悬（不 settle——收口分诊不在本例射程）
+      },
+    } as unknown as ConversationStack;
+    const broadcast = createBudgetBroadcast({ canAfford: () => affordOk, pollMs: 5 });
+    let svc: GoalService | undefined;
+    try {
+      const { scope } = await bootCore(
+        dataDir,
+        memoryFs(),
+        {},
+        {
+          sqlite: () => persistence.store.sqlite(),
+          goalSession,
+          budgetBroadcast: broadcast,
+          conversationStack: fakeConversationStack,
+          goalServiceSink: (service) => {
+            svc = service;
+          },
+        },
+      );
+      const face = scope.tryGet<GoalFace>('goal')!;
+      const schedFace = scope.tryGet<SchedulerFace>('scheduler')!;
+      const row = await svc!.activate({ sessionId: 's-goal4', objective: '人工接管目标', schedule: 'every:60s' });
+      const jobName = `goal-${row.id}`;
+
+      // 池尽停靠：挂钟停摆 + 广播登记（service 侧 parkedForBudget + 插件侧 entry）
+      expect(await face.parkIfBudgetExhausted(row.id)).toBe(true);
+      expect(broadcast.size()).toBe(1);
+      expect(schedFace.service.getJob(jobName)?.enabled).toBe(false);
+
+      // 人工接管：manual /goal wake（service 763 停靠 warn 指的人工复位正道）——
+      // service 侧摘停靠登记 + 挂钟复活；插件侧 wakeEntries/广播 entry 残存正是
+      // 失效门要收的缝（service.wake 不通知件侧——触发时失效单点兜住）
+      const manual = await svc!.wake(row.id, { trigger: 'manual', attribution: '/goal wake' });
+      expect(manual.landed).toBe(true);
+      expect(svc!.isParkedForBudget(row.id)).toBe(false);
+      expect(schedFace.service.getJob(jobName)?.enabled).toBe(true); // 已复活（人工道）
+
+      // 电平翻真：陈旧 entry 触发 wakeGoalFromPark——失效门收口（不满足停靠
+      // 态即只摘双侧登记直接 return）。修前红锚：无门无条件 submitText——对已
+      // 复活 goal 注入第二条 GOAL_WAKE_MESSAGE 唤醒轮（与挂钟轮双跑多烧 token）
+      affordOk = true;
+      await until(() => broadcast.size() === 0); // 陈旧 entry 被消费（门内/编舞内摘除）
+      expect(submits).toHaveLength(0); // 主锁：零 submit（修前 1 必红——双跑面）
+      expect(schedFace.service.getJob(jobName)?.enabled).toBe(true); // 挂钟保持复活态（无幽灵动作）
+      expect(svc!.isParkedForBudget(row.id)).toBe(false); // service 侧不复发停靠
+    } finally {
+      broadcast.dispose();
+      await persistence.close();
+    }
+  });
+
+  it('goal 停靠唤醒触发时失效门（sweep12 L2 场景 B）：终态 goal 陈旧 entry 零 submit 零 enable——幽灵唤醒轮不注入 + 挂钟行留史不复活', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-goal5-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session = new SessionLog({ sessionId: 's-goal5' });
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-goal5' ? session.events() : []),
+      length: (sid) => (sid === 's-goal5' ? session.events().length : 0),
+      appendPaused: (sid) => {
+        if (sid === 's-goal5') session.append('session/paused', { reason: 'budget' });
+      },
+    };
+    let affordOk = false;
+    const submits: { sessionId: string; source?: string }[] = [];
+    const fakeConversationStack = {
+      llm: { canAfford: (_tier: string) => affordOk },
+      submitText: (sessionId: string, _text: string, opts?: { source?: string }) => {
+        submits.push({ sessionId, source: opts?.source });
+        return new Promise<unknown>(() => {}); // 永悬——零回执零 enable（本例锁触发面）
+      },
+    } as unknown as ConversationStack;
+    const broadcast = createBudgetBroadcast({ canAfford: () => affordOk, pollMs: 5 });
+    let svc: GoalService | undefined;
+    try {
+      const { scope } = await bootCore(
+        dataDir,
+        memoryFs(),
+        {},
+        {
+          sqlite: () => persistence.store.sqlite(),
+          goalSession,
+          budgetBroadcast: broadcast,
+          conversationStack: fakeConversationStack,
+          goalServiceSink: (service) => {
+            svc = service;
+          },
+        },
+      );
+      const face = scope.tryGet<GoalFace>('goal')!;
+      const schedFace = scope.tryGet<SchedulerFace>('scheduler')!;
+      const row = await svc!.activate({ sessionId: 's-goal5', objective: '终态目标', schedule: 'every:60s' });
+      const jobName = `goal-${row.id}`;
+
+      // 池尽停靠 → 前台收工：complete 摘 service 侧登记 + 挂钟 disable 行留史；
+      // 插件侧广播 entry 残存（complete 不通知件侧——正是幽灵轮源）
+      expect(await face.parkIfBudgetExhausted(row.id)).toBe(true);
+      expect(broadcast.size()).toBe(1);
+      const done = await svc!.complete(row.id, '前台已收工');
+      expect(done.status).toBe('completed');
+      expect(svc!.isParkedForBudget(row.id)).toBe(false);
+      expect(schedFace.service.getJob(jobName)?.enabled).toBe(false);
+
+      // 电平翻真：陈旧 entry 触发——失效门收口。修前红锚：无门对终态 goal 会话
+      // 注入「请继续推进当前目标」幽灵轮（goalScopeFor 已 undefined 纯后台空转）
+      affordOk = true;
+      await until(() => broadcast.size() === 0);
+      expect(submits).toHaveLength(0); // 主锁：零幽灵 submit（修前 1 必红）
+      expect(schedFace.service.getJob(jobName)?.enabled).toBe(false); // 挂钟行留史不复活（僵尸钟防御）
+      expect(svc!.isParkedForBudget(row.id)).toBe(false);
+    } finally {
+      broadcast.dispose();
+      await persistence.close();
+    }
+  });
+
+  it('goal 唤醒 undefined 自愈重落（sweep12 L3）：submitText 无驱动防御位返回 undefined 后停靠三面重落——isParkedForBudget 复真 + 广播复挂 + 挂钟保持停摆', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-goal6-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session = new SessionLog({ sessionId: 's-goal6' });
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-goal6' ? session.events() : []),
+      length: (sid) => (sid === 's-goal6' ? session.events().length : 0),
+      appendPaused: (sid) => {
+        if (sid === 's-goal6') session.append('session/paused', { reason: 'budget' });
+      },
+    };
+    // 假 stack 恒返 undefined（无驱动防御位）；首笔 submit 同步落闸电平——锁单笔
+    // 观测面（自愈重登记后电平仍真会再触发唤醒续自愈，属收敛行为非本例断言面）
+    let affordOk = false;
+    const submits: { sessionId: string; source?: string }[] = [];
+    const fakeConversationStack = {
+      llm: { canAfford: (_tier: string) => affordOk },
+      submitText: (sessionId: string, _text: string, opts?: { source?: string }) => {
+        submits.push({ sessionId, source: opts?.source });
+        affordOk = false; // 同步落闸（电平判防第二笔——确定性收死）
+        return undefined;
+      },
+    } as unknown as ConversationStack;
+    const broadcast = createBudgetBroadcast({ canAfford: () => affordOk, pollMs: 5 });
+    let svc: GoalService | undefined;
+    try {
+      const { scope } = await bootCore(
+        dataDir,
+        memoryFs(),
+        {},
+        {
+          sqlite: () => persistence.store.sqlite(),
+          goalSession,
+          budgetBroadcast: broadcast,
+          conversationStack: fakeConversationStack,
+          goalServiceSink: (service) => {
+            svc = service;
+          },
+        },
+      );
+      const face = scope.tryGet<GoalFace>('goal')!;
+      const schedFace = scope.tryGet<SchedulerFace>('scheduler')!;
+      const row = await svc!.activate({ sessionId: 's-goal6', objective: '自愈目标', schedule: 'every:60s' });
+      const jobName = `goal-${row.id}`;
+
+      // 池尽停靠：三面齐落
+      expect(await face.parkIfBudgetExhausted(row.id)).toBe(true);
+      expect(broadcast.size()).toBe(1);
+      expect(schedFace.service.getJob(jobName)?.enabled).toBe(false);
+
+      // 电平翻真 → 唤醒 → submitText undefined：修前三处登记已摘光即终点（「保持
+      // 暂停」名不副实——自动恢复链全灭）；修后自愈重落登记（fire-and-forget）
+      affordOk = true;
+      await until(() => submits.length === 1);
+
+      // 自愈重落（有界轮询等落——修前红锚：无自愈恒 false 超时红）
+      await until(() => svc!.isParkedForBudget(row.id) === true, 1500);
+      expect(broadcast.size()).toBe(1); // 广播登记复挂（下一电平翻真可再唤醒——链未灭）
+      expect(schedFace.service.getJob(jobName)?.enabled).toBe(false); // 挂钟保持停摆（durable 面不虚复活）
+      expect(submits).toHaveLength(1); // 落闸后零第二笔 submit
+    } finally {
+      broadcast.dispose();
+      await persistence.close();
+    }
   });
 
   it('goal 主闸二缺席（goalSession 缺席）：件零装载——服务面缺席 + 零工具 + /goal 不注册（scheduler 不连坐）', async () => {

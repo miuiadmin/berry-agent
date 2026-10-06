@@ -824,6 +824,31 @@ describe('parkForBudget（u-3 停靠——04 §5 定形注③ service 侧三动�
     expect(service.isParkedForBudget(goal.id)).toBe(true); // 登记不摘——件侧 unparkForBudget 分职
   });
 
+  it('reviveClock 终态/幽灵行守卫（sweep12 L2 防御纵深）：行缺席或非 active 跳 enable——僵尸挂钟行不复活，active 正门不误伤', async () => {
+    const { service, face, calls } = openService();
+    await service.attachGoalJobsFace(face);
+    // 两终态形：completed（disable 行留史）+ abandoned（摘钟删行）
+    const completed = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    await service.complete(completed.id, '已收工');
+    const abandoned = await service.activate({ sessionId: 's2', objective: 'p', schedule: 'x' });
+    await service.abandon(abandoned.id, '不要了');
+    calls.length = 0; // 终态迁移期的 register/disable 噪声清账
+
+    // 修前红锚：无守卫直 enable——completed 挂钟行被复活成僵尸行（每个排刻
+    // 间隔引擎照 fire、spawnGoalRow wake 判 inactive 恒 gated 空转——
+    // /tick list 对已完成目标显示「启用」，破坏 complete=disable 行留史契约）
+    await service.reviveClock(completed.id); // 终态 completed——零 enable
+    await service.reviveClock(abandoned.id); // 终态 abandoned——同律
+    await service.reviveClock('ghost'); // 幽灵行——同律（无行 = 静默 no-op 既有律）
+    expect(calls).toHaveLength(0);
+
+    // active 正门不误伤：广播唤醒正常收口的唯一生产调用位恒 active 经行
+    //（calls 含建行 register 噪声——enable 腿过滤后单源断言）
+    const active = await service.activate({ sessionId: 's3', objective: 'q', schedule: 'x' });
+    await service.reviveClock(active.id);
+    expect(calls.filter((c) => c.startsWith('enable:'))).toEqual([`enable:${active.id}`]);
+  });
+
   it('complete/abandon 终态清登记（广播面不再辖终态 goal）', async () => {
     const { service } = openService();
     const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });

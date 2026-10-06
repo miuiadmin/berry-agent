@@ -151,8 +151,9 @@ export interface GoalService {
   unparkForBudget(goalId: string): void;
   /**
    * 挂钟行复活（u-3——广播唤醒正常收口消费：GoalJobsFace disable/enable
-   * 复活链的 service 侧单源；无行 = 静默 no-op 既有律。与 manual wake 全编舞
-   * 分立——本面纯挂钟复活，不复位计数不落 wake 归因）。
+   * 复活链的 service 侧单源；无行 = 静默 no-op 既有律；行非 active 同跳——
+   * 终态不复活，sweep12 L2 防御纵深。与 manual wake 全编舞分立——本面纯挂钟
+   * 复活，不复位计数不落 wake 归因）。
    */
   reviveClock(goalId: string): Promise<void>;
   /**
@@ -772,6 +773,12 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
     },
 
     async reviveClock(goalId) {
+      // 防御纵深（sweep12 L2）：行缺席/非 active 跳 enable——enable 复活链只辖
+      // active goal。终态后幽灵唤醒回执不得复活终态挂钟行成僵尸行（引擎照
+      // fire、wake 判 inactive 恒 gated 空转——complete=disable 行留史审计契约
+      // 不破）。正门调用位（广播唤醒正常收口）恒 active 经行——守卫零打扰。
+      const row = dao.get(goalId);
+      if (row === undefined || row.status !== 'active') return;
       // 防御吞（C6 同族）：广播唤醒链在 void run.then 内调本道——enable 炸
       // 穿透即 unhandledRejection 崩溃编舞 exit(1) 杀无人值守宿主；吞在
       // service 层则所有调用方同安全（warn 留痕——/goal wake 手动复位道仍在）

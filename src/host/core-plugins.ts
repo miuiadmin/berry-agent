@@ -1644,8 +1644,33 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
       /** goal 停靠项登记表（goalId → 广播 entry——复停靠同键换新防泄漏） */
       const wakeEntries = new Map<string, BudgetBroadcastEntry>();
 
-      /** 广播唤醒编舞：摘双侧登记 → submit（backgroundWake 吃三帽防环）→ 收口分诊 */
+      /**
+       * 广播唤醒编舞：触发时失效门 → 摘双侧登记 → submit（backgroundWake 吃三帽
+       * 防环）→ 收口分诊。
+       *
+       * 触发时失效门（04 §5 定形注③「对称收口」全路径收口形——sweep12 L2）：
+       * 入口先查 service 停靠登记与 goal 行 active 态，不满足即只摘双侧登记
+       * （broadcast entry + wakeEntries）直接 return 不 submit。覆盖两类旁路
+       * 摘除残留的陈旧登记：
+       *  - manual /goal wake 人工接管（service 侧摘 parkedForBudget 而插件侧登记
+       *    残存）——盲目 submit 即对已复活 goal 注入第二条唤醒轮双跑；
+       *  - goal 终态（complete/abandon 清 service 侧登记）——幽灵唤醒轮纯后台
+       *    空转，回执链 reviveClock 还会复活终态挂钟行成僵尸钟。
+       * 择触发时失效而非摘除时联动：一切旁路路径（manual/终态/未来新增位）在
+       * 此单点收口，各路径无须回调同步插件侧登记。
+       */
       const wakeGoalFromPark = (goalId: string, sessionId: string): void => {
+        if (!service.isParkedForBudget(goalId) || service.get(goalId)?.status !== 'active') {
+          // 陈旧登记：只摘双侧登记零动作（service 侧登记两失败形恒已空——
+          // unpark 为幂等防御位，兜终态瞬窗竞速形）
+          const stale = wakeEntries.get(goalId);
+          if (stale !== undefined) {
+            broadcast?.unregister(stale);
+            wakeEntries.delete(goalId);
+          }
+          service.unparkForBudget(goalId); // 幂等（Set 删除——空集 no-op）
+          return;
+        }
         const entry = wakeEntries.get(goalId);
         if (entry !== undefined) {
           broadcast?.unregister(entry);
@@ -1663,9 +1688,21 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
           backgroundLane: true,
         });
         if (run === undefined) {
-          // F1 收编：直写改走件内 warn 出口（logger + notify 双发——停靠保持
-          // 人工道语义不变，只换呈现路）
-          warn(`[goal] 自动唤醒提交失败：会话 ${sessionId} 无可用驱动——目标保持暂停，可手动 /goal wake`);
+          // 自愈重落登记（sweep12 L3）：到达本分支时上方编舞已摘光三处登记
+          // （广播 entry + wakeEntries + service parkedForBudget），「目标保持
+          // 暂停」名不副实——重走停靠编舞把登记面接回（fire-and-forget 带
+          // catch）：service 三动作幂等重落（挂钟行 disable 复确 + session/
+          // paused 词幂等 append + 内存登记复入），广播 entry 复挂待下一电平
+          // 翻真再唤醒。生产 appendPaused 真身幂等开驱动（assembly
+          // goalSession 位）——下一轮唤醒即有驱动可 submit，自愈收敛不空转。
+          void parkGoalForBudget(goalId).catch((err: unknown) => {
+            warn(
+              `[goal] 自动唤醒后重新停靠失败（人工道 /goal wake 仍在）：${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+          // F1 收编：warn 走件内 warn 出口（logger + notify 双发）——文案如实化：
+          // 登记已重落（非「保持暂停」的灭链态），人工复位道仍在
+          warn(`[goal] 自动唤醒提交失败：会话 ${sessionId} 无可用驱动——已重新停靠待唤，可手动 /goal wake`);
           return;
         }
         void run
