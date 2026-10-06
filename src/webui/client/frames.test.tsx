@@ -45,9 +45,14 @@ function display(payload: ClientDisplayEventLoose): ClientEnvelope {
 /** display 载荷宽松形（速造位允许测试塞多余字段——折叠器只读消费子集） */
 type ClientDisplayEventLoose = { readonly type: string } & Record<string, unknown>;
 
-/** session 族信封速造 */
-function session(payload: { type: string } & Record<string, unknown>): ClientEnvelope {
-  return { kind: 'session', sessionId: 's-1', payload } as unknown as ClientEnvelope;
+/** session 族信封速造（seq 可选——message_end 信封外挂位，卡②信封载荷腿） */
+function session(payload: { type: string } & Record<string, unknown>, seq?: number): ClientEnvelope {
+  return {
+    kind: 'session',
+    sessionId: 's-1',
+    payload,
+    ...(seq !== undefined ? { seq } : {}),
+  } as unknown as ClientEnvelope;
 }
 
 describe('frames 活体分档（display 尾巴 / session 落稿）', () => {
@@ -1441,5 +1446,122 @@ describe('SSE 流 URL 单源铸造锁（第十一轮深扫 laneG L8-2——api.t
     expect(typeof sessionEventsUrl).toBe('function'); // 修前红：undefined——单源铸造位缺位即缺陷
     expect(sessionEventsUrl('s-1')).toBe('/api/sessions/s-1/events');
     expect(sessionEventsUrl('会话/甲')).toBe(`/api/sessions/${encodeURIComponent('会话/甲')}/events`);
+  });
+});
+
+describe('frames loadedMessages seq 身份对账（卡②客户端对账腿——03 §10.4 L9 定谳：seq 身份集主判 + 逐行降级）', () => {
+  it('① 身份优先于文本：live 行 seq=7 在场、快照含 seq=7 但文本不同 → live 行让位投影副本（修前红：文本不匹配走多重集保位——错保双份）', () => {
+    // 身份歧义根因（规范定谳）：交错窗内 message_end 落稿帧（信封携 seq=7）与
+    // 快照侧同一 durable 记录（seq 同为 7、文本经服务端侧修订不同）——文本
+    // 多重集分不清（不匹配 → 错保双份），durable 身份一刀切断（身份不依赖
+    // 文本——投影副本即真源）
+    let state = applyEnvelope(
+      initialAppState,
+      session({ type: 'message_end', message: { role: 'assistant', content: '交错窗新答', timestamp: 200 } }, 7),
+    );
+    state = loadedMessages(state, [
+      { role: 'user', content: '问', timestamp: 100, seq: 1 },
+      { role: 'assistant', content: '快照侧改写答', timestamp: 150, seq: 7 },
+    ]);
+    expect(state.messages.filter((m) => m.role === 'assistant')).toHaveLength(1); // 修前红：2——live 行错保
+    expect(state.messages.filter((m) => m.role === 'assistant')[0]?.text).toBe('快照侧改写答'); // 让位后投影副本即真源
+  });
+
+  it('② 身份不吞新行：live 行 seq=7、快照不含 7 但含同文 seq=9 → live 行保位续接投影尾（修前红：同文被多重集消耗让位——历史同文副本与本 live 行分不清）', () => {
+    // 身份歧义对偶面：快照只含历史同文副本（seq=9 身份不撞），本 live 行
+    // （seq=7 记录晚于快照）不得被历史计数消耗——「快照未含的已落稿帧不抹」
+    let state = applyEnvelope(
+      initialAppState,
+      session({ type: 'message_end', message: { role: 'assistant', content: 'total 0', timestamp: 900 } }, 7),
+    );
+    state = loadedMessages(state, [{ role: 'assistant', content: 'total 0', timestamp: 150, seq: 9 }]);
+    expect(state.messages.filter((m) => m.text === 'total 0')).toHaveLength(2); // 修前红：1——新落稿被历史同文计数吞
+    expect(state.messages.some((m) => m.seq === 7)).toBe(true); // 保位的是 live 本体（身份随行）
+  });
+
+  it('③ message_end 信封 seq 落稿记账：在场 → ViewMessage.seq；缺席（旧帧降级形）→ 无 seq 键、走既有路径（修前红：信封位未被记账恒 undefined）', () => {
+    const withSeq = applyEnvelope(
+      initialAppState,
+      session({ type: 'message_end', message: { role: 'assistant', content: '答', timestamp: 10 } }, 12),
+    );
+    expect(withSeq.messages[0]?.seq).toBe(12); // 修前红：undefined——落稿未贴信封身份位
+    const withoutSeq = applyEnvelope(
+      initialAppState,
+      session({ type: 'message_end', message: { role: 'assistant', content: '答', timestamp: 10 } }),
+    );
+    expect('seq' in (withoutSeq.messages[0] as object)).toBe(false); // 缺席不落键（键形缺席非 undefined 值位）
+    // 既有路径维持：无 seq 落稿行降级走 (role,text) 多重集对账（同文快照让位恰一份）
+    const reconciled = loadedMessages(withoutSeq, [
+      { role: 'user', content: '问', timestamp: 1, seq: 1 },
+      { role: 'assistant', content: '答', timestamp: 2, seq: 2 },
+    ]);
+    expect(reconciled.messages.filter((m) => m.text === '答')).toHaveLength(1); // 降级路径不回归
+  });
+
+  it('④ 逐行降级混窗：无 seq 行走旧多重集（同文让位）+ seq 行走身份集——同窗两档并存（回归锁：降级逐行独立不整批开关）', () => {
+    // 混版本窗：旧帧落稿行（信封无 seq）与新帧落稿行（信封携 seq）同窗到达
+    // ——降级判据逐行独立（任一侧 seq 缺席即走多重集），不许整批开关
+    let state = applyEnvelope(
+      initialAppState,
+      session({ type: 'message_end', message: { role: 'user', content: '旧问', timestamp: 100 } }), // 旧帧降级形
+    );
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'assistant', content: '新答', timestamp: 200 } }, 7),
+    );
+    state = loadedMessages(state, [
+      { role: 'user', content: '旧问', timestamp: 101, seq: 1 }, // 快照同文——多重集路径消耗让位
+      { role: 'assistant', content: '别的答', timestamp: 150, seq: 7 }, // 身份在场文本不同——身份路径让位
+    ]);
+    expect(state.messages.filter((m) => m.text === '旧问')).toHaveLength(1); // 无 seq 行：多重集让位（回归——恰投影副本一份）
+    expect(state.messages.filter((m) => m.text === '旧问')[0]?.key.startsWith('p#')).toBe(true); // 让位的是 live 副本
+    expect(state.messages.filter((m) => m.role === 'assistant')).toHaveLength(1); // 修前红：2——seq 行被当无 seq 行错保
+    expect(state.messages.filter((m) => m.role === 'assistant')[0]?.text).toBe('别的答'); // 身份让位后投影副本在场
+  });
+
+  it('⑤ 回显行（无 seq——客户端铸造）配对账行为不变：镜像吸收 + 让位出清两形（回归锁——镜像携 seq 不扰动吸收，回显行恒走回退路）', () => {
+    // 形一（镜像吸收）：回显 + 待配对账 → 同文镜像（信封携 seq）到达 → 吸收
+    // 保回显——回显行键 m-<客户端钟> 系客户端铸造恒无 seq，镜像的 seq 不泄漏
+    // 到回显行（吸收分支在铸键前返回）
+    let state = echoedUserMessage(initialAppState, 's-1', '在途', 500);
+    state = applyEnvelope(state, display({ type: 'message_start', role: 'user' })); // 镜像双帧：start 开空泡
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '在途', timestamp: 900 } }, 9),
+    );
+    expect(state.messages.filter((m) => m.text === '在途')).toHaveLength(1); // 恰一份（吸收不因信封 seq 破）
+    expect(state.messages[0]?.key).toBe(echoKeyOf(500)); // 保留的是回显位（客户端键）
+    expect('seq' in (state.messages[0] as object)).toBe(false); // 回显行不拾取镜像 seq（恒走回退路）
+    // 形二（让位出清）：快照含同文本体（携 seq）→ 回显行无 seq 降级走多重集
+    // 让位 + 配对账出清；同窗 seq 落稿行（无配对面正常落稿）按身份让位
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '后至稿', timestamp: 901 } }, 8),
+    );
+    state = loadedMessages(state, [
+      { role: 'user', content: '在途', timestamp: 300, seq: 3 },
+      { role: 'user', content: '快照侧改文', timestamp: 301, seq: 8 },
+    ]);
+    expect(state.messages.filter((m) => m.text === '在途')).toHaveLength(1); // 回显让位投影副本（恰一份）
+    expect(state.pendingEchoes).toHaveLength(0); // 账随让位出清（镜像不至——重连形）
+    expect(state.messages.filter((m) => m.text === '后至稿')).toHaveLength(0); // 修前红：1——无身份支持被多重集错保
+  });
+
+  it('⑥ 二次重连：投影行带 wire seq，第二轮按 seq 身份对账让位（投影行作为 live 行参与 seq 路径；修前红：文本改写形旧投影行被多重集错保）', () => {
+    let state = loadedMessages(initialAppState, [
+      { role: 'user', content: '问', timestamp: 100, seq: 1 },
+      { role: 'assistant', content: '答', timestamp: 200, seq: 2 },
+    ]);
+    expect(state.messages[1]?.seq).toBe(2); // 修前红：undefined——投影行未带 wire seq
+    // 第二轮快照同 seq 文本改写（服务端侧修订形）——旧投影行（live 行）按
+    // 身份让位新投影副本（身份对得上，文本对不上也不影响）
+    state = loadedMessages(state, [
+      { role: 'user', content: '问', timestamp: 100, seq: 1 },
+      { role: 'assistant', content: '答（修订）', timestamp: 200, seq: 2 },
+    ]);
+    expect(state.messages).toHaveLength(2); // 修前红：3——旧投影行文本不匹配被多重集错保
+    expect(state.messages.filter((m) => m.role === 'assistant')).toHaveLength(1);
+    expect(state.messages.filter((m) => m.role === 'assistant')[0]?.text).toBe('答（修订）');
+    expect(state.messages.every((m) => m.key.startsWith('p#'))).toBe(true); // 全让位新投影（无 kept 残行）
   });
 });

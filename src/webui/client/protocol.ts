@@ -119,7 +119,19 @@ export interface ClientAskedPayload {
 
 /** SSE 信封三族（客户端视界——payload 只声明消费子集） */
 export type ClientEnvelope =
-  | { readonly kind: 'session'; readonly sessionId: string; readonly payload: ClientTerminalEvent | ClientAskedPayload }
+  | {
+      readonly kind: 'session';
+      readonly sessionId: string;
+      readonly payload: ClientTerminalEvent | ClientAskedPayload;
+      /**
+       * durable seq 身份位（卡②信封载荷腿——03 §10.4 L9 定谳 2026-10-07）：
+       * message_end 镜像帧在场、其余 session 族帧缺席（对账消费位唯
+       * message_end）；lane B 同批 server 侧信封外挂位（webui 局部、零
+       * contracts 触碰）。可选 = 向后兼容：旧服务端/坏形缺席按降级路径对账
+       * （(role,text) 多重集——逐行降级判据，见 frames.ts loadedMessages）。
+       */
+      readonly seq?: number;
+    }
   | { readonly kind: 'display'; readonly sessionId: string; readonly payload: ClientDisplayEvent }
   | { readonly kind: 'notify'; readonly payload: { readonly message: string; readonly level?: string } }
   | { readonly kind: 'status'; readonly sessionId: string; readonly payload: { readonly status: string } };

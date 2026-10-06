@@ -47,6 +47,16 @@ export interface ViewMessage {
    * 直播路（message_end）与投影重建路（loadedMessages）同一判据位分流。
    */
   readonly source?: string;
+  /**
+   * durable 身份键（卡②客户端对账腿——03 §10.4 L9 定谳 2026-10-07）：
+   * message_end 帧落稿（信封外挂位）与投影行（快照 wire seq）在场——
+   * loadedMessages 对账的 seq 身份集主判据；回显行（客户端铸造，键
+   * m-<客户端钟>）/ 工具行 / 派生行（⚙ 终结行铸形）缺席——缺席行逐行降级
+   * 走 (role,text) 多重集等既有路径。射界：呈现层内部位——seq 不进模型
+   * 上下文（不入任何 prompt 面、不呈现给用户；05 §3.1 字段白名单律类比：
+   * 内部身份键非用户面词汇）。
+   */
+  readonly seq?: number;
   /** 活体流式位（true = 增量未定稿——流式尾巴呈现形） */
   readonly streaming: boolean;
 }
@@ -486,6 +496,12 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           text,
           ...(error !== undefined ? { error } : {}),
           ...(source !== undefined ? { source } : {}),
+          // seq 身份位记账（卡②客户端对账腿）：信封外挂位在场（lane B server
+          // 侧 enrich）即随落稿行携带——loadedMessages 对账的 seq 身份集供键；
+          // 缺席（旧服务端/坏形）不落键走既有降级路径。上方 user 镜像吸收
+          // 分支（回显配对）不经过此处——回显行恒无 seq（客户端铸造行恒走
+          // 回退路，03 §10.4 L9 定谳③）
+          ...(env.seq !== undefined ? { seq: env.seq } : {}),
           streaming: false,
         };
         // 落稿换装带角色校验（webui-face#1）：终稿只换装同角色流式位——
@@ -839,18 +855,26 @@ export function echoedUserMessage(state: AppState, sessionId: string, text: stri
  * 副本即真源——live 副本让位）；**快照未含的已落稿帧不抹**（记录晚于快照
  * ——续接投影尾，时序上必后于全部快照消息）。
  *
- * 对账键律（文本多重集根修——两钟域不可配）：live 正文行 m-<数值> 键的
- * 时间戳是**构造钟**（回显 = 浏览器 submit 时刻；message_end 落稿 = driver
- * loop pushAll 构造时刻），投影消息 timestamp 是 **durable 追加钟**
- * （reseedTimeline timeOf = events[seq].time）——两钟域永不相等，旧注
- * 「m-<数值时间戳>（身份同一）」前提错误，数值全等判据结构性恒假（已吸收
- * 回显、非回显 user、assistant、toolResult 的落稿行全部穿透双份且历次
- * reload 重复保留）。新键律：
- * - message_end 落稿/回显行 → (role,text) **多重集**对账（快照侧键 =
- *   role + '\u0000' + text → 计数；空文本不入集——坏形不吞让位判据）：
- *   计数 > 0 → 扣减让位（投影副本即真源）；计数尽 → 保位。遍历维持
- *   state.messages 时间序——旧同文行先消耗计数，后到的在途回显保位（天然
- *   正确）；同文多份场景按份数对账（单集判据分不清一份/两份）。
+ * 对账键律（卡②③ seq 身份升位——03 §10.4 L9 定谳〔2026-10-07 第十二轮深扫
+ * 批〕：主判 = seq 身份集合，文本多重集降为逐行降级档；文本多重集根修注
+ * 〔两钟域不可配〕维持——live 正文行 m-<数值> 键的时间戳是**构造钟**（回显
+ * = 浏览器 submit 时刻；message_end 落稿 = driver loop pushAll 构造时刻），
+ * 投影消息 timestamp 是 **durable 追加钟**（reseedTimeline timeOf =
+ * events[seq].time）——两钟域永不相等，数值全等判据结构性恒假）：
+ * - live 行携 seq（message_end 落稿贴信封外挂位 / 前轮投影行带 wire seq）→
+ *   **seq 身份集**对账：快照含该 seq → 让位（投影已含本体——身份优先于
+ *   文本：历史同文计数错耗与文本改写歧义一刀切断，身份不依赖文本——空
+ *   文本 assistant 轮同有 durable 身份，空行对账天然闭洞）；不含 → 保位
+ *   （记录晚于快照——交错窗续接投影尾）。
+ * - 降级判据 = **逐行**（live 行或快照行任一侧 seq 缺席即走 (role,text)
+ *   多重集/回显配对账——混版本误降级问题同被逐行判据吸收，不许整批开关）：
+ *   回显行系客户端铸造（键 m-<客户端钟>，无 seq）恒走回退路，非仅旧服务端
+ *   形态；「空文本不入集」判据维持护坏形不吞让位。多重集档：
+ *   message_end 落稿/回显行 → (role,text) 多重集对账（快照侧键 =
+ *   role + '\u0000' + text → 计数）：计数 > 0 → 扣减让位（投影副本即
+ *   真源）；计数尽 → 保位。遍历维持 state.messages 时间序——旧同文行先
+ *   消耗计数，后到的在途回显保位（天然正确）；同文多份场景按份数对账
+ *   （单集判据分不清一份/两份）。
  * - toolResult 裸行（message_end 落稿、toolCallId 在场）→ **toolCallId
  *   身份集**对账（tr-<toolCallId> 键族——卡②半边零 API 先修）：快照含该
  *   id → 让位投影副本；未含 → 保位。同文工具输出不再被历史计数消耗——
@@ -863,16 +887,24 @@ export function echoedUserMessage(state: AppState, sessionId: string, text: stri
  * 回显配对账随行命运：让位的回显行不进保留集（配对账出清——投影已含
  * 本体，重连形镜像不至）；保位的进（镜像后至仍吸收恰一份）——判定路径
  * 即多重集消耗结果（旧 pendingEchoes 前置 + 单集文本判据已随键律退役）。
+ *
+ * 射界三条（03 §10.4 卡②定谳原文）：连接即当下不翻（对账只在拉取时刻、
+ * 不重放历史——无重放游标，断线重连 = 重拉投影 + 续听，本位只立身份位非
+ * 游标位）；seq 不进模型上下文（ViewMessage 呈现层——seq 不入任何 prompt
+ * 面、不呈现给用户；重播种转换天然不携 seq）；白名单律类比（seq 是内部
+ * 身份键非用户面词汇——05 §3.1 字段白名单律同精神）。
  */
 export function loadedMessages(state: AppState, messages: readonly unknown[]): AppState {
   const views: ViewMessage[] = [];
   let seq = state.seq;
   let lastUserAt: number | null = null;
-  // 对账索引三面：快照正文多重集（键 = role + '\u0000' + text → 计数；空
-  // 文本不入集——坏形不吞让位判据）/ 快照 toolCallId 集（tool- 终结行与
-  // tr- toolResult 裸行两键族共用——身份同一）。数值时间戳集已退役——live
-  // 构造钟与投影追加钟两钟域永不相等，全等判据结构性恒假（对账键律详见
-  // 函数头注）
+  // 对账索引四面（卡②③ seq 身份升位——03 §10.4 L9 定谳）：快照 seq 身份集
+  //（主判——wire seq 逐消息收集）/ 快照正文多重集（键 = role + '\u0000' +
+  // text → 计数；空文本不入集——坏形不吞让位判据；降级档）/ 快照 toolCallId
+  // 集（tool- 终结行与 tr- toolResult 裸行两键族共用——身份同一）。数值时间
+  // 戳集已退役——live 构造钟与投影追加钟两钟域永不相等，全等判据结构性恒假
+  //（对账键律详见函数头注）
+  const snapSeqs = new Set<number>();
   const snapTextCounts = new Map<string, number>();
   const snapToolIds = new Set<string>();
   for (const message of messages) {
@@ -882,6 +914,11 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
     const role = messageRole(message);
     const text = textOf(messageContent(message));
     const source = messageSource(message);
+    // wire seq 收集（投影拉取腿应答逐消息带 seq 的消费半边）：typeof number
+    // 判（坏形/旧服务端缺席不进集——缺席行逐行降级）；随投影行携带（二次
+    // 重连时投影行作为 live 行参与 seq 身份路径）
+    const wireSeq = messageSeq(message);
+    if (wireSeq !== undefined) snapSeqs.add(wireSeq);
     if (text !== '') {
       const snapKey = role + '\u0000' + text;
       snapTextCounts.set(snapKey, (snapTextCounts.get(snapKey) ?? 0) + 1);
@@ -894,6 +931,7 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
       text,
       ...(error !== undefined ? { error } : {}),
       ...(source !== undefined ? { source } : {}),
+      ...(wireSeq !== undefined ? { seq: wireSeq } : {}),
       streaming: false,
     });
     // toolResult 行附加铸 ⚙ 终结行（第十一轮深扫 laneG L8-3）：活体窗内同一
@@ -924,6 +962,24 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
   const keptEchoKeys = new Set<string>();
   for (const m of state.messages) {
     if (m.streaming || m.role === RUN_CLOSE_ROLE) continue;
+    // ---- seq 身份集主判（卡②③客户端对账腿——03 §10.4 L9 定谳③）----
+    // live 行携 seq（message_end 落稿贴信封位 / 前轮投影行带 wire seq）→ 按
+    // durable 身份对账，身份优先于文本：快照含该 seq → 让位（投影已含本体
+    // ——文本改写歧义一刀切断；不进 kept/不进 keptEchoKeys，也不消耗多重集
+    // 计数——身份与文本两账分立）；不含 → 保位续接投影尾（记录晚于快照
+    // ——历史同文副本不吞新行，多重集分不清的、身份分得清）
+    if (m.seq !== undefined) {
+      if (snapSeqs.has(m.seq)) continue; // 让位——投影已含本体
+      kept.push(m);
+      // user 行保位时种子锚推进（沿 numericKeyOf(m.key) 既有取值形——m-<ts>
+      // 键解析构造钟数值；非数值键形 ts === null 不推进）
+      if (m.role === 'user') {
+        const keptTs = numericKeyOf(m.key);
+        if (keptTs !== null) lastUserAt = keptTs;
+      }
+      continue;
+    }
+    // ---- 降级档（逐行降级判据：本行无 seq——旧帧/回显行/工具行/派生行）----
     const ts = numericKeyOf(m.key);
     if (ts !== null) {
       // 正文多重集对账：本体已在快照（计数 > 0）→ 扣减让位（投影副本即真源
@@ -1067,6 +1123,20 @@ function messageContent(message: unknown): unknown {
 function messageTimestamp(message: unknown): unknown {
   if (typeof message === 'object' && message !== null && 'timestamp' in message) {
     return (message as { timestamp: unknown }).timestamp;
+  }
+  return undefined;
+}
+
+/**
+ * 快照消息 wire seq 抽取（卡②③客户端对账腿——投影拉取腿应答逐消息带 seq
+ * 的消费半边，03 §10.4 L9 定谳①）：typeof number 判（坏形/旧服务端缺席回
+ * undefined——缺席行逐行降级走多重集路径）；呈现层内部位——不进模型上下文、
+ * 不呈现给用户（射界见 loadedMessages 头注）。
+ */
+function messageSeq(message: unknown): number | undefined {
+  if (typeof message === 'object' && message !== null && 'seq' in message) {
+    const value = (message as { seq: unknown }).seq;
+    if (typeof value === 'number') return value;
   }
   return undefined;
 }
