@@ -42,12 +42,13 @@ function capture() {
   });
 }
 
-/** fork 假件（记录调用 + 可编程 veto） */
-function fakeFork(opts: { veto?: string } = {}) {
+/** fork 假件（记录调用 + 可编程 veto / 抛错形态——data-integrity L1：真 fork 面可抛） */
+function fakeFork(opts: { veto?: string; throwErr?: Error } = {}) {
   const calls: Array<{ source: string; upToSeq: number; title?: string }> = [];
   const fork: RewindForkFace = {
     fork: async (source, options) => {
       calls.push({ source, upToSeq: options.upToSeq, title: options.title });
+      if (opts.throwErr !== undefined) throw opts.throwErr;
       if (opts.veto !== undefined) return { status: 'vetoed', reason: opts.veto };
       return { status: 'forked', sessionId: `forked-${calls.length}` };
     },
@@ -227,6 +228,38 @@ describe('restoreRewind（段二——三步序）', () => {
     expect(receipt.forkedSessionId).toBeUndefined();
     expect(receipt.vetoReason).toContain('session_before_fork');
     expect(await read('a.txt')).toBe('v1'); // 文件已恢复——规范序不回滚
+  });
+
+  it('fork 抛错（崩溃窗形：源 durable 日志短于边界）折 veto 回执不裸抛——文件已恢复 + 回执在场（修前红：plain Error 逃错误面）', async () => {
+    await put('a.txt', 'v1');
+    const m1 = await capture()({ sessionId: 's1', boundarySeq: 7, workspaceRoot: ws, trigger: 'mutation' });
+    await put('a.txt', 'v2');
+    // 崩溃窗形态实演：manifest 拍在活体边界（write-behind 在飞未落），随后
+    // 崩溃/毒丸隔离致 durable 前缀停摆——fork 读到的源日志短于边界，真实
+    // SessionManager 抛 plain Error（文案「调用方 bug」对本调用面是误导归因）
+    const { fork } = fakeFork({
+      throwErr: new Error('fork 边界越界：upToSeq=7 日志长 3（调用方 bug）'),
+    });
+    const receipt = await restoreRewind({ store, fork }, m1.id); // 修前红锚：现况此处裸抛
+    expect(receipt.forkedSessionId).toBeUndefined();
+    expect(receipt.vetoReason).toContain('超出会话现存日志');
+    expect(receipt.vetoReason).toContain('seq=7'); // 边界值直呈——用户可对账
+    expect(receipt.vetoReason).not.toContain('调用方 bug'); // 误导归因不入用户面
+    expect(await read('a.txt')).toBe('v1'); // 文件已恢复——规范序不回滚
+    expect(receipt).toMatchObject({ restoredCount: 1, deletedCount: 0, untouchedCount: 0 });
+    expect(receipt.preRewindId).not.toBe(m1.id); // 保底快照照常在场（痕迹链完整）
+  });
+
+  it('fork 抛错（非边界形）同折 veto：原始错误信息保留可诊断（回执通道在场）', async () => {
+    await put('a.txt', 'v1');
+    const m1 = await capture()({ sessionId: 's1', boundarySeq: 0, workspaceRoot: ws, trigger: 'mutation' });
+    const { fork } = fakeFork({ throwErr: new Error('PERSIST_SESSION_MISSING：会话不存在') });
+    const receipt = await restoreRewind({ store, fork }, m1.id); // 修前红锚：现况此处裸抛
+    expect(receipt.forkedSessionId).toBeUndefined();
+    expect(receipt.vetoReason).toContain('PERSIST_SESSION_MISSING'); // 原始信息不吞
+    expect(receipt.vetoReason).toContain('分支会话未建'); // 部分态增量（本侧承载面）
+    expect(receipt.vetoReason).not.toContain('文件已恢复'); // 「文件已恢复」由 command.ts 模板尾缀单源承载——本侧不重复
+    expect(receipt.vetoReason).not.toContain('新建分支会话失败'); // 前缀同归 command.ts 模板——拼接后不重复成对
   });
 
   it('blob 缺席 = STORE_CORRUPT（fail-loud——删 blob 后恢复拒绝误拼）', async () => {

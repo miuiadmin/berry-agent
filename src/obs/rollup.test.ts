@@ -83,4 +83,37 @@ describe('aggregateHours 单遍聚合', () => {
     expect(agg.usage.get(h0)?.calls).toBe(2); // null data 仍计一发调用
     expect(agg.counts.get(h0)?.get('(unknown)')).toBe(1);
   });
+
+  it('usage callId 去重：同 callId 副本（fork/导入前缀复制形）只计一次——calls 同去重（修前红：副本虚翻当日用量）', () => {
+    const h0 = Date.UTC(2026, 9, 7, 8);
+    // 同一笔真实开销的两份入库（fork 会话复制前缀事件、保原 callId 与原 time）
+    const agg = aggregateHours([
+      ev('llm/usage', h0 + 1000, { callId: 'run:s-a:12', usage: { input: 80, output: 40 } }),
+      ev('llm/usage', h0 + 1000, { callId: 'run:s-a:12', usage: { input: 80, output: 40 } }), // 副本
+      // 跨桶副本同去重（身份集跨桶——去重位不落桶内）
+      ev('llm/usage', h0 + HOUR_MS + 1000, { callId: 'run:s-a:12', usage: { input: 1, output: 1 } }),
+      // 不同 callId 的独立笔照计
+      ev('llm/usage', h0 + 2000, { callId: 'run:s-b:3', usage: { input: 10, output: 5 } }),
+    ]);
+    expect(agg.usage.get(h0)).toEqual({
+      calls: 2, // 首见份 + 独立笔（副本不重复计——calls 计数同去重）
+      input: 90,
+      output: 45,
+      cacheRead: 0,
+      cacheWrite: 0,
+      cacheWrite1h: 0,
+      reasoning: 0,
+    });
+    expect(agg.usage.get(h0 + HOUR_MS)).toBeUndefined(); // 跨桶副本被去重——该桶 usage 不落
+  });
+
+  it('usage 无 callId 旧事件照计不回退（去重身份缺席 = 逐份独立笔）', () => {
+    const h0 = Date.UTC(2026, 9, 7, 9);
+    const agg = aggregateHours([
+      ev('llm/usage', h0 + 1000, { usage: { input: 10, output: 5 } }),
+      ev('llm/usage', h0 + 2000, { usage: { input: 10, output: 5 } }),
+    ]);
+    expect(agg.usage.get(h0)?.calls).toBe(2);
+    expect(agg.usage.get(h0)?.input).toBe(20);
+  });
 });

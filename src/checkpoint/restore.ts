@@ -15,12 +15,14 @@
  *      重跑收敛）；
  *   ③ fork(upToSeq = manifest.boundarySeq)——旧史保留，新会话净边界起跑
  *      （05 §5.0 净边界纪律：不破「不在进行中 turn 中间切」）。fork 被
- *      veto 时文件已恢复（序是保底→恢复→fork 的规范序）——回执诚实报
- *      vetoReason，痕迹链完整。
+ *      veto 或抛错时文件已恢复（序是保底→恢复→fork 的规范序）——回执
+ *      诚实报 vetoReason，痕迹链完整。
  *
  * 错误分码：manifest 缺席 = NOT_FOUND；仓坏形 = STORE_CORRUPT（blob 读
  * 侧 fail-loud 直通透传）；恢复执行 IO 失败 = RESTORE_FAILED（保底快照
- * 在场，重跑收敛）。
+ * 在场，重跑收敛）；fork 第③腿抛错不入错误面——折 veto 形回执（崩溃窗：
+ * 源会话 durable 日志短于 manifest.boundarySeq 时 fork 逃 plain Error，
+ * 文件已恢复、分支未建——vetoReason 诚实报部分态与出路，见③腿内注）。
  */
 import { mkdir, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
@@ -197,10 +199,41 @@ export async function restoreRewind(deps: RewindRestoreDeps, id: string): Promis
   await pruneEmptyDirs(manifest.workspaceRoot, manifest.workspaceRoot);
 
   /* ---- ③ fork（旧史保留——新会话净边界起跑；veto 不回滚文件恢复） ---- */
-  const outcome = await deps.fork.fork(manifest.sessionId, {
-    upToSeq: manifest.boundarySeq,
-    title: `rewind:${manifest.id}`,
-  });
+  // 第③腿抛错折 veto 形回执（data-integrity L1——崩溃窗收口）：② 文件恢复
+  // 之后 fork 仍可抛。已知形 = 源会话 durable 日志短于 manifest.boundarySeq
+  // ——gate 拍摄取活体末闭合边界（含 write-behind 在飞未落事件），随后
+  // 崩溃/sever（在队事件丢失）或毒丸隔离（durable 前缀停摆）即成分歧窗；
+  // 此形是崩溃窗数据分歧而非调用方 bug（sessions.ts 抛点文案对主调用面
+  // 成立、对本调用面误导——抛点位不动，restore 位承接改写归因）。异常
+  // 上抛 = 文件已回退、分支会话未建、回执缺席（command 面对 plain Error
+  // 裸抛）；折 veto 形保回执通道在场，vetoReason 诚实报部分态与出路。
+  let outcome: Awaited<ReturnType<RewindForkFace['fork']>>;
+  try {
+    outcome = await deps.fork.fork(manifest.sessionId, {
+      upToSeq: manifest.boundarySeq,
+      title: `rewind:${manifest.id}`,
+    });
+  } catch (err) {
+    // 折面与 command.ts 守卫错同形（BaseError 码直呈——丢码即丢可引用面；
+    // 非 BaseError 折 message——免「Error: 」前缀噪音）
+    const detail =
+      err instanceof BaseError ? `${err.code}：${err.message}` : err instanceof Error ? err.message : String(err);
+    // 边界越界形换用户面诚实文案（原文案「调用方 bug」误导归因不入回执）；
+    // 其余错误形保留原始信息（可诊断）。部分态与出路的承载分工：本侧只报
+    // 「分支会话未建 + 续用原会话」增量，「文件已恢复 + 可重试」由消费位
+    // command.ts 模板尾缀统一承载（单源——两侧各写全套即拼接后重复成对）
+    const vetoReason = detail.includes('边界越界')
+      ? `回退点边界序号（seq=${manifest.boundarySeq}）超出会话现存日志——上次运行可能异常退出导致部分日志未保存（分支会话未建；可续用原会话）`
+      : `${detail}（分支会话未建；可续用原会话）`;
+    return {
+      id: manifest.id,
+      preRewindId: preRewind.id,
+      restoredCount,
+      deletedCount,
+      untouchedCount,
+      vetoReason,
+    };
+  }
   return outcome.status === 'forked'
     ? {
         id: manifest.id,

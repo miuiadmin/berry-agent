@@ -57,11 +57,19 @@ function usageNumber(value: unknown): number {
  * 单遍聚合事件流 → 小时桶计数 + llm/usage 用量累计（全 durable 事件类型
  * 入计数；用量只认 llm/usage 型）。扫描窗按小时边界对齐时本函数产物即
  * 各桶的完整真值——脏桶 DELETE+INSERT 整体替换即幂等自愈。
+ *
+ * usage 分支 callId 去重（forkPrefix/slicePrefix/同日导入副本防虚计）：
+ * llm/usage 的 data.callId 是结算幂等身份——fork/rewind/goal 续跑的前缀
+ * 复制与同日导入副本保原 callId，同一笔真实开销多会话多份入库；聚合不去
+ * 重则当日用量虚翻（calls 计数同去重——副本非新调用）。无 callId 的旧
+ * 事件照计不回退（去重身份缺席 = 逐份都是独立笔）。与 conversation-stack
+ * aggregateUsageEvents 同律（当日已耗聚合另一消费面）。
  */
 export function aggregateHours(events: readonly SessionEvent[]): HourAggregation {
   const counts: HourCounts = new Map();
   const usage = new Map<number, HourUsage>();
   const touchedBuckets = new Set<number>();
+  const seenCallIds = new Set<string>(); // usage 去重身份集（跨桶跨页——同一笔调用只计一次）
 
   for (const event of events) {
     const bucket = hourBucketMs(event.time);
@@ -78,7 +86,14 @@ export function aggregateHours(events: readonly SessionEvent[]): HourAggregation
 
     // 用量面：只认 llm/usage（05 §1.1 载荷形——usage 四桶必落、两可选上报才落）
     if (eventType === 'llm/usage') {
-      const data = event.data as { usage?: Record<string, unknown> } | null | undefined;
+      const data = event.data as { usage?: Record<string, unknown>; callId?: unknown } | null | undefined;
+      // callId 去重（头注——副本形只计首见份；缺席照计）
+      const callId =
+        data && typeof data === 'object' && typeof data.callId === 'string' && data.callId !== '' ? data.callId : null;
+      if (callId !== null) {
+        if (seenCallIds.has(callId)) continue;
+        seenCallIds.add(callId);
+      }
       const buckets = data && typeof data === 'object' ? data.usage : undefined;
       const raw = buckets && typeof buckets === 'object' ? buckets : {};
       let agg = usage.get(bucket);

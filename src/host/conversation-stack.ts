@@ -1904,6 +1904,14 @@ export function providerApiKeyEnvNames(provider: string): readonly string[] {
  * 是完整性防御非热路径；超长会话笔数可越单页帽，聚合沿 nextCursor 翻页至
  * 尽、不做帽内近似——05 §3.4 对端注）。读失败上抛由调用方定姿态（装配位
  * fail-open + warn——预算软闸门/呈现面均不反噬请求路）。
+ *
+ * callId 去重（data-integrity L2——fork/导入种子前缀去重语义）：fork
+ * （forkPrefix 逐字复制）、goal 切片续跑（slicePrefix）与同日导出再导入
+ * 都会把源会话前缀的 llm/usage 连同**原 callId** 复制进新会话（time 原值
+ * 保留）——同一笔真实开销在多会话副本中各存一份。callId 是 settlement
+ * 幂等身份（complete 路随机 UUID / run 路 `run:<sessionId>:<seq>`——同
+ * id 即同一笔），故按 callId 去重：副本同 id 只计一次（Set 跨分页页外
+ * 持——页边界不丢身份）；无 callId 的旧事件照计不回退（字段引入前形态）。
  */
 function aggregateUsageEvents(
   store: { queryEvents(filter: QueryEventsFilter): QueryEventsResult },
@@ -1911,6 +1919,7 @@ function aggregateUsageEvents(
   lane: 'background' | 'all',
 ): number {
   let sum = 0;
+  const seenCallIds = new Set<string>();
   let cursor: string | null | undefined = undefined;
   do {
     const page = store.queryEvents({
@@ -1921,9 +1930,20 @@ function aggregateUsageEvents(
       ...(cursor !== undefined ? { cursor } : {}),
     });
     for (const event of page.events) {
-      const data = event.data as { priority?: string; usage?: { input?: number; output?: number } };
-      // 前台照入账不进闸门——仅 background 口径过滤；全道呈现口径照计
+      const data = event.data as {
+        priority?: string;
+        callId?: string;
+        usage?: { input?: number; output?: number };
+      };
+      // 前台照入账不进闸门——仅 background 口径过滤；全道呈现口径照计。
+      // 去重位在车道过滤之后：副本与原件同 priority（逐字复制）先后无影响
       if (lane === 'background' && data.priority !== 'background') continue;
+      const callId = data.callId;
+      if (callId !== undefined && callId !== '') {
+        // fork/导入副本——同笔已计（跨会话副本在时间窗/全库聚合中相遇）
+        if (seenCallIds.has(callId)) continue;
+        seenCallIds.add(callId);
+      }
       sum += (data.usage?.input ?? 0) + (data.usage?.output ?? 0);
     }
     cursor = page.nextCursor ?? undefined;

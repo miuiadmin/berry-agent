@@ -39,6 +39,7 @@ import {
 
 import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import {
+  aggregateBackgroundSpentToday,
   aggregateSessionSpent,
   assertWatchdogHatOrder,
   createConversationStack,
@@ -1650,14 +1651,21 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
   function seedLedger(
     rt: HostRuntime,
     sessionId: string,
-    rows: { at: number; input: number; output: number; priority: 'background' | 'foreground' }[],
+    rows: {
+      at: number;
+      input: number;
+      output: number;
+      priority: 'background' | 'foreground';
+      /** 显式 callId（fork/导入副本语义——前缀逐字复制保原 id，缺省自铸唯一 id） */
+      callId?: string;
+    }[],
   ): void {
     let clock = rows[0]?.at ?? 0;
     const log = new SessionLog({ sessionId, clock: () => clock });
     for (const row of rows) {
       clock = row.at;
       log.append('llm/usage', {
-        callId: `seed:${sessionId}:${row.at}:${row.input}`,
+        callId: row.callId ?? `seed:${sessionId}:${row.at}:${row.input}`,
         model: 'seed/m1',
         usage: { input: row.input, output: row.output, cacheRead: 0, cacheWrite: 0 },
         priority: row.priority,
@@ -2048,6 +2056,26 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
     const { stack } = rigStack(rt);
     expect(stack.llm.allLanesSpentToday()).toBe(150); // 50+80+20——全道呈现口径（/status 副屏快照档消费——V-4 注⑪⑤ 今日段退役迁位）
     expect(stack.llm.backgroundUsage().spent).toBe(100); // 闸门口径不随动——双口径分立锁
+    await rt.shutdown();
+  });
+
+  it('同日 fork/导入副本 callId 去重：两会话共享 callId 的 llm/usage 只计一次——闸门/全道两口径同步（修前红：全库求和双计）', async () => {
+    const { rt } = rigRuntime();
+    const today = startOfTodayMs();
+    // 会话 A 上午的真实开销；会话 B = /rewind fork（或同日导出再导入）的
+    // 种子前缀副本——forkPrefix 逐字复制事件（callId 原值保留、time 原值
+    // = 今日），同笔真实开销在两会话各存一份
+    seedLedger(rt, 'seed-fork-a', [
+      { at: today + 60_000, input: 80, output: 20, priority: 'background', callId: 'run:seed-fork-a:3' },
+    ]);
+    seedLedger(rt, 'seed-fork-b', [
+      { at: today + 60_000, input: 80, output: 20, priority: 'background', callId: 'run:seed-fork-a:3' }, // 副本同 id
+    ]);
+    // 对照笔：异 callId 照计（不因去重漏真账）
+    seedLedger(rt, 'seed-fork-c', [{ at: today + 120_000, input: 7, output: 3, priority: 'background' }]);
+    const { stack } = rigStack(rt);
+    expect(stack.llm.backgroundUsage().spent).toBe(110); // (80+20)×1 + 10——修前红锚：现况双计 210
+    expect(stack.llm.allLanesSpentToday()).toBe(110); // 两口径共享聚合 helper——同源去重自然同步
     await rt.shutdown();
   });
 
@@ -2950,6 +2978,36 @@ describe('会话累计聚合读面（07 §4.1 注⑪⑥a——V-4 底栏供数�
     expect(calls).toHaveLength(2); // 翻页聚尽——两页都走
     expect(calls[0]).toMatchObject({ sessionId: 'sess-a', types: ['llm/usage'] });
     expect(calls[1]).toMatchObject({ sessionId: 'sess-a', cursor: 'p2' }); // 游标回传翻页
+  });
+
+  it('callId 去重纯函数：共享 callId 副本跨页只计一次 + 无 callId 照计 + 异 callId 照计（修前红：全库求和双计）', () => {
+    // 两页——共享 callId 的原件/副本分居两页（Set 跨分页页外持的锚）；
+    // 无 callId 行模拟 callId 字段引入前的旧事件（照计不回退）
+    const row = (callId: string | undefined, input: number, output: number) => ({
+      type: 'llm/usage',
+      seq: 0,
+      time: 1,
+      data: {
+        ...(callId !== undefined ? { callId } : {}),
+        usage: { input, output },
+        priority: 'background',
+      },
+    });
+    let page = 0;
+    const store = {
+      queryEvents(filter: QueryEventsFilter): QueryEventsResult {
+        page += 1;
+        void filter;
+        return page === 1
+          ? { events: [row('run:sess-a:3', 80, 20)], nextCursor: 'p2' } // 原件（会话 A）
+          : {
+              events: [row('run:sess-a:3', 80, 20), row(undefined, 5, 5), row('run:sess-b:0', 7, 3)], // 副本（会话 B 前缀复制）+ 旧事件 + 异 callId
+              nextCursor: null,
+            };
+      },
+    };
+    // (80+20)×1 + (5+5) + (7+3) = 120——修前红锚：现况双计 220
+    expect(aggregateBackgroundSpentToday(store, 0)).toBe(120);
   });
 
   it('栈级读面：sessionId 键控（双会话各自聚合）+ 同进程二读走缓存（零二次库扫）', async () => {
