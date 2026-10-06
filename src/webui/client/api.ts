@@ -53,8 +53,12 @@ function withId(endpoint: string, id: string): string {
  * 接线经本腿取 URL——端点词面走 WEBUI_ENDPOINTS.sessionEvents（protocol
  * 客户端线视界，与服务端 types.ts 同形镜像、双表对拍锁执法），禁手写字面量
  * 副本（修前 App 第三份手写副本：端点表项零消费，服务端改词面时对拍锁够不
- * 到该副本——SSE 恒 404 静默重连循环）。:id 代换 + encodeURIComponent 保序
- * （withId 同语义——会话 id 含保留字时路由不破）。
+ * 到该副本——SSE 恒 404 死流零呈现〔原注「静默重连循环」勘正：非 200 受理
+ * 按 WHATWG fail the connection 永久 CLOSED 不自动重连；终态死流现由 App
+ * onerror 终态腿分档呈现（SSE L3——直 fetch 定性探针 + 重试建流键）〕）。
+ * :id 代换 + encodeURIComponent 保序（withId 同语义——会话 id 含保留字时
+ * 路由不破）。终态死流定性探针复用本铸造（同 URL 直 fetch——App
+ * classifyDeadStream 消费位）。
  */
 export function sessionEventsUrl(sessionId: string): string {
   return withId(WEBUI_ENDPOINTS.sessionEvents, sessionId);

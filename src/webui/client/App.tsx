@@ -5,7 +5,8 @@
  * 编舞四段：①鉴权探针（cookie 已桥直进 / 未桥走 AuthGate 换桥——auth
  * cookie 桥是浏览器侧唯一凭证通道）②会话清单装载与切换（手动刷新 + 稳态
  * 周期复拍）③活体流接线（EventSource per 会话——onopen 恒重拉投影 +
- * approvals 清单复拉）④稳态周期复拉（审批/会话清单 10s 一拍——跨会话
+ * approvals 清单复拉 + 连接态分档：断连弱横幅随 onopen 自撤、终态死流
+ * 横幅带重试建流键）④稳态周期复拉（审批/会话清单 10s 一拍——跨会话
  * asked 可见性与外部开新呈现，见 Main 内注）。
  *
  * 语义全在 frames.ts（纯折叠器）；本件只做接线与呈现。StrictMode 双挂载
@@ -14,7 +15,8 @@
  * 运行期凭证失效路由（webui-face#3）：token 随宿主重启轮换——旧 cookie 永久
  * 失效，重试不可能自愈。各调用面 401（isUnauthorized 单源判别）统一路由回
  * 换桥位（Main 卸载整面重置 + AuthGate 上方失效提示）；EventSource onerror
- * 探针腿同路由（死流 401 重连恒败的裁量收口）。
+ * 探针腿同路由（死流 401 形的裁量收口——非 200 受理按 WHATWG fail the
+ * connection 永久失败，本就不重连）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
@@ -76,6 +78,60 @@ function triggerDownload(filename: string, blob: Blob): void {
  */
 function fileStampOf(ms: number): string {
   return new Date(ms).toISOString().replace(/[:.]/g, '-');
+}
+
+/* ---------------- 活体流连接态（SSE L3 终态死流 + L2 断连窗——webui-state） ---------------- */
+
+/**
+ * WHATWG EventSource readyState 的 CLOSED 值（2 = 连接已永久失败）。用字面
+ * 常量而非 EventSource.CLOSED 静态位：jsdom 桩/旧环境无该静态（测试桩挂
+ * globalThis 不带类静态），字面值是规范钉死位。
+ */
+const EVENT_SOURCE_CLOSED = 2;
+
+/**
+ * 活体流连接态（SSE L3/L2 分档——组件局部 state 承载，不入 AppState：连接
+ * 编舞属接线域，折叠器形状有测试锁勿扩）：
+ * - alive：已连/连接中（缺省档——无横幅）；
+ * - reconnecting：网络面错误（readyState 非 CLOSED）——浏览器自动重连中，
+ *   弱横幅呈现、onopen 即撤（L2 断连窗信号收口）；
+ * - dead：终态死流（非 200 受理按 WHATWG fail the connection 永久 CLOSED
+ *   ——不自动重连，零自愈路）——定性横幅 + 重试建流键（L3 恢复入口）。
+ */
+type StreamStatus =
+  { readonly kind: 'alive' } | { readonly kind: 'reconnecting' } | { readonly kind: 'dead'; readonly reason: string };
+
+/**
+ * 终态死流定性分档（纯函数——测试面）：直 fetch 同一 SSE URL 的 HTTP 状态码
+ * → 用户面直白因。404/503 与服务端 SSE 受理腿同码（会话不在场 / 连接数上限）
+ *；其余（含 200 罕形、5xx、网络不可达、超时）归「连接已断开」不细分——
+ * 恢复路统一走重试建流键。
+ */
+export function deadStreamReasonOf(status: number): string {
+  if (status === 404) return '会话不存在';
+  if (status === 503) return '连接数已达上限';
+  return '连接已断开';
+}
+
+/**
+ * 终态死流定性探针（SSE L3）：EventSource 已永久 CLOSED 时直 fetch 同一
+ * SSE URL 读 HTTP 状态码——浏览器 EventSource 面不暴露状态码，fetch 才读得
+ * 到。AbortController 超时兜底（宿主整体不可达形不挂死）；读到状态码即弃
+ * 流体（200 受理形不占连接至超时）。401 形不在此路由——probeAuthed 腿专管
+ * （换桥路由由鉴权腿先行处理，本探针 401 归「连接已断开」档不与之抢面）。
+ */
+async function classifyDeadStream(url: string, timeoutMs = 5_000): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { credentials: 'same-origin', signal: controller.signal });
+    void res.body?.cancel().catch(() => {}); // 状态码已读到——即弃流体（可选链整链短路，body 缺席无害）
+    return deadStreamReasonOf(res.status);
+  } catch {
+    return '连接已断开'; // 网络不可达/超时——不可细分的兜底档
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** 根组件（main.tsx 挂载位——auth 探针门 + 主面二段；组件名 WebUiRoot
@@ -156,6 +212,14 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
    * 界面美化役批③：w-64 侧栏在窄屏折为抽屉，汉堡键开向 + 遮罩/选会话收向）。
    */
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  /**
+   * 活体流连接态（SSE L3/L2——组件局部 state，不入 AppState 折叠器形状）：
+   * 建流起点复位 alive；非终态错误置 reconnecting（onopen 撤）；终态死流
+   * 置 dead（定性探针供因）。
+   */
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>({ kind: 'alive' });
+  /** 终态死流重试键（自增驱动活体流 effect 重建——L3 恢复入口） */
+  const [streamRetry, setStreamRetry] = useState(0);
   /** 重拉投影腿（onopen 与会话切换共用——正确性层恒重拉） */
   const reloadProjection = useCallback(
     (sessionId: string) => {
@@ -239,19 +303,38 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
     };
   }, [loadSessions, onAuthLost]);
 
-  // 活体流接线（per 会话——切换即换流；onopen 恒重拉投影 = 正确性层真源）
+  // 活体流接线（per 会话——切换即换流；onopen 恒重拉投影 = 正确性层真源；
+  // streamRetry 自增强制重建流 = 终态死流重试建流键的驱动位）
   useEffect(() => {
     if (state.activeId === null) return;
     const sessionId = state.activeId;
+    // 建流起点复位连接态（重试/切换后旧横幅不驻留）
+    setStreamStatus({ kind: 'alive' });
+    let cancelled = false; // 会话已切走/重试已重建——迟到回写不污染新流状态
     // 流 URL 走 api 层单源铸造（sessionEventsUrl——端点表 sessionEvents 项唯一
     // 消费位，L8-2：修前手写字面量第三份副本，服务端改词面时对拍锁够不到）
     const source = new EventSource(sessionEventsUrl(sessionId));
     source.onopen = () => {
+      // 连上即撤断连弱横幅（L2：重连成功信号）；投影恒重拉（正确性层真源）
+      setStreamStatus({ kind: 'alive' });
       reloadProjection(sessionId);
     };
     source.onerror = () => {
-      // 死流探测腿（webui-face#3 裁量）：EventSource 自动重连，但 cookie 失效
-      // 形的死流重连恒败（服务端 401 不建流）——探针定性，失效即路由换桥位
+      // 错误分档（SSE L3，按 WHATWG readyState）：
+      // - 非 CLOSED（网络面错误）→ 浏览器自动重连中：断连弱横幅（L2——
+      //   正文恒空不再零信号谎报「活着」），onopen 即撤，无需干预；
+      // - CLOSED（永久失败——非 200 受理形：404 会话不在场/503 连接帽满/
+      //   401 已由下探针腿先行路由）→ 零自愈路：直 fetch 定性探针读状态码，
+      //   终态横幅 + 重试建流键。
+      if (source.readyState !== EVENT_SOURCE_CLOSED) {
+        setStreamStatus({ kind: 'reconnecting' });
+        return;
+      }
+      void classifyDeadStream(sessionEventsUrl(sessionId)).then((reason) => {
+        if (!cancelled) setStreamStatus({ kind: 'dead', reason });
+      });
+      // 鉴权探针腿（webui-face#3 裁量）：cookie 失效形的服务端 401 不建流
+      //——探针定性，失效即路由换桥位（Main 卸载后上面的迟到回写被守卫拦）
       void api
         .probeAuthed()
         .then((ok) => {
@@ -275,9 +358,10 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
       });
     };
     return () => {
+      cancelled = true;
       source.close();
     };
-  }, [state.activeId, reloadProjection, onAuthLost]);
+  }, [state.activeId, streamRetry, reloadProjection, onAuthLost]);
 
   /** 会话切换（清单点击——窄屏抽屉随选即收） */
   const switchSession = useCallback((sessionId: string) => {
@@ -561,6 +645,26 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
             sessionId={state.activeId}
             onExport={exportActive}
           />
+        ) : null}
+        {/* 连接态横幅（SSE L3/L2）：断连中弱横幅（琥珀弱档——onopen 自撤，
+            不定性不建键）/ 终态死流横幅（红档——样式对齐凭证失效横幅形）带
+            重试建流键（关旧流重开流，effect 随重试键位重建） */}
+        {state.activeId !== null && streamStatus.kind === 'reconnecting' ? (
+          <div className="bg-amber-950/60 px-4 py-1.5 text-center text-xs text-amber-300">已断线，正在重连……</div>
+        ) : null}
+        {state.activeId !== null && streamStatus.kind === 'dead' ? (
+          <div className="flex items-center justify-between gap-3 bg-red-950/60 px-4 py-2 text-xs text-red-300">
+            <span className="min-w-0 break-words">实时连接失败——{streamStatus.reason}</span>
+            <button
+              type="button"
+              className="shrink-0 rounded bg-edge px-2 py-0.5 text-ink-soft hover:bg-edge-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+              onClick={() => {
+                setStreamRetry((n) => n + 1); // 自增驱动活体流 effect 重建（重试建流）
+              }}
+            >
+              重试连接
+            </button>
+          </div>
         ) : null}
         <Transcript messages={state.messages} status={state.status} bottomRef={bottomRef} />
         {/* relative 容器兼档位浮层锚（TierPopover 卡体 bottom-full 锚本容器

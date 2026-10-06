@@ -22,12 +22,15 @@
  * 刷新（周期拍 + 手动刷新入口）
  * ⑩清单装载失败与空态分立（十六役补扫 N24）：失败行不假声明「暂无会话」
  * ⑪档位面 401 失效路由（十六役补扫 N21）：GET/PUT 401 回换桥位
+ * ⑫活体流连接态分档（SSE L3 终态死流 + L2 断连窗）：终态死流（非 200
+ * 受理按 WHATWG 永久失败不重连）定性横幅 + 重试建流键重建流；断连窗
+ * 弱横幅随 onopen 自撤
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ClientApprovalEntry, ClientSessionSummary } from './protocol.js';
-import { WebUiRoot } from './App.js';
+import { WebUiRoot, deadStreamReasonOf } from './App.js';
 import { ApiError, type DecideAnswer, type TiersPayload } from './api.js';
 
 /** 档位读应答样例（与 GET tiers 应答四键形对齐——词表/行文案单源服务端，样例仅桩） */
@@ -84,9 +87,13 @@ vi.mock('./api.js', async (importOriginal) => ({
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
   onopen: (() => void) | null = null;
+  onerror: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
   readonly url: string;
   closed = false;
+  // WHATWG readyState（SSE L3 分档判据——App onerror 读此位分「终态死流/
+  // 自动重连中」两档）：0=CONNECTING / 1=OPEN / 2=CLOSED。用例预设分档。
+  readyState = 0;
 
   constructor(url: string) {
     this.url = url;
@@ -105,6 +112,11 @@ class FakeEventSource {
   /** 测试驱动位：注入一帧 */
   emit(env: unknown): void {
     this.onmessage?.({ data: JSON.stringify(env) });
+  }
+
+  /** 测试驱动位：模拟连接错误（触发 onerror——终态/非终态由 readyState 预设） */
+  error(): void {
+    this.onerror?.();
   }
 }
 
@@ -1099,5 +1111,69 @@ describe('WebUiRoot档位面 401 失效路由（十六役补扫 N21——调用�
     fireEvent.click(screen.getByRole('button', { name: /high/ }));
     await screen.findByPlaceholderText('一次性 token');
     await screen.findByText(/凭证已失效/);
+  });
+});
+
+describe('WebUiRoot活体流连接态分档（SSE L3 终态死流 + L2 断连窗信号）', () => {
+  it('纯分档函数 deadStreamReasonOf：404 会话不存在 / 503 连接数已达上限 / 其余连接已断开', () => {
+    expect(deadStreamReasonOf(404)).toBe('会话不存在');
+    expect(deadStreamReasonOf(503)).toBe('连接数已达上限');
+    expect(deadStreamReasonOf(500)).toBe('连接已断开');
+    expect(deadStreamReasonOf(200)).toBe('连接已断开'); // 200 罕形（受理后即死）——同兜底档
+  });
+
+  it('终态死流（readyState=CLOSED——非 200 受理按 WHATWG 永久失败不重连）：定性横幅 + 重试建流键重建流（修前红：onerror 只探鉴权——正文恒空零信号零自愈）', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    const es = FakeEventSource.instances[0]!;
+    // 定性探针桩：直 fetch 同一 SSE URL → 404（会话不在场——与服务端 SSE
+    // 受理腿 404 同码；浏览器 EventSource 面不暴露状态码，fetch 才读得到）
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ status: 404 }) as unknown as Response),
+    );
+    act(() => {
+      es.readyState = 2; // CLOSED——终态（永久失败，浏览器不自动重连）
+      es.error();
+    });
+    await screen.findByText('实时连接失败——会话不存在');
+    expect(screen.getByRole('button', { name: '重试连接' })).toBeTruthy();
+    // 重试建流：关旧流开新流（effect 随重试键位重建）——横幅随之撤
+    fireEvent.click(screen.getByRole('button', { name: '重试连接' }));
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(2);
+    });
+    expect(es.closed).toBe(true); // 旧流关闭（不泄漏连接）
+    await waitFor(() => {
+      expect(screen.queryByText(/实时连接失败/)).toBeNull(); // 建流起点复位——横幅撤
+    });
+  });
+
+  it('断连窗（非终态错误——readyState 非 CLOSED）：弱横幅在场、onopen 即撤（修前红：断连窗零信号——正文恒空活体谎报）', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    const es = FakeEventSource.instances[0]!;
+    act(() => {
+      es.readyState = 0; // CONNECTING——浏览器自动重连中（网络面错误）
+      es.error();
+    });
+    await screen.findByText('已断线，正在重连……');
+    expect(screen.queryByText(/实时连接失败/)).toBeNull(); // 弱档——不定性不建重试键
+    // 网络恢复：重连成功开流——弱横幅自撤
+    act(() => {
+      es.readyState = 1;
+      es.open();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('已断线，正在重连……')).toBeNull();
+    });
   });
 });

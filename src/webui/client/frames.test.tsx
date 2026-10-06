@@ -1296,6 +1296,141 @@ describe('frames textOf 抽取三形', () => {
   });
 });
 
+describe('frames toolResult 裸行身份键（卡②半边——零 API 先修；同文工具输出不再被历史计数消耗）', () => {
+  it('落稿键 = tr-<toolCallId>（与 ⚙ 终结行 tool- 前缀分立防撞）：快照未含保位（同文历史不吞）、已含让位恰一份（修前红：m-<构造钟> 行被历史同文计数吞）', () => {
+    // 重复跑同命令形：新 toolResult「total 0」（call-2）与历史同文输出
+    //（call-1）文本相撞、身份不撞——修前多重集对账分不清「历史同文副本」与
+    // 「本 live 行的 durable 本体」，交错窗内新落稿被历史计数消耗（⚙ 终结行
+    // 在场而输出正文不可见——与「快照未含的已落稿帧不抹」条款相悖）
+    let state = applyEnvelope(
+      initialAppState,
+      session({
+        type: 'message_end',
+        message: {
+          role: 'toolResult',
+          toolCallId: 'call-2',
+          toolName: 'bash',
+          content: [{ type: 'text', text: 'total 0' }],
+          isError: false,
+          timestamp: 900,
+        },
+      }),
+    );
+    expect(state.messages[0]?.key).toBe('tr-call-2'); // 修前红：'m-900'（构造钟时间戳键）
+    // 交错窗：快照含历史同文 toolResult（call-1）不含 call-2——身份集对账保位
+    state = loadedMessages(state, [
+      { role: 'user', content: 'ls', timestamp: 100 },
+      {
+        role: 'toolResult',
+        toolCallId: 'call-1',
+        toolName: 'bash',
+        content: [{ type: 'text', text: 'total 0' }],
+        isError: false,
+        timestamp: 150,
+      },
+    ]);
+    expect(state.messages.filter((m) => m.role === 'toolResult' && m.text === 'total 0')).toHaveLength(2); // 修前红：1——新落稿被历史同文计数吞
+    expect(state.messages.some((m) => m.key === 'tr-call-2')).toBe(true); // 快照未含的已落稿帧不抹
+    // 对偶面：快照含同 toolCallId（本尊已 durable）——身份对账让位投影副本
+    state = loadedMessages(state, [
+      { role: 'user', content: 'ls', timestamp: 100 },
+      {
+        role: 'toolResult',
+        toolCallId: 'call-1',
+        toolName: 'bash',
+        content: [{ type: 'text', text: 'total 0' }],
+        isError: false,
+        timestamp: 150,
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'call-2',
+        toolName: 'bash',
+        content: [{ type: 'text', text: 'total 0' }],
+        isError: false,
+        timestamp: 152,
+      },
+    ]);
+    expect(state.messages.filter((m) => m.role === 'toolResult' && m.text === 'total 0')).toHaveLength(2); // 恰两份（两投影副本）
+    expect(state.messages.some((m) => m.key === 'tr-call-2')).toBe(false); // live tr- 行让位（不进 kept）
+  });
+
+  it('toolCallId 缺席（坏形/旧服务端）保持旧时间戳键路径——多重集对账不入新分支', () => {
+    const state = applyEnvelope(
+      initialAppState,
+      session({
+        type: 'message_end',
+        message: { role: 'toolResult', content: [{ type: 'text', text: '裸输出' }], timestamp: 300 },
+      }),
+    );
+    expect(state.messages[0]?.key).toBe('m-300');
+  });
+
+  it('同 toolCallId 终稿帧异常重发不二次落行（幂等位——与 ⚙ 终结行 tool-<id> 稳定键同律）', () => {
+    const once = applyEnvelope(
+      initialAppState,
+      session({
+        type: 'message_end',
+        message: { role: 'toolResult', toolCallId: 'call-9', content: [{ type: 'text', text: '出' }], timestamp: 1 },
+      }),
+    );
+    const again = applyEnvelope(
+      once,
+      session({
+        type: 'message_end',
+        message: { role: 'toolResult', toolCallId: 'call-9', content: [{ type: 'text', text: '出' }], timestamp: 2 },
+      }),
+    );
+    expect(again.messages).toHaveLength(1); // 重发不二次落行（tr- 稳定键查重）
+  });
+});
+
+describe('frames messageKey 撞车消歧（webui-state L1——同毫秒多发不铸重复键）', () => {
+  const TS = 1_770_000_000_000;
+
+  it('同毫秒三条终稿三键互异（井号+序后缀；修前红：恒 m-<同毫秒> 同键——Transcript React key 重复）', () => {
+    // 同毫秒生产者实证：工具批中止余量同步 for / read 段 Promise.all 同拍
+    // settle——服务端紧循环 Date.now() 铸出 N 条同毫秒终稿
+    let state = initialAppState;
+    for (let i = 0; i < 3; i += 1) {
+      state = applyEnvelope(
+        state,
+        session({ type: 'message_end', message: { role: 'assistant', content: `答${i}`, timestamp: TS } }),
+      );
+    }
+    expect(state.messages.map((m) => m.key)).toEqual([`m-${TS}`, `m-${TS}#2`, `m-${TS}#3`]); // 修前红：三键同值
+  });
+
+  it('消歧后缀解析容差：numericKeyOf 剥井号段——对账不受扰（修前红：消歧行掉出多重集分支整行丢）', () => {
+    let state = applyEnvelope(
+      initialAppState,
+      session({ type: 'message_end', message: { role: 'user', content: '问甲', timestamp: 500 } }),
+    );
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '问乙', timestamp: 500 } }),
+    );
+    expect(state.messages[1]?.key).toBe('m-500#2'); // 夹具自检：消歧确已发生（修前红：'m-500' 同键）
+    // 快照含两份本体——两 live 行皆让位投影副本（消歧后缀不绕开对账）
+    state = loadedMessages(state, [
+      { role: 'user', content: '问甲', timestamp: 501 },
+      { role: 'user', content: '问乙', timestamp: 502 },
+    ]);
+    expect(state.messages.filter((m) => m.role === 'user')).toHaveLength(2); // 恰两份投影
+    expect(state.messages.every((m) => m.key.startsWith('p#'))).toBe(true); // live 行全让位（无解析掉档缺行）
+  });
+
+  it('回显行不经消歧：echoKeyOf 语义原样（droppedMessage 按原键摘账不失效——硬约束锁）', () => {
+    // 配对按（sessionId,text）先于铸键、回显行由 echoedUserMessage 直用
+    // echoKeyOf——消歧只作用 message_end 铸键位，撤回键等值律不破
+    let state = echoedUserMessage(initialAppState, 's-1', '回显原键', 700);
+    expect(state.messages[0]?.key).toBe('m-700');
+    state = droppedMessage(state, echoKeyOf(700));
+    expect(state.messages).toHaveLength(0); // 原键摘账仍命中
+    expect(state.pendingEchoes).toHaveLength(0);
+  });
+});
+
 describe('SSE 流 URL 单源铸造锁（第十一轮深扫 laneG L8-2——api.test 不在本 lane 文件域，锁位落本件）', () => {
   it('sessionEventsUrl：端点表 :id 代换 + encodeURIComponent 保序（修前红：api 面零导出——App EventSource 手写字面量第三份副本、端点表 sessionEvents 项死行）', () => {
     // 两形锁：①铸造走端点表单源（WEBUI_ENDPOINTS.sessionEvents——protocol

@@ -251,10 +251,27 @@ function errorMessageOf(message: unknown): string | undefined {
   return undefined;
 }
 
-/** 消息视图键（时间戳优先——无时间戳形用序发生器兜底；数值时间戳键位与 echoKeyOf 同源） */
+/**
+ * 消息视图键（时间戳优先——无时间戳形用序发生器兜底；数值时间戳键位与
+ * echoKeyOf 同源）。
+ *
+ * 撞车消歧（webui-state L1——同毫秒多发不铸重复键）：同毫秒多发（工具批
+ * 紧循环 Date.now() 同拍、多 read 同拍 settle）会铸出重复 m-<ts> 键——React
+ * key 重复致列表和解期行错配。数值键对 state.messages 既有键查重，撞车叠
+ * `#<n>` 序号后缀（井号+序，自 2 起）；numericKeyOf 解析容差剥该后缀（对账
+ * 与种子锚不受扰）。消歧只作用本铸键位——回显行（echoedUserMessage 直用
+ * echoKeyOf，submit 失败撤回按原键等值摘账）与 pendingEchoes 配对（按
+ * sessionId+text，message_end 吸收腿先于铸键）不经此处，键律不扰动。
+ */
 function messageKey(state: AppState, timestamp: unknown): { key: string; seq: number } {
   const seq = state.seq + 1;
-  return { key: typeof timestamp === 'number' ? echoKeyOf(timestamp) : `m#${seq}`, seq };
+  if (typeof timestamp !== 'number') return { key: `m#${seq}`, seq };
+  const base = echoKeyOf(timestamp);
+  if (!state.messages.some((m) => m.key === base)) return { key: base, seq };
+  // 撞车——叠序号后缀直至不撞（同毫秒簇规模 = 工具批消息数，小量线性探测即可）
+  let n = 2;
+  while (state.messages.some((m) => m.key === `${base}#${n}`)) n += 1;
+  return { key: `${base}#${n}`, seq };
 }
 
 /**
@@ -448,7 +465,19 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           }
         }
         const timestamp = messageTimestamp(payload.message);
-        const { key, seq } = messageKey(state, timestamp);
+        // toolResult 裸行身份键（卡②半边——零 API 先修）：工具输出行弃构造钟改
+        // tr-<toolCallId> 身份键（与 ⚙ 终结行 tool-<toolCallId> 前缀分立防撞）
+        //——loadedMessages 对账按 toolCallId 身份集让位/保位（镜像 tool- 分支
+        // 用 snapToolIds 的写法），同文工具输出不再被历史计数消耗（重复跑同
+        // 命令的相同输出不因文本撞历史副本而被吞——对齐「快照未含的已落稿帧
+        // 不抹」条款）。toolCallId 缺席（坏形/旧服务端）保持旧时间戳键路径
+        //（多重集对账回退位）不入本分支。
+        const toolResultId = role === 'toolResult' ? messageToolCallId(payload.message) : null;
+        const { key: stampedKey, seq } = messageKey(state, timestamp);
+        const key = toolResultId !== null ? `tr-${toolResultId}` : stampedKey;
+        // 幂等位（与 ⚙ 终结行 tool-<id> 稳定键同律）：同 toolCallId 终稿帧异常
+        // 重发不二次落行（键查重——构造钟形下重发 ts 不同也会双份，身份键根治）
+        if (toolResultId !== null && state.messages.some((m) => m.key === key)) return state;
         const error = errorMessageOf(payload.message);
         const source = messageSource(payload.message);
         const finalized: ViewMessage = {
@@ -822,6 +851,12 @@ export function echoedUserMessage(state: AppState, sessionId: string, text: stri
  *   计数 > 0 → 扣减让位（投影副本即真源）；计数尽 → 保位。遍历维持
  *   state.messages 时间序——旧同文行先消耗计数，后到的在途回显保位（天然
  *   正确）；同文多份场景按份数对账（单集判据分不清一份/两份）。
+ * - toolResult 裸行（message_end 落稿、toolCallId 在场）→ **toolCallId
+ *   身份集**对账（tr-<toolCallId> 键族——卡②半边零 API 先修）：快照含该
+ *   id → 让位投影副本；未含 → 保位。同文工具输出不再被历史计数消耗——
+ *   多重集分不清「历史同文副本」与「本 live 行的 durable 本体」，身份键
+ *   才分得清（对齐「快照未含的已落稿帧不抹」条款；toolCallId 缺席坏形
+ *   走多重集回退位）。
  * - 工具终结行 → toolCallId（投影 toolResult 序列化在场——与 live 行
  *   tool-<toolCallId> 身份同一）。
  *
@@ -833,10 +868,11 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
   const views: ViewMessage[] = [];
   let seq = state.seq;
   let lastUserAt: number | null = null;
-  // 对账索引两面：快照正文多重集（键 = role + '\u0000' + text → 计数；空
-  // 文本不入集——坏形不吞让位判据）/ 快照 toolCallId 集。数值时间戳集已
-  // 退役——live 构造钟与投影追加钟两钟域永不相等，全等判据结构性恒假
-  //（对账键律详见函数头注）
+  // 对账索引三面：快照正文多重集（键 = role + '\u0000' + text → 计数；空
+  // 文本不入集——坏形不吞让位判据）/ 快照 toolCallId 集（tool- 终结行与
+  // tr- toolResult 裸行两键族共用——身份同一）。数值时间戳集已退役——live
+  // 构造钟与投影追加钟两钟域永不相等，全等判据结构性恒假（对账键律详见
+  // 函数头注）
   const snapTextCounts = new Map<string, number>();
   const snapToolIds = new Set<string>();
   for (const message of messages) {
@@ -909,6 +945,14 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
     const toolId = toolKeyOf(m.key);
     if (toolId !== null && !snapToolIds.has(toolId)) {
       kept.push(m); // 工具终结行：快照未含该 toolResult——live 行存活
+      continue;
+    }
+    // toolResult 裸行身份对账（卡②半边）：身份来自载荷 toolCallId，不消耗
+    // 多重集——同文历史副本不吞新 live 行（快照未含的已落稿帧不抹）；快照
+    // 已含该 id → 让位投影副本（不进 kept）
+    const trId = trKeyOf(m.key);
+    if (trId !== null && !snapToolIds.has(trId)) {
+      kept.push(m);
     }
   }
   return {
@@ -1043,11 +1087,15 @@ function messageSource(message: unknown): string | undefined {
 /**
  * m-<数值> 键解析（message_end 落稿/回显键族识别——E4 交错窗对账据此走
  * (role,text) 多重集对账腿；数值本身是构造钟，不再作身份判据〔两钟域不可
- * 配——见 loadedMessages 头注〕；非本形回 null）
+ * 配——见 loadedMessages 头注〕；非本形回 null）。
+ *
+ * 撞车消歧后缀容差（webui-state L1）：messageKey 撞车叠的 `#<n>` 序号后缀
+ * 在此剥除——消歧键与裸键解析到同一数值（对账/种子锚不因后缀掉档，否则
+ * 消歧行掉出多重集分支整行丢）。
  */
 function numericKeyOf(key: string): number | null {
   if (!key.startsWith('m-')) return null;
-  const digits = key.slice(2);
+  const digits = key.slice(2).split('#', 1)[0] ?? '';
   if (digits === '') return null;
   const value = Number(digits);
   return Number.isFinite(value) ? value : null;
@@ -1056,6 +1104,11 @@ function numericKeyOf(key: string): number | null {
 /** tool-<toolCallId> 键解析（工具终结行键族——E4 对账与投影 toolResult 身份同一；非本形回 null） */
 function toolKeyOf(key: string): string | null {
   return key.startsWith('tool-') ? key.slice(5) : null;
+}
+
+/** tr-<toolCallId> 键解析（toolResult 裸行身份键族——卡②半边；与 tool- 前缀分立防撞；非本形回 null） */
+function trKeyOf(key: string): string | null {
+  return key.startsWith('tr-') ? key.slice(3) : null;
 }
 
 /** 投影 toolResult 消息的 toolCallId 抽取（E4 对账索引半边——非本形/坏形回 null） */
