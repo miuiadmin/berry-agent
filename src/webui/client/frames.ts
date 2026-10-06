@@ -23,19 +23,12 @@ import type { ClientApprovalEntry, ClientEnvelope, ClientSessionSummary } from '
 // 工具名用户面动词（V-0 注⑤呈现层转写——数据面 toolNames 记账保原始名）、
 // 工具运行标记（TOOL_RUN_MARK——start 状态行/终结行引导符单源）、run 收尾
 // 行整行构造（runRecapLine——2026-10-04 收尾行段拼装双站单源化批收编，本件
-// runCloseLine 与 tui-backend appendClosingLine 双拷贝自此同源）与取消形
+// runCloseLine 与 tui-backend appendClosingLine 双拷贝自此同源；2026-10-06
+// 部分观察加注升位：计数段尾注「（自本次接入起算）」的加注知识随
+// partialObserved 位收 contracts 单源——本件原段级 map 加注副本已删）与取消形
 // 时刻段 HH:MM（formatClockHM——原 clockOf 逐字克隆收编，双消费面
-// （tui-backend 收尾行 / webui 取消回执）均已改引本源）；收尾行段集构造与
-// 段串接（runRecapSegments / joinSegments——中途附着计数段加注形〔第九轮
-// laneE2 件3〕按段改写后重组，段形知识仍单源）。
-import {
-  formatClockHM,
-  joinSegments,
-  runRecapLine,
-  runRecapSegments,
-  TOOL_RUN_MARK,
-  toolFaceZh,
-} from '../../contracts/index.js';
+// （tui-backend 收尾行 / webui 取消回执）均已改引本源）。
+import { formatClockHM, runRecapLine, TOOL_RUN_MARK, toolFaceZh } from '../../contracts/index.js';
 
 /** 呈现层消息视图模型（投影消息与活体落稿同形） */
 export interface ViewMessage {
@@ -297,7 +290,8 @@ function streamingSlotOf(messages: readonly ViewMessage[], role: string): number
  *   重试段无「次」字——规范真源措辞）；部分观察形（计数非整 run 口径）计数
  *   段加注「（自本次接入起算）」——部分观察值不冒充整 run 口径（第九轮
  *   laneE2 件3 首落；词面与判据随 2026-10-04 第十轮深扫定形注翻档——07 收尾
- *   行中途附着加注形：用户面直白词「接入」+ 部分观察旗判据）。
+ *   行中途附着加注形：用户面直白词「接入」+ 部分观察旗判据；2026-10-06 加注
+ *   知识随 partialObserved 位收 contracts 单源——本件只传位）。
  * 耗时优先服务端 durationMs 载荷（A-3 唯一真源），缺席回退客户端观察窗
  * （agent_start→agent_end 到达时刻差——近似值，发射/传播延迟诚实注记在
  * AppState.runStartedAt），皆无诚实缺席（行仍落）；成功形整行构造单源
@@ -318,29 +312,24 @@ function runCloseLine(
       : state.runStartedAt !== null
         ? now - state.runStartedAt
         : null;
-  // 部分观察形（第十轮定形注——旗形判据两形皆盖）：
-  // ① runStartedAt === null——本 run 未见任何 agent_start（中途接入）；
-  // ② runCountsPartial——中途接入窗内累加过计数后 retry 续入 agent_start 重开
-  //   观察窗（runStartedAt 已非 null）而 run 级账不清——计数仍是接入点起算的
-  //   部分观察值（仅看收尾时刻 runStartedAt 判据的破口，旗补盖）。两形计数
-  //   段逐段加注「（自本次接入起算）」（诚实披露律在计数段：不冒充全量口径）；
-  //   耗时段不加注（durationMs 载荷在场即服务端整 run 真值、缺席即诚实缺段
-  //   ——口径分立）。段集构造仍单源 runRecapSegments，只对计数段追加披露后
-  //   重组（段头段尾同 runRecapLine 拼形——见 contracts durations 头注）。
-  if (state.runStartedAt === null || state.runCountsPartial) {
-    const annotated = runRecapSegments({
-      durationMs,
-      toolCount: state.runToolCount,
-      retryCount: state.runRetryCount,
-    }).map((segment) =>
-      segment.startsWith('工具 ') || segment.startsWith('重试 ') ? `${segment}（自本次接入起算）` : segment,
-    );
-    return `── ${joinSegments(...annotated)} ──`;
-  }
+  // 部分观察形（第十轮定形注——旗形判据两形皆盖）：① runStartedAt === null
+  // ——本 run 未见任何 agent_start（中途接入）；② runCountsPartial——中途
+  // 接入窗内累加过计数后 retry 续入 agent_start 重开观察窗（runStartedAt
+  // 已非 null）而 run 级账不清——计数仍是接入点起算的部分观察值（仅看收尾
+  // 时刻 runStartedAt 判据的破口，旗补盖）。两形经 partialObserved 位传
+  // contracts 单源加注——计数段逐段尾注「（自本次接入起算）」（诚实披露律
+  // 在计数段：不冒充全量口径；本文件原段级 map 加注副本已删——两通道零本地
+  // 加注副本）；耗时段不加注（durationMs 载荷在场即服务端整 run 真值、缺席
+  // 即诚实缺段——口径分立）。
   // 段集/整行构造单源（contracts runRecapLine——2026-10-04 双站单源化批收编：
   // 本函数原三段 push + 段头段尾拼装与 tui-backend appendClosingLine 逐字同构
   // 双拷贝，自此段形知识单源；调用侧只守失败/取消/双零/耗时折取四判据）
-  return runRecapLine({ durationMs, toolCount: state.runToolCount, retryCount: state.runRetryCount });
+  return runRecapLine({
+    durationMs,
+    toolCount: state.runToolCount,
+    retryCount: state.runRetryCount,
+    partialObserved: state.runStartedAt === null || state.runCountsPartial,
+  });
 }
 
 /**

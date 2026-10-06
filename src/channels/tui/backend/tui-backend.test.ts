@@ -5174,6 +5174,55 @@ describe('TuiBackend turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻
     backend.onRepaint(SESSION, [], null); // 全量重画（投影空——瞬时行不在投影面）
     expect(io.bytes).not.toContain('用时'); // 不重建（重放不可见同律）
   });
+
+  it('中途附着（无 agent_start）：计数段逐段尾注「（自本次接入起算）」——部分观察不冒充整 run 口径', () => {
+    let t = 0;
+    const { io, backend } = makeBackend({ now: () => t });
+    // 中途附着形：本屏未亲见 run 开头（无 fresh agent_start——runStartedAt
+    // null 观察窗，repaint/切焦到在飞会话的本屏观察账）；webui frames 对端
+    // 同场景同词面（跨通道同律——词面与判据单源对齐）
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    emit(backend, { type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: t + 60_000 });
+    t += 45_000;
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 45_000 });
+    // 修前红：'── 用时 45s · 工具 1 次 · 重试 1 ──'（整 run 口径词面冒充）
+    expect(io.bytes).toContain('工具 1 次（自本次接入起算）');
+    expect(io.bytes).toContain('重试 1（自本次接入起算）');
+    expect(io.bytes).not.toContain('── 用时 45s · 工具 1 次 · 重试 1 ──'); // 修前红锚位（无注整段词面）
+    // 耗时段不加注维持（durationMs 载荷在场即服务端整 run 真值——口径分立）
+    expect(io.bytes).toContain('用时 45s ·');
+  });
+
+  it('中途附着+retry 续入：部分观察旗跨续入存活——计数段仍加注（旗形判据盖续入形）', () => {
+    let t = 0;
+    const { io, backend } = makeBackend({ now: () => t });
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    emit(backend, { type: 'agent_end', status: 'failed' });
+    emit(backend, { type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: t + 60_000 });
+    emit(backend, { type: 'retry_wait_end', outcome: 'resumed' });
+    emit(backend, { type: 'agent_start' }); // 续入（run 级账不清——旗同律跨续入存活）
+    t += 45_000;
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 45_000 });
+    expect(io.bytes).toContain('工具 1 次（自本次接入起算）');
+    expect(io.bytes).toContain('重试 1（自本次接入起算）');
+  });
+
+  it('整 run 形（agent_start 亲见）零加注；fresh agent_start 清旗——中途附着旗不泄入后继完整 run', () => {
+    let t = 0;
+    const { io, backend } = makeBackend({ now: () => t });
+    // 中途附着窗置旗（上一 run 收尾行带注）
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 10_000 });
+    io.bytes = '';
+    emit(backend, { type: 'agent_start' }); // 全新 run（resetUsage——旗随计数连清）
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't2', name: 'read', arguments: {} });
+    t += 30_000;
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 30_000 });
+    expect(io.bytes).toContain('── 用时 30s · 工具 1 次 ──'); // 完整观察整 run 口径
+    expect(io.bytes).not.toContain('自本次接入起算'); // 旗若不清即泄入（回归锁锚位）
+  });
 });
 
 describe('TuiBackend 后台任务段 + /jobs 副屏（界面美化役批6——UX 批6 A/B/C 件）', () => {

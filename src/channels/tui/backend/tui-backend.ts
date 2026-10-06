@@ -736,6 +736,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 本 run 重试计数（retry_wait_start 递增；重试续入不清——收尾行重试段供数 + 双零缺席判据半边——V-0 注⑥） */
   private runRetryCount = 0;
   /**
+   * run 级计数部分观察旗（收尾行中途附着计数段加注形——webui frames
+   * runCountsPartial 跨通道同律）：工具/重试计数在未见 agent_start 的窗
+   * （runStartedAt === null——repaint/切焦中途附着）内累加即置位——计数是
+   * 接入点起算的部分观察值标记；fresh agent_start 清位（resetUsage 单源）、
+   * repaint/切焦清账连清（新观察窗完整口径）、retry 续入 agent_start 不清
+   * （续入不清 run 级账——旗跨续入存活）。收尾行计数段加注判据 =
+   * runStartedAt === null || 本旗（旗形判据两形皆盖——加注词面收 contracts
+   * runRecapLine partialObserved 位单源）。
+   */
+  private runCountsPartial = false;
+  /**
    * 失败原因**持有档**（失败直呈律 V-0 注②）：agent_end failed 的 errorMessage
    * 存账（终态揭示延后——批 4 持有档），retry_wait_end {aborted|exhausted} 揭示
    * 时消费（任务行态④单源承载〔V-3 注⑧：footer 尾注腿已退役〕）；消费即清、
@@ -3437,6 +3448,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       case 'retry_wait_start':
         // 态③ 重试中（E-1）：转轮不停 + 倒计时本地钟现算（nextAt 绝对时刻律）
         this.runRetryCount += 1; // 收尾行重试段计数（整 run 口径——resetUsage 才清）
+        if (this.runStartedAt === null) this.runCountsPartial = true; // 部分观察旗：未见 agent_start 窗内累加即置位（计数=接入点起算的部分值）
         this.taskLine.enterRetry(event.attempt, event.maxAttempts, event.nextAt);
         this.touchFixed();
         break;
@@ -3488,6 +3500,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         break;
       case 'tool_execution_start':
         this.runToolCount += 1; // 收尾行纯对话轮判据（重试续入不清——整 run 口径）
+        if (this.runStartedAt === null) this.runCountsPartial = true; // 部分观察旗：未见 agent_start 窗内累加即置位（计数=接入点起算的部分值）
         this.taskLine.setTool(toolFaceZh(event.name)); // 态① 工具段 `⚙ 动词 …` 优先（V-0 注⑤用户面动词）
         this.toolPanel.begin(event.toolCallId, event.name, event.arguments); // 件 5：建档不建行（原始名建档——插件腿查表依赖；行呈现位转写）
         this.touchFixed();
@@ -3548,6 +3561,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.turnStreamStartedAt = null; // 流中相位分母连清（注⑪⑥c——中途附着本轮无起点，与估值器 reset 同刻）
     this.runToolCount = 0;
     this.runRetryCount = 0;
+    this.runCountsPartial = false; // 部分观察旗连清（fresh agent_start / repaint 切焦——新观察窗完整口径）
     this.runSeedAt = null;
     this.pendingSeedAt = null; // 暂存位连清（切焦防上一焦种子泄漏到新焦收尾行）
     this.retryContinuation = false;
@@ -3570,7 +3584,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 结算账——A-3 唯一真源）?? 本地观察账（runStartedAt/runEndedAt 差）。
    * 段集/整行构造走 contracts runRecapLine 单源（2026-10-04 双站收编——webui
    * runCloseLine 同源，段形知识归单源头注；formatElapsedCompact 同件族
-   * 任务行/SPA/超时三面同源）。
+   * 任务行/SPA/超时三面同源）。**部分观察加注**（收尾行中途附着计数段加注形
+   * ——webui frames 跨通道同律）：本屏未亲见 run 开头（runStartedAt === null
+   * 中途附着）或部分观察旗在场（中途接入窗内累加过计数——retry 续入重开
+   * 观察窗而 run 级账不清）→ 计数段逐段尾注「（自本次接入起算）」（加注
+   * 词面随 partialObserved 位收 contracts 单源）；耗时段恒不加注（口径分立）。
    * dim 经 SGR 直拼（瞬时行纯文本路——appendTransientCapped 的 ANSI 感知收口
    * 保样式存活）：weakRule 在场整行混合现算弱线色（V-3 注⑨②）、键缺席回退
    * DIM 既有形（取消形 ⏹ 回执非记账线——恒 DIM 不沿线色）。
@@ -3586,8 +3604,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       durationMs ??
       (this.runStartedAt !== null && this.runEndedAt !== null ? this.runEndedAt - this.runStartedAt : null);
     // 段集/整行构造走 contracts runRecapLine 单源（三段序/段缺席形/重试段
-    // 无「次」字等段形知识归单源头注；双零整行缺席判据留调用侧上一行）
-    const line = runRecapLine({ durationMs: elapsedMs, toolCount: this.runToolCount, retryCount: this.runRetryCount });
+    // 无「次」字等段形知识归单源头注；双零整行缺席判据留调用侧上一行）；
+    // 部分观察旗形判据两形皆盖（runStartedAt === null || runCountsPartial——
+    // 见字段注），加注词面归 contracts 单源
+    const line = runRecapLine({
+      durationMs: elapsedMs,
+      toolCount: this.runToolCount,
+      retryCount: this.runRetryCount,
+      partialObserved: this.runStartedAt === null || this.runCountsPartial,
+    });
     // 弱线色优先（V-3 注⑨②）：weakRule 在场整行混合现算弱线色、键缺席回退 DIM
     const weakSgr = this.theme.weakRule !== undefined ? buildSgr({ fg: this.theme.weakRule }) : DIM_SGR;
     this.appendTransientLine(`${weakSgr}${line}${SGR_RESET}`);

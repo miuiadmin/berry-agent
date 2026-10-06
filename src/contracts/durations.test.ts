@@ -39,6 +39,47 @@ describe('runRecapSegments 收尾行段集', () => {
   });
 });
 
+describe('runRecapSegments 部分观察加注（收尾行中途附着计数段加注形——口径披露律）', () => {
+  it('partialObserved：工具/重试计数段逐段尾注「（自本次接入起算）」——耗时段恒不加注（口径分立）', () => {
+    expect(runRecapSegments({ durationMs: 62_000, toolCount: 3, retryCount: 2, partialObserved: true })).toEqual([
+      '用时 1m 02s',
+      '工具 3 次（自本次接入起算）',
+      '重试 2（自本次接入起算）',
+    ]);
+  });
+
+  it('耗时缺席形（null）：计数段独场仍加注（中途附着无起点——耗时段诚实缺席）', () => {
+    expect(runRecapSegments({ durationMs: null, toolCount: 1, retryCount: 0, partialObserved: true })).toEqual([
+      '工具 1 次（自本次接入起算）',
+    ]);
+  });
+
+  it('重试独场形：重试段带注且无「次」字（段形随规范真源）', () => {
+    expect(runRecapSegments({ durationMs: null, toolCount: 0, retryCount: 1, partialObserved: true })).toEqual([
+      '重试 1（自本次接入起算）',
+    ]);
+  });
+
+  it('缺席 / false → 零加注（完整观察整 run 口径——向后兼容形）', () => {
+    expect(runRecapSegments({ durationMs: 62_000, toolCount: 3, retryCount: 2 })).toEqual([
+      '用时 1m 02s',
+      '工具 3 次',
+      '重试 2',
+    ]);
+    expect(runRecapSegments({ durationMs: 62_000, toolCount: 3, retryCount: 2, partialObserved: false })).toEqual([
+      '用时 1m 02s',
+      '工具 3 次',
+      '重试 2',
+    ]);
+  });
+
+  it('runRecapLine 整行带注（段头段尾横线包壳不变——色壳仍归调用侧）', () => {
+    expect(runRecapLine({ durationMs: null, toolCount: 1, retryCount: 0, partialObserved: true })).toBe(
+      '── 工具 1 次（自本次接入起算） ──',
+    );
+  });
+});
+
 describe('runRecapLine 收尾行整行', () => {
   it('段头段尾横线包壳 + 段串接（无色裸形——tui 侧 SGR 色壳在调用侧）', () => {
     expect(runRecapLine({ durationMs: 62_000, toolCount: 3, retryCount: 0 })).toBe('── 用时 1m 02s · 工具 3 次 ──');

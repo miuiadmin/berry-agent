@@ -494,7 +494,7 @@
       "since": "1.0",
       "desc": "run 收尾行段集输入（耗时终值或诚实缺席 null——真源序折取在调用侧）",
       "kind": "interface",
-      "sig": "597b00f98b113fd7"
+      "sig": "6e50c24a2a8ecc29"
     },
     {
       "symbol": "RunStatus",

@@ -8,7 +8,9 @@
  * 2026-10-04 收尾行段拼装双站单源化批扩域：run 收尾行段集/整行构造 + 用户面
  * 段串接（『 · 』间隔号）自本件供出——webui frames（runCloseLine）与
  * tui-backend（appendClosingLine）原为逐字同构双拷贝（连「段形随规范真源」
- * 注释都双份），自此段形知识单源。
+ * 注释都双份），自此段形知识单源。2026-10-06 部分观察加注升位收编：计数段
+ * 尾注「（自本次接入起算）」的加注知识自 webui 段级 map 副本迁入
+ * partialObserved 位（两通道零本地加注副本——判据归调用侧、词面归本件）。
  */
 
 /**
@@ -53,6 +55,16 @@ export interface RunRecapInput {
   readonly durationMs: number | null;
   readonly toolCount: number;
   readonly retryCount: number;
+  /**
+   * 部分观察旗（收尾行中途附着计数段加注形——口径披露律）：true = 工具/重试
+   * 计数是接入点起算的部分观察值（本屏未亲见 run 开头——切焦/页面加载中途
+   * 接入）——计数段逐段尾注「（自本次接入起算）」不冒充整 run 口径；耗时段
+   * 恒不加注（durationMs 载荷在场即服务端整 run 真值、缺席即诚实缺段——口径
+   * 分立）。判据归调用侧（部分观察旗：计数在未见 agent_start 的窗内累加即
+   * 置位、fresh agent_start 清位——TUI/webui 两通道同律），本件只收加注词面
+   * 单源。缺席 = false（完整观察整 run 口径——向后兼容形）。
+   */
+  readonly partialObserved?: boolean;
 }
 
 /**
@@ -60,13 +72,18 @@ export interface RunRecapInput {
  * 工具次数/重试三段序，段形随规范真源——**重试段无「次」字**；工具/重试
  * 双零段缺席（「纯对话轮整行缺席」的双零判据在调用侧——本函数只管段集，
  * 双零入参返回空集）。双站逐字同构收编：webui frames runCloseLine /
- * tui-backend appendClosingLine（2026-10-04）。
+ * tui-backend appendClosingLine（2026-10-04）。部分观察加注（partialObserved
+ * 位）：计数段逐段尾注「（自本次接入起算）」（2026-10-06 自 webui 段级 map
+ * 加注副本升位收编——两通道零本地加注副本，词面单源自此）。
  */
 export function runRecapSegments(input: RunRecapInput): string[] {
+  // 部分观察尾注（口径披露律）：词面用「接入」——用户面直白词（内部机制词
+  // 「附着」不入用户面正文）；耗时段恒不加注（口径分立——见字段注）
+  const partialNote = input.partialObserved === true ? '（自本次接入起算）' : '';
   const segments: string[] = [];
   if (input.durationMs !== null) segments.push(`用时 ${formatElapsedCompact(input.durationMs)}`);
-  if (input.toolCount > 0) segments.push(`工具 ${input.toolCount} 次`);
-  if (input.retryCount > 0) segments.push(`重试 ${input.retryCount}`); // 段形随规范真源：重试段无「次」字
+  if (input.toolCount > 0) segments.push(`工具 ${input.toolCount} 次${partialNote}`);
+  if (input.retryCount > 0) segments.push(`重试 ${input.retryCount}${partialNote}`); // 段形随规范真源：重试段无「次」字
   return segments;
 }
 
