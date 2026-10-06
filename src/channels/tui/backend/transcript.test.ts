@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { ansiColor, sanitizeDisplayText, stringWidth } from '../../engine/index.js';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage, AssistantMessage } from '../../../contracts/index.js';
+import { ccrMarkerLine } from '../../../contracts/index.js';
 import { LIGHT_PALETTE, resolveTheme, DEFAULT_THEME } from '../theme/index.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
@@ -309,11 +310,11 @@ describe('LiveTranscript user 块 source 过滤（批 V-1 笔2——subagent 族
 
 /* ---------------- 压缩时间线分隔行（07 B2 批 2——source='compaction' 载体替换呈现） ---------------- */
 
-/** 摘要载体速构（fiveStep 真实落账形：前缀 + 正文 + CCR 标记段末行） */
+/** 摘要载体速构（fiveStep 真实落账形：前缀 + 正文 + CCR 标记段末行——标记行走 contracts ccrMarkerLine 单源构造，格式知识零复刻） */
 const compactionCarrier = (markerLine?: string): AgentMessage =>
   userMsg(`[COMPACTION-SUMMARY] 摘要正文${markerLine !== undefined ? `\n\n${markerLine}` : ''}`, 'compaction');
 
-const CARRIER_WITH_MARKER = compactionCarrier('<<ccr:abcdef0123456789>> 原文已归档（5 条消息 / 287 字符）');
+const CARRIER_WITH_MARKER = compactionCarrier(ccrMarkerLine({ hash: 'abcdef0123456789', messages: 5, chars: 287 }));
 
 describe('LiveTranscript 压缩时间线分隔行（B2 批 2——载体 user 块零呈现替换为分隔行）', () => {
   it('直播路：载体零 user 块、落 compaction 分隔块（N 解析自 CCR 标记段末行）', () => {

@@ -370,12 +370,6 @@ const DEFAULT_FPS_CAP = 60;
 const STREAM_FRAME_BYTE_CAP = 256 * 1024;
 /** lone-ESC 判定窗缺省（对齐 Engine DEFAULT_ESCAPE_WINDOW_MS） */
 const DEFAULT_ESCAPE_WINDOW_MS = 30;
-/**
- * ctrl+d 防误退双击窗（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 ctrl+d 翻档
- * 注定值 2 秒）：非空草稿首击清稿 + 回执后，窗内二击才进退闸、窗过期复位。
- * B4（同批 leader 前缀键系）起引 keys/leader.ts 单源——两窗同定值共用一源。
- */
-const QUIT_CONFIRM_WINDOW_MS = LEADER_WINDOW_MS;
 /** footer 教学提示闲态文案（V-3 注⑦④——`?` 键投影与 footer 提示同文单源） */
 const FOOTER_HINT_TEXT = '? 快捷键';
 /**
@@ -589,15 +583,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly escapeWindowMs: number;
   private escapeHandle: unknown = null;
   /**
-   * ctrl+d 防误退双击窗态（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 翻档）：
-   * armed 位 = 非空草稿首击清稿后确认窗在飞（窗内二击才进退闸）；窗到点/
-   * 退闸/stop/挂起随手复位（窗过期复位）。scheduleFn null 同步直出档（测试
-   * 语义）无定时器——armed 位无 expiry，空稿二击同归直退（行为等价、态自洽）。
-   */
-  private quitConfirmArmed = false;
-  /** 双击窗定时器柄（schedule 注入可控——测试 advance 定窗） */
-  private quitConfirmHandle: unknown = null;
-  /**
    * leader 待续窗到期锚（B4——2026-10-05 ZCode TUI 对标批）：null = 未待续；
    * 窗判恒惰性（nowMs <= armedUntilMs）无自愈定时器位，陈锚不碍事（下次
    * arm 覆写；解除/stop/挂起随手清——stop/suspend 全收面）。
@@ -606,7 +591,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /**
    * 待续提示退场定时器柄（B4）：窗到点重建 footer 收提示（armEscapeWindow
    * 自愈形——不搬 ZCode 提示滞留 wart）。同步直出档（schedule 无注入）无
-   * 定时器——提示位由后续 syncFooterHint 对账收敛（quit 双击窗同先例）。
+   * 定时器——提示位由后续 syncFooterHint 对账收敛（lone-ESC 先例同律）。
    */
   private leaderHintHandle: unknown = null;
   private unsubInput: (() => void) | null = null;
@@ -744,6 +729,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * （续入不清 run 级账——旗跨续入存活）。收尾行计数段加注判据 =
    * runStartedAt === null || 本旗（旗形判据两形皆盖——加注词面收 contracts
    * runRecapLine partialObserved 位单源）。
+   *
+   * 诚实化注（2026-10-06 复盘件3——07 定值注已裁「纯防御维持」，不删旗）：
+   * TUI 侧本旗置位仅在 runStartedAt === null 窗内（置位锚两处皆带此前置
+   * 条件），而清位唯一路 fresh agent_start 恰同拍置 runStartedAt——续入
+   * agent_start 又不重开观察窗（runStartedAt 维持 null，webui frames 侧
+   * 续入重开观察窗属异构实现）。故本旗为真时 runStartedAt 恒 null：判据
+   * 第二析取支（|| 本旗）在 TUI 结构性不可独立生效，删旗全测试仍绿——旗
+   * 位系跨通道同名防御冗余（判据真源 = runStartedAt === null 支）。
    */
   private runCountsPartial = false;
   /**
@@ -879,7 +872,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 提交键在编辑器清稿**前**置位（routeEvent 层④尾——清稿 change 先于
    * onSubmit 到达，事后置位拦不住），回声落地（块集非零）或再键入（非空
    * 稿）复位。'/' 起草稿走命令族（无用户块回声）不置位——命令清稿后引导
-   * 复现是正确终态。
+   * 复现是正确终态。切焦即新观察窗（2026-10-06 修）：onRepaint 的 sessionId
+   * 与前次不同 = 切焦——本位无条件清账（旧焦在途稿件不携带，新焦空会话引
+   * 导即时在场）；同焦 refresh 重画维持条件复位（见 onRepaint 分治注）。
    */
   private awaitingEcho = false;
   /**
@@ -1128,7 +1123,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.cancelTimer('frame');
     this.cancelTimer('tick');
     this.cancelTimer('escape');
-    this.disarmQuitConfirmWindow(); // ctrl+d 双击窗收口（定时器全收面——armed 位同复位）
     this.disarmLeaderWindow(); // leader 待续窗收口（B4——提示定时器同收、复起陈窗不续）
     this.autocompleteCompleter.cancel(); // 补全在途全收（停机后零迟到交付）
     this.osc.restore(); // 件 7：复原两写点（title 基线 + 进度清零）+ 保活停针（名册语义）
@@ -1192,7 +1186,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.cancelTimer('frame'); // 在飞帧收口（挂起期零写出的调度半边）
     this.cancelTimer('tick'); // 任务行转轮停摆（防后台空转——复起重摆）
     this.cancelTimer('escape'); // lone-ESC 窗收口（decoder 已弃在途态）
-    this.disarmQuitConfirmWindow(); // ctrl+d 双击窗收口（复起后陈窗不续——下次首击重装）
     this.disarmLeaderWindow(); // leader 待续窗收口（B4——复起后陈窗不续，挂起期提示定时器零后台空转）
     // 硬退复原钩换挂起档（不 disarm）：副屏 Engine 的 exit 钩只复原其屏形
     //（LEAVE_MODES[alt] + raw），本件挂起期保活的终端级写点无人接管——挂起档
@@ -2248,7 +2241,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 活体信封呈现：渲染归约 + 聚焦态状态面消费（非聚焦摘要行瀑布已退役——07 §4.1 V-0 注①） */
   onEnvelope(env: SessionEnvelope, focused: boolean): void {
     this.transcript.applyEvent(env, focused);
-    this.settleAwaitingEcho(); // 等回声复位（用户块回声落地——空态引导闪现防线解锭）
+    this.settleAwaitingEcho(); // 等回声复位（用户块回声落地——空态引导闪现防线解锁）
     this.enqueuePresent();
     this.requestRender();
     this.trackProgress(env); // 件 7：按会话净计数（终端级注意力——任一会话在飞即忙）
@@ -2259,12 +2252,20 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 重画呈现：投影重建行集 + 清屏全量重写（widget 槽值不支撑——忽略） */
   onRepaint(sessionId: string, projection: readonly AgentMessage[], _widget: { node: unknown } | null): void {
     // repaint 是焦点切换的权威信号（focus() 未注册视同注册——首次注册同路）：
-    // 交互会话位跟随（提交/打断柄机器位锚新焦——/sessions 选定切焦路）
+    // 交互会话位跟随（提交/打断柄机器位锚新焦——/sessions 选定切焦路）。
+    // 切焦判定须在位覆盖**前**比对（等回声分治支消费）
+    const focusSwitched = sessionId !== this.sessionId;
     this.sessionId = sessionId;
     this.refreshTodo(); // 件 4：todo 源锚新焦（refreshTodo 三时点之外的本位）
     // 模型半场照常（repaint 是新真相——挂起期也不丢投影：复起全帧重画携带）
     this.transcript.loadProjection(projection);
-    this.settleAwaitingEcho(); // 等回声复位（投影非零即回声已落——切焦清账同律）
+    // 等回声复位分治（切焦 vs 同焦 refresh——2026-10-06 切焦清账修）：切焦即
+    // 新观察窗——旧焦提交流的抑制位无条件清账（新焦零块空会话时条件 settle
+    // 恒不触发，引导被旧焦瞬态抑制到「编辑器再键入」才解锁）；同焦 refresh
+    // seam 重画维持条件 settle（submissions 的 user 块 write-behind 窗内投影
+    // 回写未含在途稿件——无条件清会在重画帧闪引导一帧）
+    if (focusSwitched) this.awaitingEcho = false;
+    else this.settleAwaitingEcho();
     this.resetUsage(); // 件 6：清行并归零（切焦清账重计——尾注射界）
     // 全域清扫 G2：repaint 清账面连清转轮与工具名——旧焦 run 的 agent_end 以
     // 非聚焦态到达不触 applyFocusedEvent 的停帧（修前转轮/旧工具名跨会话永久
@@ -2557,38 +2558,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * ctrl+d 防误退双击窗装排（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 翻档
-   * 注定值 2 秒）：非空草稿首击清稿 + 回执后装窗，窗内二击才进退闸。重击
-   * 重排（再击非空草稿即续新窗——旧窗先收再装，无重叠定时器）。同步直出档
-   * （schedule 无注入）无定时器——armed 位无 expiry，空稿二击同归直退
-   * （行为等价、态自洽——测试语义同 lone-ESC 先例）。
-   */
-  private armQuitConfirmWindow(): void {
-    if (this.scheduleFn === null) {
-      this.quitConfirmArmed = true; // 同步直出档无定时器（armed 无 expiry——行为等价）
-      return;
-    }
-    this.disarmQuitConfirmWindow(); // 重击重排（旧窗先收）
-    this.quitConfirmArmed = true; // disarm 清了 armed 位——重排后复装
-    this.quitConfirmHandle = this.scheduleFn(() => {
-      this.quitConfirmHandle = null;
-      this.quitConfirmArmed = false; // 窗过期复位（到点未二击——下次首击重走两步序）
-    }, QUIT_CONFIRM_WINDOW_MS);
-  }
-
-  /**
-   * ctrl+d 双击窗收口（armed 位 + 定时器双清）：二击进退闸随手清账 / stop
-   * 定时器全收面 / suspend 复起陈窗不续。幂等——未装窗调用零副作用。
-   */
-  private disarmQuitConfirmWindow(): void {
-    if (this.quitConfirmHandle !== null) {
-      this.cancelFn(this.quitConfirmHandle);
-      this.quitConfirmHandle = null;
-    }
-    this.quitConfirmArmed = false;
-  }
-
-  /**
    * leader 族激活位（B4——2026-10-05 ZCode TUI 对标批）：分支柄在场 + arm
    * 键未被占用两条件同时成立。柄缺席 = 族不激活（ctrl+x 透传编辑器——无
    * 绑定归终局丢弃，`?` 教学键 / ctrl+p 循环族「柄缺席不劫键」同律）；占用
@@ -2638,7 +2607,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /**
    * leader 待续窗装排（B4）：锚 + 提示位翻待续态 + 窗到点退场定时器
    * （armEscapeWindow 自愈形——不搬 ZCode 提示滞留 wart）。重按重排（旧
-   * 提示定时器先收再装，无重叠定时器——quit 双击窗同形）。同步直出档
+   * 提示定时器先收再装，无重叠定时器）。同步直出档
    * （schedule 无注入）无定时器——提示位由后续 syncFooterHint 对账收敛。
    */
   private armLeaderWindow(): void {
@@ -2680,8 +2649,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 态不滞留成陈态）；arm 意图在此不消费（归层③.4——模态期间不 arm 的
    * 结构位）；
    * 层① 全局键先于 overlay（ctrl+c 打断 run——ask 链收口经装配侧信号折入；
-   * ctrl+d 两步序——浮层在场让路、非空草稿首击清稿+双击窗、空稿单击直退，
-   * 2026-10-05 ZCode 对标批翻档）；
+   * ctrl+d 两步序——浮层在场让路、非空草稿首击清稿+回执、空稿单击直退，
+   * 2026-10-05 ZCode 对标批翻档；2026-10-06 死面收口窗维度退役）；
    * 层② overlay 模态独占（未消费键不穿透）；层③ 补全弹层非模态穿透；
    * 层③.4 leader arm 位（B4——ctrl+x 五闸入待续态，见下点位注）；
    * 层④ 编辑器（未消费键终局丢弃——escape 等无全局绑定）。
@@ -2734,32 +2703,30 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       }
       // ctrl+d 防误退两步序（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 ctrl+d
       // 翻档注）：自「三条件闸单击直退」翻档为序判——①浮层在场=让路不退
-      // （不变——透传浮层，面板族自持「先收屏再转 onQuit」）；②非空草稿首击
-      // =清稿 + notify「已清空——再按 Ctrl+D 退出」+ 2 秒双击窗（窗内二击才
-      // 进退闸、窗过期复位）；③空稿+无浮层=单击直退（空稿无清稿步、维持
-      // 即时性——含二击形同归退闸）。global.quit 不可覆盖位语义不变（册面零动）
+      // （不变——透传浮层，面板族自持「先收屏再转 onQuit」）；②非空草稿
+      // =清稿 + notify「已清空——再按 Ctrl+D 退出」（次击落空稿腿直退）；
+      // ③空稿+无浮层=单击直退（空稿无清稿步、维持即时性——②清稿后的次击
+      // 同归此腿）。global.quit 不可覆盖位语义不变（册面零动）。
+      // 2026-10-06 死面收口（复盘件1·零行为变删除）：原②装 2 秒双击窗、③
+      // 按窗内/窗外分「二击进退闸/直退」两分支——两分支体逐语句全等（窗维
+      // 度零读位差异），且 arm 窗零视觉面（纯置旗 + 定时器清旗），属机械死
+      // 面；窗五标识符（armed 位/定时器柄/装窗/收窗两方法/窗常量）全删，两
+      // 分支合一为空稿直退单腿。
       if (this.keymap.actionMatches(ev, 'global.quit')) {
         if (this.stack.size > 0) {
           // ① 让路：浮层模态先消费（ctrl+d 归面板——不在此退）
         } else if (!this.editor.model.isEmpty()) {
-          // ② 首击：清稿 + 回执 + 装窗（重击重排——再击非空稿即续新窗）
+          // ② 首击：清稿 + 回执（次击直退——见③）
           this.editor.setText('');
           this.autocompleteCompleter.cancel(); // 补全弹层锚在草稿前缀——清稿即撤层
           this.popup.applyResult(null);
           this.notify('已清空——再按 Ctrl+D 退出');
-          this.armQuitConfirmWindow();
           this.syncFooterHint(); // 教学提示门控对账（setText 绕 handleEvent 单源锚）
           this.syncEmptyGuide(); // 空态引导对账（同 setText 旁路——零块态清稿即复现）
           this.touchFixed();
           return;
-        } else if (this.quitConfirmArmed) {
-          // ③ 二击进退闸（双击窗内——armed 位随手清账）
-          this.disarmQuitConfirmWindow();
-          this.onQuit?.();
-          return;
         } else {
-          // ③ 直退（空稿单击——无清稿步，维持即时性）
-          this.disarmQuitConfirmWindow();
+          // ③ 直退（空稿——②清稿后的次击同归此腿，无窗维度）
           this.onQuit?.();
           return;
         }
@@ -3605,8 +3572,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       (this.runStartedAt !== null && this.runEndedAt !== null ? this.runEndedAt - this.runStartedAt : null);
     // 段集/整行构造走 contracts runRecapLine 单源（三段序/段缺席形/重试段
     // 无「次」字等段形知识归单源头注；双零整行缺席判据留调用侧上一行）；
-    // 部分观察旗形判据两形皆盖（runStartedAt === null || runCountsPartial——
-    // 见字段注），加注词面归 contracts 单源
+    // 部分观察判据 = runStartedAt === null || runCountsPartial（TUI 侧第二支
+    // 结构性冗余——见字段诚实化注；词面归 contracts 单源）
     const line = runRecapLine({
       durationMs: elapsedMs,
       toolCount: this.runToolCount,

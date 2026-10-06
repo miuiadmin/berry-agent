@@ -36,8 +36,8 @@ const BRANCH_BY_LETTER: Readonly<Record<string, LeaderBranch>> = {
 };
 
 /**
- * 待续窗时长（ms）。与 ctrl+d 防误退双击窗同批同定值 2 秒——backend 装配位
- * 共用本单源（QUIT_CONFIRM_WINDOW_MS 引此）。
+ * 待续窗时长（ms）。2 秒序窗定值——原 ctrl+d 双击窗共源位（QUIT_CONFIRM_
+ * WINDOW_MS 引此）已随死面收口退役（2026-10-06），本值独立存续。
  */
 export const LEADER_WINDOW_MS = 2000;
 

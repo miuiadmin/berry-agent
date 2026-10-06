@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { ViewMessage } from '../frames.js';
 import { RUN_CLOSE_ROLE } from '../frames.js';
+import { ccrMarkerLine } from '../../../contracts/index.js';
 import { Transcript } from './Transcript.js';
 
 afterEach(() => {
@@ -123,9 +124,9 @@ describe('Transcript run 收尾行（界面美化役批⑪）', () => {
 });
 
 describe('Transcript 压缩分隔行（B2 webui 对端迁移——source=compaction user 块替换呈现）', () => {
-  /** 摘要载体速造：正文 + CCR 标记段末行（N 条消息位即分隔行 N） */
+  /** 摘要载体速造：正文 + CCR 标记段末行（N 条消息位即分隔行 N——标记行走 contracts ccrMarkerLine 单源构造，messages 参数化保既有用例形） */
   const carrier = (n: number): string =>
-    `[COMPACTION-SUMMARY] 摘要正文\n\n<<ccr:abcdef0123456789>> 原文已归档（${n} 条消息 / 287 字符）`;
+    `[COMPACTION-SUMMARY] 摘要正文\n\n${ccrMarkerLine({ hash: 'abcdef0123456789', messages: n, chars: 287 })}`;
 
   it('N 形：载体正文零呈现 + 分隔行居中呈现 + 无 user 角色标签（修前红：数千字摘要当普通 user 正文直呈）', () => {
     render(

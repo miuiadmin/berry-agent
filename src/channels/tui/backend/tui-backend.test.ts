@@ -662,7 +662,7 @@ describe('TuiBackend 输入管线（自持——不经 Engine）', () => {
     first.io.emitInput('ab');
     first.pump();
     first.io.bytes = ''; // 首击帧起收窗
-    first.io.emitInput('\x04'); // 首击：清稿 + notify + 2 秒双击窗（非旧 delete-forward 编辑器吞）
+    first.io.emitInput('\x04'); // 首击：清稿 + notify（次击直退——非旧 delete-forward 编辑器吞）
     first.pump();
     expect(first.calls.quit).toBe(0); // 首击不退
     expect(first.io.bytes).toContain('已清空——再按 Ctrl+D 退出'); // 回执形（07 §4.1 R5 翻档）
@@ -3985,6 +3985,36 @@ describe('主屏空态引导（07 §4.1 空转写态注 2026-10-05——零块�
     expect(io.bytes).toContain('输入消息开始对话'); // 复现（抑制已复位——诚实态非残锁）
   });
 
+  it('切焦即新观察窗：旧焦等回声抑制位不跨切焦携带——空会话新焦引导即时在场', () => {
+    const submitted: string[] = [];
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, { sessionId: 'sA', onSubmit: (_sid, text) => submitted.push(text) });
+    backend.start();
+    io.emitInput('字');
+    io.emitInput('\r'); // 提交清稿——等回声窗置位（回声未落：submissions 的 user 块 write-behind 窗内）
+    expect(submitted).toEqual(['字']); // 防空洞断言——置位前提确达
+    io.reset();
+    // 切焦空会话 B（repaint 是焦点切换权威信号——切焦即新观察窗）：修前红——
+    // awaitingEcho 跨切焦存续，新焦零块空会话的引导被旧焦瞬态抑制（直到编辑器
+    // 再键入才解锁——旧焦在途稿件不携带到新焦）
+    backend.onRepaint('sB', [], null);
+    expect(io.bytes).toContain('输入消息开始对话'); // 修前恒缺席
+  });
+
+  it('同会话 refresh 重画不清位：等回声抑制跨同焦 repaint 存续（write-behind 窗防误闪——回归锁）', () => {
+    const submitted: string[] = [];
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, { sessionId: 'sA', onSubmit: (_sid, text) => submitted.push(text) });
+    backend.start();
+    io.emitInput('字');
+    io.emitInput('\r'); // 等回声窗置位（回声未落）
+    io.reset();
+    // 同焦 refresh seam 重画（投影回写未含在途稿件——误清位会在重画帧闪引导一帧）：
+    // 抑制位维持，与切焦支分治（切焦无条件清 / 同焦条件 settle）
+    backend.onRepaint('sA', [], null);
+    expect(io.bytes).not.toContain('输入消息开始对话'); // 抑制在场（非残锁——回声落地或再键入即复位）
+  });
+
   it('瞬时行落地即收引导不沉底（第四门——notify 推进 durable 末，引导不随行追画）', () => {
     const { io, backend } = makeBackend({ sessionId: SESSION });
     expect(io.bytes).toContain('输入消息开始对话'); // 基线在场
@@ -4127,32 +4157,32 @@ describe('TuiBackend 候跑提交 + 模型循环键（挂账解挂批 2026-09-15
   });
 });
 
-describe('TuiBackend ctrl+d 防误退两步序 + 档位模式循环键（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 翻档/增册）', () => {
-  it('两步序①②：非空草稿首击 = 清稿 + 回执「已清空——再按 Ctrl+D 退出」不退；窗内二击 → onQuit（退闸）', () => {
+describe('TuiBackend ctrl+d 防误退两步序 + 档位模式循环键（2026-10-05 ZCode TUI 对标批——07 §4.1 R5 翻档/增册；2026-10-06 死面收口：双击窗维度退役）', () => {
+  it('两步序①②：非空草稿首击 = 清稿 + 回执「已清空——再按 Ctrl+D 退出」不退；清稿后次击 → onQuit（直退）', () => {
     const { io, calls, pump } = makeInteractive();
     io.emitInput('ab');
     pump();
     io.bytes = ''; // 首击帧起收窗
-    io.emitInput('\x04'); // 首击：清稿 + 回执 + 2 秒双击窗装排
+    io.emitInput('\x04'); // 首击：清稿 + 回执（次击直退——无窗维度）
     pump();
     expect(calls.quit).toBe(0); // 首击不退
     expect(io.bytes).toContain('已清空——再按 Ctrl+D 退出'); // 回执形（07 §4.1 R5 翻注定值）
     expect(io.bytes).not.toContain('ab'); // 清稿——重画帧不再持旧稿
-    io.emitInput('\x04'); // 二击（ManualClock t≈2 < 2000——窗内）
+    io.emitInput('\x04'); // 次击（清稿后空稿——直退）
     pump();
-    expect(calls.quit).toBe(1); // 窗内二击才进退闸
+    expect(calls.quit).toBe(1); // 次击直退
   });
 
-  it('两步序窗过期复位：首击后 2 秒窗到点自愈，窗外语归空稿单击直退（无清稿回执——文案红锚 absent 形）', () => {
+  it('清稿后次击直退与时间推进无关（窗维度退役——任意时点同直退，无定时器参与）', () => {
     const { io, calls, clock, pump } = makeInteractive();
     io.emitInput('ab');
     pump();
-    io.emitInput('\x04'); // 首击清稿 + 装窗
+    io.emitInput('\x04'); // 首击清稿
     pump();
     expect(calls.quit).toBe(0);
-    clock.advance(2001); // 双击窗到点复位（定时器测试可控——schedule 注入形）
+    clock.advance(2001); // 时间推进（死面证明：推进前后行为不可区分——正是退役依据）
     io.bytes = '';
-    io.emitInput('\x04'); // 窗外语 = 空稿单击直退（③——无清稿步无回执）
+    io.emitInput('\x04'); // 次击 = 空稿单击直退（无清稿步无回执）
     pump();
     expect(calls.quit).toBe(1);
     expect(io.bytes).not.toContain('已清空——再按 Ctrl+D 退出'); // 直退形不复发回执
@@ -5194,17 +5224,20 @@ describe('TuiBackend turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻
     expect(io.bytes).toContain('用时 45s ·');
   });
 
-  it('中途附着+retry 续入：部分观察旗跨续入存活——计数段仍加注（旗形判据盖续入形）', () => {
+  it('中途附着+retry 续入仍加注：续入不重开观察窗（runStartedAt 维持 null）——判据由首支独立保证；旗位跨续入存活系防御冗余的回归锁', () => {
     let t = 0;
     const { io, backend } = makeBackend({ now: () => t });
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
     emit(backend, { type: 'agent_end', status: 'failed' });
     emit(backend, { type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: t + 60_000 });
     emit(backend, { type: 'retry_wait_end', outcome: 'resumed' });
-    emit(backend, { type: 'agent_start' }); // 续入（run 级账不清——旗同律跨续入存活）
+    emit(backend, { type: 'agent_start' }); // 续入（run 级账不清——runStartedAt 维持 null 观察窗，旗同律存活）
     t += 45_000;
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed', durationMs: 45_000 });
+    // 加注真源 = runStartedAt === null 判据支（TUI 续入不重开观察窗——webui
+    // frames 侧异构）；runCountsPartial 旗位在 TUI 结构性冗余（见字段诚实化
+    // 注），本测兼作旗位跨续入存活的回归锁（若清位逻辑误扩到续入支，此锁红）
     expect(io.bytes).toContain('工具 1 次（自本次接入起算）');
     expect(io.bytes).toContain('重试 1（自本次接入起算）');
   });
