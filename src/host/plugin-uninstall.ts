@@ -35,6 +35,7 @@ import { createAuditFace, createLoadHistoryFace } from '../persist/index.js';
 import {
   assertInsideInstallSubtree,
   assertInsidePluginData,
+  isInstallStructurePath,
   pluginDataDir,
   readLedger,
   readEnabledRowsForEdit,
@@ -411,6 +412,16 @@ export function executeUninstall(
     const [pathInfo] = report.installPaths;
     if (pathInfo !== undefined && pathInfo.willDelete) {
       assertInsideInstallSubtree(deps.dataDir, pathInfo.absolute); // 逃逸拒（防线档）
+      // 结构位窄防线（单源两腿共用——install 回滚跳 rm / 本腿拒清算）：恰等
+      // 树根对逃逸断言合法（幂等空树形），但对 rm 递归删除是灾难位——坏账本
+      // ref（手改/旧形）解析落位结构位时拒清算不删物，见 plugin-store
+      // isInstallStructurePath 头注
+      if (isInstallStructurePath(deps.dataDir, pathInfo.absolute)) {
+        throw new BaseError(
+          'PLUGIN_UNINSTALL_REFUSED',
+          `卸载安全防线：删除目标 ${pathInfo.absolute} 解析为装机树结构位（树根或分区根）——安装记录异常，已拒绝删除`,
+        );
+      }
       // npm 布局连带剥锚依赖记录（先剥后删物——剥侧失败零删物收口更净；
       // 锚记录在则后续任意 npm 源装机按锚全树和解把已卸包复活回 node_modules）
       stripNpmAnchorRecords(deps, entry.installPath);

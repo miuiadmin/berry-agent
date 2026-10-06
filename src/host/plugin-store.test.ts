@@ -8,9 +8,11 @@
  *
  * fs 全内存注入（真盘语义的 Map 形还原——测试零真盘零 spawn）。
  */
-import { realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
 
@@ -18,10 +20,12 @@ import { readEnabledRows } from './plugin-boot.js';
 import {
   assertInsideInstallSubtree,
   assertInsidePluginData,
+  createPluginStoreFs,
   editDoorsSegment,
   installPathForGit,
   installPathForLocal,
   installPathForNpm,
+  isInstallStructurePath,
   mountRow,
   pluginDataDir,
   readEnabledRowsForEdit,
@@ -548,5 +552,60 @@ describe('清算双路径断言（§5.5 段②③防线）', () => {
 
   it('pluginDataDir 构造（purge 物理动作唯一合法目标）', () => {
     expect(pluginDataDir('/data', 'x')).toBe('/data/data/x');
+  });
+});
+
+describe('装机树结构位判定（isInstallStructurePath——删除腿窄防线单源，install 回滚跳 rm / uninstall 段② 拒清算两腿共用）', () => {
+  it('三结构位命中：树根 / npm 分区根 / 市场分区根（词法内折形同判——resolve 归一）', () => {
+    const dataDir = '/data';
+    expect(isInstallStructurePath(dataDir, '/data/plugins')).toBe(true); // 子树根本身
+    expect(isInstallStructurePath(dataDir, '/data/plugins/node_modules')).toBe(true); // npm 分区根
+    expect(isInstallStructurePath(dataDir, '/data/plugins/market')).toBe(true); // 市场分区根
+    // 词法内折形（手改账本 './'/'..' 混写）——resolve 归一后同判
+    expect(isInstallStructurePath(dataDir, '/data/plugins/./')).toBe(true);
+    expect(isInstallStructurePath(dataDir, '/data/plugins/node_modules/x/..')).toBe(true);
+  });
+
+  it('非结构位不误伤：分区根内包目录 / 树外路径 / market 子目录', () => {
+    expect(isInstallStructurePath('/data', '/data/plugins/node_modules/some-pkg')).toBe(false);
+    expect(isInstallStructurePath('/data', '/data/plugins/git/host/org/repo')).toBe(false);
+    expect(isInstallStructurePath('/data', '/data/plugins/market/some-copy')).toBe(false);
+    expect(isInstallStructurePath('/data', '/data/other')).toBe(false);
+  });
+});
+
+describe('defaultStoreFs 读侧错误码分档（ENOENT 静默缺席 / 其余点名 warn 再降级——与 plugin-boot defaultFs 同律）', () => {
+  /** 本 describe 真盘 tmp（例外位：缺省实现即真盘——内存 fs 测不到错误码分档） */
+  const realDirs: string[] = [];
+  afterAll(() => {
+    for (const dir of realDirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('ENOENT = 缺席语义静默折 null（零 warn——readLedger「缺席 = 空账本」条款的消费面不受扰）', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(createPluginStoreFs().read(join(tmpdir(), 'berry-no-such-ledger-test.json'))).toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('非 ENOENT 读错（目录当文件读 = EISDIR）→ 点名 warn 后仍折 null（不炸 CLI 短命进程）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-storefs-eisdir-'));
+    realDirs.push(dir);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      // 修前红：读侧 catch-all 一律静默折 null——权限坏与文件缺席不可区分，
+      // 装机账本/启用清单静默按空处理、已装插件全部消失零线索
+      expect(createPluginStoreFs().read(dir)).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0]?.[0]);
+      expect(message).toContain(dir); // 坏路径点名（定位面）
+      expect(message).toContain('EISDIR'); // 错误码点名
+      expect(message).toContain('按空处理'); // 后果直白（装机记录/启用清单面）
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

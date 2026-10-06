@@ -56,6 +56,7 @@ import {
   installPathForGit,
   installPathForLocal,
   installPathForNpm,
+  isInstallStructurePath,
   ledgerPath,
   migrateEnabledRow,
   parentDir,
@@ -112,10 +113,25 @@ export function parsePluginRef(ref: string): PluginRefParse {
     }
     const at = spec.lastIndexOf('@');
     // scoped 包 @scope/pkg：@ 在位 0 是 scope 前缀非版本分隔——只认 >0 的 @
-    if (at > 0) {
-      return { ok: true, parsed: { source: 'npm', pkg: spec.slice(0, at), version: spec.slice(at + 1) } };
+    const pkg = at > 0 ? spec.slice(0, at) : spec;
+    // 点段拒（npm 直装腿补齐——git 源 installPathForGit 与市场层 isValidNpmPackage
+    // 两姊妹路径已防，本腿独漏位）：'.'/'..' 段经 installPathForNpm 的 join 内折
+    // 可把落位归一到共享装机树本身（npm:. → plugins/node_modules、npm:.. →
+    // plugins——npm 文件夹规格语义把 cwd 当依赖装进 --prefix 树），清单校验
+    // 失败腿的 rollbackInstall 即 rm 递归整树（ledger.json 与全部已装插件不可逆
+    // 抹除）；'..x'/'a.b' 等非点形段不误伤
+    for (const segment of pkg.split('/')) {
+      if (segment === '.' || segment === '..') {
+        return {
+          ok: false,
+          message: `npm 包名点段拒（"${pkg}"）——'.'/'..' 段会被折叠成插件安装目录本身，误装失败时回滚会连带删除全部已装插件`,
+        };
+      }
     }
-    return { ok: true, parsed: { source: 'npm', pkg: spec } };
+    if (at > 0) {
+      return { ok: true, parsed: { source: 'npm', pkg, version: spec.slice(at + 1) } };
+    }
+    return { ok: true, parsed: { source: 'npm', pkg } };
   }
   if (ref.startsWith('git:')) {
     const spec = ref.slice('git:'.length);
@@ -482,9 +498,17 @@ interface InstallProduct {
   readonly commit?: string;
 }
 
-/** 装机物回滚（清单/收割失败腿——local 源不删〔直引非装机物〕） */
-function rollbackInstall(deps: InstallExecutorDeps, installPath: string): void {
+/**
+ * 装机物回滚（清单/收割失败腿——local 源不删〔直引非装机物〕）。
+ * 导出 = 防线直测位（结构位窄断言的回归锁——经公开编舞恒先撞 parse 点段拒，
+ * 结构位不可达，只有手改账本 ref 才能到达；生产消费位仅本件回滚腿族）。
+ */
+export function rollbackInstall(deps: InstallExecutorDeps, installPath: string): void {
   if (installPath === '' || installPath.startsWith('/')) return; // local 绝对表示 = 用户源不删
+  // 结构位窄断言（防御纵深——单源两腿共用）：删除目标词法归一后落装机树
+  // 结构位（树根/node_modules/market 分区根）即跳 rm，见 plugin-store
+  // isInstallStructurePath 头注（回滚叙事是「清残影」非「摧毁」）
+  if (isInstallStructurePath(deps.dataDir, resolveInstallPath(deps.dataDir, installPath))) return;
   try {
     deps.fs.rm(resolveInstallPath(deps.dataDir, installPath), { recursive: true, force: true });
   } catch {

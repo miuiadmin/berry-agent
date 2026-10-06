@@ -111,7 +111,7 @@ export const HOST_PLUGIN_ERROR_CODES: readonly ErrorCodeInfo[] = [
     code: 'PLUGIN_UNINSTALL_REFUSED',
     module: 'host',
     description:
-      '卸载清算防线拒绝档：删除目标逸出装机子树/插件数据子目录（assertInsideInstallSubtree/assertInsidePluginData——03 §5.5 段②③），或坏账本拒写防覆盖',
+      '卸载清算防线拒绝档：删除目标逸出装机子树/插件数据子目录（assertInsideInstallSubtree/assertInsidePluginData——03 §5.5 段②③），或删除目标解析落位装机树结构位（isInstallStructurePath——树根/分区根，坏账本 ref 形），或坏账本拒写防覆盖',
   },
   {
     code: 'TRIGGER_NAME_EXISTS',

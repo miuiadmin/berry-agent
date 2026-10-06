@@ -9,7 +9,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
 import type { JobKind } from '../contracts/index.js';
@@ -37,6 +37,7 @@ import type { CorePluginReference } from './loader.js';
 import {
   bootPlugins,
   createPluginToolLedger,
+  defaultFs,
   QUICK_TEST_ROW_ID,
   recordDoorsDiff,
   recordPluginLifecycleDiff,
@@ -153,6 +154,36 @@ describe('enabled.yaml 读侧两律（03 §5.3）', () => {
     const boot = await bootPlugins(options);
     expect(boot.report.activated.map((a) => a.id)).toEqual(['core:demo']);
     expect(fs.map.has('/boot-failures.json')).toBe(false); // 诊断面整跳——零写
+  });
+});
+
+describe('defaultFs 读侧错误码分档（ENOENT 静默缺席 / 其余点名 warn 再降级）', () => {
+  it('ENOENT = 缺席语义静默折 null（零 warn——首启零文件零负担）', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(defaultFs().read(join(tmpdir(), 'berry-no-such-file-test.yaml'))).toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('非 ENOENT 读错（目录当文件读 = EISDIR）→ 点名 warn 后仍折 null（不炸启动序）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-defaultfs-eisdir-'));
+    dirs.push(dir);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      // 修前红：读侧 catch-all 一律静默折 null——权限坏与文件缺席不可区分，
+      // 用户插件集静默清零零线索
+      expect(defaultFs().read(dir)).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0]?.[0]);
+      expect(message).toContain(dir); // 坏路径点名（定位面）
+      expect(message).toContain('EISDIR'); // 错误码点名
+      expect(message).toContain('权限'); // 用户面直白指引（非机制黑话）
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

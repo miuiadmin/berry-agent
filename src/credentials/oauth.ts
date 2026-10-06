@@ -220,6 +220,30 @@ function numField(parsed: Record<string, unknown> | null, key: string): number |
   return parsed !== null && typeof parsed[key] === 'number' ? (parsed[key] as number) : undefined;
 }
 
+/**
+ * 端点响应体摘要（脱敏单源——六处错误 message 共用）：错误文本只嵌「字节数 +
+ * 形状」摘要，不嵌原文。异常分支下响应体可含真实凭证值（键名别名形 token /
+ * BOM 前缀 JSON 使 strField 取空的怪形应答——恰是该分支自设的受理面），原文
+ * 入 message 即直达用户终端回滚区与日志/导出面（仓库脱敏腿只挂工具结果出口，
+ * 命令/错误通道不经）。JSON 对象 → 顶层键名清单（排障够用且无值面）；其余
+ * JSON 形 → 报非对象；不可解 → 报非 JSON。
+ */
+function summarizeBody(text: string): string {
+  const byteLength = new TextEncoder().encode(text).length; // UTF-8 字节数（非字符数——多字节体诚实计量）
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const keys = Object.keys(parsed as Record<string, unknown>);
+      // 键名清单帽 20（异常端点巨型键集不放大错误文本；键名非值面，低敏）
+      const shown = keys.slice(0, 20).join('、');
+      return `JSON 对象 ${byteLength} 字节，顶层键：${keys.length > 0 ? shown : '（无）'}${keys.length > 20 ? ` 等 ${keys.length} 键` : ''}`;
+    }
+    return `JSON ${byteLength} 字节（非对象）`;
+  } catch {
+    return `非 JSON ${byteLength} 字节`;
+  }
+}
+
 /** 设备授权响应形（RFC 8628 §3.2） */
 interface DeviceAuthorization {
   readonly deviceCode: string;
@@ -250,7 +274,7 @@ export async function runDeviceCodeFlow(def: OAuthFlowDef, io: DeviceCodeIo): Pr
     if (!res.ok) {
       throw new BaseError(
         'CREDENTIALS_OAUTH_FLOW_FAILED',
-        `设备授权端点非 200（${res.status}）：${text.slice(0, 200)}`,
+        `设备授权端点非 200（${res.status}）：${summarizeBody(text)}`,
       );
     }
     const parsed = safeJsonParse(text);
@@ -266,7 +290,7 @@ export async function runDeviceCodeFlow(def: OAuthFlowDef, io: DeviceCodeIo): Pr
     ) {
       throw new BaseError(
         'CREDENTIALS_OAUTH_FLOW_FAILED',
-        `设备授权端点返回的数据格式不对（device_code/user_code/verification_uri/expires_in 四项必须齐全——实际收到 ${text.slice(0, 200)}）`,
+        `设备授权端点返回的数据格式不对（device_code/user_code/verification_uri/expires_in 四项必须齐全——实际收到 ${summarizeBody(text)}）`,
       );
     }
     device = {
@@ -318,7 +342,7 @@ export async function runDeviceCodeFlow(def: OAuthFlowDef, io: DeviceCodeIo): Pr
       if (accessToken === undefined) {
         throw new BaseError(
           'CREDENTIALS_OAUTH_FLOW_FAILED',
-          `token 端点 200 但缺 access_token（${text.slice(0, 200)}）`,
+          `token 端点 200 但缺 access_token（${summarizeBody(text)}）`,
         );
       }
       const refreshToken = strField(parsed, 'refresh_token');
@@ -345,7 +369,7 @@ export async function runDeviceCodeFlow(def: OAuthFlowDef, io: DeviceCodeIo): Pr
     } else {
       throw new BaseError(
         'CREDENTIALS_OAUTH_FLOW_FAILED',
-        `token 端点返回非预期内容（${res.status}${error === undefined ? '' : ` error=${error}`}）：${text.slice(0, 200)}`,
+        `token 端点返回非预期内容（${res.status}${error === undefined ? '' : ` error=${error}`}）：${summarizeBody(text)}`,
       );
     }
     await io.sleep(intervalMs);
@@ -379,7 +403,7 @@ export async function refreshOAuthToken(
     if (accessToken === undefined) {
       throw new BaseError(
         'CREDENTIALS_OAUTH_FLOW_FAILED',
-        `refresh 返回 200 但缺少 access_token（${text.slice(0, 200)}）`,
+        `refresh 返回 200 但缺少 access_token（${summarizeBody(text)}）`,
       );
     }
     // RFC 6749 §6：新 refresh_token 可选——不下发即复用旧值（链不动刷新行）
@@ -400,7 +424,7 @@ export async function refreshOAuthToken(
   }
   throw new BaseError(
     'CREDENTIALS_OAUTH_FLOW_FAILED',
-    `refresh 返回非预期内容（${res.status}${error === undefined ? '' : ` error=${error}`}）：${text.slice(0, 200)}`,
+    `refresh 返回非预期内容（${res.status}${error === undefined ? '' : ` error=${error}`}）：${summarizeBody(text)}`,
   );
 }
 

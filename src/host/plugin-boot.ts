@@ -156,13 +156,31 @@ const SDK_ROUTES_SEAT_MARKER = { seat: 'sdk-routes' } as const;
  */
 const SESSIONS_SEAT_MARKER = { seat: 'sessions' } as const;
 
-/** 缺省真盘实现（读失败一律 null——文件缺席语义）；导出 = /reload 预检装配位复用（单源） */
+/**
+ * 缺省真盘实现；导出 = /reload 预检装配位复用（单源）。
+ *
+ * 读侧错误码分档（点名纪律）：ENOENT = 文件缺席语义（首启零文件零负担——
+ * 静默折 null 照旧）；其余错误码（EACCES/EMFILE/EISDIR 等）≠ 缺席——先点名
+ * warn 再折 null 降级（不炸启动序，但「权限坏被当缺席、用户插件集静默清零
+ * 零线索」的哑面不再）。warn 通道 = console.warn 最简形：本函数是独立导出
+ * （bootPlugins 的 options.warn 在此不可达——/reload 预检位复用同源），装配
+ * 根 logger 不在 leaf 位拉依赖（仓库「缺省 console.warn、装配根接 logger」
+ * 既有惯例）。
+ */
 export function defaultFs(): PluginBootFs {
   return {
     read: (path) => {
       try {
         return readFileSync(path, 'utf8');
-      } catch {
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== 'ENOENT') {
+          // 点名后再降级——缺席与坏权限在启动叙事里必须可区分
+          console.warn(
+            `[host] 读取 ${path} 失败（${code ?? '未知错误'}）——按文件不存在继续启动；` +
+              `若是权限问题，相关插件将不被装载，请检查该文件的访问权限`,
+          );
+        }
         return null;
       }
     },

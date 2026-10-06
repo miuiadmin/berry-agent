@@ -110,6 +110,12 @@ export function readBootFailures(path: string, fs: BootFailuresFs = defaultFs())
 /**
  * 记一次启动失败（count 累加；version 就地刷新为本次版本；lastError/lastFailedAt
  * 刷新为最近一次——03 §5.7② obs-a）——读改写整账本。
+ *
+ * 写侧守卫（与读侧「宁空勿炸：账本是诊断面非真相源」哲学对齐）：fs.write
+ * 抛错（EACCES/EROFS/ENOSPC——dataDir 不可写或盘满窗）吞掉降级、返回内存
+ * 计算值——调用位全在启动序内（plugin-boot 记账/清名），写失败上浮即裸 fs
+ * 错误炸整启；本 boot 的横幅/清单呈现不受牵连（跨 boot 的点名续账丢失属
+ * 诊断面损失，非真相源损失）。
  */
 export function recordBootFailure(
   path: string,
@@ -131,17 +137,29 @@ export function recordBootFailure(
     lastFailedAt: new Date().toISOString(),
   };
   const written: BootFailureDoc = { failures: next };
-  fs.write(path, `${JSON.stringify(written, null, 2)}\n`);
+  try {
+    fs.write(path, `${JSON.stringify(written, null, 2)}\n`);
+  } catch {
+    // 静默吞——见函数头「写侧守卫」注：账本写失败不炸启动序
+  }
   return written;
 }
 
 /**
  * 清名（装载成功即报捷——横幅只报仍坏行）。
+ *
+ * 条目缺席即跳写（消正常 boot 对每个 activated 插件的无条件重写放大面——
+ * 零失败 boot 原先也要逐插件整账本重写一次盘）；写侧守卫同 recordBootFailure。
  */
 export function clearBootFailure(path: string, id: string, fs: BootFailuresFs = defaultFs()): BootFailureDoc {
   const doc = readBootFailures(path, fs);
+  if (doc.failures[id] === undefined) return doc; // 无该行即无变更——不写文件不造账
   const { [id]: _removed, ...rest } = doc.failures;
   const written: BootFailureDoc = { failures: rest };
-  fs.write(path, `${JSON.stringify(written, null, 2)}\n`);
+  try {
+    fs.write(path, `${JSON.stringify(written, null, 2)}\n`);
+  } catch {
+    // 静默吞——见 recordBootFailure「写侧守卫」注：账本写失败不炸启动序
+  }
   return written;
 }

@@ -195,3 +195,66 @@ describe('clearBootFailure 清名', () => {
     expect(doc.failures).toEqual({});
   });
 });
+
+/** 写侧抛错 fs（读侧内存 Map——写失败守卫用例：模拟 EACCES/EROFS/ENOSPC） */
+function throwingWriteFs(initial: Record<string, string> = {}): BootFailuresFs {
+  const files = new Map(Object.entries(initial));
+  return {
+    read: (path) => files.get(path) ?? null,
+    write: () => {
+      throw new Error('EACCES: permission denied, open boot-failures.json');
+    },
+  };
+}
+
+describe('写侧守卫（宁丢账不炸启动——与读侧「宁空勿炸：账本是诊断面非真相源」对齐）', () => {
+  it('recordBootFailure 写失败吞掉不炸——返回内存计算值（count 照累加）', () => {
+    const fs = throwingWriteFs();
+    // 修前红：fs.write 抛错直穿函数体——启动序内裸 fs 错误整启炸
+    const doc = recordBootFailure(
+      '/boot-failures.json',
+      'plug-a',
+      '1.0.0',
+      { code: 'PLUGIN_APPLY_FAILED', message: 'm' },
+      fs,
+    );
+    expect(doc.failures['plug-a']).toMatchObject({ version: '1.0.0', count: 1 });
+  });
+
+  it('clearBootFailure 写失败吞掉不炸——返回清名后账面（他行保留）', () => {
+    const fs = throwingWriteFs({
+      '/boot-failures.json': JSON.stringify({
+        failures: { 'plug-a': { version: '1.0.0', count: 2 }, other: { version: '0.9.0', count: 1 } },
+      }),
+    });
+    const doc = clearBootFailure('/boot-failures.json', 'plug-a', fs);
+    expect(doc.failures).toEqual({ other: { version: '0.9.0', count: 1 } });
+  });
+
+  it('clearBootFailure 条目缺席即跳写（fs.write 零调用——消正常 boot 每 activated 插件的无条件重写）', () => {
+    let writes = 0;
+    const fs: BootFailuresFs = {
+      read: () => null,
+      write: () => {
+        writes += 1;
+      },
+    };
+    const doc = clearBootFailure('/boot-failures.json', 'absent', fs);
+    expect(doc.failures).toEqual({});
+    // 修前红：缺席条目也整账本重写（writes = 1）——正常 boot 对每个已装载插件
+    // 各写一次盘的纯放大面
+    expect(writes).toBe(0);
+  });
+
+  it('条目在场照写（清名本职不变——跳写只针对缺席条目）', () => {
+    const fs = memFs({
+      '/boot-failures.json': JSON.stringify({
+        failures: { 'plug-a': { version: '1.0.0', count: 2 }, other: { version: '0.9.0', count: 1 } },
+      }),
+    });
+    clearBootFailure('/boot-failures.json', 'plug-a', fs);
+    expect(JSON.parse(fs.files.get('/boot-failures.json') ?? '').failures).toEqual({
+      other: { version: '0.9.0', count: 1 },
+    });
+  });
+});

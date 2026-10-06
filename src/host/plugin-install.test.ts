@@ -1,9 +1,11 @@
 /**
  * host/plugin-install 三源装机执行器测试（成熟度缺口 #10 装机面落码批 10b）。
  *
- * 覆盖：ref 词法全矩阵、min-release-age 三级解析（缺省/env/cliFlag 覆盖
+ * 覆盖：ref 词法全矩阵（含 npm 点段拒——'.'/'..' 段四形拒 + 常规名不误伤）、
+ * min-release-age 三级解析（缺省/env/cliFlag 覆盖
  * + env 坏形 fail-loud）、npm 执行器假 spawn 编舞（argv 供应链四件套断言 +
  * 锚 package.json + lock 收割 + 失败指路 + 撞名拒 + core: 前缀拒 + 回滚）、
+ * rollback 结构位窄断言（三结构位 + join 内折形零 rm——防御纵深直测位）、
  * npm 失败两形分流（非旗标失败零指路 + 真拒装等窗龄指路——修前红形）、
  * git 执行器假 spawn 编舞（clone/checkout/rev-parse 三笔序 + tmp 清尾 +
  * 坏 ref 拒 + update 幂等重克隆）、local 源与收割真跑（本地 fixture 零网络
@@ -34,6 +36,7 @@ import {
   installPlugin,
   parsePluginRef,
   resolveMinReleaseAge,
+  rollbackInstall,
   updatePlugin,
 } from './plugin-install.js';
 import type { InstallExecutorDeps, SpawnRunner } from './plugin-install.js';
@@ -208,6 +211,72 @@ describe('ref 词法全矩阵（CLI 与账本同形单源）', () => {
     for (const bad of ['acme-widgets', 'npm:', 'git:', 'local:', '']) {
       expect(parsePluginRef(bad).ok).toBe(false);
     }
+  });
+
+  it('npm 点段拒（"."/".." 段经 join 内折落共享装机树本身——rm 回滚即整树抹除）', () => {
+    // 修前红：四形全过闸——installPathForNpm('.')='plugins/node_modules'、
+    // ('..')='plugins'，清单校验失败腿 rollbackInstall 即 rm 递归整树
+    for (const bad of ['npm:.', 'npm:..', 'npm:../market', 'npm:@scope/..']) {
+      const parsed = parsePluginRef(bad);
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.message).toContain('点段拒');
+    }
+  });
+
+  it('npm 点段拒不误伤：段内含点的常规名照常过（".."x / a.b / scoped 嵌套）', () => {
+    for (const good of ['npm:a.b', 'npm:..x', 'npm:x..', 'npm:@scope/a.b', 'npm:@scope/pkg@1.2.0']) {
+      expect(parsePluginRef(good).ok).toBe(true);
+    }
+  });
+});
+
+describe('rollback 结构位窄断言（防御纵深——装机子树根本身永不 rollback 删）', () => {
+  /** 计数 rm fs（其余真盘——rm 调用记录即断言面；force 形对缺席路径零副作用） */
+  function countingRmFs(): PluginStoreFs & { rmCalls: string[] } {
+    const base = createPluginStoreFs();
+    const rmCalls: string[] = [];
+    return {
+      ...base,
+      rmCalls,
+      rm: (path, options) => {
+        rmCalls.push(path);
+        base.rm(path, options);
+      },
+    };
+  }
+
+  function rollbackDeps(dataDir: string, fs: PluginStoreFs): InstallExecutorDeps {
+    return {
+      dataDir,
+      fs,
+      // rollback 是纯删除腿——不 spawn；注桩防意外网络/子进程
+      spawn: { run: () => Promise.reject(new Error('rollback 不应 spawn')) },
+    };
+  }
+
+  it('三结构位 + join 内折形全跳 rm（plugins / plugins/node_modules / plugins/market）', () => {
+    const dataDir = dataDirOf('data-rollback-guard');
+    const fs = countingRmFs();
+    const deps = rollbackDeps(dataDir, fs);
+    // 修前红：结构位无守卫——rm 递归删装机子树根本身（含 ledger.json 与全部
+    // 已装插件，不可逆）
+    rollbackInstall(deps, 'plugins');
+    rollbackInstall(deps, 'plugins/node_modules');
+    rollbackInstall(deps, 'plugins/market');
+    rollbackInstall(deps, 'plugins/node_modules/..'); // 内折形——join 归一即 plugins
+    rollbackInstall(deps, 'plugins/.'); // 点段尾缀——归一即 plugins
+    expect(fs.rmCalls).toEqual([]);
+  });
+
+  it('常规装机物路径照删、local 绝对表示照旧不删（回滚腿本职不变）', () => {
+    const dataDir = dataDirOf('data-rollback-control');
+    const fs = countingRmFs();
+    const deps = rollbackDeps(dataDir, fs);
+    rollbackInstall(deps, 'plugins/node_modules/demo-pkg');
+    expect(fs.rmCalls).toEqual([join(dataDir, 'plugins', 'node_modules', 'demo-pkg')]);
+    rollbackInstall(deps, '/abs/user/source'); // local 直引源 = 用户目录永不删
+    rollbackInstall(deps, ''); // 空表示防底
+    expect(fs.rmCalls).toHaveLength(1);
   });
 });
 

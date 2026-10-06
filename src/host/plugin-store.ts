@@ -26,7 +26,7 @@
  * plugins-cmd 编排）。
  */
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 import { BaseError } from '../contracts/index.js';
@@ -56,7 +56,19 @@ export interface PluginStoreFs {
   readonly size: (path: string) => number | null;
 }
 
-/** 缺省真盘实现 */
+/**
+ * 缺省真盘实现；导出 = 防线直测位（createPluginStoreFs）与两件（install/
+ * uninstall）真盘复用（单源）。
+ *
+ * read 读侧错误码分档（点名纪律——与 plugin-boot defaultFs 同律）：ENOENT =
+ * 文件缺席语义（首启零文件零负担——静默折 null 照旧，readLedger 读侧「缺席
+ * = 空账本」条款的消费面）；其余错误码（EACCES/EMFILE/EISDIR 等）≠ 缺席——
+ * 先点名 warn 再折 null 降级（不炸 CLI 短命进程，但「权限坏被当缺席、装机
+ * 账本/启用清单静默按空处理、已装插件全部消失零线索」的哑面不再）。warn
+ * 通道 = console.warn 最简形：本函数无注入 warn 位（三件消费面 warn 通道
+ * 各异），装配根 logger 不在 leaf 位拉依赖（仓库「缺省 console.warn、装配
+ * 根接 logger」既有惯例）。
+ */
 function defaultStoreFs(): PluginStoreFs {
   const sizeOf = (path: string): number | null => {
     let st: ReturnType<typeof statSync>;
@@ -74,7 +86,16 @@ function defaultStoreFs(): PluginStoreFs {
     read: (path) => {
       try {
         return readFileSync(path, 'utf8');
-      } catch {
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== 'ENOENT') {
+          // 点名后再降级——缺席与坏权限在 CLI 叙事里必须可区分（头注「读侧
+          // 错误码分档」）；折 null 后 readLedger 视为空账本、启用清单视为空
+          console.warn(
+            `[host] 读取 ${path} 失败（${code ?? '未知错误'}）——按文件不存在继续；` +
+              `若是权限问题，装机记录/启用清单将按空处理（已装插件可能不装载），请检查该文件的访问权限`,
+          );
+        }
         return null;
       }
     },
@@ -666,6 +687,28 @@ export function assertInsidePluginData(dataDir: string, id: string, target: stri
 /** 数据域子目录路径构造（purge 物理动作唯一合法目标——构造即受 §5.5 断言保护） */
 export function pluginDataDir(dataDir: string, id: string): string {
   return join(dataDir, 'data', id);
+}
+
+/**
+ * 装机树结构位判定（删除腿窄防线——单源两腿共用）：目标词法归一（resolve
+ * 折 './'/'..' 内折形）后等于装机子树根本身（`plugins/`）或其两分区根
+ * （`plugins/node_modules/` / `plugins/market/`）之一即为结构位。
+ *
+ * 与 assertInsideInstallSubtree 的分工：恰等树根对逃逸断言**合法**（幂等
+ * 重跑的空树形——断言只防逃逸不防等根）；但对 rm 递归删除腿等根是灾难位
+ * ——rm 结构位 = ledger.json 与全量装机记录不可逆抹除。词法面防线（parse
+ * 点段拒）被手改账本/旧账本 ref 绕过时这里是最后一道防御纵深。两消费腿：
+ * install 回滚（rollbackInstall）跳 rm（回滚叙事是「清残影」非「摧毁」）；
+ * uninstall 段② 拒清算（PLUGIN_UNINSTALL_REFUSED——坏账本叙事，人面收口）。
+ */
+export function isInstallStructurePath(dataDir: string, absoluteTarget: string): boolean {
+  const structurePaths = [
+    join(dataDir, 'plugins'),
+    join(dataDir, 'plugins', 'node_modules'),
+    join(dataDir, 'plugins', 'market'),
+  ];
+  const normalized = resolve(absoluteTarget);
+  return structurePaths.some((p) => resolve(p) === normalized);
 }
 
 /** installPath 解析为绝对目录（读侧解析序单源：绝对直用/相对 join 数据目录） */

@@ -323,6 +323,50 @@ describe('execute（四段清算）', () => {
       await stage.close();
     }
   });
+
+  it('防线档：installPath 解析落位装机树结构位（坏账本 ref 恰等树根/分区根）→ 拒清算、树存活（修前红：恰等树根过逃逸断言后 rm 递归整树）', async () => {
+    const stage = UninstallStage.open('exec-structure-root');
+    try {
+      // 现场铺垫：另一常装插件 + 账本在场的健康装机树——灾难位删除的受害面
+      stage.seedEntry({ id: 'healthy' });
+      stage.seedInstallDir('healthy');
+      // 坏账本 ref：手改/旧账本形——installPath 恰等装机树根本身（相对表示
+      // 'plugins'；resolve 后等 <dataDir>/plugins。逃逸断言对恰等树根合法
+      // 〔幂等空树形〕，唯一拦阻 = 结构位窄防线）
+      stage.seedEntry({ id: 'rogue', installPath: 'plugins' });
+      stage.seedRow('rogue');
+      const outcome = executeUninstall(stage.deps, 'rogue');
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) {
+        expect(outcome.message).toContain('PLUGIN_UNINSTALL_REFUSED');
+        expect(outcome.message).toContain('结构位');
+      }
+      // 装机树存活：健康插件目录 + ledger.json 不被抹除（修前：rm 递归树根全没）
+      expect(existsSync(join(stage.dataDir, 'plugins', 'node_modules', 'healthy', 'package.json'))).toBe(true);
+      expect(existsSync(join(stage.dataDir, 'plugins', 'ledger.json'))).toBe(true);
+      // 收口后账本原样（拒清算不改真相面）
+      expect(stage.ledgerIds()).toContain('rogue');
+      expect(stage.ledgerIds()).toContain('healthy');
+    } finally {
+      await stage.close();
+    }
+  });
+
+  it('防线档：installPath 恰等 npm 分区根（plugins/node_modules）同拒——三分区根同律', async () => {
+    const stage = UninstallStage.open('exec-structure-nm');
+    try {
+      stage.seedEntry({ id: 'rogue2', installPath: join('plugins', 'node_modules') });
+      stage.seedRow('rogue2');
+      const outcome = executeUninstall(stage.deps, 'rogue2');
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) {
+        expect(outcome.message).toContain('结构位');
+      }
+      expect(existsSync(join(stage.dataDir, 'plugins', 'ledger.json'))).toBe(true);
+    } finally {
+      await stage.close();
+    }
+  });
 });
 
 describe('装载史共现计数（03 §5.5 ④——h-4 有源化）', () => {

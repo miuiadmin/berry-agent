@@ -390,6 +390,115 @@ describe('refreshOAuthToken（刷新换新）', () => {
   });
 });
 
+describe('响应体脱敏（错误 message 只嵌摘要不嵌原文——六处嵌入位全辖）', () => {
+  /** 设备授权成功应答（让编舞推进到 token 轮询位） */
+  const DEVICE_OK = {
+    ok: true,
+    status: 200,
+    json: { device_code: 'd', user_code: 'U', verification_uri: 'https://v', expires_in: 600 },
+  } as const;
+
+  it('token 端点 200 缺 access_token（别名键 token 形）：错误文本不含 token 值、含键名与字节数摘要', async () => {
+    // 实际存在的 provider 怪形：token 在别名键下——strField('access_token') 取空
+    // 进错误分支，修前 body 前 200 字符原文（含活体 token 值）入 message
+    const fetch = scriptedFetch([DEVICE_OK, { ok: true, status: 200, text: '{"token":"secret-value-123"}' }]);
+    const err = await expectCode(
+      () =>
+        runDeviceCodeFlow(DEF, {
+          fetchFn: fetch,
+          present: () => undefined,
+          now: fakeClock().now,
+          sleep: fakeClock().sleep,
+        }),
+      'CREDENTIALS_OAUTH_FLOW_FAILED',
+      '缺 access_token',
+    );
+    expect(err.message).not.toContain('secret-value-123'); // 修前红：原文嵌入
+    expect(err.message).toContain('token'); // 顶层键名清单在场（排障面保真）
+    expect(err.message).toContain('字节'); // 字节数摘要在场
+  });
+
+  it('refresh 200 缺 access_token 同律（别名键形不泄漏值）', async () => {
+    const fetch = scriptedFetch([{ ok: true, status: 200, text: '{"token":"secret-value-456"}' }]);
+    const err = await expectCode(
+      () => refreshOAuthToken(DEF, 'rt-old', { fetchFn: fetch, now: () => 0 }),
+      'CREDENTIALS_OAUTH_FLOW_FAILED',
+      '缺少 access_token',
+    );
+    expect(err.message).not.toContain('secret-value-456');
+    expect(err.message).toContain('token');
+  });
+
+  it('非 JSON 体（BOM 前缀 JSON 形）同不嵌原文——报「非 JSON + 字节数」', async () => {
+    // BOM 前缀使 JSON.parse 失败而 access_token 完好在体——修前原文嵌入即活体泄漏
+    const fetch = scriptedFetch([
+      // BOM 控制字符以 \uXXXX 转义写入（源码字面量陷阱——控制字符禁裸写）
+      { ok: true, status: 200, text: '\uFEFF{"access_token":"secret-live-789"}' },
+    ]);
+    const err = await expectCode(
+      () => refreshOAuthToken(DEF, 'rt-old', { fetchFn: fetch, now: () => 0 }),
+      'CREDENTIALS_OAUTH_FLOW_FAILED',
+      '缺少 access_token',
+    );
+    expect(err.message).not.toContain('secret-live-789');
+    expect(err.message).toContain('非 JSON');
+    expect(err.message).toContain('字节');
+  });
+
+  it('发起面非 200 / 四键不齐 / 轮询非预期内容 / refresh 非预期内容四腿同律', async () => {
+    // :253 发起面非 200
+    const fetchA = scriptedFetch([{ ok: false, status: 500, text: 'oops secret-raw-aaa' }]);
+    const errA = await expectCode(
+      () =>
+        runDeviceCodeFlow(DEF, {
+          fetchFn: fetchA,
+          present: () => undefined,
+          now: fakeClock().now,
+          sleep: fakeClock().sleep,
+        }),
+      'CREDENTIALS_OAUTH_FLOW_FAILED',
+      '非 200',
+    );
+    expect(errA.message).not.toContain('secret-raw-aaa');
+    // :269 发起面四键不齐
+    const fetchB = scriptedFetch([{ ok: true, status: 200, text: '{"token":"secret-raw-bbb"}' }]);
+    const errB = await expectCode(
+      () =>
+        runDeviceCodeFlow(DEF, {
+          fetchFn: fetchB,
+          present: () => undefined,
+          now: fakeClock().now,
+          sleep: fakeClock().sleep,
+        }),
+      'CREDENTIALS_OAUTH_FLOW_FAILED',
+      '格式不对',
+    );
+    expect(errB.message).not.toContain('secret-raw-bbb');
+    // :348 轮询非预期内容（非 200 且 error 键缺席——兜底分支）
+    const fetchC = scriptedFetch([DEVICE_OK, { ok: false, status: 502, text: 'bad gw secret-raw-ccc' }]);
+    const errC = await expectCode(
+      () =>
+        runDeviceCodeFlow(DEF, {
+          fetchFn: fetchC,
+          present: () => undefined,
+          now: fakeClock().now,
+          sleep: fakeClock().sleep,
+        }),
+      'CREDENTIALS_OAUTH_FLOW_FAILED',
+      '非预期内容',
+    );
+    expect(errC.message).not.toContain('secret-raw-ccc');
+    // :403 refresh 非预期内容
+    const fetchD = scriptedFetch([{ ok: false, status: 502, text: 'bad gw secret-raw-ddd' }]);
+    const errD = await expectCode(
+      () => refreshOAuthToken(DEF, 'rt', { fetchFn: fetchD, now: () => 0 }),
+      'CREDENTIALS_OAUTH_FLOW_FAILED',
+      '非预期内容',
+    );
+    expect(errD.message).not.toContain('secret-raw-ddd');
+  });
+});
+
 describe('流注册表（host-owned）', () => {
   /** 开窗器替身（旗标语义——invoke 期间 true，异常路径 finally 合窗断言用） */
   function fakeWindow(): { open: () => boolean; opener: () => () => void } {
