@@ -376,7 +376,10 @@ export class SdkWireCore {
     this.deps.onSubscribed?.(sessionId);
   }
 
-  /** prompt：admit 三档（④）→ fresh 受理 / duplicate 幂等重收执 / conflict 拒收 */
+  /**
+   * prompt：admit 三档（④）→ fresh 受理 / duplicate 幂等重收执 / conflict 拒收。
+   * fresh 路应答序不变量：ack 先于自动订阅副作用外推（见受理尾注——sweep12 L1）。
+   */
   private handlePrompt(sessionId: string | undefined, messageId: string, content: string): void {
     // sessionId 缺席但连接内既见该 messageId：定位既落会话（重发走原会话快速档——
     // 反查账是连接级索引，不参与 durable 语义）
@@ -434,6 +437,23 @@ export class SdkWireCore {
     this.known.set(outcome.sessionId, record);
     this.messageIndex.set(messageId, outcome.sessionId);
     this.trimAdmitAccounts(); // 双账齐插（幂等账帽执法位三——主插账点）
+    // ack 回执先于副作用外推（sweep12 L1 竞态修）：「ack 恒为 prompt 应答
+    // 首帧」是可依赖不变量。ack 若晚于下方自动订阅位的 onSubscribed（重连
+    // 重推腿——backend 对该会话未决 ask pushFrame 同步外推）落帧，请求作用
+    // 域收集器（HTTP 面 POST /v1/prompt / MCP 面 roundTrip）会先收 ask 后收
+    // ack：首帧判 ack 的观众同步守卫被击穿（零观众空订阅残留 → 该会话后续
+    // 审批 ask fail-open 挂死）且 POST 应答体变 ask 帧（客户端丢幂等回执）。
+    // hello 位同律（应答帧先于 onSubscribed——本修对齐成序，任何传输面不再
+    // 需要首帧假设）。重推 ask 被 POST 作用域吞没不达观众属语义自洽：未决
+    // 账仍在，下次 hello 重订阅即重推。
+    this.emit({
+      kind: 'ack',
+      sessionId: outcome.sessionId,
+      messageId,
+      duplicate: false,
+      routedChannel: outcome.routedChannel,
+      highWaterSeq: this.deps.highWaterOf(outcome.sessionId) ?? 0,
+    });
     // 自动订阅（13b 落码定形）：prompt 落定会话即挂直播（ack 携句柄 → 事件随后
     // 即流；只直播不重放——重放走显式 hello.after）。既有订阅不覆写（订阅参数
     // 面归 hello 位——hello 对既有订阅亦保账并集不重置，见 handleHello 订阅位注）；
@@ -451,14 +471,6 @@ export class SdkWireCore {
       });
       this.deps.onSubscribed?.(outcome.sessionId);
     }
-    this.emit({
-      kind: 'ack',
-      sessionId: outcome.sessionId,
-      messageId,
-      duplicate: false,
-      routedChannel: outcome.routedChannel,
-      highWaterSeq: this.deps.highWaterOf(outcome.sessionId) ?? 0,
-    });
   }
 
   /**

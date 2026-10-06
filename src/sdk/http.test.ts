@@ -423,6 +423,37 @@ describe('sdk/http 传输面（一核多流）', () => {
     sse.abort();
   });
 
+  // sweep12 L1 竞态修的端到端回归锁（根因位 = wire-core handlePrompt fresh 路
+  // ack emit 先于 onSubscribed）：SSE 末流撤订后同会话 POST prompt 时，自动
+  // 订阅触发的未决 ask 重推发生在 POST 请求作用域内——ack 若晚于重推帧落
+  // 收集器，200 体变 ask 帧（客户端丢 ack 回执）且观众同步守卫（首帧判 ack）
+  // 被击穿：零观众空订阅残留 → 后续审批 ask fail-open 挂死（帧落空扇出腿、
+  // promise 永悬）。修前实测：collected kinds = [ask, ack]、isSubscribed 残留
+  // true、后续 askApproval 悬挂。
+  it('SSE 末流撤订后同会话 prompt：200 体恒为 ack + 订阅即撤（未决 ask 重推不抢先）', async () => {
+    stub.setSession('s-1', 'open');
+    const sse = await openSse(info.tcp[0]!.port, '?sessionId=s-1', baseHeaders());
+    await sse.nextOf('replay-end');
+    // 在飞审批 ask：帧已达 SSE 流、未决账在册（重连重推语义的载体——promise
+    // 不在本测试决，afterEach 的 stop→dispose 统一 unavailable 收场）
+    void face.backend.askApproval!('s-1', { summary: '删文件' });
+    expect(await sse.nextOf('ask')).toMatchObject({ kind: 'ask', sessionId: 's-1' });
+    // 观众撤场：末流收线即撤核内订阅（未决 ask 保留在账——重连即重推）
+    sse.abort();
+    for (let i = 0; i < 50 && face.core.isSubscribed('s-1'); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(face.core.isSubscribed('s-1')).toBe(false);
+    // 交错形主体：同会话 POST prompt——ack 必须先于重推 ask 落收集器
+    const r = await post('/v1/prompt', { messageId: 'm-1', content: '继续', sessionId: 's-1' });
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ kind: 'ack', sessionId: 's-1', messageId: 'm-1', duplicate: false });
+    // 零 SSE 观众即撤（守卫未被 ask 帧击穿——POST-only 孤儿订阅即清同律）
+    expect(face.core.isSubscribed('s-1')).toBe(false);
+    // 撤订后后续 ask fail-closed 即时收场（不挂死——空订阅残留的对照断言）
+    await expect(face.backend.askApproval!('s-1', { summary: '后续' })).resolves.toBe('unavailable');
+  });
+
   it('心跳静默填充：idle 超阈即 heartbeat 帧达流', async () => {
     stub.setSession('s-1', 'open');
     const sse = await openSse(info.tcp[0]!.port, '?sessionId=s-1', baseHeaders());
