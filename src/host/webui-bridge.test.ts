@@ -19,6 +19,7 @@ import { THINKING_LEVELS } from '../conversation/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
 import { sessionDisplayTitleOf } from '../persist/index.js';
+import { deriveMessages } from '../session/index.js';
 import { SANDBOX_MODES } from '../safety/index.js';
 import { createSdkHttpFace } from '../sdk/index.js';
 import type { WebuiRouteDescriptor, WebuiRouteRegistrar } from '../webui/index.js';
@@ -486,6 +487,41 @@ describe('openWebuiFace 桥单元', () => {
       // interrupt 幂等（未知 id 静默）
       face.deps!.sessions.interruptSession(id);
       face.deps!.sessions.interruptSession('不存在');
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
+  it('卡② 双腿桥接：fetchMessages 应答逐项含 seq + tailSeqOf 活体/无驱动两档', async () => {
+    // 03 §10.4 卡② 定谳版：腿① GET 读面换腿 projectionWithSeqOf（应答逐条
+    // 带 seq）+ 腿② 信封取值 seam tailSeqOf（emit 时刻内存日志视图尾 seq）。
+    // 修前红：fetchMessages 走 projectionOf 产物无 seq 字段（断言逐位相等红）；
+    // deps 无 tailSeqOf 键（调用 TypeError 红）。
+    const rt = createHostRuntime({ dataDir: rigDir('webui-bridge-seq-') });
+    const { faux, stack } = rigStack(rt);
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      disclose: () => undefined,
+    });
+    try {
+      const id = face.deps!.sessions.createSession();
+      faux.setResponses([() => messageOf()]);
+      face.deps!.sessions.submitPrompt({ sessionId: id, content: '双腿', messageId: undefined });
+      await until(async () => (await face.deps!.read.fetchMessages(id)).some((m) => m.role === 'assistant'));
+      // 腿①：应答逐项含 seq（与投影源 deriveMessages 产物 seq 逐位相等）
+      const items = await face.deps!.read.fetchMessages(id);
+      const events = stack.driverOf(id)!.session.events();
+      const expected = deriveMessages(events);
+      expect(items).toHaveLength(expected.length);
+      expect(items.map((m) => m.seq)).toEqual(expected.map((m) => m.seq));
+      // 腿② 活体档：取值 = emit 时刻内存日志视图尾 seq（append 先于扇出——
+      // 空闲期现拉即当前日志长度 - 1）
+      expect(face.deps!.tailSeqOf!(id)).toBe(events.length - 1);
+      // 腿② 无驱动档：无驱动诚实 undefined（活体视图位——boot 期库读不在此）
+      expect(face.deps!.tailSeqOf!('不存在')).toBeUndefined();
     } finally {
       await rt.shutdown();
     }

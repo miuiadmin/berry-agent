@@ -431,7 +431,9 @@ function bridgeDeps(
       interruptSession: (sessionId) => stack.interrupt(sessionId), // 未知 id 静默幂等（栈内建）
     },
     read: {
-      fetchMessages: (sessionId) => stack.projectionOf(sessionId),
+      // 卡② 腿①：GET 读面换腿带 seq 投影（副本位贴 seq 恒在场——共享输出
+      // projectionOf 与 Message 契约形零改动）
+      fetchMessages: (sessionId) => stack.projectionWithSeqOf(sessionId),
       // 无驱动（closed 会话）回 undefined——服务端 null 诚实空；fold 空事件得 []
       todoOf: (sessionId) => {
         const driver = stack.driverOf(sessionId);
@@ -465,6 +467,17 @@ function bridgeDeps(
             },
           }
         : {}),
+    },
+    // 卡② 腿②信封取值 seam（03 §10.4 卡② 定谳版「信封载荷腿」）：emit
+    // 时刻会话内存日志视图尾 seq——append 先于扇出的既有发射序（channels.emit
+    // 同步回调 onEnvelope 时内存日志尾 seq 即 message_end 自身 seq），服务端
+    // 取值零第二账。非 sessions 行 last_seq（彼系 write-behind 排干后值、
+    // boot 期库读专用）——此处恒活体视图：无驱动/空日志诚实 undefined。
+    tailSeqOf: (sessionId) => {
+      const log = stack.driverOf(sessionId)?.session;
+      if (log === undefined) return undefined;
+      const tail = log.events().length - 1;
+      return tail >= 0 ? tail : undefined;
     },
     // 会话档位面（2026-09-18 webui 档位面受理批——/thinking //sandbox webui
     // 受路）：WebuiSessionTierFace 桥真身（词面独立律的装配侧兑现）。写入

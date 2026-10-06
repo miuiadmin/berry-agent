@@ -297,12 +297,22 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       // 分档判据（批 18a 定形注②）：终结型两型落 durable → session 镜像族；
       // 其余活体 → display 族
       const terminal = env.event.type === 'message_end' || env.event.type === 'tool_execution_end';
-      pushToSession(
-        env.sessionId,
-        terminal
-          ? { kind: 'session', sessionId: env.sessionId, payload: env.event }
-          : { kind: 'display', sessionId: env.sessionId, payload: env.event },
-      );
+      if (!terminal) {
+        pushToSession(env.sessionId, { kind: 'display', sessionId: env.sessionId, payload: env.event });
+        return;
+      }
+      // 卡② 腿②（03 §10.4 卡② 定谳版「信封载荷腿」）：seq 挂 session 族
+      // 信封帧外层（帧外挂位——payload 逐字镜像不动）；对账消费位唯
+      // message_end，tool_execution_end 不扩。tailSeqOf seam 缺席/无驱动/
+      // 空日志（undefined）时不挂键——降级形（客户端逐行判据走回退路）。
+      const seq =
+        env.event.type === 'message_end' && deps.tailSeqOf !== undefined ? deps.tailSeqOf(env.sessionId) : undefined;
+      pushToSession(env.sessionId, {
+        kind: 'session',
+        sessionId: env.sessionId,
+        payload: env.event,
+        ...(seq !== undefined ? { seq } : {}),
+      });
     },
     askApproval: (sessionId: string, request, opts) =>
       new Promise<ApprovalAskAnswer>((resolve) => {

@@ -109,6 +109,15 @@ export type WebuiEnvelope =
       readonly kind: 'session';
       readonly sessionId: string;
       readonly payload: WebuiTerminalEvent | WebuiApprovalAskedPayload;
+      /**
+       * 卡② 信封腿（03 §10.4 卡② 定谳版「信封载荷腿」）：message_end 帧
+       * 在场（值 = emit 时刻会话内存日志视图尾 seq——对账消费位唯
+       * message_end）；其余 session 族帧（tool_execution_end/approval/asked）
+       * 缺席（「其余 session 族帧不扩」条款）。附着位 = webui 信封帧外挂
+       * （webui 局部、零 contracts 触碰）；seam 缺席/无驱动/空日志时不挂键
+       * （降级形——客户端逐行判据走 (role,text) 多重集回退路）。
+       */
+      readonly seq?: number;
     }
   | { readonly kind: 'display'; readonly sessionId: string; readonly payload: SessionEnvelope['event'] }
   | { readonly kind: 'notify'; readonly payload: { readonly message: string; readonly level?: NotifyLevel } }
@@ -149,10 +158,26 @@ export interface WebuiSessionsFace {
   interruptSession(sessionId: string): void;
 }
 
+/**
+ * 投影读面条目（卡② 腿①——03 §10.4 卡② 定谳版「投影拉取腿」）：投影
+ * 副本贴 seq 恒在场（user/assistant = 各自 message 事件 seq、toolResult =
+ * tool/result 事件 seq——锚事件位三型都在场）。GET 读面局部增位：Message
+ * 契约形不动、reseedTimeline 共享输出不动（模型 timeline 种子与 GET 读面
+ * 共用同一函数——「天然不携 seq」结构性依据保持，seq 不进模型上下文）；
+ * 副本位贴 seq 由 host 栈 projectionWithSeqOf 铸（本型是其返回形的名义名）。
+ */
+export type WebuiMessageItem = AgentMessage & { readonly seq: number };
+
 /** 投影读面（fetchMessages 结构兼容 conversation 栈 projectionOf 同形） */
 export interface WebuiReadFace {
-  /** 近史正文投影（正确性层真源——连接即当下，历史走本腿） */
-  fetchMessages(sessionId: string): Promise<readonly AgentMessage[]>;
+  /**
+   * 近史正文投影（正确性层真源——连接即当下，历史走本腿）。应答逐条带
+   * seq（卡② 腿①——投影副本贴 seq 恒在场：user/assistant = 各自 message
+   * 事件 seq、toolResult = tool/result 事件 seq，锚事件位三型都在场；
+   * GET 读面局部增位——Message 契约形不动、reseedTimeline 共享输出不动，
+   * 模型 timeline 种子「天然不携 seq」结构性依据保持，seq 不进模型上下文）。
+   */
+  fetchMessages(sessionId: string): Promise<readonly WebuiMessageItem[]>;
   /** todo 数据源（缺席 = 无数据源——todo 端点诚实回 null 不虚报） */
   todoOf?(sessionId: string): readonly TodoItem[] | undefined;
   /**
@@ -221,6 +246,13 @@ export interface WebuiDeps {
    * 404，冷读 CR-TIER-2 边缘三形之一）。
    */
   readonly tiers?: WebuiSessionTierFace;
+  /**
+   * 信封腿取值 seam（卡② 腿②）：emit 时刻会话内存日志视图尾 seq——非
+   * sessions 行 last_seq（彼系 write-behind 排干后值、boot 期库读专用），
+   * 此处活体视图。缺席 = message_end 帧不挂 seq（降级形——旧装配兼容）。
+   * webui 局部 seam 零 contracts 触碰（AgentEvent message_end 不加字段）。
+   */
+  readonly tailSeqOf?: (sessionId: string) => number | undefined;
   /** SPA 静态面目录（生产 dist/webui/；缺席 = API-only 形，/ 与未知路径 404） */
   readonly staticDir?: string;
 }

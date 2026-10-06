@@ -431,6 +431,14 @@ export interface ConversationStack {
   };
   /** 投影拉取（焦点重画与 /history 同源——驱动活体优先，未开回库装载） */
   projectionOf(sessionId: string): Promise<readonly AgentMessage[]>;
+  /**
+   * 投影拉取带 seq（卡② 腿①——03 §10.4 卡② 定谳版「投影拉取腿」）：GET
+   * 读面局部增位——返回副本贴 seq（每消息 seq = 对应投影源事件锚位 seq，
+   * 三型都在场）；reseedTimeline 共享输出与 Message 契约形零改动（模型
+   * timeline 种子与 GET 读面共用同一函数，「天然不携 seq」结构性依据保持
+   * ——seq 不进模型上下文）。
+   */
+  projectionWithSeqOf(sessionId: string): Promise<readonly (AgentMessage & { readonly seq: number })[]>;
   driverOf(sessionId: string): ConversationDriver | undefined;
   /** 提交入口（fire-and-forget 形——回执经信封回流；无该会话驱动时 undefined） */
   submitText(
@@ -1424,6 +1432,24 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     return reseedTimeline(deriveMessages(events), (seq) => events[seq]?.time ?? 0);
   }
 
+  /**
+   * 投影拉取带 seq（卡② 腿①——03 §10.4 卡② 定谳版「投影拉取腿」）：同一
+   * 双事实源解析取 events → deriveMessages 产物（ProjectedMessage 每条已带
+   * seq）→ reseedTimeline 铸 Message 后逐位回贴副本 seq。zip 结构性成立：
+   * reseedTimeline 对每条投影消息恰铸一条 Message（1:1 保序——reseed.ts 三
+   * 分支各恰一 push）。射界：只做副本增位——共享输出 reseedTimeline 与
+   * Message 契约形零改动（projectionOf 供模型 timeline 种子天然不携 seq）。
+   */
+  async function projectionWithSeqOf(sessionId: string): Promise<readonly (AgentMessage & { readonly seq: number })[]> {
+    const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
+    const events = log.events();
+    const derived = deriveMessages(events);
+    return reseedTimeline(derived, (seq) => events[seq]?.time ?? 0).map((message, i) => ({
+      ...message,
+      seq: derived[i]!.seq,
+    }));
+  }
+
   // —— ob-3 连通微探针（07 ob-3 改裁注机制形）：真供血路 StreamFn 1-token
   // 探针——专用工厂（maxTokens=1 + 连接级帽）+ 显式 apiKey 位（向导新录
   // key 直供血，不经绑定行回读——录入前即可验证）。15s 请求级双帽由
@@ -1630,6 +1656,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       sessionStallTimeoutMs,
     },
     projectionOf,
+    // 卡② 腿①：GET 读面带 seq 投影（副本增位——共享输出零改动）
+    projectionWithSeqOf,
     driverOf: (sessionId) => manager.driverOf(sessionId),
     submitText(sessionId, text, submitOptions) {
       const driver = manager.driverOf(sessionId);

@@ -27,7 +27,7 @@ import { createBashTool, createSpawnPipeline } from '../exec/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { DEFAULT_COMPACTION_CONFIG } from '../compaction/index.js';
 import { createSandboxService } from '../safety/index.js';
-import { SessionLog } from '../session/index.js';
+import { SessionLog, deriveMessages } from '../session/index.js';
 // persist 域类型经公开面 index 取（模块边界执法——测试文件同律，不深挖 store.js）
 import {
   sessionDisplayTitleOf,
@@ -288,6 +288,82 @@ describe('createConversationStack 装配序', () => {
     // 未 submit 前投影可拉（回库装载腿——loadSession 装配）
     const projection = await rig2.stack.projectionOf(resumed.sessionId);
     expect(projection.some((m) => m.role === 'user' && m.content === '第一轮')).toBe(true);
+    await rt2.shutdown();
+  });
+
+  it('projectionWithSeqOf：每消息 seq === 对应投影源事件 seq（卡② 腿①——GET 读面局部增位）', async () => {
+    // 03 §10.4 卡② 定谳版「投影拉取腿」：GET /api/sessions/:id/messages 应答
+    // 逐消息带 seq（恒在场——ProjectedMessage.seq 锚事件位三型都在场）。
+    // 修前红：函数不存在（stack 面无此法——运行时 TypeError）。
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {},
+      workspace: () => ws,
+      // 免问放行（工具批造 tool/call + tool/result 事件——锚事件位三型覆盖）
+      toolPolicy: [{ tool: 'write', pattern: ws, decision: 'allow' }],
+    });
+    const session = stack.openStartupSession(ws);
+    // 多轮：user → 工具调用轮（assistant + tool/call + tool/result）→ 终稿
+    faux.setResponses([
+      () => toolCallOf('t-seq1', 'write', { path: 'seq.txt', content: 'x' }),
+      () => messageOf('stop'),
+    ]);
+    const receipt = await stack.submitText(session.sessionId, '对齐');
+    expect(receipt).toMatchObject({ status: 'completed' });
+
+    const events = stack.driverOf(session.sessionId)!.session.events();
+    const expected = deriveMessages(events); // 投影源（seq 锚事件位）
+    const items = await stack.projectionWithSeqOf(session.sessionId);
+    // 条数相等 + 逐位 seq 相等（副本位贴 seq——zip 1:1 保序）
+    expect(items).toHaveLength(expected.length);
+    expect(items.map((m) => m.seq)).toEqual(expected.map((m) => m.seq));
+    // 三型都在场（user/assistant/toolResult——锚事件位三型全走到）
+    expect(items.some((m) => m.role === 'user')).toBe(true);
+    expect(items.some((m) => m.role === 'assistant')).toBe(true);
+    expect(items.some((m) => m.role === 'toolResult')).toBe(true);
+    // seq 恒在场（数字型——投影副本贴 seq 恒在场条款）
+    expect(items.every((m) => typeof m.seq === 'number')).toBe(true);
+    // 事件流锚位比对：每条 seq 指向的事件型与消息型一致（user→user/message、
+    // assistant→assistant/message、toolResult→tool/result——锚事件位三型律）
+    for (const item of items) {
+      const anchor = events[item.seq]!;
+      if (item.role === 'user') expect(anchor.type).toBe('user/message');
+      else if (item.role === 'assistant') expect(anchor.type).toBe('assistant/message');
+      else expect(anchor.type).toBe('tool/result');
+    }
+    // 射界注锁：共享输出不受扰——projectionOf 产物仍天然不携 seq（模型
+    // timeline 种子与 GET 读面共用同一函数，「天然不携 seq」结构性依据保持）
+    const shared = await stack.projectionOf(session.sessionId);
+    expect(shared.every((m) => !('seq' in m))).toBe(true);
+    await rt.shutdown();
+  });
+
+  it('projectionWithSeqOf：closed 会话（无驱动回库装载）同形——seq 与投影源逐位相等', async () => {
+    // 双事实源纪律另一半：驱动不在册（closed 形——不 open 直接拉）走
+    // loadSession 回库装载腿，seq 增位同形。
+    const dir = mkdtempSync(join(tmpdir(), 'stack-seq-closed-'));
+    dirs.push(dir);
+    const ws = rigWorkspace();
+    // 第一段：一轮对话落库 + 优雅退出（flush 屏障内嵌）
+    const rt1 = createHostRuntime({ dataDir: dir });
+    const s1 = rigStack(rt1);
+    const first = s1.stack.openStartupSession(ws);
+    s1.faux.setResponses([() => messageOf('stop')]);
+    await s1.stack.submitText(first.sessionId, '回库');
+    await rt1.shutdown();
+    // 第二段：新运行时不 open——驱动不在册，projectionWithSeqOf 走回库装载
+    const rt2 = createHostRuntime({ dataDir: dir });
+    const s2 = rigStack(rt2);
+    const items = await s2.stack.projectionWithSeqOf(first.sessionId);
+    const events = rt2.persistence.loadSession(first.sessionId).log.events();
+    const expected = deriveMessages(events);
+    expect(items.map((m) => m.seq)).toEqual(expected.map((m) => m.seq));
+    expect(items.some((m) => m.role === 'user' && m.content === '回库')).toBe(true);
     await rt2.shutdown();
   });
 

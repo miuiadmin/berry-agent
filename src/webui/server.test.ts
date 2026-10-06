@@ -49,7 +49,7 @@ import type {
   WebuiSubmitInput,
 } from './index.js';
 import { mountWebui } from './server.js';
-import { WEBUI_ENDPOINTS as WEBUI_ENDPOINTS_SERVER } from './types.js';
+import { WEBUI_ENDPOINTS as WEBUI_ENDPOINTS_SERVER, type WebuiMessageItem } from './types.js';
 import { WEBUI_ENDPOINTS as WEBUI_ENDPOINTS_CLIENT } from './client/protocol.js';
 
 /* ---------------- 注入面桩（装配桥最小同构） ---------------- */
@@ -77,6 +77,8 @@ function makeDeps(opts?: {
   readonly foldBadWord?: boolean;
   /** submit 幂等冲突形（桥 submitPrompt 抛 SDK_MESSAGE_CONFLICT——409 结构码路） */
   readonly conflictSubmit?: boolean;
+  /** 信封腿取值 seam 注入（卡② 腿②——缺席 = 降级形：message_end 帧不挂 seq） */
+  readonly tailSeqOf?: (sessionId: string) => number | undefined;
 }): DepsStub {
   const states = new Map<string, WebuiSessionState>([
     ['s-1', 'open'],
@@ -85,9 +87,11 @@ function makeDeps(opts?: {
     // thinkingLevel: null——冷读 CR-TIER-2 边缘三形之二）
     ['s-noanchor', 'open'],
   ]);
-  const messages = new Map<string, AgentMessage[]>([
-    ['s-1', [{ role: 'user', content: '问', timestamp: 1_690_000_000_000 }]],
-    ['s-closed', [{ role: 'user', content: '旧账', timestamp: 1_680_000_000_000 }]],
+  // 桩投影（卡② 腿①——读面应答逐条带 seq：fetchMessages 返回形翻 WebuiMessageItem，
+  // 桩数据同步贴 seq 锚位——内容面对注入位 opaque，seq 逐条在场即锁）
+  const messages = new Map<string, WebuiMessageItem[]>([
+    ['s-1', [{ role: 'user', content: '问', timestamp: 1_690_000_000_000, seq: 0 }]],
+    ['s-closed', [{ role: 'user', content: '旧账', timestamp: 1_680_000_000_000, seq: 2 }]],
   ]);
   // /export markdown 直出桩（renderSessionMarkdown 产出形的最小同构——内容
   // 面为注入面 opaque，拼装单源对拍归 host 桥测试件）
@@ -191,6 +195,8 @@ function makeDeps(opts?: {
     ...(opts?.withoutCompletion === true ? {} : { completion: { workspaceFiles: (q) => [`a/${q}.ts`] } }),
     // 档位面注入（缺席 = 三端点 501 诚实缺席——exportMarkdown 缺席同精神）
     ...(opts?.withoutTiers === true ? {} : { tiers }),
+    // 信封腿取值 seam 注入（卡② 腿②——缺席 = 键不注入：降级形用例默认面）
+    ...(opts?.tailSeqOf !== undefined ? { tailSeqOf: opts.tailSeqOf } : {}),
   };
   return {
     deps,
@@ -939,6 +945,63 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
         sessionId: 's-1',
         payload: { type: 'tool_execution_end', toolCallId: 't-1', result: { content: [], isError: true } },
       });
+      await expectSilence(reader);
+    } finally {
+      reader.abort();
+    }
+  });
+
+  it('信封腿（卡② 腿②）：message_end 帧外挂 seq 值等透传；tool_execution_end 帧不扩', async () => {
+    // 03 §10.4 卡② 定谳版「信封载荷腿」：seq 挂 session 族信封帧外层（帧
+    // 外挂位——payload 逐字镜像不动）；对账消费位唯 message_end，其余
+    // session 族帧不扩。注入 fake 取值 seam（值面 opaque——透传保真即锁）。
+    // 修前红：帧无 seq 字段——toMatchObject 字段在场即红。
+    await boot({ stubOpts: { tailSeqOf: (id) => (id === 's-1' ? 7 : undefined) } });
+    const reader = await openSse(port, 's-1', token);
+    try {
+      pushEnvelope({
+        sessionId: 's-1',
+        event: { type: 'message_end', message: { role: 'user', content: '完', timestamp: 2 } },
+      });
+      const frame = await reader.next();
+      // 帧对象：外层 seq 在场且值等（取值 seam 透传）
+      expect(frame).toMatchObject({ kind: 'session', sessionId: 's-1', seq: 7 });
+      expect((frame as { payload: { type: string } }).payload.type).toBe('message_end');
+      // 序列化保真：JSON 线面在场（SSE data 行携 "seq"——客户端线面消费锚）
+      expect(JSON.stringify(frame)).toContain('"seq":7');
+      // 其余 session 族帧不扩：tool_execution_end 帧无 seq 键（toEqual 整形锁）
+      pushEnvelope({
+        sessionId: 's-1',
+        event: { type: 'tool_execution_end', toolCallId: 't-seq', result: { content: [], isError: false } },
+      });
+      const toolFrame = await reader.next();
+      expect(toolFrame).toEqual({
+        kind: 'session',
+        sessionId: 's-1',
+        payload: { type: 'tool_execution_end', toolCallId: 't-seq', result: { content: [], isError: false } },
+      });
+      await expectSilence(reader);
+    } finally {
+      reader.abort();
+    }
+  });
+
+  it('信封腿降级形：tailSeqOf 缺席时 message_end 帧无 seq 键（旧装配兼容——客户端逐行回退路供数）', async () => {
+    // 默认桩键级缺席（API-only/旧装配形）：帧不挂 seq——降级判据归客户端
+    // 逐行（seq 缺席即走 (role,text) 多重集回退路），服务端不造 undefined 键
+    const reader = await openSse(port, 's-1', token);
+    try {
+      pushEnvelope({
+        sessionId: 's-1',
+        event: { type: 'message_end', message: { role: 'user', content: '完', timestamp: 2 } },
+      });
+      const frame = await reader.next();
+      expect(frame).toEqual({
+        kind: 'session',
+        sessionId: 's-1',
+        payload: { type: 'message_end', message: { role: 'user', content: '完', timestamp: 2 } },
+      }); // toEqual 整形锁：多出 seq 键即红（降级形不破）
+      expect('seq' in frame!).toBe(false); // 上行 toEqual 已锁非 undefined——断言收窄
       await expectSilence(reader);
     } finally {
       reader.abort();
