@@ -1,6 +1,7 @@
 /**
  * host/compact-cmd 纯逻辑测试（B2 批 2——回执五档逐字锁 + 指引参归一 +
- * 会话解析序 + busy 执法 + 事实件补读；程序常量非 AI 文本，逐字断言即锁）。
+ * 会话解析序 + busy 执法 + 事实件补读；B2R——完成尾强制重画腿；程序常量
+ * 非 AI 文本，逐字断言即锁）。
  */
 import { describe, expect, it } from 'vitest';
 import type { SessionEvent } from '../contracts/index.js';
@@ -103,8 +104,11 @@ function rigDeps(over: {
   /** null = 焦点空悬；缺省 = 固定焦点会话 */
   readonly focused?: string | null;
   readonly outcome?: ManualOutcome;
-}): { deps: CompactCommandDeps; calls: Array<{ instructions?: string; busy?: boolean }> } {
+  /** true = 注入 repaint 探针（完成尾强制重画腿断言面；缺省不注入——兼测缺席形） */
+  readonly repaint?: boolean;
+}): { deps: CompactCommandDeps; calls: Array<{ instructions?: string; busy?: boolean }>; repainted: string[] } {
   const calls: Array<{ instructions?: string; busy?: boolean }> = [];
+  const repainted: string[] = [];
   // 缺省替身日志：空事件面（compacted/failed 档补读走防御缺席形——数字位
   // 缺席回执仍成立，正锁防御腿）
   const defaultLog = { events: () => [] as readonly SessionEvent[] } as unknown as SessionLog;
@@ -116,8 +120,9 @@ function rigDeps(over: {
       calls.push({ ...options });
       return over.outcome ?? 'compacted';
     },
+    ...(over.repaint ? { repaint: (sessionId: string) => void repainted.push(sessionId) } : {}),
   };
-  return { deps, calls };
+  return { deps, calls, repainted };
 }
 
 describe('runCompactCommand 命令腿', () => {
@@ -175,5 +180,30 @@ describe('runCompactCommand 命令腿', () => {
     };
     await runCompactCommand([], 'sess-anchoredxxxx', deps);
     expect(seen).toEqual(['sess-anchoredxxxx']);
+  });
+});
+
+/* ---------------- 完成尾强制重画（07 B2 定形注挂账销账——B2R） ---------------- */
+
+describe('runCompactCommand 完成尾强制重画腿', () => {
+  it('成功档触发：compacted 尾调 repaint（sessionId = 已解析的本会话变量——无锚走 focusedId）', async () => {
+    const { deps, repainted } = rigDeps({ outcome: 'compacted', repaint: true });
+    const out = await runCompactCommand([], undefined, deps);
+    expect(out.ok).toBe(true);
+    expect(repainted).toEqual(['sess-aaaaaaaaaa']);
+  });
+
+  it('他档不触发：queued/pending/nothing/failed 投影未变或兑现腿另行', async () => {
+    for (const outcome of ['queued', 'pending', 'nothing', 'failed'] as const) {
+      const { deps, repainted } = rigDeps({ outcome, repaint: true });
+      await runCompactCommand([], 'sess-aaaaaaaaaa', deps);
+      expect(repainted).toEqual([]);
+    }
+  });
+
+  it('repaint 缺席不炸（可选注入——装配缺席形保既有消费零改）', async () => {
+    const { deps } = rigDeps({ outcome: 'compacted' }); // 未注入 repaint
+    const out = await runCompactCommand([], 'sess-aaaaaaaaaa', deps);
+    expect(out).toEqual({ ok: true, text: '✓ 已压缩：早期对话已整理为摘要' });
   });
 });

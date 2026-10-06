@@ -5,7 +5,11 @@
  * session-export.ts 体例镜像：用法常量 + 纯逻辑命令腿（handler 逻辑全在本
  * 件、装配位只薄接线）+ 回执文本单源。两消费位同一函数：TUI `/compact`
  * 通道命令（assembly 宿主级直注册）与排队兑现告知（conversation-stack
- * onManualQueuedSettled 接线——文案构造同源）。
+ * onManualQueuedSettled 接线——文案构造同源）。完成尾强制重画（07 B2
+ * 定形注挂账销账——B2R）也在两消费位同位触发：'compacted' 档投影已变
+ * （user 消息已替换为摘要+CCR 标记、压缩分隔行进投影），命令腿经 deps.
+ * repaint 注入位触发、排队兑现腿经 channels.refresh 直调——聚焦者清屏
+ * 重画使分隔行即时呈现，缺席注入不调（既有测试零改）。
  *
  * 回执五档（07 B2 定形注一字不差）：成功（数字源 = compaction/end 载荷
  * 同笔 occludedMessages）/ 薄会话 / 失败三段式（原因一句自 end 载荷 error
@@ -122,6 +126,12 @@ export interface CompactCommandDeps {
   readonly focusedId: () => string | null;
   /** compactNow 服务面（装配位注入真身；测试注入替身） */
   readonly compactNow: (log: SessionLog, options?: ManualCompactOptions) => Promise<ManualOutcome>;
+  /**
+   * 命令完成尾强制重画位（07 B2 定形注挂账销账——B2R）：'compacted' 档
+   * 尾触发（投影已变——压缩分隔行/摘要即时呈现）。可选注入——缺席不调
+   * （装配位真身 = channels.refresh；守卫归核：非聚焦/焦点空悬 no-op）。
+   */
+  readonly repaint?: (sessionId: string) => void;
 }
 
 /**
@@ -160,6 +170,10 @@ export async function runCompactCommand(
     ...(joined !== '' ? { instructions: joined } : {}),
   };
   const outcome = await deps.compactNow(log, options);
+  // 完成尾强制重画（07 B2 定形注挂账销账）：仅 'compacted' 档投影已变
+  // （nothing/failed 投影未变；queued 的兑现腿在 onManualQueuedSettled 位
+  // 另行触发；pending 同未变）——缺席注入不调
+  if (outcome === 'compacted') deps.repaint?.(sessionId);
   // 数字/原因补读（立即形返枚举——end 载荷同笔；见 lastCompactionEndFactsOf
   // 陈化护栏注）
   const facts = outcome === 'compacted' || outcome === 'failed' ? lastCompactionEndFactsOf(log.events()) : undefined;

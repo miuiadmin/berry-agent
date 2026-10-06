@@ -3,7 +3,8 @@
  *
  * 职责：会话在场集合 + 焦点位（聚焦者全渲染/非聚焦摘要行的判定源）+
  * 焦点切换清屏重画（拉投影 → repaint 回调——投影拉取经装配注入，
- * channels 不 import session 是 02 §4.1 边表的刻意设计）。
+ * channels 不 import session 是 02 §4.1 边表的刻意设计）+ 命令完成尾
+ * 强制重画（refresh——聚焦者投影已变即时呈现位，07 B2 定形注销账）。
  *
  * 焦点切换不自动回退：聚焦会话注销后焦点空悬（focused=null——非聚焦态
  * 全体），下一焦点由用户动作显式给（切焦编舞归 TUI 呈现批）。
@@ -54,6 +55,23 @@ export class SessionChannels<TProjection> {
     this.currentFocus = sessionId;
     const projection = await (this.fetchProjection?.(sessionId) ?? []);
     // 焦点可能在拉投影期间被再切（快速切焦）——只为本焦点落画（迟到的旧画弃）
+    if (this.currentFocus === sessionId) {
+      this.repaint(sessionId, projection);
+    }
+  }
+
+  /**
+   * 命令完成尾强制重画（07 §4.1 ZCode TUI 对标批 B2 定形注挂账销账——
+   * B2R）：投影已变想即时可见的消费位调用（/compact 成功档等）。与 focus
+   * 的「视同注册」分职——refresh 是纯呈现位非活跃声明：入口判
+   * currentFocus !== sessionId 即 return（非聚焦/焦点空悬 no-op，不注册
+   * 不置位）；拉投影后复检焦点仍同（拉取期间可切——「迟到的旧画弃」同律）
+   * 才 repaint。投影拉取缺席 → 空投影重画、异常上抛（focus 同律）。
+   */
+  async refresh(sessionId: string): Promise<void> {
+    if (this.currentFocus !== sessionId) return; // 守卫归核双检形之一：入口位
+    const projection = await (this.fetchProjection?.(sessionId) ?? []);
+    // 双检形之二：拉取期间焦点可能被切走——只为仍聚焦的本会话落画
     if (this.currentFocus === sessionId) {
       this.repaint(sessionId, projection);
     }

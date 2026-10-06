@@ -231,6 +231,74 @@ describe('焦点与投影拉取', () => {
   });
 });
 
+describe('命令完成尾强制重画 refresh（07 §4.1 ZCode TUI 对标批 B2 定形注挂账销账——B2R）', () => {
+  it('聚焦者 refresh：现拉投影重画 + widget 槽重放 + 焦点位不动', async () => {
+    const first = [{ role: 'user' }, { role: 'assistant' }];
+    const second = [{ role: 'assistant' }];
+    let calls = 0;
+    const s = createChannels({
+      fetchProjection: (id): Promise<readonly unknown[]> => {
+        calls += 1;
+        return Promise.resolve(id === 'a' ? (calls === 1 ? first : second) : []);
+      },
+    });
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+    s.setWidget('a', { kind: 'demo' });
+    await s.focus('a');
+    expect(b.repaints).toEqual([{ sessionId: 'a', projection: first, widget: { node: { kind: 'demo' } } }]);
+    await s.refresh('a');
+    // 新拉投影落画（投影已变即时可见）+ widget 槽同笔重放 + 焦点不动
+    //（refresh 是纯呈现位非活跃声明——与 focus 的置位分职）
+    expect(s.focusedId).toBe('a');
+    expect(b.repaints[1]).toEqual({ sessionId: 'a', projection: second, widget: { node: { kind: 'demo' } } });
+  });
+
+  it('非聚焦会话 refresh no-op：不重画、不注册、焦点不动', async () => {
+    const s = createChannels({ fetchProjection: async (id) => (id === 'a' ? ['a-proj'] : ['b-proj']) });
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+    await s.focus('a');
+    const before = b.repaints.length;
+    await s.refresh('b');
+    expect(b.repaints.length).toBe(before); // 只有首聚焦那一笔
+    expect(s.hasSession('b')).toBe(false); // 不注册（纯呈现位非活跃声明）
+    expect(s.focusedId).toBe('a');
+  });
+
+  it('焦点空悬 refresh no-op（无聚焦者无重画对象）', async () => {
+    const s = createChannels({ fetchProjection: async () => ['p'] });
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+    await s.refresh('a');
+    expect(b.repaints).toEqual([]);
+    expect(s.focusedId).toBeNull();
+  });
+
+  it('refresh 拉取期间切焦：迟到的旧画不落（迟到的旧画弃同律）', async () => {
+    let releaseRefresh: (v: readonly unknown[]) => void = () => {};
+    let calls = 0;
+    const s = createChannels({
+      fetchProjection: (id): Promise<readonly unknown[]> => {
+        calls += 1;
+        if (id === 'a' && calls === 2)
+          return new Promise((r) => {
+            releaseRefresh = r; // 第二次拉取（refresh 位）挂起——拉取期间切焦
+          });
+        return Promise.resolve(id === 'a' ? ['a-proj'] : ['b-proj']);
+      },
+    });
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+    await s.focus('a');
+    const refreshing = s.refresh('a');
+    await s.focus('b'); // refresh 的投影还在飞
+    releaseRefresh(['a-proj-2']);
+    await refreshing;
+    expect(b.repaints.map((r) => r.sessionId)).toEqual(['a', 'b']); // refresh 的迟到画被弃
+  });
+});
+
 describe('confirm 竞速与降级链', () => {
   it('多后端竞速先答先得，败腿经 signal 撤销（04 §9 跨入口竞速）', async () => {
     const s = createChannels();

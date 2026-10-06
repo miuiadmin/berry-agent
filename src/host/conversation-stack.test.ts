@@ -967,6 +967,75 @@ describe('压缩槽位装配（U4-3 装配批）', () => {
         .some((event) => event.type === 'user/message' && (event.data as { source?: unknown }).source === 'compaction'),
     ).toBe(true);
   });
+
+  it('B2R 排队兑现尾强制重画 e2e：compacted 兑现档触发 channels.refresh——聚焦者清屏重画即时呈现', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    // 手动路专用配置同上位测试（tail 2 + 阈值比 10——只走手动排队位）
+    stack.compactionSlots
+      .bindForPlugin({ pluginId: 'acme-manual', inLoadWindow: () => true })
+      .setConfig({ thresholdRatio: 10, cooldownMs: 0, tailKeep: 2 });
+    const repaints: { sessionId: string; projection: readonly unknown[] }[] = [];
+    // 排干兑现的 refresh 重画确定性等：probe 在第二笔 repaint 时放行
+    //（排干在 run 终态异步执行 fire-and-forget——await run 不足以等它落笔）
+    let resolveRepaint!: () => void;
+    const repaintSeen = new Promise<void>((resolve) => {
+      resolveRepaint = resolve;
+    });
+    stack.channels.addBackend({
+      id: 'compact-repaint-probe',
+      capabilities: {
+        notify: true,
+        confirm: false,
+        select: false,
+        input: false,
+        approval: false,
+        setStatus: false,
+        setWidget: false,
+      },
+      hasAudience: () => true,
+      notify: () => {}, // 必填方法占位（本测只观察 onRepaint——回执腿归上位测试）
+      onRepaint: (sessionId, projection) => {
+        repaints.push({ sessionId, projection });
+        if (repaints.length === 2) resolveRepaint();
+      },
+    });
+    const session = stack.openStartupSession(rigWorkspace());
+    // 聚焦者（refresh 守卫归核：非聚焦/空悬 no-op——排干兑现腿同命令腿语义）
+    await stack.channels.focus(session.sessionId);
+    expect(repaints.length).toBe(1); // 首聚焦重画那一笔（before 基线）
+    const log = stack.driverOf(session.sessionId)!.session;
+    // 前两轮常闭（head 首 turn + 中段素材）；第三轮闸门挂起（busy 位真源）
+    for (let i = 1; i <= 2; i++) {
+      faux.setResponses([() => messageOf('stop')]);
+      await stack.submitText(session.sessionId, `第${i}轮任务`);
+    }
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    faux.setResponses([
+      () => gate.then(() => messageOf('stop')),
+      () => messageOf('stop'), // 摘要单发（faux 队列次位——排干 complete 消费）
+    ]);
+    const run = stack.submitText(session.sessionId, '第三轮（挂起）');
+    expect(run).toBeDefined();
+    await expect(stack.compaction.compactNow(log, { busy: true })).resolves.toBe('queued');
+    release();
+    await run;
+    // 排干在 run 终态异步执行——等 refresh 重画落笔再断言
+    await repaintSeen;
+    await rt.shutdown();
+    // 兑现尾强制重画：compacted 档投影已变 → 聚焦者清屏重画（首聚焦之外新的一笔）
+    expect(repaints.length).toBe(2);
+    expect(repaints[1]!.sessionId).toBe(session.sessionId);
+    // durable 面：压缩确已发生（重画的因——投影已变的证据）
+    expect(
+      log
+        .events()
+        .some((event) => event.type === 'user/message' && (event.data as { source?: unknown }).source === 'compaction'),
+    ).toBe(true);
+  });
 });
 
 /* ---------------- 跨会话操控装配（e4-3——受理器栈级单例 + 工具族 + controlCross seam） ---------------- */

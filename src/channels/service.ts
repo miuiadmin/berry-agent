@@ -61,6 +61,13 @@ export interface ChannelsService<TProjection> {
   hasSession(sessionId: string): boolean;
   /** 焦点切换（清屏重画——拉投影经装配注入回调） */
   focus(sessionId: string): Promise<void>;
+  /**
+   * 命令完成尾强制重画（07 §4.1 ZCode TUI 对标批 B2 定形注挂账销账）：
+   * 投影已变想即时可见的消费位调用（/compact 成功档、排队兑现档）——
+   * 聚焦者清屏重画，非聚焦/焦点空悬 no-op（守卫归核双检——「投影已变
+   * 想即时可见」的通用公开位，不散守卫到各调用点）。
+   */
+  refresh(sessionId: string): Promise<void>;
   isFocused(sessionId: string): boolean;
   /** 当前聚焦会话（null = 焦点空悬） */
   readonly focusedId: string | null;
@@ -401,6 +408,9 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     },
     focus(sessionId) {
       return registry.focus(sessionId);
+    },
+    refresh(sessionId) {
+      return registry.refresh(sessionId);
     },
     isFocused(sessionId) {
       return registry.isFocused(sessionId);

@@ -931,7 +931,12 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // ；回写后必在场）。channels/manager 均晚于本构造位声明——TDZ 晚绑
       // （回调只在 run 终态排干时触发，构造期零调用；channels 选项闭包同位
       // 先例）。回调异常已在服务侧隔离（emitManualSettled try/catch warn——
-      // 单消费者故障不反噬排干路径，本处零包装）
+      // 单消费者故障不反噬排干路径，本处零包装）。'compacted' 兑现档另触
+      // 完成尾强制重画（07 B2 定形注挂账销账——B2R：与命令腿 deps.repaint
+      // 同位同义——投影已变，聚焦者清屏重画使分隔行即时呈现）；refresh 拉
+      // 投影 fail-loud 拒绝折 warn 回执——emitManualSettled 的 try/catch 是
+      // 同步隔离，裸 void 弃接会让异步 rejection 逃成 unhandledRejection
+      //（focus 弃接洞同族——先例在案）
       onManualQueuedSettled: (event) => {
         const log = manager.driverOf(event.sessionId)?.session;
         const endFacts = log !== undefined ? lastCompactionEndFactsOf(log.events()) : undefined;
@@ -942,6 +947,11 @@ export function createConversationStack(options: ConversationStackOptions): Conv
               ? { error: endFacts?.error }
               : undefined;
         void channels.notify(event.sessionId, compactOutcomeText(event.outcome, facts));
+        if (event.outcome === 'compacted') {
+          void channels.refresh(event.sessionId).catch((err: unknown) => {
+            warn(`压缩后重画失败（${event.sessionId}）：${err instanceof Error ? err.message : String(err)}`);
+          });
+        }
       },
       warn,
     });

@@ -63,7 +63,7 @@ import type { AgentService, ControlCaller } from '../conversation/index.js';
 import { AGENT_SERVICE_NAME } from '../conversation/index.js';
 // 工具渲染器注册表受理真源（收官批③——ctx.ui.registerRenderer 委派位；与
 // TUI 消费位 lookupToolRenderer 同册两钉——channels 模块级单册）
-import { registerToolRenderer } from '../channels/index.js';
+import { foldErrorText, registerToolRenderer } from '../channels/index.js';
 import { createWorktreeService } from '../tools/index.js';
 import type { CorePluginReference } from './loader.js';
 import { createHookDispatchGuard } from './hook-dispatch-guard.js';
@@ -1615,7 +1615,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 边」——DAG 不为 busy 判断新边）；数字/原因 = 日志末条 compaction/end
     // 载荷同笔补读（compactNow 立即形只返枚举）。排队兑现回执不经本位——
     // conversation-stack onManualQueuedSettled 接线（排干时点在 run 终态）。
-    // /help 投影自动进（description 位注册即收）。
+    // 完成尾强制重画（07 B2 定形注挂账销账——B2R）：'compacted' 档经
+    // channels.refresh 公开位即时重画（聚焦者清屏重画 + 瞬时行缓冲补吐；
+    // 非聚焦/空悬 no-op 守卫归核）。/help 投影自动进（description 位注册即收）。
     stack.channels.commands.register(
       'compact',
       async (args) => {
@@ -1624,6 +1626,15 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           busyOf: (sessionId) => stack.driverOf(sessionId)?.running === true,
           focusedId: () => stack.channels.focusedId,
           compactNow: (log, options) => stack.compaction.compactNow(log, options),
+          // 重画 seam 真身（07 B2 定形注挂账销账——B2R）：呈现位
+          // fire-and-forget + 拒绝折 error 回执（focus 同律——void 裸弃接
+          // 会让拉投影 rejection 逃成 unhandledRejection 经崩溃编舞 exit(1)；
+          // foldErrorText 保码——用户面折面禁裸 String）
+          repaint: (sessionId) => {
+            void stack.channels
+              .refresh(sessionId)
+              .catch((err: unknown) => void stack.channels.notify('compact', `压缩后重画失败：${foldErrorText(err)}`));
+          },
         });
         void stack.channels.notify('compact', outcome.text);
       },
