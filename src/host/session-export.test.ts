@@ -276,6 +276,10 @@ describe('runSessionExportCommand 命令腿（TUI/CLI 两消费单源）', () =>
     expect(tooMany.ok).toBe(false);
     expect(tooMany.text).toContain('参数过多');
     expect(tooMany.text).toContain(SESSION_EXPORT_USAGE);
+    // 用法串词汇锁（fresh-adversarial L3——419d813 机制词清面的镜像漏网点）：
+    // 「焦点会话」机制词零入用户面（无参语义与回执同用直白词「当前会话」）
+    expect(SESSION_EXPORT_USAGE).toContain('无参 = 当前会话');
+    expect(SESSION_EXPORT_USAGE).not.toContain('焦点会话');
     // 无参且无锚无焦点：无可导会话诚实拒（直白形——07 §4.4 律七②机制词零入面）
     const noFocus = await runSessionExportCommand([], undefined, depsOf({ focusedId: () => null }));
     expect(noFocus.ok).toBe(false);

@@ -29,7 +29,7 @@ import { deriveMessages } from '../session/index.js';
 
 /** /export 用法（assembly 通道命令注册 description 位——PLUGINS_CMD_USAGE 同族） */
 export const SESSION_EXPORT_USAGE =
-  '用法：/export [会话id] —— 会话导出为 markdown（无参 = 焦点会话；落盘 数据目录/exports/<会话id>-<时间戳>.md）';
+  '用法：/export [会话id] —— 会话导出为 markdown（无参 = 当前会话；落盘 数据目录/exports/<会话id>-<时间戳>.md）';
 
 /** 文档头行面元数据（窄面结构形——两消费面从 SessionRow 投影；零事件新会话无行 = 全缺席） */
 export interface SessionExportMeta {

@@ -2277,7 +2277,7 @@ describe('持久化分项目输入历史（B1——07 §4.1 呈现面件 2 定�
     // '› ' 前缀段带 SGR 样式（界面美化役批⑦——stripAnsi 期望帧法，字面匹配
     // 恒假）
     await until(() => stripAnsi(second.io.output).includes('› persisted-input')); // 编辑器框内召回（种子路到达）
-    // 召回后框内有文——ctrl+d 两步序（A组 R5 翻档形）：首击清稿、窗内二击退
+    // 召回后框内有文——ctrl+d 两步序（A组 R5 翻档形）：首击清稿、清稿后次击直退（2026-10-06 死面收口——窗维度退役）
     second.io.send('\x04');
     second.io.send('\x04');
     expect(await second.entry).toBe(0);
