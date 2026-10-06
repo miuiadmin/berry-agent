@@ -136,14 +136,18 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 
 无参启动按当前目录取最新会话——有则续接、无则新建。入口旗标：`--port <n>`（开统一 HTTP 面——Web 界面与程序调用族同面）、`--no-plugins`（安全模式）、`--debug`、`--plugin-file <path>`（快速试用——插件免安装试跑，见[插件开发指南](./plugin-development.md#快速试跑--plugin-file零装机)）。
 
-键位册（30 个动作按域分组——`/help` 键位册同源呈现；动作 id 用于下文「用户设置」的键位覆盖）：
+键位册（33 个动作按域分组——`/help` 键位册同源呈现；动作 id 用于下文「用户设置」的键位覆盖）：
 
 | 域     | 键位                                 | 动作 id                       | 说明                           |
 | ------ | ------------------------------------ | ----------------------------- | ------------------------------ |
 | 全局   | `escape` / `ctrl+c`                  | `global.interrupt`            | 中断当前 run（不可覆盖；`escape` 在浮层/弹窗在场时先归浮层收屏） |
 | 全局   | `ctrl+d`                             | `global.quit`                 | 退出（空框时）（不可覆盖）     |
 | 全局   | `ctrl+p`                             | `global.model-cycle`          | 切换模型（下一轮对话起生效）  |
+| 全局   | `shift+tab`                          | `global.mode-cycle`          | 循环切换沙箱模式（下一轮起生效）|
 | 全局   | `?`                                  | `global.help`                 | 打开快捷键帮助（输入框空且空闲时——底栏教学提示同键；不可覆盖） |
+| 全局   | `ctrl+x b`                           | `global.jobs`                | 打开后台任务清单页（不可覆盖）|
+| 全局   | `ctrl+x m`                           | `global.model-picker`        | 打开模型选择页（不可覆盖）    |
+| 全局   | `ctrl+x h`                           | `global.help`                | 打开命令与键位帮助（不可覆盖）|
 | 思考块 | `ctrl+t`                             | `thinking.toggle`             | 思考块折叠/展开                |
 | 工具卡 | `ctrl+o`                             | `tools.toggle-expand`         | 工具卡展开/收起                |
 | 编辑器 | `enter`                              | `editor.submit`               | 提交输入                       |
@@ -171,7 +175,7 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 | 编辑器 | `up`                                 | `editor.history-prev`         | 上一条历史                     |
 | 编辑器 | `down`                               | `editor.history-next`         | 下一条历史                     |
 
-全局三条**不可覆盖**——中断/退出是会话生命线；`?` 帮助是闲态教学键、走 text 事件路由（键位册绑定永不命中——非键位绑定面）；其余动作均可经 `settings.json` 的 `keybindings` 键覆盖（见下文「用户设置」）。`ctrl+c` 中断运行中的 run——挂起的审批/问询随之中止（撤销说明行落正文流）。`ctrl+d` 双绑（空框 = 退出 / 非空 = 向后删字）是默认既定的分层消解形。`ctrl+p` 模型循环——切换即时登记、**下一轮对话起生效**（运行中的 run 不中途换模型），footer 模型段随切刷新；会话级旋钮不写盘，重启回 env/默认模型位。`alt+enter` 排队提交——运行中的 run 期间不等待不打断：显式排队，当前 run 终态后作种子新起 run（`enter` 在 busy 期的顶注默认不动——两键分职：`enter` 顶注 / `alt+enter` 排队〔当前回复结束后自动开始〕；idle 期同普通提交），排队成功回执一行。词删/行删三键（`ctrl+w`、`ctrl+u`、`ctrl+k`）的被删段入 kill 环，`ctrl+y` 取回最近一段、`alt+y` 环游标步进替换。`meta`（macOS cmd）族键不占用——键串文法不含 meta，留给终端与系统快捷键。
+全局五条**不可覆盖**——中断/退出是会话生命线；`?` 帮助是闲态教学键、走 text 事件路由（键位册绑定永不命中——非键位绑定面；`ctrl+x h` 是同一动作的前缀键形）；`ctrl+x b` / `ctrl+x m` 两分支属前缀键族（同样不可覆盖）；其余动作均可经 `settings.json` 的 `keybindings` 键覆盖（见下文「用户设置」）。`ctrl+x` 是两步前缀键——输入框空且空闲、无浮层/弹窗时按下进入前缀态（等待期间底栏有提示），2 秒内再按分支键生效（`b` 后台任务清单 / `m` 模型选择 / `h` 帮助）；按了不认识的键即取消前缀态、该键照常起原有作用（`escape` 亦取消）。`ctrl+c` 中断运行中的 run——挂起的审批/问询随之中止（撤销说明行落正文流）。`ctrl+d` 双绑（空框 = 退出 / 非空 = 向后删字）是默认既定的分层消解形。`ctrl+p` 模型循环——切换即时登记、**下一轮对话起生效**（运行中的 run 不中途换模型），footer 模型段随切刷新；会话级旋钮不写盘，重启回 env/默认模型位。`alt+enter` 排队提交——运行中的 run 期间不等待不打断：显式排队，当前 run 终态后作种子新起 run（`enter` 在 busy 期的顶注默认不动——两键分职：`enter` 顶注 / `alt+enter` 排队〔当前回复结束后自动开始〕；idle 期同普通提交），排队成功回执一行。词删/行删三键（`ctrl+w`、`ctrl+u`、`ctrl+k`）的被删段入 kill 环，`ctrl+y` 取回最近一段、`alt+y` 环游标步进替换。`meta`（macOS cmd）族键不占用——键串文法不含 meta，留给终端与系统快捷键。
 
 触发前缀与鼠标（非键位册动作）：
 
@@ -230,7 +234,7 @@ TUI 内建命令（随插件安装动态扩展）：`/plugins`（插件管理 TU
 ```
 
 - `theme`——TUI 主题设置：内置 `dark` / `light` / `auto` 三值（默认 `auto`）或自定义主题名（形见下）；`auto` = 启动时发 OSC 11 背景色查询按终端明暗裁定色板，并订阅明暗变化通知（支持的终端切换明暗即时跟随换板；无返回维持暗色）；显式 `dark`/`light` 不探测；`/themes` 选定同写本键；
-- `keybindings`——键位用户覆盖（动作 id → 单个键串，**整体替换**该动作的默认键集——非追加；同动作多条以末条为准）：动作 id 见上文键位册表；键串文法 = 修饰键固定序 `ctrl+alt+shift+` + 单字符或具名键（`enter` `escape` `tab` `backspace` `delete` `insert` `up` `down` `left` `right` `home` `end` `pageup` `pagedown` `space`，全小写）。坏条目逐条拒载并点名警告（TUI 启动落屏「键位覆盖未生效：<原因>」）——不炸启动、好条目照常生效、拒载动作回退默认键位。拒载四形：未知动作 / 不可覆盖动作（全局三条）/ 畸形键串 / 键冲突（覆盖后同键动作集与默认册不一致）。
+- `keybindings`——键位用户覆盖（动作 id → 单个键串，**整体替换**该动作的默认键集——非追加；同动作多条以末条为准）：动作 id 见上文键位册表；键串文法 = 修饰键固定序 `ctrl+alt+shift+` + 单字符或具名键（`enter` `escape` `tab` `backspace` `delete` `insert` `up` `down` `left` `right` `home` `end` `pageup` `pagedown` `space`，全小写）。坏条目逐条拒载并点名警告（TUI 启动落屏「键位覆盖未生效：<原因>」）——不炸启动、好条目照常生效、拒载动作回退默认键位。拒载四形：未知动作 / 不可覆盖动作（全局五条）/ 畸形键串 / 键冲突（覆盖后同键动作集与默认册不一致）。
 
 该文件同时承载 `/approval preset` 写入的 `sandboxMode` / `approvalPolicy` 两键（审批持久默认值）；机器写盘只动自己的键，手编的其他键原样保留。
 
