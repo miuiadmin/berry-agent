@@ -204,18 +204,28 @@ export class UiCore {
           // 'unavailable' 是腿级「无人可答」证词不是裁决——计票不计胜负，
           // 票满（全腿无人）才 fail-closed。腿抛错仍立即拒出（呈现异常折
           // 保守值 cancel——与旧 race 同语义）。
-          // 胜负门（第九轮 laneD 件2）：真裁决首到置位 decided；此后迟到的
-          // 腿（真裁决或 unavailable 票）一律 return——不 resolve 不计票更
-          // 不触 settleApprovalAlways 副作用（对齐旧 Promise.race 败腿静默
-          // 丢弃语义——修前 superseded 腿的 always 回写照发，策略表被败腿
-          // 污染）。微任务 FIFO 下同拍双真裁决的先后语义 = 注册序先到胜。
+          // 双门分职（第九轮 laneD 件2 + 本批 abort 收口维补全）：
+          // decided=多腿竞速胜负门——真裁决首到置位，此后迟到的腿（真裁决或
+          // unavailable 票）一律静默；signal.aborted=整体收口门——ask 编舞
+          // finish 置 done 时同步 abort 传播（done 是 ask 作用域内变量、呈现
+          // 侧不可见，以内部信号镜像为门——finish 是 controller.abort 唯一
+          // 调用位，两态恒同步），外部 signal abort / 队列收口后迟到的腿同样
+          // 全静默。两门下都不 resolve 不计票更不触 settleApprovalAlways
+          // 副作用（对齐旧 Promise.race 败腿静默丢弃语义——修前 superseded
+          // 腿与收口后迟到腿的 always 回写照发，策略表被污染；04 §9 ③：
+          // always 回写只属用户显式按键的在场 ask）。微任务 FIFO 下同拍双
+          // 真裁决的先后语义 = 注册序先到胜。
           return new Promise<ApprovalAskAnswer>((resolve, reject) => {
             let noAudienceVotes = 0;
             let decided = false;
             for (const b of direct) {
               b.askApproval!(sessionId, request, { signal }).then(
                 (answer) => {
-                  if (decided) return; // 败腿迟到：胜负已分——静默丢弃
+                  // 双门头部：signal.aborted=整体收口门（finish 置 done 即同步
+                  // abort——abort/会话收口后迟到腿全静默，防迟到 always 腿照跑
+                  // settleApprovalAlways 污染策略表）；decided=多腿竞速胜负门
+                  //（真裁决首到置位——后到腿静默丢弃）。
+                  if (signal.aborted || decided) return;
                   if (answer === 'unavailable') {
                     noAudienceVotes += 1;
                     if (noAudienceVotes === direct.length) resolve('unavailable');
@@ -224,6 +234,8 @@ export class UiCore {
                   decided = true; // 真裁决首到置位——后到腿全静默
                   resolve(this.settleApprovalAlways(answer, request));
                 },
+                // 迟到 reject 对已 settle 外层是 no-op 且零副作用（不经
+                // settleApprovalAlways——对称核，无需同门）
                 (cause) => reject(cause),
               );
             }

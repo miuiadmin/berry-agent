@@ -311,6 +311,38 @@ describe('ask 编舞单元边界', () => {
     expect(alwaysEntries).toEqual([]); // 修前红：superseded 腿的 always 回写照发（策略表被败腿污染）
   });
 
+  it('外部 abort 收口后迟到 always 腿静默：不触 always 回写副作用（修前红：腿 then 只检 decided 胜负门不检整体收口门——settleApprovalAlways 先求值，策略表被已收口 ask 污染）', async () => {
+    const b = fakeBackend('tui');
+    const alwaysEntries: string[] = [];
+    const ui = makeCore([b.backend], (entry) => alwaysEntries.push(entry));
+    const ac = new AbortController();
+    // 不 await——先制造在飞 ask，再外部 abort（run 打断/会话收口的生产形）
+    const p = ui.askApproval('s1', { summary: '写文件', suggestedEntry: 'allow-write' }, { signal: ac.signal });
+    ac.abort(); // 外部 signal 经核折入 finish——保守值收场 + 内部信号撤销传播
+    expect(b.approvalAsks[0]?.signal?.aborted).toBe(true); // 整体收口门已闭（finish 是 controller.abort 唯一调用位）
+    expect(await p).toBe('cancel');
+    b.approvalAsks[0]?.resolve('always'); // 后端呈现竞窗的迟到应答——腿 promise 照常落定
+    await new Promise<void>((resolve) => setImmediate(resolve)); // 排干微任务让迟到腿 then 回调跑完
+    expect(alwaysEntries).toEqual([]); // 修前红：decided 仍 false → resolve(settleApprovalAlways(...)) 副作用照发
+    expect(await p).toBe('cancel'); // 收口值不复活（迟到腿连 resolve 都是 no-op）
+  });
+
+  it('多腿形同洞盖：abort 收口后一腿迟到 always、另一腿迟到真裁决全静默（修前红：decided 门只盖多腿间竞速，不盖整体收口后的迟到）', async () => {
+    const b1 = fakeBackend('tui');
+    const b2 = fakeBackend('web');
+    const alwaysEntries: string[] = [];
+    const ui = makeCore([b1.backend, b2.backend], (entry) => alwaysEntries.push(entry));
+    const ac = new AbortController();
+    const p = ui.askApproval('s1', { summary: '写文件', suggestedEntry: 'allow-write' }, { signal: ac.signal });
+    ac.abort();
+    expect(await p).toBe('cancel');
+    b1.approvalAsks[0]?.resolve('always'); // 迟到 always 腿——回写副作用须静默
+    b2.approvalAsks[0]?.resolve('approve'); // 迟到真裁决腿——同静默（收口值不覆写）
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(alwaysEntries).toEqual([]); // 修前红：多腿形同洞——迟到 always 腿照发 onApprovalAlways
+    expect(await p).toBe('cancel');
+  });
+
   it('投票制反向交错回归锁：真裁决先到、迟到 unavailable 票 no-op——结果不被覆写、全票分支不触发', async () => {
     // 与「瞬时 fail-closed 腿不毒化竞速」锁互为反向（那把锁 unavailable 先
     // 到、真答后到；本把锁真答先到、票后到）——胜负门置位后迟到票连计票
