@@ -150,6 +150,16 @@ export interface GoalService {
   /** 停靠登记摘除（唤醒起跑前摘——再停靠时复登记） */
   unparkForBudget(goalId: string): void;
   /**
+   * boot 重挂登记（L4-1——04 §5 停靠登记 daemon 重启恢复律 2026-10-07 定形注：
+   * goal 件装载期扫描判定「重启前已预算停靠」后，重建进程内停靠 Set 的 service
+   * 侧单动词）。**纯登记**——不落 session/paused 词（durable 真源已在前进程落
+   * 过）、不 disable 挂钟行（boot 扫描三级判据已验 enabled=0）。行缺席 =
+   * GOAL_NOT_FOUND（parkForBudget :幽灵守卫镜像——防御性：boot 扫描遍历
+   * service.list() 快照与读行间有终态竞速窗）；非 active = false（终态无停靠
+   * 语义）；已含 Set = true（幂等——复入安全）。
+   */
+  reparkForBoot(goalId: string): boolean;
+  /**
    * 挂钟行复活（u-3——广播唤醒正常收口消费：GoalJobsFace disable/enable
    * 复活链的 service 侧单源；无行 = 静默 no-op 既有律；行非 active 同跳——
    * 终态不复活，sweep12 L2 防御纵深。与 manual wake 全编舞分立——本面纯挂钟
@@ -770,6 +780,22 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
 
     unparkForBudget(goalId) {
       parkedForBudget.delete(goalId);
+    },
+
+    reparkForBoot(goalId) {
+      const row = dao.get(goalId);
+      // 幽灵 id 零行守卫（parkForBudget 镜像——boot 扫描 list 快照与读行间的
+      // 终态竞速窗防御；正常路径 list 快照行恒在）
+      if (!row) throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在（reparkForBoot 幽灵 id 零行守卫）`);
+      // 终态 goal 无停靠语义（parkForBudget 同律）——boot 后行已终态 = 无可恢复
+      if (row.status !== 'active') return false;
+      // 幂等：已含 Set 复入安全（boot 扫描外二次调用零副作用）
+      if (parkedForBudget.has(goalId)) return true;
+      // 纯 Set 登记（L4-1 定谳拍板）——不落词（durable 真源已在前进程落过）、
+      // 不 disable（三级判据已验挂钟行 enabled=0；重复 disable 为无害但按
+      // 「不重复落词不重复 disable」定谳省略）
+      parkedForBudget.add(goalId);
+      return true;
     },
 
     async reviveClock(goalId) {

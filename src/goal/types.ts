@@ -120,7 +120,7 @@ export interface GateOutcome {
 }
 
 /**
- * GoalJobsFace 四法契约面（04 §12——词面独立于 scheduler 同名接口，结构
+ * GoalJobsFace 五法契约面（04 §12——词面独立于 scheduler 同名接口，结构
  * 兼容编译期即验；组合根闭包注入，goal↔scheduler 不进拓扑边）。
  */
 export interface GoalJobsFace {
@@ -137,6 +137,12 @@ export interface GoalJobsFace {
   enable(goalId: string): Promise<void>;
   /** 摘钟（删行；无行 = 静默 no-op） */
   remove(goalId: string): Promise<void>;
+  /**
+   * 挂钟行 enabled 读面（L4-1 boot 重挂腿——04 §5 停靠登记 daemon 重启
+   * 恢复律：goal 件装载期三级判据消费）。行读单源经 jobs 表 goal-<goalId>
+   * 行；undefined = 无行（从未起拍 / abandon 终态清账删行）。
+   */
+  jobEnabled(goalId: string): boolean | undefined;
 }
 
 /**
@@ -162,6 +168,21 @@ export interface GoalSessionFace {
    * 幂等护栏在调用侧（service 停靠登记）——本面纯落笔。
    */
   appendPaused(sessionId: string): void;
+  /**
+   * 会话事件尾窗窄读（L4-1 boot 重挂腿——04 §5 停靠登记 daemon 重启恢复律：
+   * 装载期尾词判据的读面，钉尾窗 W 条不整载会话日志）。结构兼容 persist
+   * queryEvents（QueryEventsFilter 必填仅 sessionId；fromSeq 闭区间 seq >= ?
+   * 升序只向前；返回 events 只读投影）。词面独立律照 GoalJobsFace 惯例——
+   * 本面收窄形，装配真身透传 persistence。缺席（测试替身形）= boot 扫描
+   * 诚实跳过（诚实缺席律——生产装配恒在场）。
+   */
+  queryEvents?(filter: { sessionId: string; fromSeq: number; limit: number }): { events: readonly SessionEvent[] };
+  /**
+   * 会话行尾 seq 读面（L4-1 同上——last_seq 取值源，obs-b tailEvent 同源读
+   * 形）。结构兼容 persist SessionRow（lastSeq 字段超集收窄）。缺席 = boot
+   * 扫描诚实跳过。
+   */
+  getSessionRow?(sessionId: string): { lastSeq: number } | undefined;
 }
 
 /**

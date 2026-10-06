@@ -73,19 +73,30 @@ function openService(
   const session = new FakeSession();
   const calls: string[] = [];
   const registerFailFor = new Set<string>();
+  // 挂钟行 enabled 簿记（L4-1 jobEnabled 读面——register 建行 true/disable 翻
+  // false/enable 复 true/remove 删行；未起拍 goal 无键 = undefined 同产线语义）
+  const jobEnabledMap = new Map<string, boolean>();
   const face: GoalJobsFace = {
     async register(req) {
       calls.push(`register:${req.goalId}`);
-      return registerFailFor.has(req.goalId) ? { ok: false, message: '坏串' } : { ok: true, message: 'ok' };
+      if (registerFailFor.has(req.goalId)) return { ok: false, message: '坏串' };
+      jobEnabledMap.set(req.goalId, true);
+      return { ok: true, message: 'ok' };
     },
     async disable(goalId) {
       calls.push(`disable:${goalId}`);
+      jobEnabledMap.set(goalId, false);
     },
     async enable(goalId) {
       calls.push(`enable:${goalId}`);
+      jobEnabledMap.set(goalId, true);
     },
     async remove(goalId) {
       calls.push(`remove:${goalId}`);
+      jobEnabledMap.delete(goalId);
+    },
+    jobEnabled(goalId) {
+      return jobEnabledMap.get(goalId);
     },
   };
   const service = createGoalService({
@@ -282,6 +293,9 @@ describe('complete（完成否决律机器面）', () => {
       },
       async enable() {},
       async remove() {},
+      jobEnabled() {
+        return undefined;
+      },
     };
     await service.attachGoalJobsFace(throwing);
     const goal = await service.activate({ sessionId: 's1', objective: '写文档', schedule: 'every:10m' });
@@ -303,6 +317,9 @@ describe('complete（完成否决律机器面）', () => {
       },
       async disable() {},
       async enable() {},
+      jobEnabled() {
+        return undefined;
+      },
       async remove() {
         throw new Error('scheduler 炸了');
       },
@@ -417,6 +434,9 @@ describe('终态触发回调 onTerminal（五篇研究批 A——06 §4 周期�
         throw new Error('scheduler 炸了');
       },
       async remove() {},
+      jobEnabled() {
+        return undefined;
+      },
     };
     // 腿①：manual wake 的 enable（停滞复位与唤醒审计已落库——炸不阻落地回执）
     {
@@ -869,5 +889,46 @@ describe('parkForBudget（u-3 停靠——04 §5 定形注③ service 侧三动�
     service.unparkForBudget(goal.id);
     expect(service.isParkedForBudget(goal.id)).toBe(false);
     expect(service.get(goal.id)).toMatchObject({ status: 'active' }); // 纯登记面——行与挂钟不动
+  });
+});
+
+describe('reparkForBoot（L4-1 boot 重挂登记——04 §5 停靠登记 daemon 重启恢复律 service 侧纯登记动词）', () => {
+  it('纯 Set 登记：翻真 + 零落词 + 零 disable（durable 真源已在前进程落过——不重复落词不重复停摆）', async () => {
+    const { service, session, face, calls } = openService();
+    await service.attachGoalJobsFace(face);
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    const callsBefore = calls.length;
+    const eventsBefore = session.events('s1').length;
+
+    expect(service.reparkForBoot(goal.id)).toBe(true);
+    expect(service.isParkedForBudget(goal.id)).toBe(true); // Set 登记翻真
+    expect(calls.length).toBe(callsBefore); // 零 jobs 面动作（不 disable/enable/remove）
+    expect(session.events('s1').length).toBe(eventsBefore); // 零落词（session/paused 不复落）
+  });
+
+  it('幂等复入 true：已含 Set 再调零副作用', async () => {
+    const { service, session, face, calls } = openService();
+    await service.attachGoalJobsFace(face);
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    expect(service.reparkForBoot(goal.id)).toBe(true);
+    const callsBefore = calls.length;
+    const eventsBefore = session.events('s1').length;
+    expect(service.reparkForBoot(goal.id)).toBe(true); // 幂等 true
+    expect(calls.length).toBe(callsBefore);
+    expect(session.events('s1').length).toBe(eventsBefore);
+    expect(service.isParkedForBudget(goal.id)).toBe(true);
+  });
+
+  it('非 active false 不登记（终态无停靠语义——boot 后行已终态 = 无可恢复）', async () => {
+    const { service } = openService();
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    await service.abandon(goal.id, '不要了');
+    expect(service.reparkForBoot(goal.id)).toBe(false);
+    expect(service.isParkedForBudget(goal.id)).toBe(false);
+  });
+
+  it('幽灵 id 零行守卫：GOAL_NOT_FOUND（parkForBudget 镜像——list 快照与读行间终态竞速窗防御）', () => {
+    const { service } = openService();
+    expectCodeSync(() => service.reparkForBoot('ghost'), 'GOAL_NOT_FOUND');
   });
 });

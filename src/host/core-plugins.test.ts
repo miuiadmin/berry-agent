@@ -35,7 +35,7 @@ import type { IssueBudgetFace, IssueSessionFace, IssueStoreStateFace } from '../
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../memory/index.js';
 import type { ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../obs/index.js';
-import { MEMORY_DB_PATH, Persistence } from '../persist/index.js';
+import { MEMORY_DB_PATH, Persistence, SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
 import { createSdkHttpFace } from '../sdk/index.js';
 import type { SdkHttpFaceHandle } from '../sdk/index.js';
@@ -279,6 +279,124 @@ async function bootCore(
 
 /** 恒答审批呈现面（write 类工具守门放行桩——审批装配测试同款，应答 = 'approve' 字面） */
 const approveAll = async () => 'approve' as const;
+
+/**
+ * L4-1 boot 重挂腿 rig（04 §5 停靠登记 daemon 重启恢复律——goal3 停靠 rig
+ * 的重启镜像形）：先预置「前进程已停靠」的 durable 事实——持久会话（尾词
+ * append 后 flush 排干 write-behind——boot 扫描是同步库读）+ goals active 行
+ * + jobs goal-<id> 挂钟行（enabled 位可配；不配 = 无行形）——再 bootCore 模拟
+ * 重启后装载（进程内停靠 Set 天然空：goal service 随装载新建，正是要恢复的
+ * 缺席面）。goalSession 挂 queryEvents/getSessionRow 两读透传（assembly
+ * 生产真身同形——L4-1 装载期冷读窗恒走库读）。
+ */
+async function bootReparkRig(options: {
+  goalId: string;
+  /** 会话事件词序（持久会话逐词 append 后 flush；undefined = 不建持久会话〔会话缺席形〕） */
+  events?: Array<[type: string, data: unknown]>;
+  /** 挂钟行 enabled 位；undefined = 不预置挂钟行（无行形——从未起拍/终态清账） */
+  jobRowEnabled?: boolean;
+}) {
+  const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-repark-'));
+  dirs.push(dataDir);
+  const persistence = Persistence.open({
+    dbPath: MEMORY_DB_PATH,
+    // SESSION_ARCHIVE_MIGRATION v13：sessions writeTuple 硬依赖专列（rig 建
+    // 持久会话必经——MEMORY_MIGRATIONS 族不含本条）
+    migrations: [
+      SCHEDULER_MIGRATION,
+      GOAL_MIGRATION,
+      GOAL_APPROVAL_MIGRATION,
+      SESSION_ARCHIVE_MIGRATION,
+      ...MEMORY_MIGRATIONS,
+    ],
+  });
+  // 持久会话预置（词序落库 + flush——尾窗窄读与 last_seq 读的都是库）
+  let sessionId: string | undefined;
+  if (options.events !== undefined) {
+    const log = persistence.createSession({ origin: 'conversation' });
+    sessionId = log.sessionId;
+    for (const [type, data] of options.events) log.append(type, data);
+    await persistence.flush();
+  }
+  const sid = sessionId ?? 's-repark-ghost';
+  const db = persistence.store.sqlite();
+  // goals active 行直插（jobs 直插 :1029 先例同律——重启后库中既存事实）
+  db.prepare(
+    `INSERT INTO goals (id, session_id, objective, status, activated_seq, schedule, prompt_snapshot, created_at, updated_at)
+     VALUES (?, ?, '重启恢复目标', 'active', 0, 'every:60s', '续跑快照', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+  ).run(options.goalId, sid);
+  // 挂钟行（enabled 位可配——停靠形 0 / 人工接管在途形 1 / 无行形不插）
+  if (options.jobRowEnabled !== undefined) {
+    db.prepare(
+      `INSERT INTO jobs (name, prompt, cwd, schedule, enabled, builtin, created_at, updated_at, next_fire_at)
+       VALUES (?, '续跑', NULL, '{"kind":"every","seconds":60}', ?, 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL)`,
+    ).run(`goal-${options.goalId}`, options.jobRowEnabled ? 1 : 0);
+  }
+  // 活体 SessionLog 装载后零事件（events/length 不入扫描射程——扫描只走两透传读）
+  const session = new SessionLog({ sessionId: sid });
+  const goalSession: GoalSessionFace = {
+    events: (s) => (s === sid ? session.events() : []),
+    length: (s) => (s === sid ? session.events().length : 0),
+    appendPaused: (s) => {
+      if (s === sid) session.append('session/paused', { reason: 'budget' });
+    },
+    queryEvents: (filter) => persistence.queryEvents(filter),
+    getSessionRow: (s) => persistence.store.getSessionRow(s),
+  };
+  // 电平可控日池 + 假 stack（goal3 rig 同形——submit 受控 deferred）
+  let affordOk = false;
+  const submits: {
+    sessionId: string;
+    source?: string;
+    backgroundWake?: boolean;
+    backgroundLane?: boolean;
+  }[] = [];
+  const pending: Array<(value: unknown) => void> = [];
+  const fakeConversationStack = {
+    llm: { canAfford: (_tier: string) => affordOk },
+    submitText: (
+      sessionId: string,
+      _text: string,
+      opts?: { source?: string; backgroundWake?: boolean; backgroundLane?: boolean },
+    ) => {
+      submits.push({ sessionId, ...opts });
+      return new Promise<unknown>((resolve) => pending.push(resolve));
+    },
+  } as unknown as ConversationStack;
+  const broadcast = createBudgetBroadcast({ canAfford: () => affordOk, pollMs: 5 });
+  const notified: string[] = [];
+  let svc: GoalService | undefined;
+  const { scope } = await bootCore(
+    dataDir,
+    memoryFs(),
+    {},
+    {
+      sqlite: () => persistence.store.sqlite(),
+      goalSession,
+      budgetBroadcast: broadcast,
+      conversationStack: fakeConversationStack,
+      notify: (source, message) => {
+        if (source === 'goal') notified.push(message);
+      },
+      goalServiceSink: (service) => {
+        svc = service;
+      },
+    },
+  );
+  return {
+    scope,
+    sessionId,
+    broadcast,
+    submits,
+    pending,
+    svc: svc!,
+    persistence,
+    notified,
+    afford: (ok: boolean) => {
+      affordOk = ok;
+    },
+  };
+}
 
 describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
   it('exec 件装载全环：真装载 → 共享根服务面 → 工厂产出 bash → openTools 拾取 → 真执行', async () => {
@@ -1769,6 +1887,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       'parkForBudget',
       'isParkedForBudget',
       'unparkForBudget',
+      'reparkForBoot',
       'reviveClock',
     ]) {
       expect(projected[absent]).toBeUndefined();
@@ -2380,6 +2499,152 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     } finally {
       broadcast.dispose();
       await persistence.close();
+    }
+  });
+
+  // ── L4-1 boot 重挂腿（04 §5 停靠登记 daemon 重启恢复律——2026-10-07 定谳）──
+  it('goal L4-1 boot 重挂主径：active 行 + 尾词 session/paused(budget) + 挂钟 disabled → 装载即重建三处登记；boot 只登记不 submit，电平翻真才唤醒', async () => {
+    const rig = await bootReparkRig({
+      goalId: 'g-repark-main',
+      events: [
+        ['turn/start', {}],
+        ['user/message', '推进目标'],
+        ['llm/usage', {}], // 审计词（回扫跳过集——压在 paused 之前）
+        ['session/paused', { reason: 'budget' }], // 尾词 = durable 停靠真源
+      ],
+      jobRowEnabled: false, // 挂钟行 disabled（前进程停靠时落的）
+    });
+    try {
+      const schedFace = rig.scope.tryGet<SchedulerFace>('scheduler')!;
+      const jobName = 'goal-g-repark-main';
+      // 修前红锚：无扫描代码 broadcast.register 零调用——size 恒 0（主锁）
+      expect(rig.broadcast.size()).toBe(1);
+      expect(rig.svc.isParkedForBudget('g-repark-main')).toBe(true); // service 侧 Set 重建
+      expect(schedFace.service.getJob(jobName)?.enabled).toBe(false); // 挂钟不虚复活（保持前进程停靠态）
+      expect(rig.notified.some((m) => m.includes('重启恢复') && m.includes('已重新登记为预算暂停'))).toBe(true); // 恢复留痕（人工可见）
+      // boot 只登记不 submit（唤醒经新事件——05 §4 对端注）：装载完成零提交
+      expect(rig.submits).toHaveLength(0);
+      // 幂等不重复落词：库中 session/paused 仍恰一笔（纯登记——不复落 durable 词）
+      const persisted = rig.persistence.queryEvents({ sessionId: rig.sessionId!, fromSeq: 0, limit: 100 });
+      expect(persisted.events.filter((e) => e.type === 'session/paused')).toHaveLength(1);
+
+      // 唤醒 entry 真身核验：电平翻真 → watcher 唤醒 → submit（budget-extended
+      // 唤醒轮车道位齐）→ 收口复活挂钟 + 双侧摘登记
+      rig.afford(true);
+      await until(() => rig.submits.length === 1);
+      expect(rig.submits[0]).toMatchObject({
+        sessionId: rig.sessionId,
+        source: 'budget-extended',
+        backgroundWake: true,
+        backgroundLane: true,
+      });
+      rig.pending.shift()!({ status: 'completed' });
+      await until(() => schedFace.service.getJob(jobName)?.enabled === true); // reviveClock
+      expect(rig.svc.isParkedForBudget('g-repark-main')).toBe(false);
+    } finally {
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
+  it('goal L4-1 反例三连：enabled=1（人工接管在途）/ 无挂钟行（从未起拍）/ 尾词 turn/end（run 进行中重启翻尾）——皆不重挂零登记', async () => {
+    // 反例①：挂钟行 enabled=1——manual wake 人工接管在途/活钟自愈，boot 不夺驾
+    const rigA = await bootReparkRig({
+      goalId: 'g-repark-a',
+      events: [['session/paused', { reason: 'budget' }]],
+      jobRowEnabled: true,
+    });
+    // 反例②：无挂钟行——从未起拍 / abandon 终态清账删行，无 durable 停靠事实
+    const rigB = await bootReparkRig({
+      goalId: 'g-repark-b',
+      events: [['session/paused', { reason: 'budget' }]],
+    });
+    // 反例③：尾词非 paused（诚实边界①——run 进行中重启，翻尾漏挂不误恢复）
+    const rigC = await bootReparkRig({
+      goalId: 'g-repark-c',
+      events: [
+        ['session/paused', { reason: 'budget' }],
+        ['turn/start', {}],
+        ['user/message', '唤醒轮进行中'],
+        ['turn/end', { reason: 'completed' }], // 尾词 = turn/end
+      ],
+      jobRowEnabled: false,
+    });
+    try {
+      for (const rig of [rigA, rigB, rigC]) {
+        expect(rig.broadcast.size()).toBe(0); // 零登记
+        expect(rig.submits).toHaveLength(0); // 零提交
+      }
+      expect(rigA.svc.isParkedForBudget('g-repark-a')).toBe(false);
+      expect(rigB.svc.isParkedForBudget('g-repark-b')).toBe(false);
+      expect(rigC.svc.isParkedForBudget('g-repark-c')).toBe(false);
+      // 反例①挂钟位不被触碰（保持 enabled=1 人工接管态）
+      const schedA = rigA.scope.tryGet<SchedulerFace>('scheduler')!;
+      expect(schedA.service.getJob('goal-g-repark-a')?.enabled).toBe(true);
+    } finally {
+      for (const rig of [rigA, rigB, rigC]) {
+        rig.broadcast.dispose();
+        await rig.persistence.close();
+      }
+    }
+  });
+
+  it('goal L4-1 审计词压尾仍命中：paused 后跟 llm/usage + compaction 词——回扫跳过审计词封闭集后命中 paused（与 obs-b 射界分立的本处判据）', async () => {
+    const rig = await bootReparkRig({
+      goalId: 'g-repark-audit',
+      events: [
+        ['turn/start', {}],
+        ['session/paused', { reason: 'budget' }],
+        ['llm/usage', {}], // 审计词（跳过）
+        ['compaction/skip', {}], // 审计词（跳过——压缩族词落账不改停靠事实）
+      ],
+      jobRowEnabled: false,
+    });
+    try {
+      expect(rig.broadcast.size()).toBe(1); // 命中——三处登记重建
+      expect(rig.svc.isParkedForBudget('g-repark-audit')).toBe(true);
+      expect(rig.submits).toHaveLength(0); // 只登记不提交
+    } finally {
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
+  it('goal L4-1 会话缺席：warn 指路 /goal wake 与 /goal abandon 两人工道——不炸装配零登记', async () => {
+    const rig = await bootReparkRig({
+      goalId: 'g-repark-ghost-sess',
+      // events 缺席——绑定会话在库中无行（会话缺席形）
+      jobRowEnabled: false,
+    });
+    try {
+      expect(rig.broadcast.size()).toBe(0);
+      expect(rig.svc.isParkedForBudget('g-repark-ghost-sess')).toBe(false);
+      expect(rig.notified.some((m) => m.includes('/goal wake') && m.includes('/goal abandon'))).toBe(true); // warn 双指路（定谳版原文）
+    } finally {
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
+  it('goal L4-1 回扫窗 W=20 边界：paused 距尾 19（窗内最后一位）仍命中；距尾 20（出窗）不命中——窗尽不扩窗', async () => {
+    // 命中形：paused 在 seq 0，随后 19 条 llm/usage → lastSeq=19，fromSeq=0（窗恰含 paused）
+    const words: Array<[string, unknown]> = [['session/paused', { reason: 'budget' }]];
+    for (let i = 0; i < 19; i += 1) words.push(['llm/usage', {}]);
+    const rigHit = await bootReparkRig({ goalId: 'g-repark-w20-hit', events: words, jobRowEnabled: false });
+    // 不命中形：paused 后 20 条 llm/usage → lastSeq=20，fromSeq=1（paused 出窗）
+    const wordsFar: Array<[string, unknown]> = [['session/paused', { reason: 'budget' }]];
+    for (let i = 0; i < 20; i += 1) wordsFar.push(['llm/usage', {}]);
+    const rigMiss = await bootReparkRig({ goalId: 'g-repark-w20-miss', events: wordsFar, jobRowEnabled: false });
+    try {
+      expect(rigHit.broadcast.size()).toBe(1); // 窗内最后一位——命中
+      expect(rigHit.svc.isParkedForBudget('g-repark-w20-hit')).toBe(true);
+      expect(rigMiss.broadcast.size()).toBe(0); // 出窗——放过（不无限扩窗）
+      expect(rigMiss.svc.isParkedForBudget('g-repark-w20-miss')).toBe(false);
+    } finally {
+      rigHit.broadcast.dispose();
+      await rigHit.persistence.close();
+      rigMiss.broadcast.dispose();
+      await rigMiss.persistence.close();
     }
   });
 

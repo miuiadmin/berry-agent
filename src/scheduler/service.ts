@@ -1,6 +1,6 @@
 /**
  * scheduler 服务面（04 §12）：jobs 表 DAO + /tick 六动词的程序形态 +
- * GoalJobsFace 四法窄面（第五槽——goal 件挂钟行的单漏斗写路径）。
+ * GoalJobsFace 五法窄面（第五槽——goal 件挂钟行的单漏斗写路径 + enabled 读面）。
  *
  * 分工线（04 §12「同一 jobs 表两视角」）：本面管 **jobs 表行**（挂钟行的注册
  * 管理面）；运行中实例的 in-flight 记账归引擎内存表（§10 ctx.jobs 系另册，
@@ -275,7 +275,7 @@ export interface SchedulerService {
   describeSchedule(name: string): string;
 }
 
-/** GoalJobsFace 四法契约面（04 §12——goal↔scheduler 不进拓扑边，组合根闭包注入窄面） */
+/** GoalJobsFace 五法契约面（04 §12——goal↔scheduler 不进拓扑边，组合根闭包注入窄面） */
 export interface GoalJobsFace {
   /** 挂钟/重挂：schedule 坏串 → {ok:false, message} 响亮拒不炸装配（不抛） */
   register(req: {
@@ -290,6 +290,12 @@ export interface GoalJobsFace {
   enable(goalId: string): Promise<void>;
   /** 摘钟（删行；cron 可选后端启用形态下同步注销 OS 注册态；无行 = 静默 no-op） */
   remove(goalId: string): Promise<void>;
+  /**
+   * 挂钟行 enabled 读面（L4-1 boot 重挂腿——goal 件装载期三级判据消费）：
+   * 行读单源 jobs 表 goal-<goalId> 行；undefined = 无行（从未起拍 / 终态
+   * 清账删行）。
+   */
+  jobEnabled(goalId: string): boolean | undefined;
 }
 
 /** 服务装配（cronRegistrar/pathExists 缺省形态见 deps 注释） */
@@ -458,7 +464,7 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
     },
   };
 
-  // ── GoalJobsFace 四法（第五槽窄面——挂钟行一切写经此单漏斗） ─────────────
+  // ── GoalJobsFace 五法（第五槽窄面——挂钟行一切写经此单漏斗） ─────────────
   const goalJobs: GoalJobsFace = {
     async register(req) {
       const name = `goal-${req.goalId}`;
@@ -491,6 +497,10 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
       if (!row) return; // 无行 = 静默 no-op
       if (deps.cronRegistrar && row.enabled) deps.cronRegistrar.unregister(name); // 同步注销 OS 注册态
       dao.remove(name);
+    },
+    jobEnabled(goalId) {
+      // 纯行读（boot 重挂腿三级判据的读面）——无行 undefined（goal 件据此跳过）
+      return dao.get(`goal-${goalId}`)?.enabled;
     },
   };
 

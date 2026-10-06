@@ -1,5 +1,5 @@
 /**
- * ScheduleService 测试——六动词守卫/行管理 + GoalJobsFace 四法 + cron 联动
+ * ScheduleService 测试——六动词守卫/行管理 + GoalJobsFace 五法 + cron 联动
  * 「不半态」（04 §12；真 better-sqlite3 临时目录库跑 v2 迁移）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -161,7 +161,7 @@ describe('enable/disable/rm 直打行', () => {
   });
 });
 
-describe('GoalJobsFace 四法（第五槽窄面）', () => {
+describe('GoalJobsFace 五法（第五槽窄面——四写法 + L4-1 enabled 读面）', () => {
   it('register：建 goal-<goalId> 行 builtin=1 启用即排刻', async () => {
     const { service, goalJobs, getRow } = openService();
     const r = await goalJobs.register({ goalId: 'g1', sessionId: 's1', schedule: 'daily@09:30', promptSnapshot: 'p' });
@@ -193,6 +193,19 @@ describe('GoalJobsFace 四法（第五槽窄面）', () => {
     await expect(goalJobs.disable('g3')).resolves.toBeUndefined();
     await expect(goalJobs.enable('g3')).resolves.toBeUndefined();
     await expect(goalJobs.remove('g3')).resolves.toBeUndefined();
+  });
+
+  it('jobEnabled（L4-1 boot 重挂腿读面）：建行 true / disable false / enable 复 true / remove 后 undefined / 无行 undefined', async () => {
+    const { goalJobs } = openService();
+    expect(goalJobs.jobEnabled('g4')).toBeUndefined(); // 无行（从未起拍）
+    await goalJobs.register({ goalId: 'g4', sessionId: 's1', schedule: 'daily@09:30', promptSnapshot: 'p' });
+    expect(goalJobs.jobEnabled('g4')).toBe(true); // 建行即启用
+    await goalJobs.disable('g4');
+    expect(goalJobs.jobEnabled('g4')).toBe(false); // 停靠/停摆形——boot 扫描三级判据第三档
+    await goalJobs.enable('g4');
+    expect(goalJobs.jobEnabled('g4')).toBe(true);
+    await goalJobs.remove('g4');
+    expect(goalJobs.jobEnabled('g4')).toBeUndefined(); // abandon 终态清账删行后
   });
 });
 

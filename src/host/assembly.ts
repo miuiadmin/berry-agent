@@ -1052,6 +1052,13 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                   const driver = stack.driverOf(sessionId) ?? stack.manager.open(sessionId).driver;
                   driver.session.append('session/paused', { reason: 'budget' });
                 },
+                // L4-1 boot 重挂腿两读透传（04 §5 停靠登记 daemon 重启恢复律）：
+                // 装载期属冷读窗——恒走库读（persistence.queryEvents 尾窗窄读
+                // + store.getSessionRow last_seq），**不走 driverOf 活体优先**
+                // （boot 时点在飞驱动缺席是常态非兜底；库即 durable 真源）。
+                // 结构兼容 goal 件 GoalSessionFace 可选两法（缺席 = 扫描跳过）
+                queryEvents: (filter) => runtimeNow.persistence.queryEvents(filter),
+                getSessionRow: (sessionId) => runtimeNow.persistence.store.getSessionRow(sessionId),
               },
               // goal 沉淀摘要窄面（批 #99——上方适配器真身；缺席律不适用：
               // 适配器零依赖构造恒在场，goal 件内 summarizer 缺席走确定性回退）

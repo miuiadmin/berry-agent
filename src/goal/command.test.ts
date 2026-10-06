@@ -115,6 +115,10 @@ function fakeService(
     unparkForBudget() {
       /* 测试不触 */
     },
+    reparkForBoot() {
+      // L4-1 boot 重挂登记动词（GoalService 接口同步 +1）——命令面零消费，桩占位
+      return false;
+    },
     async reviveClock() {
       /* 测试不触 */
     },

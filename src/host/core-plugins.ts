@@ -1759,6 +1759,96 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         return parkGoalForBudget(goalId); // 日池尽——改停靠-唤醒（gated 零跑由 tick 侧收场）
       };
 
+      // ── L4-1 boot 重挂腿（04 §5 停靠登记 daemon 重启恢复律——2026-10-07 第四轮
+      // PASS 定谳版）：u-3 三处停靠登记（service parkedForBudget Set / 件
+      // wakeEntries Map / 广播件 entries）皆进程内态，daemon 重启即蒸发；durable
+      // 对偶 = 会话尾词 session/paused(reason='budget')。装载期扫描重建登记——
+      // **boot 只登记不 submit**（唤醒经新事件——05 §4 对端注：唤醒走新事件非
+      // 启动重放；首 tick budget-extended 电平判唤醒）。
+      /** 回扫窗宽（锚 obs-b STATE_SCAN_WINDOW 同值另裁——判据射界分立〔05 §388
+       * 对端注：猝死中断态推导跳过集 {compaction/*} 与本处恢复判据跳过集
+       * {llm/usage、compaction/*} 分立——两处实现禁互相调用/复用〕） */
+      const BOOT_REPARK_SCAN_WINDOW = 20;
+
+      /**
+       * boot 重挂扫描主体：遍历 active goal 三级判据（挂钟行 enabled 读面 →
+       * 绑定会话尾词回扫），命中即重建三处停靠登记。
+       *
+       * 三级判据（04 §5 定谳版）：
+       *  1. jobEnabled undefined → skip（无挂钟行——从未起拍 / abandon 终态清账删行）；
+       *  2. jobEnabled true → skip（enabled=1 不重挂——manual wake 人工接管在途
+       *     〔唤醒链 enable 先行〕/ 活钟自愈形；挂钟 enabled 位仅排除此人工接管
+       *     形，非停靠主判据）；
+       *  3. jobEnabled false → 尾窗回扫定夺。
+       *
+       * 尾词命中 iff（判据真源单一——goals 行不加 parked 位，durable 停靠真源
+       * = 会话尾词）：自尾回溯跳过审计词封闭集 {llm/usage、compaction/*} 后首词
+       * 为 session/paused 且 data.reason==='budget'。wake-refused 形尾词仍带
+       * budget 指纹——④明裁行为零特判（重挂待下轮电平，三帽兜底已拒自动道）。
+       *
+       * 诚实边界（规范原文照写——两形皆人工道 /goal wake 兜底）：
+       *  - 任意 run 进行中重启（前台轮或 budget-extended 唤醒轮）——翻尾漏挂，
+       *    尾词非 paused 不命中；
+       *  - 尾词撕裂（截断/毒丸吞没）——同上不命中。
+       */
+      const scanGoalsForBootRepark = (): void => {
+        // 挂钟系缺席 = 无 durable 停靠事实可恢复（scheduler 件先装载常态在场；
+        // 缺席诚实跳过——与 attachGoalJobsFace 迟到注入腿不冲突：迟到注入时
+        // boot 已过，无停靠可恢复）
+        if (sched === undefined) return;
+        const queryEvents = sessionFace.queryEvents;
+        const getSessionRow = sessionFace.getSessionRow;
+        // 两读面缺席（测试替身形）= 扫描诚实跳过（诚实缺席律——生产装配恒在场）
+        if (queryEvents === undefined || getSessionRow === undefined) return;
+        for (const row of service.list()) {
+          if (row.status !== 'active') continue; // 终态 goal 无停靠语义
+          const enabled = sched.goalJobs.jobEnabled(row.id);
+          if (enabled === undefined) continue; // 判据①：无挂钟行——从未起拍/终态清账
+          if (enabled) continue; // 判据②：enabled=1 不重挂（人工接管在途/活钟）
+          const sessionRow = getSessionRow(row.sessionId);
+          if (sessionRow === undefined) {
+            // 绑定会话缺席：warn 指路两人工道（定谳版原文）——不炸装配
+            warn(
+              `[goal] 重启恢复：目标「${row.id}」绑定的会话记录不在了，无法自动恢复它的暂停状态——可 /goal wake ${row.id} 手动继续，或 /goal abandon ${row.id} 放弃`,
+            );
+            continue;
+          }
+          // 尾窗窄读：fromSeq = max(0, last_seq-(W-1)) 配 limit W（钉尾窗 W 条
+          // 不整载会话日志——W 窗尽未命中态词即不扩窗，非停靠形断然放过）
+          const fromSeq = Math.max(0, sessionRow.lastSeq - (BOOT_REPARK_SCAN_WINDOW - 1));
+          const tailWindow = queryEvents({
+            sessionId: row.sessionId,
+            fromSeq,
+            limit: BOOT_REPARK_SCAN_WINDOW,
+          }).events;
+          // 自尾回溯跳过审计词封闭集——射界分立（禁复用 obs-b tailEvent 实现）
+          let hit: SessionEvent | undefined;
+          for (let i = tailWindow.length - 1; i >= 0; i -= 1) {
+            const candidate = tailWindow[i]!;
+            if (candidate.type === 'llm/usage' || candidate.type.startsWith('compaction/')) continue;
+            hit = candidate;
+            break;
+          }
+          if (hit === undefined) continue; // 窗尽无态词——放过（不无限扩窗）
+          // 命中 iff：回扫首条非审计词 = session/paused 且 reason='budget'
+          if (hit.type !== 'session/paused' || (hit.data as { reason?: unknown }).reason !== 'budget') continue;
+          // service 侧纯登记（终态竞速窗防御——reparkForBoot 幽灵守卫镜像）；
+          // 不重复落词不重复 disable（durable 真源已在前进程落过、三级判据已
+          // 验 enabled=0）
+          if (!service.reparkForBoot(row.id)) continue;
+          // 件侧 + 广播侧登记复挂（复停靠同键换新防泄漏——parkGoalForBudget 同律）
+          const entry: BudgetBroadcastEntry = {
+            wake: () => wakeGoalFromPark(row.id, row.sessionId),
+          };
+          wakeEntries.set(row.id, entry);
+          broadcast?.register(entry); // 广播件缺席（测试替身形）——wakeEntries 仍登记
+          warn(
+            `[goal] 重启恢复：目标「${row.id}」（会话 ${row.sessionId}）已重新登记为预算暂停——预算恢复后自动继续（手动继续：/goal wake）`,
+          );
+        }
+      };
+      scanGoalsForBootRepark();
+
       // run 收口现判停靠位（04 §5 定形注②「触发形态非穷尽」判据式）：记账
       // 刹停（run 完成记账超帽）与复验刹停（agent_pre_step stop → completed）
       // 两形态同收口位一网打尽——goal 域会话 run 终态即现判 budgetExceeded
