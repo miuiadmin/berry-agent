@@ -7,6 +7,8 @@
  * 字面呈现（对话与编码即本体——助手产出以 Markdown 为主形）
  * ③ 流式尾巴呼吸光标：streaming 位呈现 ▍、落稿不呈现
  * ④ 状态行：非 null 呈现列底、null 不占位
+ * ⑤ 压缩分隔行（B2 webui 对端迁移）：source='compaction' 的 user 块载体
+ *    正文零呈现、替换为居中弱化分隔行（N 解析自 CCR 标记段——两形）
  */
 import { cleanup, render, screen } from '@testing-library/react';
 import { createRef } from 'react';
@@ -117,5 +119,50 @@ describe('Transcript run 收尾行（界面美化役批⑪）', () => {
     expect(screen.getByText('── 用时 1m 30s · 工具 2 次 ──')).toBeTruthy();
     // 收尾行是瞬时追加位非消息——不呈 run_close 角色标签
     expect(screen.queryByText('run_close')).toBeNull();
+  });
+});
+
+describe('Transcript 压缩分隔行（B2 webui 对端迁移——source=compaction user 块替换呈现）', () => {
+  /** 摘要载体速造：正文 + CCR 标记段末行（N 条消息位即分隔行 N） */
+  const carrier = (n: number): string =>
+    `[COMPACTION-SUMMARY] 摘要正文\n\n<<ccr:abcdef0123456789>> 原文已归档（${n} 条消息 / 287 字符）`;
+
+  it('N 形：载体正文零呈现 + 分隔行居中呈现 + 无 user 角色标签（修前红：数千字摘要当普通 user 正文直呈）', () => {
+    render(
+      <Transcript
+        messages={[msg({ key: 'm-1', role: 'user', text: carrier(5), source: 'compaction' })]}
+        status={null}
+        bottomRef={createRef<HTMLDivElement>()}
+      />,
+    );
+    expect(screen.getByText('── 已压缩 5 条对话 ──')).toBeTruthy();
+    expect(screen.queryByText(/COMPACTION-SUMMARY/)).toBeNull(); // 载体本体零呈现（分隔行是压缩事实唯一用户面正文位）
+    expect(screen.queryByText(/原文已归档/)).toBeNull(); // CCR 标记行不入用户面
+    expect(screen.queryByText('user')).toBeNull(); // 无角色标签（分隔行非消息形——run_close 同律）
+  });
+
+  it('降级形：CCR 批前历史载体无标记段 → 无 N 形（修前红）', () => {
+    render(
+      <Transcript
+        messages={[
+          msg({ key: 'm-1', role: 'user', text: '[COMPACTION-SUMMARY] 老载体只有正文', source: 'compaction' }),
+        ]}
+        status={null}
+        bottomRef={createRef<HTMLDivElement>()}
+      />,
+    );
+    expect(screen.getByText('── 已压缩 ──')).toBeTruthy();
+  });
+
+  it('source 缺席的真 user 消息照常正文呈现（判据不误伤——缺席视为普通 user）', () => {
+    render(
+      <Transcript
+        messages={[msg({ key: 'm-1', role: 'user', text: '普通问句' })]}
+        status={null}
+        bottomRef={createRef<HTMLDivElement>()}
+      />,
+    );
+    expect(screen.getByText('普通问句')).toBeTruthy();
+    expect(screen.getByText('user')).toBeTruthy(); // 角色标签照常
   });
 });

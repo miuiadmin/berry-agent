@@ -68,7 +68,13 @@ import {
   type ToolCardRenderInput,
   type ToolCardStatus,
 } from '../blocks/tool-card.js';
-import { argKeyZh, TOOL_RUN_MARK, toolFaceZh, lastCcrEntryOf } from '../../../contracts/index.js';
+import {
+  argKeyZh,
+  TOOL_RUN_MARK,
+  toolFaceZh,
+  lastCcrEntryOf,
+  compactionSeparatorLine,
+} from '../../../contracts/index.js';
 import { CURSOR_MARK } from '../panels/panel-chrome.js';
 import { ACTION_CATALOG } from '../keys/registry.js';
 import type { SessionEnvelope } from '../../types.js';
@@ -348,8 +354,10 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
     }
     case 'compaction':
       // 压缩时间线分隔行（B2 批 2）：dim 单行（回合记账线族同款——不占全宽
-      // 染色、无背景带）；N 缺席 = 旧载体降级形
-      return [dimStyledLine(block.count === undefined ? '── 已压缩 ──' : `── 已压缩 ${block.count} 条对话 ──`)];
+      // 染色、无背景带）；N 缺席 = 旧载体降级形。词面单源 compactionSeparatorLine
+      // （contracts/ccr-marker——B2 webui 对端迁移批起 TUI/webui 双消费，本位
+      // 原两形模板串收敛单源）
+      return [dimStyledLine(compactionSeparatorLine(block.count))];
     case 'streaming': {
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
       // markdown 直推档走网格管线（bullet 槽同轴——与定稿 markdown 块逐行同形）；

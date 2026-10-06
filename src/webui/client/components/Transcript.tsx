@@ -5,6 +5,8 @@
  * 渲染（对话与编码即本体——助手产出以 Markdown 为主形，排版刻度住 app.css
  * 的 .md-body 手写 prose 族——零 typography 插件依赖）；其余角色纯文本。
  * run 收尾行（run_close 角色）居中弱化呈现（瞬时追加位——非消息形）。
+ * 压缩摘要载体（source='compaction' 的 user 消息）正文零呈现——替换为
+ * 居中弱化分隔行（B2 webui 对端迁移；词面/N 解析 contracts 单源）。
  * 状态行钉在列底（活体工具执行指示——呼吸点动画呈「运行中」活体感）。
  */
 import { memo } from 'react';
@@ -12,6 +14,10 @@ import type { ReactElement, RefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
 
 import { RUN_CLOSE_ROLE, type ViewMessage } from '../frames.js';
+// 跨通道单源件（contracts 零依赖叶——frames 同批体例）：压缩分隔行词面
+// compactionSeparatorLine + 载体末条 CCR 条目提取 lastCcrEntryOf（N 供数）——
+// 与 TUI 分隔块渲染位同源（07 B2 定形注 webui 对端迁移）
+import { compactionSeparatorLine, lastCcrEntryOf } from '../../../contracts/index.js';
 
 /** 角色标签色（user/assistant 语义分色——其余角色统一弱文档） */
 const ROLE_LABEL_CLASS: Record<string, string> = {
@@ -25,6 +31,18 @@ const MessageView = memo(function MessageView({ message }: { message: ViewMessag
   // 无缩进让位，整行即内容）
   if (message.role === RUN_CLOSE_ROLE) {
     return <p className="whitespace-pre-wrap text-center text-2xs text-ink-faint">{message.text}</p>;
+  }
+  // 压缩摘要载体（source='compaction' 的 user 消息——B2 webui 对端迁移）：
+  // 载体本体（可能是数千字摘要）零 user 块直呈，落一行居中弱化分隔线
+  // （run_close 同呈现形——分隔行是压缩事实唯一用户面正文位）；N 解析自
+  // CCR 标记段末行（contracts 单源——与 TUI 分隔块同判据同词面），CCR 批前
+  // 历史载体无标记段降级无 N 形
+  if (message.role === 'user' && message.source === 'compaction') {
+    return (
+      <p className="whitespace-pre-wrap text-center text-2xs text-ink-faint">
+        {compactionSeparatorLine(lastCcrEntryOf(message.text)?.messages)}
+      </p>
+    );
   }
   const isAssistant = message.role === 'assistant';
   const body = isAssistant ? (

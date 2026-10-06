@@ -895,6 +895,43 @@ describe('frames 投影层（正确性层真源）', () => {
   });
 });
 
+describe('frames 压缩分隔行数据链（B2 webui 对端迁移——source 位带出）', () => {
+  /** 摘要载体速造：正文 + CCR 标记段末行（N 条消息位即分隔行 N—— Transcript 分流位的解析源） */
+  const carrier = (n: number): string =>
+    `[COMPACTION-SUMMARY] 摘要正文\n\n<<ccr:abcdef0123456789>> 原文已归档（${n} 条消息 / 287 字符）`;
+
+  it('message_end 落稿带出 source：直播路 compaction 载体保留归因位（修前红：ViewMessage 无 source 位——载体被当普通 user 呈现）', () => {
+    const state = applyEnvelope(
+      initialAppState,
+      session({
+        type: 'message_end',
+        message: { role: 'user', content: carrier(5), source: 'compaction', timestamp: 7 },
+      }),
+    );
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({ role: 'user', source: 'compaction', streaming: false });
+  });
+
+  it('loadedMessages 投影带出 source：投影重建路与直播路同一判据位（修前红——两路恒一致律的数据半边）', () => {
+    const state = loadedMessages(initialAppState, [
+      { role: 'user', content: '真用户问', timestamp: 1 },
+      { role: 'user', content: carrier(5), source: 'compaction', timestamp: 2 },
+    ]);
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[0]?.source).toBeUndefined(); // 真用户消息缺席位
+    expect(state.messages[1]).toMatchObject({ role: 'user', source: 'compaction' });
+  });
+
+  it('source 非串/空串不落位（坏形容错——缺席视为普通 user 向后兼容）', () => {
+    const state = loadedMessages(initialAppState, [
+      { role: 'user', content: '问一', source: 42, timestamp: 1 },
+      { role: 'user', content: '问二', source: '', timestamp: 2 },
+    ]);
+    expect(state.messages[0]?.source).toBeUndefined();
+    expect(state.messages[1]?.source).toBeUndefined();
+  });
+});
+
 describe('frames onopen 交错窗对账（E4——投影整段重置与活体终结帧的竞窗）', () => {
   it('fetch 窗内落稿的终结帧不随投影整段重置抹除（快照未含——m-<ts> 键续接投影尾；修前红：整段抹除长连接不自愈）', () => {
     // 场景：onopen 发起投影拉取（快照不含在飞答案）→ session message_end 先

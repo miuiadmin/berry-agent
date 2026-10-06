@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CCR_MARKER_PREFIX,
   ccrMarkerLine,
+  compactionSeparatorLine,
   lastCcrEntryOf,
   parseCcrMarkerLine,
   type CcrDirectoryEntry,
@@ -71,5 +72,22 @@ describe('lastCcrEntryOf 载体末条提取', () => {
   it('CCR 批前历史载体（无标记段）→ null（消费面降级形判据）', () => {
     expect(lastCcrEntryOf('[COMPACTION-SUMMARY] 老载体只有正文')).toBeNull();
     expect(lastCcrEntryOf('')).toBeNull();
+  });
+});
+
+describe('compactionSeparatorLine 分隔行文案（B2 webui 对端迁移——TUI/webui 词面单源）', () => {
+  it('N 在场形与 lastCcrEntryOf 直连（末条 messages → 分隔行 N 位）', () => {
+    expect(compactionSeparatorLine(5)).toBe('── 已压缩 5 条对话 ──');
+    const text = '摘要正文\n\n' + ccrMarkerLine(entry('abcdef0123456789', 5, 287));
+    expect(compactionSeparatorLine(lastCcrEntryOf(text)?.messages)).toBe('── 已压缩 5 条对话 ──');
+  });
+
+  it('N 缺席降级形（CCR 批前历史载体——lastCcrEntryOf null 的消费面形态）', () => {
+    expect(compactionSeparatorLine()).toBe('── 已压缩 ──');
+    expect(compactionSeparatorLine(lastCcrEntryOf('老载体只有正文')?.messages)).toBe('── 已压缩 ──');
+  });
+
+  it('零值形不落降级（N=0 是在场计数非缺席——与 ccrMarkerLine 零值防御位对齐）', () => {
+    expect(compactionSeparatorLine(0)).toBe('── 已压缩 0 条对话 ──');
   });
 });

@@ -8,7 +8,9 @@
  *
  * 格式（写入面 ccrMarkerLine 单源构造）：`<<ccr:HASH>> 原文已归档（N 条消息 / M 字符）`
  * ——本件同时供出逆函数 parseCcrMarkerLine（呈现层解析不复刻格式串）与
- * lastCcrEntryOf（载体正文末条目录行提取——目录恒链当次条目在末位的既定序）。
+ * lastCcrEntryOf（载体正文末条目录行提取——目录恒链当次条目在末位的既定序）；
+ * 压缩时间线分隔行文案 compactionSeparatorLine（B2 webui 对端迁移批增——
+ * TUI 分隔块渲染位与 webui Transcript 分流位词面单源）。
  */
 
 /** CCR 标记行前缀（<<ccr:HASH>> ——标记段构造与剥离的判据锚） */
@@ -55,4 +57,15 @@ export function lastCcrEntryOf(text: string): CcrDirectoryEntry | null {
     if (parsed !== null) last = parsed;
   }
   return last;
+}
+
+/**
+ * 压缩时间线分隔行文案（呈现层词面单源——TUI 分隔块渲染位原居件内模板串，
+ * webui frames 对端迁移批〔B2 挂账销账〕起双消费）：N 在场 =
+ * `── 已压缩 N 条对话 ──`；N 缺席（CCR 批前历史载体无标记段）= 降级形
+ * `── 已压缩 ──`。N 供数 = lastCcrEntryOf(载体正文)?.messages。色壳不归
+ * 本件：TUI dim 包壳 / webui 弱化样式各自呈现侧自理（runRecapLine 同律）。
+ */
+export function compactionSeparatorLine(count?: number): string {
+  return count === undefined ? '── 已压缩 ──' : `── 已压缩 ${count} 条对话 ──`;
 }

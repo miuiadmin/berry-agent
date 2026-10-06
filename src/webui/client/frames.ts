@@ -47,6 +47,13 @@ export interface ViewMessage {
    * 缺席无位。03 §10.4 SPA 呈现面终态条款①：与 TUI 错误块同律跨通道）
    */
   readonly error?: string;
+  /**
+   * 消息归因源（user 消息的 source——投影带出/缺席视为普通 user）：
+   * 'compaction' = 压缩摘要载体（渲染层替换为分隔行——载体正文零呈现，
+   * 分隔行是压缩事实唯一用户面正文位；07 B2 定形注 webui 对端迁移）。
+   * 直播路（message_end）与投影重建路（loadedMessages）同一判据位分流。
+   */
+  readonly source?: string;
   /** 活体流式位（true = 增量未定稿——流式尾巴呈现形） */
   readonly streaming: boolean;
 }
@@ -454,11 +461,13 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
         const timestamp = messageTimestamp(payload.message);
         const { key, seq } = messageKey(state, timestamp);
         const error = errorMessageOf(payload.message);
+        const source = messageSource(payload.message);
         const finalized: ViewMessage = {
           key,
           role,
           text,
           ...(error !== undefined ? { error } : {}),
+          ...(source !== undefined ? { source } : {}),
           streaming: false,
         };
         // 落稿换装带角色校验（webui-face#1）：终稿只换装同角色流式位——
@@ -847,6 +856,7 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
     const timestamp = messageTimestamp(message);
     const role = messageRole(message);
     const text = textOf(messageContent(message));
+    const source = messageSource(message);
     if (text !== '') {
       const snapKey = role + '\u0000' + text;
       snapTextCounts.set(snapKey, (snapTextCounts.get(snapKey) ?? 0) + 1);
@@ -858,6 +868,7 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
       role,
       text,
       ...(error !== undefined ? { error } : {}),
+      ...(source !== undefined ? { source } : {}),
       streaming: false,
     });
     // toolResult 行附加铸 ⚙ 终结行（第十一轮深扫 laneG L8-3）：活体窗内同一
@@ -1023,6 +1034,19 @@ function messageContent(message: unknown): unknown {
 function messageTimestamp(message: unknown): unknown {
   if (typeof message === 'object' && message !== null && 'timestamp' in message) {
     return (message as { timestamp: unknown }).timestamp;
+  }
+  return undefined;
+}
+
+/**
+ * 消息 source 位抽取（user 归因源——compaction 载体分流判据的数据半边）：
+ * 非串/空串不落位（坏形容错——缺席视为普通 user 向后兼容，message_end 落稿
+ * 与投影 loadedMessages 两路同律）
+ */
+function messageSource(message: unknown): string | undefined {
+  if (typeof message === 'object' && message !== null && 'source' in message) {
+    const value = (message as { source: unknown }).source;
+    if (typeof value === 'string' && value !== '') return value;
   }
   return undefined;
 }

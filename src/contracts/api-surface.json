@@ -970,6 +970,15 @@
       "sig": "242eef9f9edc8e86"
     },
     {
+      "symbol": "compactionSeparatorLine",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "压缩时间线分隔行文案（呈现层词面单源——TUI 分隔块渲染位原居件内模板串， webui frames 对端迁移批〔B2 挂账销账〕起双消费）：N 在场 = `── 已压缩 N 条对话 ──`；N 缺席（CCR 批前历史载体无标记段）= 降级形 `── 已压缩 ──`",
+      "kind": "function",
+      "sig": "f640a714e7e55c01"
+    },
+    {
       "symbol": "compareApiVersions",
       "module": "berry-agent",
       "tier": "stable",
