@@ -191,9 +191,10 @@ export async function runSessionExportCommand(
   }
   const sessionId = argv[0] ?? anchorSessionId ?? deps.focusedId();
   if (sessionId === undefined || sessionId === null) {
+    // 无参形诚实拒（07 §4.4 律七②机制词零入面——/compact 无焦点拒同族同构直白形）
     return {
       ok: false,
-      text: `无焦点会话可导出（无参形 = 焦点会话——当前焦点空悬且无命令锚会话）。\n${SESSION_EXPORT_USAGE}`,
+      text: `当前没有可导出的会话——/export 无参时作用于当前会话，先切换或选中会话再试。\n${SESSION_EXPORT_USAGE}`,
     };
   }
   const events = deps.eventsOf(sessionId);

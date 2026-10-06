@@ -987,7 +987,7 @@ describe('/export TUI 命令面 e2e（宿主级直注册 + 活体事件源 + 落
       assembly.stack.channels.addBackend(captureBackend(notified));
       // 焦点空悬 + 无锚：无参形（= 焦点会话）诚实拒——不落盘
       expect(await assembly.stack.channels.dispatchCommand('/export')).toBe(true);
-      expect(notified.some((t) => t.includes('无焦点会话可导出'))).toBe(true);
+      expect(notified.some((t) => t.includes('当前没有可导出的会话'))).toBe(true);
       // 建真会话 + 一轮对话 + 焦点在位：无参形导焦点会话
       const session = assembly.stack.openStartupSession();
       assembly.stack.channels.registerSession(session.sessionId);
@@ -1088,7 +1088,7 @@ describe('/compact TUI 命令面 e2e（宿主级直注册 + 五档回执 + /help
       expect(rows.some((r) => r.name === 'compact' && r.description?.includes('手动压缩早期对话为摘要'))).toBe(true);
       // 焦点空悬 + 无锚：无参形（= 焦点会话）诚实拒
       expect(await assembly.stack.channels.dispatchCommand('/compact')).toBe(true);
-      expect(notified.some((t) => t.includes('无焦点会话可压缩'))).toBe(true);
+      expect(notified.some((t) => t.includes('当前没有可压缩的会话'))).toBe(true);
       // 建真会话 + 焦点在位 + 零轮对话：薄会话档（planSegment 无合法段非错误）
       const session = assembly.stack.openStartupSession();
       assembly.stack.channels.registerSession(session.sessionId);

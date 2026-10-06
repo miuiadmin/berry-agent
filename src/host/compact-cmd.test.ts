@@ -130,7 +130,9 @@ describe('runCompactCommand 命令腿', () => {
     const { deps } = rigDeps({ focused: null });
     const out = await runCompactCommand([], undefined, deps);
     expect(out.ok).toBe(false);
-    expect(out.text).toBe(`无焦点会话可压缩（无参形 = 焦点会话——当前焦点空悬且无命令锚会话）。\n${COMPACT_USAGE}`);
+    expect(out.text).toBe(
+      `当前没有可压缩的会话——/compact 无参时作用于当前会话，先切换或选中会话再试。\n${COMPACT_USAGE}`,
+    );
   });
 
   it('会话不在场：SESSION_NOT_FOUND fail-loud 回执', async () => {

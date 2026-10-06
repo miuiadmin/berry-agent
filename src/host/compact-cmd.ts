@@ -148,9 +148,10 @@ export async function runCompactCommand(
 ): Promise<CompactCommandOutcome> {
   const sessionId = anchorSessionId ?? deps.focusedId();
   if (sessionId === undefined || sessionId === null) {
+    // 无参形诚实拒（07 §4.4 律七②机制词零入面——直白形 + 律二下一步句）
     return {
       ok: false,
-      text: `无焦点会话可压缩（无参形 = 焦点会话——当前焦点空悬且无命令锚会话）。\n${COMPACT_USAGE}`,
+      text: `当前没有可压缩的会话——/compact 无参时作用于当前会话，先切换或选中会话再试。\n${COMPACT_USAGE}`,
     };
   }
   const log = deps.logOf(sessionId);

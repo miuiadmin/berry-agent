@@ -359,6 +359,10 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
           uiCore.notify('当前界面不支持调用台账', { level: 'warn' });
         }
       },
+      // 「最近 50 条」= conversation CALL_LEDGER_LIMIT（src/conversation/calls.ts）
+      // 定值镜像（B3 钉 50），值动两处同笔——DAG 禁 channels→conversation 边使
+      // import 单源不可达，值拷贝以注记镜像代位（与 persist/input-history.ts
+      // INPUT_HISTORY_CAP 双镜像注同律）
       '会话调用台账（模型调用明细·最近 50 条）',
     );
   }

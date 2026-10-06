@@ -38,7 +38,12 @@ export interface EditorState {
   markers: Map<number, string>;
 }
 
-/** 输入历史帽（07 呈现面件 2 语义：输入历史 100 条） */
+/**
+ * 输入历史帽（07 呈现面件 2 语义：输入历史 100 条）。值 = persist
+ * INPUT_HISTORY_CAP（persist/input-history.ts）同值镜像（07 §4.1 件 2 B1
+ * 定值）——两侧各持常量注释互指，值动两处同笔（DAG 两侧互无边使 import
+ * 单源不可达；persist 侧注已指向本位，本注补齐反向闭合）
+ */
 export const HISTORY_LIMIT = 100;
 
 /** undo 上限（码面定值——与历史帽同值，规范只钉「有上限」） */

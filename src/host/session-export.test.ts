@@ -276,10 +276,10 @@ describe('runSessionExportCommand 命令腿（TUI/CLI 两消费单源）', () =>
     expect(tooMany.ok).toBe(false);
     expect(tooMany.text).toContain('参数过多');
     expect(tooMany.text).toContain(SESSION_EXPORT_USAGE);
-    // 无参且无锚无焦点：无焦点可导诚实拒
+    // 无参且无锚无焦点：无可导会话诚实拒（直白形——07 §4.4 律七②机制词零入面）
     const noFocus = await runSessionExportCommand([], undefined, depsOf({ focusedId: () => null }));
     expect(noFocus.ok).toBe(false);
-    expect(noFocus.text).toContain('无焦点会话可导出');
+    expect(noFocus.text).toContain('当前没有可导出的会话——/export 无参时作用于当前会话，先切换或选中会话再试');
     // 指定 id 不在场：SESSION_NOT_FOUND fail-loud 回执（既有错误码族）
     const missing = await runSessionExportCommand(['no-such'], undefined, depsOf({ eventsOf: () => undefined }));
     expect(missing.ok).toBe(false);
