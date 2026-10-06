@@ -1882,7 +1882,10 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
         async (args) => {
           const sessionId = deps.focusSessionId?.();
           if (sessionId === undefined || sessionId === '') {
-            deps.notify?.('checkpoint', `当前无焦点会话——/rewind 需在会话上下文执行。\n${REWIND_USAGE}`);
+            deps.notify?.(
+              'checkpoint',
+              `当前没有可操作的会话——/rewind 需在某个会话中使用，先切换或选中会话再试。\n${REWIND_USAGE}`,
+            );
             return;
           }
           // runRewindCommand 依赖（批3：busy 守卫 + adopt 切前台两位透传——

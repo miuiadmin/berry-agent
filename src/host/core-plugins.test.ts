@@ -2753,7 +2753,9 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(commands).toContain('rewind'); // gate/命令照装——焦点位缺席只拒本动词
     const rewindCmd = commandSpecs.find((spec) => spec.name === 'rewind')!;
     await rewindCmd.handler({ raw: 'list', argv: ['list'] });
-    expect(notified[notified.length - 1]!).toContain('无焦点会话');
+    // 用户面直白词锁（07 §4.4 律七②机制词零入面——「焦点会话」不落用户可见文案）
+    expect(notified[notified.length - 1]!).toContain('没有可操作的会话');
+    expect(notified[notified.length - 1]!).not.toContain('焦点会话');
   });
 
   it('三桥零 config 惰性装载全环（批 19d）：三服务面 + LSP 静态四件 + browser 十件 + /browser 命令 + 零 spawn 零网络', async () => {
