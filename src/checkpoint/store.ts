@@ -159,20 +159,46 @@ export function openCheckpointStore(
 ): CheckpointStore {
   const baseDir = join(dataDir, 'data', 'checkpoint');
   const warn = options?.warn ?? ((message: string) => console.warn(message));
+  /**
+   * 在飞引用计数（05 §5.3 ckpt-gc 定形注——挖掘 15 轮）：hash → 已落 blob
+   * 未入册 manifest 的在飞引用数。并发捕获交错窗（capture B 段一~段二的
+   * await 边内，他路 prune 的引用扫描看不到 B 未落册的 blob → 误判无引用
+   * 物理删除 → B 段二落册后引用悬空）由本计数豁免：writeBlob 先计数登记
+   * 再写（写失败回滚）、saveManifest 落册时对 files 各 hash 注销（引用接管
+   * 归引用扫描）、prune GC 判据=「无在册引用**且**在飞计数为零」。段一崩溃
+   * 残留计数=该 blob 永豁免（内容寻址复写可归零——泄漏面=孤儿 blob 磁盘
+   * 残留非正确性问题；GC 语义宁漏杀不误杀，与 N4 豁免集同向）。
+   */
+  const inflight = new Map<string, number>();
+  /** 在飞计数 -1（归零即出册——登记/注销两向共用） */
+  const releaseInflight = (hash: string): void => {
+    const n = (inflight.get(hash) ?? 0) - 1;
+    if (n <= 0) inflight.delete(hash);
+    else inflight.set(hash, n);
+  };
 
   return {
     baseDir,
 
     async writeBlob(hash, content) {
       if (!BLOB_HASH_RE.test(hash)) throw corrupt(`blob 哈希格式异常：${hash}`);
-      const target = blobPath(baseDir, hash);
+      // 在飞登记先于写（ckpt-gc 定形注——落盘与入册之间的窗内 blob 不被
+      // 并发 prune 误删；写失败下方回滚，未落盘不占在飞面）
+      inflight.set(hash, (inflight.get(hash) ?? 0) + 1);
       try {
-        await readFile(target);
-        return; // 在场即跳过——内容寻址共享，同内容零重写
-      } catch {
-        // 缺席——落盘（走原子写）
+        const target = blobPath(baseDir, hash);
+        try {
+          await readFile(target);
+          return; // 在场即跳过——内容寻址共享，同内容零重写（计数留给
+          // saveManifest 注销——在场腿同样在「未入册」窗内）
+        } catch {
+          // 缺席——落盘（走原子写）
+        }
+        await atomicWrite(target, content);
+      } catch (err) {
+        releaseInflight(hash); // 写失败回滚计数
+        throw err;
       }
-      await atomicWrite(target, content);
     },
 
     async readBlob(hash) {
@@ -191,6 +217,10 @@ export function openCheckpointStore(
       // id 白名单校验（防路径注入——manifest id 亦是路径段）
       if (!MANIFEST_ID_RE.test(manifest.id)) throw corrupt(`manifest id 格式异常：${manifest.id}`);
       await atomicWrite(join(baseDir, 'manifests', `${manifest.id}.json`), JSON.stringify(manifest, null, 2));
+      // 落册即引用接管（ckpt-gc 定形注）：files 各 hash 在飞计数注销——此后
+      // 豁免归引用扫描（manifest 已在册，prune 引用集看得到）。写失败抛出则
+      // 不注销（计数残留=安全向豁免，同段一崩溃残留形）
+      for (const file of manifest.files) releaseInflight(file.hash);
     },
 
     async loadManifest(id) {
@@ -301,6 +331,9 @@ export function openCheckpointStore(
       let removedBlobs = 0;
       for (const hash of await this.listBlobHashes()) {
         if (referenced.has(hash)) continue;
+        // 在飞豁免（ckpt-gc 定形注——挖掘 15 轮）：已落盘未入册的并发捕获
+        // blob 不误删（宁漏杀不误杀——误杀毁 restore 不可逆，漏杀只占盘）
+        if ((inflight.get(hash) ?? 0) > 0) continue;
         await this.deleteBlob(hash);
         removedBlobs += 1;
       }

@@ -45,6 +45,26 @@ describe('blob 仓', () => {
     expect(await store.listBlobHashes()).toEqual([hash]);
   });
 
+  it('ckpt-gc（挖掘 15 轮）：并发捕获交错窗——段一 blob 未入册不被他人 prune 误删（在飞豁免）+ 引用接管闭环', async () => {
+    // 交错序确定性钉死（05 §5.3 ckpt-gc 定形注）：capture B 段一（writeBlob
+    // 落盘）→ capture A 段三（prune 引用扫描——B 的 manifest 未在册，引用集
+    // 看不到该 blob）→ 修前：误判无引用物理删除 → B 段二落册后引用悬空
+    // （restore readBlob blob 缺席——快照毁于维护面）
+    const content = Buffer.from('in-flight 保护对象');
+    const hash = contentHash(content);
+    await store.writeBlob(hash, content); // B 段一（blob 落盘、manifest 未落）
+    await store.prune(); // A 段三（并发捕获的裁剪编舞）
+    await store.saveManifest(manifest({ id: 'm-if', files: [{ path: 'x.txt', hash, bytes: content.byteLength }] })); // B 段二（落册引用）
+    // 修前红锚：blob 被误删 → readBlob 缺席 corrupt 抛；修后：在飞计数豁免
+    await expect(store.readBlob(hash)).resolves.toEqual(content);
+    // 引用接管闭环：saveManifest 已注销在飞计数、册在引用集接管——豁免非
+    // 永久泄漏；删册释放引用后 prune 可正常回收（宁漏杀不误杀的正反面）
+    await store.deleteManifest('m-if');
+    const result = await store.prune();
+    expect(result.removedBlobs).toBe(1);
+    expect(await store.listBlobHashes()).toEqual([]);
+  });
+
   it('同内容重写跳过（在场零重写——共享去重）', async () => {
     const content = Buffer.from('dup');
     const hash = contentHash(content);
@@ -252,7 +272,17 @@ describe('prune（裁剪帽 + 引用计数 GC）', () => {
     const orphanHash = contentHash(orphan);
     await store.writeBlob(sharedHash, shared);
     await store.writeBlob(soloHash, solo);
+    // orphan 构造（真 orphan 形——落册后删册释放引用；ckpt-gc 批后裸
+    // writeBlob 不落册=段一崩溃残留形，属在飞豁免面〔永豁免——宁漏杀
+    // 不误杀〕不再被 GC 回收）
     await store.writeBlob(orphanHash, orphan);
+    await store.saveManifest(
+      manifest({
+        id: 'orphan-holder',
+        files: [{ path: 'o.txt', hash: orphanHash, bytes: orphan.byteLength }],
+      }),
+    );
+    await store.deleteManifest('orphan-holder');
     await store.saveManifest(
       manifest({
         id: 'a',
