@@ -383,14 +383,28 @@ function foldNote(mark: string, text: string): string {
 }
 
 /**
- * 内容块数组 → 正文文本（text 块逐段消毒、thinking/图像不入正文——导出
- * 正文 = 可读对话面；消毒保 \n\n 段落拼接形）。
+ * 图片占位行文案（03 §10.4 剪贴板附件批注⑦——markdown 导出与 TUI transcript
+ * joinTextBlocks 两面同律）：image/image-ref 块降本占位行——每块一行、图序
+ * 保留、与文本段按 content 块序交织（导出正文 = 可读对话面，图以占位在场非
+ * 静默丢失）。
+ */
+const IMAGE_PLACEHOLDER_LINE = '[图片]';
+
+/**
+ * 内容块数组 → 正文文本（text 块逐段消毒、thinking 不入正文；image/image-ref
+ * 块降「[图片]」占位行〔03 §10.4 剪贴板附件批注⑦——markdown 导出占位形与
+ * TUI joinTextBlocks 同律〕；消毒保 \n\n 段落拼接形）。
  */
 function textOf(content: string | readonly ContentBlock[]): string {
   if (typeof content === 'string') return sanitizeBodyText(content);
   const parts: string[] = [];
   for (const block of content) {
     if (block.type === 'text') parts.push(sanitizeBodyText(block.text));
+    // 图块占位：image 与 image-ref 引用块同降「[图片]」占位行〔03 §10.4
+    // 剪贴板附件批注⑦——markdown 导出占位形与 TUI joinTextBlocks 同律〕
+    else if (block.type === 'image' || block.type === 'image-ref') {
+      parts.push(IMAGE_PLACEHOLDER_LINE);
+    }
   }
   return parts.join('\n\n');
 }

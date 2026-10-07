@@ -97,7 +97,9 @@ import {
 } from '../llm/index.js';
 import type { LlmRuntime, LlmService, LlmUsageEventData, Provider } from '../llm/index.js';
 import type { QueryEventsFilter, QueryEventsResult } from '../persist/index.js';
-import { clampTitleText, sessionDisplayTitleOf } from '../persist/index.js';
+import { clampTitleText, createAttachmentStore, sessionDisplayTitleOf } from '../persist/index.js';
+import type { AttachmentStore } from '../persist/index.js';
+import { rehydrateImageRefsForLlm } from './attachment-intake.js';
 import type { ApprovalPolicyMode, SandboxMode, ToolPolicyDraft, ToolPolicyEntry } from '../safety/index.js';
 import { matchToolPolicy } from '../safety/index.js';
 import { deriveMessages } from '../session/index.js';
@@ -225,6 +227,14 @@ export interface ConversationStackOptions {
    */
   readonly compaction?: CompactionService;
   /**
+   * 附件库注入位（03 §10.4 ③ 2026-10-08 剪贴板附件批）：缺省 = 数据目录
+   * 在场时自铸（`<dataDir>/attachments` 内容寻址旁路）；内存模式（dataDir
+   * null）= undefined 诚实缺席——受理链在桥侧拒（400 数据目录族）、再水化
+   * 降「[图片已不可用]」占位。显式注入 = 测试形/装配覆盖（与 providers/model
+   * 同形）。受理（桥）与再水化（convertToLlm）共享同一实例。
+   */
+  readonly attachments?: AttachmentStore;
+  /**
    * 跨树观测门检接线（e-2 观测腿——03 §4.6 第五枚 sessions.observe-cross 工具
    * 腿宿主注入位；开门制扩展批 2026-09-09 授予面接线）：getOpens = 模型道
    * 门检输入 = doors 段单独（装配根接活体读——插件道订阅走 plugin-context
@@ -297,6 +307,18 @@ export interface ConversationStack {
   readonly scope: Scope;
   readonly dispatch: EventDispatch;
   readonly model: string;
+  /**
+   * 附件库读面（03 §10.4 ③ 剪贴板附件批）：受理链（装配桥 submitPrompt
+   * images 位）与再水化（convertToLlm）共享的同一实例；内存模式 =
+   * undefined 诚实缺席（受理拒 400 数据目录族/再水化降占位）。
+   */
+  readonly attachments: AttachmentStore | undefined;
+  /**
+   * 会话生效模型读面（03 §10.4 ② 能力门供源）：per-session 显式覆盖 ??
+   * 栈基线旋钮——受理链能力门按本值点查模型目录 input 声明（缺声明不拦，
+   * 诚实失败不臆断）。与驱动装配取值器同语义的只读投影。
+   */
+  sessionModelOf(sessionId: string): string;
   /**
    * 思考档位栈基线活读（2026-09-17 会话档位切换面批 F1）：装配面原始值的
    * 透传读面——会话生效档以 `foldSessionThinkingLevel(session.events()) ??
@@ -440,10 +462,13 @@ export interface ConversationStack {
    */
   projectionWithSeqOf(sessionId: string): Promise<readonly (AgentMessage & { readonly seq: number })[]>;
   driverOf(sessionId: string): ConversationDriver | undefined;
-  /** 提交入口（fire-and-forget 形——回执经信封回流；无该会话驱动时 undefined） */
+  /** 提交入口（fire-and-forget 形——回执经信封回流；无该会话驱动时 undefined）。
+   * content 宽形（03 §10.4 ② 剪贴板附件批）：string 原样（既有流零漂移）；
+   * 块数组 = 受理链铸形的 text/image-ref 引用块族（image-only 合法——空文本
+   * 不铸空块）；内联 image 块 = read 工具/MCP 桥既有路径不变。 */
   submitText(
     sessionId: string,
-    text: string,
+    content: UserMessage['content'],
     options?: SubmitOptions & { source?: UserMessage['source'] },
   ): Promise<SubmitResult> | undefined;
   /** 协作中止（在飞 run 的打断柄） */
@@ -519,6 +544,15 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // const 基线同源单变量族——读面/defaultModel 闭包/驱动装配取值器三消费位
   // 活读同一持有（setModel 换档三面齐动，零第二事实源）。
   let currentModel = model;
+  // 附件库单持有（03 §10.4 ③）：options 显式注入 ?? 数据目录在场自铸；内存
+  // 模式 = undefined 诚实缺席（受理链拒/再水化降占位两消费位同判）
+  const attachments =
+    options.attachments ??
+    (options.runtime.dataDir !== null ? createAttachmentStore(options.runtime.dataDir) : undefined);
+  // per-session 模型覆盖登记（03 §10.4 ② 能力门读面供源）：驱动工厂每次
+  // 起会镜像最新构造——create 携覆盖则记、open/resume/fork 不携则摘（与
+  // 驱动装配「sessionModel ?? 栈基线」同语义的只读投影面）
+  const sessionModelOverrides = new Map<string, string>();
   // lane 帽（04 §4 宿主级 run 并发帽——channels 消息语义批 m-2）：全宿主
   // 单例信号量，driver 装配位 seam 注入（acquireRunSlot——kick 同步试位/
   // 排队段两面消费；steer/inject 腿不经闸）。容量解析序：显式覆盖位 > env > 缺省 16。
@@ -1087,6 +1121,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     onEvent: externalEventSink,
   }) => {
     const sessionId = session.sessionId;
+    // per-session 模型覆盖登记镜像（03 §10.4 ② 能力门读面）：携覆盖则记、
+    // 不携则摘——sessionModelOf 读面与驱动装配同语义
+    if (sessionModel !== undefined) sessionModelOverrides.set(sessionId, sessionModel);
+    else sessionModelOverrides.delete(sessionId);
     // 会话锚源 = 登记行 workspaceRoot（03 §10.7 六役定形注）：驱动工厂每次
     // 起会（create/open/fork）自日志活体取锚传入工具装配——issue 起
     // headless 会话的 worktree 路径经此落位（修前恒栈级 canonical 仓根，
@@ -1290,8 +1328,20 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         }
         return DEFAULT_COMPACTION_CONFIG.fallbackWindowTokens;
       },
-      convertToLlm: (message: AgentMessage) =>
-        isStandardMessage(message) ? message : (getMessageRoleDefinition(message.role)?.toLlm?.(message) ?? null),
+      convertToLlm: (message: AgentMessage) => {
+        const converted = isStandardMessage(message)
+          ? message
+          : (getMessageRoleDefinition(message.role)?.toLlm?.(message) ?? null);
+        // image-ref 再水化单点（03 §10.4 ⑤——请求组装转换位）：user 块数组
+        // 中的引用块读附件库还原 base64 ImageContent（文件缺席/坏形降
+        // 「[图片已不可用]」文本占位）；无引用块消息恒等直返零漂移——投影
+        // 与 durable 恒引用形不动（重播种侧零改）。toLlm 扩张形（todo 角色
+        // 一转多）逐枚再水化（非 user 腿恒等快路径，零开销）
+        if (converted === null) return null;
+        return Array.isArray(converted)
+          ? converted.map((one) => rehydrateImageRefsForLlm(one, attachments))
+          : rehydrateImageRefsForLlm(converted, attachments);
+      },
       // 栈基线走取值器形（07 §4.1 R5）：每 run 起跑现取旋钮值——ctrl+p 换档
       // 下一 run 生效；per-session 显式覆盖保持定值快照（覆盖序不变，旋钮
       // 不越覆盖位）。
@@ -1607,6 +1657,12 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     get model() {
       return currentModel;
     },
+    // 附件库读面（03 §10.4 ③）：受理/再水化共享单实例（内存模式诚实缺席）
+    attachments,
+    // 会话生效模型读面（03 §10.4 ② 能力门供源）：覆盖登记 ?? 栈基线旋钮
+    sessionModelOf(sessionId: string): string {
+      return sessionModelOverrides.get(sessionId) ?? currentModel;
+    },
     // 模型旋钮（07 §4.1 R5 挂账解挂批）：内存换档——读面/驱动取值器/defaultModel
     // 三消费位闭包活读同一持有，本面零广播零事件（纯拉取面——换档回执由
     // 调用方（TUI ctrl+p）自行 notify）。
@@ -1712,10 +1768,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // 卡② 腿①：GET 读面带 seq 投影（副本增位——共享输出零改动）
     projectionWithSeqOf,
     driverOf: (sessionId) => manager.driverOf(sessionId),
-    submitText(sessionId, text, submitOptions) {
+    submitText(sessionId, content, submitOptions) {
       const driver = manager.driverOf(sessionId);
       if (driver === undefined) return undefined; // 未开会话——上层提交序不达（理论不达防御位）
-      const run = driver.submit(text, submitOptions);
+      const run = driver.submit(content, submitOptions);
       // 回执面错误经 notify 回流呈现面（fire-and-forget 无未处理拒绝；await 方仍得真回执）
       void run.catch((err: unknown) => {
         channels.notify(sessionId, `提交失败：${err instanceof Error ? err.message : String(err)}`, {

@@ -51,6 +51,7 @@ import { fileURLToPath } from 'node:url';
 
 import { FileMentionSource } from '../channels/index.js';
 import { BaseError, type SessionEvent } from '../contracts/index.js';
+import type { TextContent, UserMessage } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import {
   foldSessionSandboxMode,
@@ -79,6 +80,7 @@ import {
 } from './session-tier-copy.js';
 import type { HostRuntime } from './runtime.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
+import { admitPasteImages } from './attachment-intake.js';
 
 /** 开面选项（TUI 入口注入面——port 即 `--port` 旗标值） */
 export interface WebuiBridgeOptions {
@@ -376,6 +378,32 @@ function bridgeDeps(
         return stack.manager.exists(sessionId) ? 'closed' : 'missing';
       },
       submitPrompt: (input) => {
+        // —— 剪贴板附件受理链前置（03 §10.4 ②）：images 在场非空先过链逐件
+        // 校验（能力门→数量帽→base64→字节帽→魔数四族→MIME 核验→尺寸帽→
+        // 内容寻址落盘）铸 image-ref 引用块族；拒 = 受理拒异常上抛（status
+        // 400——件侧窄 catch 折 400 bad_request，零新注册码）。链先于幂等
+        // admit：拒路径零副作用辖 durable 会话面；空数组/缺席早退零漂移。
+        const imageBlocks = admitPasteImages({
+          sessionId: input.sessionId,
+          images: input.images ?? [],
+          store: stack.attachments,
+          capability: {
+            modelOf: (sessionId) => stack.sessionModelOf(sessionId),
+            modelInfoOf: (modelId) => stack.llm.getModel(modelId),
+          },
+        });
+        // 提交内容组装：无图 = 原样 string（既有提交流零漂移）；有图 = 文本块
+        // 先行（空文本不铸空块——image-only 合法形 03 §10.4 ②）+ 引用块随后
+        const submitContent: UserMessage['content'] =
+          imageBlocks.length === 0
+            ? input.content
+            : [
+                ...(input.content.length > 0 ? [{ type: 'text', text: input.content } as TextContent] : []),
+                ...imageBlocks,
+              ];
+        // admit 判据单源：块数组形走 JSON 序列化——与 durable 落账形同构
+        // （lookupDedupeContent 非串腿同 JSON.stringify；同键同文同图幂等回执）
+        const admitContent = typeof submitContent === 'string' ? submitContent : JSON.stringify(submitContent);
         // —— 幂等 admit（第六役转交 webui-face#2 + 8572ccd 拍板收敛落地 +
         // 十六役补扫 N2 两档化）：SPA 重试以同 messageId 再发 → durable
         // data.dedupeKey 同族查重（同键同内容幂等回执不重跑 / 同键异内容
@@ -394,7 +422,7 @@ function bridgeDeps(
             // durable 已覆盖——在飞账淘汰（此后由 durable 档直查，账内旧键只
             // 白占帽位）
             inflightDedupe.get(input.sessionId)?.delete(input.messageId);
-            if (known !== input.content) {
+            if (known !== admitContent) {
               throw new BaseError(
                 'SDK_MESSAGE_CONFLICT',
                 `messageId=${input.messageId} 同键异内容（webui 幂等 admit 冲突档）`,
@@ -405,7 +433,7 @@ function bridgeDeps(
           const pending = inflightDedupe.get(input.sessionId)?.get(input.messageId);
           if (pending !== undefined) {
             // 在飞窗命中（durable 尚未见）——判据族与 durable 档同源
-            if (pending !== input.content) {
+            if (pending !== admitContent) {
               throw new BaseError(
                 'SDK_MESSAGE_CONFLICT',
                 `messageId=${input.messageId} 同键异内容（webui 幂等受理——消息未落库窗口内收到异文重发）`,
@@ -414,7 +442,7 @@ function bridgeDeps(
             return { sessionId: input.sessionId }; // 在飞窗幂等重收执——不重入队不重跑
           }
         }
-        void stack.submitText(input.sessionId, input.content, {
+        void stack.submitText(input.sessionId, submitContent, {
           // 具名通道归因（05 §3.1 channel: 前缀——投影同视 user）+ 幂等键落账
           source: 'channel:webui',
           ...(idempotent ? { dedupeKey: input.messageId } : {}),
@@ -422,7 +450,7 @@ function bridgeDeps(
         if (idempotent) {
           // 受理即记在飞账（durable 落账前的重发窗由此账接住）+ 帽执法
           const record = inflightDedupe.get(input.sessionId) ?? new Map<string, string>();
-          record.set(input.messageId, input.content);
+          record.set(input.messageId, admitContent);
           inflightDedupe.set(input.sessionId, record);
           trimInflightDedupe();
         }

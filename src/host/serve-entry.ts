@@ -40,6 +40,7 @@ import { stdin, stdout, stderr } from 'node:process';
 import type { Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import { createSdkBackend, decodeWireLine, encodeWireLine, isSdkRequest, splitWireLines } from '../channels/index.js';
+import { admitKeyFromStored } from '../channels/index.js';
 import type {
   SdkDurableEntry,
   SdkOutboundSink,
@@ -55,6 +56,7 @@ import { sanitizeTitleText, sessionDisplayTitleOf } from '../persist/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
+import { admitPasteImages } from './attachment-intake.js';
 import type { ServeFlags } from './cli.js';
 import { startSchedulerClock } from './core-plugins.js';
 import type { ConversationStack } from './conversation-stack.js';
@@ -143,6 +145,22 @@ export function createServeBridge(
 
   return {
     submitPrompt: (input: SdkSubmitInput): SdkSubmitOutcome => {
+      // —— 剪贴板附件受理链前置（03 §10.4 ② serve 线同批——webui-bridge 镜像
+      // 受理序）：images 在场非空先过链逐件校验（能力门→数量帽→base64→字节帽
+      // →魔数四族→MIME 核验→尺寸帽→内容寻址落盘）铸 image-ref 引用块族；
+      // 拒 = AttachmentIntakeRejectionError 上抛（status 400——线核鸭定折
+      // SDK_SUBMIT_REJECTED 错误帧）。链先于 manager.create：拒路径零副作用
+      // 辖 durable 会话面。能力门查面：显式会话取其生效模型；缺席（新建形）
+      // 取栈缺省模型——恰为新建会话将跑的模型
+      const imageBlocks = admitPasteImages({
+        sessionId: input.sessionId ?? '',
+        images: input.images ?? [],
+        store: stack.attachments,
+        capability: {
+          modelOf: (sessionId) => stack.sessionModelOf(sessionId),
+          modelInfoOf: (modelId) => stack.llm.getModel(modelId),
+        },
+      });
       let sessionId = input.sessionId;
       if (sessionId === undefined) {
         // 登记键 canonical 化（CL-A2）：raw cwd 锚过 canonicalWorkspaceRoot
@@ -156,12 +174,20 @@ export function createServeBridge(
       // routedChannel 观察推导（03 §10.6 注记：受理时刻在飞 run → steer、否则
       // followUp——驱动侧单源路由的受理时刻投影，非控制位）
       const routedChannel = driver.running ? ('steer' as const) : ('followUp' as const);
+      // 提交内容组装（webui-bridge 同式）：无图 = 原样 string（既有提交流零
+      // 漂移）；有图 = 文本块先行（空文本不铸空块——image-only 合法形 03
+      // §10.4 ②）+ image-ref 引用块随后（投影恒引用形——原始 base64 不落
+      // durable）
+      const submitContent: Parameters<ConversationStack['submitText']>[1] =
+        imageBlocks.length === 0
+          ? input.content
+          : [...(input.content.length > 0 ? [{ type: 'text' as const, text: input.content }] : []), ...imageBlocks];
       // 起跑让位一拍（queueMicrotask）：线核在 submitPrompt 返回后才同步挂
       // 自动订阅——同步起跑会让 agent_start 先于订阅点入空（首帧丢）。让位
       // 一拍保证订阅点先落、直播自 agent_start 起。回执经信封回流；回执面
       // 错误经 submitText 内部 notify 收口（无未处理拒绝）
       queueMicrotask(() => {
-        stack.submitText(sessionId, input.content, {
+        stack.submitText(sessionId, submitContent, {
           source: 'channel:sdk',
           dedupeKey: input.messageId,
         });
@@ -169,13 +195,15 @@ export function createServeBridge(
       return { sessionId, routedChannel };
     },
     lookupDedupeKey: (sessionId: string, messageId: string): string | undefined => {
-      // durable 档查重（05 §3.5 第二腿）：返回原内容串——admit 同键异内容
-      // 判定源；块形内容（非 serve 线来源理论不达）JSON 稳定化兜底
+      // durable 档查重（05 §3.5 第二腿）：内容经 admitKeyFromStored 重建为
+      // admit canonical 键（ref 形——03 §10.4 ① serve 线收口）——与线核
+      // admitContentKey 受理键同源恒等，跨重启同键同文同图重发 = duplicate
+      // 不误判 conflict（原始 base64 不落 durable，重建唯有 ref 形可同源）
       for (const event of logOf(sessionId)) {
         if (event.type !== 'user/message') continue;
         const data = event.data as { dedupeKey?: string; content?: unknown };
         if (data.dedupeKey !== messageId) continue;
-        return typeof data.content === 'string' ? data.content : (JSON.stringify(data.content) ?? '');
+        return admitKeyFromStored(data.content);
       }
       return undefined;
     },

@@ -18,12 +18,13 @@ import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import type { SdkWireFrame } from '../channels/index.js';
-import { decodeWireLine } from '../channels/index.js';
+import { admitContentKey, decodeWireLine } from '../channels/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
 
 import { createConversationStack } from './conversation-stack.js';
+import { AttachmentIntakeRejectionError } from './attachment-intake.js';
 import { runServeEntry, createServeBridge } from './serve-entry.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
@@ -718,6 +719,20 @@ async function pollUntil(pred: () => boolean, ms = 4_000): Promise<void> {
   }
 }
 
+/**
+ * 自铸最小 PNG fixture（attachment-intake.test 同式复制——魔数嗅探读前
+ * 8 字节、宽高读 IHDR 偏移 16/20 大端 u32；CRC 不进受理链判据零填占位）。
+ */
+function pngWithDimensions(width: number, height: number): Buffer {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  const chunk = Buffer.concat([Buffer.alloc(4), Buffer.from('IHDR', 'ascii'), ihdr]);
+  chunk.writeUInt32BE(13, 0);
+  return Buffer.concat([signature, chunk]);
+}
+
 describe('serve 四桥会话键 canonical 统一（CL-A2）', () => {
   it('登记位（createServeBridge 内 manager.create）：非 canonical 锚经 canonicalWorkspaceRoot 登记——查询侧按 canonical 根必命中', async () => {
     const { repoRoot, alias } = makeAliasFixture('a2-funnel-');
@@ -747,6 +762,98 @@ describe('serve 四桥会话键 canonical 统一（CL-A2）', () => {
       // 断言：按 canonical 根查询必须命中（修前 raw 别名键落库 → miss → 红）
       const hit = rt.persistence.store.listSessions({ workspaceRoot: canonical }).find((row) => row.id === sessionId);
       expect(hit, `canonical=${canonical} 键下未见会话 ${sessionId}`).toBeDefined();
+    } finally {
+      await rt.shutdown();
+    }
+  });
+});
+
+describe('submitPrompt 携图受理（03 §10.4 ① serve 线同批——受理链前置 + durable 引用形落账 + 重建键恒等）', () => {
+  /** 携图 submitPrompt 全环装配（faux 模型显式声明 input 含 image——能力门判据确定性） */
+  const rigStack = () => {
+    const rt: HostRuntime = createHostRuntime({
+      dataDir: mkdtempSync(join(realpathSync(tmpdir()), 'serve-img-data-')),
+    });
+    const faux = fauxProvider({ provider: 'faux-serve-img', models: [{ id: 'm1', input: ['text', 'image'] }] });
+    faux.setResponses([() => messageOf()]);
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider] as readonly Provider[],
+      model: 'faux-serve-img/m1',
+      env: {},
+    });
+    return { rt, stack };
+  };
+
+  it('携图 submitPrompt：durable user/message 落 text + image-ref 块数组（投影恒引用形）+ dedupeKey 落账', async () => {
+    const { rt, stack } = rigStack();
+    try {
+      const bridge = createServeBridge(stack, rt, { cwd: process.cwd() });
+      const pngB64 = pngWithDimensions(1, 1).toString('base64');
+      const { sessionId } = bridge.submitPrompt({
+        content: '看图',
+        messageId: 'serve-img-1',
+        images: [{ data: pngB64, mimeType: 'image/png' }],
+      });
+      await pollUntil(() =>
+        rt.persistence.store
+          .loadEvents(sessionId)
+          .some((e) => e.type === 'user/message' && (e.data as { dedupeKey?: string }).dedupeKey === 'serve-img-1'),
+      );
+      const event = rt.persistence.store
+        .loadEvents(sessionId)
+        .find((e) => e.type === 'user/message' && (e.data as { dedupeKey?: string }).dedupeKey === 'serve-img-1');
+      // durable 内容 = 块数组（text 先 image-ref 后——原始 base64 不落 durable）
+      const content = (event!.data as { content: unknown }).content as Array<Record<string, unknown>>;
+      expect(content).toEqual([
+        { type: 'text', text: '看图' },
+        {
+          type: 'image-ref',
+          ref: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+          mimeType: 'image/png',
+          bytes: pngWithDimensions(1, 1).byteLength,
+        },
+      ]);
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
+  it('受理拒（数量帽 5>4）→ throw status 400（AttachmentIntakeRejectionError——拒先于登记/落账，durable 面零副作用）', () => {
+    const { rt, stack } = rigStack();
+    const pngB64 = pngWithDimensions(2, 2).toString('base64');
+    try {
+      const bridge = createServeBridge(stack, rt, { cwd: process.cwd() });
+      const five = Array.from({ length: 5 }, () => ({ data: pngB64, mimeType: 'image/png' }));
+      let caught: unknown;
+      try {
+        bridge.submitPrompt({ content: '超帽', messageId: 'serve-img-cap', images: five });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(AttachmentIntakeRejectionError);
+      expect((caught as { status?: number }).status).toBe(400);
+    } finally {
+      void rt.shutdown();
+    }
+  });
+
+  it('lookupDedupeKey 重建恒等：durable 块数组 → admitContentKey(文, 图) 同源（跨重启查重键不漂移）', async () => {
+    const { rt, stack } = rigStack();
+    try {
+      const bridge = createServeBridge(stack, rt, { cwd: process.cwd() });
+      const pngB64 = pngWithDimensions(3, 3).toString('base64');
+      const { sessionId } = bridge.submitPrompt({
+        content: '看图',
+        messageId: 'serve-img-2',
+        images: [{ data: pngB64, mimeType: 'image/png' }],
+      });
+      await pollUntil(() => bridge.lookupDedupeKey(sessionId, 'serve-img-2') !== undefined);
+      // 重建键 = 受理键 canonical（ref 形）——wire-core durable 档种子即此值，
+      // 同键同文同图重发跨重启 = duplicate 不误判 conflict
+      expect(bridge.lookupDedupeKey(sessionId, 'serve-img-2')).toBe(
+        admitContentKey('看图', [{ data: pngB64, mimeType: 'image/png' }]),
+      );
     } finally {
       await rt.shutdown();
     }

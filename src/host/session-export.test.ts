@@ -224,6 +224,35 @@ describe('renderSessionMarkdown 拼装单源', () => {
     expect(markdown).toContain('预置结论');
     expect(markdown).toContain('（图像块——不落导出正文）');
   });
+
+  it('user 图块降「[图片]」占位行（03 §10.4 剪贴板附件批注⑦——image/image-ref 每块一行、图序按块序交织；修前红锚 = 现状静默丢图）', () => {
+    const markdown = renderSessionMarkdown({
+      events: [
+        evt(0, 'turn/start'),
+        evt(1, 'user/message', {
+          content: [
+            { type: 'text', text: '帮我看看这几张截图' },
+            { type: 'image', data: 'aGk=', mimeType: 'image/png' },
+            { type: 'image-ref', ref: `sha256:${'a'.repeat(64)}`, mimeType: 'image/png', bytes: 100 },
+            { type: 'text', text: '第三张在这段后面' },
+            { type: 'image-ref', ref: `sha256:${'b'.repeat(64)}`, mimeType: 'image/png', bytes: 200 },
+          ],
+        }),
+      ],
+      meta: { sessionId: 's-img' },
+      now: NOW,
+    });
+    // 三图 = 三行占位（每块一行、图序保留——占位独占一行不与文本粘连）
+    expect(markdown.split('\n').filter((line) => line === '[图片]')).toHaveLength(3);
+    // 图序与文本行序按 content 块序交织（修前红锚：textOf 只取 text 块 → 零占位行）
+    const iText1 = markdown.indexOf('帮我看看这几张截图');
+    const iImg1 = markdown.indexOf('[图片]');
+    const iText2 = markdown.indexOf('第三张在这段后面');
+    const iImg3 = markdown.lastIndexOf('[图片]');
+    expect(iText1).toBeLessThan(iImg1);
+    expect(iImg1).toBeLessThan(iText2);
+    expect(iText2).toBeLessThan(iImg3);
+  });
 });
 
 describe('writeSessionExport 落盘腿', () => {
