@@ -15,6 +15,26 @@
       type="image/svg+xml"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2309090b'/%3E%3Cpath d='M9 10l7 6-7 6' fill='none' stroke='%2338bdf8' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='23' cy='22' r='2.5' fill='%23a1a1aa'/%3E%3C/svg%3E"
     />
+    <!--
+      主题首帧防闪（FOUC）内联同步脚本（2026-10-07 webui 深浅色批——
+      03 §10.4 批注条款③）：读 localStorage webui_theme，值 light 即在
+      首帧渲染前设 html data-theme='light' + meta color-scheme 同笔翻
+      light（原生表单控件/滚动条 UA 形随档）——防首帧暗→浅闪变；值 dark
+      或缺席零动作（缺省暗——html 无 data-theme 即暗、meta 现值 dark 不动）。
+      同步非 module 脚本（main.tsx 的 module 脚本天然 defer——本脚本先于
+      SPA 一切执行）。localStorage 访问异常（隐私模式形）try-catch 吞——
+      暗缺省回退零动作。
+    -->
+    <script>
+      try {
+        if (localStorage.getItem('webui_theme') === 'light') {
+          document.documentElement.dataset.theme = 'light';
+          document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', 'light');
+        }
+      } catch (e) {
+        /* localStorage 不可用（隐私模式形）——暗缺省回退，零动作 */
+      }
+    </script>
     <title>berry-agent</title>
   </head>
   <body>

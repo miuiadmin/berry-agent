@@ -28,6 +28,10 @@
  * ⑬会话删除腿（2026-10-07 会话删除编排批）：行内删除键 → window.confirm
  * 确认（警示句三载体逐字同句）→ DELETE → 就地滤行 + total 同步递减 +
  * 删活动会话回无选择态；确认拒绝零调用；失败折通知条（服务端人读因直显）
+ * ⑭主题两态切换（2026-10-07 webui 深浅色批——03 §10.4 批注条款②③消费腿）：
+ * 暗缺省（无 data-theme 即暗）+ 侧栏头行切换钮翻浅/翻回——html data-theme
+ * （翻暗 remove 属性单源形）+ localStorage webui_theme + meta color-scheme
+ * 三同步；钮文案 = 对面档直白词
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1248,5 +1252,63 @@ describe('WebUiRoot会话删除腿（2026-10-07 会话删除编排批——行�
     // 失败不滤行（role 锚唯一——同上：头 span 同文案撞 getByText）
     expect(screen.getByRole('button', { name: '测试会话' })).toBeTruthy();
     confirmSpy.mockRestore();
+  });
+});
+
+describe('WebUiRoot主题两态切换（2026-10-07 webui 深浅色批——03 §10.4 批注条款②③消费腿）', () => {
+  // 隔离：html data-theme 与 localStorage 均是跨用例驻留的全局位——每用例
+  // 前清位（jsdom 实现真 localStorage——非 mock 面）
+  beforeEach(() => {
+    delete document.documentElement.dataset.theme;
+    localStorage.clear();
+  });
+
+  it('暗缺省 → 点「浅色」翻浅：html data-theme=light + localStorage webui_theme=light（修前红：切换钮缺席）', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    // 暗缺省语义（条款②）：无 data-theme 属性、无存储值——零动作即暗档
+    expect(document.documentElement.dataset.theme).toBeUndefined();
+    expect(localStorage.getItem('webui_theme')).toBeNull();
+    // 修前红锚：切换钮不存在（getByRole name='浅色' 查无）
+    fireEvent.click(screen.getByRole('button', { name: '浅色' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(localStorage.getItem('webui_theme')).toBe('light');
+  });
+
+  it('再点「深色」翻回：data-theme 移除（暗=无属性单源形——remove 非 dark 字面值）+ 存储值 dark', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    fireEvent.click(screen.getByRole('button', { name: '浅色' }));
+    // 钮文案随档翻面（已浅档 → 显「深色」——对面档直白词）
+    fireEvent.click(screen.getByRole('button', { name: '深色' }));
+    expect(document.documentElement.dataset.theme).toBeUndefined(); // remove 形非 'dark' 值
+    expect(localStorage.getItem('webui_theme')).toBe('dark');
+  });
+
+  it('meta color-scheme 随档同笔（原生控件/滚动条 UA 形随档——条款③）', async () => {
+    primeMain();
+    // meta 落位面是 index.html（测试直挂组件不经 html）——桩自注入
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'color-scheme');
+    meta.setAttribute('content', 'dark');
+    document.head.appendChild(meta);
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    fireEvent.click(screen.getByRole('button', { name: '浅色' }));
+    expect(meta.getAttribute('content')).toBe('light');
+    fireEvent.click(screen.getByRole('button', { name: '深色' }));
+    expect(meta.getAttribute('content')).toBe('dark');
+    meta.remove();
+  });
+
+  it('态源初始读 DOM：内联脚本已设 light → 挂载即显「深色」钮（浅档在身——对面档文案）', async () => {
+    primeMain();
+    // 模拟 index.html 内联防闪脚本先设位（SPA 挂载时 DOM 已就位——条款③）
+    document.documentElement.dataset.theme = 'light';
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    expect(screen.getByRole('button', { name: '深色' })).toBeTruthy();
   });
 });

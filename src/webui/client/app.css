@@ -36,6 +36,38 @@
 }
 
 /*
+ * 浅色档 token 覆写（2026-10-07 webui 深浅色批——03 §10.4 批注条款①④；
+ * 07 §4.1 界面美化役批注⑧「深浅色模式立题挂账」兑现）：html[data-theme='light']
+ * 位覆写十一色 token——Tailwind v4 工具类编译产物引 var(--color-*)，运行时
+ * 覆写即全局换肤（组件类名零改动——token 化的结构性红利兑现位）。
+ * **本块置于无层位**（不加任何 @layer）：产物 theme 变量住 @layer theme、
+ * 无层位块恒胜层位块（CSS 层联序——未分层规则优先于层内规则）。缺省暗
+ * 语义：暗值唯一住所仍是上方 @theme（html 无 data-theme 即暗）——本块
+ * 只辖浅档。锚定 = zinc 系对称翻转（④锚定表）：底面 4 + 文字 5 + 强调 2
+ * 十一 token 全集。语义色（琥珀断连横幅/遮罩黑/红绿 diff）跨档成立零改；
+ * .md-body 手写层全引 var() 天然随档零改。ink-faint 浅档 = zinc-400
+ * （F3 观感裁量升一档：zinc-300 on zinc-50/100 对比约 1.4:1 弱于暗档
+ * 对称位〔zinc-600 on zinc-900〕约 2.3:1——升档恢复「对比度档与暗色
+ * 对称」的本意；代价是与 ink-mute 同值位，幽文/弱文浅档并档一档）。
+ */
+[data-theme='light'] {
+  /* 底面四档：浅档浅底（canvas 全局底 zinc-100 · panel 主面 zinc-50 · edge 分隔线 zinc-200 · edge-strong zinc-300） */
+  --color-canvas: #f4f4f5; /* = zinc-100 */
+  --color-panel: #fafafa; /* = zinc-50 */
+  --color-edge: #e4e4e7; /* = zinc-200 */
+  --color-edge-strong: #d4d4d8; /* = zinc-300 */
+  /* 文字五档：浅档深字（bright 主强调 · ink 主文 · soft 次文 · mute 弱文 · faint 幽文——faint 见头注 F3 升档裁量） */
+  --color-ink-bright: #18181b; /* = zinc-900 */
+  --color-ink: #3f3f46; /* = zinc-700 */
+  --color-ink-soft: #71717a; /* = zinc-500 */
+  --color-ink-mute: #a1a1aa; /* = zinc-400 */
+  --color-ink-faint: #a1a1aa; /* = zinc-400（F3 升档——锚定表原值 zinc-300，观感裁量见块头注） */
+  /* 强调两档：浅底可辨档（accent 选中/焦点环 sky-600 · link 正文链接 sky-700） */
+  --color-accent: #0284c7; /* = sky-600 */
+  --color-link: #0369a1; /* = sky-700 */
+}
+
+/*
  * Markdown 正文排版（.md-body——手写 prose 刻度，替换历史无效死类 prose-invert：
  * @tailwindcss/typography 未装且 prose 基类缺席，Tailwind preflight 把标题/列表/
  * 链接样式归零致主呈现面全裸）。零新依赖纪律（07 §4.2 栈钉定）。观感定值对齐

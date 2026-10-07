@@ -213,6 +213,33 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
    */
   const [sidebarOpen, setSidebarOpen] = useState(false);
   /**
+   * 主题档（2026-10-07 webui 深浅色批——03 §10.4 批注条款②③）：缺省暗
+   * （html 无 data-theme 即暗——暗值唯一住所是 app.css @theme），浅档经
+   * data-theme='light' token 覆写。初始读 DOM（index.html 内联防闪脚本已
+   * 先行设位——SPA 挂载时 DOM 已就位，防首帧闪变）；state 只辖钮文案，
+   * 翻档判据单源是 DOM dataset。系统跟随 auto 态不入 v1（三态复杂度）。
+   */
+  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
+    document.documentElement.dataset.theme === 'light' ? 'light' : 'dark',
+  );
+  /**
+   * 主题翻档三同步（条款③）：html data-theme（翻浅设 'light' / 翻暗 remove
+   * 属性——保「暗=无属性」单源形）+ localStorage 'webui_theme' 持久 +
+   * meta[name=color-scheme] content 同笔（原生控件/滚动条 UA 形随档）。
+   * meta 可选链：在场面是 index.html；缺席（异常嵌入形）无操作不崩。
+   */
+  const toggleTheme = useCallback(() => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    if (next === 'light') {
+      document.documentElement.dataset.theme = 'light';
+    } else {
+      delete document.documentElement.dataset.theme; // 暗=无属性（remove 形）
+    }
+    localStorage.setItem('webui_theme', next);
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', next);
+    setTheme(next);
+  }, []);
+  /**
    * 活体流连接态（SSE L3/L2——组件局部 state，不入 AppState 折叠器形状）：
    * 建流起点复位 alive；非终态错误置 reconnecting（onopen 撤）；终态死流
    * 置 dead（定性探针供因）。
@@ -634,6 +661,16 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
               onClick={createSession}
             >
               + 新会话
+            </button>
+            {/* 主题切换（03 §10.4 批注条款②）：同族小键形；文案 = 对面档直白词
+                （当前暗→「浅色」——点击切浅；当前浅→「深色」）。可见文案本身即
+                无障碍名（免 aria-label——刷新键是图标位先行例，本钮文案自足） */}
+            <button
+              type="button"
+              className="rounded bg-edge px-2 py-0.5 text-xs text-ink-soft hover:bg-edge-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+              onClick={toggleTheme}
+            >
+              {theme === 'light' ? '深色' : '浅色'}
             </button>
           </div>
         </div>
