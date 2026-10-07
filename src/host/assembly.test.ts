@@ -272,6 +272,61 @@ describe('assembleHostStack 成功档', () => {
     }
   });
 
+  it('C-2（挖掘 16 轮）：onSettled 结算钩子经真装配接线——background 结算折叠入父会话 active goal 预算（修前：装配根零注入 budgetFoldedUnits 恒 0）', async () => {
+    // 组合根锁（装配缺口族同判据）：subagent 层单测直注 onSettled 恒绿
+    // （compat.test 喂入 seam 示范）——唯一生产装配路径从未注入。本腿经真
+    // 装配起 background 委派，断言结算折叠落账（04 §11 批 C-2 定形注②）。
+    const dir = tmpDir('host-asm-goalfold-');
+    const ws = tmpDir('host-asm-goalfold-ws-');
+    const faux = fauxProvider({ provider: 'faux-asm', models: [{ id: 'm1' }] });
+    let goalService: GoalService | undefined;
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-asm/m1',
+      goalServiceSink: (service) => {
+        goalService = service;
+      },
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      if (goalService === undefined) throw new Error('goal 全环服务未捕获（sink 未触发）');
+      const agentDef = assembly.boot.tools.definitions().find((definition) => definition.name === 'agent');
+      if (agentDef === undefined) throw new Error('agent 工具不在 boot 面');
+      const parent = assembly.stack.openStartupSession(ws);
+      // 父会话绑定 active goal（帽 5——折叠判定只看 fold>0 不看刹停）
+      const goal = await goalService.activate({
+        sessionId: parent.sessionId,
+        objective: '折叠链验证',
+        schedule: 'every:1h', // 真装配 scheduler 校验合法形（compat 测试 FakeSession 不辖）
+        budgetMessagesCap: 5,
+      });
+      // 两响：子代理 one-shot + 父结算唤醒 turn（同 subbg e2e 体例）
+      faux.setResponses([() => fauxText('后台活干完'), () => fauxText('收到结算')]);
+      const result = await agentDef.execute(
+        { prompt: '后台去', background: true },
+        { toolCallId: 'c-fold', sessionId: parent.sessionId },
+      );
+      expect(result.isError).not.toBe(true); // Job 身份回执（fire-and-forget）
+
+      // 轮询折叠落账：onSettled → activeFor(父会话) 反查 → foldDelegation。
+      // 修前红锚：装配根从未注入 onSettled → budgetFoldedUnits 恒 0
+      const deadline = Date.now() + 5_000;
+      let folded = 0;
+      while (Date.now() < deadline) {
+        folded = goalService.get(goal.id)?.budgetFoldedUnits ?? 0;
+        if (folded > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(folded).toBeGreaterThan(0); // 真装配接线锁（换算率机器账 messageCount）
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
   it('ASM-1（挖掘 15 轮）：后台唤醒轮经真装配工具面非空——修前 conversation-stack 恒不注入 backgroundTools 零工具起跑', async () => {
     // 组合根锁：driver 层单测直注 backgroundTools 供应商恒绿（假绿本体——
     // 测试直注 seam 键掩盖唯一真装配路径从未注入，同族 readAttachment P0）。

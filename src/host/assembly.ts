@@ -159,9 +159,11 @@ export interface AssembleHostOptions {
   readonly corePlugins?: readonly CorePluginReference[];
   /**
    * goal 全环服务宿主捕获位透传（s 批——CorePluginHostDeps.goalServiceSink
-   * 同形）：生产装配恒缺席；e2e rig 经 assembleHostStack 全真链捕获全环
-   * service（provide 投影律下 tryGet 只见七法——写动词 lifecycle 测试通道，
-   * U10「goal 生产创建入口缺席」立题前）。
+   * 同形）：批 C-2 起装配根内部恒接 sink（onSettled 折叠腿消费）且与本位
+   * 串联——「生产装配恒缺席」旧律随批 C-2 翻档（03 §10.5 U10 ⑥勘正声明；
+   * 装配域例外通道律不变——消费经 sink 非插件道 tryGet）；e2e rig 经
+   * assembleHostStack 全真链捕获全环 service（provide 投影律下 tryGet 只见
+   * 七法——写动词 lifecycle 测试通道）。
    */
   readonly goalServiceSink?: (service: GoalService) => void;
   /** 警示面（缺省 stderr 直写） */
@@ -314,6 +316,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     }
     return entry?.value ?? null;
   };
+  // goal 全环服务晚绑槽（批 C-2——04 §11 定形注② onSettled 接线）：boot 件内
+  // service 创建后经内部 sink 单发回填（与 options.goalServiceSink 外部捕获
+  // 串联——生产/e2e 双通道不互斥）；subagents onSettled 折叠腿运行期消费。
+  // 03 §10.5 U10 ⑥「生产恒缺席律」随本批翻档（装配域例外通道律不变——
+  // 消费经 sink 非插件道 tryGet）。
+  let goalServiceRef: GoalService | undefined;
   // /rewind 无参选择器开面板槽（批3——2026-09-30 会话管理命令批：late-bound
   // mutable）。TUI backend 在本函数返回后才构造（tui-entry），件装载期经
   // coreDeps 闭包读槽恒得 undefined；tui-entry 构造 backend 后回填 current。
@@ -753,7 +761,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 桥（批 19c-1 兑现——结算走 submitText source='subagent-settled'
     // backgroundWave 后台唤醒族〔唤醒预算防「父派子→子结算→父再派」自激励
     // 环〕；审批挂起走父驱动 notifySubagentApprovalPending 恰一条幂等面）；
-    // 结算钩子 onSettled（goal foldDelegation 喂入 seam）挂 19c-3+ goal 笔
+    // 结算钩子 onSettled 兑现（批 C-2——04 §11 定形注② goal foldDelegation
+    // 喂入；「挂 19c-3+ goal 笔」挂账随本笔销）
     const subagents = createSubagentService({
       registry: jobs,
       // 单父扇出帽旋钮面（RP2——04 §10 扇出帽段：env BERRY_AGENT_MAX_CONCURRENT_
@@ -792,6 +801,24 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         },
       },
       warn: (message) => logger.warn(message),
+      // 结算钩子（04 §11 批 C-2 定形注②三定值）：①goalId 经 activeFor(父会话)
+      // 反查（一会话一 active 不变量；无 active goal = 静默 no-op 不 warn——
+      // 结算非 goal 起跑是常态）；②换算率 structured?.messageCount ?? 1（缺席
+      // 折 1 保底防绕预算——窄型守卫：第三方 provider 可铸自有 structured 形，
+      // 非数形同折 1）；③goalService 晚绑槽消费 + foldDelegation 幽灵守卫由
+      // 调用位既有 try/catch warn 隔离辖（subagent/service.ts 结算位——service
+      // 层防御吞，钩子内不重复吞）。换算率偏保守注（冷读闸 minor 定谳照实注）：
+      // messageCount 含 user/assistant 双侧而 budgetMessagesUsed 前台腿只计
+      // assistant——折叠偏保守向（多折早刹），与预算 fail-closed 同向无害。
+      onSettled: ({ parentSessionId, result }) => {
+        const service = goalServiceRef;
+        if (service === undefined) return; // goal 件未装载（noPlugins 形/前置窗）——no-op
+        const active = service.activeFor(parentSessionId);
+        if (active === undefined) return; // 无 active goal——静默 no-op
+        const structured = result.structured as { messageCount?: unknown } | undefined;
+        const units = typeof structured?.messageCount === 'number' ? structured.messageCount : 1;
+        service.foldDelegation(active.id, units);
+      },
     });
 
     // —— oauth 流注册表（c-6——03 §10.9 oauth 案）：host-owned 单真身
@@ -1144,8 +1171,13 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               // goal 沉淀摘要窄面（批 #99——上方适配器真身；缺席律不适用：
               // 适配器零依赖构造恒在场，goal 件内 summarizer 缺席走确定性回退）
               goalSummarizer,
-              // 全环捕获位透传（s 批——生产恒缺席；e2e rig lifecycle 通道）
-              ...(options.goalServiceSink !== undefined ? { goalServiceSink: options.goalServiceSink } : {}),
+              // 全环捕获位（s 批）：批 C-2 起恒接（内部槽回填供 onSettled 折叠
+              // 腿消费——03 §10.5 U10 ⑥「生产恒缺席律」翻档）+ 外部位串联
+              // （e2e rig lifecycle 通道不互斥）
+              goalServiceSink: (service) => {
+                goalServiceRef = service;
+                options.goalServiceSink?.(service);
+              },
               // checkpoint 两 seam + 焦点会话位（批 19c-4——05 §5.3 词面独立律）：
               // 语境面 contextOf 活体双单源（lastClosedBoundary 取活体日志 +
               // workspaceRoot 取 manager 活体镜像 workspaceRootOf——03 §10.7

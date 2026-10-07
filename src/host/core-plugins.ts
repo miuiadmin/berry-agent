@@ -479,11 +479,12 @@ interface GoalPluginHostDeps {
   /**
    * goal 全环服务宿主捕获位（s 批——provide 投影律〔03 §10.5 s 批补注②〕的
    * 装配域例外通道）：boot 件内 service 创建后单发回调（全量 GoalService——
-   * 写动词在内）。**生产装配恒缺席**（宿主消费面全经七法投影/件内闭包——
-   * provide 面插件只见投影；创建写面 = /goal create 人面命令〔U10 批——03
-   * §10.5 U10 落码定形注①〕，CLI 形随定形注④重开条件挂账）；消费方 =
-   * e2e rig（approve/complete 等生命周期全环位的测试通道）。回调时点 =
-   * service 创建后、provide 前。
+   * 写动词在内）。**批 C-2 起生产装配恒接入**（装配根 onSettled 折叠腿消费
+   * ——「生产恒缺席」旧律随批 C-2 翻档〔03 §10.5 U10 ⑥勘正声明〕；例外通道
+   * 律本身不变：消费经 sink 非插件道 tryGet，provide 面插件仍只见七法投影；
+   * 创建写面 = /goal create 人面命令〔U10 批——03 §10.5 U10 落码定形注①〕，
+   * CLI 形随定形注④重开条件挂账）；外部消费方 = e2e rig（approve/complete
+   * 等生命周期全环位的测试通道）。回调时点 = service 创建后、provide 前。
    */
   readonly goalServiceSink?: (service: GoalService) => void;
 }
@@ -1648,8 +1649,8 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         // 侧防御吞 + memory fire 永不抛双保险）
         ...(memoryCycleFire !== undefined ? { onTerminal: (goal: GoalRow) => memoryCycleFire(goal.sessionId) } : {}),
       });
-      // 全环捕获位单发（s 批——生产恒缺席；e2e rig lifecycle 通道，见
-      // CorePluginHostDeps.goalServiceSink 注）
+      // 全环捕获位单发（s 批；批 C-2 起生产恒接入——onSettled 折叠腿消费，
+      // 见 CorePluginHostDeps.goalServiceSink 注）
       deps.goalServiceSink?.(service);
 
       // goal_update：boot 全局层 + 执行时会话解析包装（deps.getSessionId 是
