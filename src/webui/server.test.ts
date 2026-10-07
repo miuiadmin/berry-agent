@@ -18,7 +18,8 @@
  * ③微路由五撮（探活/会话族含 closed·missing 分账/补全族缺席诚实空；/export
  *   markdown 直出三态——2026-09-17 TUI 余量收官批②；档位面三端点——2026-09-18
  *   webui 档位面受理批：501 判先于会话态 404 / GET 全形状含无锚 null 形 /
- *   fold 坏词面级 500 / PUT 坏词 400 码族词面 / 体帽显式 256KiB 位）
+ *   fold 坏词面级 500 / PUT 坏词 400 码族词面 / 体帽显式 256KiB 位；DELETE
+ *   删除端点三态分档 + 已闭可删 + 501 缺席先于三态——2026-10-07 会话删除编排批）
  * ④体限幅 413 且应答不早于收完（排空后应答——拿到应答即证无 RST 连坐）
  * ⑤SSE 信封分档（display 活体 / session 终结镜像 / asked 镜像）与按会话
  * 路由（status 定向 / notify 广播）
@@ -38,7 +39,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createSdkHttpFace, type SdkHttpFaceHandle } from '../sdk/http.js';
 import type { SdkHttpBridge } from '../sdk/types.js';
 import { BaseError } from '../contracts/index.js';
-import type { AgentMessage } from '../contracts/index.js';
+import type { AgentMessage, UiSessionDeleteResult } from '../contracts/index.js';
 import type { SessionEnvelope } from '../channels/index.js';
 import type {
   WebuiDeps,
@@ -60,6 +61,8 @@ interface DepsStub {
   readonly submitted: WebuiSubmitInput[];
   readonly interrupted: string[];
   readonly created: string[];
+  /** 删除受理记账（deleted 态到达的会话 id——busy/missing 不入账） */
+  readonly deleted: string[];
   /** 档位面 PUT 受理记账（thinking 侧——回执与坏词形的对拍锚） */
   readonly setLevels: Array<{ readonly sessionId: string; readonly level: string }>;
   /** 档位面 PUT 受理记账（sandbox 侧） */
@@ -73,6 +76,8 @@ function makeDeps(opts?: {
   readonly withoutExport?: boolean;
   /** 档位面整面缺席（三端点 501 诚实缺席形） */
   readonly withoutTiers?: boolean;
+  /** 删除键缺席（DELETE 端点 501 诚实缺席形——WebuiSessionsFace.deleteSession 可选键） */
+  readonly withoutDelete?: boolean;
   /** fold 坏词形（tiersOf 抛 BaseError——面级 500 路；冷读 CR-TIER-2 边缘三形之三） */
   readonly foldBadWord?: boolean;
   /** submit 幂等冲突形（桥 submitPrompt 抛 SDK_MESSAGE_CONFLICT——409 结构码路） */
@@ -83,6 +88,8 @@ function makeDeps(opts?: {
   const states = new Map<string, WebuiSessionState>([
     ['s-1', 'open'],
     ['s-closed', 'closed'],
+    // busy 拒删档专用：在飞 run 形（桩面以 id 定档——删除回执 busy 分账锚）
+    ['s-busy', 'open'],
     // 档位面专用：thinking 无锚形会话（fold 与 boot 均缺席 → GET tiers 应答
     // thinkingLevel: null——冷读 CR-TIER-2 边缘三形之二）
     ['s-noanchor', 'open'],
@@ -102,6 +109,7 @@ function makeDeps(opts?: {
   const submitted: WebuiSubmitInput[] = [];
   const interrupted: string[] = [];
   const created: string[] = [];
+  const deleted: string[] = [];
   const setLevels: Array<{ readonly sessionId: string; readonly level: string }> = [];
   const setModes: Array<{ readonly sessionId: string; readonly mode: string }> = [];
   let seq = 0;
@@ -177,6 +185,20 @@ function makeDeps(opts?: {
       interruptSession: (id) => {
         interrupted.push(id);
       },
+      // 删除键（2026-10-07 会话删除编排批——可选键注入形同 tiers 件；缺席 =
+      // DELETE 端点 501）。三态桩：s-busy 拒删档 / 缺席 missing 档 / 其余
+      // 受理即删（含已闭——存储编排面射界，与 sessionStateOf 分账分立）
+      ...(opts?.withoutDelete === true
+        ? {}
+        : {
+            deleteSession: async (id: string): Promise<UiSessionDeleteResult> => {
+              if (id === 's-busy') return { status: 'busy' };
+              if ((states.get(id) ?? 'missing') === 'missing') return { status: 'missing' };
+              deleted.push(id);
+              states.delete(id); // 物理删后即缺席（后续存在性分账 missing）
+              return { status: 'deleted' };
+            },
+          }),
     },
     read: {
       // 桩同构（第八轮深扫 laneF 件F1）：真身链 host 桥 fetchMessages =
@@ -203,6 +225,7 @@ function makeDeps(opts?: {
     submitted,
     interrupted,
     created,
+    deleted,
     setLevels,
     setModes,
     setSession: (id, state) => {
@@ -424,6 +447,19 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     return { status: res.status, json: text === '' ? null : (JSON.parse(text) as unknown) };
   };
 
+  /** DELETE 腿（会话删除端点专用——零请求体；2026-10-07 会话删除编排批） */
+  const del = async (
+    path: string,
+    headers: Record<string, string> = {},
+  ): Promise<{ status: number; json: unknown }> => {
+    const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+      method: 'DELETE',
+      headers: authHeaders(headers),
+    });
+    const text = await res.text();
+    return { status: res.status, json: text === '' ? null : (JSON.parse(text) as unknown) };
+  };
+
   /* ---- ① 三防线（面级先行——403 应答为面级 plain text，断状态码） ---- */
 
   it('探活开面：GET /api/health 无鉴权 200 只回 ok', async () => {
@@ -586,6 +622,53 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     const bare = await rig(makeDeps({ withoutExport: true }).deps);
     try {
       const res = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/s-1/export`, {
+        headers: { authorization: `Bearer ${bare.token}` },
+      });
+      expect(res.status).toBe(501);
+      expect(await res.json()).toMatchObject({ error: 'not_implemented' });
+    } finally {
+      bare.webui.detach();
+      await bare.face.stop();
+    }
+  });
+
+  /* ---- ③ 会话族 DELETE 删除端点（2026-10-07 会话删除编排批 webui 第三载体） ---- */
+
+  it('DELETE 会话删除：三态分档（deleted 200 / busy 409 / missing 404）+ 已闭可删（存储编排面射界）', async () => {
+    // deleted → 200 应答体 {status:'deleted'} + 受理入桩记账
+    const ok = await del('/api/sessions/s-1');
+    expect(ok.status).toBe(200);
+    expect(ok.json).toEqual({ status: 'deleted' });
+    expect(stub.deleted).toEqual(['s-1']);
+    // busy → 409 error 词 busy（message 人读因——TUI 确认视图状态行主体同句，
+    // 载体专属键面尾巴不随 webui；submit 窄 catch SDK_MESSAGE_CONFLICT→409
+    // 同面一致）
+    const busy = await del('/api/sessions/s-busy');
+    expect(busy.status).toBe(409);
+    expect(busy.json).toMatchObject({ error: 'busy', message: '会话正在运行——等待完成或先打断后再删' });
+    // missing → 404 not_found（GET messages 先例同词）
+    const missing = await del('/api/sessions/who-knows');
+    expect(missing.status).toBe(404);
+    expect(missing.json).toMatchObject({ error: 'not_found', message: '会话不存在' });
+    // 已闭会话可删（closed 非 404 档——删除面是存储编排面，与 tiers「已闭
+    // 一律 404」的活体交互面射界分立；端点无 sessionStateOf 前置拦）
+    const closed = await del('/api/sessions/s-closed');
+    expect(closed.status).toBe(200);
+    expect(closed.json).toEqual({ status: 'deleted' });
+    expect(stub.deleted).toEqual(['s-1', 's-closed']);
+  });
+
+  it('DELETE 鉴权缺拒：无凭证 401（鉴权随全 API 面——token-or-cookie）', async () => {
+    const anon = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1`, { method: 'DELETE' });
+    expect(anon.status).toBe(401);
+  });
+
+  it('DELETE 注入窄面缺席：501 诚实缺席且判先于三态分账（GET /export 先例同序——冷读 CR-TIER-2）', async () => {
+    const bare = await rig(makeDeps({ withoutDelete: true }).deps);
+    try {
+      // missing 会话仍 501（面缺席优先于编排回执分账——若序倒置则 404 即红）
+      const res = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/who-knows`, {
+        method: 'DELETE',
         headers: { authorization: `Bearer ${bare.token}` },
       });
       expect(res.status).toBe(501);
@@ -1296,7 +1379,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
 /* ---------------- ⑨ 双表对拍锁（词面单源执法——tests 不计边表账） ---------------- */
 
 describe('WEBUI_ENDPOINTS 双表对拍（客户端副本 vs 服务端单源）', () => {
-  it('整表恒等：键集 + 逐键值（16 路径 17 端点口径——服务端改词面则客户端静默 404 的漂移面本例即红）', () => {
+  it('整表恒等：键集 + 逐键值（17 路径 18 端点口径——服务端改词面则客户端静默 404 的漂移面本例即红）', () => {
     // client/protocol.ts 头注承诺「与服务端 WEBUI_ENDPOINTS 同形同词面」——
     // 承诺升为可执行锁；toStrictEqual 整表锁含键集/逐键值/键序三面，
     // 任一侧改词面（含增删键）四门禁即红

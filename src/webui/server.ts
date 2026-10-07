@@ -3,8 +3,9 @@
  * 实装 → 承载位改注册）。
  *
  * **承载位改注册（18a-2'——03 §10.4 改形注记 + §10.6 路由扩展位段）**：
- * 件零自持 node:http 监听——mountWebui(deps) 把五撮 17 端点（2026-09-18
- * webui 档位面受理批 14→17——会话族档位三端点入册）+ SPA fallback 逐条
+ * 件零自持 node:http 监听——mountWebui(deps) 把五撮 18 端点（2026-09-18
+ * webui 档位面受理批 14→17 会话族档位三端点 + 2026-10-07 会话删除编排批
+ * 17→18 DELETE 删除端点）+ SPA fallback 逐条
  * 注册进注入的注册器（sdk 面注册器结构兼容）。归面级的四块（原自持
  * 已删）：三防线（Host 白名单/Origin 硬防线——面级先行适用于一切路由，仅
  * TCP）/ token 鉴权执法（token-or-cookie 档 Bearer ∪ cookie 双通道、恒时
@@ -45,6 +46,11 @@
  *   F2；坏词 BaseError → 400 码族词面呈现不吞码；成功应答 {receipt}）；已
  *   闭会话三端点一律 404 closed（读写不分——档位面是会话活体交互面，tiers
  *   非正文读面，与 messages//export 的已闭放行射界分立）。
+ * - **DELETE 删除端点**（2026-10-07 会话删除编排批——webui 第三载体）：501
+ *   缺席判先于三态分账（GET /export 先例同序）；deleted→200 / busy→409
+ *   error 词 busy（message 与 TUI 确认视图状态行主体同句）/ missing→404
+ *   not_found；已闭可删（存储编排面——无 sessionStateOf 前置拦，与 tiers
+ *   「已闭一律 404」射界分立）；SSE 在飞观众零动作（空 ping 至客户端自断）。
  *
  * 收场语义：detach() = 全路由摘除 + 全流收口 + 审批清槽（**丢弃性结算——
  * 不 resolve**：未决条目不凭空造值抢答；败腿 promise 悬挂由核 finish/队列
@@ -413,7 +419,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       .pipe(res);
   }
 
-  /* ---- 路由族注册（五撮 17 端点〔2026-09-18 档位面 14→17〕+ /api 兜底 + SPA fallback——全族 loopbackOnly） ---- */
+  /* ---- 路由族注册（五撮 18 端点〔2026-09-18 档位面 14→17 + 2026-10-07 会话删除批 17→18〕+ /api 兜底 + SPA fallback——全族 loopbackOnly） ---- */
 
   /** API 族鉴权档（Bearer ∪ cookie 双通道——cookie 名单源） */
   const tokenOrCookie: WebuiRouteAuth = { mode: 'token-or-cookie', cookie: WEBUI_COOKIE_NAME };
@@ -743,6 +749,44 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
       deps.sessions.interruptSession(sessionId);
       res.writeHead(204).end();
+    },
+  });
+  // —— 会话族子路由：DELETE 删除端点（2026-10-07 会话删除编排批 webui 第三
+  //    载体——05 §2.5 定形注①「webui 面=挂账注记」兑现笔；零请求体、鉴权随
+  //    全 API 面 token-or-cookie）——
+  add({
+    method: 'DELETE',
+    path: WEBUI_ENDPOINTS.sessionDelete,
+    auth: tokenOrCookie,
+    handler: async (_req, res, ctx) => {
+      // 501 缺席判先于三态分账（GET /export 先例同序——冷读 CR-TIER-2：
+      // 注入窄面缺席〔API-only 形〕优先于编排回执分账，序倒置则面装配
+      // 缺失被会话态遮蔽）
+      const deleteSession = deps.sessions.deleteSession;
+      if (deleteSession === undefined) {
+        sendError(res, 501, 'not_implemented', '会话删除未启用（当前运行形态不含此功能）');
+        return;
+      }
+      // 无 sessionStateOf 前置拦：已闭会话可删（closed 非 404 档——删除面是
+      // 存储编排面，与 tiers 三端点「已闭一律 404」的活体交互面射界分立，
+      // 已闭历史会话正该可删；存在性分账由编排回执 missing 态承载）
+      const outcome = await deleteSession(ctx.params.id!);
+      if (outcome.status === 'deleted') {
+        sendJson(res, 200, { status: 'deleted' });
+        return;
+      }
+      if (outcome.status === 'busy') {
+        // 409 busy：message 人读因与 TUI 确认视图状态行主体同句（TUI 载体
+        // 专属键面尾巴不随 webui）；submit 窄 catch SDK_MESSAGE_CONFLICT→409
+        // 同面一致
+        sendError(res, 409, 'busy', '会话正在运行——等待完成或先打断后再删');
+        return;
+      }
+      // missing → 404 not_found（GET messages 先例同词）。
+      // SSE 在飞观众零动作：busy 守卫封死在飞 run 被删；已开流不主动关灭
+      //（六步编排的 unregisterSession 收提问队列+widget、不收 webui 面级
+      // streams 账）——空 ping 至客户端自断；他端后续操作按既有 404 分账
+      sendError(res, 404, 'not_found', '会话不存在');
     },
   });
 

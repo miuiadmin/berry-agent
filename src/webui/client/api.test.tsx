@@ -72,6 +72,46 @@ describe('api.exportSession（SPA /export 消费腿）', () => {
   });
 });
 
+describe('api.deleteSession（DELETE /api/sessions/:id 消费腿——2026-10-07 会话删除编排批）', () => {
+  it('fetch 形：DELETE method + 端点 :id 代换 + 同源 cookie 携行（200 应答体解包为 void）', async () => {
+    const fetchMock = vi.fn(async () => resOf({ ok: true, status: 200, json: { status: 'deleted' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(api.deleteSession('s-1')).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/sessions/s-1',
+      expect.objectContaining({ method: 'DELETE', credentials: 'same-origin' }),
+    );
+  });
+
+  it('id 含路径分隔符时 encodeURIComponent 代换（:id 位注入防御）', async () => {
+    const fetchMock = vi.fn(async () => resOf({ ok: true, status: 200, json: { status: 'deleted' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.deleteSession('sess/1');
+    expect(fetchMock).toHaveBeenCalledWith('/api/sessions/sess%2F1', expect.objectContaining({ method: 'DELETE' }));
+  });
+
+  it('非 2xx 折 ApiError：409 busy 服务端人读因透传 err.message（NoticeBar 直显面）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        resOf({ ok: false, status: 409, json: { error: 'busy', message: '会话正在运行——等待完成或先打断后再删' } }),
+      ),
+    );
+    const err = await api.deleteSession('s-1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 409, code: 'busy' });
+    expect((err as Error).message).toContain('会话正在运行'); // 人读因透传（服务端同句）
+  });
+
+  it('非 2xx 折 ApiError：404 not_found 词面折叠（missing 形——GET messages 先例同词）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => resOf({ ok: false, status: 404, json: { error: 'not_found', message: '会话不存在' } })),
+    );
+    await expect(api.deleteSession('s-x')).rejects.toMatchObject({ status: 404, code: 'not_found' });
+  });
+});
+
 /**
  * GET tiers 应答样例（与 host 装配面 tiersOf 应答四键形对齐——客户端树
  * 隔离零 host import，本样例即形锁；词表/行文案单源服务端，样例仅桩）。

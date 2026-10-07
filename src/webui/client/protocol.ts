@@ -24,6 +24,8 @@ export const WEBUI_ENDPOINTS = {
   sessionSubmit: '/api/sessions/:id/submit',
   /** POST——打断在飞 run */
   sessionInterrupt: '/api/sessions/:id/interrupt',
+  /** DELETE——删除会话（零请求体；三态应答——2026-10-07 会话删除编排批） */
+  sessionDelete: '/api/sessions/:id',
   /** GET——todo 数据源（goal 计划态呈现投影） */
   sessionTodo: '/api/sessions/:id/todo',
   /** GET——会话导出 markdown 直出（不落盘） */

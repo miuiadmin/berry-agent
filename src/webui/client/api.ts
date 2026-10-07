@@ -159,6 +159,16 @@ export const api = {
     return call<void>(withId(WEBUI_ENDPOINTS.sessionInterrupt, sessionId), { method: 'POST', body: '{}' });
   },
 
+  /**
+   * 删除会话（DELETE——零请求体；200 应答体 {status:'deleted'} 解包为
+   * void）。409 busy（message 位 = 服务端同句人读因——NoticeBar 直显）/
+   * 404 not_found / 501 面未装配均折 ApiError 由调用面呈现；确认编舞
+   * （window.confirm 破坏性动作必有确认）归 App，本层零编舞。
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    await call<unknown>(withId(WEBUI_ENDPOINTS.sessionDelete, sessionId), { method: 'DELETE' });
+  },
+
   async listApprovals(): Promise<readonly ClientApprovalEntry[]> {
     const body = await call<{ approvals: ClientApprovalEntry[] }>(WEBUI_ENDPOINTS.approvals);
     return body.approvals;

@@ -21,7 +21,12 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import type { AgentMessage, ApprovalAskRequest, ApprovalDecideAnswer } from '../contracts/index.js';
+import type {
+  AgentMessage,
+  ApprovalAskRequest,
+  ApprovalDecideAnswer,
+  UiSessionDeleteResult,
+} from '../contracts/index.js';
 import type { NotifyLevel, SessionEnvelope, TodoItem, UiBackend } from '../channels/index.js';
 
 /* ---------------- 常量（缺省值单源——03 §10.4 各条款钉死值） ---------------- */
@@ -45,6 +50,8 @@ export const WEBUI_COOKIE_NAME = 'webui_token';
  * 微路由端点表（五撮——03 §10.4 批 18a 落码定形注①定形；SPA fallback 承载位 = 单 `*` catch-all）。
  * 2026-09-18 webui 档位面受理批：会话族增档位三端点（GET tiers + 两 PUT）——
  * 路径 13→16、端点计数（method×path）14→17（03 §10.4「端点计数口径」句以后注为准）。
+ * 2026-10-07 会话删除编排批：会话族增 DELETE 删除端点——路径 16→17、
+ * 端点 17→18（「端点计数口径」句以后注为准）。
  */
 export const WEBUI_ENDPOINTS = {
   /** GET——探活（open/liveness；只回 ok 零敏感面） */
@@ -61,6 +68,8 @@ export const WEBUI_ENDPOINTS = {
   sessionSubmit: '/api/sessions/:id/submit',
   /** POST——打断在飞 run */
   sessionInterrupt: '/api/sessions/:id/interrupt',
+  /** DELETE——删除会话（零请求体；三态应答 200 deleted / 409 busy / 404 not_found——2026-10-07 会话删除编排批） */
+  sessionDelete: '/api/sessions/:id',
   /** GET——todo 数据源（goal 计划态呈现投影） */
   sessionTodo: '/api/sessions/:id/todo',
   /** GET——会话导出 markdown 直出（不落盘——2026-09-17 TUI 余量收官批②） */
@@ -145,7 +154,12 @@ export interface WebuiSubmitInput {
   readonly messageId: string | undefined;
 }
 
-/** 会话族注入面（结构兼容 host createServeBridge 产物子集——词面独立律） */
+/**
+ * 会话族注入面（结构兼容 host createServeBridge 产物子集——词面独立律）。
+ * 2026-10-07 会话删除编排批：动词面六→七——`deleteSession` 可选键入册
+ * （缺席 = DELETE 端点 501 诚实缺席，exportMarkdown/WebuiSessionTierFace
+ * 同族；501 判先于三态分账〔CR-TIER-2 同序——GET /export 先例判序〕）。
+ */
 export interface WebuiSessionsFace {
   /** 开新会话（POST /api/sessions 的执行体） */
   createSession(): string;
@@ -156,6 +170,16 @@ export interface WebuiSessionsFace {
   sessionStateOf(sessionId: string): WebuiSessionState;
   submitPrompt(input: WebuiSubmitInput): { readonly sessionId: string };
   interruptSession(sessionId: string): void;
+  /**
+   * 删除会话（DELETE /api/sessions/:id 的执行体——可选键）。回执三态
+   * （busy/missing/deleted）与编排侧 DeleteSessionResult 结构同构
+   * （contracts 不依赖 conversation 是分层刻意——RenameSessionResult 自持
+   * 律同族，UiSessionDeleteResult 自持）；真身 = host 装配桥直达
+   * manager.deleteSession（六步编排单源全复用——05 §2.5 定形注②）。已闭
+   * 会话可删（存储编排面射界——端点无 sessionStateOf 前置拦，与 tiers
+   * 三端点「已闭一律 404」的活体交互面分立）。
+   */
+  deleteSession?(sessionId: string): Promise<UiSessionDeleteResult>;
 }
 
 /**

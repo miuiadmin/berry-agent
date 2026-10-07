@@ -8,6 +8,8 @@
  * ③ 选中态高亮 class 区分（activeId 匹配项深底、余项悬停态）
  * ④ 装载失败空态与真空态分立（十六役补扫 N24——拉不到清单不假声明
  * 「暂无会话」，失败行指路刷新重试）
+ * ⑤ 删除键注入位（2026-10-07 会话删除编排批）：onDelete 在场逐行删除键、
+ * 缺席零键诚实（确认编舞归 App——纯呈现件零 IO）
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -98,5 +100,39 @@ describe('SessionList 清单呈现', () => {
     expect(idle.className).toContain('border-l-transparent');
     expect(idle.className).not.toContain('bg-edge text-ink-bright');
     expect(idle.className).toContain('hover:bg-edge/60'); // 悬停可感升级锁
+  });
+});
+
+describe('SessionList 删除键注入位（2026-10-07 会话删除编排批——纯呈现件 onDelete 注入）', () => {
+  it('onDelete 注入在场：逐行删除键呈现（aria-label 删除会话）+ 点击回传该行 id 且不触发行选择', () => {
+    const onSelect = vi.fn();
+    const onDelete = vi.fn();
+    render(
+      <SessionList
+        sessions={[
+          { id: 's-1', title: '一会话', lastActivityAt: 1 },
+          { id: 's-2', title: '二会话', lastActivityAt: 2 },
+        ]}
+        activeId={null}
+        onSelect={onSelect}
+        onDelete={onDelete}
+      />,
+    );
+    // 行内逐行注入（非清单级单键——删除对象即行；修前红：键零呈现）
+    const dels = screen.getAllByRole('button', { name: '删除会话' });
+    expect(dels).toHaveLength(2);
+    fireEvent.click(dels[1]!);
+    expect(onDelete).toHaveBeenCalledWith('s-2'); // 行 id 回传
+    expect(onDelete).not.toHaveBeenCalledWith('s-1');
+    expect(onSelect).not.toHaveBeenCalled(); // 删除键不触发选中（stopPropagation——选择键零误触）
+  });
+
+  it('onDelete 注入缺席：零删除键（诚实无此能力——不呈无回调的假键）', () => {
+    render(
+      <SessionList sessions={[{ id: 's-1', title: '一会话', lastActivityAt: 1 }]} activeId={null} onSelect={vi.fn()} />,
+    );
+    expect(screen.queryByRole('button', { name: '删除会话' })).toBeNull();
+    // 行选择面不受影响（既有键面原样）
+    expect(screen.getByText('一会话')).toBeTruthy();
   });
 });

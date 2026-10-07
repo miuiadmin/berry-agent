@@ -429,6 +429,12 @@ function bridgeDeps(
         return { sessionId: input.sessionId };
       },
       interruptSession: (sessionId) => stack.interrupt(sessionId), // 未知 id 静默幂等（栈内建）
+      // 删除会话（2026-10-07 会话删除编排批）：直达 manager.deleteSession——
+      // 六步编排单源全复用（busy 守卫/channels 收口/登记拆除/物理三删/授予
+      // 回收/焦点处置——05 §2.5 定形注②；会话删除编排立题批 manager 侧已
+      // 在册）。webui 后端注销位幂等不双收口；回执三态（deleted/busy/
+      // missing）由服务端 DELETE 端点分账为 200/409/404
+      deleteSession: (sessionId) => stack.manager.deleteSession(sessionId),
     },
     read: {
       // 卡② 腿①：GET 读面换腿带 seq 投影（副本位贴 seq 恒在场——共享输出

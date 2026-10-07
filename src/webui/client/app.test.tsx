@@ -25,6 +25,9 @@
  * ⑫活体流连接态分档（SSE L3 终态死流 + L2 断连窗）：终态死流（非 200
  * 受理按 WHATWG 永久失败不重连）定性横幅 + 重试建流键重建流；断连窗
  * 弱横幅随 onopen 自撤
+ * ⑬会话删除腿（2026-10-07 会话删除编排批）：行内删除键 → window.confirm
+ * 确认（警示句三载体逐字同句）→ DELETE → 就地滤行 + total 同步递减 +
+ * 删活动会话回无选择态；确认拒绝零调用；失败折通知条（服务端人读因直显）
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -61,6 +64,8 @@ const apiMock = vi.hoisted(() => ({
   fetchMessages: vi.fn<(sessionId: string) => Promise<readonly unknown[]>>(),
   submit: vi.fn<(sessionId: string, text: string, messageId: string) => Promise<void>>(),
   interrupt: vi.fn<(sessionId: string) => Promise<void>>(),
+  // 删除会话消费腿（2026-10-07 会话删除编排批——确认编舞在 App，桩只记调用）
+  deleteSession: vi.fn<(sessionId: string) => Promise<void>>(),
   listApprovals: vi.fn<() => Promise<readonly ClientApprovalEntry[]>>(),
   decide: vi.fn<(approvalId: string, answer: DecideAnswer) => Promise<'applied' | 'superseded'>>(),
   todo: vi.fn<(sessionId: string) => Promise<readonly unknown[] | null>>(),
@@ -1175,5 +1180,73 @@ describe('WebUiRoot活体流连接态分档（SSE L3 终态死流 + L2 断连窗
     await waitFor(() => {
       expect(screen.queryByText('已断线，正在重连……')).toBeNull();
     });
+  });
+});
+
+describe('WebUiRoot会话删除腿（2026-10-07 会话删除编排批——行内删除键→确认→DELETE→就地滤行）', () => {
+  it('确认通过：DELETE 调用 + 就地滤行 + 总数同步递减不翻假截断注记 + 删活动会话回无选择态', async () => {
+    primeMain();
+    // 双会话全量在窗（total == 清单长原形无注记）——删 1 行后 total 须联动
+    // 递减：不联动即现「1/2 会话（仅显示最近）」假注记（MAJOR-1——B2 披露
+    // 判据 `total > 清单长` 翻真造新谎）
+    apiMock.listSessions.mockResolvedValue({
+      sessions: [
+        { id: 's-1', title: '甲会话', lastActivityAt: 1 },
+        { id: 's-2', title: '乙会话', lastActivityAt: 2 },
+      ],
+      total: 2,
+    });
+    render(<WebUiRoot />);
+    await screen.findAllByText('甲会话');
+    // 首载自动选首会话 s-1（活动会话——删除后须清选择态）
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    apiMock.deleteSession.mockResolvedValueOnce(undefined);
+    // 首行删除键（行内逐行注入）
+    fireEvent.click(screen.getAllByRole('button', { name: '删除会话' })[0]!);
+    // 确认文案：警示句与 TUI 确认视图/CLI 只读报告三载体逐字同句（含标点）
+    expect(confirmSpy).toHaveBeenCalledWith('删除会话？含审批记录在内的全部会话史将被删除，且不可恢复。');
+    await waitFor(() => {
+      expect(apiMock.deleteSession).toHaveBeenCalledWith('s-1');
+    });
+    // 就地滤行：甲行消失、乙行留存（刷新重拉最小形——不整面重拉）
+    await waitFor(() => {
+      expect(screen.queryByText('甲会话')).toBeNull();
+    });
+    expect(screen.getByText('乙会话')).toBeTruthy();
+    // 总数递减：1==1 原形——假截断注记不在场
+    expect(screen.queryByText(/仅显示最近/)).toBeNull();
+    // 删的是当前活动会话 → 清正文区回无选择态：详情头行（导出入口）缺席、
+    // 不自动开新（诚实边界）
+    expect(screen.queryByRole('button', { name: '导出' })).toBeNull();
+    confirmSpy.mockRestore();
+  });
+
+  it('确认拒绝：零 DELETE 调用（破坏性动作必有确认——取消即零网络面）', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    fireEvent.click(screen.getByRole('button', { name: '删除会话' }));
+    expect(apiMock.deleteSession).not.toHaveBeenCalled();
+    // 行原样（role 锚唯一：侧栏行是 button、已选中会话头 span 同文案——
+    // getByText 撞双元素，role=name 直锁侧栏行）
+    expect(screen.getByRole('button', { name: '测试会话' })).toBeTruthy();
+    confirmSpy.mockRestore();
+  });
+
+  it('失败折通知条：409 busy 服务端人读因直显（NoticeBar——tier 批 F4 勘正先例形）+ 行原样', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    apiMock.deleteSession.mockRejectedValueOnce(new ApiError(409, 'busy', '会话正在运行——等待完成或先打断后再删'));
+    fireEvent.click(screen.getByRole('button', { name: '删除会话' }));
+    await screen.findByText('会话正在运行——等待完成或先打断后再删');
+    // 失败不滤行（role 锚唯一——同上：头 span 同文案撞 getByText）
+    expect(screen.getByRole('button', { name: '测试会话' })).toBeTruthy();
+    confirmSpy.mockRestore();
   });
 });

@@ -483,4 +483,25 @@ describe('SessionPicker 删除键与确认位（05 §2.5 定形注①——破�
     expect(paintAll(picker, 70, 8)).toContain('会话切换 · 无会话'); // 空态如实
     picker.handleEvent(k('enter')); // 空表 enter 不选不炸
   });
+
+  it('删行后 totalCount 同步递减：头行原形不翻假截断注记（修前红——滤行不减 total 造「N/M」新谎）', async () => {
+    // 修前红实证位（2026-10-07 会话删除编排批 MAJOR-1 同款裁量）：total ==
+    // 清单长（全量在窗原形无注记）→ 删 1 行 → 滤行后 1 < 2，判据
+    // 「totalCount > 清单长」翻真——头行凭空现「1/2 会话（仅显示最近）」假
+    // 注记（物理删后全量真值已减 1——B2 披露判据造新谎）；修 = 就地滤行
+    // 联动 total 递减（webui App 载体同裁量）
+    const rig = deferredDelete();
+    const { picker } = makePicker(
+      [row({ id: 'aaa111111111', title: '甲' }), row({ id: 'bbb222222222', title: '乙' })],
+      { totalCount: 2, onDelete: rig.onDelete },
+    );
+    picker.handleEvent(k('d'));
+    picker.handleEvent(k('enter'));
+    rig.settle({ status: 'deleted' });
+    await Promise.resolve();
+    await Promise.resolve();
+    const text = paintAll(picker, 70, 8);
+    expect(text).toContain('会话切换 · 1 会话'); // 递减后 1==1 原形
+    expect(text).not.toContain('仅显示最近'); // 修前红位：假截断注记在场
+  });
 });

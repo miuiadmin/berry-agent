@@ -492,6 +492,44 @@ describe('openWebuiFace 桥单元', () => {
     }
   });
 
+  it('deleteSession 桥真身 = manager 六步编排直达（单源一行——回执三态透传 + 已闭可删）', async () => {
+    // 2026-10-07 会话删除编排批 webui 第三载体：sessions face 增可选键
+    // deleteSession，真身 = stack.manager.deleteSession 直达（05 §2.5 定形
+    // 注②六步编排单源全复用——桥零第二编排位）。修前红：键缺席 undefined
+    // 调用 TypeError。
+    const rt = createHostRuntime({ dataDir: rigDir('webui-bridge-del-') });
+    const { stack } = rigStack(rt);
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      disclose: () => undefined,
+    });
+    try {
+      const deleteSession = face.deps!.sessions.deleteSession;
+      expect(deleteSession).toBeDefined();
+      // open 会话：受理即删（物理三删后持久册缺席——sessionStateOf missing）
+      const id = face.deps!.sessions.createSession();
+      stack.driverOf(id)!.session.append('turn/start', {});
+      await rt.persistence.flush();
+      await expect(deleteSession!(id)).resolves.toEqual({ status: 'deleted' });
+      expect(face.deps!.sessions.sessionStateOf(id)).toBe('missing');
+      expect(stack.manager.list().some((row) => row.id === id)).toBe(false);
+      // 幂等二删：再删同 id 诚实 missing 拒
+      await expect(deleteSession!(id)).resolves.toEqual({ status: 'missing' });
+      // 已闭会话可删（库行在、内存册不在——存储编排面射界，与 tiers 已闭
+      // 一律 404 分立）
+      const closed = rt.persistence.createSession({ origin: 'conversation' });
+      closed.append('turn/start', {});
+      await rt.persistence.flush();
+      await expect(deleteSession!(closed.sessionId)).resolves.toEqual({ status: 'deleted' });
+      expect(face.deps!.sessions.sessionStateOf(closed.sessionId)).toBe('missing');
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
   it('卡② 双腿桥接：fetchMessages 应答逐项含 seq + tailSeqOf 活体/无驱动两档', async () => {
     // 03 §10.4 卡② 定谳版：腿① GET 读面换腿 projectionWithSeqOf（应答逐条
     // 带 seq）+ 腿② 信封取值 seam tailSeqOf（emit 时刻内存日志视图尾 seq）。

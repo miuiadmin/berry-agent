@@ -88,7 +88,8 @@ function formatStamp(ms: number): string {
 export class SessionPicker implements OverlayContent {
   /** 会话清单（删除成功就地滤行——快照档清单的确定性行移除，故持可变副本） */
   private readonly sessions: UiSessionSummary[];
-  private readonly totalCount: number | undefined;
+  /** 会话全量总数（B2 截断披露头行注记源——删除成功就地滤行联动递减，故持可变副本〔2026-10-07 勘正〕） */
+  private totalCount: number | undefined;
   private readonly onSelect: (sessionId: string) => void;
   private readonly onExit: () => void;
   private readonly onInterrupt: (() => void) | undefined;
@@ -364,6 +365,10 @@ export class SessionPicker implements OverlayContent {
           // 就地滤行 + 光标夹取（删尾行回退——空表如实「无会话」）
           const at = this.sessions.findIndex((s) => s.id === target.id);
           if (at >= 0) this.sessions.splice(at, 1);
+          // 滤行联动总数递减（2026-10-07 勘正）：物理删后全量真值已减 1，
+          // 不递减即翻「N/M（仅显示最近）」假截断注记新谎（B2 披露位——
+          // total > 清单长判据两侧同步动；webui App 删除腿同裁量）
+          if (this.totalCount !== undefined) this.totalCount = Math.max(0, this.totalCount - 1);
           this.cursor = Math.max(0, Math.min(this.sessions.length - 1, this.cursor));
           this.clampOffset();
           this.view = 'list';

@@ -390,6 +390,50 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
   }, [loadSessions, onAuthLost]);
 
   /**
+   * 删除会话（2026-10-07 会话删除编排批——确认编舞在 App）：行内删除键
+   * 回调——破坏性动作必有确认（window.confirm 警示句三载体同文，本载体
+   * 前缀句点明载体）；成功就地滤行 + 总数同减（刷新重拉最小形——不重拉
+   * 清单，total 不减即翻「N/M（仅显示最近）」假截断注记新谎，与 TUI
+   * session-picker 同裁量）；删的是当前选中会话 → 清选至无选中态
+   * （不自动跳选他话——选中是用户意图，不代言）；失败（409 busy /
+   * 404 not_found / 网络面错）不静默：401 失效路由，其余 err.message
+   * 服务端人读因直呈通知条（409 的「会话正在运行——…」即达用户）。
+   */
+  const deleteSession = useCallback(
+    (sessionId: string) => {
+      // 确认编舞（破坏性动作必有确认）：警示句 verbatim 三载体一致——
+      // 含审批记录在内的全部会话史将被删且不可恢复
+      if (!window.confirm('删除会话？含审批记录在内的全部会话史将被删除，且不可恢复。')) return;
+      void api
+        .deleteSession(sessionId)
+        .then(() => {
+          // 成功：就地滤行 + 总数同减（删除后 total 真值已减 1——B2 注记
+          // 判据 total > 清单长两侧同步动，不递减即假截断新谎）
+          setState((prev) => {
+            const sessions = prev.sessions.filter((s) => s.id !== sessionId);
+            const total = prev.sessionsTotal !== undefined ? Math.max(0, prev.sessionsTotal - 1) : undefined;
+            const next = loadedSessions(prev, sessions, total);
+            // 删的是当前选中 → 清选（null = 无选中态：消息/待办/运行账全
+            // 清——setActiveSession 内建）；不自动跳选他话
+            return prev.activeId === sessionId ? setActiveSession(next, null) : next;
+          });
+        })
+        .catch((err: unknown) => {
+          // 401 → 失效路由（submit/export 族处置先例照搬）；其余失败折
+          // 通知条——err.message = 服务端人读因（409 busy 同句直呈）
+          if (isUnauthorized(err)) {
+            onAuthLost();
+            return;
+          }
+          setState((prev) =>
+            pushedNotice(prev, err instanceof Error && err.message !== '' ? err.message : '删除失败——请重试', 'error'),
+          );
+        });
+    },
+    [onAuthLost],
+  );
+
+  /**
    * 提交入定会话（档位词拦截 + 乐观回显 + 失败撤回）：messageId =
    * crypto.randomUUID 服务端幂等位；撤回键 = echoKeyOf 同源落稿键（闭包
    * 持键——catch 按键撤回，不靠尾部位置）。
@@ -597,6 +641,7 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
           sessions={state.sessions}
           activeId={state.activeId}
           onSelect={switchSession}
+          onDelete={deleteSession}
           loadFailed={state.sessionsFailed}
           totalCount={state.sessionsTotal}
         />
