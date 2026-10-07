@@ -163,6 +163,15 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
     readonly prompt: string;
     readonly budgetMessages: number;
     readonly tools: readonly ToolDefinition[];
+    /**
+     * 停靠登记写位回调（04 §5 停靠登记 daemon 重启恢复律——issue 停靠恢复
+     * 批）：parkNow 落 session/paused 词**之后**触发（词先行、行随后——
+     * durable 真源在前的序；进程在两笔间猝死即「词在行不在」，撕裂窗归诚实
+     * 边界⑵管豁，反序则产「行在词不在」幽灵行）。回调内落停靠登记行
+     * （store_state 单键 upsert，service 侧注入）；回调异常由注入方自吞
+     * warn 不破停靠结算。缺席 = 无 durable 停靠登记（测试替身形）。
+     */
+    readonly onParked?: (sessionId: string) => void;
   }): Promise<IssueSessionStartResult> {
     // 终局外壳：停靠 = 保持 pending（编排层 await 悬停——04 §5 不落终态语义
     // 的实现载体）；dispose 的 paused 收口也走同一 settle（一次结算幂等护栏）
@@ -227,9 +236,16 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
      *  复停靠（唤醒轮再停靠）再落一笔——append 事实流，尾条即停靠态由
      *  SessionLiveState 推导 */
     const parkNow = (reason: string): void => {
+      // 收敛守卫（issue 停靠恢复批）：终局已收口（dispose paused 收口/迟到
+      // 结算）后到达的停靠触发不重开登记面——防 dispose 后 parked/broadcast
+      // 双登记复活（finish 只摘一次，复活项泄漏到停机序）
+      if (finished) return;
       parked.add(entry);
       broadcast.register(entry); // 宿主级广播面登记（canAfford 恢复同播三面之一）
       driver.session.append('session/paused', { reason: 'budget' });
+      // 停靠登记写位（词先行、行随后——durable 真源在前的序，见 req.onParked
+      // 注记）：回调自吞由注入方执，此处直调（service 注入闭包内已 try/catch）
+      req.onParked?.(sessionId);
       warn(`issue 会话停靠（${sessionId}）：${reason}——待 budget_extended 唤醒（04 §5 不落终态）`);
     };
 

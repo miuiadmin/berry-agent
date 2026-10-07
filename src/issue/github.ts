@@ -6,7 +6,8 @@
  * 100、单页语义（每请求恰一页——翻页由调用方携 `page` 驱动：issue_get 反查
  * 翻页/评论跟尽；轮询 since 增量窗内单页 100 通常覆盖，溢出诚实注记于
  * PollReport——不静默丢）。PR 混列：GitHub issues API 把 PR 计入 issues 列
- * 表，`pull_request` 字段在场即过滤。
+ * 表，`pull_request` 字段在场即过滤。getIssue 单取（issue 停靠恢复批重入
+ * 判据面）：404 特判 undefined——issue 已删与网络故障分立。
  *
  * 不可信外部文本：title/body/comments 进上下文一律经调用方帽（issue_get 面
  * ISSUE_CONTEXT_CAP_BYTES）；本层只取数不渲染。
@@ -39,6 +40,13 @@ export interface GithubBackend {
   listIssues(req: { repo: string; since?: string; page?: number }): Promise<IssueRef[]>;
   /** 列 issue 评论（升序——issue_get 数据源；单页帽 100——page 位驱动翻页〔issue_get 跟尽用〕） */
   listComments(req: { repo: string; number: number; page?: number }): Promise<IssueCommentRef[]>;
+  /**
+   * 单取 issue（issue 停靠恢复批——重入判据面：open/closed 全域取回由调用方
+   * 判终态；**404 → undefined 特判**——issue 已删与网络故障必须分立，走通用
+   * 折叠会把两者同折 ISSUE_SOURCE_UNREACHABLE 使停靠登记行永不清；403/429
+   * 限额与网络异常照 list 族同折）。PR 字段不过滤——单取无混列问题。
+   */
+  getIssue(req: { repo: string; number: number }): Promise<IssueRef | undefined>;
   /** issue 评论投递（回执面——draft 贴补丁/终态回执；折码律同 list*） */
   postComment(req: { repo: string; number: number; body: string }): Promise<{ id: number }>;
   /** 开 PR（04 §13 create-pr 执行腿——REST `POST /repos/:o/:r/pulls`，postComment 同形 fetch-only 扩法） */
@@ -97,8 +105,17 @@ export function createGithubBackend(opts: GithubBackendOptions): GithubBackend {
   const doFetch = opts.fetchImpl ?? fetch;
   const now = opts.now ?? Date.now;
 
-  /** 单请求（通用头 + JSON 解析；非 2xx/网络错折码上抛；POST 形携 body） */
-  async function requestJson<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+  /**
+   * 单请求（通用头 + JSON 解析；非 2xx/网络错折码上抛；POST 形携 body）。
+   * `allowNotFound` 位（getIssue 专用）：404 → undefined 特判绕过通用折叠
+   * ——issue 已删是行清理信号非故障，折 ISSUE_SOURCE_UNREACHABLE 会与网络
+   * 故障不可分（停靠登记行永不清）。单点 localized cast：泛型 T 由 getIssue
+   * 实例化为 `GhIssueRow | undefined`，其余调用方不携位不触达本分支。
+   */
+  async function requestJson<T>(
+    path: string,
+    init?: { method?: string; body?: unknown; allowNotFound?: boolean },
+  ): Promise<T> {
     const hasBody = init?.body !== undefined;
     let response: Response;
     try {
@@ -129,6 +146,8 @@ export function createGithubBackend(opts: GithubBackendOptions): GithubBackend {
       );
     }
     if (!response.ok) {
+      // 404 特判位（allowNotFound 消费——issue 停靠恢复批重入判据面）
+      if (init?.allowNotFound === true && response.status === 404) return undefined as T;
       throw new BaseError(
         'ISSUE_SOURCE_UNREACHABLE',
         `[ISSUE_SOURCE_UNREACHABLE] GitHub 非预期状态（${path}，HTTP ${response.status}）`,
@@ -159,6 +178,27 @@ export function createGithubBackend(opts: GithubBackendOptions): GithubBackend {
           updatedAt: r.updated_at,
           htmlUrl: r.html_url,
         }));
+    },
+
+    async getIssue(req) {
+      assertRepoValid(req.repo);
+      // 404 → undefined 特判（allowNotFound 位）；open/closed 全域取回——终态
+      // 判归调用方（重入判据面）；PR 字段不过滤（单取无混列问题）
+      const r = await requestJson<GhIssueRow | undefined>(`/repos/${req.repo}/issues/${req.number}`, {
+        allowNotFound: true,
+      });
+      if (r === undefined) return undefined; // issue 已删——行清理信号（与网络故障分立）
+      return {
+        repo: req.repo,
+        number: r.number,
+        title: r.title ?? '',
+        body: r.body ?? '',
+        labels: (r.labels ?? []).map((l) => l.name ?? '').filter((n) => n !== ''),
+        assignees: (r.assignees ?? []).map((a) => a.login ?? '').filter((n) => n !== ''),
+        state: r.state === 'closed' ? ('closed' as const) : ('open' as const),
+        updatedAt: r.updated_at,
+        htmlUrl: r.html_url,
+      };
     },
 
     async listComments(req) {

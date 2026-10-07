@@ -11,7 +11,9 @@
  * verifyBlocked 两分支 × escalation 附段组合）、五役 CL-2 回执全面出口
  * 消毒三锁（03 §10.7 五役扩射笔——postReceipt 出口单源收口，全 body 过
  * 值基+模式双腿消毒；outcome.summary / 危险闸原始判据 / escalation 段
- * 三射程面各一锁——修前红锚「明文直贴公开评论」）。
+ * 三射程面各一锁——修前红锚「明文直贴公开评论」）+ issue 停靠恢复批
+ * （04 §5 停靠登记 daemon 重启恢复律：onParked 写位/复停靠覆写/finally
+ * 删除位/settle-hook 再挂 + reenterParked 重入矩阵八腿）。
  */
 import { BaseError } from '../contracts/index.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -30,7 +32,7 @@ import type {
   IssueVerifyFace,
   IssueWorktreeFace,
 } from './types.js';
-import { ISSUE_PARALLEL_LIMIT_DEFAULT } from './types.js';
+import { ISSUE_PARALLEL_LIMIT_DEFAULT, ISSUE_PARKED_REGISTRY_KEY } from './types.js';
 import type { ToolDefinition } from '../contracts/index.js';
 
 /* ---------------- 假件族 ---------------- */
@@ -216,15 +218,48 @@ function concurrentDeferredSession() {
   };
 }
 
+/**
+ * 停靠回调会话假件（issue 停靠恢复批）：捕获 startHeadless req 的 onParked
+ * 位——测试手动触发模拟 parkNow 词落定后的回调位（词先行、行随后——时序断言
+ * 归 issue-session.test.ts 真工厂面；本件只锁编排侧写位）。outcome 悬置
+ * （pending = 在飞停靠形——finally 删除位不触达）。
+ */
+function parkedSession() {
+  let started = false;
+  let onParkedPresent = false;
+  let parkedCb: ((sessionId: string) => void) | undefined;
+  let resolveOutcome!: (o: IssueRunOutcome) => void;
+  const outcome = new Promise<IssueRunOutcome>((resolve) => {
+    resolveOutcome = resolve;
+  });
+  const session: IssueSessionFace = {
+    startHeadless: async (req) => {
+      started = true;
+      onParkedPresent = req.onParked !== undefined;
+      parkedCb = req.onParked;
+      return { sessionId: 'headless-1', outcome };
+    },
+  };
+  return {
+    session,
+    started: () => started,
+    onParkedSeen: () => onParkedPresent,
+    /** 模拟 parkNow 回调触发（词已落定语义——回调真身时序锁在真工厂面） */
+    park: () => parkedCb?.('headless-1'),
+    settle: (o: IssueRunOutcome) => resolveOutcome(o),
+  };
+}
+
 /** 预算假件（可注余量） */
 function fakeBudget(ok = true, reason?: string): IssueBudgetFace {
   return { canAffordIssue: () => ({ ok, reason }) };
 }
 
-/** backend 假件（评论/PR 投递记录；listIssues 供 issue_get 面；createPullRequest 供危险闸交付腿） */
-function fakeBackend(postFail?: boolean) {
+/** backend 假件（评论/PR 投递记录；listIssues 供 issue_get 面；createPullRequest 供危险闸交付腿；getIssue 供重入判据面——默认 undefined＝已删形） */
+function fakeBackend(postFail?: boolean, getIssueImpl?: GithubBackend['getIssue']) {
   const comments: { repo: string; number: number; body: string }[] = [];
   const prs: { repo: string; title: string; body: string; head: string; base: string }[] = [];
+  const getIssueCalls: { repo: string; number: number }[] = [];
   const backend: GithubBackend = {
     listIssues: async () => [],
     listComments: async () => [],
@@ -238,8 +273,13 @@ function fakeBackend(postFail?: boolean) {
       const n = prs.length;
       return { number: 800 + n, htmlUrl: `https://github.com/${req.repo}/pull/${800 + n}` };
     },
+    // 重入判据单取面（issue 停靠恢复批）——调用记录可观测；行为注入缺席 = undefined（已删形）
+    getIssue: async (req) => {
+      getIssueCalls.push(req);
+      return getIssueImpl !== undefined ? await getIssueImpl(req) : undefined;
+    },
   };
-  return { backend, comments, prs };
+  return { backend, comments, prs, getIssueCalls };
 }
 
 /** 内联 backend 假件的 createPullRequest 缺省桩（入队/起跑面测试不触交付腿） */
@@ -332,6 +372,8 @@ function makeService(over?: {
   sensitiveValues?: () => readonly string[];
   /** jobs 假件上限执法开关（FX-1——真 registry kind issue 并行上限语义注入位） */
   jobsIssueLimit?: number;
+  /** 重入判据单取面行为注入（issue 停靠恢复批——缺席 = undefined 已删形） */
+  backendGetIssue?: GithubBackend['getIssue'];
 }) {
   const fj = fakeJobs(over?.jobsIssueLimit !== undefined ? { issueKindLimit: over.jobsIssueLimit } : undefined);
   const fsched = fakeScheduler();
@@ -339,7 +381,7 @@ function makeService(over?: {
   const fwd = fakeWorktree(over?.worktreeBehavior);
   const fsess = fakeSession(over?.outcome ?? { status: 'completed', messagesUsed: 12, summary: '改动完成' });
   const fbud = fakeBudget(over?.budgetOk ?? true, over?.budgetReason);
-  const fback = fakeBackend(over?.postFail);
+  const fback = fakeBackend(over?.postFail, over?.backendGetIssue);
   const config: IssueConfig = {
     mode: over?.mode ?? 'draft',
     schedule: 'every:120s',
@@ -376,6 +418,7 @@ describe('入队纪律（同步四闸）', () => {
       listComments: async () => [],
       postComment: async () => ({ id: 1 }),
       createPullRequest: prStub,
+      getIssue: async () => undefined,
     };
     const svc = createIssueService({
       config: f.config,
@@ -402,6 +445,7 @@ describe('入队纪律（同步四闸）', () => {
       listComments: async () => [],
       postComment: async () => ({ id: 1 }),
       createPullRequest: prStub,
+      getIssue: async () => undefined,
     };
     const svc = createIssueService({
       config: f.config,
@@ -448,6 +492,7 @@ describe('runOne 编舞（draft 档 happy path）', () => {
         return { id: 1 };
       },
       createPullRequest: prStub,
+      getIssue: async () => undefined,
     };
     const svc = createIssueService({
       config: f.config,
@@ -498,6 +543,7 @@ describe('runOne 编舞（其余结局）', () => {
         return { id: 1 };
       },
       createPullRequest: prStub,
+      getIssue: async () => undefined,
     };
     const svc = createIssueService({
       config: f.config,
@@ -590,6 +636,7 @@ describe('runOne 编舞（其余结局）', () => {
         throw new BaseError('ISSUE_SOURCE_UNREACHABLE', '[ISSUE_SOURCE_UNREACHABLE] down');
       },
       createPullRequest: prStub,
+      getIssue: async () => undefined,
     };
     const svc = createIssueService({
       config: f.config,
@@ -621,6 +668,7 @@ describe('编舞异常兜底', () => {
       listComments: async () => [],
       postComment: async () => ({ id: 1 }),
       createPullRequest: prStub,
+      getIssue: async () => undefined,
     };
     const svc = createIssueService({
       config: f.config,
@@ -1298,5 +1346,138 @@ describe('五役 CL-2 回执全面出口消毒（03 §10.7 五役扩射笔——
     expect(prTitle).toContain('[REDACTED:secret]');
     expect(prTitle).toContain('[REDACTED:credential]');
     expect(prTitle).toContain('bug:'); // 只抹值不折叠——title 主体照旧
+  });
+});
+
+/* ---------------- 停靠登记 + 重入通道（issue 停靠恢复批——04 §5 停靠登记
+ * daemon 重启恢复律 + 03 §10.7 定形注五机制点）---------------- */
+
+describe('停靠登记（写位/复停靠覆写/删除位/再挂钩）', () => {
+  it('onParked 写位：startHeadless req 携 onParked、parkNow 回调触发 → 登记行落库（durable 单键）', async () => {
+    const ps = parkedSession();
+    const f = makeService({ session: ps.session });
+    const result = f.svc.enqueue(ISSUE);
+    expect(result.status).toBe('started');
+    await vi.waitFor(() => expect(ps.started()).toBe(true));
+    // 修前红锚：req 未携 onParked（编排侧无写位）
+    expect(ps.onParkedSeen()).toBe(true);
+    ps.park(); // 模拟 parkNow 词落定后的回调（词先行、行随后）
+    expect(f.svc.listParked()).toEqual([{ repo: 'o/r', number: 7, sessionId: 'headless-1' }]); // 修前红锚：登记行缺席
+  });
+
+  it('复停靠同键覆写：同 repo#number 新 sessionId 覆盖旧行（行数不涨——upsert 语义）', async () => {
+    const ps = parkedSession();
+    const f = makeService({ session: ps.session });
+    // 旧行（前次停靠残留——重入 duplicate 形下在飞 run 持有未来、行保留待新 run 覆写）
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 'stale-run' }]);
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(ps.started()).toBe(true));
+    ps.park();
+    expect(f.svc.listParked()).toEqual([{ repo: 'o/r', number: 7, sessionId: 'headless-1' }]); // 修前红锚：旧行原样（无 upsert）
+  });
+
+  it('finally 删除位：终态 run 收口（!retain 分支）即清本键登记行', async () => {
+    const f = makeService({ outcome: { status: 'completed', messagesUsed: 3, summary: '完成' } });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 'headless-1' }]);
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.svc.listParked()).toEqual([]); // 修前红锚：终态后行残留（删除位缺席）
+  });
+
+  it('settle-hook 再挂：终态后仍有其余登记行 → 触发重入通道（getIssue 可观测——帽满主恢复径的链式再挂）', async () => {
+    const f = makeService({ outcome: { status: 'completed', messagesUsed: 3, summary: '完成' } });
+    // 两行：本键（随 run 终态清）+ 其余键（剩余行触发再挂钩）
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [
+      { repo: 'o/r', number: 7, sessionId: 'headless-1' },
+      { repo: 'o/x', number: 9, sessionId: 'headless-9' },
+    ]);
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    // 修前红锚：无 settle-hook → getIssue 零调用
+    await vi.waitFor(() => expect(f.fback.getIssueCalls).toHaveLength(1));
+    expect(f.fback.getIssueCalls[0]).toEqual({ repo: 'o/x', number: 9 }); // 本键已清——剩余行进入重入判据
+    expect(f.svc.listParked()).toEqual([]); // getIssue undefined（已删形）→ 清行
+  });
+});
+
+describe('reenterParked（重入通道矩阵——单发触发器 + 整程自吞）', () => {
+  it('外联折码上抛（限额）→ 整程自吞不抛 + 行保留（诚实边界③：静默待再挂）', async () => {
+    const f = makeService({
+      backendGetIssue: async () => {
+        throw new BaseError('ISSUE_SOURCE_RATE_LIMITED', '[ISSUE_SOURCE_RATE_LIMITED] 限额');
+      },
+    });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    // 修前红锚：reenterParked 不存在（TypeError）
+    await expect(f.svc.reenterParked()).resolves.toBeUndefined();
+    expect(f.svc.listParked()).toEqual([{ repo: 'o/r', number: 7, sessionId: 's-park' }]); // 行保留
+  });
+
+  it('issue 已删（getIssue undefined——404 特判）→ 清行', async () => {
+    const f = makeService({ backendGetIssue: async () => undefined });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([]);
+  });
+
+  it('issue 已关（closed）→ 清行（终态 issue 不再入队）', async () => {
+    const f = makeService({ backendGetIssue: async () => ({ ...ISSUE, state: 'closed' as const }) });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([]);
+    expect(f.fsess.starts).toHaveLength(0); // 零起跑
+  });
+
+  it('配置域漂移（repo 出域——config drift 防护）→ 清行', async () => {
+    const f = makeService({ backendGetIssue: async () => ({ ...ISSUE, repo: 'other/r' }) });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'other/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([]);
+    expect(f.fsess.starts).toHaveLength(0);
+  });
+
+  it('入队 started → 清行（新 run 持有未来）+ 全管线零旁路走完（enqueue 正门）', async () => {
+    const f = makeService({ backendGetIssue: async () => ISSUE });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([]); // started → 即清行
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1)); // runOne 全管线走完（startHeadless→交付映射→settle）
+  });
+
+  it('入队 duplicate（同键在飞）→ 行保留（在飞 run 持有未来）', async () => {
+    const f = makeService({ backendGetIssue: async () => ISSUE });
+    // 在飞占位：同键 Job 注册在册（enqueue dedupe 扫 running 即见）
+    f.fj.jobs.register({ kind: 'issue', name: 'o/r#7', owner: 'test-dup' });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    expect(f.fsess.starts).toHaveLength(0); // 零起跑（duplicate 不 fire runOne）
+  });
+
+  it('入队 rejected（预算拒）→ 行保留 + 零起跑（下轮再挂/外活动再触发）', async () => {
+    const f = makeService({ budgetOk: false, budgetReason: '日池尽', backendGetIssue: async () => ISSUE });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    expect(f.fsess.starts).toHaveLength(0);
+  });
+
+  it('在飞互斥：并发双调单程执行（getIssue 恰一次——布尔在飞闸）', async () => {
+    let releaseGet!: (value: undefined) => void;
+    const f = makeService({
+      backendGetIssue: () =>
+        new Promise((resolve) => {
+          releaseGet = resolve;
+        }),
+    });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    const p1 = f.svc.reenterParked();
+    const p2 = f.svc.reenterParked(); // 同步双调——第二程须见在飞闸即返
+    releaseGet(undefined);
+    await p1;
+    await p2;
+    // 修前红锚：无在飞闸 → 双程各走一遍 getIssue（两调用）
+    expect(f.fback.getIssueCalls).toHaveLength(1);
+    expect(f.svc.listParked()).toEqual([]); // undefined → 清行（单程照常收尾）
   });
 });

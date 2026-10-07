@@ -37,6 +37,7 @@ function fakeBackend() {
       prs.push(req);
       return { number: 1, htmlUrl: 'https://github.com/o/r/pull/1' };
     },
+    getIssue: async () => undefined,
   };
   return { backend, comments, prs };
 }
@@ -83,6 +84,7 @@ function pagedBackend(opts: { issuePages?: IssueRef[][]; commentPages?: IssueCom
     },
     postComment: async () => ({ id: 1 }),
     createPullRequest: async () => ({ number: 1, htmlUrl: 'https://github.com/o/r/pull/1' }),
+    getIssue: async () => undefined,
   };
 }
 

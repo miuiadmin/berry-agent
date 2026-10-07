@@ -634,6 +634,14 @@ interface IssuePluginHostDeps {
    * 承担）。
    */
   readonly worktree?: WorktreeService;
+  /**
+   * issue 会话日志读面（issue 停靠恢复批——04 §5 停靠登记 daemon 重启恢复律
+   * 的 issue 侧判据读面：停靠登记行〔store_state 单键〕绑定 sessionId 的尾词
+   * 回扫 + 会话行存在性判）。结构兼容 persistence 真身（IssueSessionReadsFace
+   * 注记）。缺席 = boot 停靠扫描诚实跳过、登记行保留（诚实缺席律——生产装配
+   * 恒注入；非主闸——issue 件装载不因本位缺席而拒）。
+   */
+  readonly issueSessionReads?: IssueSessionReadsFace;
 }
 
 /**
@@ -1499,6 +1507,37 @@ export interface GoalFace {
 }
 
 /**
+ * boot 重挂尾窗宽（goal L4-1 与 issue 停靠恢复批共用——04 §5 停靠登记
+ * daemon 重启恢复律：装载期尾词回扫的尾窗 W 条。锚 obs-b STATE_SCAN_WINDOW
+ * 同值另裁——判据射界分立〔05 §388 对端注：obs-b 猝死中断态推导与本处恢复
+ * 判据两实现禁互相调用/复用；goal 与 issue 两恢复判据同族同集，跳过判定
+ * 单源共用不破射界〕）。
+ */
+const BOOT_REPARK_SCAN_WINDOW = 20;
+
+/**
+ * boot 重挂回扫的审计词跳过判定（goal L4-1 与 issue 停靠恢复批共用）：
+ * 跳过集 = {llm/usage、compaction/*}（记账/压缩词不掩尾词、也不构成停靠
+ * 形态）。射界注记同上——与 obs-b tailEvent 的 {compaction/*} 跳过集分立，
+ * 禁互相调用/复用。
+ */
+const isReparkAuditWord = (type: string): boolean => type === 'llm/usage' || type.startsWith('compaction/');
+
+/**
+ * issue 会话日志读面（issue 停靠恢复批——04 §5 停靠登记 daemon 重启恢复律
+ * 的 issue 侧判据读面）：尾窗窄读 + 会话行尾 seq。结构兼容 persist
+ * queryEvents/SessionRow（GoalSessionFace.queryEvents/getSessionRow 同形——
+ * 两件各自窄面声明，词面独立律照 GoalJobsFace 惯例）。缺席（测试替身形）=
+ * boot 停靠扫描诚实跳过、登记行保留（诚实缺席律——生产装配恒注入）。
+ */
+export interface IssueSessionReadsFace {
+  /** 会话事件尾窗窄读（fromSeq 闭区间 seq >= ? 升序只向前——GoalSessionFace.queryEvents 同形注记） */
+  queryEvents(filter: { sessionId: string; fromSeq: number; limit: number }): { events: readonly SessionEvent[] };
+  /** 会话行尾 seq 读面（lastSeq 取值源——缺席 = 会话记录不在，登记行清理） */
+  getSessionRow(sessionId: string): { lastSeq: number } | undefined;
+}
+
+/**
  * core:goal（批 19c-3）——03 §10.5 计划态机器装载态兑现：GoalService 全环
  * （goals 表族 v3 已由宿主聚合；件内闭包消费）+ goal_update 终态申报工具
  * （boot 全局层——执行时会话解析包装：toolCtx.sessionId 先落可变格再入
@@ -1773,10 +1812,8 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // 对偶 = 会话尾词 session/paused(reason='budget')。装载期扫描重建登记——
       // **boot 只登记不 submit**（唤醒经新事件——05 §4 对端注：唤醒走新事件非
       // 启动重放；首 tick budget-extended 电平判唤醒）。
-      /** 回扫窗宽（锚 obs-b STATE_SCAN_WINDOW 同值另裁——判据射界分立〔05 §388
-       * 对端注：猝死中断态推导跳过集 {compaction/*} 与本处恢复判据跳过集
-       * {llm/usage、compaction/*} 分立——两处实现禁互相调用/复用〕） */
-      const BOOT_REPARK_SCAN_WINDOW = 20;
+      // 尾窗宽与审计词跳过判定已升 module 级共用（BOOT_REPARK_SCAN_WINDOW /
+      // isReparkAuditWord——issue 停靠恢复批同族同集单源；goal 侧行为零变更）。
 
       /**
        * boot 重挂扫描主体：遍历 active goal 三级判据（挂钟行 enabled 读面 →
@@ -1833,7 +1870,7 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
           let hit: SessionEvent | undefined;
           for (let i = tailWindow.length - 1; i >= 0; i -= 1) {
             const candidate = tailWindow[i]!;
-            if (candidate.type === 'llm/usage' || candidate.type.startsWith('compaction/')) continue;
+            if (isReparkAuditWord(candidate.type)) continue;
             hit = candidate;
             break;
           }
@@ -2568,6 +2605,94 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
         warn,
       });
       service.start();
+
+      // ── boot 停靠扫描（issue 停靠恢复批——04 §5 停靠登记 daemon 重启恢复律
+      //    的 issue 侧兑现）：登记行 durable（store_state 单键）跨重启存活，但
+      //    唤醒登记面（预算广播 entries）进程内态，daemon 重启即蒸发；装载期
+      //    逐行尾词校验——存活行重建**单发**唤醒 entry（广播电平恢复触发
+      //    reenterParked 单程全量迭代——链式排干直到空或外联失败保留待下轮；
+      //    重挂三源 = boot 扫描 / issue run 终态 settle-hook / 外活动）。
+      let bootWakeEntry: BudgetBroadcastEntry | undefined;
+      try {
+        const reads = deps.issueSessionReads;
+        if (reads === undefined) {
+          // 诚实缺席律：读面未注入（测试替身形）——扫描跳过 + 登记行保留
+          //（生产装配恒注入；行不因扫描缺席而清——清理判据唯三径不添第四径）
+          warn('issue 重启恢复：会话读面未注入——装载期停靠扫描跳过（登记行保留，生产装配恒注入）');
+        } else {
+          const broadcast = deps.budgetBroadcast;
+          let survived = 0;
+          for (const row of service.listParked()) {
+            const sessionRow = reads.getSessionRow(row.sessionId);
+            if (sessionRow === undefined) {
+              // 绑定会话记录不在（已删/归档）——行清理：该行的恢复事实已不存在，
+              // 重入语义退回轮询再触发通道（不阻清理——幽灵行永占登记面）
+              service.dropParked(row.repo, row.number);
+              warn(
+                `issue 重启恢复：停靠行 ${row.repo}#${row.number} 绑定的会话记录不在了——登记行清理（会话已删或归档；重入经轮询再触发）`,
+              );
+              continue;
+            }
+            // 尾窗窄读（goal L4-1 同形）：fromSeq = max(0, last_seq-(W-1)) 配
+            // limit W——W 窗尽未命中即不扩窗，非停靠形断然清理
+            const fromSeq = Math.max(0, sessionRow.lastSeq - (BOOT_REPARK_SCAN_WINDOW - 1));
+            const tailWindow = reads.queryEvents({
+              sessionId: row.sessionId,
+              fromSeq,
+              limit: BOOT_REPARK_SCAN_WINDOW,
+            }).events;
+            // 自尾回溯跳过审计词封闭集——goal L4-1 同族同集单源（isReparkAuditWord）
+            let hit: SessionEvent | undefined;
+            for (let i = tailWindow.length - 1; i >= 0; i -= 1) {
+              const candidate = tailWindow[i]!;
+              if (isReparkAuditWord(candidate.type)) continue;
+              hit = candidate;
+              break;
+            }
+            // 两形停靠指纹（04 §5 定形注②③）：session/paused(reason='budget')
+            // 〔停靠词〕或 user/message(source='budget-extended')〔shutdown 窗
+            // 内唤醒注入落账形——前进程词先于行被清理的竞速窗指纹〕
+            const isParkedForm =
+              hit !== undefined &&
+              ((hit.type === 'session/paused' && (hit.data as { reason?: unknown }).reason === 'budget') ||
+                (hit.type === 'user/message' && (hit.data as { source?: unknown }).source === 'budget-extended'));
+            if (!isParkedForm) {
+              // 尾词非停靠形——行清理（load-bearing：stale 行不清则每次预算
+              // 恢复都对已续跑/已终态 issue 重复投递；前进程唤醒续跑崩溃或
+              // 终态删除位竞速残留两源）
+              service.dropParked(row.repo, row.number);
+              warn(
+                `issue 重启恢复：停靠行 ${row.repo}#${row.number} 尾词非停靠形——登记行清理（防重复投递；前进程唤醒续跑崩溃或终态竞速残留）`,
+              );
+              continue;
+            }
+            warn(
+              `issue 重启恢复：停靠行 ${row.repo}#${row.number}（会话 ${row.sessionId}）已重新登记——预算恢复后自动重入`,
+            );
+            survived += 1;
+          }
+          // 单发触发器（与 goal 的 level-safe submit 分立——issue 重入含
+          // GitHub 外联 getIssue，按 tick 电平重触发即外联风暴）：存活行 ≥1
+          // 恰登记一枚广播 entry；wake 自摘后单程 reenterParked 全量迭代
+          // 存活行（重挂经 settle-hook / 外活动——每程终态再挂直到排干）
+          if (survived > 0 && broadcast !== undefined) {
+            bootWakeEntry = {
+              wake: () => {
+                const entry = bootWakeEntry;
+                if (entry !== undefined) {
+                  bootWakeEntry = undefined;
+                  broadcast.unregister(entry); // 自摘（单发——不随电平重复触发）
+                }
+                void service.reenterParked(); // 整程自吞（pass 内外层 catch——防御位）
+              },
+            };
+            broadcast.register(bootWakeEntry);
+          }
+        }
+      } catch (err) {
+        // 扫描异常不炸装载（防御位——行保留待下轮触发面；与 goal 扫描同律）
+        warn(`issue 重启恢复扫描异常（自吞不抛）：${err instanceof Error ? err.message : String(err)}`);
+      }
       context.provide('issue', service);
       // webhook 挂点 kit（18a-4' mountIssueWebhook 的宿主消费位——serve/
       // daemon 开面后 tryGet 本面挂路由；secret 缺席 = kit 仍在而守卫 400
@@ -2581,6 +2706,11 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
       });
       return () => {
         service.stop();
+        // boot 唤醒 entry 同笔摘（单发触发器未触即拆——停机不留僵尸广播登记）
+        if (bootWakeEntry !== undefined) {
+          deps.budgetBroadcast?.unregister(bootWakeEntry);
+          bootWakeEntry = undefined;
+        }
         disposeDangerCmd?.();
       };
     },

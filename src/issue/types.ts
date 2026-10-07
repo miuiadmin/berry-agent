@@ -44,6 +44,17 @@ export const ISSUE_WEBHOOK_ENDPOINT = '/webhooks/issue';
 /** webhook 请求体帽（per-route bodyLimitBytes 位——GitHub issue 载荷 64KiB 级 + 元数据余量） */
 export const ISSUE_WEBHOOK_BODY_LIMIT_BYTES = 256 * 1024;
 
+/**
+ * 停靠登记 store_state 单键（04 §5 停靠登记 daemon 重启恢复律——issue 停靠
+ * 恢复批）：值 = `IssueParkedRow[]`（同步读改写——JS 单线程 await 间无竞速
+ * 窗），无 ttl（durable 恢复面不设过期——行清理唯三径：终态删除位 / 重入
+ * 判据清理 / boot 尾词校验清理）。
+ */
+export const ISSUE_PARKED_REGISTRY_KEY = 'issue:parked:registry';
+
+/** 停靠登记 store_state kind（分类标签——消费面过滤/审计用） */
+export const ISSUE_PARKED_REGISTRY_KIND = 'issue-parked';
+
 /** GitHub token 凭证名（host 域——03 §10.9「env 与库优先级」c-5 迁移：凭证库
  * 优先、env `BERRY_AGENT_GITHUB_TOKEN` 过渡载体回落——/credentials add
  * github-token <token> 录入即生效） */
@@ -129,6 +140,20 @@ export interface IssueCommentRef {
 /** dedupeKey（03 §10.7 入队条：`repo#issue`——进程内在飞互斥键非 durable 幂等键） */
 export function issueDedupeKey(repo: string, number: number): string {
   return `${repo}#${number}`;
+}
+
+/**
+ * 停靠登记行（04 §5 停靠登记 daemon 重启恢复律——issue 停靠恢复批）。行
+ * 身份 = `repo#number` 去重键（复停靠同键覆写换新 sessionId——行数不涨）；
+ * sessionId 是 boot 尾词校验的会话定位键。
+ */
+export interface IssueParkedRow {
+  /** 仓坐标（`owner/name`——重入判据 getIssue 的查询键一半） */
+  readonly repo: string;
+  /** issue 号（查询键另一半；与 repo 合成去重键） */
+  readonly number: number;
+  /** 停靠时会话 id（boot 尾窗回扫的定位键） */
+  readonly sessionId: string;
 }
 
 /** worktree 名形（`issue-<n>` 首选、重跑递进 `-r<k>`——分支留史撞名让位） */
@@ -217,6 +242,15 @@ export interface IssueSessionFace {
     readonly budgetMessages: number;
     /** 件注册的只读工具面（issue_get 等——随会话装载） */
     readonly tools: readonly ToolDefinition[];
+    /**
+     * 停靠写位回调（04 §5 停靠登记 daemon 重启恢复律——issue 停靠恢复批）：
+     * parkNow 落 session/paused 词**之后**触发（词先行、行随后——durable 真源
+     * 在前的序；进程在两笔间猝死即「词在行不在」，撕裂窗归诚实边界⑵管豁，
+     * 反序则产「行在词不在」幽灵行）。回调内落停靠登记行（store_state 单键
+     * upsert）；写失败回调自吞 warn 不破停靠结算（停机 closer 竞速窗）。缺席
+     * = 无 durable 停靠登记（测试替身形）。
+     */
+    readonly onParked?: (sessionId: string) => void;
   }): Promise<IssueSessionStartResult>;
 }
 

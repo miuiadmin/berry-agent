@@ -33,16 +33,27 @@
  *   无登记零呈现）。
  * - paused → **不 settle 不 clean 不释授予**——worktree/授予/在飞记账全
  *   保留（budget_extended 唤醒 watcher 已接线——issue-session 起跑时登记
- *   全部停靠 run，预算恢复自动唤醒续跑）。
+ *   全部停靠 run，预算恢复自动唤醒续跑）；parkNow 落词后经 onParked 回调
+ *   落**停靠登记行**（store_state 单键——词先行、行随后，04 §5 停靠登记
+ *   daemon 重启恢复律·issue 停靠恢复批）。
  * 收尾（非 paused）：worktree clean（dirty 保留不强拆——变更可能正是交付
- * 物）、releaseSession。评论投递失败不阻塞 settle 的反面——settle 恒在评论
- * 后落（人可见面优先；网络挂死场景 fetch 层兜底）。
+ * 物）、releaseSession、**停靠登记删除位**（终态即失效行）+ settle-hook
+ * 再挂（仍有停靠行且无在飞重入程时踢一程——链式排干直到空）。评论投递
+ * 失败不阻塞 settle 的反面——settle 恒在评论后落（人可见面优先；网络挂死
+ * 场景 fetch 层兜底）。
+ *
+ * 重入通道 reenterParked（boot 唤醒 entry / settle-hook 再挂 / 外活动三源
+ * 触发；单程在飞闸）：登记行快照逐行 getIssue（404 特判 undefined = 已删）
+ * → 终态/配置域判 → enqueue 正门重入（零旁路——全闸照过）；started 即清
+ * 行（新 run 持有未来），duplicate/rejected 保留待下轮，外联失败保留续行
+ * ——整程自吞永不抛（void 调用点无 catch）。
  */
 import { BaseError, redactKnownSecretValues, redactSensitiveText } from '../contracts/index.js';
 import type { GithubBackend } from './github.js';
 import { createIssueTools } from './tools.js';
 import { createIssuePoller, type PollReport } from './poll.js';
 import { handleWebhookRequest, type WebhookReceipt } from './webhook.js';
+import { issueMatchesFilter } from './filter.js';
 import type {
   IssueBudgetFace,
   IssueConfig,
@@ -50,6 +61,7 @@ import type {
   IssueEnqueueResult,
   IssueEscalation,
   IssueJobsFace,
+  IssueParkedRow,
   IssueRef,
   IssueSchedulerFace,
   IssueSessionFace,
@@ -59,8 +71,10 @@ import type {
   IssueWorktreeFace,
 } from './types.js';
 import {
-  ISSUE_POLL_JOB_NAME,
   ISSUE_PARALLEL_LIMIT_DEFAULT,
+  ISSUE_PARKED_REGISTRY_KEY,
+  ISSUE_PARKED_REGISTRY_KIND,
+  ISSUE_POLL_JOB_NAME,
   ISSUE_RECEIPT_PATCH_CHARS,
   ISSUE_WORKTREE_NAME_RE,
   issueDedupeKey,
@@ -212,6 +226,23 @@ export interface IssueService {
   enqueue(issue: IssueRef): IssueEnqueueResult;
   /** 孤儿扫描（名形匹配减在飞——标注面，清理归人审/装配侧） */
   orphanScan(): Promise<readonly OrphanWorktree[]>;
+  /**
+   * 停靠登记行读面（04 §5 停靠登记 daemon 重启恢复律——issue 停靠恢复批；
+   * boot 尾词校验（件侧消费）与观测/测试面共源）。坏形值容错空集。
+   */
+  listParked(): IssueParkedRow[];
+  /**
+   * 停靠登记行删面（boot 尾词校验清理位——陈旧行/会话缺席行清除；终态
+   * 删除位与重入判据清理在编排内务侧，不经本面）。
+   */
+  dropParked(repo: string, number: number): void;
+  /**
+   * 重入通道（04 §5 单发触发器）：遍历登记行逐行重入判据（getIssue 单取 →
+   * 终态/配置域判 → enqueue 正门零旁路）。整程自吞永不抛（budget-broadcast
+   * tick 唤醒循环无逐项 catch——void 调用点未捕即 unhandledRejection）；
+   * 在飞布尔闸防并发双程。
+   */
+  reenterParked(): Promise<void>;
 }
 
 /** 组 issue 服务 */
@@ -226,6 +257,106 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
   // registry running 语义；跨实例漂移形〔重挂载后旧 job 仍在飞〕由 runOne
   // 受理位 try-catch 兜底——fail-safe 方向：漏计只会退到 register 拒收兜底）
   const issueRunning = new Set<string>();
+
+  // ── 停靠登记（04 §5 停靠登记 daemon 重启恢复律——issue 停靠恢复批）──
+  // durable 单键读改写三助手：store_state 值 = IssueParkedRow[]；同步读改写
+  // 在 JS 单线程 await 间无竞速窗（写位 onParked 回调 / 删除位 runOne finally
+  // / 清理位重入判据与 boot 尾词校验——四写位同键不相蚀）
+  /** 登记行读（坏形值容错空集——行面防御读，陈化/毒丸不炸通道） */
+  function readParked(): IssueParkedRow[] {
+    const value = deps.state.getStoreState(ISSUE_PARKED_REGISTRY_KEY)?.value;
+    if (!Array.isArray(value)) return [];
+    // 行形过滤（repo:string / number:number / sessionId:string——坏行弃不计）
+    return value.filter(
+      (r): r is IssueParkedRow =>
+        typeof r === 'object' &&
+        r !== null &&
+        typeof (r as IssueParkedRow).repo === 'string' &&
+        typeof (r as IssueParkedRow).number === 'number' &&
+        typeof (r as IssueParkedRow).sessionId === 'string',
+    );
+  }
+
+  /** 登记行全量写（kind 标签随写——无 ttl：durable 恢复面不设过期） */
+  function writeParked(rows: IssueParkedRow[]): void {
+    deps.state.setStoreState(ISSUE_PARKED_REGISTRY_KEY, rows, { kind: ISSUE_PARKED_REGISTRY_KIND });
+  }
+
+  /** 同键 upsert（repo#number 去重——复停靠新 sessionId 覆盖旧行，行数不涨） */
+  function upsertParked(row: IssueParkedRow): void {
+    const key = issueDedupeKey(row.repo, row.number);
+    writeParked([...readParked().filter((r) => issueDedupeKey(r.repo, r.number) !== key), row]);
+  }
+
+  /** 单键删除（终态删除位/重入判据清理/boot 尾词校验清理共用） */
+  function dropParkedRow(repo: string, number: number): void {
+    const key = issueDedupeKey(repo, number);
+    writeParked(readParked().filter((r) => issueDedupeKey(r.repo, r.number) !== key));
+  }
+
+  /**
+   * 重入通道在飞闸（并发双调单程——boot 唤醒 entry 的 wake 与 settle-hook
+   * 再挂可同窗触发；第二程即返由首程行快照自迭代全量承接）。
+   */
+  let reenterInFlight = false;
+
+  /**
+   * 重入通道主体（04 §5 单发触发器）：登记行快照逐行——getIssue 单取（404
+   * 特判 undefined = 已删 / 限额与网络异常上抛）→ 终态/配置域判（config
+   * drift 防护）→ enqueue 正门（零旁路：capabilities/dedupe/并行帽/预算全
+   * 照过）。started → 行即清（新 run 持有未来）；duplicate/rejected → 行保留
+   * （在飞 run 持有未来 / 待下轮再挂或外活动再触发）；外联失败 → 行保留
+   * + warn 续行（诚实边界③：静默待再挂）。整程自吞永不抛（void 调用点
+   * 无 catch）。
+   */
+  async function reenterParkedPass(): Promise<void> {
+    if (reenterInFlight) return;
+    reenterInFlight = true;
+    try {
+      for (const row of readParked()) {
+        try {
+          const issue = await deps.backend.getIssue({ repo: row.repo, number: row.number });
+          if (issue === undefined) {
+            dropParkedRow(row.repo, row.number);
+            warn(`issue 停靠行清理（${row.repo}#${row.number}）：issue 已删——无恢复事实`);
+            continue;
+          }
+          if (issue.state !== 'open') {
+            dropParkedRow(row.repo, row.number);
+            warn(`issue 停靠行清理（${row.repo}#${row.number}）：issue 已 ${issue.state}（终态不再入队）`);
+            continue;
+          }
+          // 配置域漂移防护（repos 域外行不重入——labels/assignees 白名单同判）
+          if (!issueMatchesFilter(issue, deps.config)) {
+            dropParkedRow(row.repo, row.number);
+            warn(`issue 停靠行清理（${row.repo}#${row.number}）：repo 已出配置域（配置漂移）`);
+            continue;
+          }
+          // enqueue 正门重入（零旁路——全闸照过）
+          const result = enqueue(issue);
+          if (result.status === 'started') {
+            dropParkedRow(row.repo, row.number); // 新 run 持有未来——行即清
+          } else {
+            warn(
+              `issue 停靠行保留（${row.repo}#${row.number}）：重入未受理（${result.status}${
+                result.status === 'rejected' ? `：${result.reason}` : ''
+              }）——待下轮再挂`,
+            );
+          }
+        } catch (err) {
+          // 外联失败（限额/不可达）：行保留 + warn 续行（诚实边界③——不误清）
+          warn(
+            `issue 停靠行重入外联失败（${row.repo}#${row.number}）：${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    } catch (err) {
+      // 整程自吞（防御位——行快照读/写异常不上抛：void 调用点无 catch）
+      warn(`issue 停靠行重入异常（自吞不抛）：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      reenterInFlight = false;
+    }
+  }
 
   /** worktree 名候选序列（issue-N 首选；分支留史撞名让位 -r2..-r9——九连撞即弃转人审） */
   function* worktreeNameCandidates(number: number): Generator<string> {
@@ -377,6 +508,19 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
             escalations.push(escalation);
           },
         }),
+        // 停靠登记写位（04 §5 停靠登记 daemon 重启恢复律——issue 停靠恢复批）：
+        // parkNow 落 session/paused 词之后触发回调——词先行、行随后（durable
+        // 真源在前的序）。回调自吞 warn 不破停靠结算（停机 closer 竞速窗——
+        // 写失败时词在行不在，归诚实边界⑵撕裂窗管豁）。
+        onParked: (parkedSessionId) => {
+          try {
+            upsertParked({ repo: issue.repo, number: issue.number, sessionId: parkedSessionId });
+          } catch (err) {
+            warn(
+              `issue 停靠登记写失败（${key}）：${err instanceof Error ? err.message : String(err)}——进程重启后该停靠不自动恢复（词在行不在的撕裂窗）`,
+            );
+          }
+        },
       });
       sessionId = started.sessionId;
       // 拿到 sessionId 才能授予（create 时会话不存在的补授位——04 §7 补钉①编排路径）
@@ -672,6 +816,15 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
         issueRunning.delete(key); // 帽位释放（paused 保留——停靠仍占 registry running 位）
         inflight.delete(key);
         if (sessionId !== undefined) deps.worktree.releaseSession(sessionId);
+        // ── 停靠登记删除位（终态删除位——issue 停靠恢复批）：本 run 落终态，
+        //    该 issue 的停靠行即失效（新 run 不再持有「续跑旧停靠」语义）。
+        //    deleted 行若因复停靠被后续 run 重写，此处只删本 key 行——同键
+        //    恒单行（upsert 覆写），无跨 run 误删面。
+        dropParkedRow(issue.repo, issue.number);
+        // ── settle-hook 再挂（重入通道链驱动）：仍有停靠行且无在飞重入程
+        //    时踢一程——链式排干（每程终态再挂直到空）。void 形（pass 自吞
+        //    永不抛）；在飞闸内返由首程行快照承接本 run 新终态后的登记面。
+        if (readParked().length > 0) void reenterParkedPass();
       }
     }
   }
@@ -764,6 +917,20 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
       return entries
         .filter((e) => ISSUE_WORKTREE_NAME_RE.test(e.name) && !inflightNames.has(e.name))
         .map((e) => ({ name: e.name, path: e.path }));
+    },
+
+    // ── 停靠登记面（issue 停靠恢复批——boot 尾词校验清理位与重入通道的
+    //    宿主消费面：core-plugins boot 扫描存活行判 / 唤醒 entry 触发重入） ──
+    listParked() {
+      return readParked();
+    },
+
+    dropParked(repo, number) {
+      dropParkedRow(repo, number);
+    },
+
+    reenterParked() {
+      return reenterParkedPass();
     },
   };
   return service;

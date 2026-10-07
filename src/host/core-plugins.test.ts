@@ -31,7 +31,14 @@ import type {
 } from '../credentials/index.js';
 import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../goal/index.js';
 import type { GoalService, GoalSessionFace, GoalSummarizerFace } from '../goal/index.js';
-import type { IssueBudgetFace, IssueSessionFace, IssueStoreStateFace } from '../issue/index.js';
+import type {
+  IssueBudgetFace,
+  IssueParkedRow,
+  IssueService,
+  IssueSessionFace,
+  IssueStoreStateFace,
+} from '../issue/index.js';
+import { ISSUE_PARKED_REGISTRY_KEY } from '../issue/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../memory/index.js';
 import type { ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../obs/index.js';
@@ -43,11 +50,12 @@ import { SessionLog } from '../session/index.js';
 import { createJobRegistry, provideJobsService } from '../subagent/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
-import type { GoalFace, SchedulerFace } from './core-plugins.js';
+import type { GoalFace, IssueSessionReadsFace, SchedulerFace } from './core-plugins.js';
 import type { BudgetBroadcastFace } from './budget-broadcast.js';
 import { createBudgetBroadcast } from './budget-broadcast.js';
 import type { ConversationStack } from './conversation-stack.js';
 import type { WebuiFaceMount } from './webui-bridge.js';
+import type { WorktreeService } from '../tools/index.js';
 import { bootPlugins } from './plugin-boot.js';
 import type { PluginBootFs } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
@@ -174,6 +182,10 @@ interface DepsForTest {
   issueBudget?: IssueBudgetFace;
   issueGithubToken?: string;
   issueWebhookSecret?: string;
+  /** issue 会话日志读面（issue 停靠恢复批——CorePluginHostDeps.issueSessionReads 同形） */
+  issueSessionReads?: IssueSessionReadsFace;
+  /** worktree 服务共享位（issue 件编排授予测试位——缺席 = 件内自建真身） */
+  worktree?: WorktreeService;
   credentialsStore?: CredentialsCommandStore;
   credentialsOnChanged?: (payload: CredentialChangedPayload) => void;
   /** oauth 流受局面（c-6）：CorePluginHostDeps.credentialsOAuth 同形——intervalMs 0 = 刷新链不自驱 */
@@ -264,6 +276,8 @@ async function bootCore(
       ...(coreDeps.issueBudget !== undefined ? { issueBudget: coreDeps.issueBudget } : {}),
       ...(coreDeps.issueGithubToken !== undefined ? { issueGithubToken: coreDeps.issueGithubToken } : {}),
       ...(coreDeps.issueWebhookSecret !== undefined ? { issueWebhookSecret: coreDeps.issueWebhookSecret } : {}),
+      ...(coreDeps.issueSessionReads !== undefined ? { issueSessionReads: coreDeps.issueSessionReads } : {}),
+      ...(coreDeps.worktree !== undefined ? { worktree: coreDeps.worktree } : {}),
       ...(coreDeps.credentialsStore !== undefined ? { credentialsStore: coreDeps.credentialsStore } : {}),
       ...(coreDeps.credentialsOnChanged !== undefined ? { credentialsOnChanged: coreDeps.credentialsOnChanged } : {}),
       ...(coreDeps.credentialsOAuth !== undefined ? { credentialsOAuth: coreDeps.credentialsOAuth } : {}),
@@ -395,6 +409,155 @@ async function bootReparkRig(options: {
     afford: (ok: boolean) => {
       affordOk = ok;
     },
+  };
+}
+
+/**
+ * issue 停靠恢复批 boot 扫描 rig（goal L4-1 bootReparkRig 的 issue 侧镜像）：
+ * 预置「前进程已停靠」的 durable 事实——持久会话（尾词 append 后 flush——
+ * 装载期扫描是同步库读）+ store_state 停靠登记行（真实 persistence 承载，
+ * assembly 生产同形）——再 bootCore 模拟重启后装载（唤醒登记面进程内态天然
+ * 空）。全前件链真装载（goal/checkpoint 件经最小 fake 面装载——capabilities
+ * 预检三名须在场，enqueue 正门才放行）；GitHub 外联经 vi.stubGlobal('fetch')
+ * 注假（backend 构造期捕获全局引用——stub 须先于 bootCore）。
+ */
+async function issueParkRig(options: {
+  /** 停靠登记行（逐行建持久会话 + 预植 store_state；sessionId 's-ghost' 特殊值 = 不建会话〔会话缺席形〕） */
+  rows: Array<{ repo: string; number: number; events: Array<[type: string, data: unknown]> | 'ghost' }>;
+  /** true = 不注入 issueSessionReads（读面缺席形——扫描诚实跳过行保留） */
+  omitReads?: boolean;
+}) {
+  const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-ipark-'));
+  dirs.push(dataDir);
+  const persistence = Persistence.open({
+    dbPath: MEMORY_DB_PATH,
+    migrations: [SCHEDULER_MIGRATION, SESSION_ARCHIVE_MIGRATION, ...MEMORY_MIGRATIONS],
+  });
+  // 逐行建持久会话（尾词落库 + flush）+ 预植停靠登记行（store_state 真实承载）
+  const parkedRows: IssueParkedRow[] = [];
+  const sessionIds: string[] = [];
+  for (const row of options.rows) {
+    if (row.events === 'ghost') {
+      parkedRows.push({ repo: row.repo, number: row.number, sessionId: 's-ipark-ghost' });
+      continue;
+    }
+    const log = persistence.createSession({ origin: 'conversation' });
+    for (const [type, data] of row.events) log.append(type, data);
+    await persistence.flush();
+    parkedRows.push({ repo: row.repo, number: row.number, sessionId: log.sessionId });
+    sessionIds.push(log.sessionId);
+  }
+  persistence.store.setStoreState(ISSUE_PARKED_REGISTRY_KEY, parkedRows, { kind: 'issue-parked' });
+
+  // GitHub 外联注假（backend 构造期捕获全局 fetch——stub 先于 bootCore 生效）：
+  // owner/repo 单取逐号路由 + 评论投递 201；默认 404 =「issue 已删」形
+  const fetchCalls: string[] = [];
+  const ghIssue = (number: number, state: 'open' | 'closed') => ({
+    number,
+    title: `t-${number}`,
+    body: `b-${number}`,
+    labels: [],
+    assignees: [],
+    state,
+    updated_at: '2026-01-01T00:00:00Z',
+    html_url: `https://github.com/owner/repo/issues/${number}`,
+  });
+  const res = (status: number, body: unknown): Response =>
+    ({
+      status,
+      ok: status >= 200 && status < 300,
+      headers: { get: () => null },
+      json: async () => body,
+    }) as unknown as Response;
+  vi.stubGlobal('fetch', async (url: unknown, init?: { method?: string }) => {
+    const path = String(url).replace('https://api.github.com', '');
+    const method = init?.method ?? 'GET';
+    fetchCalls.push(`${method} ${path}`);
+    const single = /^\/repos\/owner\/repo\/issues\/(\d+)$/.exec(path);
+    if (single !== null) {
+      if (Number(single[1]) === 8) return res(404, {}); // #8 恒「已删」形
+      return res(200, ghIssue(Number(single[1]), 'open'));
+    }
+    if (path.startsWith('/repos/owner/repo/issues/') && method === 'POST') return res(201, { id: 1 }); // 回执评论
+    return res(404, {});
+  });
+
+  // headless 起跑假件（记录 starts + onParked 在场位——outcome 即 completed）
+  const starts: Array<{ cwd: string; onParkedPresent: boolean }> = [];
+  const session: IssueSessionFace = {
+    startHeadless: async (req) => {
+      starts.push({ cwd: req.cwd, onParkedPresent: req.onParked !== undefined });
+      return {
+        sessionId: `s-ipark-run-${starts.length}`,
+        outcome: Promise.resolve({ status: 'completed', messagesUsed: 1, summary: 'done' }),
+      };
+    },
+  };
+  // worktree 假件（零真 git——编排腿 create/grant/clean/releaseSession 四消费位）
+  const worktree = {
+    create: async (req: { name: string }) => ({ name: req.name, path: `/tmp/wt/${req.name}`, branch: req.name }),
+    clean: async (req: { name: string }) => ({ name: req.name, path: `/tmp/wt/${req.name}` }),
+    list: async () => [],
+    diffPatch: async () => '',
+    grant: async () => undefined,
+    grantedRoots: () => [],
+    releaseSession: () => [],
+  } as unknown as WorktreeService;
+  // goal/checkpoint 最小 fake 面（前件件装载——capabilities 三名在场）
+  const goalSession: GoalSessionFace = {
+    events: () => [],
+    length: () => 0,
+    appendPaused: () => undefined,
+  };
+  const checkpointSession: SessionContextFace = { contextOf: () => undefined };
+  const checkpointFork: RewindForkFace = { fork: async () => ({ status: 'forked', sessionId: 'f-ipark' }) };
+
+  // 电平可控日池（预算窄面与广播 watcher 同旗——电平翻真即唤醒 + 入队放行）
+  let affordOk = false;
+  const budget: IssueBudgetFace = { canAffordIssue: () => (affordOk ? { ok: true } : { ok: false, reason: '日池尽' }) };
+  const broadcast = createBudgetBroadcast({ canAfford: () => affordOk, pollMs: 5 });
+  const notified: string[] = [];
+  const issueSessionReads: IssueSessionReadsFace = {
+    queryEvents: (filter) => persistence.queryEvents(filter),
+    getSessionRow: (sid) => persistence.store.getSessionRow(sid),
+  };
+  const issueYaml = 'plugins:\n  - id: core:issue\n    config:\n      repos:\n        - owner/repo\n';
+  const { scope } = await bootCore(
+    dataDir,
+    memoryFs({ [join(dataDir, 'enabled.yaml')]: issueYaml }),
+    {},
+    {
+      sqlite: () => persistence.store.sqlite(),
+      issueGithubToken: 'gh-token',
+      issueState: persistence.store,
+      issueBudget: budget,
+      issueSession: session,
+      worktree,
+      goalSession,
+      checkpointSession,
+      checkpointFork,
+      budgetBroadcast: broadcast,
+      ...(options.omitReads === true ? {} : { issueSessionReads }),
+      notify: (source, message) => {
+        if (source === 'issue') notified.push(message);
+      },
+    },
+  );
+  return {
+    scope,
+    persistence,
+    broadcast,
+    notified,
+    starts,
+    fetchCalls,
+    sessionIds,
+    registry: () =>
+      (persistence.store.getStoreState(ISSUE_PARKED_REGISTRY_KEY)?.value as IssueParkedRow[] | undefined) ?? [],
+    service: () => scope.tryGet<IssueService>('issue')!,
+    afford: (ok: boolean) => {
+      affordOk = ok;
+    },
+    restore: () => vi.unstubAllGlobals(),
   };
 }
 
@@ -2645,6 +2808,160 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       await rigHit.persistence.close();
       rigMiss.broadcast.dispose();
       await rigMiss.persistence.close();
+    }
+  });
+
+  // ── issue 停靠恢复批 boot 扫描（04 §5 停靠登记 daemon 重启恢复律——goal
+  //    L4-1 的 issue 侧对偶：durable 登记行 + 尾词两形判据 + 单发唤醒 entry）──
+  it('issue 重启恢复主径：登记行 + 尾词 session/paused(budget) → 装载即清痕重登记单发 entry；电平翻真唤醒重入全管线（外联 getIssue → enqueue 正门 → 新 run 持 onParked 写位）', async () => {
+    const rig = await issueParkRig({
+      rows: [
+        {
+          repo: 'owner/repo',
+          number: 7,
+          events: [
+            ['turn/start', {}],
+            ['user/message', { content: '修 issue', source: 'plugin:core:issue' }],
+            ['llm/usage', {}], // 审计词（回扫跳过集——压在 paused 之前）
+            ['session/paused', { reason: 'budget' }], // 尾词 = durable 停靠真源
+          ],
+        },
+      ],
+    });
+    try {
+      // 修前红锚：无扫描代码 broadcast.register 零调用——size 恒 0（主锁）
+      expect(rig.broadcast.size()).toBe(1);
+      expect(
+        rig.notified.some((m) => m.includes('重启恢复') && m.includes('已重新登记') && m.includes('自动重入')),
+      ).toBe(true); // 恢复留痕
+      expect(rig.starts).toHaveLength(0); // 装载只登记不重入（外联零触发）
+      expect(rig.fetchCalls).toHaveLength(0);
+      expect(rig.registry()).toHaveLength(1); // 存活行保留
+
+      // 电平翻真 → watcher 唤醒单发 entry（自摘 + 单程重入）→ 全管线
+      rig.afford(true);
+      await until(() => rig.starts.length === 1);
+      expect(rig.broadcast.size()).toBe(0); // 单发自摘（不随电平重复触发）
+      expect(rig.fetchCalls.some((c) => c === 'GET /repos/owner/repo/issues/7')).toBe(true); // 重入判据外联单取
+      expect(rig.starts[0]!.onParkedPresent).toBe(true); // service 注入 onParked 写位（新 run 持未来）
+      // started 即清行（新 run 持有未来）+ 终态后登记面恒空
+      await until(() => rig.registry().length === 0);
+      expect(rig.service().listParked()).toEqual([]);
+    } finally {
+      rig.restore();
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
+  it('issue 重启恢复第二形尾词：user/message(source=budget-extended)〔shutdown 窗内唤醒注入指纹〕——审计词压尾仍命中', async () => {
+    const rig = await issueParkRig({
+      rows: [
+        {
+          repo: 'owner/repo',
+          number: 7,
+          events: [
+            ['session/paused', { reason: 'budget' }],
+            ['user/message', { content: '预算恢复续跑', source: 'budget-extended' }], // 前进程唤醒注入落账（进程随后猝死）
+            ['llm/usage', {}], // 审计词（跳过）
+            ['compaction/skip', {}], // 审计词（跳过）
+          ],
+        },
+      ],
+    });
+    try {
+      expect(rig.broadcast.size()).toBe(1); // 两形指纹皆认——单发 entry 重建
+      expect(rig.starts).toHaveLength(0);
+    } finally {
+      rig.restore();
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
+  it('issue 重启恢复反例：尾词 turn/end（run 进行中重启翻尾）——行清理零登记（stale 行防重复投递）', async () => {
+    const rig = await issueParkRig({
+      rows: [
+        {
+          repo: 'owner/repo',
+          number: 7,
+          events: [
+            ['session/paused', { reason: 'budget' }],
+            ['turn/start', {}],
+            ['turn/end', { reason: 'completed' }], // 尾词 = 终态词（前进程唤醒续跑已完成——行是残留）
+          ],
+        },
+      ],
+    });
+    try {
+      expect(rig.broadcast.size()).toBe(0); // 零登记
+      expect(rig.registry()).toEqual([]); // 行清理（load-bearing——不清理则每次电平翻真重复投递）
+      expect(rig.notified.some((m) => m.includes('尾词非停靠形') && m.includes('登记行清理'))).toBe(true); // 清理留痕
+    } finally {
+      rig.restore();
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
+  it('issue 重启恢复反例：绑定会话记录不在（已删/归档）——行清理零登记不炸装配', async () => {
+    const rig = await issueParkRig({
+      rows: [{ repo: 'owner/repo', number: 7, events: 'ghost' }], // sessionId 无会话行
+    });
+    try {
+      expect(rig.broadcast.size()).toBe(0);
+      expect(rig.registry()).toEqual([]);
+      expect(rig.notified.some((m) => m.includes('会话记录不在') && m.includes('登记行清理'))).toBe(true);
+    } finally {
+      rig.restore();
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
+  it('issue 重启恢复读面缺席：issueSessionReads 未注入——扫描诚实跳过（行保留零登记），不清不炸', async () => {
+    const rig = await issueParkRig({
+      omitReads: true,
+      rows: [{ repo: 'owner/repo', number: 7, events: [['session/paused', { reason: 'budget' }]] }],
+    });
+    try {
+      expect(rig.broadcast.size()).toBe(0);
+      expect(rig.registry()).toHaveLength(1); // 行保留（清理判据唯三径不添第四径）
+      expect(rig.notified.some((m) => m.includes('停靠扫描跳过') && m.includes('登记行保留'))).toBe(true); // 诚实缺席留痕
+    } finally {
+      rig.restore();
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
+  it('issue 重启恢复多行单发：两行共用一枚 entry——唤醒单程全量迭代（存活行重入 + 已删行清理）', async () => {
+    const rig = await issueParkRig({
+      rows: [
+        {
+          repo: 'owner/repo',
+          number: 7,
+          events: [['session/paused', { reason: 'budget' }]],
+        },
+        {
+          repo: 'owner/repo',
+          number: 8,
+          events: [['session/paused', { reason: 'budget' }]], // #8 外联恒 404（已删形）
+        },
+      ],
+    });
+    try {
+      expect(rig.broadcast.size()).toBe(1); // 多行恰一枚 entry（单发触发器）
+      rig.afford(true);
+      await until(() => rig.registry().length === 0); // 单程排干（started 清 + 已删清）
+      expect(rig.fetchCalls).toContain('GET /repos/owner/repo/issues/7');
+      expect(rig.fetchCalls).toContain('GET /repos/owner/repo/issues/8'); // 两行都被迭代
+      expect(rig.starts).toHaveLength(1); // 仅 #7 存活重入（#8 已删清行）
+      expect(rig.broadcast.size()).toBe(0); // 自摘
+    } finally {
+      rig.restore();
+      rig.broadcast.dispose();
+      await rig.persistence.close();
     }
   });
 

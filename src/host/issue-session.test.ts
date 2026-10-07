@@ -261,6 +261,44 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     await rt.shutdown();
   });
 
+  it('⑨ 停靠回调（issue 停靠恢复批）：parkNow 落词后调 onParked(sessionId)——词先行、行随后（durable 真源在前的序）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { stack } = rigStack(rt, ws);
+    const afford = mutableAfford(false); // 起跑前日池尽——parkNow 即刻触发
+    const factory = createIssueSessionFactory({
+      stack,
+      canAfford: afford.canAfford,
+      warn: () => {},
+      pollMs: 5,
+    });
+    // 回调时点观测：回调触发时 session/paused 词须已在场（词先行、行随后——
+    // 反序即「行在词不在」幽灵行：进程在两笔间猝死时 boot 尾词校验必清行，
+    // 恢复义务凭空蒸发；正序 = 撕裂窗落在「词在行不在」，诚实边界⑵管豁）
+    const parkedCalls: Array<{ sessionId: string; pausedWordsAtCall: number }> = [];
+    const { sessionId, outcome } = await factory.startHeadless({
+      cwd: ws,
+      prompt: '修复 issue #9',
+      budgetMessages: 50,
+      tools: [],
+      onParked: (sid) => {
+        const driver = stack.manager.driverOf(sid);
+        parkedCalls.push({
+          sessionId: sid,
+          pausedWordsAtCall:
+            driver !== undefined ? driver.session.events().filter((e) => e.type === 'session/paused').length : -1,
+        });
+      },
+    });
+    await until(() => parkedCalls.length === 1);
+    expect(parkedCalls[0]!.sessionId).toBe(sessionId);
+    // 修前红锚：req.onParked 未透传——回调零触发；透传后回调时点词已在场
+    expect(parkedCalls[0]!.pausedWordsAtCall).toBe(1);
+    expect(await isPending(outcome)).toBe(true); // 停靠悬置照旧（回调不扰语义）
+    factory.dispose();
+    await rt.shutdown();
+  });
+
   it('③ run 中日池尽：watchdog 协作中止 → 停靠悬置 → dispose 收口 paused（retain 语义）+ 单会话收口 retire', async () => {
     const { rt } = rigRuntime();
     const ws = rigWorkspace();

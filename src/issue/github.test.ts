@@ -177,6 +177,56 @@ describe('page 参数透传（G4/G5——单页语义 + 调用方驱动翻页）
   });
 });
 
+describe('getIssue（单取——issue 停靠恢复批重入判据面）', () => {
+  it('200 归一映射（listIssues 同形；pull_request 字段不过滤——单取面只看 open/closed 判据）', async () => {
+    const ff = fakeFetch({ '/repos/o/r/issues/7': json(ghRow({ labels: [{}, { name: '' }, { name: 'bug' }] })) });
+    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
+    const issue = await backend.getIssue({ repo: 'o/r', number: 7 });
+    expect(issue).toMatchObject({
+      repo: 'o/r',
+      number: 7,
+      title: 't',
+      body: 'b',
+      labels: ['bug'],
+      assignees: ['alice'],
+      state: 'open',
+      updatedAt: '2026-09-06T00:00:00Z',
+      htmlUrl: 'https://github.com/o/r/issues/7',
+    });
+    expect(ff.calls[0]!.path).toBe('/repos/o/r/issues/7');
+    expect(ff.calls[0]!.init?.method).toBe('GET'); // 缺省 GET（body 缺席不落 POST——requestJson 归一形）
+  });
+
+  it('404 → undefined 特判绕过通用折叠（issue 已删：折 UNREACHABLE 会与网络故障不可分、登记行永不清）', async () => {
+    const ff = fakeFetch({ '/repos/o/r/issues/7': json({ message: 'Not Found' }, 404) });
+    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
+    await expect(backend.getIssue({ repo: 'o/r', number: 7 })).resolves.toBeUndefined(); // 修前红锚：折 UNREACHABLE 上抛
+  });
+
+  it('403 → ISSUE_SOURCE_RATE_LIMITED 照折（限额与 404 分立——外联失败静默待重挂）', async () => {
+    const ff = fakeFetch({ '/repos/o/r/issues/7': json({}, 403) });
+    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
+    await expect(backend.getIssue({ repo: 'o/r', number: 7 })).rejects.toMatchObject({
+      code: 'ISSUE_SOURCE_RATE_LIMITED',
+    });
+  });
+
+  it('网络级失败（fetch 抛）→ ISSUE_SOURCE_UNREACHABLE 照折（行保留不误清——诚实边界③）', async () => {
+    const ff = fakeFetch({ '/repos/o/r/issues/7': new Error('ECONNREFUSED') });
+    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
+    await expect(backend.getIssue({ repo: 'o/r', number: 7 })).rejects.toMatchObject({
+      code: 'ISSUE_SOURCE_UNREACHABLE',
+    });
+  });
+
+  it('repo 坏形守卫同 list 族（TOOL_INVALID_ARGS——坏形不发请求）', async () => {
+    const ff = fakeFetch({});
+    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
+    await expect(backend.getIssue({ repo: 'bad', number: 1 })).rejects.toMatchObject({ code: 'TOOL_INVALID_ARGS' });
+    expect(ff.calls).toHaveLength(0);
+  });
+});
+
 describe('折码（限额/不可达）', () => {
   it('403 → ISSUE_SOURCE_RATE_LIMITED，retryAfter 取 x-ratelimit-reset', async () => {
     // 时钟注入定稳秒边界：修前测试与实现两次独立读墙钟——两读间跨秒刻

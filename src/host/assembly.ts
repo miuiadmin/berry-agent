@@ -1179,6 +1179,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                     : { ok: false, reason: '当日后台预算池尽（04 §5 停靠待唤醒——不落终态）' },
               },
               issueSession: issueSessionFactory,
+              // issue 会话日志读面（issue 停靠恢复批——04 §5 停靠登记 daemon
+              // 重启恢复律的 issue 侧判据读面）：装载期属冷读窗恒走库读（goal
+              // L4-1 goalSession 同式——runtimeNow 活引用形），不走 driverOf
+              // 活体优先（boot 扫描时停靠会话恒无活体）
+              issueSessionReads: {
+                queryEvents: (filter) => runtimeNow.persistence.queryEvents(filter),
+                getSessionRow: (sessionId) => runtimeNow.persistence.store.getSessionRow(sessionId),
+              },
               ...(issueToken !== undefined && issueToken !== '' ? { issueGithubToken: issueToken } : {}),
               ...(issueSecret !== undefined && issueSecret !== '' ? { issueWebhookSecret: issueSecret } : {}),
               // —— credentials 人面命令两 seam（c-5——03 §10.9 写入面）——
