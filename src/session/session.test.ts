@@ -160,6 +160,35 @@ describe('append 七步流水线', () => {
   });
 });
 
+describe('append 信封 ignorable 注册表兜底（L2-2——03 §4.3 插件注册事件类型必须标 ignorable 语义）', () => {
+  // 一次性测试型：独特名防全局注册表撞名；条目测试后留存系全局 Map 既有
+  // 测试常态（就近参照顶部 test/occlusion 注册）。meta 声明 ignorable:true
+  // ——修复射界恰=插件注册词面（核心词表 ignorable 零赋值，兜底对核心词
+  // 事件信封形零变）。
+  registerEventType({
+    type: 'x/ignorable-fallback-test',
+    category: 'log-only',
+    owner: 'session.test',
+    tier: 'stable',
+    description: 'ignorable 注册表兜底测试型（meta 声明 ignorable:true）',
+    ignorable: true,
+  });
+
+  it('注册 meta ignorable:true：append 不传 options 信封也落章（导出→导入 round-trip 闭合的写入侧半句）', () => {
+    const { log } = makeLog();
+    const event = log.append('x/ignorable-fallback-test', { x: 1 });
+    // 修前红锚：信封 ignorable 位只看 options（AppendFn 调用链不传）——
+    // 插件流事件词（如 memory/diff 的 MEMORY_DIFF_EVENT_META）落库行恒缺章
+    expect(event.ignorable).toBe(true);
+  });
+
+  it('options 显式值优先于注册表兜底（显式 false 压过 meta true——既有 options 语义不变）', () => {
+    const { log } = makeLog();
+    const event = log.append('x/ignorable-fallback-test', { x: 2 }, { ignorable: false });
+    expect(event.ignorable).toBe(false);
+  });
+});
+
 describe('种子重放（fork/导入形态）', () => {
   it('合法种子：日志同建 + 投影就绪 + 新 append 恰落种子长度位', () => {
     const seed = [

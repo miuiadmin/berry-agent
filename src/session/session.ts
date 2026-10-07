@@ -115,7 +115,8 @@ export class SessionLog {
   /**
    * append 七步流水线（05 §1.2）：
    * ① 词汇检查（SESSION_UNKNOWN_EVENT_TYPE fail-loud）→ ② 信封注入（seq =
-   * log.length / time = clock）→ ③ data 单遍校验 + 快照拷贝 → ④ 预算刀裁腿
+   * log.length / time = clock / ignorable = options 显式值优先、注册表 meta
+   * 兜底——见注入位行内注释）→ ③ data 单遍校验 + 快照拷贝 → ④ 预算刀裁腿
    * （60KiB 内容帽 + errorMessage 2KiB 小帽；截断 warn 落账带码名义）→ ⑤ 事件
    * 目录断言（运行测试面——两账当前合一于词汇注册表，07 篇门禁接线时拆静态
    * 目录账，本步留结构位）→ ⑥ 尾部追加 → ⑦ write-behind 入队回调。
@@ -137,13 +138,23 @@ export class SessionLog {
     }
     // ③-b 冻结（裁后终态冻结——「写入后不可变」；步序上冻结在裁后语义等价）
     const frozen = deepFreeze(budgeted.data);
-    // ② 信封注入
+    // ② 信封注入（ignorable 落章：options 显式值优先、词汇注册表 meta 兜底——
+    // 03 §4.3「插件注册事件类型必须标 ignorable 语义」（2026-09-05 拍板回写句）
+    // + 05 词汇闸对偶——写入时落章，导出→导入 round-trip 闭合。修复前只看
+    // options，而 AppendFn 调用链（插件流事件词——如 memory/diff 的
+    // MEMORY_DIFF_EVENT_META 已声明 ignorable:true）不传 options：落库行
+    // ignorable 恒缺章，JSONL 导出再导入被词汇闸（isKnownEventType=false 且
+    // ignorable!==true）整批拒。核心词表 ignorable 零赋值——注册表兜底对
+    // 核心事件信封/导出形零变（兜底值 undefined 时不落键）。存量断层（诚实
+    // 断层——不做迁移）：存量库行与既有导出件 ignorable 已缺位者回导仍拒，
+    // 新写事件起闭合。）
+    const ignorable = options?.ignorable ?? getEventTypeMeta(type)?.ignorable;
     const event: SessionEvent = {
       type,
       seq: this.log.length,
       time: options?.time ?? this.clock(),
       data: frozen,
-      ...(options?.ignorable !== undefined ? { ignorable: options.ignorable } : {}),
+      ...(ignorable !== undefined ? { ignorable } : {}),
       ...(options?.surfaceOp ? { surfaceOp: options.surfaceOp } : {}),
       ...(options?.sourceEventSeqs ? { sourceEventSeqs: [...options.sourceEventSeqs] } : {}),
     };
