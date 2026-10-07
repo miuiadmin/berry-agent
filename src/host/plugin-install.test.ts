@@ -72,7 +72,7 @@ interface NpmRecorder {
 
 function npmFakeSpawn(
   dataDir: string,
-  opts: { readonly pkgJson?: string; readonly lockVersion?: string } = {},
+  opts: { readonly pkgJson?: string; readonly lockVersion?: string; readonly lockText?: string } = {},
 ): NpmRecorder {
   const argvLog: string[][] = [];
   const spawn: SpawnRunner = {
@@ -91,7 +91,7 @@ function npmFakeSpawn(
           [`node_modules/${pkg}`]: { version: opts.lockVersion ?? '1.2.3', integrity: 'sha512-abc' },
         },
       };
-      writeFileSync(join(dataDir, 'plugins', '.package-lock.json'), JSON.stringify(lock));
+      writeFileSync(join(dataDir, 'plugins', '.package-lock.json'), opts.lockText ?? JSON.stringify(lock));
       return Promise.resolve({ stdout: '', stderr: '' });
     },
   };
@@ -338,6 +338,21 @@ describe('npm 执行器编舞（假 spawn——argv 与落账可测，零真网�
     // 账本条目数组形落盘
     const onDisk = JSON.parse(readFileSync(ledgerPath(dataDir), 'utf8'));
     expect(Array.isArray(onDisk)).toBe(true);
+  });
+
+  it('npm 腿坏 .package-lock.json：分类收口 + 装机回滚不留残影（头注回滚律——收割失败 = rm 装机物再拒；修前红：裸 SyntaxError 折 message + 装机树残留）', async () => {
+    const dataDir = dataDirOf('data-bad-lock');
+    const rec = npmFakeSpawn(dataDir, { lockText: '{oops-not-json' });
+    const outcome = await installPlugin(depsOf(dataDir, rec.spawn), 'npm:demo-pkg@1.2.3');
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return; // 窄化到失败分支（message 可达）
+    // 修前红位①：修前裸 SyntaxError 洞穿到执行器先行段 catch 只折 message
+    // ——文案是 Unexpected token 词面无分类指位
+    expect(outcome.message).toContain('收割');
+    expect(outcome.message).toContain('.package-lock.json');
+    // 修前红位②：修前不回滚——装机树残影在场（npm 已落盘、清单校验/账本
+    // 收割全被跳过——无账半装机态）
+    expect(existsSync(join(dataDir, 'plugins', 'node_modules', 'demo-pkg'))).toBe(false);
   });
 
   it('min-release-age 三态：env 0 → 不传旗标；cliFlag 覆盖 env', async () => {

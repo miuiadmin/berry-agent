@@ -558,12 +558,22 @@ async function runNpmInstall(
   // 凭证收割：.package-lock.json 的 packages[<装机目录>].integrity + version
   const installPath = installPathForNpm(parsed.pkg);
   const lockText = deps.fs.read(join(pluginsDir, '.package-lock.json'));
-  const lock =
-    lockText === null
-      ? undefined
-      : (JSON.parse(lockText) as {
-          packages?: Record<string, { version?: string; integrity?: string }>;
-        });
+  let lock: { packages?: Record<string, { version?: string; integrity?: string }> } | undefined;
+  try {
+    lock = lockText === null ? undefined : (JSON.parse(lockText) as typeof lock);
+  } catch (err) {
+    // 坏 lock JSON 分类收口 + 自回滚（头注回滚律——「收割失败 = rm 装机物
+    // 再拒」；readManifestAt 坏 JSON 收口 PLUGIN_SHAPE_INVALID 同文件既有
+    // 意图，本位属遗漏非有意缺席）。裸抛 SyntaxError 会洞穿到执行器先行段
+    // catch 只折 message——装机树已落盘而清单校验/账本收割全被跳过，留
+    // 无账半装机残影；本位 installPath 在手自回滚后再抛分类错
+    rollbackInstall(deps, installPath);
+    throw new BaseError(
+      'PLUGIN_INSTALL_FAILED',
+      `npm 收割 .package-lock.json 解析失败（${installPath}）：${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
+  }
   const lockEntry = lock?.packages?.[`node_modules/${parsed.pkg}`];
   return {
     installPath,
