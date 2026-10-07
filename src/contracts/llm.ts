@@ -37,6 +37,26 @@ export interface ImageContent {
   mimeType: string;
 }
 
+/**
+ * 图片引用块（user 剪贴板附件专用——引用形非内联 base64；真源 03 §10.4 剪贴板
+ * 附件批注⑤）。受理位铸：webui/SDK submit 受理链落 sha256 内容寻址附件库后铸
+ * 本块入 content——timeline 活数组与 durable 事件同形单一正则形（timeline 从不
+ * 持粘贴图 base64）；投影输出恒保持引用形、重播种重建侧同律——再水化单点 =
+ * 请求组装转换位（convertToLlm 族）读附件库还原 ImageContent base64，文件缺席
+ * 降「[图片已不可用]」文本占位；百字节级体量对 60KiB 预算刀恒过刀（05 §1.2
+ * 条 4 注——base64 超帽占位规则只辖 read 工具/MCP 桥等非受理位路径）。
+ */
+export interface ImageRefContent {
+  /** 判别字面量：图片引用块（独立成员——非在 image 块上拼可选字段） */
+  type: 'image-ref';
+  /** 附件库内容寻址键（`sha256:` + 64 位十六进制——附件库文件名去扩展名即本值） */
+  ref: string;
+  /** 声明 MIME（受理位魔数嗅探核验过的族：PNG/JPEG/GIF/WebP） */
+  mimeType: string;
+  /** 原始字节数（受理位 base64 解码后计量——呈现面/审计面用） */
+  bytes: number;
+}
+
 /** 工具调用块（仅 assistant 内联；arguments 已是解析后的对象） */
 export interface ToolCallBlock {
   type: 'toolCall';
@@ -108,7 +128,9 @@ export type ErrorBucket = 'transient' | 'non-retryable' | 'quota' | 'overflow';
  */
 export interface UserMessage {
   role: 'user';
-  content: string | (TextContent | ImageContent)[];
+  // 两条图路径分立并存：粘贴图走 image-ref 引用块（受理位铸——03 §10.4 批注⑤，
+  // 投影恒引用形、请求组装位再水化）；read 工具/MCP 桥产物走内联 image 块
+  content: string | (TextContent | ImageContent | ImageRefContent)[];
   /** Unix 毫秒时间戳 */
   timestamp: number;
   /** 输入归因（缺省视为 'user'；投影带出、durable 原样落账） */

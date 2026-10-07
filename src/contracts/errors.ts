@@ -232,6 +232,12 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     description: '幂等 admit 异内容：同 messageId 异内容拒收（03 篇 §10.6 线协议④——同 ID 同内容幂等重收执不重跑）',
   },
   {
+    code: 'SDK_SUBMIT_REJECTED',
+    module: 'sdk',
+    description:
+      '线面受理拒收：host 受理链拒 prompt（剪贴板附件批 03 §10.4 ②——能力门/数量帽/格式族拒等，status 400 鸭定折帧；拒收零 admit 记账、同键重发合法走 fresh 再受理；http 面映射 400）',
+  },
+  {
     code: 'SDK_OVERLOADED',
     module: 'sdk',
     description: '线面出站过载：有界队列溢出拒收、可重试（03 篇 §10.6 线协议⑦——载荷携 retryAfter）',

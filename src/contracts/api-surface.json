@@ -344,6 +344,15 @@
       "sig": "7a11d114bfc3b8bd"
     },
     {
+      "symbol": "ImageRefContent",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "图片引用块（user 剪贴板附件专用——引用形非内联 base64；真源 03 §10.4 剪贴板附件批注⑤）",
+      "kind": "interface",
+      "sig": "6f2504db0b9b1220"
+    },
+    {
       "symbol": "JobEntry",
       "module": "berry-agent",
       "tier": "stable",
@@ -958,7 +967,7 @@
       "since": "1.0",
       "desc": "用户消息（content 允许纯文本或图文块数组）",
       "kind": "interface",
-      "sig": "7a913ca8b7c56d48"
+      "sig": "53fb86a4dc9ea58b"
     },
     {
       "symbol": "argKeyZh",
