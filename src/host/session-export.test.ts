@@ -20,6 +20,7 @@ import {
   renderSessionJsonl,
   renderSessionMarkdown,
   runSessionExportCommand,
+  scanSessionExportFlags,
   SESSION_EXPORT_USAGE,
   writeSessionExport,
   type SessionExportCommandDeps,
@@ -293,6 +294,78 @@ describe('renderSessionJsonl 事件级金样形（05 §5.1 导出/导入对偶�
     // 投影不携带遮蔽史，金样形以信封原样保真（round-trip 重放保真的结构前提）
     const parsed = JSON.parse(jsonl.split('\n')[4]!);
     expect(parsed).toEqual(carrier);
+  });
+});
+
+describe('scanSessionExportFlags 旗标扫描（05 §5.1 载体射界——CLI 解析层与 TUI 装配位两解析层共调单源）', () => {
+  it('两值形：--format markdown / --format jsonl → format 位；剥后其余词原样留 rest', () => {
+    // 修前红：scanSessionExportFlags 尚不存在——本 describe 在现码上即失败（import 位炸）
+    expect(scanSessionExportFlags(['--format', 'markdown'])).toEqual({ ok: true, rest: [], format: 'markdown' });
+    expect(scanSessionExportFlags(['--format', 'jsonl'])).toEqual({ ok: true, rest: [], format: 'jsonl' });
+  });
+
+  it('无旗标：rest 原样 + format 位缺席（undefined）', () => {
+    const scan = scanSessionExportFlags(['abc']);
+    expect(scan.ok).toBe(true);
+    if (scan.ok) {
+      expect(scan.rest).toEqual(['abc']);
+      expect(scan.format).toBeUndefined();
+    }
+  });
+
+  it('值域外：ok:false + errorText 与 cli.ts scanFlags 逐字一致', () => {
+    const scan = scanSessionExportFlags(['--format', 'yaml']);
+    expect(scan.ok).toBe(false);
+    if (!scan.ok) {
+      expect(scan.errorText).toContain('值域外');
+      // 逐字锁（错误句面单源——CLI 侧 cli.test 只 match 子串，本件锁全句）
+      expect(scan.errorText).toBe('--format 值域外：yaml（合法值：markdown|jsonl）');
+    }
+  });
+
+  it('尾缺值：--format 在尾 → ok:false 含「须带值」（逐字同 cli.ts scanFlags）', () => {
+    const scan = scanSessionExportFlags(['--format']);
+    expect(scan.ok).toBe(false);
+    if (!scan.ok) {
+      expect(scan.errorText).toContain('须带值');
+      expect(scan.errorText).toBe('--format 须带值（后面要跟一个参数，空串不算）');
+    }
+    // 值以 -- 起头同缺值形（占位缺失——与 scanFlags 取值执法同判）
+    const dashValue = scanSessionExportFlags(['--format', '--other']);
+    expect(dashValue.ok).toBe(false);
+  });
+
+  it('剥后剩 id：旗标在前 / id 在前旗标在后两序同果', () => {
+    const a = scanSessionExportFlags(['--format', 'jsonl', 'abc']);
+    expect(a).toEqual({ ok: true, rest: ['abc'], format: 'jsonl' });
+    const b = scanSessionExportFlags(['abc', '--format', 'jsonl']);
+    expect(b).toEqual({ ok: true, rest: ['abc'], format: 'jsonl' });
+  });
+
+  it('last-wins：--format 重复出现取后者', () => {
+    expect(scanSessionExportFlags(['--format', 'markdown', '--format', 'jsonl'])).toEqual({
+      ok: true,
+      rest: [],
+      format: 'jsonl',
+    });
+  });
+
+  it('未知旗标不执法：--foo / 裸 -- 原样留 rest（本工具只剥 --format）', () => {
+    // CLI 侧二道执法（scanFlags 未识别旗标退 2）/ TUI 侧命令腿兜（剥后至多
+    // 一位 id 的既有判）——本工具零未知旗标知识
+    expect(scanSessionExportFlags(['--foo'])).toEqual({ ok: true, rest: ['--foo'] });
+    expect(scanSessionExportFlags(['--'])).toEqual({ ok: true, rest: ['--'] });
+    expect(scanSessionExportFlags(['--', 'a', '--format', 'jsonl'])).toEqual({
+      ok: true,
+      rest: ['--', 'a'],
+      format: 'jsonl',
+    });
+  });
+
+  it('USAGE 升形锁：--format 位与 .jsonl 落盘形入句（用户面禁替词「缺省」不入句）', () => {
+    expect(SESSION_EXPORT_USAGE).toContain('--format markdown|jsonl');
+    expect(SESSION_EXPORT_USAGE).toContain('.jsonl');
+    expect(SESSION_EXPORT_USAGE).not.toContain('缺省');
   });
 });
 

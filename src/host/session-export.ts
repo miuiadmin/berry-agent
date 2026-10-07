@@ -37,9 +37,9 @@ import { sanitizeTitleText, sessionDisplayTitleOf } from '../persist/index.js';
 import type { ContentBlock } from '../session/index.js';
 import { KNOWN_FORMAT, SUPPORTED_VERSION, deriveMessages } from '../session/index.js';
 
-/** /export 用法（assembly 通道命令注册 description 位——PLUGINS_CMD_USAGE 同族） */
+/** /export 用法（assembly 通道命令注册 description 位——PLUGINS_CMD_USAGE 同族；旗标知识与本件旗标扫描同源位） */
 export const SESSION_EXPORT_USAGE =
-  '用法：/export [会话id] —— 会话导出为 markdown（无参 = 当前会话；落盘 数据目录/exports/<会话id>-<时间戳>.md）';
+  '用法：/export [会话id] [--format markdown|jsonl] —— 会话导出（不带 --format 即 markdown 形；jsonl = 事件级金样 JSONL，sessions import 的对偶产物；无参 = 当前会话；落盘 数据目录/exports/<会话id>-<时间戳>.md|.jsonl）';
 
 /** 文档头行面元数据（窄面结构形——两消费面从 SessionRow 投影；零事件新会话无行 = 全缺席） */
 export interface SessionExportMeta {
@@ -188,6 +188,49 @@ export function writeSessionExport(
 }
 
 /* ---------------- 命令腿（TUI /export 与 CLI sessions export 单源） ---------------- */
+
+/**
+ * 旗标扫描结果（05 §5.1 载体射界批——CLI 解析层与 TUI 装配位两解析层共调）：
+ * ok=true 携剥后位置词 rest（命令腿只判「至多一位会话 id」）与可选 format 位；
+ * ok=false 携人读错误句（与 cli.ts scanFlags 错误句面逐字一致——CLI 侧子串
+ * 断言零迁移的结构性保证）。
+ */
+export type SessionExportFlagScan =
+  | { readonly ok: true; readonly rest: readonly string[]; readonly format?: SessionExportFormat }
+  | { readonly ok: false; readonly errorText: string };
+
+/**
+ * `--format` 值旗标扫描纯函数（05 §5.1 载体射界条款——旗标知识归命令件单源，
+ * 与 SESSION_EXPORT_USAGE 同源位；CLI 解析层与 TUI 装配位两解析层共调）。
+ *
+ * - 只认 `--format` 值旗标：消费下一词为值（不以 `--` 起头且非空串）；重复
+ *   出现 last-wins；剥后其余词（含其他 `--` 词与裸 `--`）原样留 rest——本
+ *   工具不做未知旗标执法（CLI 侧 scanFlags 二道执法、TUI 侧命令腿的「至多
+ *   一位 id」既有判兜底）；
+ * - 错误句面与 cli.ts scanFlags 逐字一致：缺值形 / 值域外两形（错误句是
+ *   用户面——用户面禁替词不入句）。
+ */
+export function scanSessionExportFlags(argv: readonly string[]): SessionExportFlagScan {
+  const rest: string[] = [];
+  let format: SessionExportFormat | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i] as string;
+    if (tok !== '--format') {
+      rest.push(tok); // 非 --format 词原样留（含未知 -- 词与裸 --）
+      continue;
+    }
+    const next = argv[i + 1];
+    if (next === undefined || next === '' || next.startsWith('--')) {
+      return { ok: false, errorText: '--format 须带值（后面要跟一个参数，空串不算）' };
+    }
+    if (next !== 'markdown' && next !== 'jsonl') {
+      return { ok: false, errorText: `--format 值域外：${next}（合法值：markdown|jsonl）` };
+    }
+    format = next; // last-wins：重复出现取后者
+    i++; // 值词已消费——跳过
+  }
+  return { ok: true, rest, ...(format !== undefined ? { format } : {}) };
+}
 
 /** 行面读窄面（SessionRow 结构子集——装配位从各自真源投影） */
 export interface SessionExportRowLike {

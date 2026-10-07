@@ -214,6 +214,17 @@ export interface WebuiReadFace {
    * 端点 501 诚实缺席（API-only 形——WebuiCompletionFace? 缺席诚实空同精神）。
    */
   exportMarkdown?(sessionId: string): string | undefined;
+  /**
+   * 会话导出事件级金样 JSONL 直出（对偶面第三载体批——导出面第四消费腿：
+   * TUI/CLI/markdown web 直出之后；renderSessionJsonl 个体第二消费位）。
+   * 拼装真源留 host session-export 单源（与 exportMarkdown 同族——webui
+   * 边表 deps 仅 contracts+channels、无 session 边，纯函数不可直达）。
+   * undefined = 会话缺席（端点 404 not_found 同族）；键缺席 = jsonl 请求
+   * 501 诚实缺席（API-only 形——分立可选键，与 exportMarkdown 各自缺席各判）。
+   * seam 同源（exportSource 单一——桥真身内两渲染器分档，seam 缺席两键皆
+   * 不注入——03 §10.4 批注）。
+   */
+  exportJsonl?(sessionId: string): string | undefined;
 }
 
 /** 补全族注入面（两段——缺席诚实空，v1 装配批按需接线） */

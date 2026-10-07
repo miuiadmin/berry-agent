@@ -74,6 +74,8 @@ function makeDeps(opts?: {
   readonly withoutTodo?: boolean;
   readonly withoutCompletion?: boolean;
   readonly withoutExport?: boolean;
+  /** jsonl 键单独缺席（exportMarkdown 照注——键缺席 = jsonl 请求 501 诚实缺席形） */
+  readonly withoutExportJsonl?: boolean;
   /** 档位面整面缺席（三端点 501 诚实缺席形） */
   readonly withoutTiers?: boolean;
   /** 删除键缺席（DELETE 端点 501 诚实缺席形——WebuiSessionsFace.deleteSession 可选键） */
@@ -105,6 +107,12 @@ function makeDeps(opts?: {
   const markdowns = new Map<string, string>([
     ['s-1', '# 会话导出 `s-1`\n\n- 导出时间：2026-09-17T00:00:00.000Z\n- 事件数：1\n'],
     ['s-closed', '# 会话导出 `s-closed`\n\n- 导出时间：2026-09-17T00:00:00.000Z\n- 事件数：1\n'],
+  ]);
+  // /export jsonl 直出桩（对偶面第三载体批——renderSessionJsonl 产出形最小
+  // 同构：首行 _meta 裸对象 + 事件信封行；内容面为注入面 opaque）
+  const jsonls = new Map<string, string>([
+    ['s-1', `${JSON.stringify({ format: 'berry-agent/session', version: 1, exportedAt: 0 })}\n`],
+    ['s-closed', `${JSON.stringify({ format: 'berry-agent/session', version: 1, exportedAt: 0 })}\n`],
   ]);
   const submitted: WebuiSubmitInput[] = [];
   const interrupted: string[] = [];
@@ -212,7 +220,15 @@ function makeDeps(opts?: {
         return messages.get(id) ?? [];
       },
       ...(opts?.withoutTodo === true ? {} : { todoOf: () => [{ status: 'in-progress', content: '跑测' }] }),
-      ...(opts?.withoutExport === true ? {} : { exportMarkdown: (id: string) => markdowns.get(id) }),
+      // 导出两键（03 §10.4 对偶面第三载体批——exportMarkdown/exportJsonl 分立
+      // 可选键；withoutExport = seam 缺席两键皆不注、withoutExportJsonl = 仅
+      // jsonl 键缺席——键缺席 = jsonl 请求 501 诚实缺席）
+      ...(opts?.withoutExport === true
+        ? {}
+        : {
+            exportMarkdown: (id: string) => markdowns.get(id),
+            ...(opts?.withoutExportJsonl === true ? {} : { exportJsonl: (id: string) => jsonls.get(id) }),
+          }),
     },
     ...(opts?.withoutCompletion === true ? {} : { completion: { workspaceFiles: (q) => [`a/${q}.ts`] } }),
     // 档位面注入（缺席 = 三端点 501 诚实缺席——exportMarkdown 缺席同精神）
@@ -611,6 +627,71 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     expect(closed.status).toBe(200);
     expect(closed.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
     expect(await closed.text()).toBe('# 会话导出 `s-closed`\n\n- 导出时间：2026-09-17T00:00:00.000Z\n- 事件数：1\n');
+  });
+
+  it('export jsonl 查询参形：?format=jsonl 200 ndjson 直出 / 显式 markdown 零漂移 / 值域外 400 / 键缺席 501 / 缺席会话 404', async () => {
+    // 修前红（对偶面第三载体批）：现端点无视查询参恒 markdown——
+    // ?format=jsonl 拿到 text/markdown + markdown 桩体，ndjson 断言红
+    const jsonl = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/export?format=jsonl`, {
+      headers: authHeaders(),
+    });
+    expect(jsonl.status).toBe(200);
+    expect(jsonl.headers.get('content-type')).toBe('application/x-ndjson; charset=utf-8');
+    expect(await jsonl.text()).toBe(
+      `${JSON.stringify({ format: 'berry-agent/session', version: 1, exportedAt: 0 })}\n`,
+    );
+    // 显式 markdown = 既有体零漂移（零参与既有调用面同体）
+    const md = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/export?format=markdown`, {
+      headers: authHeaders(),
+    });
+    expect(md.status).toBe(200);
+    expect(md.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+    expect(await md.text()).toBe('# 会话导出 `s-1`\n\n- 导出时间：2026-09-17T00:00:00.000Z\n- 事件数：1\n');
+    // 值域外 → 400 bad_request（词法错先于状态错——03 §10.4 判序钉死）
+    const bad = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/export?format=yaml`, {
+      headers: authHeaders(),
+    });
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({
+      error: 'bad_request',
+      message: '不支持的导出格式（format 须是 markdown 或 jsonl）',
+    });
+    // jsonl 形会话缺席 → 404 not_found（markdown 位同词）
+    const missing = await fetch(`http://127.0.0.1:${port}/api/sessions/nope/export?format=jsonl`, {
+      headers: authHeaders(),
+    });
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({ error: 'not_found', message: '会话不存在' });
+    // 已闭会话 = 事件流直出照常返体（读面语义同 markdown 位——只读腿不受闭态拦）
+    const closed = await fetch(`http://127.0.0.1:${port}/api/sessions/s-closed/export?format=jsonl`, {
+      headers: authHeaders(),
+    });
+    expect(closed.status).toBe(200);
+    expect(closed.headers.get('content-type')).toBe('application/x-ndjson; charset=utf-8');
+  });
+
+  it('export jsonl 键缺席：只注 exportMarkdown 时 ?format=jsonl 501 诚实缺席（分立可选键）', async () => {
+    // 测试装配分支腿：withoutExportJsonl 只摘 jsonl 键——markdown 请求照常
+    // 200（与 withoutExport 的 seam 两键皆缺席形分立）
+    const bare = await rig(makeDeps({ withoutExportJsonl: true }).deps);
+    try {
+      const jsonl = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/s-1/export?format=jsonl`, {
+        headers: { authorization: `Bearer ${bare.token}` },
+      });
+      expect(jsonl.status).toBe(501);
+      expect(await jsonl.json()).toMatchObject({
+        error: 'not_implemented',
+        message: '会话导出未启用（当前运行形态不含此功能）',
+      });
+      const md = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/s-1/export?format=markdown`, {
+        headers: { authorization: `Bearer ${bare.token}` },
+      });
+      expect(md.status).toBe(200);
+      expect(md.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+    } finally {
+      bare.webui.detach();
+      await bare.face.stop();
+    }
   });
 
   it('export 鉴权缺拒：无凭证 401（鉴权随全 API 面——cookie 桥/Bearer 双受理族）', async () => {

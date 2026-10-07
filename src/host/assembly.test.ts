@@ -1015,6 +1015,52 @@ describe('/export TUI 命令面 e2e（宿主级直注册 + 活体事件源 + 落
     }
   });
 
+  it('jsonl 旗标形全链：/export --format jsonl 落盘 .jsonl（首行 _meta 可 parse）+ 解析失败 notify 值域外附用法句', async () => {
+    // 修前红（对偶面第二三载体批）：现装配位 argv 原样入命令腿——
+    // ['/export','--format','jsonl'] 命中 argv.length>1 →「参数过多」拒，
+    // .jsonl 落盘断言红；['--format','yaml'] 同走「参数过多」——「值域外」断言红
+    const dir = tmpDir('host-asm-export-jsonl-');
+    const faux = fauxProvider({ provider: 'faux-export-jsonl', models: [{ id: 'm1' }] });
+    faux.setResponses([() => fauxText('金样探针答')]);
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true, // 命令注册在装配根——noPlugins 形照注册（markdown 腿同件同形）
+      debug: false,
+      version: '9.9.9-test',
+      providers: [faux.provider],
+      model: 'faux-export-jsonl/m1',
+      env: {},
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      // 建真会话 + 一轮对话 + 焦点在位：--format jsonl 无 id 形导焦点会话
+      const session = assembly.stack.openStartupSession();
+      assembly.stack.channels.registerSession(session.sessionId);
+      await assembly.stack.channels.focus(session.sessionId);
+      const run = assembly.stack.submitText(session.sessionId, '金样探针问', { source: 'user' });
+      expect(run).toBeDefined();
+      await run;
+      expect(await assembly.stack.channels.dispatchCommand('/export --format jsonl')).toBe(true);
+      // 回执 notify 一行路径：exports/<id>-<时间戳>.jsonl
+      const receipt = notified.find((t) => t.includes('已导出'))!;
+      expect(receipt).toContain(join(dir, 'exports', `${session.sessionId}-`));
+      const path = receipt.split(' → ')[1]!;
+      expect(path.endsWith('.jsonl')).toBe(true);
+      // 产物结构：首行 _meta 裸对象可 JSON.parse（format 位 = 身份闸 KNOWN_FORMAT 同值）
+      const firstLine = readFileSync(path, 'utf8').split('\n')[0]!;
+      expect(JSON.parse(firstLine)).toMatchObject({ format: 'berry-agent/session', version: 1 });
+      // 解析失败形：值域外 → notify 诚实拒附用法句（归因 'export' 同族）
+      expect(await assembly.stack.channels.dispatchCommand('/export --format yaml')).toBe(true);
+      const rejected = notified.find((t) => t.includes('值域外'))!;
+      expect(rejected).toContain('--format 值域外：yaml（合法值：markdown|jsonl）');
+      expect(rejected).toContain('用法：/export');
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
   it('plugin-load-report 服务面：boot 闭包取值器入 scope（挂账解挂批 R6 前段 deferred 兑现）', async () => {
     const dir = tmpDir('host-asm-plreport-');
     const mk = (name: string): CorePluginReference => ({

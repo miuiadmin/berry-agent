@@ -595,6 +595,17 @@ describe('sessions 子命令族', () => {
     });
     expectUsage(['sessions', 'export', 's-42', '--format', 'yaml'], '值域外');
     expectUsage(['sessions', 'export', 's-42', '--format'], '须带值');
+    // 越位行为锁（对偶面第二三载体批——--format 值域字面量收编进共享
+    // prescan 后 overreach 短路不丢）：id 在位时 --help 仍短路为 help 命令
+    const overreach = parseCli(['sessions', 'export', 's-42', '--help']);
+    expect(overreach.ok).toBe(true);
+    if (overreach.ok && overreach.command.kind === 'help') {
+      expect(overreach.command.overreach).toBe('--help');
+    } else {
+      expect.unreachable('应短路为 help');
+    }
+    // id 缺席时 arity 先于越位短路（既有序不漂移——finish 只在 arity 过后到达）
+    expectUsage(['sessions', 'export', '--help'], '位置参数数目不符');
   });
 
   // import 第九动词（05 §5.1 导出/导入对偶动词面批——恰一文件参；四闸+

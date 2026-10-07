@@ -76,7 +76,7 @@ import { bootPlugins, defaultFs, readEnabledRows } from './plugin-boot.js';
 import { createPluginReloader, emptyRollbackReceipt, rollbackFromReport } from './plugin-reload.js';
 import type { PluginReloader } from './plugin-reload.js';
 import { PLUGINS_CMD_USAGE, runPluginsCommand } from './plugins-command.js';
-import { runSessionExportCommand, SESSION_EXPORT_USAGE } from './session-export.js';
+import { runSessionExportCommand, scanSessionExportFlags, SESSION_EXPORT_USAGE } from './session-export.js';
 import { COMPACT_USAGE, runCompactCommand } from './compact-cmd.js';
 import { runPluginConfigForm } from './plugins-config.js';
 import { DOORS_USAGE, parseDoorsArgv, runDoorsCommand } from './doors-cmd.js';
@@ -1649,7 +1649,16 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     stack.channels.commands.register(
       'export',
       async (args) => {
-        const outcome = await runSessionExportCommand(args.argv, args.sessionId, {
+        // 装配位解析层（05 §5.1 载体射界条款——旗标扫描单源
+        // scanSessionExportFlags 与 CLI 解析层共调；命令腿零旗标知识不变：
+        // 剥后 argv 至多一位会话 id、deps.format 既有透传位）。解析失败 =
+        // notify 诚实拒附用法句（归因 'export' 同族——错误句与用法句同源位）。
+        const prescan = scanSessionExportFlags(args.argv);
+        if (!prescan.ok) {
+          void stack.channels.notify('export', `${prescan.errorText}\n${SESSION_EXPORT_USAGE}`);
+          return;
+        }
+        const outcome = await runSessionExportCommand(prescan.rest, args.sessionId, {
           dataDir,
           rowOf: (sessionId) => runtimeNow.persistence.store.getSessionRow(sessionId),
           eventsOf: (sessionId) => {
@@ -1662,6 +1671,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             }
           },
           focusedId: () => stack.channels.focusedId,
+          format: prescan.format, // 无旗标 = undefined——命令腿缺省 markdown 零漂移
         });
         void stack.channels.notify('export', outcome.text);
       },

@@ -518,18 +518,43 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       sendJson(res, 200, { items: items ?? null }); // null = 无数据源（诚实不虚报）
     },
   });
-  // —— 会话族子路由：/export markdown 直出（2026-09-17 TUI 余量收官批②——
-  //    应答体 = markdown 正文直出 **不落盘**（web 面消费语义 = 浏览器/curl
-  //    直接取文；TUI /export 落盘形与 CLI 形不变）；拼装单源 = host 桥真身
-  //    注入的 exportMarkdown（renderSessionMarkdown 第三消费位）——
-  //    注入窄面缺席 = 501 诚实缺席；会话缺席 = 404 not_found 同族；已闭
-  //    会话 = 近史投影兜底照常返体（读面语义同 messages——只读腿不受闭态拦）——
+  // —— 会话族子路由：/export 直出（2026-09-17 TUI 余量收官批② markdown 形；
+  //    2026-10-07 对偶面第三载体批增 format 查询参——markdown|jsonl 两形，判
+  //    序钉死 400→501→404〔03 §10.4 批注：词法错先于状态错——请求本身坏比
+  //    能力/资源缺席更根本；501 先于 404 序维持〕）。应答体 = 正文直出
+  //    **不落盘**（web 面消费语义 = 浏览器/curl 直接取文；TUI /export 落盘形
+  //    与 CLI 形不变）；拼装单源 = host 桥真身注入的 exportMarkdown/
+  //    exportJsonl（renderSessionMarkdown 第三消费位 / renderSessionJsonl
+  //    第二消费位）——注入窄面缺席 = 501 诚实缺席；会话缺席 = 404 not_found
+  //    同族；已闭会话 = 兜底照常返体（读面语义同 messages——只读腿不受闭态拦）
   add({
     method: 'GET',
     path: WEBUI_ENDPOINTS.sessionExport,
     auth: tokenOrCookie,
-    handler: (_req, res, ctx) => {
-      // 注入窄面缺席（API-only 形——WebuiCompletionFace? 缺席诚实空同精神）
+    handler: (req, res, ctx) => {
+      const format = queryOf(req).get('format') ?? 'markdown'; // 零参 = markdown（既有调用面零漂移）
+      if (format !== 'markdown' && format !== 'jsonl') {
+        sendError(res, 400, 'bad_request', '不支持的导出格式（format 须是 markdown 或 jsonl）');
+        return;
+      }
+      if (format === 'jsonl') {
+        // jsonl 形：事件级金样 JSONL 直出（application/x-ndjson；直出不落盘、
+        // 零 Content-Disposition——与 markdown 形对称，下载文件名客户端自持）
+        const exportJsonl = deps.read.exportJsonl;
+        if (exportJsonl === undefined) {
+          sendError(res, 501, 'not_implemented', '会话导出未启用（当前运行形态不含此功能）');
+          return;
+        }
+        const body = exportJsonl(ctx.params.id!);
+        if (body === undefined) {
+          sendError(res, 404, 'not_found', '会话不存在');
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8' });
+        res.end(body);
+        return;
+      }
+      // markdown 既有路（零漂移——exportMarkdown 501/404/text-markdown; charset=utf-8 直出）
       const exportMarkdown = deps.read.exportMarkdown;
       if (exportMarkdown === undefined) {
         sendError(res, 501, 'not_implemented', '会话导出未启用（当前运行形态不含此功能）');

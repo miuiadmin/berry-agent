@@ -25,7 +25,7 @@ export type { CredentialsSub };
 import type { DoorsSub } from './doors-cmd.js';
 // 同上单源再导出（doors-cmd.ts 立形——CLI 解析与 TUI argv 解析/命令语义共用）
 export type { DoorsSub };
-import type { SessionExportFormat } from './session-export.js';
+import { scanSessionExportFlags, type SessionExportFormat } from './session-export.js';
 
 /* ---------------- 命令形（tagged union——分派层的消费契约） ---------------- */
 
@@ -678,18 +678,21 @@ function parseSessions(rest: readonly string[]): CliParseResult {
       sub: { sub: 'delete', id: args[0] as string, confirm: scan.booleans.has('confirm') },
     });
   }
-  // export --format 值旗标（05 §5.1 导出/导入对偶动词面批）：markdown 呈现形
-  // 缺省不变、jsonl 事件级金样形；值域执法与 plugins uninstall --data 同形
-  // （值域外/缺值退 2 归本层；缺席 id 的诚实拒退 1 归执行层）
+  // export --format 值旗标（05 §5.1 导出/导入对偶动词面批 + 载体射界批值域
+  // 字面量收编）：值域扫描归命令件单源 scanSessionExportFlags（TUI 装配位共
+  // 调——旗标知识与用法句同源位）；本层 prescan 后二道跑 scanFlags 执法
+  // help/version 越位 + 未知旗标 + 裸 --（overreach 行为零变）；缺席 id 的
+  // 诚实拒退 1 归执行层
   if (head === 'export') {
-    const scan = scanFlags(tail, [{ name: 'format', kind: 'value', values: ['markdown', 'jsonl'] }]);
+    const prescan = scanSessionExportFlags(tail);
+    if (!prescan.ok) return usageFail(prescan.errorText);
+    const scan = scanFlags(prescan.rest, []); // 二道执法：剥后仅剩 id 与通用旗标律
     if (scan.error) return usageFail(scan.error);
     const args = expectArity(scan.literals, 1, 1, 'berry sessions export <id> [--format markdown|jsonl]');
     if ('exitCode' in args) return args;
-    const format = scan.values.get('format');
     return finish(scan, {
       kind: 'sessions',
-      sub: { sub: 'export', id: args[0] as string, format: format === 'jsonl' ? 'jsonl' : 'markdown' },
+      sub: { sub: 'export', id: args[0] as string, format: prescan.format ?? 'markdown' },
     });
   }
   // import 第九动词（05 §5.1 导出/导入对偶动词面批——export 的对偶）：恰一

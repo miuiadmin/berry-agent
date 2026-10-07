@@ -69,7 +69,7 @@ import type { WebuiDeps, WebuiMountHandle } from '../webui/index.js';
 
 import type { ConversationStack } from './conversation-stack.js';
 import { createServeBridge } from './serve-entry.js';
-import { renderSessionMarkdown } from './session-export.js';
+import { renderSessionJsonl, renderSessionMarkdown } from './session-export.js';
 import type { SessionExportRowLike } from './session-export.js';
 import {
   SANDBOX_MODE_DETAILS,
@@ -468,6 +468,20 @@ function bridgeDeps(
                   ...(row?.workspaceRoot !== undefined ? { workspaceRoot: row.workspaceRoot } : {}),
                   ...(row?.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
                 },
+                now: exportSource.now?.() ?? Date.now(),
+              });
+            },
+            // jsonl 直出真身（对偶面第三载体批——renderSessionJsonl 第二消费
+            // 位：事件级金样 JSONL，与 markdown 真身同 seam 两渲染器分档）。
+            // 与 markdown 真身的 rowOf 消费分立：jsonl 形零消费行面元数据
+            // （_meta 只有 format/version/exportedAt——保真射界 = 事件流 +
+            // 投影，行面列不入产物；05 §5.1 对偶条款同句）
+            exportJsonl: (sessionId: string): string | undefined => {
+              const events = exportSource.eventsOf(sessionId);
+              if (events === undefined) return undefined; // 会话不在场——404 归端点判
+              return renderSessionJsonl({
+                events,
+                meta: { sessionId },
                 now: exportSource.now?.() ?? Date.now(),
               });
             },
