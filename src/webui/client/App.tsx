@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 
 import { api, isUnauthorized, sessionEventsUrl } from './api.js';
+import type { SubmitAttachment } from './api.js';
 import {
   appliedDecide,
   applyAsked,
@@ -463,9 +464,12 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
   /**
    * 提交入定会话（档位词拦截 + 乐观回显 + 失败撤回）：messageId =
    * crypto.randomUUID 服务端幂等位；撤回键 = echoKeyOf 同源落稿键（闭包
-   * 持键——catch 按键撤回，不靠尾部位置）。
+   * 持键——catch 按键撤回，不靠尾部位置）。附件（剪贴板附件批——03
+   * §10.4 批注⑥）：chip 原形透传 api.submit（dataURL 前缀剥除归 api 层
+   * 单源——App 零形状知识）；回显随附件数计 [图片] 占位 token（image-only
+   * 空文可配对——frames 图块补位）。
    */
-  const submitInto = (sessionId: string, rawText: string): void => {
+  const submitInto = (sessionId: string, rawText: string, attachments?: readonly SubmitAttachment[]): void => {
     // ---- 档位词拦截（webui 档位面受理批——03 §10.4 SPA 受理面条款）----
     const trimmed = rawText.trim();
     // 首 token 词干切分（TUI maybeHandleLocalCommand 同律——/\s+/ 切分：
@@ -501,8 +505,16 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
     // 撤回键 = echoKeyOf 同源落稿键（闭包持键——失败撤回按键定位，不靠
     // 尾部位置）
     const echoTimestamp = Date.now();
-    setState((prev) => echoedUserMessage(prev, sessionId, text, echoTimestamp));
-    void api.submit(sessionId, text, messageId).catch((err: unknown) => {
+    // 回显带附件占位 token（图块补位——镜像吸收与投影对账两路共键）；附件
+    // 数透传（imageCount），App 不持有 dataURL 形状知识
+    setState((prev) => echoedUserMessage(prev, sessionId, text, echoTimestamp, attachments?.length ?? 0));
+    // 提交调用面：纯文恒三参（既有调用契约零漂移）；带附件四参（chip 原形
+    // 透传——空数组形 Composer 侧已不触发，api 层另有空数组零漂移防线）
+    const submitted =
+      attachments !== undefined && attachments.length > 0
+        ? api.submit(sessionId, text, messageId, attachments)
+        : api.submit(sessionId, text, messageId);
+    void submitted.catch((err: unknown) => {
       // 401 → 失效路由（webui-face#3）：cookie 永久失效重试不可能自愈，
       // 换桥是唯一出路——不折「请重试」谎提示（回显随 Main 卸载整面消散）
       if (isUnauthorized(err)) {
@@ -522,7 +534,7 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
    * 提交流；开新失败折通知条（错误不静默——输入虽已被清空，至少呈现因）。
    */
   const submit = useCallback(
-    (rawText: string) => {
+    (rawText: string, attachments?: readonly SubmitAttachment[]) => {
       const sessionId = state.activeId;
       if (sessionId === null) {
         void api
@@ -530,7 +542,7 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
           .then((newId) => {
             setState((prev) => setActiveSession(prev, newId));
             loadSessions();
-            submitInto(newId, rawText);
+            submitInto(newId, rawText, attachments);
           })
           .catch((err: unknown) => {
             // 401 → 失效路由（同 createSession 腿）；其余折通知条
@@ -542,7 +554,7 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
           });
         return;
       }
-      submitInto(sessionId, rawText);
+      submitInto(sessionId, rawText, attachments);
     },
     [state.activeId, loadSessions, onAuthLost],
   );

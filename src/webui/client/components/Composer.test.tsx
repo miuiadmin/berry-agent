@@ -244,3 +244,90 @@ describe('Composer @ 文件段补全弹层', () => {
     expect(textarea().value).toBe('@su'); // 输入不受影响（增强面缺席零污染）
   });
 });
+
+/* ---------------- 图片粘贴受理（2026-10-08 剪贴板附件批——03 §10.4 批注⑥） ---------------- */
+
+describe('Composer 图片粘贴受理（剪贴板附件批——双源采集 + 帽前置 + chip 附件栏）', () => {
+  /** 图片文件速造（jsdom File 构造子——字节 [1,2,3] 的 base64 恒 'AQID'） */
+  const imageFile = (name = 'shot.png'): File => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/png' });
+
+  /** 触发粘贴（clipboardData 桩——files 腿 / items 腿按用例给形） */
+  function paste(files: File[], items: { kind: string; type: string; getAsFile: () => File | null }[]): void {
+    fireEvent.paste(textarea(), { clipboardData: { files, items } });
+  }
+
+  it('files 腿（修前红）：clipboardData.files 图片 → 暂存 chip（缩略图 + 已附计数 1/4）', async () => {
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} />);
+    paste([imageFile()], []);
+    expect(await screen.findByText('1/4')).toBeTruthy(); // 修前红：无 onPaste 受理——chip 恒不出现
+    const thumb = screen.getByRole('img');
+    expect((thumb as HTMLImageElement).src).toBe('data:image/png;base64,AQID'); // dataURL 暂存预览
+  });
+
+  it('items 腿（修前红——截图常只在此暴露）：files 空 + items 遍历 kind=file 且 image/* → 暂存', async () => {
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} />);
+    paste(
+      [],
+      [
+        { kind: 'string', type: 'text/plain', getAsFile: () => null }, // 非文件项跳过
+        { kind: 'file', type: 'image/png', getAsFile: () => imageFile() },
+      ],
+    );
+    expect(await screen.findByText('1/4')).toBeTruthy(); // 修前红：同上
+  });
+
+  it('双源不双计：files 已有图时 items 不再补采（files 优先单源腿——两源同形免重复）', async () => {
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} />);
+    paste([imageFile()], [{ kind: 'file', type: 'image/png', getAsFile: () => imageFile() }]);
+    expect(await screen.findByText('1/4')).toBeTruthy(); // 恰一枚——非 2/4
+  });
+
+  it('超帽拒暂存（修前红）：已附 3 再贴 2 → 计数不动 + 帽提示文案在场（客户端前置帽 4）', async () => {
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} />);
+    paste([imageFile('a.png'), imageFile('b.png'), imageFile('c.png')], []);
+    expect(await screen.findByText('3/4')).toBeTruthy();
+    paste([imageFile('d.png'), imageFile('e.png')], []);
+    // 超帽粘贴即拒不暂存——中文白话单源文案逐字锁
+    expect(await screen.findByText('图片最多 4 张，本次粘贴未添加')).toBeTruthy(); // 修前红：无帽逻辑
+    expect(screen.getByText('3/4')).toBeTruthy(); // 计数不动（未暂存）
+  });
+
+  it('删除键：chip 逐枚移除 → 计数回落到 0 后附件栏退场', async () => {
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} />);
+    paste([imageFile()], []);
+    expect(await screen.findByText('1/4')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '移除第 1 张图片' }));
+    expect(screen.queryByText('1/4')).toBeNull(); // 附件栏随零附件退场
+  });
+
+  it('非图片粘贴让位：无图 files/items → 无 chip 且正文粘贴行为不受扰', () => {
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} />);
+    paste([], [{ kind: 'string', type: 'text/plain', getAsFile: () => null }]);
+    expect(screen.queryByText('0/4')).toBeNull(); // 零附件不占位（附件栏不呈现）
+    expect(textarea().value).toBe(''); // 正文位不受粘贴受理影响
+  });
+
+  it('发送随附件（修前红）：文+图 → onSubmit(trim 正文, [{dataUrl, mimeType}]) + 发送后 chip 清空', async () => {
+    const onSubmit = vi.fn();
+    render(<Composer onSubmit={onSubmit} onInterrupt={vi.fn()} />);
+    typeAppend('看这张');
+    paste([imageFile()], []);
+    expect(await screen.findByText('1/4')).toBeTruthy();
+    fireEvent.click(sendButton());
+    // 附件与文本同条提交（chip 原形透传——dataURL 前缀剥除归 api 层）
+    expect(onSubmit).toHaveBeenCalledWith('看这张', [{ dataUrl: 'data:image/png;base64,AQID', mimeType: 'image/png' }]); // 修前红：onSubmit 只收单参正文
+    expect(screen.queryByText('1/4')).toBeNull(); // chip 清空
+    expect(textarea().value).toBe(''); // 正文清空（既有律）
+  });
+
+  it("image-only 提交放行（03 §10.4 批注①）：空文 + 1 图 → 发送键 enabled、onSubmit('', [附件])", async () => {
+    const onSubmit = vi.fn();
+    render(<Composer onSubmit={onSubmit} onInterrupt={vi.fn()} />);
+    expect(sendButton().disabled).toBe(true); // 零输入不可发（既有律维持）
+    paste([imageFile()], []);
+    expect(await screen.findByText('1/4')).toBeTruthy();
+    expect(sendButton().disabled).toBe(false); // 图在场即构成可发送正文
+    fireEvent.click(sendButton());
+    expect(onSubmit).toHaveBeenCalledWith('', [{ dataUrl: 'data:image/png;base64,AQID', mimeType: 'image/png' }]);
+  });
+});

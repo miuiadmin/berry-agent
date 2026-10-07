@@ -30,11 +30,67 @@ import type { ClientApprovalEntry, ClientEnvelope, ClientSessionSummary } from '
 // （tui-backend 收尾行 / webui 取消回执）均已改引本源）。
 import { formatClockHM, runRecapLine, TOOL_RUN_MARK, toolFaceZh } from '../../contracts/index.js';
 
+/**
+ * 附件图视图位（剪贴板附件批——03 §10.4 批注⑥）：user 消息 image-ref 块的
+ * 呈现子集（ref = `sha256:<hex>` 附件库身份键 + mimeType 供 img 渲染）；
+ * bytes 尺寸位不入呈现面（客户端结构视界——protocol 同律只声明消费子集）。
+ */
+export interface ViewAttachment {
+  readonly ref: string;
+  readonly mimeType: string;
+}
+
+/**
+ * 图块配对占位 token（剪贴板附件批——03 §10.4 批注⑥）：user 消息 content 含
+ * image-ref 块时每块计一枚拼入 echo 比较文本（image-only text 空串因此可配对
+ * ——「空文本不入多重集」判据的图块补位）。呈现面零用（ViewMessage.text 恒纯
+ * 文——token 只进多重集回退与回显配对两路，seq 身份主判位零改）；词面与非
+ * 对话请求面降级占位（convertToLlm 族「[图片]」文本占位）同文——用户面
+ * 单源族（渲染占位「[图片已不可用]」在 Transcript 分立成词，语义位不同）。
+ */
+export const IMAGE_PAIR_TOKEN = '[图片]';
+
+/**
+ * content 内 image-ref 引用块抽取（剪贴板附件批——03 §10.4 批注⑤块形）：呈现
+ * 子集 {ref, mimeType}（bytes 尺寸位不入呈现面——客户端结构视界只声明消费
+ * 子集）；坏形（非块数组/ref 或 mimeType 非串）逐块跳过不炸。
+ */
+export function imageRefsOf(content: unknown): ViewAttachment[] {
+  if (!Array.isArray(content)) return [];
+  const refs: ViewAttachment[] = [];
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null) continue;
+    const candidate = block as Record<string, unknown>;
+    if (candidate.type !== 'image-ref') continue;
+    if (typeof candidate.ref !== 'string' || typeof candidate.mimeType !== 'string') continue;
+    refs.push({ ref: candidate.ref, mimeType: candidate.mimeType });
+  }
+  return refs;
+}
+
+/**
+ * 对账比较文本（图块补位半边）：正文 + 每图一枚 IMAGE_PAIR_TOKEN 后拼（图序
+ * 即块序——受理位 content 形 text 块先引块后，Composer 提交亦正文先附件后，
+ * 两源天然同序）。两路归一：回显行 token 已内嵌 text（images 位缺席——
+ * imageCount 恒 0 取原文）；镜像/投影行 images 位分立（text 纯文 + 计数）。
+ */
+function pairTextOf(text: string, imageCount: number): string {
+  return imageCount > 0 ? text + IMAGE_PAIR_TOKEN.repeat(imageCount) : text;
+}
+
 /** 呈现层消息视图模型（投影消息与活体落稿同形） */
 export interface ViewMessage {
   readonly key: string;
   readonly role: string;
   readonly text: string;
+  /**
+   * 附件图位（剪贴板附件批——03 §10.4 批注⑥）：user 消息 content 内
+   * image-ref 块逐枚映射（Transcript 据此渲染 img——src 经 attachmentUrl
+   * 铸 /api/attachments/<ref>）；缺席 = 无图消息零位（旧消息形不受扰）。
+   * 回显行（客户端铸造）不落本位——图块以 IMAGE_PAIR_TOKEN 内嵌 text
+   * （见 echoedUserMessage 头注），投影重载后由快照行接替真图渲染。
+   */
+  readonly images?: readonly ViewAttachment[];
   /**
    * 错误块文案（assistant errorMessage 在场时落位——正文列错误块呈现；
    * 缺席无位。03 §10.4 SPA 呈现面终态条款①：与 TUI 错误块同律跨通道）
@@ -454,13 +510,20 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
       if (payload.type === 'message_end') {
         if (env.kind !== 'session') return state;
         const role = messageRole(payload.message);
-        const text = textOf(messageContent(payload.message));
+        const content = messageContent(payload.message);
+        const text = textOf(content);
+        // image-ref 块两消费：images 位（呈现供源）+ 配对 token（比较文本供源）
+        const images = imageRefsOf(content);
         // ---- user 镜像吸收（回显/镜像去重单源律——webui-face#1）----
         // 待配对回显在场（同会话同文 FIFO 配对）→ 镜像与回显是同一消息两源，
         // 吸收镜像保回显（正文恰一份）；连带出清镜像自带 start 帧开出的空
         // 流式泡（start/end 相邻发射——尾部空泡即其本体，防御位：非空泡不动）
+        // 配对键 = 比较文本（图块补位——文+图回显 × 文+图镜像两路同形配对，
+        // 批注⑥；纯文消息 imageCount=0 恒原文，既有配对零漂移）
         if (role === 'user') {
-          const pendingIdx = state.pendingEchoes.findIndex((p) => p.sessionId === env.sessionId && p.text === text);
+          const pendingIdx = state.pendingEchoes.findIndex(
+            (p) => p.sessionId === env.sessionId && p.text === pairTextOf(text, images.length),
+          );
           if (pendingIdx !== -1) {
             const messages = [...state.messages];
             const tail = messages[messages.length - 1];
@@ -493,7 +556,10 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
         const finalized: ViewMessage = {
           key,
           role,
-          text,
+          text, // 正文位恒纯文（token 只进比较文本——呈现与配对分立，批注⑥）
+          // images 位（剪贴板附件批批注⑥）：image-ref 块逐枚映射——Transcript
+          // 据此渲染 img；零图不落键（旧消息形零漂移）
+          ...(images.length > 0 ? { images } : {}),
           ...(error !== undefined ? { error } : {}),
           ...(source !== undefined ? { source } : {}),
           // seq 身份位记账（卡②客户端对账腿）：信封外挂位在场（lane B server
@@ -832,13 +898,27 @@ export function droppedMessage(state: AppState, key: string): AppState {
  * user 位（键 = echoKeyOf(timestamp)）+ 登记待配对账目（会话域隔离——他
  * 会话同文镜像不配对）——服务端同会话同文镜像到达时由 message_end 吸收腿
  * 配对吸收。submit 成功路径专用（失败腿走 droppedMessage 撤回并出账）。
+ *
+ * 图块补位（剪贴板附件批——03 §10.4 批注⑥）：imageCount = 随行附件数——
+ * 回显行不落 images 位（dataURL 是待上传暂存形非 ref 形），图在场事实以
+ * IMAGE_PAIR_TOKEN 内嵌 text 承载（「看这张[图片]」——诚实占位呈现）；配对
+ * 账 text 同用比较文本（镜像吸收腿 pairTextOf 两路同形）。投影重载让位后
+ * 由快照行（带真 images 位）接替真图渲染。缺省 0 = 纯文提交零漂移。
  */
-export function echoedUserMessage(state: AppState, sessionId: string, text: string, timestamp: number): AppState {
+export function echoedUserMessage(
+  state: AppState,
+  sessionId: string,
+  text: string,
+  timestamp: number,
+  imageCount = 0,
+): AppState {
+  // 比较文本 = 正文 + 每图一枚占位 token（回显与镜像/投影对账共键）
+  const pairText = pairTextOf(text, imageCount);
   const key = echoKeyOf(timestamp);
   return {
     ...state,
-    messages: [...state.messages, { key, role: 'user', text, streaming: false }],
-    pendingEchoes: [...state.pendingEchoes, { sessionId, key, text }],
+    messages: [...state.messages, { key, role: 'user', text: pairText, streaming: false }],
+    pendingEchoes: [...state.pendingEchoes, { sessionId, key, text: pairText }],
     // 回显时刻入账（runSeedAt 种子源——客户端钟；服务端镜像到达时吸收回显
     // 不更新此位，两源同刻近似）
     lastUserAt: timestamp,
@@ -912,15 +992,22 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
     const error = errorMessageOf(message);
     const timestamp = messageTimestamp(message);
     const role = messageRole(message);
-    const text = textOf(messageContent(message));
+    const content = messageContent(message);
+    const text = textOf(content);
+    // image-ref 块两消费：images 位（投影行呈现供源）+ 配对 token（比较文本）
+    const images = imageRefsOf(content);
     const source = messageSource(message);
     // wire seq 收集（投影拉取腿应答逐消息带 seq 的消费半边）：typeof number
     // 判（坏形/旧服务端缺席不进集——缺席行逐行降级）；随投影行携带（二次
     // 重连时投影行作为 live 行参与 seq 身份路径）
     const wireSeq = messageSeq(message);
     if (wireSeq !== undefined) snapSeqs.add(wireSeq);
-    if (text !== '') {
-      const snapKey = role + '\u0000' + text;
+    // 快照多重集键 = 比较文本（图块补位——批注⑥）：image-only 行 text 空串
+    // 因 token 非空入集（「空文本不入集」判据在比较文本面上维持——纯空文
+    // 无文无图仍不入，坏形不吞让位护律不动）
+    const pairText = pairTextOf(text, images.length);
+    if (pairText !== '') {
+      const snapKey = role + '\u0000' + pairText;
       snapTextCounts.set(snapKey, (snapTextCounts.get(snapKey) ?? 0) + 1);
     }
     const toolId = messageToolCallId(message);
@@ -931,6 +1018,9 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
       text,
       ...(error !== undefined ? { error } : {}),
       ...(source !== undefined ? { source } : {}),
+      // images 位（批注⑥）：image-ref 块逐枚映射——Transcript 据此渲染 img；
+      // 零图不落键（旧消息形零漂移）
+      ...(images.length > 0 ? { images } : {}),
       ...(wireSeq !== undefined ? { seq: wireSeq } : {}),
       streaming: false,
     });
@@ -985,8 +1075,12 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
       // 正文多重集对账：本体已在快照（计数 > 0）→ 扣减让位（投影副本即真源
       // ——不重复推）；计数尽（快照未含——记录晚于快照）→ 保位续接投影尾。
       // 遍历维持时间序——旧同文行先消耗计数，后到的在途回显在计数尽后保位
-      const snapKey = m.role + '\u0000' + m.text;
-      const count = m.text !== '' ? (snapTextCounts.get(snapKey) ?? 0) : 0;
+      // 比较文本（图块补位——批注⑥）：echo 行 token 已内嵌 text（images 位
+      // 缺席——计数 0 恒原文）；镜像 live 行 images 位分立（纯文 + 每图一枚）
+      // ——两路经 pairTextOf 归一到与快照侧同键
+      const pairText = pairTextOf(m.text, m.images?.length ?? 0);
+      const snapKey = m.role + '\u0000' + pairText;
+      const count = pairText !== '' ? (snapTextCounts.get(snapKey) ?? 0) : 0;
       if (count > 0) {
         snapTextCounts.set(snapKey, count - 1);
         continue; // 让位——回显让位形配对账随之出清（不进 keptEchoKeys）

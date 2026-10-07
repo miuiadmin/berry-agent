@@ -44,6 +44,8 @@ export const WEBUI_ENDPOINTS = {
   workspaceFiles: '/api/workspace/files',
   /** GET——补全族两段之二（?q= 前缀查询） */
   workspaceSymbols: '/api/workspace/symbols',
+  /** GET——附件图按 ref 取回（:ref = sha256:<hex>，路径段直接拼 ref 串——冒号是合法路径字符不做编码；2026-10-08 剪贴板附件批 03 §10.4 批注④） */
+  attachments: '/api/attachments/:ref',
 } as const;
 
 /* ---------------- 信封三族（客户端结构视界——分档判据同服务端注②） ---------------- */

@@ -66,7 +66,17 @@ const apiMock = vi.hoisted(() => ({
   listSessions: vi.fn<() => Promise<{ sessions: readonly ClientSessionSummary[]; total: number }>>(),
   createSession: vi.fn<() => Promise<string>>(),
   fetchMessages: vi.fn<(sessionId: string) => Promise<readonly unknown[]>>(),
-  submit: vi.fn<(sessionId: string, text: string, messageId: string) => Promise<void>>(),
+  // 第四参 = 粘贴暂存附件（chip 原形 {dataUrl, mimeType}——剥前缀归真 api 层，
+  // 桩只记透传形；缺席/空数组 = 纯文提交零漂移）
+  submit:
+    vi.fn<
+      (
+        sessionId: string,
+        text: string,
+        messageId: string,
+        attachments?: readonly { dataUrl: string; mimeType: string }[],
+      ) => Promise<void>
+    >(),
   interrupt: vi.fn<(sessionId: string) => Promise<void>>(),
   // 删除会话消费腿（2026-10-07 会话删除编排批——确认编舞在 App，桩只记调用）
   deleteSession: vi.fn<(sessionId: string) => Promise<void>>(),
@@ -1310,5 +1320,35 @@ describe('WebUiRoot主题两态切换（2026-10-07 webui 深浅色批——03 §
     render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     expect(screen.getByRole('button', { name: '深色' })).toBeTruthy();
+  });
+});
+
+/* ---------------- 图片粘贴提交链（2026-10-08 剪贴板附件批——03 §10.4 批注⑥） ---------------- */
+
+describe('WebUiRoot 图片粘贴提交链（剪贴板附件批——Composer 暂存 → App 透传 → api.submit 随 images）', () => {
+  it('粘贴暂存 chip → 发送随附件（dataUrl 原形透传——剥前缀归 api 层）→ 乐观回显带 [图片] 占位 token', async () => {
+    primeMain();
+    apiMock.submit.mockResolvedValue(undefined);
+    render(<WebUiRoot />);
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '看这张' } });
+    // files 腿粘贴一枚图（字节 [1,2,3]——base64 恒 'AQID'）
+    fireEvent.paste(box, {
+      clipboardData: {
+        files: [new File([new Uint8Array([1, 2, 3])], 'shot.png', { type: 'image/png' })],
+        items: [],
+      },
+    });
+    expect(await screen.findByText('1/4')).toBeTruthy(); // chip 附件栏在场（修前红：恒不出现）
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    // 附件随 submit 第四参（chip 原形——App 零形状知识，剥前缀单源在 api 层）
+    await waitFor(() => {
+      expect(apiMock.submit).toHaveBeenCalledWith('s-1', '看这张', expect.stringMatching(/.+/), [
+        { dataUrl: 'data:image/png;base64,AQID', mimeType: 'image/png' },
+      ]); // 修前红：App 不透传附件——调用恰三参
+    });
+    // 乐观回显比较文本带 [图片] 占位 token（图块补位——镜像吸收前的诚实呈现）
+    await screen.findByText('看这张[图片]');
+    expect(screen.queryByText('1/4')).toBeNull(); // 发送后 chip 清空
   });
 });

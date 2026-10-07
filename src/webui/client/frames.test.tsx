@@ -1565,3 +1565,99 @@ describe('frames loadedMessages seq 身份对账（卡②客户端对账腿—�
     expect(state.messages.every((m) => m.key.startsWith('p#'))).toBe(true); // 全让位新投影（无 kept 残行）
   });
 });
+
+/* ---------------- 图块补位（2026-10-08 剪贴板附件批——03 §10.4 批注⑥） ---------------- */
+
+describe('frames 图块补位（剪贴板附件批——echo 比较文本的 image-ref 块补位）', () => {
+  /** image-ref 引用块速造（受理位铸形——真源 03 §10.4 批注⑤；ref 形 sha256:<64 hex>） */
+  const imageRefBlock = (digit: string): { type: 'image-ref'; ref: string; mimeType: string; bytes: number } => ({
+    type: 'image-ref',
+    ref: `sha256:${digit.repeat(64)}`,
+    mimeType: 'image/png',
+    bytes: 4096,
+  });
+
+  it('image-only 回显对账（修前红）：空文回显 × 含 image-ref 快照——token 补位后让位投影副本恰一份（修前：空文本不入多重集，回显穿透 kept 双份）', () => {
+    // image-only 提交（text 空串 + 1 附件）：第五参 imageCount 由 App 提交链传入
+    let state = echoedUserMessage(initialAppState, 's-1', '', 100, 1);
+    expect(state.pendingEchoes).toHaveLength(1);
+    state = loadedMessages(state, [{ role: 'user', content: [imageRefBlock('1')], timestamp: 1 }]);
+    // 恰一份：回显（比较文本 '[图片]'）让位投影副本——投影行带 images 供渲染
+    const userRows = state.messages.filter((m) => m.role === 'user');
+    expect(userRows).toHaveLength(1); // 修前红：2——空文本不入多重集，回显保位双份
+    expect(userRows[0]?.images).toEqual([{ ref: `sha256:${'1'.repeat(64)}`, mimeType: 'image/png' }]);
+    // 回显让位 → 配对账随行出清（投影已含本体，重连镜像不至）
+    expect(state.pendingEchoes).toHaveLength(0);
+  });
+
+  it('同文异图不误吞（修前红）：纯文回显 × 同文+图快照——token 补位后键分立，回显保位不误让（修前：纯文本键撞——回显被误吞丢正文）', () => {
+    // 纯文提交的回显（零附件）与快照里「同文 + 1 图」的 user 消息是两条消息：
+    // 比较文本分立（'看这张' ≠ '看这张[图片]'）——回显保位续接投影尾
+    let state = echoedUserMessage(initialAppState, 's-1', '看这张', 102);
+    state = loadedMessages(state, [
+      { role: 'user', content: [{ type: 'text', text: '看这张' }, imageRefBlock('3')], timestamp: 3 },
+    ]);
+    const userRows = state.messages.filter((m) => m.role === 'user');
+    expect(userRows).toHaveLength(2); // 修前红：1——纯文本键撞被误吞
+    expect(userRows.some((m) => m.images !== undefined)).toBe(true); // 投影行带图位
+    expect(state.pendingEchoes).toHaveLength(1); // 在途回显保位——配对账保留
+  });
+
+  it('message_end 镜像带出 images 位（修前红：ViewMessage 无 images——呈现面无图可渲）：正文位恒纯文（token 只进比较文本）', () => {
+    const state = applyEnvelope(
+      initialAppState,
+      session({
+        type: 'message_end',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: '看这张' }, imageRefBlock('4')],
+          timestamp: 4,
+        },
+      }),
+    );
+    expect(state.messages[0]?.images).toEqual([{ ref: `sha256:${'4'.repeat(64)}`, mimeType: 'image/png' }]); // 修前红：undefined
+    expect(state.messages[0]?.text).toBe('看这张'); // 正文位零 token（呈现与配对分立）
+  });
+
+  it('回显配对吸收（比较文本两路同形）：文+图回显 × 文+图镜像——吸收恰一份 + 配对账出清', () => {
+    let state = echoedUserMessage(initialAppState, 's-1', '看这张', 103, 1);
+    state = applyEnvelope(
+      state,
+      session({
+        type: 'message_end',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: '看这张' }, imageRefBlock('5')],
+          timestamp: 5,
+        },
+      }),
+    );
+    expect(state.messages).toHaveLength(1); // 回显保留、镜像吸收（恰一份）
+    expect(state.pendingEchoes).toHaveLength(0); // 配对账出清
+  });
+
+  it('seq 身份主判位零改（批注⑥射界）：live 行携 seq 仍按身份对账——图块 token 只补多重集回退与回显配对两路', () => {
+    // live 镜像行（携 seq=7、含图）+ 快照含 seq=7 同文+图 → 身份让位（不消耗
+    // 多重集计数——身份与文本两账分立维持）
+    let state = applyEnvelope(
+      initialAppState,
+      session(
+        {
+          type: 'message_end',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: '带图问' }, imageRefBlock('6')],
+            timestamp: 6,
+          },
+        },
+        7,
+      ),
+    );
+    state = loadedMessages(state, [
+      { role: 'user', content: [{ type: 'text', text: '带图问' }, imageRefBlock('6')], timestamp: 60, seq: 7 },
+    ]);
+    const userRows = state.messages.filter((m) => m.role === 'user');
+    expect(userRows).toHaveLength(1); // 身份让位恰一份（投影副本）
+    expect(userRows[0]?.images).toEqual([{ ref: `sha256:${'6'.repeat(64)}`, mimeType: 'image/png' }]);
+  });
+});

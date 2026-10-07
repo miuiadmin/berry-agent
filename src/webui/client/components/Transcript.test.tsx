@@ -10,7 +10,7 @@
  * ⑤ 压缩分隔行（B2 webui 对端迁移）：source='compaction' 的 user 块载体
  *    正文零呈现、替换为居中弱化分隔行（N 解析自 CCR 标记段——两形）
  */
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createRef } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -192,5 +192,67 @@ describe('Transcript 压缩分隔行（B2 webui 对端迁移——source=compact
     );
     expect(screen.getByText('普通问句')).toBeTruthy();
     expect(screen.getByText('user')).toBeTruthy(); // 角色标签照常
+  });
+});
+
+/* ---------------- 附件图渲染（2026-10-08 剪贴板附件批——03 §10.4 批注⑥） ---------------- */
+
+describe('Transcript 附件图渲染（剪贴板附件批——image-ref 块 img 元素 + 失败降占位框）', () => {
+  /** ref 速造（sha256:<64 hex> 形） */
+  const refOf = (digit: string): string => `sha256:${digit.repeat(64)}`;
+
+  it('image-ref 块渲染 img（修前红：ViewMessage 无 images 位——无图可渲）：src = /api/attachments/<ref> 路径段直拼', () => {
+    render(
+      <Transcript
+        messages={[
+          msg({ key: 'm-1', role: 'user', text: '看这张', images: [{ ref: refOf('a'), mimeType: 'image/png' }] }),
+        ]}
+        status={null}
+        bottomRef={createRef<HTMLDivElement>()}
+      />,
+    );
+    const img = screen.getByRole('img'); // 修前红：无 img 元素
+    expect(img.getAttribute('src')).toBe(`/api/attachments/${refOf('a')}`); // 路径段直拼 ref 串（冒号不编码）
+    expect(screen.getByText('看这张')).toBeTruthy(); // 正文位照常（图与文并列呈现）
+  });
+
+  it('多图按序多枚 img（图序保留——每块一枚）', () => {
+    render(
+      <Transcript
+        messages={[
+          msg({
+            key: 'm-1',
+            role: 'user',
+            text: '',
+            images: [
+              { ref: refOf('1'), mimeType: 'image/png' },
+              { ref: refOf('2'), mimeType: 'image/png' },
+            ],
+          }),
+        ]}
+        status={null}
+        bottomRef={createRef<HTMLDivElement>()}
+      />,
+    );
+    const imgs = screen.getAllByRole('img');
+    expect(imgs).toHaveLength(2);
+    expect(imgs[0]!.getAttribute('src')).toBe(`/api/attachments/${refOf('1')}`);
+    expect(imgs[1]!.getAttribute('src')).toBe(`/api/attachments/${refOf('2')}`);
+  });
+
+  it('加载失败降占位框（修前红）：img error 后退场、「[图片已不可用]」占位在场（附件库文件缺席——诚实降级）', () => {
+    render(
+      <Transcript
+        messages={[
+          msg({ key: 'm-1', role: 'user', text: '看这张', images: [{ ref: refOf('f'), mimeType: 'image/png' }] }),
+        ]}
+        status={null}
+        bottomRef={createRef<HTMLDivElement>()}
+      />,
+    );
+    const img = screen.getByRole('img');
+    fireEvent.error(img);
+    expect(screen.getByText('[图片已不可用]')).toBeTruthy(); // 修前红：无降级编舞——占位恒不出现
+    expect(screen.queryByRole('img')).toBeNull(); // 坏图退场（不留破图符）
   });
 });

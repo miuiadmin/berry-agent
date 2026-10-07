@@ -9,11 +9,12 @@
  * 居中弱化分隔行（B2 webui 对端迁移；词面/N 解析 contracts 单源）。
  * 状态行钉在列底（活体工具执行指示——呼吸点动画呈「运行中」活体感）。
  */
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import type { ReactElement, RefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
 
-import { RUN_CLOSE_ROLE, type ViewMessage } from '../frames.js';
+import { attachmentUrl } from '../api.js';
+import { RUN_CLOSE_ROLE, type ViewAttachment, type ViewMessage } from '../frames.js';
 // 跨通道单源件（contracts 零依赖叶——frames 同批体例）：压缩分隔行词面
 // compactionSeparatorLine + 载体末条 CCR 条目提取 lastCcrEntryOf（N 供数）——
 // 与 TUI 分隔块渲染位同源（07 B2 定形注 webui 对端迁移）
@@ -24,6 +25,37 @@ const ROLE_LABEL_CLASS: Record<string, string> = {
   user: 'text-role-user/80',
   assistant: 'text-role-assistant/80',
 };
+
+/**
+ * 单枚附件图（剪贴板附件批——03 §10.4 批注⑥）：src 经 attachmentUrl 铸
+ * `/api/attachments/<ref>`（ref 形 sha256:<hex>，路径段直拼——冒号是合法
+ * 路径字符不编码）；加载失败（附件库文件缺席/网络断）降「[图片已不可用]」
+ * 占位框——诚实降级不留破图符（与服务端再水化占位词面同族）。
+ */
+function AttachmentImage({
+  attachment,
+  index,
+}: {
+  readonly attachment: ViewAttachment;
+  readonly index: number;
+}): ReactElement {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <p className="flex items-center justify-center rounded border border-edge-strong px-3 py-2 text-xs text-ink-mute">
+        [图片已不可用]
+      </p>
+    );
+  }
+  return (
+    <img
+      src={attachmentUrl(attachment.ref)}
+      alt={`第 ${index + 1} 张图片`}
+      className="max-h-64 max-w-full rounded border border-edge-strong"
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 /** 单条消息（assistant → Markdown / 其余 → 纯文本；流式尾巴呼吸态样式） */
 const MessageView = memo(function MessageView({ message }: { message: ViewMessage }): ReactElement {
@@ -60,6 +92,15 @@ const MessageView = memo(function MessageView({ message }: { message: ViewMessag
         {message.role}
       </div>
       {body}
+      {/* 附件图列（剪贴板附件批——03 §10.4 批注⑥：image-ref 块每块一枚 img、
+          图序保留；与正文并列呈现——附件栏形无文内占位符） */}
+      {message.images !== undefined && message.images.length > 0 ? (
+        <div className="mt-1 flex flex-wrap gap-2">
+          {message.images.map((attachment, index) => (
+            <AttachmentImage key={`${index}:${attachment.ref}`} attachment={attachment} index={index} />
+          ))}
+        </div>
+      ) : null}
       {/* 错误块（03 §10.4 SPA 呈现面终态条款①——✗ 前缀 + danger 语义 token（浮底可读性——03 §10.4 批注④升档），与 TUI 错误块同律；注⑩：✖ 形全域退役跨通道） */}
       {message.error !== undefined ? (
         <p className="whitespace-pre-wrap text-body leading-6 text-danger">✗ {message.error}</p>

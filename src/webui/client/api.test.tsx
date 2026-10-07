@@ -285,3 +285,41 @@ describe('api.isUnauthorized（webui-face#3 失效凭证单源判别）', () => 
     expect(isUnauthorized(null)).toBe(false);
   });
 });
+
+/* ---------------- submit images 载荷（2026-10-08 剪贴板附件批——03 §10.4 批注①） ---------------- */
+
+describe('api.submit images 载荷（剪贴板附件批——base64 内联同条 JSON）', () => {
+  it('附件随提交（修前红）：体含 images[{data=剥前缀 base64, mimeType}]——dataURL 前缀剥掉只传 base64', async () => {
+    // 桩签名显式 (url, init) 双参——mock.calls 元组型非空（省参签名退化 [] 型致 calls[0][1] 下标红）
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      resOf({ ok: true, status: 200, json: { status: 'ok' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await api.submit('s-1', '看这张', 'mid-1', [{ dataUrl: 'data:image/png;base64,QUJD', mimeType: 'image/png' }]);
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as Record<string, unknown>;
+    // 修前红：body 无 images 键——附件静默丢弃
+    expect(body.images).toEqual([{ data: 'QUJD', mimeType: 'image/png' }]); // 前缀剥除 + mimeType 透传
+    expect(body.text).toBe('看这张');
+    expect(body.messageId).toBe('mid-1'); // 幂等位维持
+  });
+
+  it('无附件零漂移：体恰 {text, messageId}——不带空 images 数组（旧载荷形逐键不变）', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      resOf({ ok: true, status: 200, json: { status: 'ok' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await api.submit('s-1', '你好', 'mid-2');
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as Record<string, unknown>;
+    expect(body).toEqual({ text: '你好', messageId: 'mid-2' }); // images 键缺席（非空数组）
+  });
+
+  it('空附件数组同零漂移：chip 面清空形不带 images 键', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      resOf({ ok: true, status: 200, json: { status: 'ok' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await api.submit('s-1', '你好', 'mid-3', []);
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as Record<string, unknown>;
+    expect(body).toEqual({ text: '你好', messageId: 'mid-3' });
+  });
+});

@@ -49,6 +49,38 @@ function withId(endpoint: string, id: string): string {
 }
 
 /**
+ * 提交附件 chip 原形（Composer 暂存位直传——dataURL 全形在此层原样收）：
+ * dataURL 前缀剥除归本层 submit（base64 内联同条 JSON——03 §10.4 批注①
+ * images[{data,mimeType}] 体形），Composer 零前缀知识。
+ */
+export interface SubmitAttachment {
+  readonly dataUrl: string;
+  readonly mimeType: string;
+}
+
+/**
+ * dataURL 前缀剥除（剪贴板附件批——03 §10.4 批注①）：`data:<mime>;base64,<载荷>`
+ * → 只传 base64 载荷段（服务端 images[].data 位收纯 base64）。首个逗号为
+ * 前缀/载荷分界（base64 字母表不含逗号——首逗号切分安全）；无逗号坏形回
+ * 空串（服务端校验面拒——客户端不造半形数据）。
+ */
+export function base64OfDataUrl(dataUrl: string): string {
+  const commaAt = dataUrl.indexOf(',');
+  return commaAt === -1 ? '' : dataUrl.slice(commaAt + 1);
+}
+
+/**
+ * 附件图 URL 单源铸造（剪贴板附件批——03 §10.4 批注④⑥）：ref 形
+ * `sha256:<hex>`，路径段直接拼 ref 串（冒号是合法路径字符——不做
+ * encodeURIComponent，批注④「路径段直接拼」句面）。Transcript 的 img src
+ * 经本腿取 URL——端点词面走 WEBUI_ENDPOINTS.attachments（protocol 客户端
+ * 线视界，与服务端 types.ts 同形镜像、双表对拍锁执法），禁手写字面量副本。
+ */
+export function attachmentUrl(ref: string): string {
+  return WEBUI_ENDPOINTS.attachments.replace(':ref', ref);
+}
+
+/**
  * SSE 活体流 URL 单源铸造（第十一轮深扫 laneG L8-2）：App 的 EventSource
  * 接线经本腿取 URL——端点词面走 WEBUI_ENDPOINTS.sessionEvents（protocol
  * 客户端线视界，与服务端 types.ts 同形镜像、双表对拍锁执法），禁手写字面量
@@ -148,10 +180,26 @@ export const api = {
     return body.messages;
   },
 
-  async submit(sessionId: string, text: string, messageId: string): Promise<void> {
+  /**
+   * 提交（体 {text, messageId, images?}——images 位 03 §10.4 批注①：附件
+   * base64 内联同条 JSON，[{data: <纯 base64>, mimeType}]，dataURL 前缀剥除
+   * 归本层）。零附件/空附件数组两形载荷零漂移——不带 images 键（旧载荷形
+   * 逐键不变，服务端 SubmitSchema 兼容旧体）。
+   */
+  async submit(
+    sessionId: string,
+    text: string,
+    messageId: string,
+    attachments?: readonly SubmitAttachment[],
+  ): Promise<void> {
+    // 帽内非空才铸 images 位（空数组不带键——零漂移律）
+    const images =
+      attachments && attachments.length > 0
+        ? attachments.map((a) => ({ data: base64OfDataUrl(a.dataUrl), mimeType: a.mimeType }))
+        : undefined;
     await call<unknown>(withId(WEBUI_ENDPOINTS.sessionSubmit, sessionId), {
       method: 'POST',
-      body: JSON.stringify({ text, messageId }),
+      body: JSON.stringify({ text, messageId, ...(images !== undefined ? { images } : {}) }),
     });
   },
 
