@@ -188,6 +188,42 @@ describe('restoreRewind（段二——三步序）', () => {
     expect(second).toMatchObject({ restoredCount: 0, deletedCount: 0, untouchedCount: 1 });
   });
 
+  it('ckpt-hold（挖掘 16 轮）：恢复窗全程持有——②a 读 blob 时他路 prune 不裁目标（修前：目标被裁独占 blob 被 GC → CORRUPT 恢复中断）', async () => {
+    // 满帽形（N4 母本同构）：帽 10 份逐代独占内容——最旧点独占 blob 恰是
+    // 恢复所需；N4 辖「①保底拍自触发的 prune」（参数集豁免），本腿辖
+    // 「恢复窗内他路任意 prune」（store 持有集豁免——05 §5.3 ckpt-gc 延伸批）
+    let oldest = '';
+    for (let i = 0; i < CHECKPOINT_RETENTION_PER_WORKSPACE; i++) {
+      await put('a.txt', `gen-${i}`);
+      clock = 1_000 + i;
+      const m = await capture()({ sessionId: 's1', boundarySeq: 0, workspaceRoot: ws, trigger: 'mutation' });
+      if (i === 0) oldest = m.id;
+    }
+    await put('a.txt', 'current-mutated');
+    // 钉交错：②a 首调 readBlob 时他路 prune（无豁免集——另一会话捕获尾部
+    // 的 prune 编舞）同步进场。此刻满帽 +1 保底拍 = 11 份，目标是 stale 首
+    // 位：修前段一裁掉目标 → 独占 blob 被段二 GC → 原始 readBlob 缺席
+    // corrupt（恢复中断部分态）；修后 store 持有集豁免 → 目标幸存恢复完成
+    const originalRead = store.readBlob.bind(store);
+    let pruned = false;
+    const spy = vi.spyOn(store, 'readBlob').mockImplementation(async (hash: string) => {
+      if (!pruned) {
+        pruned = true;
+        await store.prune(); // 他路裁剪（他方 capture 尾部同形调用）
+      }
+      return originalRead(hash);
+    });
+    const { fork } = fakeFork();
+    clock = 2_000;
+    const receipt = await restoreRewind({ store, fork }, oldest);
+    spy.mockRestore();
+    expect(await read('a.txt')).toBe('gen-0'); // 最旧内容真恢复（非中断部分态）
+    expect(receipt).toMatchObject({ restoredCount: 1, deletedCount: 0, untouchedCount: 0 });
+    // 目标 manifest 幸存——重跑幂等
+    const second = await restoreRewind({ store, fork }, oldest);
+    expect(second).toMatchObject({ restoredCount: 0, deletedCount: 0, untouchedCount: 1 });
+  });
+
   it('回退到空 manifest：恢复到空工作区（删除全部）', async () => {
     // 空 workspace 快照（files: [] 合法形态）
     const empty = await capture()({ sessionId: 's1', boundarySeq: -1, workspaceRoot: ws, trigger: 'mutation' });

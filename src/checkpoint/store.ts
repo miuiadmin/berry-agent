@@ -72,6 +72,16 @@ export interface CheckpointStore {
    * 独占 blob 不被段二 GC 误杀。
    */
   prune(protectedIds?: ReadonlySet<string>): Promise<{ removedManifests: number; removedBlobs: number }>;
+  /**
+   * 恢复窗持有保护（05 §5.3 ckpt-gc 延伸批——挖掘 16 轮）：restore 载入目标
+   * manifest 后 protect、③完成/抛错 finally release（计数形——同 id 并发恢复
+   * 嵌套持有可能）。prune 段一豁免 = 参数集 ∪ store 集；段二 blob 引用扫描
+   * 由 manifest 在册联锁（protect 保 manifest 不出册，其独占 blob 即恒入引用
+   * 集不入 GC 判据）——②a readBlob 全窗不悬空。
+   */
+  protect(id: string): void;
+  /** 持有解除（计数归零出册——protect 配对腿；无持有解除 = 幂等 no-op） */
+  release(id: string): void;
 }
 
 /** 内容哈希（sha256 hex——内容寻址与一致性校验的单源） */
@@ -176,29 +186,60 @@ export function openCheckpointStore(
     if (n <= 0) inflight.delete(hash);
     else inflight.set(hash, n);
   };
+  /**
+   * 恢复窗持有计数表（05 §5.3 ckpt-gc 延伸批——挖掘 16 轮）：manifest id →
+   * 持有数。与 N4 参数集（capture 自身 prune 调用的单次豁免）分立两源：参数
+   * 集辖「拍摄发起的这一次 prune」，本表辖「恢复窗全程的他路任意 prune」——
+   * 段一豁免取两集并集。
+   */
+  const restoreHolders = new Map<string, number>();
+  /**
+   * 方法级串行链（05 §5.3 ckpt-gc 延伸批——挖掘 16 轮）：writeBlob（探测/写
+   * 段）与 prune（检查/rm 段）互斥——闭包 promise 链尾接。辖「方法内窗」：
+   * prune 段二 inflight 检查（同步）与 deleteBlob rm（await 边）之间，他路
+   * writeBlob 在场跳写腿探测通过而不重写——rm 落地后「writeBlob 已确保在
+   * 场」承诺悬空（后续落册即悬空引用）。串行化后两序只居其一：writeBlob
+   * 全成后 prune 查（在飞计数 >0 跳过）或 prune 全成后 writeBlob 探测（缺席
+   * → 重写落盘）。saveManifest/readBlob/deleteManifest 不入链——无 blob 在
+   * 场性竞（引用账由在飞计数与引用扫描两层各辖一窗）。链失败不断链
+   * （then(task, task) 形——前任异常不阻塞后任）。
+   */
+  let chainTail: Promise<void> = Promise.resolve();
+  const serialized = <T>(task: () => Promise<T>): Promise<T> => {
+    const run = chainTail.then(task, task);
+    chainTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
 
   return {
     baseDir,
 
     async writeBlob(hash, content) {
       if (!BLOB_HASH_RE.test(hash)) throw corrupt(`blob 哈希格式异常：${hash}`);
-      // 在飞登记先于写（ckpt-gc 定形注——落盘与入册之间的窗内 blob 不被
-      // 并发 prune 误删；写失败下方回滚，未落盘不占在飞面）
-      inflight.set(hash, (inflight.get(hash) ?? 0) + 1);
-      try {
-        const target = blobPath(baseDir, hash);
+      // 方法级串行链入队（ckpt-gc 延伸批）：探测/写段与 prune 段二检查/rm 段
+      // 互斥——在场跳写腿的「探测通过」不再与 rm 落地交错
+      await serialized(async () => {
+        // 在飞登记先于写（ckpt-gc 定形注——落盘与入册之间的窗内 blob 不被
+        // 并发 prune 误删；写失败下方回滚，未落盘不占在飞面）
+        inflight.set(hash, (inflight.get(hash) ?? 0) + 1);
         try {
-          await readFile(target);
-          return; // 在场即跳过——内容寻址共享，同内容零重写（计数留给
-          // saveManifest 注销——在场腿同样在「未入册」窗内）
-        } catch {
-          // 缺席——落盘（走原子写）
+          const target = blobPath(baseDir, hash);
+          try {
+            await readFile(target);
+            return; // 在场即跳过——内容寻址共享，同内容零重写（计数留给
+            // saveManifest 注销——在场腿同样在「未入册」窗内）
+          } catch {
+            // 缺席——落盘（走原子写）
+          }
+          await atomicWrite(target, content);
+        } catch (err) {
+          releaseInflight(hash); // 写失败回滚计数
+          throw err;
         }
-        await atomicWrite(target, content);
-      } catch (err) {
-        releaseInflight(hash); // 写失败回滚计数
-        throw err;
-      }
+      });
     },
 
     async readBlob(hash) {
@@ -304,40 +345,57 @@ export function openCheckpointStore(
     },
 
     async prune(protectedIds) {
-      /* ---- 段一：per workspace 保留帽（trigger 两形同计） ---- */
-      const all = await this.listManifests();
-      const byWorkspace = new Map<string, CheckpointManifest[]>();
-      for (const m of all) {
-        const bucket = byWorkspace.get(m.workspaceRoot);
-        if (bucket !== undefined) bucket.push(m);
-        else byWorkspace.set(m.workspaceRoot, [m]);
-      }
-      let removedManifests = 0;
-      for (const [, bucket] of byWorkspace) {
-        // listManifests 已 capturedAt 降序——保前 N 删余；豁免件不入淘汰
-        // （十六役补扫 N4 恢复目标保护：帽外多留是恢复窗瞬态，非稳态）
-        for (const stale of bucket.slice(CHECKPOINT_RETENTION_PER_WORKSPACE)) {
-          if (protectedIds?.has(stale.id)) continue;
-          await this.deleteManifest(stale.id);
-          removedManifests += 1;
+      // 方法级串行链入队（ckpt-gc 延伸批）：段一+段二整体与 writeBlob 互斥
+      // （prune 非热路径——捕获后调一次，整段入链取最强隔离；箭头函数词法
+      // this 仍指本对象）
+      return serialized(async (): Promise<{ removedManifests: number; removedBlobs: number }> => {
+        /* ---- 段一：per workspace 保留帽（trigger 两形同计） ---- */
+        const all = await this.listManifests();
+        const byWorkspace = new Map<string, CheckpointManifest[]>();
+        for (const m of all) {
+          const bucket = byWorkspace.get(m.workspaceRoot);
+          if (bucket !== undefined) bucket.push(m);
+          else byWorkspace.set(m.workspaceRoot, [m]);
         }
-      }
+        let removedManifests = 0;
+        for (const [, bucket] of byWorkspace) {
+          // listManifests 已 capturedAt 降序——保前 N 删余；豁免件不入淘汰
+          // （十六役补扫 N4 恢复目标保护：帽外多留是恢复窗瞬态，非稳态）
+          for (const stale of bucket.slice(CHECKPOINT_RETENTION_PER_WORKSPACE)) {
+            // 豁免并集（ckpt-gc 延伸批）：参数集（N4 拍摄自身 prune 的单次
+            // 豁免）∪ store 集（restore 窗全程持有的他路任意 prune 豁免）
+            if (protectedIds?.has(stale.id) || (restoreHolders.get(stale.id) ?? 0) > 0) continue;
+            await this.deleteManifest(stale.id);
+            removedManifests += 1;
+          }
+        }
 
-      /* ---- 段二：blob 引用计数 GC（扫全仓在册 manifest——跨 workspace 共享不误杀） ---- */
-      const referenced = new Set<string>();
-      for (const m of await this.listManifests()) {
-        for (const f of m.files) referenced.add(f.hash);
-      }
-      let removedBlobs = 0;
-      for (const hash of await this.listBlobHashes()) {
-        if (referenced.has(hash)) continue;
-        // 在飞豁免（ckpt-gc 定形注——挖掘 15 轮）：已落盘未入册的并发捕获
-        // blob 不误删（宁漏杀不误杀——误杀毁 restore 不可逆，漏杀只占盘）
-        if ((inflight.get(hash) ?? 0) > 0) continue;
-        await this.deleteBlob(hash);
-        removedBlobs += 1;
-      }
-      return { removedManifests, removedBlobs };
+        /* ---- 段二：blob 引用计数 GC（扫全仓在册 manifest——跨 workspace 共享不误杀） ---- */
+        const referenced = new Set<string>();
+        for (const m of await this.listManifests()) {
+          for (const f of m.files) referenced.add(f.hash);
+        }
+        let removedBlobs = 0;
+        for (const hash of await this.listBlobHashes()) {
+          if (referenced.has(hash)) continue;
+          // 在飞豁免（ckpt-gc 定形注——挖掘 15 轮）：已落盘未入册的并发捕获
+          // blob 不误删（宁漏杀不误杀——误杀毁 restore 不可逆，漏杀只占盘）
+          if ((inflight.get(hash) ?? 0) > 0) continue;
+          await this.deleteBlob(hash);
+          removedBlobs += 1;
+        }
+        return { removedManifests, removedBlobs };
+      });
+    },
+
+    protect(id) {
+      restoreHolders.set(id, (restoreHolders.get(id) ?? 0) + 1);
+    },
+
+    release(id) {
+      const n = (restoreHolders.get(id) ?? 0) - 1;
+      if (n <= 0) restoreHolders.delete(id);
+      else restoreHolders.set(id, n);
     },
   };
 }

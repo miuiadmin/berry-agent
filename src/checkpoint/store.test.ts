@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { contentHash, openCheckpointStore, type CheckpointStore } from './store.js';
 import { CHECKPOINT_RETENTION_PER_WORKSPACE, type CheckpointManifest } from './types.js';
 
@@ -63,6 +63,40 @@ describe('blob 仓', () => {
     const result = await store.prune();
     expect(result.removedBlobs).toBe(1);
     expect(await store.listBlobHashes()).toEqual([]);
+  });
+
+  it('ckpt-串行链（挖掘 16 轮）：prune 检查/rm 窗内他路 writeBlob 在场跳写腿——串行后恒重写落盘不悬空（修前：探测通过不重写、rm 落地引用悬空）', async () => {
+    // 交错序确定性钉死（05 §5.3 ckpt-gc 延伸批定形注）：段二 inflight 检查
+    //（同步，此刻在飞零）已过 → deleteBlob rm 待落地窗内他路 writeBlob 进场
+    //——修前：在场跳写腿探测通过即返（不重写），rm 随后落地 →「writeBlob 已
+    // 确保在场」承诺悬空（后续落册即悬空引用）。修后：方法级串行链令
+    // writeBlob 排队至 prune 全成 → 探测缺席 → 重写落盘
+    const content = Buffer.from('检查-后动窗对象');
+    const hash = contentHash(content);
+    // 真产面形构造无引用 blob（写 → 落册 → 删册释放引用——在飞计数归零，
+    // 与生产孤儿形同构）
+    const m = manifest({
+      id: 'm-race',
+      files: [{ path: 'x.txt', hash, bytes: content.byteLength }],
+    });
+    await store.writeBlob(hash, content);
+    await store.saveManifest(m);
+    await store.deleteManifest('m-race');
+    // 钉交错：deleteBlob 被调（检查已过）时他路 writeBlob 同步进场，稍候令
+    // 探测腿先行——修前形：探测在场通过跳写、rm 后落地
+    let raceWrite: Promise<void> | undefined;
+    const originalDelete = store.deleteBlob.bind(store);
+    const spy = vi.spyOn(store, 'deleteBlob').mockImplementation(async (h: string) => {
+      if (h === hash && raceWrite === undefined) {
+        raceWrite = store.writeBlob(hash, content);
+        await new Promise((resolve) => setTimeout(resolve, 10)); // 让探测腿先行
+      }
+      return originalDelete(h);
+    });
+    await store.prune();
+    spy.mockRestore();
+    await raceWrite; // 修前此笔「成功」返回但 blob 已被 rm（悬空）；修后排队重写
+    await expect(store.readBlob(hash)).resolves.toEqual(content); // 在场承诺不悬空
   });
 
   it('同内容重写跳过（在场零重写——共享去重）', async () => {

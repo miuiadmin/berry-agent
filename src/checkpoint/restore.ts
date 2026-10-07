@@ -158,115 +158,125 @@ export async function previewRewind(store: CheckpointStore, id: string): Promise
 export async function restoreRewind(deps: RewindRestoreDeps, id: string): Promise<RewindRestoreReceipt> {
   const manifest = await deps.store.loadManifest(id); // NOT_FOUND / STORE_CORRUPT 直通
 
-  /* ---- ① pre-rewind 保底快照（rewind 自身可回退——痕迹可清算） ---- */
-  const snapshotOwner = deps.invokingSessionId ?? manifest.sessionId;
-  // 拍摄前屏障（05 §5.3 D② 治本批）：排干与 boundary 活体读取共用同一条件
-  // （session face 与 invokingSessionId 双在场——缺一即 -1 形无 durable 承载
-  // 需求，不排干），序 = 先排干、后读 boundary、再保底拍——排干令保底拍的
-  // boundarySeq 拍下即有 durable 承载。排干抛错不吞原样直通：保底拍失败即
-  // 中止（既有错误面承载，command 面守卫错折文本——fail-closed：对着落不了
-  // 库的边界拍快照 = 伪承诺）
-  let boundary = -1;
-  if (deps.session !== undefined && deps.invokingSessionId !== undefined) {
-    deps.drain?.(deps.invokingSessionId);
-    boundary = deps.session.contextOf(deps.invokingSessionId)?.lastClosedBoundary ?? -1;
-  }
-  const capture = createCapture(deps.store, { now: deps.now, newId: deps.newId });
-  const preRewind = await capture({
-    sessionId: snapshotOwner,
-    boundarySeq: boundary,
-    workspaceRoot: manifest.workspaceRoot,
-    trigger: 'pre-rewind',
-    // 恢复目标保护（十六役补扫 N4）：满帽工作区（常态 10 份）下保底拍成为
-    // 第 11 份触发 prune 裁剪，目标（/rewind list 最旧行恰是 stale 首位）
-    // 会被淘汰自毁——独占 blob 随 GC 物理删除，②a readBlob 假报
-    // STORE_CORRUPT 且重试 NOT_FOUND（回退点永久丢失 + 部分恢复态）
-    protectId: id,
-  });
-
-  /* ---- ② 文件恢复（walk 域内真恢复：改/补 manifest 条目 + 删域外文件 + 清空目录） ---- */
-  const current = await currentHashes(manifest.workspaceRoot);
-  const manifestMap = new Map(manifest.files.map((f) => [f.path, f.hash]));
-  let restoredCount = 0;
-  let deletedCount = 0;
-  let untouchedCount = 0;
-
-  // ②a 逐 manifest 条目：哈希同不动（保 mtime）；异/缺席读 blob 原子写回
-  for (const entry of manifest.files) {
-    if (current.get(entry.path) === entry.hash) {
-      untouchedCount += 1;
-      continue;
-    }
-    const content = await deps.store.readBlob(entry.hash); // STORE_CORRUPT fail-loud 直通
-    await atomicWriteFile(join(manifest.workspaceRoot, ...entry.path.split('/')), content);
-    restoredCount += 1;
-  }
-
-  // ②b walk 域内 manifest 外文件删除（真恢复——不留快照后新增物）
-  for (const path of current.keys()) {
-    if (manifestMap.has(path)) continue;
-    try {
-      await rm(join(manifest.workspaceRoot, ...path.split('/')), { force: true });
-    } catch (err) {
-      throw restoreFailed(`删 ${path}（${err instanceof Error ? err.message : String(err)}）`);
-    }
-    deletedCount += 1;
-  }
-
-  // ②c 空目录自底向上清剪（删除步后置；根不删）
-  await pruneEmptyDirs(manifest.workspaceRoot, manifest.workspaceRoot);
-
-  /* ---- ③ fork（旧史保留——新会话净边界起跑；veto 不回滚文件恢复） ---- */
-  // 第③腿抛错折 veto 形回执（data-integrity L1——崩溃窗收口）：② 文件恢复
-  // 之后 fork 仍可抛。已知形 = 源会话 durable 日志短于 manifest.boundarySeq
-  // ——gate 拍摄取活体末闭合边界（含 write-behind 在飞未落事件），随后
-  // 崩溃/sever（在队事件丢失）或毒丸隔离（durable 前缀停摆）即成分歧窗；
-  // 此形是崩溃窗数据分歧而非调用方 bug（sessions.ts 抛点文案对主调用面
-  // 成立、对本调用面误导——抛点位不动，restore 位承接改写归因）。异常
-  // 上抛 = 文件已回退、分支会话未建、回执缺席（command 面对 plain Error
-  // 裸抛）；折 veto 形保回执通道在场，vetoReason 诚实报部分态与出路。
-  let outcome: Awaited<ReturnType<RewindForkFace['fork']>>;
+  // 恢复窗全程持有（05 §5.3 ckpt-gc 延伸批——挖掘 16 轮）：载入目标即
+  // protect（计数入册），③完成/抛错 finally release 收口。并发他路 prune
+  // 的段一淘汰见 store 集豁免本 manifest；其独占 blob 由 manifest 在册
+  // 联锁（段二引用扫描看得到）——②a readBlob 全窗不悬空。
+  deps.store.protect(id);
   try {
-    outcome = await deps.fork.fork(manifest.sessionId, {
-      upToSeq: manifest.boundarySeq,
-      title: `rewind:${manifest.id}`,
+    /* ---- ① pre-rewind 保底快照（rewind 自身可回退——痕迹可清算） ---- */
+    const snapshotOwner = deps.invokingSessionId ?? manifest.sessionId;
+    // 拍摄前屏障（05 §5.3 D② 治本批）：排干与 boundary 活体读取共用同一条件
+    // （session face 与 invokingSessionId 双在场——缺一即 -1 形无 durable 承载
+    // 需求，不排干），序 = 先排干、后读 boundary、再保底拍——排干令保底拍的
+    // boundarySeq 拍下即有 durable 承载。排干抛错不吞原样直通：保底拍失败即
+    // 中止（既有错误面承载，command 面守卫错折文本——fail-closed：对着落不了
+    // 库的边界拍快照 = 伪承诺）
+    let boundary = -1;
+    if (deps.session !== undefined && deps.invokingSessionId !== undefined) {
+      deps.drain?.(deps.invokingSessionId);
+      boundary = deps.session.contextOf(deps.invokingSessionId)?.lastClosedBoundary ?? -1;
+    }
+    const capture = createCapture(deps.store, { now: deps.now, newId: deps.newId });
+    const preRewind = await capture({
+      sessionId: snapshotOwner,
+      boundarySeq: boundary,
+      workspaceRoot: manifest.workspaceRoot,
+      trigger: 'pre-rewind',
+      // 恢复目标保护（十六役补扫 N4）：满帽工作区（常态 10 份）下保底拍成为
+      // 第 11 份触发 prune 裁剪，目标（/rewind list 最旧行恰是 stale 首位）
+      // 会被淘汰自毁——独占 blob 随 GC 物理删除，②a readBlob 假报
+      // STORE_CORRUPT 且重试 NOT_FOUND（回退点永久丢失 + 部分恢复态）
+      protectId: id,
     });
-  } catch (err) {
-    // 折面与 command.ts 守卫错同形（BaseError 码直呈——丢码即丢可引用面；
-    // 非 BaseError 折 message——免「Error: 」前缀噪音）
-    const detail =
-      err instanceof BaseError ? `${err.code}：${err.message}` : err instanceof Error ? err.message : String(err);
-    // 边界越界形换用户面诚实文案（原文案「调用方 bug」误导归因不入回执）；
-    // 其余错误形保留原始信息（可诊断）。部分态与出路的承载分工：本侧只报
-    // 「分支会话未建 + 续用原会话」增量，「文件已恢复 + 可重试」由消费位
-    // command.ts 模板尾缀统一承载（单源——两侧各写全套即拼接后重复成对）
-    const vetoReason = detail.includes('边界越界')
-      ? `回退点边界序号（seq=${manifest.boundarySeq}）超出会话现存日志——上次运行可能异常退出导致部分日志未保存（分支会话未建；可续用原会话）`
-      : `${detail}（分支会话未建；可续用原会话）`;
-    return {
-      id: manifest.id,
-      preRewindId: preRewind.id,
-      restoredCount,
-      deletedCount,
-      untouchedCount,
-      vetoReason,
-    };
-  }
-  return outcome.status === 'forked'
-    ? {
-        id: manifest.id,
-        preRewindId: preRewind.id,
-        restoredCount,
-        deletedCount,
-        untouchedCount,
-        forkedSessionId: outcome.sessionId,
+
+    /* ---- ② 文件恢复（walk 域内真恢复：改/补 manifest 条目 + 删域外文件 + 清空目录） ---- */
+    const current = await currentHashes(manifest.workspaceRoot);
+    const manifestMap = new Map(manifest.files.map((f) => [f.path, f.hash]));
+    let restoredCount = 0;
+    let deletedCount = 0;
+    let untouchedCount = 0;
+
+    // ②a 逐 manifest 条目：哈希同不动（保 mtime）；异/缺席读 blob 原子写回
+    for (const entry of manifest.files) {
+      if (current.get(entry.path) === entry.hash) {
+        untouchedCount += 1;
+        continue;
       }
-    : {
+      const content = await deps.store.readBlob(entry.hash); // STORE_CORRUPT fail-loud 直通
+      await atomicWriteFile(join(manifest.workspaceRoot, ...entry.path.split('/')), content);
+      restoredCount += 1;
+    }
+
+    // ②b walk 域内 manifest 外文件删除（真恢复——不留快照后新增物）
+    for (const path of current.keys()) {
+      if (manifestMap.has(path)) continue;
+      try {
+        await rm(join(manifest.workspaceRoot, ...path.split('/')), { force: true });
+      } catch (err) {
+        throw restoreFailed(`删 ${path}（${err instanceof Error ? err.message : String(err)}）`);
+      }
+      deletedCount += 1;
+    }
+
+    // ②c 空目录自底向上清剪（删除步后置；根不删）
+    await pruneEmptyDirs(manifest.workspaceRoot, manifest.workspaceRoot);
+
+    /* ---- ③ fork（旧史保留——新会话净边界起跑；veto 不回滚文件恢复） ---- */
+    // 第③腿抛错折 veto 形回执（data-integrity L1——崩溃窗收口）：② 文件恢复
+    // 之后 fork 仍可抛。已知形 = 源会话 durable 日志短于 manifest.boundarySeq
+    // ——gate 拍摄取活体末闭合边界（含 write-behind 在飞未落事件），随后
+    // 崩溃/sever（在队事件丢失）或毒丸隔离（durable 前缀停摆）即成分歧窗；
+    // 此形是崩溃窗数据分歧而非调用方 bug（sessions.ts 抛点文案对主调用面
+    // 成立、对本调用面误导——抛点位不动，restore 位承接改写归因）。异常
+    // 上抛 = 文件已回退、分支会话未建、回执缺席（command 面对 plain Error
+    // 裸抛）；折 veto 形保回执通道在场，vetoReason 诚实报部分态与出路。
+    let outcome: Awaited<ReturnType<RewindForkFace['fork']>>;
+    try {
+      outcome = await deps.fork.fork(manifest.sessionId, {
+        upToSeq: manifest.boundarySeq,
+        title: `rewind:${manifest.id}`,
+      });
+    } catch (err) {
+      // 折面与 command.ts 守卫错同形（BaseError 码直呈——丢码即丢可引用面；
+      // 非 BaseError 折 message——免「Error: 」前缀噪音）
+      const detail =
+        err instanceof BaseError ? `${err.code}：${err.message}` : err instanceof Error ? err.message : String(err);
+      // 边界越界形换用户面诚实文案（原文案「调用方 bug」误导归因不入回执）；
+      // 其余错误形保留原始信息（可诊断）。部分态与出路的承载分工：本侧只报
+      // 「分支会话未建 + 续用原会话」增量，「文件已恢复 + 可重试」由消费位
+      // command.ts 模板尾缀统一承载（单源——两侧各写全套即拼接后重复成对）
+      const vetoReason = detail.includes('边界越界')
+        ? `回退点边界序号（seq=${manifest.boundarySeq}）超出会话现存日志——上次运行可能异常退出导致部分日志未保存（分支会话未建；可续用原会话）`
+        : `${detail}（分支会话未建；可续用原会话）`;
+      return {
         id: manifest.id,
         preRewindId: preRewind.id,
         restoredCount,
         deletedCount,
         untouchedCount,
-        vetoReason: outcome.reason,
+        vetoReason,
       };
+    }
+    return outcome.status === 'forked'
+      ? {
+          id: manifest.id,
+          preRewindId: preRewind.id,
+          restoredCount,
+          deletedCount,
+          untouchedCount,
+          forkedSessionId: outcome.sessionId,
+        }
+      : {
+          id: manifest.id,
+          preRewindId: preRewind.id,
+          restoredCount,
+          deletedCount,
+          untouchedCount,
+          vetoReason: outcome.reason,
+        };
+  } finally {
+    // 持有解除（计数归零出册——protect 配对腿；抛错路同样解除）
+    deps.store.release(id);
+  }
 }
