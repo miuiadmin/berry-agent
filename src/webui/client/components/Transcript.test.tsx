@@ -80,6 +80,33 @@ describe('Transcript 角色分形渲染', () => {
   });
 });
 
+describe('Transcript 角色与错误类名 token 锁（2026-10-08 浅档可读性批——03 §10.4 批注④浮底修复）', () => {
+  it('角色标签引 role token：user 位含 text-role-user · assistant 位含 text-role-assistant（修前红：裸 sky-/emerald- 类浮正文底，浅档实质不可读）', () => {
+    render(
+      <Transcript
+        messages={[msg({ key: 'm-1', role: 'user', text: '问' }), msg({ key: 'm-2', role: 'assistant', text: '答' })]}
+        status={null}
+        bottomRef={createRef<HTMLDivElement>()}
+      />,
+    );
+    // 类名锁：token 化后浅/深档切换零组件面改动（类名是唯一稳定面——
+    // 主题覆写只改 var(--color-role-*) 定值）
+    expect(screen.getByText('user').className).toContain('text-role-user');
+    expect(screen.getByText('assistant').className).toContain('text-role-assistant');
+  });
+
+  it('错误块 danger token：✗ 块含 text-danger（修前红：裸 red-400 类浮正文底浅档不可读——诚实报错底线面）', () => {
+    render(
+      <Transcript
+        messages={[msg({ key: 'm-1', role: 'assistant', text: '半句', error: '模型渠道未配置' })]}
+        status={null}
+        bottomRef={createRef<HTMLDivElement>()}
+      />,
+    );
+    expect(screen.getByText('✗ 模型渠道未配置').className).toContain('text-danger');
+  });
+});
+
 describe('Transcript 流式尾巴与状态行', () => {
   it('streaming 位呈呼吸光标 ▍，落稿不呈现', () => {
     const { rerender } = render(

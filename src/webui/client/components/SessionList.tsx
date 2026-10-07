@@ -36,7 +36,7 @@ export function SessionList({
 }): ReactElement {
   if (sessions.length === 0) {
     if (loadFailed) {
-      return <p className="p-3 text-xs text-red-400">会话清单加载失败——点上方「刷新」重试</p>;
+      return <p className="p-3 text-xs text-danger">会话清单加载失败——点上方「刷新」重试</p>;
     }
     return <p className="p-3 text-xs text-ink-faint">暂无会话——点「+ 新会话」开一个</p>;
   }
@@ -74,12 +74,14 @@ export function SessionList({
             </button>
             {/* 删除键（注入在场才呈）：悬停/聚焦显影（opacity-0→group-hover）；
                 stopPropagation = 结构性防御——兄弟结构下点击本不冒泡到选择键，
-                显式阻断双保险（选择键零误触）；回传行 id，编舞（确认/IO）归 App */}
+                显式阻断双保险（选择键零误触）；hover 危险色走 danger token
+                （原裸 red-300 归一 red-400 档——浮底可读性 03 §10.4 批注④，
+                更醒目警示）；回传行 id，编舞（确认/IO）归 App */}
             {onDelete !== undefined ? (
               <button
                 type="button"
                 aria-label="删除会话"
-                className="mr-1.5 shrink-0 rounded px-1.5 py-0.5 text-xs text-ink-faint opacity-0 transition-opacity hover:bg-edge-strong hover:text-red-300 focus-visible:opacity-100 group-hover:opacity-100"
+                className="mr-1.5 shrink-0 rounded px-1.5 py-0.5 text-xs text-ink-faint opacity-0 transition-opacity hover:bg-edge-strong hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation();
                   onDelete(session.id);

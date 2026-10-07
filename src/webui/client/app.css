@@ -22,6 +22,13 @@
   /* 强调两档：accent 选中指示/焦点环 · link 正文链接（天蓝系——深底可辨） */
   --color-accent: #0ea5e9; /* = sky-500 */
   --color-link: #38bdf8; /* = sky-400 */
+  /* 角色 2 + 危险 1（2026-10-08 浅档可读性批——03 §10.4 批注④浮底修复：
+   * 角色标签与浮底错误文案原裸 sky-/emerald-/red- 类浮于正文底，浅档对比
+   * 不足实质不可读——升 token 归入换肤族。暗档锚定原值观感零漂移；浅档
+   * 覆写可辨档见下方 [data-theme='light'] 块） */
+  --color-role-user: #38bdf8; /* = sky-400 */
+  --color-role-assistant: #34d399; /* = emerald-400 */
+  --color-danger: #f87171; /* = red-400 */
   /* 字号补档：2xs = 细节位 11px · body = 正文 13px（任意值字号收编入刻度） */
   --text-2xs: 11px;
   --text-body: 13px;
@@ -38,13 +45,15 @@
 /*
  * 浅色档 token 覆写（2026-10-07 webui 深浅色批——03 §10.4 批注条款①④；
  * 07 §4.1 界面美化役批注⑧「深浅色模式立题挂账」兑现）：html[data-theme='light']
- * 位覆写十一色 token——Tailwind v4 工具类编译产物引 var(--color-*)，运行时
+ * 位覆写十四色 token——Tailwind v4 工具类编译产物引 var(--color-*)，运行时
  * 覆写即全局换肤（组件类名零改动——token 化的结构性红利兑现位）。
  * **本块置于无层位**（不加任何 @layer）：产物 theme 变量住 @layer theme、
  * 无层位块恒胜层位块（CSS 层联序——未分层规则优先于层内规则）。缺省暗
  * 语义：暗值唯一住所仍是上方 @theme（html 无 data-theme 即暗）——本块
  * 只辖浅档。锚定 = zinc 系对称翻转（④锚定表）：底面 4 + 文字 5 + 强调 2
- * 十一 token 全集。语义色（琥珀断连横幅/遮罩黑/红绿 diff）跨档成立零改；
+ * + 角色 2 + 危险 1 十四 token 全集（角色/危险 = 2026-10-08 浮底可读性
+ * 修复批补入——03 §10.4 批注④收官注记扩面）。语义色（琥珀断连横幅/遮罩
+ * 黑/红绿 diff 及 NoticeBar 四档横幅）跨档成立零改；
  * .md-body 手写层全引 var() 天然随档零改。ink-faint 浅档 = zinc-400
  * （F3 观感裁量升一档：zinc-300 on zinc-50/100 对比约 1.4:1 弱于暗档
  * 对称位〔zinc-600 on zinc-900〕约 2.3:1——升档恢复「对比度档与暗色
@@ -65,6 +74,11 @@
   /* 强调两档：浅底可辨档（accent 选中/焦点环 sky-600 · link 正文链接 sky-700） */
   --color-accent: #0284c7; /* = sky-600 */
   --color-link: #0369a1; /* = sky-700 */
+  /* 角色 2 + 危险 1：浅底可辨档（角色名 sky-600/emerald-600 · 错误文案 red-600——
+   * 浮底可读性修复批，暗档锚定值见上方 @theme） */
+  --color-role-user: #0284c7; /* = sky-600 */
+  --color-role-assistant: #059669; /* = emerald-600 */
+  --color-danger: #dc2626; /* = red-600 */
 }
 
 /*

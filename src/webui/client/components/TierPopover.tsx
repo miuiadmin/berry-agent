@@ -166,7 +166,7 @@ export function TierPopover({
           // 失败态一行错误 + 关闭键（501/404/500 全折同呈现位——错误本体
           // 已透传 NoticeBar，此处只留可关的失败行）
           <div className="flex items-center justify-between gap-2 px-3 py-3">
-            <p className="text-xs text-red-300">读取失败</p>
+            <p className="text-xs text-danger">读取失败</p>
             <button
               type="button"
               className="shrink-0 rounded border border-edge-strong px-2 py-0.5 text-2xs text-ink-soft hover:bg-edge"

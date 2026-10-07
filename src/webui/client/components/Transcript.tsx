@@ -19,10 +19,10 @@ import { RUN_CLOSE_ROLE, type ViewMessage } from '../frames.js';
 // 与 TUI 分隔块渲染位同源（07 B2 定形注 webui 对端迁移）
 import { compactionSeparatorLine, lastCcrEntryOf } from '../../../contracts/index.js';
 
-/** 角色标签色（user/assistant 语义分色——其余角色统一弱文档） */
+/** 角色标签色（user/assistant 语义分色——其余角色统一弱文档；role token 浮底可读性——03 §10.4 批注④升档，浅档覆写可辨） */
 const ROLE_LABEL_CLASS: Record<string, string> = {
-  user: 'text-sky-400/80',
-  assistant: 'text-emerald-400/80',
+  user: 'text-role-user/80',
+  assistant: 'text-role-assistant/80',
 };
 
 /** 单条消息（assistant → Markdown / 其余 → 纯文本；流式尾巴呼吸态样式） */
@@ -60,9 +60,9 @@ const MessageView = memo(function MessageView({ message }: { message: ViewMessag
         {message.role}
       </div>
       {body}
-      {/* 错误块（03 §10.4 SPA 呈现面终态条款①——✗ 前缀 + error 语义色，与 TUI 错误块同律；注⑩：✖ 形全域退役跨通道） */}
+      {/* 错误块（03 §10.4 SPA 呈现面终态条款①——✗ 前缀 + danger 语义 token（浮底可读性——03 §10.4 批注④升档），与 TUI 错误块同律；注⑩：✖ 形全域退役跨通道） */}
       {message.error !== undefined ? (
-        <p className="whitespace-pre-wrap text-body leading-6 text-red-400">✗ {message.error}</p>
+        <p className="whitespace-pre-wrap text-body leading-6 text-danger">✗ {message.error}</p>
       ) : null}
       {message.streaming ? <span className="animate-pulse text-ink-mute">▍</span> : null}
     </div>

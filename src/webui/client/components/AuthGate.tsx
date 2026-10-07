@@ -58,7 +58,7 @@ export function AuthGate({ onAuthed }: { onAuthed: () => void }): ReactElement {
             if (ev.key === 'Enter') submit();
           }}
         />
-        {error !== null ? <p className="mb-2 text-xs text-red-400">{error}</p> : null}
+        {error !== null ? <p className="mb-2 text-xs text-danger">{error}</p> : null}
         <button
           type="button"
           className="w-full rounded bg-ink px-3 py-1.5 text-sm font-medium text-canvas hover:bg-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60 disabled:opacity-50"
