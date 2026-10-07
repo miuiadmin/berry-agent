@@ -61,6 +61,12 @@ export type {
 // 写路；种子路 = recentTexts 启动播种）
 export { INPUT_HISTORY_MIGRATION, INPUT_HISTORY_CAP, createInputHistoryFace } from './input-history.js';
 export type { InputHistoryFace, InputHistoryRecordInput } from './input-history.js';
+// 附件库读写面（03 §10.4 ③ 2026-10-08 剪贴板附件批——sha256 内容寻址文件
+// 旁路，零新表零迁移）：write 幂等落盘 / read 按 ref 读回两方法窄面经
+// dataDir 注入构造；ext→MIME 单源映射随面导出（webui 读回端点 ③ 消费位
+// Content-Type 派生源）；零新错误注册码（拒形态与 fail-loud 上抛形见模块头注）
+export { ATTACHMENT_EXT_WHITELIST, ATTACHMENT_MIME_BY_EXT, createAttachmentStore } from './attachment-store.js';
+export type { AttachmentStore, AttachmentExt, AttachmentWriteResult, AttachmentRecord } from './attachment-store.js';
 // 派生库开库面（批 18b——03 §10.8 obs 自管库文件的执法位：物理卫生三拍
 // 单源复用，schema 主权归调用方）
 export { openAuxDatabase } from './aux.js';
