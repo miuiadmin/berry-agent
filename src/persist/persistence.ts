@@ -303,6 +303,11 @@ export class Persistence {
   async deleteSession(sessionId: string): Promise<boolean> {
     this.ensureOpen();
     await this.flush();
+    // 已删除会话登记（05 §2.5 del-gap 定形注——挖掘 15 轮）：须在 flush 之后
+    // （当刻在队笔先落库再删）、三删之前——此后 settle 链尾环的迟到写笔经
+    // write-behind 前置判静默丢弃（修前形：迟到笔对已删 sessions 行续写，
+    // cursorFor 孤儿腿 expected=0 与高位 seq 撞写序违约 → 熔断进程崩溃）
+    this.writeBehind.dropSession(sessionId);
     const gone = this.store.deleteSession(sessionId);
     this.registrations.delete(sessionId);
     return gone;

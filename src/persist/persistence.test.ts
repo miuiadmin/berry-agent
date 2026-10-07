@@ -8,7 +8,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 import type { SessionEvent } from '../contracts/index.js';
 import { recoverClosers } from '../session/index.js';
@@ -175,6 +175,39 @@ describe('删除与退出序', () => {
     expect(p.store.getSessionRow(log.sessionId)).toBeUndefined();
     expect(p.queryEvents({ sessionId: log.sessionId }).events).toHaveLength(0);
     expect(await p.deleteSession(log.sessionId)).toBe(false);
+  });
+
+  it('del-gap（挖掘 15 轮）：flush 返回后微任务窗迟到笔静默丢弃——不撞写序违约不熔断不复活（修前红：迟到笔违约卡退避）', async () => {
+    // 交错窗（05 §2.5 del-gap 定形注）：flush 排干当刻在队笔后返回，settle
+    // 链尾环（run 终态后的桥接/回执续笔）在「flush 已返回、三删未跑」的微
+    // 任务窗内 enqueue 迟到笔 → 三删后 drain 点火 → 修前形：迟到笔对已删
+    // sessions 行续写，cursorFor 孤儿腿（游标+行俱删 → 自 -1 重启）expected=0
+    // 与高位 seq 撞 PERSIST_DATA_CORRUPT → 退避重试耗尽熔断进程崩溃。
+    // 生产形是 flush resolve 与调用方续跑之间的微任务竞速；测试以 store 层
+    // spy 在三删同步段内投递迟到笔——确定性钉死交错序（与生产窗口等价）
+    const p = open();
+    const log = p.createSession({ origin: 'conversation' });
+    oneTurn(log, 'doomed turn'); // 合法笔（当刻在队面）
+    await p.flush(); // flush 先行承载：合法笔落库
+    const store = p.store;
+    const origDelete = store.deleteSession.bind(store);
+    const late = vi.spyOn(store, 'deleteSession').mockImplementation(((sid: string) => {
+      // 三删正要执行的同步段内续笔（= settle 链尾环迟到 append——入队等
+      // drain 微任务；此刻 persistence.deleteSession 的 dropSession 已登记）
+      log.append('user/message', { content: '迟到笔——settle 链尾环竞窗遗物', source: 'user' });
+      return origDelete(sid);
+    }) as typeof store.deleteSession);
+    await p.deleteSession(log.sessionId);
+    late.mockRestore();
+    // 微任务排空 + 退避窗采样（修前形迟到笔违约进 50ms 基数退避——本采样点
+    // 必在重试中，队列卡 1 条；修后形迟到笔入队即静默丢弃，队列恒空）
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(p.writeBehind.pending).toBe(0); // 修前红锚：退避重试中恒 1
+    // 库面零复活：行/事件俱删，迟到笔未落库
+    expect(store.getSessionRow(log.sessionId)).toBeUndefined();
+    expect(p.queryEvents({ sessionId: log.sessionId }).events).toHaveLength(0);
+    // 诊断只读面在册（与 severedSessions 分立语义）
+    expect(p.writeBehind.droppedSessions).toContain(log.sessionId);
   });
 
   it('retireEntries：retire 路登记面死键出册（registrations 经 stageSessionTitle 在册判据观测）+ durable 面保留 + 幂等（05 retire 清账律——第十一轮修前红：面不存在即 TypeError）', async () => {

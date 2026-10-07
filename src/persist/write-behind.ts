@@ -96,6 +96,14 @@ export class WriteBehind {
   private closed = false;
   /** 已切断 durability 的会话（毒丸后——后续事件静默丢弃，不再入队落库） */
   private readonly severed = new Set<string>();
+  /**
+   * 已删除会话集（05 §2.5 del-gap 定形注——挖掘 15 轮）：deleteSession 在
+   * flush 排干后、物理三删前登记；此后该会话一切迟到写笔按「已删世界遗物」
+   * 静默丢弃（enqueue 前置判 + drainSessionNow 早退）。与 severed 分立——
+   * 彼系毒丸切断诊断语义（severedSessions 只读面供 incident 对账），此系
+   * 用户主权删除终决语义，不混集。
+   */
+  private readonly dropped = new Set<string>();
 
   constructor(options: WriteBehindOptions) {
     this.target = options.target;
@@ -115,11 +123,14 @@ export class WriteBehind {
 
   /**
    * 入队（append 热路径直通——O(1) 内存操作 + 按需点火微任务）。
-   * 前置三判的优先级序（第九轮深扫件2/件3 定形：severed → closed → broken）：
+   * 前置四判的优先级序（第九轮深扫件2/件3 定形 severed→closed→broken 三判；
+   * 2026-10-08 del-gap 批插入 dropped 于 severed 后——同为静默丢弃面，序理由
+   * 同 severed 优先：已终会话不折 closed 观测/不逐条刷账）：
    *  1. severed（毒丸切断）最优先——incident 已一笔在案、该会话 durability
    *     已终，迟到事件按切断纪律静默丢弃；若 closed 判在前，会把本应静默
    *     丢弃的事件折成晚到失败观测（warn + 退出失败态并计）——对已终会话
    *     重复刷账，违「一笔 incident 概括，不逐条刷账」；
+   *  1b. dropped（已删除会话）同前——删除是用户主权终决，迟到笔静默丢弃；
    *  2. closed 次之——关库终态后 fail-loud 让位退出记账（件D1）：flush 失败
    *     变体里关库标记已置而链亦熔断（close 的 finally 两步同达），晚到事件
    *     须折观测而非同步抛栈——closed 判必须前于 broken 判（熔断的诚实拒写
@@ -129,6 +140,9 @@ export class WriteBehind {
   enqueue(write: EventWrite): void {
     // 切断会话静默丢弃（incident 已自述——毒丸后该会话 durability 已终）
     if (this.severed.has(write.sessionId)) return;
+    // 已删除会话迟到笔静默丢弃（05 §2.5 del-gap 定形注——用户主权删除后
+    // settle 链尾环的竞窗遗物；纪律同 severed 一笔不逐刷账）
+    if (this.dropped.has(write.sessionId)) return;
     // 关库终态：晚到事件（在飞 run 收尾竞速窗）不抛不点火——折观测后丢弃
     //（修前形：照常入队点火 → 对已关库重试耗尽 → onFatal 重抛 = 未捕获
     //  拒绝进程带栈崩溃；件D1 ②层）
@@ -165,6 +179,30 @@ export class WriteBehind {
   /** 毒丸切断会话清单（诊断只读面） */
   get severedSessions(): readonly string[] {
     return [...this.severed];
+  }
+
+  /**
+   * 已删除会话登记（05 §2.5 del-gap 定形注——挖掘 15 轮）：deleteSession 在
+   * flush 排干**之后**、物理三删之前调用——此后该会话迟到写笔（settle 链
+   * 尾环经 enqueue 入队的竞窗遗物）静默丢弃，不再对已删 sessions 行续写
+   * （修前形：游标已随三删出册 → cursorFor 孤儿腿自 -1 重启 → expected=0
+   * 与迟到笔高位 seq 撞 PERSIST_DATA_CORRUPT 写序违约 → 退避耗尽熔断进程
+   * 崩溃——用户主权删除反致 daemon 全局死）。幂等——重复登记零副作用。
+   * 调用序律：**flush 之后**（flush 前登记会把合法在队笔一并丢弃——删除
+   * 前的笔属「当刻在队」合法面，必须先落库再删）。
+   */
+  dropSession(sessionId: string): void {
+    this.dropped.add(sessionId);
+    // 登记即滤在队残留（防御形——deleteSession 调用位在 flush 后，队列理应
+    // 无该会话条目；异常序残留一并清，防 drain 批对孤儿写）
+    for (let i = this.queue.length - 1; i >= 0; i--) {
+      if (this.queue[i]!.sessionId === sessionId) this.queue.splice(i, 1);
+    }
+  }
+
+  /** 已删除会话清单（诊断只读面——与 severedSessions 分立语义） */
+  get droppedSessions(): readonly string[] {
+    return [...this.dropped];
   }
 
   /**
@@ -214,7 +252,9 @@ export class WriteBehind {
    *    队列（数组形完全还原——异步 drain 照旧退避重试或行模式毒丸分类，
    *    本层不做第二套账务）后原样重抛，loadSession fail-loud 不吞不猜；
    *  - 切断会话（severed）不在排干面：其 durable 前缀已终（incident 在案），
-   *    在队事件留给异步 drain 按既有纪律静默丢弃。
+   *    在队事件留给异步 drain 按既有纪律静默丢弃；
+   *  - 已删除会话（dropped）同早退——已删世界遗物不合成 closer（05 §2.5
+   *    del-gap 定形注）。
    */
   drainSessionNow(sessionId: string): void {
     if (this.broken) {
@@ -225,6 +265,8 @@ export class WriteBehind {
     }
     // 切断会话早退（见头注——静默丢弃纪律归异步 drain）
     if (this.severed.has(sessionId)) return;
+    // 已删除会话早退（del-gap 定形注——迟到笔不进排干面，静默丢弃）
+    if (this.dropped.has(sessionId)) return;
     // 收集该会话在队条目的原索引与引用（原序——入队序即 per-session seq 序）
     const indices: number[] = [];
     const writes: EventWrite[] = [];
@@ -302,6 +344,7 @@ export class WriteBehind {
       if (this.rowMode) {
         const write = this.queue.shift()!;
         if (this.severed.has(write.sessionId)) continue; // 切断会话：静默丢弃（incident 已记）
+        if (this.dropped.has(write.sessionId)) continue; // 已删除会话：静默丢弃（del-gap 定形注）
         try {
           this.target.writeEventSingle(write);
           this.consecutiveFailures = 0;
