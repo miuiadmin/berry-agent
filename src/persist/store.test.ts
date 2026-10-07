@@ -1388,6 +1388,40 @@ describe('迁移执行中失败（升级日现场）', () => {
     bak.close();
   });
 
+  it('迁移前备份并发旧快照读者窗：备份仍全量（busy=1 不静默缺帧——05 §6.4 挖掘 18 轮 W-2 定形注 VACUUM INTO 一致快照）', () => {
+    const path = join(dir, 'migbusy.db');
+    const base = open({ dbPath: path, migrations: [] }); // v1 基线旧版库形
+    seedLegacyRows(base, 's-pre');
+    base.close(); // 无读者在场——close 收卷成功，主库含 s-pre 全量
+    // 读者 R：持旧快照读事务（BEGIN+读——WAL 读锁钉住快照点）
+    const reader = new Database(path);
+    try {
+      reader.exec('BEGIN');
+      reader.prepare('SELECT count(*) AS c FROM events').get();
+      // 写者 W：写 s-post 帧（WAL）后 close——checkpoint 遇旧读者 busy=1 不抛
+      // （返回行被弃），尾帧不收卷进主库
+      const writer = open({ dbPath: path, migrations: [] });
+      seedLegacyRows(writer, 's-post');
+      writer.close();
+      // 迁移开库（坏链抛）——备份腿先于任何迁移执行
+      expect(() => open({ dbPath: path, migrations: BAD_CHAIN })).toThrow();
+      const bak = new Database(`${path}.bak-v1`);
+      try {
+        expect(existsSync(`${path}.bak-v1-wal`)).toBe(false); // 单文件快照（无 -wal 伴随——手工回滚前置条件不破）
+        // 修前红锚：copyFileSync 主库缺 s-post 尾帧（busy checkpoint 未收卷）
+        // ——0 行；VACUUM INTO 一致快照含全部已提交帧
+        const n = bak.prepare(`SELECT count(*) AS c FROM events WHERE session_id = 's-post'`).get() as {
+          c: number;
+        };
+        expect(n.c).toBe(4);
+      } finally {
+        bak.close();
+      }
+    } finally {
+      reader.close();
+    }
+  });
+
   it('修复宿主后重开续升：只带合法 v3 的换代链再开同库 → 升到 head 且 v2 成果保留、原数据不丢（升级日三段剧收口）', () => {
     const path = join(dir, 'migrepair.db');
     const base = open({ dbPath: path, migrations: [] }); // v1 基线旧版库形（不享 helper 缺省 v13 链）

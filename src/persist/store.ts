@@ -8,7 +8,7 @@
  * write-behind.ts——两文件经 WriteTarget 窄接口耦合。
  */
 import Database from 'better-sqlite3';
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { BaseError, getEventTypeMeta, type SessionEvent, type SessionOrigin } from '../contracts/index.js';
 import { snapshotJsonValue } from '../session/index.js';
@@ -432,9 +432,20 @@ export function openStore(options: OpenStoreOptions = {}): Store {
     // head」warn 实为首次建库非升版（误导）。豁免仅及备份与 warn，迁移链
     // 照跑——新库同路获得迁移项（正典 DDL 有意不折列，见链尾 v13 注）
     if (!inMemory && !bootstrapped) {
-      checkpointTruncate(db, warn);
+      // 迁移前备份 = VACUUM INTO 单文件一致快照（05 §6.4 挖掘 18 轮 W-2
+      // 定形注）。旧形 wal_checkpoint(TRUNCATE)+copyFileSync(主库) 在并发
+      // 旧快照读者在场时静默缺帧：TRUNCATE 检查点遇旧读者返回 busy=1 不抛
+      // （返回行被弃、catch 对本形是死码），WAL 尾帧未收卷进主库——
+      // copyFileSync 产缺帧件（手工回滚兑现时静默已提交数据丢失乃至坏库）。
+      // VACUUM INTO 走 SQLite 在线备份机制产单文件完整一致快照（无 -wal
+      // 伴随——手工回滚前置条件不破），不受并发读者影响。前置 rm 保重跑
+      // 覆盖语义：VACUUM INTO 拒已存在目标（升级失败修码重跑不得卡备份位）；
+      // 路径单引号翻倍转义防注入；失败 fail-loud 抛出（磁盘满等——
+      // copyFileSync 同语义）。旧前置 checkpointTruncate 调用随撤（其目的 =
+      // 使 copyFile 快照一致，本腿后无消费；Store.close 退出收卷位不动）
       const backupPath = `${dbPath}.bak-v${version}`;
-      copyFileSync(dbPath, backupPath);
+      rmSync(backupPath, { force: true });
+      db.exec(`VACUUM INTO '${backupPath.replaceAll("'", "''")}'`);
       warn(`[persist] 迁移前备份：${dbPath} → ${backupPath}（从 v${version} 升到 v${headVersion}）`);
     }
     for (const migration of chain) {
