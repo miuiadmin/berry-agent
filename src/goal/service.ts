@@ -569,6 +569,22 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         const listing = failed.map((o) => `${o.kind} gate：${o.detail}`).join('；');
         throw new BaseError('GOAL_TRANSITION_INVALID', `完成否决——声明的 gate 未全部通过（${listing}）`);
       }
+      // 终态竞速窗防御（03 §10.5 挖掘 17 轮定形注——写前复检律）：上方入段
+      // 守卫与写位之间隔着 gate 评测 await 窗（command 源 exec 子进程 30s 帽/
+      // diagnostics 源 lsp I/O——宏任务级悬挂），窗内他路终态迁移可穿透守卫：
+      // 并发双 complete（goal_update 系 read 档——批内 read 段 Promise.all 使
+      // 单条 assistant 消息内两申报即并发）或 complete vs abandon（人面命令与
+      // 模型工具并发）。写前复读复检（reparkForBoot〔boot 快照与读行间竞窗〕/
+      // parkForBudget〔三触发位竞速〕既有竞速窗防御同律）；abandon 对照组
+      // 守卫与写位间零 await 同步段原子不受辖。同码同文案——窗形归因在本注
+      // 不入用户面文案（回执语义同为「已终态不可再迁转」）
+      const fresh = dao.get(goalId);
+      if (fresh === undefined || fresh.status !== 'active') {
+        throw new BaseError(
+          'GOAL_TRANSITION_INVALID',
+          `goal「${goalId}」已终态（${fresh?.status ?? '已删行'}）——不可再迁转`,
+        );
+      }
       dao.update(goalId, { status: 'completed', endedAt: now(), endingNote: evidence }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
       clearDepositEntries(goalId); // 终态清沉淀缓存与在飞位（sweep10 laneE 件4——死键不驻留）

@@ -12,6 +12,7 @@ import { BaseError, type SessionEvent } from '../contracts/index.js';
 import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
 import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from './migration.js';
 import { createGoalService, type GoalService } from './service.js';
+import type { GateLspSeam } from './gates.js';
 import type { GoalJobsFace, GoalRow, GoalSessionFace, GoalSummarizerFace } from './types.js';
 
 let dir: string;
@@ -60,6 +61,7 @@ function openService(
     stallLimit?: number;
     wakeBudgetLimit?: number;
     statMap?: Record<string, { exists: boolean; size: number }>;
+    lsp?: GateLspSeam;
     summarizer?: GoalSummarizerFace;
     onTerminal?: (goal: GoalRow) => void;
   } = {},
@@ -108,6 +110,7 @@ function openService(
     gates: {
       workspaceRoot: '/ws',
       statFile: (p) => options.statMap?.[p] ?? { exists: false, size: 0 },
+      ...(options.lsp !== undefined ? { lsp: options.lsp } : {}),
     },
     ...(options.stallLimit !== undefined ? { stallLimit: options.stallLimit } : {}),
     ...(options.wakeBudgetLimit !== undefined ? { wakeBudgetLimit: options.wakeBudgetLimit } : {}),
@@ -274,6 +277,39 @@ describe('complete（完成否决律机器面）', () => {
     expect(done.endedAt).toBe(nowIso);
     expect(calls).toContain(`disable:${goal.id}`);
     expect(service.activeFor('s1')).toBeUndefined();
+  });
+
+  it('终态竞速窗防御：gate 评测 await 窗内他路 abandon 已落终态 → 写前复检拒（03 §10.5 挖掘 17 轮定形注）', async () => {
+    // 修前红：complete 入段守卫与写位间的 gate 评测 await 窗（diagnostics 源
+    // lsp I/O——Deferred 钉悬挂，零计时依赖）内他路终态迁移穿透守卫——修前
+    // p1 续体直写 completed：abandoned 被倒写（用户显式放弃态被翻）+
+    // endingNote 覆写 + onTerminal 双发（memory 周期对同会话双跑）；修后写前
+    // 复检拒（reparkForBoot/parkForBudget 竞速窗防御同律）
+    let releaseGate: (
+      diags: Array<{ file: string; level: 'error' | 'warning' | 'info'; message: string }>,
+    ) => void = () => {};
+    const holdGate = new Promise<Array<{ file: string; level: 'error' | 'warning' | 'info'; message: string }>>(
+      (resolve) => {
+        releaseGate = resolve;
+      },
+    );
+    const { service, session, calls } = openService({
+      lsp: { queryDiagnostics: () => holdGate },
+      onTerminal: (g) => calls.push(`terminal:${g.status}`),
+    });
+    const goal = await service.activate({ sessionId: 's1', objective: '修缺陷', schedule: 'every:1h' });
+    session.push('s1', 'todo/write', {
+      items: [
+        { status: 'completed', content: '验收', noFollowUp: true, gate: { kind: 'diagnostics', files: ['a.ts'] } },
+      ],
+    });
+    const p1 = service.complete(goal.id, '证据一'); // 同步链直入 gate 评测 await 悬挂
+    await service.abandon(goal.id, '用户放弃'); // 窗内落 abandoned（对照组——守卫与写位同步段原子）
+    releaseGate([]); // 放行 gate（零 error 级诊断 = 全绿形——修后仍须被复检拦）
+    await expectCode(p1, 'GOAL_TRANSITION_INVALID');
+    expect(service.get(goal.id)?.status).toBe('abandoned'); // 修前红：倒写 completed
+    expect(service.get(goal.id)?.endingNote).toBe('用户放弃'); // 修前红：被「证据一」覆写
+    expect(calls).toEqual(['terminal:abandoned']); // 修前红：双发（终态回调 + 'terminal:completed'）
   });
 
   it('终态停摆腿炸（disable 抛）→ 迁移已落库不回滚、第三腿照拍（防御吞——迁移已落库，报错即假错）', async () => {
