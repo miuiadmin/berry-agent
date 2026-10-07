@@ -9,7 +9,8 @@
  * SESSION_MANAGER_DISPOSED——六役停机窗补钉 02 §5.3 + 挂账收口笔 04 §1）+
  * 会话关闭收口 seam（六役 CL-C ④——onSessionClosed retire/dispose 两路同发）+
  * listActive 尾键判据三语义（cs-D1——currentSessionId 判据 v1：首次入册序 /
- * 幂等复开不移尾 / 删后重开新尾插）。
+ * 幂等复开不移尾 / 删后重开新尾插）+ fork 洪水闸（05 §5.1 fork 位对齐条款：
+ * veto 判后 acquire / vetoed 不占名额 / create 不辖 / 假钟推窗恢复）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Message } from '../contracts/index.js';
 import { isStandardMessage } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
-import type { SessionLog } from '../session/index.js';
+import { SessionSpawnLimiter, type SessionLog } from '../session/index.js';
 import { ephemeralSecretKey } from '../persist/secret-box.js';
 import { SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
 import { Persistence } from '../persist/persistence.js';
@@ -380,6 +381,80 @@ describe('SessionManager fork', () => {
   it('未知源 id → fail-loud（loadSession 透传）', async () => {
     const { manager } = makeManager();
     await expect(manager.fork('ghost-id')).rejects.toThrow(/ghost-id/);
+  });
+});
+
+/* ---------------- fork 洪水闸（05 §5.1 fork 位对齐条款——2026-10-07 装配批） ---------------- */
+
+describe('SessionManager fork 洪水闸（05 §5.1 fork 位对齐——veto 判后 acquire / create 不辖）', () => {
+  /** 带洪水闸注入的管理器（独立 dispatch——装配哨兵每测试隔离；假钟注入位） */
+  function makeGatedManager(limiter: SessionSpawnLimiter): { manager: SessionManager; dispatch: EventDispatch } {
+    const dispatch = new EventDispatch();
+    const manager = new SessionManager({
+      persistence,
+      dispatch,
+      createDriver: makeFactory(dispatch),
+      spawnLimiter: limiter,
+    });
+    return { manager, dispatch };
+  }
+
+  /** 一轮闭合 turn 的源会话（fork 的最小闭合边界形态） */
+  function seededSource(manager: SessionManager): string {
+    const source = manager.create();
+    closedTurn(source.driver.session, '一轮');
+    return source.sessionId;
+  }
+
+  it('max:1 窗内第二次 fork 拒 SESSION_SPAWN_RATE_LIMIT（长驻进程限速语义在 manager 位——BaseError code 断言）', async () => {
+    // 假钟定值 0：窗内永不滑出——限流行为确定性（不依赖真实时钟）
+    const limiter = new SessionSpawnLimiter({ max: 1, windowMs: 60_000, clock: () => 0 });
+    const { manager } = makeGatedManager(limiter);
+    const sessionId = seededSource(manager);
+    const first = await manager.fork(sessionId);
+    expect(first.status).toBe('forked'); // 首笔过闸（名额记账）
+    // 第二笔同窗超帽——拒绝形系既有码抛出，调用方按 BaseError 呈现族折报
+    await expect(manager.fork(sessionId)).rejects.toMatchObject({ code: 'SESSION_SPAWN_RATE_LIMIT' });
+  });
+
+  it('vetoed 不占名额：钩子否决的 fork 不 acquire，随后真 fork 仍过（闸位 = veto 判后——真要新建才记账）', async () => {
+    const limiter = new SessionSpawnLimiter({ max: 1, windowMs: 60_000, clock: () => 0 });
+    const { manager, dispatch } = makeGatedManager(limiter);
+    const sessionId = seededSource(manager);
+    // 否决形态一（置位照常 next——管理器只认 veto 位）
+    const off = dispatch.onWaterfall<SessionBeforeForkInput>('session_before_fork', (value, next) => {
+      value.veto = { reason: '策略拒' };
+      return next(value);
+    });
+    const vetoed = await manager.fork(sessionId);
+    expect(vetoed).toEqual({ status: 'vetoed', reason: '策略拒' }); // 否决零新建
+    off();
+    // 名额未被否决笔占用——真 fork 过闸（闸位在 veto 判后，否决不记账）
+    const real = await manager.fork(sessionId);
+    expect(real.status).toBe('forked');
+  });
+
+  it('create 不辖：同 limiter 注入下多次 create 不占 fork 名额（限流对象是批量复制形新建——正常起话不在射程）', async () => {
+    const limiter = new SessionSpawnLimiter({ max: 1, windowMs: 60_000, clock: () => 0 });
+    const { manager } = makeGatedManager(limiter);
+    manager.create(); // 正常起话一
+    manager.create(); // 正常起话二（create 动词不入闸）
+    const sessionId = seededSource(manager); // 源会话亦系 create——同样不占名额
+    const outcome = await manager.fork(sessionId);
+    expect(outcome.status).toBe('forked'); // 名额仍在——create 全数不辖
+  });
+
+  it('假钟推窗恢复：窗过后（+windowMs+1）名额恢复（滑动窗清账锁）', async () => {
+    let now = 0;
+    const limiter = new SessionSpawnLimiter({ max: 1, windowMs: 60_000, clock: () => now });
+    const { manager } = makeGatedManager(limiter);
+    const sessionId = seededSource(manager);
+    const first = await manager.fork(sessionId);
+    expect(first.status).toBe('forked');
+    await expect(manager.fork(sessionId)).rejects.toMatchObject({ code: 'SESSION_SPAWN_RATE_LIMIT' });
+    now = 60_001; // 首笔滑出窗（t=0 距今 ≥ 60s）
+    const recovered = await manager.fork(sessionId);
+    expect(recovered.status).toBe('forked'); // 滑动窗清账——名额恢复
   });
 });
 

@@ -11,7 +11,8 @@
  *  - fork：种子编排（05 §5.0/§5.2）——内存种子组装（forkPrefix 前缀拷贝 +
  *    end-seed 字面尾事件，源日志零污染——05 §5.0 落码裁决注记）+ isSeededPrefix
  *    断言 + createSeededSession 同步落库（不返回幻影 id）+ session_before_fork
- *    钩子（03 主表：waterfall 可否决——否决走联合回执不造新错误码）；
+ *    钩子（03 主表：waterfall 可否决——否决走联合回执不造新错误码）+ 洪水闸
+ *    （05 §5.1 fork 位对齐条款——veto 判后 acquire，超限 SESSION_SPAWN_RATE_LIMIT）；
  *  - search：flush 屏障先行（write-behind 在飞事件不进 FTS 索引）+ 会话内
  *    全文检索（05 §9 首发：session_id 限定）；
  *  - delete：删除编排（05 §2.5 会话删除编排定形注②——六步单源：busy 守卫
@@ -33,7 +34,7 @@ import type {
   ToolDefinition,
 } from '../contracts/index.js';
 import type { Persistence, SessionRow } from '../persist/index.js';
-import { forkPrefix, isSeededPrefix, recoverClosers } from '../session/index.js';
+import { forkPrefix, isSeededPrefix, recoverClosers, SessionSpawnLimiter } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
 import type { AgentEventSink } from '../agent/index.js';
 import type { ConversationDriver } from './driver.js';
@@ -184,6 +185,14 @@ export interface SessionManagerOptions {
    * 聚焦焦点不动（判定归装配闭包——本件不持焦点态，02 §2.3）。缺席 = 零动作。
    */
   readonly onFocusCleared?: (sessionId: string, workspaceRoot?: string) => void;
+  /**
+   * 洪水闸注入位（05 §5.1 洪水闸 fork 位对齐条款——2026-10-07 装配批）：
+   * fork 新建限速器（SessionSpawnLimiter 纯进程态滑动窗——防失控脚本以
+   * fork 洪水填库；长驻进程限速语义在 manager 位——一处闸位辖进程全部
+   * fork 新建）。缺省新例（100/分钟）；测试假钟注入位。create 动词不辖
+   * （限流对象是「批量复制形新建」fork/import 两形——正常起话不在射程）。
+   */
+  readonly spawnLimiter?: SessionSpawnLimiter;
 }
 
 /**
@@ -204,6 +213,8 @@ export class SessionManager {
   private readonly onSessionGrantsReleased?: (sessionId: string) => void;
   /** 删除编排 seam③（焦点处置——05 §2.5 定形注②；携被删会话工作区锚；缺省零动作） */
   private readonly onFocusCleared?: (sessionId: string, workspaceRoot?: string) => void;
+  /** 洪水闸（fork 新建限速——05 §5.1 fork 位对齐条款；缺省新例） */
+  private readonly spawnLimiter: SessionSpawnLimiter;
   /** 已开会话登记（sessionId → 驱动 + 血缘形态 + 工作区锚活体镜像——幂等 open 的判据面；锚自日志登记值 adopt 时入册，03 §10.7「锚不能走库读」律） */
   private readonly records = new Map<
     string,
@@ -226,6 +237,10 @@ export class SessionManager {
     this.onSessionChannelsClosed = options.onSessionChannelsClosed;
     this.onSessionGrantsReleased = options.onSessionGrantsReleased;
     this.onFocusCleared = options.onFocusCleared;
+    // 洪水闸（05 §5.1 fork 位对齐条款）：缺省新例——长驻 host 进程内管理器
+    // 唯一，缺省实例即进程级单账本（CLI 短命进程形同恒过——与 import 位弱化
+    // 披露同族）；测试经注入位换假钟小帽例
+    this.spawnLimiter = options.spawnLimiter ?? new SessionSpawnLimiter();
     // 钩子词汇接线（一词两册幂等跳过——03 §2.4 装配序律：装载批预注册主表
     // 镜像在前，session_before_fork 已注册即共享登记；未注册自举保独立装配）；
     // 重复建管理器检测改经装配哨兵（永不 emit 的占位词——二次装配撞哨兵红）
@@ -315,6 +330,8 @@ export class SessionManager {
    * @throws 源会话不存在 / upToSeq 越界（fail-loud 调用方 bug）
    * @throws SESSION_MANAGER_DISPOSED（dispose 后拒——封印面辖铸新会话两动词，
    * durable 源在场亦拒；六役挂账收口批 02 §5.3 / 04 §1）
+   * @throws SESSION_SPAWN_RATE_LIMIT（洪水闸超限——veto 判后 acquire、vetoed
+   * 不占名额；05 §5.1 fork 位对齐条款，2026-10-07 装配批）
    */
   async fork(sourceSessionId: string, options: { upToSeq?: number; title?: string } = {}): Promise<ForkOutcome> {
     // 封印位首查（六役挂账收口——02 §5.3 / 04 §1）：dispose 后 fork 响亮拒不
@@ -357,6 +374,13 @@ export class SessionManager {
     if (hookOutput.veto !== undefined) {
       return { status: 'vetoed', reason: hookOutput.veto.reason };
     }
+
+    // —— 洪水闸（05 §5.1 fork 位对齐条款——veto 判后、种子组装前 acquire：
+    // vetoed 的 fork 不新建故不占名额〔真要新建才记账〕；超限抛
+    // SESSION_SPAWN_RATE_LIMIT 既有码，调用方按 BaseError 呈现族折报〔CLI
+    // fork 动词 catch message 退 1 既有形〕；闸辖请求非辖成败——记账后遭
+    // 物理层拒形名额已占系诚实现象）——
+    this.spawnLimiter.acquire();
 
     // —— 种子组装：前缀拷贝 + end-seed 字面尾事件（data 空对象——§1.1）——
     const seed = forkPrefix(sourceEvents, boundary);
