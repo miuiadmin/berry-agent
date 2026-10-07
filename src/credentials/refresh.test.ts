@@ -789,3 +789,94 @@ describe('竞窗守卫：刷新窗内人面 rm——收口不复活已删行（�
     ]);
   });
 });
+
+/* ---------------- 竞窗守卫二：窗内再授权——收口不覆写已换值 ---------------- */
+
+/**
+ * 竞窗机理（03 §10.9 挖掘 18 轮 W-3 定形注——收口写身份比对律）：flight
+ * 起飞前快照（row/meta）经 await POST 让出事件环 → 用户窗内再授权（受理窗
+ * ctx.secrets.set 终归 store.setCredential 同写位——本测试直注 store 即真实
+ * 道）换新 token 落行 → 收口写曾以快照整行写回（F2 在场查只辖 rm 形）——
+ * 新值被起飞前旧快照静默覆写（违「保留上次有效值律」的「不覆盖」义）。修形：
+ * 三写位写前复读现行 + apiKey 身份比对——不等即弃写 warn 留痕（用户最新写
+ * 优先，本班结算整班放弃）。编舞与 F2 同法（deferredFetch 手动开/关窗）。
+ */
+describe('竞窗守卫二：刷新窗内再授权——收口不覆写已换值（用户最新写优先；03 §10.9 挖掘 18 轮 W-3 定形注）', () => {
+  const NS = pluginNamespace('demo');
+
+  /** 造到期形主行 + 刷新行（三案共用编舞底座——F2 同形） */
+  function seedDueRow(r: ReturnType<typeof rig>): void {
+    r.store.setCredential(NS, 'github', {
+      apiKey: 'at-old',
+      meta: { source: 'oauth', refreshName: 'github.refresh', expiresAt: 1_000 },
+    });
+    r.store.setCredential(NS, 'github.refresh', { apiKey: 'rt-old', meta: { source: 'oauth' } });
+  }
+
+  it('失败腿：POST 失败 + 主行窗内再授权——记账不覆写新值、三振账不误挂新行（修前红：at-renew 被快照 at-old 覆写且 failures 账随覆写落新行）', async () => {
+    const d = deferredFetch();
+    const r = rig({ fetchFn: d.fetch });
+    seedDueRow(r);
+    const inflight = r.chain.tick();
+    expect(d.fetch.calls).toHaveLength(1); // 飞行窗开（调用链同步到达 fetch）
+    // 窗内再授权：新 token 新链落行（用户发起授权流 → 受理窗 ctx.secrets.set →
+    // store.setCredential 同写位——03 §10.9 写入面复合案合法流）
+    r.store.setCredential(NS, 'github', {
+      apiKey: 'at-renew',
+      meta: { source: 'oauth', refreshName: 'github.refresh', expiresAt: 9_000_000 },
+    });
+    d.settle({ ok: false, status: 500, json: { error: 'server_error' } });
+    await inflight;
+    // 修前红位：修前失败记账以起飞前快照整行写回——at-old 覆写 at-renew、
+    // failures 1 落在刚授权的新行上
+    expect(r.store.getCredential(NS, 'github')?.apiKey).toBe('at-renew');
+    expect(r.store.getCredential(NS, 'github')?.meta).toEqual({
+      source: 'oauth',
+      refreshName: 'github.refresh',
+      expiresAt: 9_000_000,
+    });
+    expect(r.warns.some((w) => w.includes('已换值'))).toBe(true); // 弃写留痕
+    expect(r.notifies).toEqual([]); // 三振 notify 不误发（新行不背旧账）
+  });
+
+  it('成功腿主行：POST 成功 + 主行窗内再授权——新 token 不覆写新值 + 审计 seam 不发（修前红：at-new 覆写 at-renew）', async () => {
+    const d = deferredFetch();
+    const r = rig({ fetchFn: d.fetch });
+    seedDueRow(r);
+    const inflight = r.chain.tick();
+    expect(d.fetch.calls).toHaveLength(1);
+    r.store.setCredential(NS, 'github', {
+      apiKey: 'at-renew',
+      meta: { source: 'oauth', refreshName: 'github.refresh', expiresAt: 9_000_000 },
+    });
+    d.settle({ ok: true, status: 200, json: { access_token: 'at-new', expires_in: 3600 } });
+    await inflight;
+    // 修前红位：修前主行写无条件落库——at-new 覆写窗内新授权的 at-renew
+    expect(r.store.getCredential(NS, 'github')?.apiKey).toBe('at-renew');
+    expect(r.warns.some((w) => w.includes('已换值'))).toBe(true);
+    expect(r.changed).toEqual([]); // rotate 未落主行——credentials/changed 审计不发
+  });
+
+  it('成功腿刷新行半边：POST 成功携新 rt + 刷新行窗内再授权——rt-rotated 不覆写 rt-renew；主行未换值照常换新', async () => {
+    const d = deferredFetch();
+    const r = rig({ fetchFn: d.fetch });
+    seedDueRow(r);
+    const inflight = r.chain.tick();
+    expect(d.fetch.calls).toHaveLength(1);
+    // 只再授权刷新行（rt 换新）——主行不动（对齐 F2 第 3 案「半边」形）
+    r.store.setCredential(NS, 'github.refresh', { apiKey: 'rt-renew', meta: { source: 'oauth' } });
+    d.settle({
+      ok: true,
+      status: 200,
+      json: { access_token: 'at-new', refresh_token: 'rt-rotated', expires_in: 3600 },
+    });
+    await inflight;
+    // 修前红位：修前刷新行写无条件落库——rt-rotated 覆写窗内新授权的 rt-renew
+    expect(r.store.getCredential(NS, 'github.refresh')?.apiKey).toBe('rt-renew');
+    expect(r.warns.some((w) => w.includes('github.refresh') && w.includes('已换值'))).toBe(true);
+    expect(r.store.getCredential(NS, 'github')?.apiKey).toBe('at-new'); // 主行未换值——照常换新
+    expect(r.changed).toEqual([
+      { namespace: NS, name: 'github', action: 'rotate', origin: 'oauth-flow' }, // 主行 rotate 照发
+    ]);
+  });
+});

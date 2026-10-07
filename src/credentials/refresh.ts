@@ -15,7 +15,9 @@
  *     定形——第二笔失败时新 refresh token 已 durable，下一拍自愈）。
  *  2. **失败保留旧值续用**：值不动只记 failures++（durable——连续计数）；
  *     单败走 warn（日志面）；invalid_grant（EXPIRED 码）= 授权态坏重试
- *     无益，直落三振语义。
+ *     无益，直落三振语义。收口写一律「复读现行 + 身份比对」（03 §10.9
+ *     挖掘 18 轮 W-3 定形注——窗内 rm/再授权两形同守：缺席或 apiKey 已换
+ *     即弃写，起飞前快照零写回）。
  *  3. **三振 notify 不执法**：到阈值（缺省 3）置 meta.expired 告示位 +
  *     notify 用户（只通知——旧 token 可能仍有效，c-5 list 已呈现「已过期
  *     ——保留上次有效值」）；notify 只在转换位发（已 expired 行继续失败
@@ -169,7 +171,6 @@ export function createRefreshChain(deps: RefreshChainDeps): RefreshChainHandle {
         return { status: 'unavailable', reason: 'no-refresh-face' };
       }
       const refreshName = meta.refreshName;
-      const wasExpired = meta.expired === true;
       try {
         const refreshRow = store.getCredential(ns, refreshName);
         if (refreshRow === undefined) {
@@ -188,32 +189,52 @@ export function createRefreshChain(deps: RefreshChainDeps): RefreshChainHandle {
         // refreshToken）不写刷新行不受影响。
         // 刷新行 meta 同主行律——读旧行 meta 经 stripChainKeys 展开（链管键
         // 整列换、插件自记附加键保全——账号句柄等不因轮换链写抹掉），source 键覆新。
-        // 竞窗守卫（第九轮 F2）：起飞后 await POST 让出事件环——人面
-        // /credentials rm 可在窗内删刷新行（rm 是撤销唯一路径），收口无条件
-        // upsert 会把已删行复活（用户撤销意图被静默推翻）。写前查目标行在
-        // 场：已删跳写 + warn 留痕（新 refresh token 弃落——旧值已被服务端
-        // 作废，行既删则无从续用，撤销优先）。
+        // 竞窗守卫（第九轮 F2 + 挖掘 18 轮 W-3 定形注——收口写身份比对律）：
+        // 起飞后 await POST 让出事件环——窗内人面 rm 可删行（F2 形：缺席即弃写
+        // 不复活，用户撤销优先），窗内再授权（受理窗 ctx.secrets.set 终归
+        // store.setCredential 同写位）可换值落行（W-3 形：apiKey 身份比对不等
+        // 即弃写——用户最新写优先，本班 rt-rotated 弃落〔旧值已服务端作废但
+        // 新授权行自持新链〕）。身份相等才落笔，meta 以**现行**行 meta 为基
+        // spread（保窗内新附加键——插件自记附加键保全律的窗内延伸），起飞前
+        // 快照仅用于身份比对、零写回。
         if (grant.refreshToken !== undefined && grant.refreshToken !== refreshRow.apiKey) {
-          if (store.getCredential(ns, refreshName) === undefined) {
+          const currentRefresh = store.getCredential(ns, refreshName);
+          if (currentRefresh === undefined) {
             warn(`凭证 ${ns}/${refreshName} 刷新收口发现行已删除——放弃落库（用户撤销优先）`);
+          } else if (currentRefresh.apiKey !== refreshRow.apiKey) {
+            warn(`凭证 ${ns}/${refreshName} 刷新收口发现窗内已换值（再授权）——放弃落库（用户最新写优先）`);
           } else {
             store.setCredential(ns, refreshName, {
               apiKey: grant.refreshToken,
-              meta: { ...stripChainKeys((refreshRow.meta ?? {}) as CredentialMeta), source: 'refresh' },
+              meta: {
+                ...stripChainKeys((currentRefresh.meta ?? {}) as CredentialMeta),
+                source: 'refresh',
+              },
             });
           }
         }
         // 主行换新（source 'refresh'、failures/expired 随整列换消失；端点未给
-        // expires_in 则保留旧到期位）。竞窗守卫（同上——第九轮 F2）：窗内主行
-        // 被人面 rm 时跳写不复活；rotate 未落主行故审计 seam 不发，按成功结算
-        // （POST 本身成功——行缺席由消费面自身缺席语义承接）。
-        if (store.getCredential(ns, name) === undefined) {
+        // expires_in 则保留现行到期位）。竞窗守卫（同上——F2 rm 形 + W-3 换值
+        // 形身份比对）：窗内主行被删时跳写不复活、被再授权换值时弃写不覆写；
+        // rotate 未落主行故审计 seam 不发，按成功结算（POST 本身成功——行
+        // 缺席/换值由消费面自身语义承接）。
+        const currentMain = store.getCredential(ns, name);
+        if (currentMain === undefined) {
           warn(`凭证 ${ns}/${name} 刷新收口发现行已删除——放弃落库（用户撤销优先）`);
           return { status: 'refreshed' };
         }
+        if (currentMain.apiKey !== row.apiKey) {
+          warn(`凭证 ${ns}/${name} 刷新收口发现窗内已换值（再授权）——放弃落库（用户最新写优先）`);
+          return { status: 'refreshed' };
+        }
+        const currentMainMeta = (currentMain.meta ?? {}) as CredentialMeta;
         store.setCredential(ns, name, {
           apiKey: grant.accessToken,
-          meta: { ...stripChainKeys(meta), source: 'refresh', expiresAt: grant.expiresAt ?? meta.expiresAt },
+          meta: {
+            ...stripChainKeys(currentMainMeta),
+            source: 'refresh',
+            expiresAt: grant.expiresAt ?? currentMainMeta.expiresAt,
+          },
         });
         // credentials/changed 审计 seam（值域 05 §1.1 单源：刷新轮换 = rotate/oauth-flow）
         deps.onCredentialChanged?.({ namespace: ns, name, action: 'rotate', origin: 'oauth-flow' });
@@ -227,33 +248,45 @@ export function createRefreshChain(deps: RefreshChainDeps): RefreshChainHandle {
         // 内层 try——写失败折 warn 留痕（三振账本拍未落、下拍重计），结算恒
         // 返 failed 结局，「永不 reject」两腿同真。
         try {
-          // 竞窗守卫（第九轮 F2）：失败记账写同样是无条件 upsert——窗内主行被
-          // 人面 rm 时记账会把旧行（连同 failures/expired 账）整行写回复活。
-          // 已删则整段记账弃落（三振 notify 亦不发——行已不存在，告警无的
-          // 放矢），warn 留痕后按 failed 结算（读侧守卫壳同庇：getCredential
-          // 抛折「记账异常」warn 不洞穿）。
-          if (store.getCredential(ns, name) === undefined) {
+          // 竞窗守卫（第九轮 F2 + 挖掘 18 轮 W-3 定形注——收口写身份比对律）：
+          // 失败记账写同样曾是快照整行写回——窗内主行被 rm 时记账会把旧行
+          // （连同 failures/expired 账）整行写回复活（F2 形：缺席即整段记账
+          // 弃落，三振 notify 亦不发——行已不存在告警无的放矢）；窗内再授权
+          // 换值时旧快照覆写新 token、三振账误挂新授权行（W-3 形：apiKey
+          // 身份比对不等即弃记账——新行归新链管，本班旧 token 的失败史不追
+          // 到新行头上）。warn 留痕后按 failed 结算（读侧守卫壳同庇：
+          // getCredential 抛折「记账异常」warn 不洞穿）。
+          const currentRow = store.getCredential(ns, name);
+          if (currentRow === undefined) {
             warn(`凭证 ${ns}/${name} 刷新失败收口发现行已删除——放弃记账落库（用户撤销优先）`);
             return { status: 'failed', errorMessage: errText(err) };
           }
-          // 失败保留旧值续用：值不动，failures 递增（durable）
-          const failures = (typeof meta.failures === 'number' ? meta.failures : 0) + 1;
+          if (currentRow.apiKey !== row.apiKey) {
+            warn(`凭证 ${ns}/${name} 刷新失败收口发现窗内已换值（再授权）——放弃记账（用户最新写优先）`);
+            return { status: 'failed', errorMessage: errText(err) };
+          }
+          // 失败保留旧值续用：值不动（现行值——身份相等即起飞前值），failures
+          // 递增（durable）；meta 以现行为基 spread（保窗内新附加键）
+          const currentMeta = (currentRow.meta ?? {}) as CredentialMeta;
+          const failures = (typeof currentMeta.failures === 'number' ? currentMeta.failures : 0) + 1;
           // invalid_grant（EXPIRED 码）= 授权态坏——直落三振语义（重试无益不空转三拍）
           const stateBroken = err instanceof BaseError && err.code === 'CREDENTIALS_OAUTH_EXPIRED';
           const strike = stateBroken || failures >= maxFailures;
           store.setCredential(ns, name, {
-            apiKey: row.apiKey, // 保留上次有效值（铁律——链不清删不清值）
+            apiKey: currentRow.apiKey, // 保留上次有效值（铁律——链不清删不清值）
             meta: {
-              ...stripChainKeys(meta),
+              ...stripChainKeys(currentMeta),
               refreshName,
-              expiresAt: meta.expiresAt,
+              expiresAt: currentMeta.expiresAt,
               failures,
               ...(strike ? { expired: true } : {}),
             },
           });
           if (strike) {
-            // 三振 notify（只通知不执法——旧 token 可能仍有效；唯一转换位发，已 expired 行不重复告警）
-            if (!wasExpired) {
+            // 三振 notify（只通知不执法——旧 token 可能仍有效；唯一转换位发，已
+            // expired 行不重复告警——去重以**现行**行为基（W-3 定形注）：起飞前
+            // 告示位不辖现行行〔窗内已换值形已被身份比对弃记账，到不了本位〕）
+            if (!(currentMeta.expired === true)) {
               notify(
                 `凭证 ${ns}/${name} 刷新${stateBroken ? '被拒（授权态坏——refresh 凭据失效或行不完整）' : `连续 ${failures} 次失败`}——已标记过期，保留上次有效值；重新授权：/credentials oauth ${flow.pluginId} ${name}`,
               );
