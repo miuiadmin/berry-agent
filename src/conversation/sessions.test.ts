@@ -458,6 +458,43 @@ describe('SessionManager fork 洪水闸（05 §5.1 fork 位对齐——veto 判�
   });
 });
 
+/* ---------------- fork 封印 TOCTOU 复查（02 §5.3 drain 窗不变式守卫） ---------------- */
+
+describe('SessionManager fork 封印 TOCTOU 复查（02 §5.3 drain 窗不变式——await 窗让出宏任务后的复查位）', () => {
+  /** 带洪水闸注入的管理器（洪水闸帮手同形——独立 dispatch 装配哨兵隔离；假钟注入位） */
+  function makeGatedManager(limiter: SessionSpawnLimiter): { manager: SessionManager; dispatch: EventDispatch } {
+    const dispatch = new EventDispatch();
+    const manager = new SessionManager({
+      persistence,
+      dispatch,
+      createDriver: makeFactory(dispatch),
+      spawnLimiter: limiter,
+    });
+    return { manager, dispatch };
+  }
+
+  it('waterfall await 窗内 dispose：fork 拒 SESSION_MANAGER_DISPOSED 且零回填（修前红：入口查过后窗内 dispose 仍铸新会话回填已清空 records）', async () => {
+    // 宽帽假钟（定值 0 不依赖真实时钟——闸不干扰本用例，纯封印复查断言）
+    const limiter = new SessionSpawnLimiter({ max: 100, windowMs: 60_000, clock: () => 0 });
+    const { manager, dispatch } = makeGatedManager(limiter);
+    const source = manager.create();
+    closedTurn(source.driver.session, '一轮');
+    // TOCTOU 向量铺设：钩子内 await 让出宏任务窗（setTimeout 0）——窗内
+    // （onWaterfall 的 promise resolve 前）dispose：封印位置位 + records 清空。
+    // fork 的 await 恰在此窗挂起——入口封印查已过，若 await 返回后不复核即续行
+    // 铸新（02 §5.3「drain 窗内不得重造驱动」不变式击穿）
+    dispatch.onWaterfall<SessionBeforeForkInput>('session_before_fork', async (value, next) => {
+      await new Promise((resolve) => setTimeout(resolve, 0)); // 让出宏任务窗
+      manager.dispose(); // 窗内 dispose（waterfall promise resolve 前）
+      return next(value);
+    });
+    await expect(manager.fork(source.sessionId)).rejects.toMatchObject({ code: 'SESSION_MANAGER_DISPOSED' });
+    // 零回填：已清空 records 不得有新会话塞回（fork rejects 拿不到新 id——
+    // listActive 空 = isOpen(新 id)===false 的全集形断言）
+    expect(manager.listActive()).toEqual([]);
+  });
+});
+
 /* ---------------- search（会话内 FTS） ---------------- */
 
 describe('SessionManager search', () => {

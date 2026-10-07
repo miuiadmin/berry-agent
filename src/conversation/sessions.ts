@@ -375,6 +375,17 @@ export class SessionManager {
       return { status: 'vetoed', reason: hookOutput.veto.reason };
     }
 
+    // 封印复查位（02 §5.3 封印不变式 + TOCTOU 复查位——await 窗让出宏任务：
+    // 入口查不复核则窗内 dispose 后仍铸新会话回填已清空 records；复查过才
+    // acquire/铸新。与入口查同码同文案形——vetoed 短路在前不受辖〔零新建
+    // 无 TOCTOU 向量〕）
+    if (this.disposed) {
+      throw new BaseError(
+        'SESSION_MANAGER_DISPOSED',
+        '会话管理器已 dispose——fork 拒（停机 drain 窗封印位，02 §5.3 六役挂账收口批）',
+      );
+    }
+
     // —— 洪水闸（05 §5.1 fork 位对齐条款——veto 判后、种子组装前 acquire：
     // vetoed 的 fork 不新建故不占名额〔真要新建才记账〕；超限抛
     // SESSION_SPAWN_RATE_LIMIT 既有码，调用方按 BaseError 呈现族折报〔CLI
