@@ -780,10 +780,12 @@ function makeSkillsPlugin(deps: CorePluginHostDeps): CorePluginReference {
 
 /**
  * 当轮 query 取数（06 §6 按需检索腿——recall 注入腿消费位）：durable 日志尾扫最后一条
- * user/message 的 string content（非 string 形〔parts 数组〕不作 query——宁缺
- * 毋滥）。从 durable 日志取而非 LLM batch 尾扫：diff handler 先注入的 user 形
- * 消息会污染 batch 尾扫判据（注入序依赖）。fetchEvents 缺席/读失败/扫到头 →
- * null（零 query 即零注入）。
+ * user/message 的 content——string 直取；块数组形（粘图消息——剪贴板附件批后
+ * webui/SDK 常态载荷）取 text 块以空格拼（text 半边即查询语义，image-ref 块不入
+ * ——检索词不含图）；其余形不作 query 宁缺毋滥。从 durable 日志取而非 LLM
+ * batch 尾扫：diff handler 先注入的 user 形消息会污染 batch 尾扫判据（注入序
+ * 依赖）。fetchEvents 缺席/读失败/扫到头 → null（零 query 即零注入）。
+ * 块拼接同式参照 persist userTextOf（快照消费位私有件——不扩公开面本地持有）。
  */
 function lastUserQueryText(
   fetchEvents: ((sessionId: string) => readonly SessionEvent[]) | undefined,
@@ -796,7 +798,18 @@ function lastUserQueryText(
       const event = events[i]!;
       if (event.type !== 'user/message') continue;
       const content = (event.data as { content?: unknown } | null)?.content;
-      return typeof content === 'string' ? content : null;
+      if (typeof content === 'string') return content;
+      if (Array.isArray(content)) {
+        const parts: string[] = [];
+        for (const block of content) {
+          if (block !== null && typeof block === 'object' && (block as { type?: unknown }).type === 'text') {
+            const text = (block as { text?: unknown }).text;
+            if (typeof text === 'string' && text.length > 0) parts.push(text);
+          }
+        }
+        return parts.length > 0 ? parts.join(' ') : null; // 纯图（零 text 块）不作 query
+      }
+      return null;
     }
   } catch {
     return null;

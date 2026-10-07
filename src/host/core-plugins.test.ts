@@ -1554,6 +1554,62 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     await persistence.close();
   });
 
+  it('recall query 块数组腿（挖掘 15 轮 CLIP-SEAM-1——修前红：粘图消息检索静默缺席）：text 块拼接入检、image-ref 块不入', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-imgq-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-imgq-ws-'));
+    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-imgq-home-'));
+    dirs.push(dataDir, workspace, home);
+    const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
+    const log = new SessionLog({ sessionId: 's-imgq' });
+    const { scope, dispatch } = await bootCore(
+      dataDir,
+      memoryFs(),
+      { cwd: workspace, homeDir: home },
+      {
+        sqlite: () => persistence.store.sqlite(),
+        // durable 读脸：最后一条 user/message 为块数组形（粘图消息——text
+        // 块 = 查询词 + image-ref 块 = 图）；06 §6「当轮最后一条 user 消息
+        // 为 query」不排除带图消息——text 半边即查询语义
+        fetchEvents: (sid) =>
+          sid === 's-imgq'
+            ? [
+                {
+                  type: 'user/message',
+                  seq: 0,
+                  time: 0,
+                  data: {
+                    content: [
+                      { type: 'text', text: 'npm test' },
+                      { type: 'image-ref', ref: `sha256:${'0'.repeat(64)}`, mimeType: 'image/png' },
+                    ],
+                  },
+                },
+              ]
+            : [],
+        llm: () => ({ complete: async () => ({ message: { content: '' } }), canAfford: () => false }),
+        sessionsFace: sessionsFaceFor((sid) => (sid === 's-imgq' ? { session: log } : undefined)),
+      },
+    );
+    const dao = scope.tryGet<{ dao: MemoryDao }>('memory')!.dao;
+    dao.ingest({
+      ownerKey: 'global',
+      kind: 'fact',
+      summary: 'build runs npm test vitest',
+      content: 'build runs npm test (vitest run)',
+      confidence: 0.8,
+      sourceRefs: [{ sessionId: 's-imgq', seq: 0 }],
+    });
+    const out = await dispatch.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, {
+      sessionId: 's-imgq',
+      messages: [],
+    });
+    // 修前红：块数组形 → query null → 零注入（messages 空）；修后 text 块
+    // 拼接入检 → recall 注入在场（带图消息与同文纯文本消息行为对齐）
+    expect(out.messages).toHaveLength(1);
+    expect(out.messages[0]!.content).toContain('以下来自历史记忆');
+    await persistence.close();
+  });
+
   it('用户主权零干涉反向测试（P2 收口批）：两腿在场尽力注入——种子用户消息 byte-identical + durable 用户输入零篡改', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-sov-'));
     const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-sov-ws-'));
