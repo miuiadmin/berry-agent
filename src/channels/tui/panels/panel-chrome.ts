@@ -67,8 +67,9 @@ export function moreHint(arrow: '↑' | '↓', count: number): string {
 
 /**
  * 副屏头行样式（accent 派生——美学注④头行层级律：头行 accent 着色、分段头
- * dim、正文随档）。主题经各面板可选注入位传入（缺省 DEFAULT_THEME——装配
- * 位接线前呈现不缺色，真值随 /themes 换装）。
+ * dim、正文随档）。主题经各面板可选注入位传入（缺省 DEFAULT_THEME 系测试
+ * 装配形——主会话装配位已接线〔tui-backend theme: this.theme〕，真值随
+ * /themes 换装）。
  */
 export function headStyleOf(theme: ResolvedTheme): Readonly<CellStyle> {
   return Object.freeze({ fg: theme.accent });

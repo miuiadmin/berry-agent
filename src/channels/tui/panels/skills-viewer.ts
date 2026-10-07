@@ -44,8 +44,8 @@ export interface SkillsViewerOptions {
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
   /**
-   * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：缺省
-   * DEFAULT_THEME（装配位接线前呈现不缺色——挂账装配）。
+   * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：测试装配
+   * 缺省 DEFAULT_THEME；主会话装配位已接线（tui-backend theme: this.theme）。
    */
   readonly theme?: ResolvedTheme;
 }

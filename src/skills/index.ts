@@ -5,7 +5,8 @@
  * 装载态集成归批 12 装载面后装配批：标准六位层经 createStandardLayers 构造、
  * registry.onChange 桥接 skills_change 事件（03 §6.1——载荷 = 现行 provider id
  * 清单）；清单重物化消费面（系统提示词拼装）归 conversation/host 消费批。
- * 出厂技能目录内容（三件样例含 plugins-quickstart）挂 07 出厂清单定名批。
+ * 出厂技能目录已落地四件（coding-persona / goal-unattended / memory-tools /
+ * plugins-quickstart——06 §11.4 位 6 包根 skills/ 恒扫描末位）。
  */
 import './codes.js';
 

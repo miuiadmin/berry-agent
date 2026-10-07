@@ -78,7 +78,8 @@ describe('指针可解析机器闸（06 §11.4）', () => {
 
   it('出厂技能目录在场时——全部 SKILL.md 可装载零诊断', async ({ skip }) => {
     const factoryDir = resolveFactorySkillsDir();
-    if (!existsSync(factoryDir)) skip('出厂技能目录未落（07 出厂清单定名批挂账）——闸暂不适用');
+    // 目录缺席仅两形：源码树外运行 / 发布物裁剪（出厂目录本身已落地）——非挂账
+    if (!existsSync(factoryDir)) skip('包根 skills/ 缺席（源码树外/发布物裁剪形）——闸暂不适用');
     const scan = await scanSkillsDir(factoryDir, { providerId: 'factory' });
     expect(scan.skills.length).toBeGreaterThan(0);
     expect(scan.diagnostics).toEqual([]);
