@@ -184,13 +184,20 @@ function parseDimensions(bytes: Uint8Array, family: SniffFamily): { width: numbe
       // 段扫描：偏移 2 起（SOI 后），每段 FF + 段码 + 大端 u16 段长（含长度
       // 自身两字节）；SOF 族命中取宽高，SOS（扫描数据起点）前未见 SOF =
       // 数据不完整。无段长的独立段（RST/TEM）本路径不可达（正常 JPEG 头
-      // 段序），防御位跳过
+      // 段序），防御位跳过；marker 前 0xFF fill 填充字节（T.81 允许）逐字节
+      // 消费（挖掘 14 轮 P2-c）
       let offset = 2;
       while (offset + 4 <= bytes.length) {
         if (bytes[offset] !== 0xff) return undefined; // 段序错乱——不完整
         const marker = bytes[offset + 1]!;
         if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0x01) {
           offset += 2; // 独立段（无长度字段）——防御跳过
+          continue;
+        }
+        if (marker === 0xff) {
+          offset += 1; // fill 填充字节（T.81 允许 marker 前任意数 0xFF）——逐字节
+          // 消费，不得误把 fill 后真 marker 字节读成段长跳飞（挖掘 14 轮 P2-c：
+          // 部分相机/扫描仪产出带 fill 垫形，曾误报「数据不完整」拒）
           continue;
         }
         const length = u16be(offset + 2);

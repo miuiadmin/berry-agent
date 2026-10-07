@@ -92,6 +92,33 @@ function pngWithDimensions(width: number, height: number): Buffer {
 /** 1x1 最小 PNG */
 const MINIMAL_PNG = pngWithDimensions(1, 1);
 
+/**
+ * 自铸 JPEG fixture（fill 垫形——marker 前填充字节）：SOI 后垫 0xFF fill
+ * 两枚再入 SOF0（灰度 1 分量 16×32；段长含自身两字节 = 2+1+2+2+1+3 = 11）。
+ * JPEG 规范（ITU-T T.81）允许 marker 前任意数 0xFF 填充——真实编码器
+ * （部分相机/扫描仪产出）会带该形；段扫描须逐字节消费 fill，不得把 fill
+ * 后真 marker 字节误读成段长跳飞（挖掘 14 轮 P2-c 回归锁素材）。
+ */
+const JPEG_FILL_PAD = Buffer.from([
+  0xff,
+  0xd8, // SOI
+  0xff,
+  0xff, // fill 填充字节 ×2（T.81 marker 前填充）
+  0xff,
+  0xc0, // SOF0（fill 后真 marker）
+  0x00,
+  0x0b, // 段长 11（含自身两字节）
+  0x08, // 精度 8
+  0x00,
+  0x10, // 高 16
+  0x00,
+  0x20, // 宽 32
+  0x01, // 分量数 1（灰度）
+  0x01,
+  0x11,
+  0x00, // 分量 1（id/采样因子/量化表选）
+]);
+
 /** 能力门查面铸造（input 声明缺席形 = modelInfoOf 回 undefined） */
 function capabilityFace(input?: readonly ('text' | 'image')[]): IntakeCapabilityFace {
   const info: ModelInfo | undefined =
@@ -272,6 +299,19 @@ describe('attachment-intake 受理链（03 §10.4 ②）', () => {
       }),
     );
     expect(rej.message).toContain('不一致');
+  });
+
+  it('JPEG fill 垫字节：marker 前填充不误读段长跳飞 → 受理成功（挖掘 14 轮 P2-c——修前红：误报数据不完整拒）', () => {
+    const store = createAttachmentStore(rigDir('intake-fill-'));
+    const blocks = admitPasteImages({
+      sessionId: 's-any',
+      images: [imageOf(JPEG_FILL_PAD, 'image/jpeg')],
+      store,
+      capability: capabilityFace(['text', 'image']),
+    });
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]!.type).toBe('image-ref');
+    expect(blocks[0]!.mimeType).toBe('image/jpeg');
   });
 
   it('尺寸帽：宽 8193 超 8192 任一边上限 → 400 拒（零依赖 IHDR 头解析）', () => {
