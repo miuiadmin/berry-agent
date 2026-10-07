@@ -32,6 +32,25 @@ describe('validateSdkRequest 六动词合法形', () => {
     expect(validateSdkRequest({ verb: 'decide', approvalId: 'a', answer: 'always', note: '备注' }).ok).toBe(true);
     expect(validateSdkRequest({ verb: 'getEntries', sessionId: 's', since: 0, cursor: 'c-1' }).ok).toBe(true);
   });
+
+  it('prompt images 选填合法形（03 §10.4 ① SDK 线同批扩形：缺席零漂移 / 在场 {data,mimeType}[] 数组形）', () => {
+    // 缺席 = 纯文本既有流零漂移（合法）
+    expect(validateSdkRequest({ verb: 'prompt', messageId: 'm', content: 'c' }).ok).toBe(true);
+    // 空数组合法（语义 = 无图——与缺席同档，受理链早退零副作用）
+    expect(validateSdkRequest({ verb: 'prompt', messageId: 'm', content: 'c', images: [] }).ok).toBe(true);
+    // 在场合法形：逐件恰 data+mimeType 两字符串字段
+    expect(
+      validateSdkRequest({
+        verb: 'prompt',
+        messageId: 'm',
+        content: 'c',
+        images: [
+          { data: 'aGVsbG8=', mimeType: 'image/png' },
+          { data: 'eW91', mimeType: 'image/webp' },
+        ],
+      }),
+    ).toMatchObject({ ok: true });
+  });
 });
 
 describe('validateSdkRequest 拒收档', () => {
@@ -54,6 +73,31 @@ describe('validateSdkRequest 拒收档', () => {
 
   it('decide.answer 四值闭集外拒收', () => {
     expect(validateSdkRequest({ verb: 'decide', approvalId: 'a', answer: 'yolo' }).ok).toBe(false);
+  });
+
+  it('prompt images 坏形拒收（非数组/成员缺 data/成员未知字段/成员型错——受理链前置形闸）', () => {
+    // 非数组（字符串形）
+    expect(validateSdkRequest({ verb: 'prompt', messageId: 'm', content: 'c', images: 'x' }).ok).toBe(false);
+    // 成员缺 data（形不完整）
+    expect(
+      validateSdkRequest({ verb: 'prompt', messageId: 'm', content: 'c', images: [{ mimeType: 'image/png' }] }).ok,
+    ).toBe(false);
+    // 成员未知字段（收窄律——成员载荷即全集）
+    expect(
+      validateSdkRequest({
+        verb: 'prompt',
+        messageId: 'm',
+        content: 'c',
+        images: [{ data: 'aGk=', mimeType: 'image/png', extra: 1 }],
+      }).ok,
+    ).toBe(false);
+    // 成员非对象（数组直摊形）
+    expect(validateSdkRequest({ verb: 'prompt', messageId: 'm', content: 'c', images: ['aGk='] }).ok).toBe(false);
+    // data/mimeType 型错（非字符串）
+    expect(
+      validateSdkRequest({ verb: 'prompt', messageId: 'm', content: 'c', images: [{ data: 1, mimeType: 'image/png' }] })
+        .ok,
+    ).toBe(false);
   });
 
   it('非对象/判别缺席/闭集外动词诚实拒', () => {

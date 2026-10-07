@@ -86,6 +86,15 @@ import {
 /** 请求体上限缺省（10 MiB——/v1/* prompt 内容护栏；扩展路由 per-route bodyLimitBytes 覆盖） */
 const DEFAULT_BODY_LIMIT_BYTES = 10 * 1024 * 1024;
 
+/**
+ * /v1/prompt 专属体帽（32 MiB——2026-10-08 剪贴板附件批 03 §10.4 ① SDK 线
+ * 同批扩形：images 携图载荷预算 = 4 件 × 5MiB × base64 4/3 膨胀 + 文本余量；
+ * DEFAULT_BODY_LIMIT_BYTES 10MiB 缺省的例外位——per-verb 显式帽防面级缺省
+ * 渗透〔webui submit 端点 bodyLimitBytes 显式设值同律〕。与 webui 侧
+ * WEBUI_SUBMIT_BODY_LIMIT_BYTES 同值异源——各自件侧单源〔零跨件 import〕。
+ */
+export const PROMPT_BODY_LIMIT_BYTES = 32 * 1024 * 1024;
+
 /** Bearer 前缀（鉴权头形——Bearer ∪ cookie 双通道的 Bearer 腿） */
 const BEARER_PREFIX = 'Bearer ';
 
@@ -100,6 +109,7 @@ const HTTP_STATUS_BY_CODE: Readonly<Record<string, number>> = {
   SDK_PROTOCOL_MISMATCH: 400,
   SDK_DECODE: 400,
   SDK_CURSOR_INVALID: 400,
+  SDK_SUBMIT_REJECTED: 400,
   SESSION_NOT_FOUND: 404,
   SESSION_CLOSED: 409,
   SDK_MESSAGE_CONFLICT: 409,
@@ -522,9 +532,12 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
 
   /** POST 端点共腿：读体 → 注入 verb 深校验（schema 单源）→ 作用域受理 → 应答映射 */
   const postVerb = async (req: IncomingMessage, res: ServerResponse, verb: SdkRequest['verb']): Promise<void> => {
+    // 体帽 per-verb 判定（03 §10.4 ①）：prompt 携图载荷走 32MiB 专属帽，其余
+    // 动词沿面级 bodyLimit（10MiB 缺省 / options.bodyLimitBytes 注入形）
+    const limit = verb === 'prompt' ? PROMPT_BODY_LIMIT_BYTES : bodyLimit;
     let body: string;
     try {
-      body = await readBody(req, bodyLimit);
+      body = await readBody(req, limit);
     } catch (err) {
       if (err instanceof BodyTooLarge) {
         sendError(res, 413, 'SDK_DECODE', err.message);

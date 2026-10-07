@@ -20,11 +20,12 @@
  */
 import type { AgentEvent } from '../../agent/index.js';
 import type { ApprovalAskAnswer, RetryProbe } from '../../contracts/index.js';
-import { admitMessage } from './admit.js';
+import { admitContentKey, admitMessage } from './admit.js';
 import { validateAfterCursor } from './cursor.js';
 import {
   SDK_PROTOCOL_VERSION,
   type SdkDurableEntry,
+  type SdkPromptImage,
   type SdkRequest,
   type SdkSessionSummary,
   type SdkWireFrame,
@@ -40,11 +41,14 @@ export interface SdkDurablePage {
   nextCursor?: string;
 }
 
-/** prompt 受理注入面载荷（fresh 档唯一写路径——admit 判定在核内先决） */
+/** prompt 受理注入面载荷（fresh 档唯一写路径——admit 判定在核内先决）。
+ * images 选填 = 粘贴图族（剪贴板附件批 03 §10.4 ①）：原形透传同一 host
+ * 受理漏斗（与 webui submit 同漏斗——受理执法/落盘铸块在 host，线侧零实现） */
 export interface SdkSubmitInput {
   sessionId?: string;
   content: string;
   messageId: string;
+  images?: readonly SdkPromptImage[];
 }
 
 /** prompt 受理结果（sessionId 缺席新建时由桥落定回示——调用方以此获会话句柄） */
@@ -279,7 +283,8 @@ export class SdkWireCore {
         this.handleHello(req.protocolVersion, req.sessionId, req.after, req.noDelta);
         break;
       case 'prompt':
-        this.handlePrompt(req.sessionId, req.messageId, req.content);
+        // images 原形透传（03 §10.4 ①——受理执法在 host 受理漏斗，线侧零实现）
+        this.handlePrompt(req.sessionId, req.messageId, req.content, req.images);
         break;
       case 'interrupt':
         this.handleInterrupt(req.sessionId);
@@ -380,7 +385,12 @@ export class SdkWireCore {
    * prompt：admit 三档（④）→ fresh 受理 / duplicate 幂等重收执 / conflict 拒收。
    * fresh 路应答序不变量：ack 先于自动订阅副作用外推（见受理尾注——sweep12 L1）。
    */
-  private handlePrompt(sessionId: string | undefined, messageId: string, content: string): void {
+  private handlePrompt(
+    sessionId: string | undefined,
+    messageId: string,
+    content: string,
+    images?: readonly SdkPromptImage[],
+  ): void {
     // sessionId 缺席但连接内既见该 messageId：定位既落会话（重发走原会话快速档——
     // 反查账是连接级索引，不参与 durable 语义）
     if (sessionId === undefined) {
@@ -399,9 +409,12 @@ export class SdkWireCore {
         return;
       }
     }
-    // admit 判定：连接内快速档（known）→ durable 档（lookupDedupeKey 跨重启幂等）
+    // admit 判定：连接内快速档（known）→ durable 档（lookupDedupeKey 跨重启幂等）。
+    // 含图扩形（03 §10.4 ①）：比对基准 = admitContentKey canonical 形（无图
+    // 消息零漂移、有图 images 逐件等比——data 与 mimeType 逐件全等且同序才算
+    // 重复）；durable 种子值域同为 canonical 形（host 落账位同源）
     let sessionKnown = sessionId === undefined ? undefined : this.known.get(sessionId);
-    let verdict = admitMessage(sessionKnown ?? new Map(), messageId, content);
+    let verdict = admitMessage(sessionKnown ?? new Map(), messageId, content, images);
     if (verdict.status === 'fresh' && sessionId !== undefined) {
       const durable = this.deps.lookupDedupeKey(sessionId, messageId);
       if (durable !== undefined) {
@@ -410,7 +423,7 @@ export class SdkWireCore {
         sessionKnown.set(messageId, durable);
         this.known.set(sessionId, sessionKnown);
         this.trimAdmitAccounts(); // 种子亦占账（幂等账帽执法位一）
-        verdict = admitMessage(sessionKnown, messageId, content);
+        verdict = admitMessage(sessionKnown, messageId, content, images);
       }
     }
     if (verdict.status === 'conflict') {
@@ -430,10 +443,28 @@ export class SdkWireCore {
       });
       return;
     }
-    // fresh：唯一写路径过桥（sessionId 缺席即新建——桥落定回示句柄）
-    const outcome = this.deps.submitPrompt({ sessionId, content, messageId });
+    // fresh：唯一写路径过桥（sessionId 缺席即新建——桥落定回示句柄）；images
+    // 原形透传（03 §10.4 ①——受理执法在 host 受理漏斗，线侧零实现）
+    let outcome: SdkSubmitOutcome;
+    try {
+      outcome = this.deps.submitPrompt({ sessionId, content, messageId, images });
+    } catch (err) {
+      // —— 受理拒帧（03 §10.4 ② serve 线拒收 surfaced 形）：host 受理链拒收
+      // （AttachmentIntakeRejectionError 族——status 400）鸭定识别〔channels
+      // 不 import host（方向律），按 status 位判〕折错误帧 SDK_SUBMIT_REJECTED；
+      // 拒收零 admit 记账——受理拒非受理事实，同键重发合法（修正重发走
+      // fresh 再受理）。非 400 原样上抛：受理面系统错是连接级故障信号非
+      // 用户面拒收，不折帧不吞栈
+      if ((err as { status?: unknown }).status === 400) {
+        this.emitError('SDK_SUBMIT_REJECTED', err instanceof Error ? err.message : String(err), sessionId);
+        return;
+      }
+      throw err;
+    }
+    // 连接内账落 canonical 基准（admitContentKey——与 admitMessage 判定基准
+    // 同源；无图消息即原文串，既有账零漂移）
     const record = this.known.get(outcome.sessionId) ?? new Map<string, string>();
-    record.set(messageId, content);
+    record.set(messageId, admitContentKey(content, images));
     this.known.set(outcome.sessionId, record);
     this.messageIndex.set(messageId, outcome.sessionId);
     this.trimAdmitAccounts(); // 双账齐插（幂等账帽执法位三——主插账点）

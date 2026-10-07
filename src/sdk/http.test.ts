@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { SdkDurableEntry, SdkWireFrame } from '../channels/index.js';
-import { createSdkHttpFace, type SdkHttpFaceHandle, type SdkListenInfo } from './http.js';
+import { createSdkHttpFace, PROMPT_BODY_LIMIT_BYTES, type SdkHttpFaceHandle, type SdkListenInfo } from './http.js';
 import type { SdkHttpBridge } from './types.js';
 
 /** durable 平铺样本（seq 直携——重放窗按 seq 切） */
@@ -501,7 +501,10 @@ describe('sdk/http 传输面（一核多流）', () => {
 });
 
 describe('sdk/http 体限幅注入位', () => {
-  it('bodyLimitBytes 小值注入生效（64B 档）', async () => {
+  it('bodyLimitBytes 小值注入生效（64B 档——/v1/decide 载体）', async () => {
+    // 载体注记（2026-10-08 剪贴板附件批 03 §10.4 ①）：/v1/prompt 体帽升位
+    // 32MiB 专属定值（per-verb 显式帽）后，面级缺省帽注入腿改走 /v1/decide
+    // 载体——prompt 专属帽腿另立 amplification 例锁（不真发大包）
     const stub = makeBridge();
     const dir = await mkdtemp(join(tmpdir(), 'sdk-http-limit-'));
     const face = createSdkHttpFace({
@@ -511,16 +514,61 @@ describe('sdk/http 体限幅注入位', () => {
     });
     const info = await face.start();
     try {
-      const res = await fetch(`http://127.0.0.1:${info.tcp[0]!.port}/v1/prompt`, {
+      const res = await fetch(`http://127.0.0.1:${info.tcp[0]!.port}/v1/decide`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           'x-sdk-protocol': '1',
           authorization: `Bearer ${face.token}`,
         },
-        body: JSON.stringify({ messageId: 'm', content: 'x'.repeat(128) }),
+        body: JSON.stringify({ approvalId: 'a', answer: 'approve', note: 'x'.repeat(128) }),
       });
       expect(res.status).toBe(413);
+    } finally {
+      await face.stop();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('/v1/prompt 体帽 32MiB 定值：面级小帽注入不外渗到 prompt 端点（amplification 形——不真发大包）', async () => {
+    // 03 §10.4 ① SDK 线同批扩形：prompt 专属帽 PROMPT_BODY_LIMIT_BYTES =
+    // 32MiB（4 件 × 5MiB × base64 4/3 膨胀 + 文本余量）。面级注入 2048B 档
+    // 下 8KiB prompt 载荷仍过深校验即证 per-verb 帽覆写生效（若沿用面级帽
+    // 则 413 本例红）；对照 /v1/decide 仍按面级帽执法（小帽不因 prompt 扩形
+    // 全局放宽）。定值另以常量断言锁死（32*1024*1024）
+    expect(PROMPT_BODY_LIMIT_BYTES).toBe(32 * 1024 * 1024);
+    const stub = makeBridge();
+    const dir = await mkdtemp(join(tmpdir(), 'sdk-http-prompt-limit-'));
+    const face = createSdkHttpFace({
+      config: { socketPath: join(dir, 'x.sock'), tcp: { host: '127.0.0.1', port: 0 } },
+      bridge: stub.bridge,
+      bodyLimitBytes: 2048,
+    });
+    const info = await face.start();
+    try {
+      const post = async (path: string, body: string): Promise<{ status: number; body: unknown }> => {
+        const res = await fetch(`http://127.0.0.1:${info.tcp[0]!.port}${path}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-sdk-protocol': '1',
+            authorization: `Bearer ${face.token}`,
+          },
+          body,
+        });
+        const text = await res.text();
+        return { status: res.status, body: text === '' ? null : (JSON.parse(text) as unknown) };
+      };
+      // prompt：8KiB 载荷（超面级 2048B 帽、远低于 32MiB 专属帽）→ 合法形
+      // 深校验过、受理成功 200（体帽不拦——载荷已过帽到达受理；修前红：413）
+      const prompt = await post('/v1/prompt', JSON.stringify({ messageId: 'm-cap', content: 'x'.repeat(8192) }));
+      expect(prompt.status).toBe(200);
+      // 对照：decide 同载荷 → 面级帽 413（per-verb 判定不串档）
+      const decide = await post(
+        '/v1/decide',
+        JSON.stringify({ approvalId: 'a', answer: 'approve', note: 'x'.repeat(8192) }),
+      );
+      expect(decide.status).toBe(413);
     } finally {
       await face.stop();
       await rm(dir, { recursive: true, force: true });

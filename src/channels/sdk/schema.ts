@@ -33,12 +33,19 @@ const HelloSchema = Type.Object(
   strict,
 );
 
-/** prompt 请求 schema（messageId/content 必填；sessionId 选填——缺席即新建） */
+/** prompt 单图成员 schema（剪贴板附件批 03 §10.4 ①——恰两字段收窄，与 webui
+ * SubmitSchema images 位同形：单源两消费纪律，形漂移由两线 schema 对拍锁） */
+const PromptImageSchema = Type.Object({ data: Type.String(), mimeType: Type.String() }, strict);
+
+/** prompt 请求 schema（messageId/content 必填；sessionId 选填——缺席即新建；
+ * images 选填 = 粘贴图族〔03 §10.4 ①〕——缺席/空数组 = 纯文本零漂移，受理
+ * 执法在 host 受理漏斗） */
 const PromptSchema = Type.Object(
   {
     verb: Type.Literal('prompt'),
     messageId: Type.String(),
     content: Type.String(),
+    images: Type.Optional(Type.Array(PromptImageSchema)),
     sessionId: Type.Optional(Type.String()),
   },
   strict,

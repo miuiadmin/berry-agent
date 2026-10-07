@@ -296,17 +296,35 @@ export interface SdkHelloRequest {
 }
 
 /**
+ * prompt 单图成员（2026-10-08 剪贴板附件批——03 §10.4 ① SDK 线同批扩形）。
+ * 形与 webui SubmitSchema images 位同形（单源两消费纪律：同批批文同句定形
+ * 两载体〔webui submit 体 / SDK prompt 载荷〕，形漂移由两线 schema 对拍锁；
+ * 成员恰两字段收窄——受理执法在 host 受理漏斗，线侧零实现）。
+ */
+export interface SdkPromptImage {
+  /** 图片原文 base64（标准带填充形） */
+  data: string;
+  /** 声明 MIME（受理漏斗与魔数嗅探族核验——勿信声明） */
+  mimeType: string;
+}
+
+/**
  * prompt 请求（新发——携 messageId 幂等键）。**prompt 单入口、调用方不选通道**：
  * 会话内在飞 run 时的并发 prompt 由驱动侧单源路由进 steer/followUp（04 §4 硬律），
  * 路由结果随 ack 观察字段回示；三通道词 steer/followUp/inject 不出现在请求面。
  * sessionId 缺席即新建会话（ack 与事件信封必携 sessionId——调用方以首应答获
  * 会话句柄）；显式携带即续接；命中已闭会话回结构化错误（对齐 webui 已闭 404 语义）。
+ * images 选填 = 粘贴图族（03 §10.4 ①）：缺席/空数组 = 纯文本零漂移；在场时
+ * handler 透传同一 host 受理漏斗（与 webui submit 同漏斗——魔数/双帽/落盘铸
+ * image-ref 块单源）。
  */
 export interface SdkPromptRequest {
   verb: 'prompt';
   /** 调用方自选幂等键——受理时即落账为 data.dedupeKey（05 §3.5 两词一字段两面） */
   messageId: string;
   content: string;
+  /** 粘贴图族（03 §10.4 ①——缺席 = 纯文本零漂移；admit 幂等含图逐件等比） */
+  images?: readonly SdkPromptImage[];
   sessionId?: string;
 }
 

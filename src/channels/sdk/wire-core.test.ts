@@ -13,7 +13,13 @@
 import { describe, expect, it } from 'vitest';
 import type { RetryProbe } from '../../contracts/index.js';
 import type { SdkDurableEntry, SdkWireFrame } from './protocol.js';
-import { SdkWireCore, type SdkSessionState, type SdkSubmitInput, type SdkWireOptions } from './wire-core.js';
+import {
+  SdkWireCore,
+  type SdkSessionState,
+  type SdkSubmitInput,
+  type SdkSubmitOutcome,
+  type SdkWireOptions,
+} from './wire-core.js';
 
 /** durable 平铺样本工厂（seq 直携——窗口切片按 seq 判） */
 function entry(seq: number, type = 'user/message'): SdkDurableEntry {
@@ -63,6 +69,8 @@ function createHarness(
   options?: SdkWireOptions & {
     sinkWritable?: boolean;
     submitOutcome?: { sessionId: string; routedChannel?: 'steer' | 'followUp' };
+    /** submitPrompt 行为覆写位（受理拒帧测试——抛错形桩注入） */
+    submitImpl?: (input: SdkSubmitInput) => SdkSubmitOutcome;
   },
 ): Harness {
   const frames: SdkWireFrame[] = [];
@@ -94,6 +102,8 @@ function createHarness(
       },
       submitPrompt: (input) => {
         h.calls.submit.push(input);
+        // 行为覆写位（受理拒测试）：覆写时记账后直转——错误形/会话簿记全由桩定义
+        if (options?.submitImpl) return options.submitImpl(input);
         const sid = input.sessionId ?? 's-new';
         // 桩侧落账新会话（装配桥同构——fresh 受理后会话即在册，重发反查定位可过状态门）
         if (!h.sessions.has(sid)) {
@@ -252,6 +262,107 @@ describe('prompt 腿（④ admit 三档 + 自动订阅 + 会话受理门）', ()
     h.core.handleRequest({ verb: 'prompt', sessionId: 's1', messageId: 'm-x', content: '新内容' });
     expect(h.calls.submit).toEqual([]);
     expect(h.frames.at(-1)).toMatchObject({ kind: 'error', code: 'SDK_MESSAGE_CONFLICT', sessionId: 's1' });
+  });
+
+  it('prompt 携图透传：images 原形入桥（受理执法在 host 受理链——线核只透传，03 §10.4 ①）', () => {
+    const h = createHarness();
+    h.core.handleRequest({
+      verb: 'prompt',
+      messageId: 'm-img',
+      content: '看图',
+      images: [
+        { data: 'aGVsbG8=', mimeType: 'image/png' },
+        { data: 'eW91', mimeType: 'image/webp' },
+      ],
+    });
+    expect(h.calls.submit).toEqual([
+      {
+        sessionId: undefined,
+        content: '看图',
+        messageId: 'm-img',
+        images: [
+          { data: 'aGVsbG8=', mimeType: 'image/png' },
+          { data: 'eW91', mimeType: 'image/webp' },
+        ],
+      },
+    ]);
+    expect(h.frames.at(-1)).toMatchObject({ kind: 'ack', messageId: 'm-img', duplicate: false });
+  });
+
+  it('同键同文同图同序重发 = duplicate（admit 幂等基准含图——逐件等比不重跑）', () => {
+    const h = createHarness();
+    const images = [
+      { data: 'aGVsbG8=', mimeType: 'image/png' },
+      { data: 'eW91', mimeType: 'image/webp' },
+    ];
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-1', content: 'a', images });
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-1', content: 'a', images });
+    expect(h.calls.submit).toHaveLength(1);
+    expect(h.frames.at(-1)).toMatchObject({ kind: 'ack', duplicate: true, messageId: 'm-1' });
+  });
+
+  it('同键异图/异序重发 = SDK_MESSAGE_CONFLICT（data 或 mimeType 任一异/序变即非重复）', () => {
+    const imgA = { data: 'aGVsbG8=', mimeType: 'image/png' };
+    const imgB = { data: 'eW91', mimeType: 'image/webp' };
+    // 异序：[A,B] 重发为 [B,A]
+    const h = createHarness();
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-1', content: 'a', images: [imgA, imgB] });
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-1', content: 'a', images: [imgB, imgA] });
+    expect(h.calls.submit).toHaveLength(1);
+    expect(h.frames.at(-1)).toMatchObject({ kind: 'error', code: 'SDK_MESSAGE_CONFLICT' });
+    // 异图：同 mime 异 data
+    const h2 = createHarness();
+    h2.core.handleRequest({ verb: 'prompt', messageId: 'm-1', content: 'a', images: [imgA] });
+    h2.core.handleRequest({
+      verb: 'prompt',
+      messageId: 'm-1',
+      content: 'a',
+      images: [{ data: 'bmV3', mimeType: 'image/png' }],
+    });
+    expect(h2.frames.at(-1)).toMatchObject({ kind: 'error', code: 'SDK_MESSAGE_CONFLICT' });
+    // 重发不带图（有无图互变）
+    const h3 = createHarness();
+    h3.core.handleRequest({ verb: 'prompt', messageId: 'm-1', content: 'a', images: [imgA] });
+    h3.core.handleRequest({ verb: 'prompt', messageId: 'm-1', content: 'a' });
+    expect(h3.frames.at(-1)).toMatchObject({ kind: 'error', code: 'SDK_MESSAGE_CONFLICT' });
+  });
+
+  it('受理拒（status 400）→ 错误帧 code=SDK_SUBMIT_REJECTED 文案透传 + 零 admit 记账（同键重发合法走 fresh 再受理）', () => {
+    // 桩队列：首调抛 400（受理链拒——AttachmentIntakeRejectionError 鸭定形），
+    // 次调复原受理——同键重发的「修正后重发」消费位
+    const rejections: Error[] = [];
+    const h = createHarness({
+      submitImpl: (input) => {
+        const err = rejections.shift();
+        if (err !== undefined) throw err;
+        return { sessionId: input.sessionId ?? 's-rej' };
+      },
+    });
+    const rejectErr = new Error('图片数量超过上限（至多 4 张）');
+    (rejectErr as { status?: number }).status = 400;
+    rejections.push(rejectErr);
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-rej', content: '看图' });
+    expect(h.frames.at(-1)).toMatchObject({
+      kind: 'error',
+      code: 'SDK_SUBMIT_REJECTED',
+      message: '图片数量超过上限（至多 4 张）',
+    });
+    // 拒收零记账的行为证：同键同文重发（桩已复原）不得 conflict/duplicate——
+    // 走 fresh 受理再触 submitPrompt 出 ack（拒收若误入 admit 账，此发必
+    // conflict/duplicate 档红）
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-rej', content: '看图' });
+    expect(h.calls.submit).toHaveLength(2);
+    expect(h.frames.at(-1)).toMatchObject({ kind: 'ack', messageId: 'm-rej', duplicate: false });
+  });
+
+  it('非 400 受理异常原样上抛（不折错误帧——受理面系统错是连接级故障信号非用户面拒收）', () => {
+    const h = createHarness({
+      submitImpl: () => {
+        throw new Error('ECONNREFUSED');
+      },
+    });
+    expect(() => h.core.handleRequest({ verb: 'prompt', messageId: 'm-boom', content: 'x' })).toThrow('ECONNREFUSED');
+    expect(h.frames.filter((f) => f.kind === 'error')).toHaveLength(0);
   });
 
   it('显式会话受理门：missing → SESSION_NOT_FOUND；closed → SESSION_CLOSED（均不受理）', () => {
