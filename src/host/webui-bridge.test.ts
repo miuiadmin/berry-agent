@@ -146,6 +146,21 @@ async function apiFetch(
   return { status: res.status, body: text === '' ? null : (JSON.parse(text) as unknown) };
 }
 
+/**
+ * 自铸最小 PNG（1x1 IHDR——魔数+长度+IHDR；CRC 不进判据零填占位）。
+ * 与 intake/serve-entry 专测的私有 fixture 同款本地复制体例——本腿只需
+ * store.write 落盘字节恒等回放，不涉受理链魔数核验。
+ */
+function attachPng1x1(): Buffer {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(1, 0);
+  ihdr.writeUInt32BE(1, 4);
+  const chunk = Buffer.concat([Buffer.alloc(4), Buffer.from('IHDR', 'ascii'), ihdr]);
+  chunk.writeUInt32BE(13, 0);
+  return Buffer.concat([signature, chunk]);
+}
+
 /** SSE 帧形（kind + payload 投影——判帧只看这两位；message_end 的 role 嵌 message 内） */
 interface SseFrame {
   readonly kind: string;
@@ -761,6 +776,49 @@ describe('openWebuiFace HTTP e2e（18a compat 互证）', () => {
         headers: { authorization: `Bearer ${token}` },
       }).catch(() => undefined);
       expect(gone).toBeUndefined(); // 监听已关（连接拒绝）
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
+  it('附件读回端点接线（挖掘 14 轮 P0——修前红：真装配恒 501）：GET /api/attachments/:ref 字节恒等回放 + 判序 400/404', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-attach-data-') });
+    const { stack } = rigStack(rt);
+    let opened: { host: string; port: number; token: string } | undefined;
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      onOpen: (info) => {
+        opened = info;
+      },
+    });
+    try {
+      expect(opened).toBeDefined();
+      const { port, token } = opened!;
+      // 直写附件库（store 与受理链同源在手；本腿只锁「桥注入 → 端点 200」
+      // 接线面——受理链八环归 intake 专测，server 判序归 server 专测）
+      const png = attachPng1x1();
+      const { ref } = stack.attachments!.write(png, 'png');
+      // 修前红锚：readAttachment 键未注入 = 真装配端点恒 501（spec ④ 读回
+      // 端点全线死面——单测假注入绿掩盖装配缺口）；修后 200 字节恒等回放
+      const res = await fetch(`http://127.0.0.1:${port}/api/attachments/${ref}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('image/png'); // mimeType 读回记录单源
+      expect(Buffer.from(await res.arrayBuffer()).equals(png)).toBe(true);
+      // 判序腿：坏形 ref 400（词法错先于状态错）+ 合形不在场 404（诚实空）
+      const bad = await fetch(`http://127.0.0.1:${port}/api/attachments/not-a-ref`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(bad.status).toBe(400);
+      const absent = await fetch(`http://127.0.0.1:${port}/api/attachments/sha256:${'0'.repeat(64)}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(absent.status).toBe(404);
+      await face.stop();
     } finally {
       await rt.shutdown();
     }

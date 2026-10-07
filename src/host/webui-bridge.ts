@@ -473,6 +473,14 @@ function bridgeDeps(
         const driver = stack.driverOf(sessionId);
         return driver === undefined ? undefined : foldTodoTable(driver.session.events());
       },
+      // 附件字节读回（2026-10-08 剪贴板附件批 ④——types.ts WebuiReadFace
+      // 注释面即声明「桥内直达 persist attachment-store.read」；store 与
+      // intake 受理同源在手，恒注入非条件键〔与 exportSource 分立〕）。
+      // ref 词法先验在端点判序 ①（400 先于注入判）——到 read 的 ref 恒合形
+      // 零 throw 路径；mimeType 由读回记录单源派生（ext→MIME 在 persist
+      // 单源——件侧不查扩展名不二次判）。内存模式无库（attachments 缺席）
+      // → null → 端点 404 诚实空（无库即无在场附件，非 501 能力谎）
+      readAttachment: (ref) => stack.attachments?.read(ref) ?? null,
       // /export markdown 拼装真身（2026-09-17 TUI 余量收官批②——renderSessionMarkdown
       // 第三消费位：TUI /export 与 CLI berry sessions export 之外新增 web 直出腿；
       // 不落盘——web 面消费语义 = 浏览器/curl 直接取文）。缺席语义双档：
