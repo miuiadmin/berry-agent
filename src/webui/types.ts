@@ -73,7 +73,7 @@ export const WEBUI_ENDPOINTS = {
   sessionMessages: '/api/sessions/:id/messages',
   /** GET SSE——活体流（连接即当下，v1 无重放游标） */
   sessionEvents: '/api/sessions/:id/events',
-  /** POST——提交（体 {text, messageId?}） */
+  /** POST——提交（体 {text, messageId?, images?}——images = 粘贴图族引用位 03 §10.4 ①） */
   sessionSubmit: '/api/sessions/:id/submit',
   /** POST——打断在飞 run */
   sessionInterrupt: '/api/sessions/:id/interrupt',
