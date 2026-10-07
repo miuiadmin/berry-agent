@@ -115,7 +115,7 @@ Una vez instalado, el comando es **`berry`**:
 ```bash
 berry                    # TUI: entra directamente en conversación (retoma la última sesión del directorio actual)
 berry run "tarea única"  # ejecución única → stdout
-berry sessions list      # sesiones: list / resume / fork / rename / search / reindex / export
+berry sessions list      # sesiones: list / resume / fork / rename / search / reindex / export / import / delete (eliminar pide confirmación en dos pasos y es irreversible)
 berry plugins list       # plugins: list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # credenciales: add / list / rm (la TUI también tiene flujo OAuth)
 berry doors list         # estado de las puertas de capacidad (solo lectura; abrir/cerrar vía TUI /doors open|close)

@@ -201,7 +201,7 @@ TUI 内建命令（随插件安装动态扩展）：`/plugins`（插件管理 TU
 
 - `/history` —— 会话回看：全量历史正文只读快照（与主屏同一渲染管线），`↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End` 键盘滚动 + 鼠标滚轮、左键拖选复制；
 - `/memory` —— 记忆管理：生效中/冻结/已结束三分区，`f` 冻结切换 / `d` 忘掉〔confirm 两段式〕/ `r` 恢复 / `e` 导出 / `Tab` 筛选循环（全部→生效中→冻结→已结束）；
-- `/sessions` —— 会话切换：会话清单光标选择（`↑`/`↓` 移动、`PgUp`/`PgDn`/`Home`/`End` 翻选、`Enter` 选定切换）；`d` 删除光标行会话〔confirm 两段式——确认页明示「含审批记录在内的全部会话史将被删除且不可恢复」，`Enter` 确认 / `Esc` 取消；运行中会话拒删并提示等待或先打断〕；
+- `/sessions` —— 会话切换：会话清单光标选择（`↑`/`↓` 移动、`PgUp`/`PgDn`/`Home`/`End` 翻选、`Enter` 选定切换）；`d` 删除光标行会话〔confirm 两段式——确认页明示「含审批记录在内的全部会话史将被删除，且不可恢复。」，`Enter` 确认 / `Esc`/`q` 取消；运行中会话拒删并提示等待或先打断〕；
 - `/usage` —— 会话用量：本会话全 run 累计分表（轮次 + token 输入/输出/缓存读/缓存写四分 + 合计 + 费用——无费用上报时如实呈现）；
 - `/calls` —— 会话调用台账：模型调用明细·最近 50 条（最新在前——时刻/模型/状态/重试/tokens/耗时，失败行附短因；全量超 50 条时头行注记总数；静态快照——重开重取）；
 - `/status` —— 状态汇总：版本 / 模型位（当前 provider/model + 全集计数——`ctrl+p` 模型循环同数据源）/ 模型凭证行（态 + **完整值**——全明文翻裁：页面上所见即当前生效值）/ 会话（短 id / cwd 短名 / `支名@短哈希`〔detached HEAD 时支名缺席、行呈 `@短哈希` 形；仅不在 git 仓库时该行不显示〕 / 轮次〔会话对话轮数——用量数据驱动缺席时该行不显示（不虚报 0）〕 / 今日〔当日前台与后台合计已耗 tokens，为零时该行不显示〕）/ 数据目录 / 当前主题 / env 旋钮生效值（MODEL / DATA_DIR / LOG_LEVEL 三键白名单维持——其余 env 恒不入面）；
@@ -288,7 +288,7 @@ run 旗标族：
 ```bash
 berry sessions list              # 清单：id/标题/时间/血缘（updated 倒序，上限 100）
 berry sessions resume <id>       # 按 id 续接后进 TUI（与无参 TUI 的按目录取最新互补）
-berry sessions fork <id>         # 边界快照分叉（种子事件随种子走）
+berry sessions fork <id>         # 边界快照分叉（种子事件随种子走；新建频率上限与 import 同闸——单进程每分钟 100 个，超限 SESSION_SPAWN_RATE_LIMIT）
 berry sessions rename <id> <标题> # 会话改名（多词标题原样拼合；过滤不可见字符 + 200 字上限）
 berry sessions search "关键词"    # 跨会话全文检索（bm25 序，输出 id/标题/#seq/切窗摘录）
 berry sessions export <id>       # 会话导出 markdown 落盘（exports/<会话id>-<时间戳>.md——与 TUI /export 同源拼装；Web 面「导出」键同源直出下载；不带 --format 即此形态，--format markdown 等价）
@@ -298,9 +298,9 @@ berry sessions delete <id>       # 会话删除两段式：无 --confirm 只读�
 berry sessions reindex           # 全文索引全量重建（派生物不修不补——重建即修复）
 ```
 
-读腿（list/search/reindex）零启动直开库——不开运行时、不占单活跃机标记；`fork` 与 `run --fork` 同机（钩子保真）；`rename` 写腿与 TUI `/rename` 同源过滤不可见字符；`resume` 在非交互环境退 2 并指引改 `run --session`。`delete` 同为零启动直删（TUI 内 `/sessions` 清单页 `d` 键走进程内六步编排——删除确认页 `Enter` 确认 / `Esc` 取消；删除聚焦会话自动续接同目录最新会话）；CLI 直删的竞窗警示：若目标会话正被其他 berry 进程（TUI/守护）持有，先关闭该进程再删——直删会使该进程后续写笔落库成孤儿行。worktree 目录与分支、goal 行、issue 停靠登记、checkpoint 清单、输入历史、记忆数据不在删除射界。
+读腿（list/search/reindex）零启动直开库——不开运行时、不占单活跃机标记；`fork` 与 `run --fork` 同机（钩子保真）；`rename` 写腿与 TUI `/rename` 同源过滤不可见字符；`resume` 在非交互环境退 2 并指引改 `run --session`。`delete` 同为零启动直删（TUI 内 `/sessions` 清单页 `d` 键走进程内六步编排——删除确认页 `Enter` 确认 / `Esc`/`q` 取消；删除聚焦会话自动续接同目录最新会话）；CLI 直删的竞窗警示：若目标会话正被其他 berry 进程（TUI/守护）持有，先关闭该进程再删——直删会使该进程后续写笔落库成孤儿行。worktree 目录与分支、goal 行、issue 停靠登记、checkpoint 清单、输入历史、记忆数据不在删除射界。
 
-导出/导入互为对偶：`export --format jsonl` 产物即 `import` 的合法输入。产物形制——首行自描述头 `{format, version, exportedAt}`（裸对象），其后每行一条事件原样（含被压缩摘要遮蔽的早期历史——信封随流走不折叠）；`import` 重建前过四道校验：格式身份、事件词面与消息形状、轮次/工具配对完整性、新建频率上限（单进程每分钟 100 个，防失控脚本填库）。全过即落新会话（事件序号原样 0..N 不重编、血缘记 `import`，回执带新会话 id 与续接指引）；任一不过整批拒收退 1（文件路径不存在同样退 1；用法错如缺参数归解析层退 2）。往返承诺：导出再导入后，对话投影与源一致（含被遮历史）；行面的创建/更新时间戳属宿主记账，不在保真射界。`import` 亦为零启动直开库（读腿同形），退出码 0/1。Web 面对偶端点：`GET /api/sessions/:id/export?format=jsonl`（浏览器/curl 直达——浏览器手打 URL 或 curl 带 cookie/Bearer；SPA 导出键维持 markdown 形）。
+导出/导入互为对偶：`export --format jsonl` 产物即 `import` 的合法输入。产物形制——首行自描述头 `{format, version, exportedAt}`（裸对象），其后每行一条事件原样（含被压缩摘要遮蔽的早期历史——信封随流走不折叠）；`import` 重建前过五道校验：格式身份、事件词面与消息形状、轮次/工具配对完整性、事件序连续性（seq 从 0 连续且尾条对齐长度——截半文件拒收）、新建频率上限（单进程每分钟 100 个，防失控脚本填库）。全过即落新会话（事件序号原样 0..N 不重编、血缘记 `import`，回执带新会话 id 与续接指引）；任一不过整批拒收退 1（文件路径不存在同样退 1；用法错如缺参数归解析层退 2）。往返承诺：导出再导入后，对话投影与源一致（含被遮历史）；行面的创建/更新时间戳属宿主记账，不在保真射界。`import` 亦为零启动直开库（读腿同形），退出码 0/1。Web 面对偶端点：`GET /api/sessions/:id/export?format=jsonl`（浏览器/curl 直达——浏览器手打 URL 或 curl 带 cookie/Bearer；SPA 导出键维持 markdown 形）。
 
 ### credentials 凭证管理
 
@@ -344,7 +344,7 @@ berry serve stop               # 停守护
 
 - **npm SDK**：`berry-agent-sdk`（类型化客户端，spawn stdio / 直连 HTTP 两传输）**已上 npm**（alpha 版，`npm install berry-agent-sdk` 可装，随主仓演进）——SDK 源码在仓内 `packages/berry-agent-sdk`，开发态仍可 `file:` 链本地消费；
 - **MCP 包装**：`berry mcp` 以 MCP server 形态暴露 `berry-agent` / `berry-agent-reply` 两工具，供任意 MCP 客户端接入；
-- **`--port` 统一 HTTP 面**：SPA Web 界面 + `/api/*`（Web 界面族）+ `/v1/*`（程序调用族）三族同面，恒回环，token 鉴权（令牌仅启动 stderr 一次性显示）。Web 界面输入框 `@` 同样触发文件路径补全——同 TUI 判据（工作区根锚定、引号感知、`@"带空格 路径"` 引号形、子序列模糊过滤），候选弹层 `↑`/`↓` 循环、`Enter` 整 token 代换、`Esc` 关层。会话侧栏行悬停呈删除键（`✕`）——浏览器确认框明示「含审批记录在内的全部会话史将被删除，且不可恢复。」（与 TUI `/sessions` 面板 `d` 键、CLI `berry sessions delete` 三载体同句）；运行中会话拒删（409 提示等待或先打断），删除当前打开的会话即回到无选择态。
+- **`--port` 统一 HTTP 面**：SPA Web 界面 + `/api/*`（Web 界面族）+ `/v1/*`（程序调用族）三族同面，恒回环，token 鉴权（令牌仅启动 stderr 一次性显示）。Web 界面输入框 `@` 同样触发文件路径补全——同 TUI 判据（工作区根锚定、引号感知、`@"带空格 路径"` 引号形、子序列模糊过滤），候选弹层 `↑`/`↓` 循环、`Enter` 整 token 代换、`Esc` 关层。会话侧栏行悬停呈删除键（`✕`）——浏览器确认框明示「含审批记录在内的全部会话史将被删除，且不可恢复。」（与 TUI `/sessions` 面板 `d` 键、CLI `berry sessions delete` 三载体同句）；运行中会话拒删（409 提示等待或先打断），删除当前打开的会话即回到无选择态。该键走 `DELETE /api/sessions/:id` 端点（`/api/*` 同面 token-or-cookie 鉴权——登录 cookie 或 Bearer 令牌皆可；三态：删除成功 200 / 运行中 409 / 会话不存在 404）。
 
 ### 无人值守与预算停靠
 

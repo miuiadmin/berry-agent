@@ -100,7 +100,7 @@ berry-agent 自身零安装脚本（SQLite 绑定为预编译产物，无需编�
 ```bash
 berry                    # TUI：直进对话（按当前目录续接最新会话）
 berry run "一句话单发"     # 单次执行 → stdout
-berry sessions list      # 会话管理：list / resume / fork / rename / search / reindex / export
+berry sessions list      # 会话管理：list / resume / fork / rename / search / reindex / export / import / delete（两段式确认，不可恢复）
 berry plugins list       # 插件管理：list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # 凭证管理：add / list / rm（TUI 另有 oauth 授权流）
 berry doors list         # 开门制门态只读（开/关走 TUI /doors open|close）
