@@ -324,6 +324,37 @@ describe('assembleHostStack 成功档', () => {
     }
   });
 
+  it('C-1（挖掘 16 轮）：环境披露 git 行经真装配在场——boot 预热后 disclosure() 含 `- git: ` 行（修前：装配根零注入六件缺一）', async () => {
+    // 组合根锁（04 §11 批 C-1 定形注）：runtime gitSummaryProvider seam 在、
+    // exec/environment gitSummary 真源在、单测直注恒绿——唯装配根零注入
+    // （装配缺口族第三件，ASM-1/readAttachment 同族判据）。本腿经真装配
+    // （assembleHostStack → core:exec 装载 exec-pipeline → 装配根 SWR
+    // provider 晚绑取用）断言披露面 git 行真在场。预热 fire-and-forget
+    // 异步——轮询直到探测落地（canonicalWorkspaceRoot = 本仓 git 根，
+    // 行必在；SPI 面断言宽松形 /- git: \S+/——分支名/脏况非锁面）
+    const dir = tmpDir('host-asm-gitsum-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false, // core:exec 装载态 exec-pipeline 在场（--no-plugins 形 provider 恒 null）
+      debug: false,
+      version: 'x',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const deadline = Date.now() + 5_000;
+      let text: string | null = null;
+      while (Date.now() < deadline) {
+        text = assembly.runtime.disclosure();
+        if (text !== null && text.includes('- git: ')) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      // 修前红锚：装配根零注入 → gitSummaryProvider 恒缺席 → git 行永缺席
+      expect(text).toMatch(/- git: \S+/);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
   it('skills_change 事件桥（批 19b-1）：registry refresh → dispatch skills_change 发射（载荷 = provider 清单）', async () => {
     const dir = tmpDir('host-asm-skchg-');
     // 缺省 createCorePlugins 真跑形（exec/web/skills 三件——桥只在 skills 服务在场时挂）

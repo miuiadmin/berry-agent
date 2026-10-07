@@ -105,8 +105,14 @@ export interface HostRuntimeOptions {
   readonly memory?: boolean;
   /** Persistence 旋钮透传（warn/clock/write-behind 调参；dbPath/dataDir 由本件裁定） */
   readonly persistence?: Omit<PersistenceOptions, 'dbPath' | 'dataDir'>;
-  /** git 状态摘要真源（每请求重算——exec 件批 14a 接线；缺席行省略） */
-  readonly gitSummaryProvider?: () => string | null;
+  /**
+   * git 状态摘要真源（04 §11 批 C-1 定形注——seam 升格带参会话键：git 状态
+   * per-session 工作区，对齐 sandboxModeProvider 形；sessionId 缺席 =
+   * canonicalWorkspaceRoot 进程域）。装配侧铸 SWR provider（boot 预热 +
+   * TTL 60s 返旧 kick 刷新——spawn 秒级不得进同步回调，「每请求重算」的
+   * git 半边定形为每请求重取缓存）；缺席行省略（fail-soft 同插件行降级律）。
+   */
+  readonly gitSummaryProvider?: (sessionId?: string) => string | null;
   /** 插件装载计数真源（每请求重算——装载器批 12d 接线；缺席行省略） */
   readonly pluginsProvider?: () => { total: number; enabled: number; failed: number } | null;
   /**
@@ -227,7 +233,7 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
         platform: collectPlatform(() => osRelease(), process.platform),
         cwd: process.cwd(),
         date: collectDate(() => new Date()),
-        gitSummary: options.gitSummaryProvider?.() ?? null,
+        gitSummary: options.gitSummaryProvider?.(sessionId) ?? null,
         plugins: options.pluginsProvider?.() ?? null,
         // 沙箱行第六件（F2）：provider 缺席（晚绑定前 / 注入缺席）= 行省略；
         // provider 返 undefined（坏词 warn 降级）同省略——行面零强求

@@ -34,6 +34,8 @@ import type { MemoryLlmFace } from '../memory/index.js';
 import type { GoalSummarizerFace } from '../goal/index.js';
 import type { GoalService } from '../goal/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
+import { gitSummary } from '../exec/index.js';
+import type { GitSummary, SpawnPipeline } from '../exec/index.js';
 import type { ApprovalPolicyMode, SandboxMode, ToolPolicyDraft } from '../safety/index.js';
 import {
   DEFAULT_SUBAGENT_PROVIDER,
@@ -266,6 +268,52 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
   // sandboxModeProvider 每请求重算现取槽内值，undefined = 行省略（boot 前请
   // 求形）。坏词 fold 抛在源内 warn 降级返 undefined——披露位不炸请求。
   let sandboxDisclosureSource: ((sessionId?: string) => string | undefined) | undefined;
+  // git 摘要 SWR provider 状态（04 §11 批 C-1 定形注）：同步回调恒返缓存值
+  // ——spawn 探测秒级不得进同步回调，「每请求重算」的 git 半边定形为每请求
+  // 重取缓存。TTL 过期返旧值 + kick 后台刷新；null 也缓存（非 git 仓库防
+  // 每请求重探测）；probing 集在飞去重（并发 kick 单飞）。锚 = 晚绑槽
+  // （stack 建后回填：sessionId → workspaceRootOf 活体镜像 ?? canonical
+  // WorkspaceRoot 进程域兜底；boot 前请求形锚缺席 = 行省略）。
+  const gitSummaryCache = new Map<string, { at: number; value: string | null }>();
+  const gitSummaryProbing = new Set<string>();
+  const gitSummaryAnchor: { current: ((sessionId?: string) => string) | undefined } = { current: undefined };
+  // 探测 kick（后台 fire-and-forget）：每次现取管线——scope 晚绑（boot 前/
+  // noPlugins 形缺席即放弃本次且不缓存缺席：换代装载后下一请求可再探）
+  const gitSummaryProbe = (root: string): void => {
+    if (gitSummaryProbing.has(root)) return; // 在飞去重
+    gitSummaryProbing.add(root);
+    const pipeline = scope.tryGet<SpawnPipeline>('exec-pipeline');
+    if (pipeline === undefined) {
+      gitSummaryProbing.delete(root);
+      return;
+    }
+    void gitSummary(root, pipeline)
+      .then((summary) => {
+        gitSummaryCache.set(root, {
+          at: Date.now(),
+          value: summary === null ? null : formatGitSummary(summary),
+        });
+      })
+      .catch(() => {
+        // 探测抛出（git 缺席/管道错误类）= 缺席值缓存——防失败风暴每请求重探
+        gitSummaryCache.set(root, { at: Date.now(), value: null });
+      })
+      .finally(() => {
+        gitSummaryProbing.delete(root);
+      });
+  };
+  // 披露 git 行真源（第五件——04 §11 批 C-1）：无缓存/过期 → kick 后台刷新
+  // 但同步返回不等待（stale-while-revalidate——首问可能缺席，预热后即在场）
+  const gitSummaryProvider = (sessionId?: string): string | null => {
+    const anchor = gitSummaryAnchor.current;
+    if (anchor === undefined) return null; // stack 未建（boot 前请求形）——行省略
+    const root = anchor(sessionId);
+    const entry = gitSummaryCache.get(root);
+    if (entry === undefined || Date.now() - entry.at >= GIT_SUMMARY_TTL_MS) {
+      gitSummaryProbe(root);
+    }
+    return entry?.value ?? null;
+  };
   // /rewind 无参选择器开面板槽（批3——2026-09-30 会话管理命令批：late-bound
   // mutable）。TUI backend 在本函数返回后才构造（tui-entry），件装载期经
   // coreDeps 闭包读槽恒得 undefined；tui-entry 构造 backend 后回填 current。
@@ -300,6 +348,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       runtime = createHostRuntime({
         ...options.runtime,
         pluginsProvider: () => ({ ...pluginCounts }),
+        // git 摘要第五件真源（04 §11 批 C-1）：SWR provider（闭包体与晚绑锚
+        // 见上方槽注区）——同步回调恒返缓存值，boot 预热 + TTL 60s 返旧 kick
+        gitSummaryProvider,
         // 沙箱行第六件真源（F2）：晚绑定槽取面（见上方槽注）——每请求重算
         sandboxModeProvider: (sessionId?: string) => sandboxDisclosureSource?.(sessionId),
         // session/event 活体镜像桥（03 §2.4 钩子主表 session/event 行——批 19b-2）：durable append →
@@ -635,6 +686,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         sessionId !== undefined ? (stack.driverOf(sessionId)?.session.events() ?? []) : [],
       warn: (message) => logger.warn(message),
     });
+
+    // —— git 摘要锚晚绑槽回填（批 C-1）：stack 既建——workspaceRootOf 活体
+    // 镜像（undefined 入参直通 → canonicalWorkspaceRoot 进程域兜底；03 §10.7
+    // 「锚不能走库读」律同先例）；此后 provider 每请求即见锚。
+    gitSummaryAnchor.current = (sessionId?: string) =>
+      stack.manager.workspaceRootOf(sessionId) ?? canonicalWorkspaceRoot();
 
     // —— 'sessions' 受理面基础面真身（ag 批 cs-D2——03 §4.5 定形注：共享根
     // provision 形态**废止**，本面改经 bootPlugins options.sessions 逐插件
@@ -1292,6 +1349,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // plugins 尾事件携计数 detail（动画「N/M 插件」行供数——与披露匣同账）
     emitBootStage('plugins', 'end', `enabled=${boot.counts.enabled},total=${boot.counts.total}`);
 
+    // —— git 摘要 boot 预热（批 C-1）：core:exec 装载后 exec-pipeline 在场，
+    // 进程域根 fire-and-forget 探测（spawn 秒级不阻启动；首问 disclosure 前
+    // 缓存多已就位——测试轮询窗口即此腿的消费面）。
+    gitSummaryProbe(canonicalWorkspaceRoot());
+
     // —— plugin-load-report 服务面（07 §4.1 命令面增补批 C2——挂账解挂批
     // R6 前段 deferred 兑现）：装载报告取值器入 scope（owner 'host:assembly'
     // ——装配级服务面，与 'checkpoint' 等同律；scope 是插件共享根作用域，
@@ -1776,6 +1838,22 @@ export function readTriggerOpensLive(dataDir: string | null, pluginId: string): 
   const row = result.rows.find((r) => r.id === pluginId);
   if (row === undefined || row.disabled === true) return new Set<string>();
   return new Set<string>(row.opens ?? []);
+}
+
+/** git 摘要缓存 TTL（04 §11 批 C-1 定形注钉值：60s——spawn 秒级探测，过期返旧值 kick 后台刷新） */
+const GIT_SUMMARY_TTL_MS = 60_000;
+
+/**
+ * git 摘要格式化（04 §11 批 C-1 定形注④ 串格式）：`branch[ · 领先 N][ · 落后 N]
+ * [ · 脏 N]`——非零段才拼；detached 形 branch 已是 'HEAD (detached)'（exec 件
+ * environment.ts 归一）。纯函数（测试直调零装配）。
+ */
+function formatGitSummary(summary: GitSummary): string {
+  const segments: string[] = [summary.branch];
+  if (summary.ahead > 0) segments.push(`领先 ${summary.ahead}`);
+  if (summary.behind > 0) segments.push(`落后 ${summary.behind}`);
+  if (summary.dirtyCount > 0) segments.push(`脏 ${summary.dirtyCount}`);
+  return segments.join(' · ');
 }
 
 /**
