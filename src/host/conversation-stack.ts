@@ -1400,8 +1400,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // seam（进程收尾随 close 终清，不另加全清）。
     onRetired: (sessionId) => {
       try {
-        // ① 排干屏障（fail-loud 重抛——由下方 catch 收口，见上注）
-        options.runtime.persistence.writeBehind.drainSessionNow(sessionId);
+        // ① 排干屏障（fail-loud 重抛——由下方 catch 收口，见上注；走
+        // persistence 公开门面 drainSessionNow——与 ③ retireEntries 同门面形，
+        // 不直走 writeBehind 成员〔checkpointDrain 装配位同门面先例〕）
+        options.runtime.persistence.drainSessionNow(sessionId);
         // ② 粘滞持有摘除（迟到写笔转 detached 铸新腿）
         meteringLogHold.delete(sessionId);
         // ③ persist 登记面出册（排干后无在飞写——键不复活）
