@@ -121,6 +121,14 @@ export interface SdkTransport {
   close(): Promise<void>;
 }
 
+/** prompt 单图成员（2026-10-08 剪贴板附件批——03 §10.4 ① SDK 线同批扩形；npm 客户端类型面对齐位——挖掘 14 轮 P1-c 补齐）。形与 /v1/prompt 载荷 images 成员同形（线侧零受理实现——执法在 host 受理漏斗） */
+export interface SdkPromptImage {
+  /** 图片原文 base64（标准带填充形） */
+  readonly data: string;
+  /** 声明 MIME（受理漏斗与魔数嗅探族核验——勿信声明） */
+  readonly mimeType: string;
+}
+
 /** prompt 入参（messageId 缺省 = 客户端计数器形 `sdk-N` 每次全新——幂等语义未申请即不虚构） */
 export interface SdkPromptInput {
   /** 续接会话句柄——缺席即新建 */
@@ -128,6 +136,8 @@ export interface SdkPromptInput {
   /** 幂等键（同键同内容重发收 duplicate 收执）——缺席计数器形全新 */
   readonly messageId?: string;
   readonly content: string;
+  /** 携图粘贴族（缺席/空数组 = 纯文本零漂移；上限 4 件、受理链五族校验在 host——2026-10-08 剪贴板附件批 03 §10.4 ①） */
+  readonly images?: readonly SdkPromptImage[];
 }
 
 /** getEntries 入参（since 缺省 -1 从头全窗；cursor = 分页续读游标——SDK 面亦透传） */

@@ -45,6 +45,9 @@ export function createSdkClient(transport: SdkTransport): SdkClient {
         messageId,
         content: input.content,
         ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
+        // 携图透传（2026-10-08 剪贴板附件批 03 §10.4 ①——受理执法在 host
+        // 受理漏斗，客户端零实现；缺席即省略与纯文本帧恒等）
+        ...(input.images !== undefined ? { images: input.images } : {}),
       });
       ensureNotError(frame);
       return frame as SdkAckFrame; // 应答闭集 {ack, error}——error 已投形

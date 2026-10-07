@@ -72,6 +72,23 @@ describe('createSdkClient 方法面', () => {
     expect(fake.requests[0]).toEqual({ verb: 'prompt', messageId: 'm-1', content: '你好' });
   });
 
+  it('prompt：images 携图在场透传、缺席即省略（挖掘 14 轮 P1-c——线侧零实现、受理在 host）', async () => {
+    const fake = fakeTransport();
+    fake.setResponder(() => ackFrame);
+    const client = createSdkClient(fake.transport);
+    const image = { data: 'aSBUZW5rYQ==', mimeType: 'image/png' };
+    await client.prompt({ messageId: 'm-img', content: '看这张图', images: [image] });
+    expect(fake.requests[0]).toEqual({
+      verb: 'prompt',
+      messageId: 'm-img',
+      content: '看这张图',
+      images: [image],
+    });
+    // 缺席形与纯文本帧恒等（不造 images 空数组噪音键）
+    await client.prompt({ messageId: 'm-plain', content: '纯文本' });
+    expect(fake.requests[1]).toEqual({ verb: 'prompt', messageId: 'm-plain', content: '纯文本' });
+  });
+
   it('prompt：messageId 缺省计数器形 sdk-N 每客户端独立自增', async () => {
     const fake = fakeTransport();
     fake.setResponder(() => ackFrame);

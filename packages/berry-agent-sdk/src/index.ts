@@ -23,6 +23,7 @@ export type {
   SdkTransport,
   SdkClient,
   SdkPromptInput,
+  SdkPromptImage,
   SdkEntriesInput,
   SdkSessionsResult,
 } from './types.js';
