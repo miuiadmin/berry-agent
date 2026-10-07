@@ -522,7 +522,16 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
         return;
       }
       // 失败撤回（契约兑现）：未被受理的乐观回显先出正文，再推失败通知
-      setState((prev) => pushedNotice(droppedMessage(prev, echoKeyOf(echoTimestamp)), '提交失败——请重试', 'error'));
+      // ——err.message = 服务端人读因直呈（删除流同式；受理拒五族文案
+      // 03 §10.4 ② 经 foldError message 位透传，「请重试」对不可重试拒因
+      // 是谎提示——非 Error 形/空 message 折兜底串）
+      setState((prev) =>
+        pushedNotice(
+          droppedMessage(prev, echoKeyOf(echoTimestamp)),
+          err instanceof Error && err.message !== '' ? err.message : '提交失败——请重试',
+          'error',
+        ),
+      );
     });
   };
 

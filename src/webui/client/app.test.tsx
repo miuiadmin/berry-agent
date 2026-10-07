@@ -431,10 +431,26 @@ describe('WebUiRoot主面活体环', () => {
     fireEvent.change(box, { target: { value: '未被受理的消息' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
     await screen.findByText('未被受理的消息'); // 乐观回显先在场（受理在飞窗）
-    // 失败通知落地——撤回与通知同帧生效（通知在场即撤回已完成的判据位）
-    await screen.findByText('提交失败——请重试');
+    // 失败通知落地（人读因直呈——删除流 :457 同式）——撤回与通知同帧生效
+    await screen.findByText('API 500 internal');
     // 未被受理的消息不以已送达形态驻留正文（现红：catch 体只追加 notices）
     expect(screen.queryByText('未被受理的消息')).toBeNull();
+  });
+
+  it('submit 受理拒人读因直呈（挖掘 14 轮 P1——修前红：catch 推固定「提交失败——请重试」谎提示，五族拒文案最后一米不可达）', async () => {
+    primeMain();
+    // 桩拟服务端 400 受理拒形（intake 五族文案经 foldError message 位透传
+    // ——api.ts foldError 兼读注释面）；「请重试」对不可重试拒因是谎提示
+    apiMock.submit.mockRejectedValueOnce(new Error('图片超出大小上限（上限 5MiB）——请压缩后重发'));
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '超帽图消息' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    // 直呈服务端人读因（spec ② 受理拒 = 400 + 明示原因文案——呈现面收尾）
+    await screen.findByText('图片超出大小上限（上限 5MiB）——请压缩后重发');
+    // 谎提示退位（不可重试的拒因不再建议重试）
+    expect(screen.queryByText('提交失败——请重试')).toBeNull();
   });
 
   it('会话切换换流（旧流关、新流开）', async () => {
