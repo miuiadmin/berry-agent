@@ -156,6 +156,9 @@ export interface WebuiBridgeHandle {
 export async function openWebuiFace(
   options: WebuiBridgeOptions & { readonly onOpen?: (info: WebuiOpenInfo) => void },
 ): Promise<WebuiBridgeHandle> {
+  // 开面披露写位先取（挖掘 15 轮 ASM-2——warn 注入消费同位：SDK 面传输级
+  // 诊断〔sock/tcp 异常、挂载警示〕不再生产静默，随开面披露道出走）
+  const disclose = options.disclose ?? ((line) => process.stderr.write(`${line}\n`));
   const face = createSdkHttpFace({
     config: { tcp: { host: WEBUI_DEFAULT_HOST, port: options.port ?? WEBUI_DEFAULT_PORT } },
     // cwd 锚透传（CL-A2——缺省全局态 process.cwd 不变；raw 锚直传，canonical
@@ -164,6 +167,9 @@ export async function openWebuiFace(
     // U5-2 构造期 replay：装载序已受理的插件道路由快照注入 routes 位
     // （受理与挂载两时点解耦——03 §10.6 时序缝定形）
     ...(options.pluginRoutes !== undefined ? { routes: options.pluginRoutes.snapshot() } : {}),
+    // 传输级 warn 面（挖掘 15 轮 ASM-2——缺省静默在真开面装配位恒注入：
+    // daemon 位同款 writeErr，两位词法锁在案）
+    warn: (message) => disclose(message),
   });
   // 件在场分档（批 19e）：kit 在场 → 挂载走件 kit（真身 = 共用挂载段）；
   // 缺席 → 面开而无 webui 路由（/api/* 404——件禁用语义族，诚实披露）
@@ -199,7 +205,6 @@ export async function openWebuiFace(
     // 核随 runtime 同寿，不摘 backend 无泄漏面）
     await face.stop(); // 幂等（全流收口 + 关监听）
   };
-  const disclose = options.disclose ?? ((line) => process.stderr.write(`${line}\n`));
   if (mount !== undefined) {
     disclose(`Web 界面已开启：http://${host}:${port}/`);
   } else {

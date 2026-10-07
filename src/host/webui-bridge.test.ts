@@ -6,7 +6,7 @@
  * 「compat 互证归 host 装配批」本件兑现（桥真身经服务端全链，词面独立律
  * 结构兼容双向互证）。mock 只停在模型层。
  */
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1677,5 +1677,16 @@ describe('completion 面接线：workspaceFiles = FileMentionSource replacement 
       mount.detach();
       await rt.shutdown();
     }
+  });
+
+  it('SDK 面传输级 warn 两真开面装配位恒注入（挖掘 15 轮 ASM-2——修前红：缺省静默生产全哑）', () => {
+    // 词法锁：serve-daemon faceFactory 位（writeErr 道→daemon.log）与
+    // webui-bridge openWebuiFace 位（disclose 道）各恰一次注入——face 级
+    // 缺省静默与 routes.test 断言只锁 face 本体，装配层腿归本锁（07 §4.4
+    // 明许断言产码固定串）
+    const daemonSource = readFileSync(join(__dirname, 'serve-daemon.ts'), 'utf8');
+    const bridgeSource = readFileSync(join(__dirname, 'webui-bridge.ts'), 'utf8');
+    expect(daemonSource.split('warn: (message) => writeErr(message)').length - 1).toBe(1);
+    expect(bridgeSource.split('warn: (message) => disclose(message)').length - 1).toBe(1);
   });
 });

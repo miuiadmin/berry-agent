@@ -565,6 +565,9 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
   const face: SdkHttpFaceHandle = faceFactory({
     config,
     bridge,
+    // 传输级 warn 面（挖掘 15 轮 ASM-2——缺省静默在真开面装配位恒注入：
+    // daemon 形走 stderr→daemon.log；前台 webui 位同款 disclose，两位词法锁在案）
+    warn: (message) => writeErr(message),
     // U5-2 构造期 replay：装载序已受理的插件道路由快照注入 routes 位
     // （受理与挂载两时点解耦——03 §10.6 时序缝定形；kit 缺位 = 测试替身形零路由）
     ...(sdkKit.pluginRoutes !== undefined ? { routes: sdkKit.pluginRoutes.snapshot() } : {}),
