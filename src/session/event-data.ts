@@ -9,8 +9,8 @@
  */
 import type { EventSource, TurnEndReason } from '../contracts/index.js';
 
-/** 内容块三形（结构对齐 pi-ai 消息块；session 不 import llm——投影形状自有，llm 侧收口适配） */
-export type ContentBlock = TextBlock | ThinkingBlock | ImageBlock;
+/** 内容块四形（结构对齐 pi-ai 消息块；session 不 import llm——投影形状自有，llm 侧收口适配） */
+export type ContentBlock = TextBlock | ThinkingBlock | ImageBlock | ImageRefBlock;
 
 /** 文本块 */
 export interface TextBlock {
@@ -29,6 +29,22 @@ export interface ImageBlock {
   readonly type: 'image';
   readonly data: string;
   readonly mimeType?: string;
+}
+
+/**
+ * 图片引用块（剪贴板附件批——03 §10.4 ⑤）：受理位铸形的 sha256 内容寻址
+ * 引用，timeline 活数组与 durable 事件同形单一正则形（timeline 从不持粘贴
+ * 图 base64）；投影输出恒引用形，再水化单点在请求组装转换位
+ * （convertToLlm 族——05 §3.1 再水化注）。结构对齐 contracts
+ * ImageRefContent（session 投影形状自有纪律——形状对齐非类型引用）。
+ */
+export interface ImageRefBlock {
+  readonly type: 'image-ref';
+  /** 内容寻址引用（值形 `sha256:<64 位小写十六进制>`——词法执法在受理链） */
+  readonly ref: string;
+  readonly mimeType: string;
+  /** 原始字节数（受理位嗅探后计量——审计位，非投影计量） */
+  readonly bytes: number;
 }
 
 /** turn/start 的 data（空对象——起点即事件自身） */

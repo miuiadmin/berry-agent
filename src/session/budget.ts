@@ -79,8 +79,13 @@ function marker(truncatedChars: number): string {
   return `…[truncated ${truncatedChars} chars]`;
 }
 
-/** 单块体积（截断预算的计量单位；image 按 base64 字符串长度近似——base64 字母表无转义字符，转义前后等长） */
+/** 单块体积（截断预算的计量单位；image 按 base64 字符串长度近似——base64 字母表无转义字符，转义前后等长；
+ * image-ref 引用块整体序列化体积——百字节级恒过刀（05 §1.2 条 4 注：引用形
+ * 非内联 base64，base64 超帽占位规则只辖内联 image 块路径）。 */
 function blockBytes(block: ContentBlock): number {
+  if (block.type === 'image-ref') {
+    return Buffer.byteLength(JSON.stringify(block), 'utf8');
+  }
   switch (block.type) {
     case 'text':
       return escapedBytes(block.text);
@@ -123,6 +128,20 @@ export function truncateContent(
       }
       // 放不下 → 占位（事件日志是审计面非媒体库）
       out.push({ type: 'text', text: '[image-blob-dropped: durable budget]' });
+      remaining = 0;
+      continue;
+    }
+    if (block.type === 'image-ref') {
+      // 引用块百字节级恒过刀（05 §1.2 条 4 注）：邻块耗尽预算的罕见形下
+      // 也不落 image-blob-dropped 占位——引用形本身即预算友好承载，保引用
+      const size = blockBytes(block);
+      if (size <= remaining) {
+        out.push(block);
+        remaining -= size;
+        continue;
+      }
+      // 极端形（剩余预算 < 引用块体积）：整块丢弃同 text/thinking 耗尽律
+      // ——尾标记语义由截断事实承载，不造第二占位词
       remaining = 0;
       continue;
     }

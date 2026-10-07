@@ -39,6 +39,7 @@ import type {
 import { DEFAULT_COMPACTION_CONFIG } from './types.js';
 import {
   buildSummaryPrompt,
+  degradeImageRefsForMaterial,
   evaluateThreshold,
   planFromRange,
   planSegment,
@@ -248,7 +249,9 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
    */
   async function runHost(log: SessionLog, plan: SegmentPlan, instructions?: string): Promise<string> {
     const maxChars = summaryBudgetFor(plan.occludedChars, getConfig());
-    const material = prepareTranscript(plan.occluded, getConfig().materialBudgetChars);
+    // image-ref 引用块先降 [图片] 占位（03 §10.4 ⑤——complete 单发面不读
+    // 附件库，再水化单点只在会话请求组装位）：素材保图位语义不保像素
+    const material = prepareTranscript(degradeImageRefsForMaterial(plan.occluded), getConfig().materialBudgetChars);
     if (material.stage !== 'full') {
       warn(
         `[COMPACTION_MATERIAL_DEGRADED] ${log.sessionId}: stage=${material.stage}（摘要素材超预算已降级——先削弱细节再折叠旧结果；重度溢出时防自救调用自身溢出）`,

@@ -240,6 +240,34 @@ function materialChars(messages: readonly ProjectedMessage[]): number {
   return messages.reduce((sum, m) => sum + JSON.stringify(m, null, 2).length, 0);
 }
 
+/** 素材侧 image-ref 占位词（05 §3.1 同批注——非会话请求面单源） */
+const MATERIAL_IMAGE_PLACEHOLDER = '[图片]';
+
+/**
+ * 素材侧 image-ref 占位降级（03 §10.4 ⑤ / 05 §3.1 同批注——非会话请求面
+ * 规则）：压缩摘素材里的 image-ref 引用块降 `[图片]` 文本占位——complete
+ * 单发面不读附件库（再水化单点只在会话请求组装位 convertToLlm），素材
+ * 以占位保留图位语义不保像素。仅 user 块数组腿可持引用块（工具结果
+ * content 无 image-ref 成员）；纯字符串/无涉行原引用直返。纯函数不
+ * mutate 入参；无引用块素材恒等直返（零分配零漂移）。
+ */
+export function degradeImageRefsForMaterial(messages: readonly ProjectedMessage[]): readonly ProjectedMessage[] {
+  // 快路径：无 user 块数组腿持引用块——恒等直返
+  const hasRef = messages.some(
+    (m) => m.type === 'user' && Array.isArray(m.content) && m.content.some((block) => block.type === 'image-ref'),
+  );
+  if (!hasRef) return messages;
+  return messages.map((m) => {
+    if (m.type !== 'user' || !Array.isArray(m.content)) return m;
+    return {
+      ...m,
+      content: m.content.map((block) =>
+        block.type === 'image-ref' ? { type: 'text', text: MATERIAL_IMAGE_PLACEHOLDER } : block,
+      ),
+    };
+  });
+}
+
 /**
  * 素材侧降级（宿主缺省算法内政——插件算法素材自治不受此约束）：素材超预算
  * 先削弱细节再删除内容、先旧后新（降级序律）。两级：① results-capped——
