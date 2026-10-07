@@ -1,7 +1,8 @@
 /**
  * gate 测试——pre-mutation 守门监听器语义回归锁（05 §5.3 批 15d）：
  * effect/read 放行、无会话放行、无锚放行+warn 两分、per-run 边界游标
- * （同 run 不重拍/推进触发新拍）、捕获失败 fail-closed block。
+ * （同 run 不重拍/推进触发新拍）、捕获失败 fail-closed block、拍摄前屏障
+ * （05 §5.3 D② 治本批——drain seam 排干先于拍摄/排干失败同折 block）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GateInput, ToolDefinition } from '../contracts/index.js';
@@ -220,5 +221,84 @@ describe('createCheckpointGate 守门语义', () => {
     // 帽内最近会话不逐——同 run 段不重拍
     await gate(input('write', last), pass);
     expect(cap.calls).toHaveLength(CHECKPOINT_SESSION_CURSOR_CAP + 2);
+  });
+});
+
+describe('拍摄前屏障（05 §5.3 D② 治本批——drain seam）', () => {
+  it('drain 在场：对判据会话先排干后拍摄（boundarySeq 拍下即有 durable 承载——修前红：drain 永不被调）', async () => {
+    const cap = fakeCapture();
+    const order: string[] = [];
+    const gate = createCheckpointGate({
+      // capture 经包装记序（drain 与 capture 同册断言调用序）
+      capture: async (inp) => {
+        order.push('capture');
+        return cap.fn(inp);
+      },
+      session: fakeSession({ lastClosedBoundary: 5, workspaceRoot: '/ws' }).face,
+      drain: (sessionId) => {
+        order.push(`drain:${sessionId}`);
+      },
+    });
+    await gate(input('write', 's1'), pass);
+    // 序断言：排干先行——活体边界可领先 durable 日志，先排干才保「拍下即有承载」
+    expect(order).toEqual(['drain:s1', 'capture']);
+    expect(cap.calls).toHaveLength(1);
+  });
+
+  it('边界未推进（同 run 段）不排干不拍——屏障只在拍摄位（判据 4 之后）', async () => {
+    const cap = fakeCapture();
+    const drain = vi.fn();
+    const gate = createCheckpointGate({
+      capture: cap.fn,
+      session: fakeSession({ lastClosedBoundary: 5, workspaceRoot: '/ws' }).face,
+      drain,
+    });
+    await gate(input('write', 's1'), pass); // 首拍（排干一次）
+    expect(drain).toHaveBeenCalledTimes(1);
+    drain.mockClear();
+    cap.calls.length = 0;
+    await gate(input('write', 's1'), pass); // 同边界 = 同 run 段——不重拍不排干
+    expect(drain).not.toHaveBeenCalled();
+    expect(cap.calls).toEqual([]);
+  });
+
+  it('read 工具/无会话键不触排干（屏障只在写意图的会话拍摄位）', async () => {
+    const drain = vi.fn();
+    const gate = createCheckpointGate({
+      capture: fakeCapture().fn,
+      session: fakeSession({ lastClosedBoundary: 5, workspaceRoot: '/ws' }).face,
+      drain,
+    });
+    await gate(input('read', 's1'), pass);
+    await gate(input('write'), pass); // 无 sessionId
+    expect(drain).not.toHaveBeenCalled();
+  });
+
+  it('drain 抛错折 fail-closed block（码复用 CHECKPOINT_CAPTURE_FAILED——排干失败与拍摄失败同构语义）、capture 不被调（修前红：无此路径恒放行）', async () => {
+    const cap = fakeCapture();
+    const gate = createCheckpointGate({
+      capture: cap.fn,
+      session: fakeSession({ lastClosedBoundary: 5, workspaceRoot: '/ws' }).face,
+      drain: () => {
+        throw new Error('PERSIST_WRITE_EXHAUSTED：写链已熔断');
+      },
+    });
+    const out = await gate(input('write', 's1'), pass);
+    expect(pass).not.toHaveBeenCalled(); // 短路——拍不了 durable 一致的快照即拒变异
+    expect(cap.calls).toEqual([]); // 排干失败不得进拍摄
+    expect(out.outcome).toMatchObject({ action: 'block' });
+    expect(out.outcome?.action === 'block' && out.outcome.reason.startsWith('[CHECKPOINT_CAPTURE_FAILED]')).toBe(true);
+  });
+
+  it('drain 缺席（不传）= 诚实降级：拍摄照常（无持久化环境的测试形态）', async () => {
+    const cap = fakeCapture();
+    const gate = createCheckpointGate({
+      capture: cap.fn,
+      session: fakeSession({ lastClosedBoundary: 5, workspaceRoot: '/ws' }).face,
+    });
+    const out = await gate(input('write', 's1'), pass);
+    expect(pass).toHaveBeenCalledTimes(1); // 放行
+    expect(cap.calls).toHaveLength(1); // 拍照常
+    expect(out.outcome).toBeUndefined();
   });
 });

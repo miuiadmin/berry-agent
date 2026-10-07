@@ -213,6 +213,19 @@ export class Persistence {
   }
 
   /**
+   * 单会话在队事件同步排干公开面：loadSession 读前屏障（05 §5.0 2026-10-04
+   * 注）之外的第二个消费位 = checkpoint 拍摄前屏障（05 §5.3 D② 治本批定形注
+   * ——凡拍 boundarySeq 的触发位先排干，令边界拍下即有 durable 承载）。
+   * 失败语义 fail-loud 原样重抛（写链熔断 PERSIST_WRITE_EXHAUSTED / 同步写
+   * 失败——与 loadSession 读前屏障同面）。纯透传——close 编舞与生命周期
+   * 不涉。
+   */
+  drainSessionNow(sessionId: string): void {
+    this.ensureOpen();
+    this.writeBehind.drainSessionNow(sessionId);
+  }
+
+  /**
    * 种子会话创建（fork/导入的物理腿，§5.0/§5.1）：**同步落库**（种子事件 +
    * sessions 行单事务——flush 语义内联，返回 id 必可读）后发放接好续写的
    * SessionLog。

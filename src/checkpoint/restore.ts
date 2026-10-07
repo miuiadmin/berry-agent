@@ -7,7 +7,8 @@
  *
  * restore（段二，三步序）：
  *   ① pre-rewind 保底快照先行——把「即将被回退覆盖的现状」先拍下来
- *      （rewind 自身可回退——痕迹可清算）；
+ *      （rewind 自身可回退——痕迹可清算；拍摄前先排干发起会话 write-behind
+ *      在队事件——05 §5.3 D② 治本批：boundarySeq 拍下即有 durable 承载）；
  *   ② 文件恢复——逐 manifest 条目 tmp+rename 原子写（哈希同则不写——
  *      保 mtime；缺席父目录 mkdir recursive）+ walk 域内真恢复（manifest
  *      外文件删除 + 空目录自底向上清剪、根不删）。中途崩溃重跑同
@@ -42,6 +43,16 @@ export interface RewindRestoreDeps {
   session?: SessionContextFace;
   /** 发起会话（保底快照归属；缺省记在 manifest 原会话名下） */
   invokingSessionId?: string;
+  /**
+   * 拍摄前屏障 seam（05 §5.3 D② 治本批定形注）：pre-rewind 保底拍前对发起
+   * 会话同步排干 write-behind 在队事件——保底拍的 boundarySeq 拍下即有
+   * durable 承载（活体边界可领先 durable 日志）。排干条件与 boundary 活体
+   * 读取严格同（session face 与 invokingSessionId 双在场；缺一即 boundary=-1
+   * 形无 durable 承载需求，不排干）。真身 = persistence.drainSessionNow 透传
+   * （经 host deps 注入）；缺席 = 诚实降级（无持久化环境的测试形态）。抛错
+   * 原样直通——保底拍失败即中止（既有错误面承载，command 面守卫错折文本）。
+   */
+  drain?: (sessionId: string) => void;
   /** 时钟（缺省 Date.now——测试注入） */
   now?: () => number;
   /** manifest id 源（缺省 randomUUID——测试注入） */
@@ -149,10 +160,17 @@ export async function restoreRewind(deps: RewindRestoreDeps, id: string): Promis
 
   /* ---- ① pre-rewind 保底快照（rewind 自身可回退——痕迹可清算） ---- */
   const snapshotOwner = deps.invokingSessionId ?? manifest.sessionId;
-  const boundary =
-    (deps.session !== undefined && deps.invokingSessionId !== undefined
-      ? deps.session.contextOf(deps.invokingSessionId)?.lastClosedBoundary
-      : undefined) ?? -1;
+  // 拍摄前屏障（05 §5.3 D② 治本批）：排干与 boundary 活体读取共用同一条件
+  // （session face 与 invokingSessionId 双在场——缺一即 -1 形无 durable 承载
+  // 需求，不排干），序 = 先排干、后读 boundary、再保底拍——排干令保底拍的
+  // boundarySeq 拍下即有 durable 承载。排干抛错不吞原样直通：保底拍失败即
+  // 中止（既有错误面承载，command 面守卫错折文本——fail-closed：对着落不了
+  // 库的边界拍快照 = 伪承诺）
+  let boundary = -1;
+  if (deps.session !== undefined && deps.invokingSessionId !== undefined) {
+    deps.drain?.(deps.invokingSessionId);
+    boundary = deps.session.contextOf(deps.invokingSessionId)?.lastClosedBoundary ?? -1;
+  }
   const capture = createCapture(deps.store, { now: deps.now, newId: deps.newId });
   const preRewind = await capture({
     sessionId: snapshotOwner,

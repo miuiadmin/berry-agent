@@ -260,6 +260,21 @@ describe('loadSession 读前屏障（05 §5.0 2026-10-04 注——retire→reope
   });
 });
 
+describe('drainSessionNow 透传（05 §5.3 D② 拍摄前屏障——checkpoint 消费位）', () => {
+  it('同 tick 在队事件同步排干：不 tick 微任务直接调，store 读面即含该事件（修前红：面不存在即 TypeError）', () => {
+    const p = open();
+    const log = p.createSession({ origin: 'conversation' });
+    oneTurn(log, 'queued turn');
+    // 未 flush 未 await——异步 drain 微任务未点火，事件仅在队（读面零事件）
+    expect(p.store.loadEvents(log.sessionId)).toHaveLength(0);
+    // 拍摄前屏障真身：同步排干后 boundarySeq 类读面（行 last_seq/事件前缀）
+    // 即含在队事件——拍下即有 durable 承载
+    p.drainSessionNow(log.sessionId);
+    expect(p.store.loadEvents(log.sessionId)).toHaveLength(2);
+    expect(p.store.getSessionRow(log.sessionId)?.lastSeq).toBe(1);
+  });
+});
+
 describe('透传面', () => {
   it('queryEvents 过滤 / listSessions workspaceRoot 选取 / updateSessionTitle', async () => {
     let clock = 1_000;

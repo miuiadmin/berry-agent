@@ -497,6 +497,14 @@ interface CheckpointPluginHostDeps {
    */
   readonly checkpointFork?: RewindForkFace;
   /**
+   * 拍摄前屏障 seam 真身位（2026-10-07 D② 治本批——05 §5.3 定形注）：
+   * persistence.drainSessionNow 透传接线——gate 拍（判据 4 后 capture 前）与
+   * pre-rewind 保底拍前同步排干该会话 write-behind 在队事件，令 boundarySeq
+   * 拍下即有 durable 承载（活体边界可领先 durable 日志的崩溃窗根除）。
+   * 缺席 = 诚实降级（测试替身形/:memory: 诊断形）。
+   */
+  readonly checkpointDrain?: (sessionId: string) => void;
+  /**
    * 焦点会话取值器（批 19c-4——/rewind 发起会话真源：命令分派时点
    * channels.focusedId；list 按其工作区锚列点、保底快照归属同源）。
    * 缺席 = /rewind 诚实拒（无焦点会话上下文），gate 不受影响。
@@ -1958,8 +1966,15 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
       context.provide('checkpoint', { store });
 
       // 守门监听（effect:'write' + 会话边界推进判据——per-run 一 manifest；
-      // 类型适配在边界收口：PluginHookHandler unknown 面与 GateInput 收窄一处）
-      const gate = createCheckpointGate({ capture, session: sessionFace, warn });
+      // 类型适配在边界收口：PluginHookHandler unknown 面与 GateInput 收窄一处。
+      // 拍摄前屏障 drain 位透传（D② 治本批）：排干先于 capture——boundarySeq
+      // 拍下即有 durable 承载；缺席即不排干（诚实降级）
+      const gate = createCheckpointGate({
+        capture,
+        session: sessionFace,
+        warn,
+        ...(deps.checkpointDrain !== undefined ? { drain: deps.checkpointDrain } : {}),
+      });
       const offGate = context.on('tools_pre_execute', (value, next) =>
         gate(value as GateInput, (v) => next(v) as Promise<GateInput>),
       );
@@ -1979,7 +1994,8 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
             return;
           }
           // runRewindCommand 依赖（批3：busy 守卫 + adopt 切前台两位透传——
-          // 文本 restore 与面板 onRestore 共支同路，一致收益）
+          // 文本 restore 与面板 onRestore 共支同路，一致收益；拍摄前屏障
+          // drain 位透传〔D② 治本批〕：pre-rewind 保底拍前对发起会话排干）
           const rewindDeps = {
             store,
             session: sessionFace,
@@ -1988,6 +2004,7 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
             invokingSessionId: sessionId,
             ...(deps.focusRunning !== undefined ? { focusRunning: deps.focusRunning } : {}),
             ...(deps.adoptSession !== undefined ? { adoptSession: deps.adoptSession } : {}),
+            ...(deps.checkpointDrain !== undefined ? { drain: deps.checkpointDrain } : {}),
           };
           // 批3 无参分支（05 §5.3 翻案笔②无参选择器形态）：openRewindPicker
           // 槽在场 = 开 RewindPicker 副屏（清单行 manifestLine 渲染单源——

@@ -1,13 +1,14 @@
 /**
  * restore 测试——/rewind 两段事务回归锁（05 §5.3 批 15d）：preview 零改动
  * 对账 / restore 三步序（保底拍→文件恢复→fork）/ 幂等收敛 / 空目录清剪 /
- * veto 不回滚文件 / blob 缺席 STORE_CORRUPT。
+ * veto 不回滚文件 / blob 缺席 STORE_CORRUPT / 拍摄前屏障（05 §5.3 D② 治本批
+ * ——pre-rewind 保底拍前对发起会话排干 write-behind 在队事件）。
  */
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCapture } from './capture.js';
 import { openCheckpointStore, type CheckpointStore } from './store.js';
 import { previewRewind, restoreRewind } from './restore.js';
@@ -286,5 +287,77 @@ describe('gitignore 域一致性（walk 域内真恢复）', () => {
     // noise.log 不在 manifest（快照时已被 ignore）也不在当前 walk 域——不删
     expect(receipt.deletedCount).toBe(0);
     expect(existsSync(join(ws, 'noise.log'))).toBe(true);
+  });
+});
+
+describe('拍摄前屏障（05 §5.3 D② 治本批——pre-rewind 保底拍前排干）', () => {
+  /** 保底拍观测面：包装 store 记 manifest 落仓序（restore 内唯一 manifest 写位 = 保底拍） */
+  function orderStore(order: string[]): CheckpointStore {
+    return {
+      ...store,
+      saveManifest: async (manifest) => {
+        order.push('saveManifest');
+        await store.saveManifest(manifest);
+      },
+    };
+  }
+
+  /** 会话语境面快捷形（双在场腿共用） */
+  const liveSession = { contextOf: () => ({ lastClosedBoundary: 12, workspaceRoot: ws }) };
+
+  it('双在场（session face + invokingSessionId）：对发起会话先排干后保底拍（修前红：drain 永不被调）', async () => {
+    await put('a.txt', 'v1');
+    const m1 = await capture()({ sessionId: 's1', boundarySeq: 3, workspaceRoot: ws, trigger: 'mutation' });
+    const order: string[] = [];
+    const { fork } = fakeFork();
+    await restoreRewind(
+      {
+        store: orderStore(order),
+        fork,
+        invokingSessionId: 'caller-session',
+        session: liveSession,
+        drain: (sessionId) => {
+          order.push(`drain:${sessionId}`);
+        },
+      },
+      m1.id,
+    );
+    // 序断言：排干（发起会话键）先行——boundarySeq 拍下即有 durable 承载
+    expect(order[0]).toBe('drain:caller-session');
+    expect(order[1]).toBe('saveManifest');
+  });
+
+  it('session face 或 invokingSessionId 缺席（boundary=-1 形）+ drain 在场：不排干（无 durable 承载需求）', async () => {
+    await put('a.txt', 'v1');
+    const m1 = await capture()({ sessionId: 's1', boundarySeq: 0, workspaceRoot: ws, trigger: 'mutation' });
+    const drain = vi.fn();
+    const { fork } = fakeFork();
+    // 腿一：session face 缺席
+    await restoreRewind({ store, fork, invokingSessionId: 'caller-session', drain }, m1.id);
+    // 腿二：invokingSessionId 缺席
+    await restoreRewind({ store, fork, session: liveSession, drain }, m1.id);
+    expect(drain).not.toHaveBeenCalled();
+  });
+
+  it('drain 抛错原样直通——restoreRewind rejects（保底拍失败即中止，既有错误面承载；修前红：无此路径不抛）', async () => {
+    await put('a.txt', 'v1');
+    const m1 = await capture()({ sessionId: 's1', boundarySeq: 3, workspaceRoot: ws, trigger: 'mutation' });
+    const boom = new Error('PERSIST_WRITE_EXHAUSTED：写链已熔断');
+    const { fork } = fakeFork();
+    await expect(
+      restoreRewind(
+        {
+          store,
+          fork,
+          invokingSessionId: 'caller-session',
+          session: liveSession,
+          drain: () => {
+            throw boom;
+          },
+        },
+        m1.id,
+      ),
+      // 同对象断言 = 原样直通（不吞不改不折 veto 面）
+    ).rejects.toBe(boom);
   });
 });

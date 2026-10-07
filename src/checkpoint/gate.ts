@@ -9,12 +9,17 @@
  *      特性不适用位不放行会拦掉全部无锚会话的写工具）；
  *   4. **per-run 一 manifest**：会话末闭合边界（lastClosedBoundary）较上次
  *      捕获推进才拍——同 run 段边界不动不重拍；turn 闭合后新 run 首变异
- *      触发新拍。判据以 durable 日志为真源（SessionContextFace），无装配
- *      遗忘风险。
+ *      触发新拍。判据边界取活体日志（SessionContextFace 活体双单源——内存
+ *      边界可领先 durable 日志）+ 拍摄前屏障对齐 durable（05 §5.3 D② 治本批
+ *      定形注：drain seam 排干在队事件后拍摄，boundarySeq 拍下即有 durable
+ *      承载；屏障缺席时本自述不成立——诚实降级形态）。
  *
  * 失败语义（fail-closed）：捕获抛错 = 置 outcome block（reason 首缀
  * CHECKPOINT_CAPTURE_FAILED）不调 next 短路——拍不了就放行变异 = 伪承诺。
- * 监听器自身不抛（抛 = TOOL_GATE_FAILED 会混淆码面——本件有专属码）。
+ * 监听器自身不抛（抛 = TOOL_GATE_FAILED 会混淆码面——本件有专属码）；
+ * 拍摄前屏障（drain）与 capture 同 try——排干失败同折 CHECKPOINT_CAPTURE_
+ * FAILED（码复用不立新码——排干失败与拍摄失败同构语义「拍不了 durable
+ * 一致的快照」）。
  *
  * 装配位（批 19c-4 装载态注记）：safety 守门行自装载态集成（19a）起
  * per-session 于 open-tools 装配位注册（会话 open 晚于 boot），本行经插件
@@ -74,8 +79,16 @@ export function createCheckpointGate(deps: CheckpointGateDeps): CheckpointGateLi
     const last = lastCapturedBoundary.get(sessionId);
     if (last !== undefined && boundary <= last) return next(input);
 
-    // 捕获（mutation 拍）：失败折 fail-closed block——reason 首缀专属码
+    // 捕获（mutation 拍）：失败折 fail-closed block——reason 首缀专属码。
+    // 拍摄前屏障（05 §5.3 D② 治本批）：判据 4（边界推进）通过后、capture 前
+    // 同步排干该会话 write-behind 在队事件——活体边界可领先 durable 日志，
+    // 排干令 boundarySeq 拍下即有 durable 承载（拍后崩溃/sever/毒丸窗根除）。
+    // 与 capture 同 try（排干在 try 外抛错会逃监听器折 TOOL_GATE_FAILED
+    // 混淆码面）；排干抛错经既有 catch 折 CHECKPOINT_CAPTURE_FAILED——码复用
+    // 不立新码（排干失败与拍摄失败同构语义，reason 模板沿用）。缺席 = 诚实
+    // 降级（无持久化环境的测试形态）
     try {
+      deps.drain?.(sessionId);
       await deps.capture({ sessionId, boundarySeq: boundary, workspaceRoot: ctx.workspaceRoot, trigger: 'mutation' });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

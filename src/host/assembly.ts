@@ -1095,6 +1095,13 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               checkpointFork: {
                 fork: (sourceSessionId, options) => stack.manager.fork(sourceSessionId, options),
               } satisfies RewindForkFace,
+              // 拍摄前屏障 seam 真身（2026-10-07 D② 治本批——05 §5.3 定形注）：
+              // persistence.drainSessionNow 透传——gate 拍（判据 4 后 capture 前）
+              // 与 pre-rewind 保底拍前同步排干该会话 write-behind 在队事件，
+              // boundarySeq 拍下即有 durable 承载（contextOf 活体边界读 +
+              // write-behind 滞后 → 拍后崩溃/sever/毒丸致 durable 永久短于
+              // boundarySeq 的崩溃窗根除）
+              checkpointDrain: (sessionId) => runtimeNow.persistence.drainSessionNow(sessionId),
               focusSessionId: () => stack.channels.focusedId ?? undefined,
               // ——批3 三位（2026-09-30 会话管理命令批——05 §5.3 翻案笔①③）——
               // openRewindPicker 经上方 late-bound 槽间接（backend 晚于装载

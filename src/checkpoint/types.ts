@@ -78,6 +78,15 @@ export interface CheckpointGateDeps {
   session: SessionContextFace;
   /** 诊断面（缺省 console.warn——无锚放行等知情面降级上报） */
   warn?: (message: string) => void;
+  /**
+   * 拍摄前屏障 seam（05 §5.3 D② 治本批定形注）：对拍 boundarySeq 的会话先
+   * 同步排干 write-behind 在队事件，令边界拍下即有 durable 承载（判据边界
+   * 取活体日志可领先 durable 日志——不排干即留下「拍后崩溃/毒丸致 durable
+   * 永久短于 boundarySeq」的崩溃窗）。真身 = persistence.drainSessionNow
+   * 透传（经 host deps 注入）；缺席 = 诚实降级（无持久化环境的测试形态——
+   * GoalSessionFace 可选两法同先例）。
+   */
+  drain?: (sessionId: string) => void;
 }
 
 /** 守门载荷的会话键扩展位（04 §7 批 15d 补注——管道透传进守门面） */
