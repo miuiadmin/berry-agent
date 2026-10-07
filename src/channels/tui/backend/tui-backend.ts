@@ -1362,6 +1362,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       new UsageViewer({
         sessionId,
         summary,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -1441,6 +1442,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         commands,
         actions: this.keymap.actions, // 键位册投影——解析后生效键集（覆盖随动）
         sessionId: this.sessionId,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -1461,6 +1463,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const handle = this.altHost.open(
       new StatusViewer({
         data,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线；data.theme 档位串另键不撞）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -1482,6 +1485,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       new DebugViewer({
         data,
         sessionId: this.sessionId, // 打断柄锚当前交互会话位（调试面 host 级、不呈会话段）
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -1512,6 +1516,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.touchFixed();
         },
         sessionId: this.sessionId,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -1533,6 +1538,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       new GuideViewer({
         data,
         sessionId: this.sessionId,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -1633,6 +1639,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         current,
         onSelect,
         sessionId: this.sessionId,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -1662,6 +1669,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         current,
         onSelect,
         sessionId: this.sessionId,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -1691,6 +1699,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         current,
         onSelect,
         sessionId: this.sessionId,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
