@@ -18,7 +18,7 @@ import { blockRows } from './block-rows.js';
 import type { StyledGrapheme } from './layout.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
-/** 构造入参（theme 缺省 = DEFAULT_THEME——无装配面消费位） */
+/** 构造入参（theme 缺省 = DEFAULT_THEME——消费位：thinking 块展开体行 view.theme〔主会话装配 tui-backend theme: this.theme 链〕） */
 interface DocOptions {
   readonly theme?: ResolvedTheme;
 }

@@ -117,7 +117,7 @@ export interface CallsViewerOptions {
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
-  /** 主题（头行 accent 注入位——缺省 DEFAULT_THEME，装配位接线前呈现不缺色） */
+  /** 主题（头行 accent 注入位——测试装配缺省 DEFAULT_THEME；主会话装配位已接线 tui-backend theme: this.theme） */
   readonly theme?: ResolvedTheme;
 }
 
