@@ -619,13 +619,37 @@ function textOf(message: AgentMessage): string {
   return joinTextBlocks(message.content);
 }
 
-/** 文本块抽取拼接（图文/思考/工具块族里 text 块的串接——无文本块返 ''） */
+/**
+ * 图片占位行文案（03 §10.4 剪贴板附件批注⑦——TUI 对端呈现）：终端无图呈现
+ * 面，user 块 image/image-ref 块降本占位行在场（webui 粘贴的图在 TUI 侧以
+ * 占位行可见——同一 durable 事件两通道呈现）；joinTextBlocks 现状静默丢图
+ * 升格诚实占位。
+ */
+const IMAGE_PLACEHOLDER_LINE = '[图片]';
+
+/**
+ * 文本块抽取拼接（图文/思考/工具块族里 text 块的串接——无文本块返 ''）。
+ * image/image-ref 块降「[图片]」占位行：每块一行、图序保留——与文本行序
+ * 交织按 content 块序（03 §10.4 剪贴板附件批注⑦）。文本块相邻仍零分隔直
+ * 拼（既有行为不变——占位行只求自身独占一行，行界只在占位两侧按需补齐）。
+ */
 function joinTextBlocks(blocks: readonly { type: string; text?: string }[]): string {
-  const parts: string[] = [];
+  let out = '';
+  let lastWasPlaceholder = false; // 上一块是否图占位——其后文本块须另起一行
   for (const block of blocks) {
-    if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text);
+    if (block.type === 'text' && typeof block.text === 'string') {
+      // 占位后首文本块补行界（占位行不被后续文本粘连——每块一行的「块」语义）
+      if (lastWasPlaceholder) out += '\n';
+      out += block.text;
+      lastWasPlaceholder = false;
+    } else if (block.type === 'image' || block.type === 'image-ref') {
+      // 图块占位（type 字符串直判——image-ref 块形由剪贴板附件批扩，本位不依赖联合收窄）
+      if (out !== '' && !out.endsWith('\n')) out += '\n';
+      out += IMAGE_PLACEHOLDER_LINE;
+      lastWasPlaceholder = true;
+    }
   }
-  return parts.join('');
+  return out;
 }
 
 /** 思考块抽取拼接（批 10i——连续思考块 '\n\n' 串接；redacted 无文本体跳过） */

@@ -501,6 +501,68 @@ describe('LiveTranscript 投影重建与帽', () => {
   });
 });
 
+/* ---------------- 图片占位行（03 §10.4 剪贴板附件批注⑦——TUI 对端呈现） ---------------- */
+
+describe('LiveTranscript user 块图片占位行（03 §10.4 剪贴板附件批注⑦——静默丢图升格诚实占位）', () => {
+  /**
+   * 图文块 user 消息工厂（字面量直构——image/image-ref 块形由剪贴板附件批扩，
+   * 测试不 import 新类型只按块 type 字符串构造；joinTextBlocks 判形同律）。
+   */
+  const userImgMsg = (blocks: unknown[]): AgentMessage =>
+    ({ role: 'user', content: blocks, timestamp: 1 }) as unknown as AgentMessage;
+
+  it('投影路：image/image-ref 块各降一行「[图片]」占位——图序与文本行序按 content 块序交织（修前红锚——现状静默丢图）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([
+      userImgMsg([
+        { type: 'text', text: '看这两张图' },
+        { type: 'image', data: 'aGk=', mimeType: 'image/png' },
+        { type: 'image-ref', ref: `sha256:${'a'.repeat(64)}`, mimeType: 'image/png', bytes: 100 },
+        { type: 'text', text: '收到吗' },
+      ]),
+    ]);
+    // 修前红锚：joinTextBlocks 只取 text 块 → '看这两张图收到吗'（图块静默丢失）；
+    // 升格后每图一行占位、与文本行按块序交织
+    expect(t.snapshot[0]).toEqual({ kind: 'user', text: '看这两张图\n[图片]\n[图片]\n收到吗', theme: DEFAULT_THEME });
+  });
+
+  it('三图 = 三行占位（每块一行、图序保留——首图在前文本居中两图收尾的交织形）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([
+      userImgMsg([
+        { type: 'image', data: 'aGk=', mimeType: 'image/png' },
+        { type: 'text', text: '之间' },
+        { type: 'image-ref', ref: `sha256:${'b'.repeat(64)}`, mimeType: 'image/png', bytes: 1 },
+        { type: 'image-ref', ref: `sha256:${'c'.repeat(64)}`, mimeType: 'image/png', bytes: 2 },
+      ]),
+    ]);
+    const slot = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'user' }>;
+    expect(slot.text).toBe('[图片]\n之间\n[图片]\n[图片]'); // 三图三行、块序交织
+  });
+
+  it('image-only 消息：无文本块时占位行仍在场（图不因无文本而消失）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([
+      userImgMsg([{ type: 'image-ref', ref: `sha256:${'d'.repeat(64)}`, mimeType: 'image/png', bytes: 3 }]),
+    ]);
+    const slot = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'user' }>;
+    expect(slot.text).toBe('[图片]');
+  });
+
+  it('直播路 message_end：user 图块同律占位（两路单源 joinTextBlocks）', () => {
+    const t = new LiveTranscript();
+    apply(t, {
+      type: 'message_end',
+      message: userImgMsg([
+        { type: 'text', text: '贴张图' },
+        { type: 'image-ref', ref: `sha256:${'e'.repeat(64)}`, mimeType: 'image/png', bytes: 4 },
+      ]),
+    });
+    const slot = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'user' }>;
+    expect(slot.text).toBe('贴张图\n[图片]');
+  });
+});
+
 /* ---------------- 渲染行提取（批 10f-4——管线单源 renderBlockLines） ---------------- */
 
 describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共用同一管线）', () => {
