@@ -9,7 +9,7 @@
  * 审批。语义维持位（§10.4 改形注②-⑦）：信封三族分档/cookie 桥/fail-closed
  * 分立/已闭分账/注入窄面词面独立律/SPA 静态位语义全维持。
  *
- * 词面单源：端点路由（五撮具体路径——§10.4 批 18a 落码定形注①）/ 信封三族
+ * 词面单源：端点路由（六撮具体路径——§10.4 批 18a 落码定形注①）/ 信封三族
  * kind 闭集与分档判据（注②）/ 路由注册窄面族（注⑤——WebuiRouteFace：结构
  * 兼容 sdk 路由扩展位注册器，词面独立律零 sdk import，host 装配根直传即
  * 结构兼容）/ 注入窄面族（结构兼容 host 装配桥真身，compat 互证归 host
@@ -43,15 +43,24 @@ export const WEBUI_MAX_CONNECTIONS = 16;
 /** POST 族字节帽（256KiB——per-route bodyLimitBytes 位；超帽 413 且应答永不早于请求体收完〔面级排空纪律〕） */
 export const WEBUI_BODY_LIMIT_BYTES = 256 * 1024;
 
+/** submit 端点专属体帽（32MiB——2026-10-08 剪贴板附件批 03 §10.4 ①：images
+ * 选填扩形后 per-route 显式覆写；预算 = 4 件 × 5MiB × base64 4/3 膨胀 + 文本
+ * 余量。缺省 256KiB 对携图载荷结构性不足，且 sdk 面 10MiB 挂载缺省亦不外泄
+ * 到本端点——per-route 位是唯一真源；/v1/prompt SDK 线同值异源〔各自件侧
+ * 单源〕） */
+export const WEBUI_SUBMIT_BODY_LIMIT_BYTES = 32 * 1024 * 1024;
+
 /** auth cookie 桥 cookie 名（HttpOnly SameSite=Strict——EventSource 无头位；token-or-cookie 档位） */
 export const WEBUI_COOKIE_NAME = 'webui_token';
 
 /**
- * 微路由端点表（五撮——03 §10.4 批 18a 落码定形注①定形；SPA fallback 承载位 = 单 `*` catch-all）。
+ * 微路由端点表（六撮——03 §10.4 批 18a 落码定形注①定形；SPA fallback 承载位 = 单 `*` catch-all）。
  * 2026-09-18 webui 档位面受理批：会话族增档位三端点（GET tiers + 两 PUT）——
  * 路径 13→16、端点计数（method×path）14→17（03 §10.4「端点计数口径」句以后注为准）。
  * 2026-10-07 会话删除编排批：会话族增 DELETE 删除端点——路径 16→17、
  * 端点 17→18（「端点计数口径」句以后注为准）。
+ * 2026-10-08 剪贴板附件批（03 §10.4 ④）：附件族单端点 GET /api/attachments/:ref
+ * ——路径 17→18、端点 18→19（表尾键位与客户端副本逐字对齐）。
  */
 export const WEBUI_ENDPOINTS = {
   /** GET——探活（open/liveness；只回 ok 零敏感面） */
@@ -88,6 +97,10 @@ export const WEBUI_ENDPOINTS = {
   workspaceFiles: '/api/workspace/files',
   /** GET——补全族两段之二（?q= 前缀查询） */
   workspaceSymbols: '/api/workspace/symbols',
+  /** GET——附件字节回放（:ref = `sha256:<64hex>` 内容地址；判序坏形 400 →
+   * 注入键缺席 501 → 不在场 404 → 命中 200 字节直出——2026-10-08 剪贴板
+   * 附件批 03 §10.4 ④；SPA img 标签的 src 供数位） */
+  attachments: '/api/attachments/:ref',
 } as const;
 
 /* ---------------- 信封三族（帧合成钉死：载荷恒整体单次 JSON.stringify） ---------------- */
@@ -146,12 +159,26 @@ export interface WebuiSessionSummary {
 /** 会话状态三档（submit/events 受理门判据——装配桥映射真源） */
 export type WebuiSessionState = 'open' | 'closed' | 'missing';
 
+/** 提交载荷单图（剪贴板附件批——03 §10.4 ① images 位成员）。件侧只透传
+ * 不实现：typebox 校验与 per-route 体帽在件侧，受理执法（魔数嗅探/双帽/
+ * 落盘铸引用块）在 host 装配桥受理链——词面独立律。 */
+export interface WebuiSubmitImage {
+  /** 图片原文 base64（标准带填充形） */
+  readonly data: string;
+  /** 声明 MIME（受理链与魔数嗅探族核验——勿信声明） */
+  readonly mimeType: string;
+}
+
 /** 提交载荷（messageId 选填 = SPA 重试幂等位——缺席即 undefined 透传、件侧
- * 不再补生成；undefined = 无幂等不落账，与 SDK 线同律——8572ccd 拍板句） */
+ * 不再补生成；undefined = 无幂等不落账，与 SDK 线同律——8572ccd 拍板句）。
+ * images 选填 = 粘贴图族（03 §10.4 ①）：缺席/空数组 = 纯文本零漂移；在场
+ * 时 host 受理链逐件校验铸 image-ref 引用块，拒形 = 受理拒异常上抛（status
+ * 400——件侧窄 catch 折 400 bad_request，受理拒非进程内错误轨零新码）。 */
 export interface WebuiSubmitInput {
   readonly sessionId: string;
   readonly content: string;
   readonly messageId: string | undefined;
+  readonly images?: readonly WebuiSubmitImage[];
 }
 
 /**
@@ -189,8 +216,22 @@ export interface WebuiSessionsFace {
  * 契约形不动、reseedTimeline 共享输出不动（模型 timeline 种子与 GET 读面
  * 共用同一函数——「天然不携 seq」结构性依据保持，seq 不进模型上下文）；
  * 副本位贴 seq 由 host 栈 projectionWithSeqOf 铸（本型是其返回形的名义名）。
+ *
+ * 剪贴板附件批（03 §10.4 ⑥）局部增位第二枚：images 位（user 消息 image-ref
+ * 引用块的引用形投影——ref 内容地址 + mimeType，不回传内联 base64；SPA 以
+ * ref 拼 `/api/attachments/:ref` 取字节）。Message 契约形不动同律：块数组
+ * content 原样在场，images 位是 GET 读面的映射便利位（服务端组装、仅 user
+ * 行、有图才注键）；rehydrate 单源在 convertToLlm——投影保持引用形。
  */
-export type WebuiMessageItem = AgentMessage & { readonly seq: number };
+export type WebuiMessageItem = AgentMessage & { readonly seq: number; readonly images?: readonly WebuiMessageImage[] };
+
+/** 投影 images 位成员（引用形——image-ref 块的 {ref, mimeType} 投影；字节取用走附件端点） */
+export interface WebuiMessageImage {
+  /** 内容地址（`sha256:<64hex>`——附件读回端点路径段直用） */
+  readonly ref: string;
+  /** MIME（受理链核验后的真值——与落盘记录同源） */
+  readonly mimeType: string;
+}
 
 /** 投影读面（fetchMessages 结构兼容 conversation 栈 projectionOf 同形） */
 export interface WebuiReadFace {
@@ -225,6 +266,18 @@ export interface WebuiReadFace {
    * 不注入——03 §10.4 批注）。
    */
   exportJsonl?(sessionId: string): string | undefined;
+  /**
+   * 附件字节读回（2026-10-08 剪贴板附件批——03 §10.4 ④：GET
+   * /api/attachments/:ref 的执行体；可选键）。结构兼容 host 装配桥真身
+   * （词面独立律——桥内直达 persist attachment-store.read；webui 边表
+   * deps 仅 contracts+channels 无 persist 边，Buffer 为 Uint8Array 子型
+   * 结构兼容零 persist import）。null = 合形 ref 但文件不在场（端点 404
+   * not_found）；键缺席 = 端点 501 诚实缺席（API-only 形——exportMarkdown
+   * 同族；501 判先于 404，词法坏形 400 又先于 501——词法错先于状态错）。
+   * mimeType 由读回记录单源派生（ext→MIME 映射在 persist 单源——件侧不
+   * 查扩展名不二次判）。
+   */
+  readAttachment?(ref: string): { readonly bytes: Uint8Array; readonly mimeType: string } | null;
 }
 
 /** 补全族注入面（两段——缺席诚实空，v1 装配批按需接线） */

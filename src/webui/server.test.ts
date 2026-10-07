@@ -15,11 +15,13 @@
  * ①三防线执法序（Host 403 / Origin 403·无 Origin 放行·同源过——面级先行）
  * ②鉴权门（无凭证/错 token 401 / Bearer 过 / auth cookie 桥 Set-Cookie 属性
  * 与 cookie 形复用）
- * ③微路由五撮（探活/会话族含 closed·missing 分账/补全族缺席诚实空；/export
+ * ③微路由六撮（探活/会话族含 closed·missing 分账/补全族缺席诚实空；/export
  *   markdown 直出三态——2026-09-17 TUI 余量收官批②；档位面三端点——2026-09-18
  *   webui 档位面受理批：501 判先于会话态 404 / GET 全形状含无锚 null 形 /
  *   fold 坏词面级 500 / PUT 坏词 400 码族词面 / 体帽显式 256KiB 位；DELETE
- *   删除端点三态分档 + 已闭可删 + 501 缺席先于三态——2026-10-07 会话删除编排批）
+ *   删除端点三态分档 + 已闭可删 + 501 缺席先于三态——2026-10-07 会话删除编排批；
+ *   /attachments 附件读回端点判序四态 + submit images 受理扩形——2026-10-08
+ *   剪贴板附件批 03 §10.4 ①④⑥）
  * ④体限幅 413 且应答不早于收完（排空后应答——拿到应答即证无 RST 连坐）
  * ⑤SSE 信封分档（display 活体 / session 终结镜像 / asked 镜像）与按会话
  * 路由（status 定向 / notify 广播）
@@ -70,6 +72,10 @@ interface DepsStub {
   setSession(sessionId: string, state: WebuiSessionState): void;
 }
 
+/** 附件读回命中锚（03 §10.4 ④——s-img 桩首枚 image-ref 同 ref：读回桩与投影
+ *  桩共用一枚内容地址，端点腿与投影腿各取所需） */
+const ATTACHMENT_REF_IN_STORE = 'sha256:' + 'a1'.repeat(32);
+
 function makeDeps(opts?: {
   readonly withoutTodo?: boolean;
   readonly withoutCompletion?: boolean;
@@ -80,10 +86,15 @@ function makeDeps(opts?: {
   readonly withoutTiers?: boolean;
   /** 删除键缺席（DELETE 端点 501 诚实缺席形——WebuiSessionsFace.deleteSession 可选键） */
   readonly withoutDelete?: boolean;
+  /** 附件读回键缺席（GET /api/attachments/:ref 端点 501 诚实缺席形——03 §10.4 ④） */
+  readonly withoutAttachment?: boolean;
   /** fold 坏词形（tiersOf 抛 BaseError——面级 500 路；冷读 CR-TIER-2 边缘三形之三） */
   readonly foldBadWord?: boolean;
   /** submit 幂等冲突形（桥 submitPrompt 抛 SDK_MESSAGE_CONFLICT——409 结构码路） */
   readonly conflictSubmit?: boolean;
+  /** submit 受理拒形（桥 submitPrompt 抛 status 400 异常——AttachmentIntakeRejectionError
+   *  鸭子形最小同构：件侧窄 catch 折 400 bad_request 的对拍锚，03 §10.4 ②） */
+  readonly intakeReject?: string;
   /** 信封腿取值 seam 注入（卡② 腿②——缺席 = 降级形：message_end 帧不挂 seq） */
   readonly tailSeqOf?: (sessionId: string) => number | undefined;
 }): DepsStub {
@@ -95,12 +106,34 @@ function makeDeps(opts?: {
     // 档位面专用：thinking 无锚形会话（fold 与 boot 均缺席 → GET tiers 应答
     // thinkingLevel: null——冷读 CR-TIER-2 边缘三形之二）
     ['s-noanchor', 'open'],
+    // 携图会话（投影 images 位测试锚——messages 桩 s-img 行的在场态）
+    ['s-img', 'open'],
   ]);
   // 桩投影（卡② 腿①——读面应答逐条带 seq：fetchMessages 返回形翻 WebuiMessageItem，
   // 桩数据同步贴 seq 锚位——内容面对注入位 opaque，seq 逐条在场即锁）
   const messages = new Map<string, WebuiMessageItem[]>([
     ['s-1', [{ role: 'user', content: '问', timestamp: 1_690_000_000_000, seq: 0 }]],
     ['s-closed', [{ role: 'user', content: '旧账', timestamp: 1_680_000_000_000, seq: 2 }]],
+    // 携图会话（剪贴板附件批 03 §10.4 ⑥ 投影 images 位测试锚）：user content
+    // 块数组含 image-ref 引用块两枚（受理位铸形——引用形非内联 base64），
+    // GET messages 应答须映射 images 位 {ref, mimeType}[]；assistant 行零图
+    // 作对照（投影 images 位只辖 user 消息）
+    [
+      's-img',
+      [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: '看这两张图' },
+            { type: 'image-ref', ref: 'sha256:' + 'a1'.repeat(32), mimeType: 'image/png', bytes: 8 },
+            { type: 'image-ref', ref: 'sha256:' + 'b2'.repeat(32), mimeType: 'image/webp', bytes: 6 },
+          ],
+          timestamp: 1_690_000_000_100,
+          seq: 3,
+        },
+        { role: 'assistant', content: [{ type: 'text', text: '收到' }], timestamp: 1_690_000_000_200, seq: 4 },
+      ],
+    ],
   ]);
   // /export markdown 直出桩（renderSessionMarkdown 产出形的最小同构——内容
   // 面为注入面 opaque，拼装单源对拍归 host 桥测试件）
@@ -187,6 +220,12 @@ function makeDeps(opts?: {
         if (opts?.conflictSubmit === true) {
           throw new BaseError('SDK_MESSAGE_CONFLICT', `messageId=${input.messageId} 同键异内容（幂等 admit 冲突档）`);
         }
+        // 受理拒形（03 §10.4 ②）：host 受理链拒 = 携 status 400 的普通 Error
+        //（AttachmentIntakeRejectionError 鸭子形最小同构——件侧不可 import host
+        // 模块，窄 catch 按 status 位折 400；文案五族中文白话住码面单源）
+        if (opts?.intakeReject !== undefined) {
+          throw Object.assign(new Error(opts.intakeReject), { status: 400 });
+        }
         submitted.push(input);
         return { sessionId: input.sessionId };
       },
@@ -228,6 +267,25 @@ function makeDeps(opts?: {
         : {
             exportMarkdown: (id: string) => markdowns.get(id),
             ...(opts?.withoutExportJsonl === true ? {} : { exportJsonl: (id: string) => jsonls.get(id) }),
+          }),
+      // 附件读回键（03 §10.4 ④——GET /api/attachments/:ref 的注入面；缺席 =
+      // withoutAttachment 时键不注 → 501 诚实缺席形）。桩最小同构真身
+      // host 桥读回：命中返 {bytes, mimeType}（bytes 为 Uint8Array——真身
+      // persist attachment-store.read 的 Buffer 即其子型），不在场返 null。
+      ...(opts?.withoutAttachment === true
+        ? {}
+        : {
+            readAttachment: (ref: string) => {
+              // 命中锚：PNG 魔数头（\x89PNG\r\n\x1a\n）+ 尾块——Content-Type
+              // 由读回记录的 mimeType 单源派生，件侧不查扩展名
+              if (ref === ATTACHMENT_REF_IN_STORE) {
+                return {
+                  bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]),
+                  mimeType: 'image/png',
+                };
+              }
+              return null;
+            },
           }),
     },
     ...(opts?.withoutCompletion === true ? {} : { completion: { workspaceFiles: (q) => [`a/${q}.ts`] } }),
@@ -571,6 +629,28 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     expect((closed.json as { messages: AgentMessage[] }).messages[0]).toMatchObject({ role: 'user' });
   });
 
+  it('投影 images 位映射：user 块数组的 image-ref 逐枚映 {ref, mimeType} 保序；assistant/纯文本行零 images 键（03 §10.4 ⑥）', async () => {
+    // 修前红：WebuiMessageItem 无 images 位——携图 user 行的应答里图位缺场
+    //（SPA 无从画图）；投影保持引用形（ref 内容地址），内联 base64 不回传
+    const res = await get('/api/sessions/s-img/messages');
+    expect(res.status).toBe(200);
+    const items = (res.json as { messages: WebuiMessageItem[] }).messages;
+    expect(items).toHaveLength(2);
+    // user 行：content 块数组原样在场 + images 位两枚保序映射（text 块不入图位）
+    expect(items[0]).toMatchObject({ role: 'user', seq: 3 });
+    expect(items[0]!.images).toEqual([
+      { ref: 'sha256:' + 'a1'.repeat(32), mimeType: 'image/png' },
+      { ref: 'sha256:' + 'b2'.repeat(32), mimeType: 'image/webp' },
+    ]);
+    // assistant 对照行：零图 → images 键不注（缺省位缺省形，非 null 占位）
+    expect(items[1]).toMatchObject({ role: 'assistant', seq: 4 });
+    expect(items[1]!.images).toBeUndefined();
+    // 纯文本对照：s-1 既有行零漂移（无 images 键）
+    const plain = await get('/api/sessions/s-1/messages');
+    const plainItems = (plain.json as { messages: WebuiMessageItem[] }).messages;
+    expect(plainItems[0]!.images).toBeUndefined();
+  });
+
   it('messages 会话态分账：missing 404 not_found（events 位镜像——修前红：同构桩上抛走面级 500）', async () => {
     // 第八轮深扫 laneF 件F1：修前 handler 无存在性检查，真链 fetchMessages →
     // loadSession 对缺席会话抛 PERSIST_DATA_CORRUPT → 面级 catch 500（存在性
@@ -711,6 +791,45 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
       bare.webui.detach();
       await bare.face.stop();
     }
+  });
+
+  /* ---- ③ 附件读回端点 GET /api/attachments/:ref（2026-10-08 剪贴板附件批 03 §10.4 ④） ---- */
+
+  it('attachments 判序四态：坏形 ref 400 → 注入键缺席 501 → 不在场 404 → 命中 200 字节回放（词法错先于状态错）', async () => {
+    // ① 坏形 ref 400（词法层先执法——非 sha256:64hex 形即拒，不触读回面）
+    const badRef = await get('/api/attachments/' + encodeURIComponent('not-a-ref'));
+    expect(badRef.status).toBe(400); // 修前红：/api/* 兜底 404
+    expect(badRef.json).toMatchObject({ error: 'bad_request' });
+    // ② 注入键缺席 501（readAttachment 键不注——诚实缺席先于文件不在场）
+    const bare = await rig(makeDeps({ withoutAttachment: true }).deps);
+    try {
+      const res = await fetch(`http://127.0.0.1:${bare.port}/api/attachments/${ATTACHMENT_REF_IN_STORE}`, {
+        headers: { authorization: `Bearer ${bare.token}` },
+      });
+      expect(res.status).toBe(501); // 修前红：404（兜底吞掉缺席分档）
+      expect(await res.json()).toMatchObject({ error: 'not_implemented' });
+    } finally {
+      bare.webui.detach();
+      await bare.face.stop();
+    }
+    // ③ 合形但不在场 404（读回返 null 档）
+    const absent = await get('/api/attachments/sha256:' + 'ff'.repeat(32));
+    expect(absent.status).toBe(404);
+    expect(absent.json).toMatchObject({ error: 'not_found' });
+    // ④ 命中 200：字节原样回放 + Content-Type 由读回记录 mimeType 单源派生
+    const hit = await fetch(`http://127.0.0.1:${port}/api/attachments/${ATTACHMENT_REF_IN_STORE}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(hit.status).toBe(200);
+    expect(hit.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await hit.arrayBuffer())).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]),
+    );
+  });
+
+  it('attachments 鉴权缺拒：无凭证 401（鉴权随全 API 面——token-or-cookie 与 export 同族）', async () => {
+    const anon = await fetch(`http://127.0.0.1:${port}/api/attachments/${ATTACHMENT_REF_IN_STORE}`);
+    expect(anon.status).toBe(401);
   });
 
   /* ---- ③ 会话族 DELETE 删除端点（2026-10-07 会话删除编排批 webui 第三载体） ---- */
@@ -988,6 +1107,82 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     }
   });
 
+  it('submit 携图：images 原形透传入桥（受理执法在 host——件侧零实现只透传，03 §10.4 ①）', async () => {
+    // 修前红：SubmitSchema strict 收窄律拒未知字段 images → 400（本例红在
+    // 400 ≠ 202 + 桩记账空）
+    const images = [
+      { data: 'aGVsbG8=', mimeType: 'image/png' },
+      { data: 'eW91', mimeType: 'image/webp' },
+    ];
+    const r = await post('/api/sessions/s-1/submit', { text: '看图', images, messageId: 'm-img-1' });
+    expect(r.status).toBe(200);
+    expect(stub.submitted).toEqual([{ sessionId: 's-1', content: '看图', messageId: 'm-img-1', images }]);
+  });
+
+  it('submit images 坏形拒收：非数组/成员缺 data/成员未知字段 → 400 bad_request（形闸先于受理）', async () => {
+    // strict 维持：images 选填扩形不开「未知字段」口子——成员载荷恰两字段
+    const notArray = await post('/api/sessions/s-1/submit', { text: 'x', images: 'aGVsbG8=' });
+    expect(notArray.status).toBe(400);
+    expect(notArray.json).toMatchObject({ error: 'bad_request' });
+    const missingData = await post('/api/sessions/s-1/submit', {
+      text: 'x',
+      images: [{ mimeType: 'image/png' }],
+    });
+    expect(missingData.status).toBe(400);
+    const extraField = await post('/api/sessions/s-1/submit', {
+      text: 'x',
+      images: [{ data: 'aGVsbG8=', mimeType: 'image/png', bytes: 5 }],
+    });
+    expect(extraField.status).toBe(400);
+    expect(stub.submitted).toEqual([]); // 三坏形均不触桥（形闸先于受理）
+  });
+
+  it('submit 受理拒折 400：host 受理链拒（携 status 400 异常）→ 400 bad_request 文案透传（03 §10.4 ②）', async () => {
+    // 受理链（能力门→数量帽→base64→字节帽→魔数→MIME→像素帽）拒时桥抛
+    // AttachmentIntakeRejectionError（status 400）——件侧窄 catch 折 400 +
+    // 五族中文文案原样到达（文案单源住 host，件侧不复制不断言具体词）
+    const rigged = await rig(makeDeps({ intakeReject: '单张图片不能超过 5MB' }).deps);
+    try {
+      const res = await fetch(`http://127.0.0.1:${rigged.port}/api/sessions/s-1/submit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${rigged.token}` },
+        body: JSON.stringify({ text: '看图', images: [{ data: 'eW91', mimeType: 'image/png' }], messageId: 'm-big' }),
+      });
+      expect(res.status).toBe(400); // 修前红：500（无窄 catch 走面级兜底）
+      const body = (await res.json()) as { error: string; message: string };
+      expect(body.error).toBe('bad_request');
+      expect(body.message).toBe('单张图片不能超过 5MB');
+    } finally {
+      rigged.webui.detach();
+      await rigged.face.stop();
+    }
+  });
+
+  it('submit 体帽 32MiB 定值：挂载小帽不外泄到 submit 端点（per-route 显式帽——amplification 形不真发大包）', async () => {
+    // 03 §10.4 ①：submit 体帽显式 32MiB（4 件 × 5MiB × base64 4/3 膨胀 +
+    // 文本余量）——挂载缺省帽 2048B 档下 4KiB 载荷仍 202 即证端点级帽
+    // 覆写生效（若沿用面级帽则 413 本例红）
+    const bare = await rig(stub.deps, { bodyLimitBytes: 2048 });
+    try {
+      const res = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/s-1/submit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${bare.token}` },
+        body: JSON.stringify({ text: 'x'.repeat(4096), messageId: 'm-fat' }),
+      });
+      expect(res.status).toBe(200); // 修前红：413（面级帽 2048B 拦截）
+      // 对照：/api/auth 仍按面级帽执法（小帽不因 submit 扩形全局放宽）
+      const auth = await fetch(`http://127.0.0.1:${bare.port}/api/auth`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: 'x'.repeat(4096),
+      });
+      expect(auth.status).toBe(413);
+    } finally {
+      bare.webui.detach();
+      await bare.face.stop();
+    }
+  });
+
   it('interrupt：204 + 受理记账', async () => {
     const r = await post('/api/sessions/s-1/interrupt', {});
     expect(r.status).toBe(204);
@@ -1044,15 +1239,17 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
   /* ---- ④ 体限幅 ---- */
 
   it('POST 体超帽 413 且应答不早于收完（拿到应答即证排空后回——无 RST 连坐）', async () => {
+    // 载体注记（剪贴板附件批 03 §10.4 ①）：submit 端点体帽升位定值 32MiB
+    //（携图受理预算）后，本例改走 /api/auth 载体——挂载缺省帽 32B 档的
+    // 面级漏斗腿对拍不变（submit 专属帽腿另立 amplification 例锁）
     const bare = await rig(stub.deps, { bodyLimitBytes: 32 });
     try {
-      const res = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/s-1/submit`, {
+      const res = await fetch(`http://127.0.0.1:${bare.port}/api/auth`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          authorization: `Bearer ${bare.token}`,
         },
-        body: JSON.stringify({ text: 'x'.repeat(200) }),
+        body: JSON.stringify({ token: 'x'.repeat(200) }),
       });
       expect(res.status).toBe(413);
       expect(await res.json()).toMatchObject({ error: 'too_large' });
@@ -1460,7 +1657,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
 /* ---------------- ⑨ 双表对拍锁（词面单源执法——tests 不计边表账） ---------------- */
 
 describe('WEBUI_ENDPOINTS 双表对拍（客户端副本 vs 服务端单源）', () => {
-  it('整表恒等：键集 + 逐键值（17 路径 18 端点口径——服务端改词面则客户端静默 404 的漂移面本例即红）', () => {
+  it('整表恒等：键集 + 逐键值（18 路径 19 端点口径——服务端改词面则客户端静默 404 的漂移面本例即红）', () => {
     // client/protocol.ts 头注承诺「与服务端 WEBUI_ENDPOINTS 同形同词面」——
     // 承诺升为可执行锁；toStrictEqual 整表锁含键集/逐键值/键序三面，
     // 任一侧改词面（含增删键）四门禁即红

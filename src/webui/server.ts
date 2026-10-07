@@ -3,9 +3,10 @@
  * 实装 → 承载位改注册）。
  *
  * **承载位改注册（18a-2'——03 §10.4 改形注记 + §10.6 路由扩展位段）**：
- * 件零自持 node:http 监听——mountWebui(deps) 把五撮 18 端点（2026-09-18
+ * 件零自持 node:http 监听——mountWebui(deps) 把六撮 19 端点（2026-09-18
  * webui 档位面受理批 14→17 会话族档位三端点 + 2026-10-07 会话删除编排批
- * 17→18 DELETE 删除端点）+ SPA fallback 逐条
+ * 17→18 DELETE 删除端点 + 2026-10-08 剪贴板附件批 18→19 附件读回端点）
+ * + SPA fallback 逐条
  * 注册进注入的注册器（sdk 面注册器结构兼容）。归面级的四块（原自持
  * 已删）：三防线（Host 白名单/Origin 硬防线——面级先行适用于一切路由，仅
  * TCP）/ token 鉴权执法（token-or-cookie 档 Bearer ∪ cookie 双通道、恒时
@@ -51,6 +52,16 @@
  *   error 词 busy（message 与 TUI 确认视图状态行主体同句）/ missing→404
  *   not_found；已闭可删（存储编排面——无 sessionStateOf 前置拦，与 tiers
  *   「已闭一律 404」射界分立）；SSE 在飞观众零动作（空 ping 至客户端自断）。
+ * - **剪贴板附件批三面**（2026-10-08——03 §10.4 ①④⑥）：submit 扩 images
+ *   选填数组（{data, mimeType} 逐件 strict——受理执法全在 host 桥受理链，
+ *   件侧零实现只透传；受理拒 = 携 status 400 异常上抛，件侧窄 catch 折
+ *   400 bad_request 文案透传——五族文案单源住 host）；submit 体帽显式
+ *   32MiB（4 件 × 5MiB × base64 4/3 膨胀 + 文本余量——per-route 覆写，
+ *   挂载缺省帽不外泄）；GET /api/attachments/:ref 附件字节回放（判序
+ *   400→501→404→200——/export 同序律：词法错先于状态错、注入键缺席先于
+ *   资源不在场；Content-Type 由读回记录 mimeType 单源派生）；GET messages
+ *   投影 images 位（user 行 image-ref 块映射 {ref, mimeType}[] 保序——引用
+ *   形不回传 base64，rehydrate 单源在 convertToLlm 不动）。
  *
  * 收场语义：detach() = 全路由摘除 + 全流收口 + 审批清槽（**丢弃性结算——
  * 不 resolve**：未决条目不凭空造值抢答；败腿 promise 悬挂由核 finish/队列
@@ -70,8 +81,10 @@ import {
   WEBUI_COOKIE_NAME,
   WEBUI_ENDPOINTS,
   WEBUI_MAX_CONNECTIONS,
+  WEBUI_SUBMIT_BODY_LIMIT_BYTES,
   type WebuiApprovalEntry,
   type WebuiEnvelope,
+  type WebuiMessageImage,
   type WebuiMountDeps,
   type WebuiMountHandle,
   type WebuiMountOptions,
@@ -82,15 +95,33 @@ import {
 
 /* ---------------- typebox 校验（03 §10.4「JSON 均 typebox 校验后消费」） ---------------- */
 
+/** 附件 ref 词法形（剪贴板附件批 03 §10.4 ④——`sha256:` + 64 位小写十六进制；
+ * 与 persist attachment-store 同形本地重述：词面独立律下 webui 无 persist 边，
+ * 单一真源在 persist、此处是消费侧防线形〔两端形漂移由 host 桥装配层对拍〕） */
+const ATTACHMENT_REF_PATTERN = /^sha256:[0-9a-f]{64}$/;
+
 /** 公共字段词面：未知字段拒收（收窄律——请求面载荷即全集） */
 const strict = { additionalProperties: false } as const;
 
 /** auth 体（cookie 桥——token 必填） */
 const AuthSchema = Type.Object({ token: Type.String() }, strict);
 
+/** submit 体单图成员（剪贴板附件批 03 §10.4 ①——恰两字段收窄：data =
+ *  base64 原文、mimeType = 声明 MIME〔受理链与魔数嗅探核验，勿信声明〕） */
+const SubmitImageSchema = Type.Object({ data: Type.String(), mimeType: Type.String() }, strict);
+
 /** submit 体（text 必填；messageId 选填 = SPA 重试幂等位——缺席即 undefined
- * 透传、件侧不补生成〔8572ccd 拍板——与 SDK 线同律：undefined 无幂等不落账〕） */
-const SubmitSchema = Type.Object({ text: Type.String(), messageId: Type.Optional(Type.String()) }, strict);
+ * 透传、件侧不补生成〔8572ccd 拍板——与 SDK 线同律：undefined 无幂等不落账〕；
+ * images 选填 = 粘贴图族〔03 §10.4 ①〕：缺席/空数组 = 纯文本零漂移，在场时
+ * 原形透传入桥——受理执法〔魔数/双帽/落盘铸块〕在 host 桥受理链，件侧零实现） */
+const SubmitSchema = Type.Object(
+  {
+    text: Type.String(),
+    messageId: Type.Optional(Type.String()),
+    images: Type.Optional(Type.Array(SubmitImageSchema)),
+  },
+  strict,
+);
 
 /** decide 体（answer 四值闭集 = ApprovalAskAnswer；note 选填） */
 const DecideSchema = Type.Object(
@@ -419,7 +450,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       .pipe(res);
   }
 
-  /* ---- 路由族注册（五撮 18 端点〔2026-09-18 档位面 14→17 + 2026-10-07 会话删除批 17→18〕+ /api 兜底 + SPA fallback——全族 loopbackOnly） ---- */
+  /* ---- 路由族注册（六撮 19 端点〔2026-09-18 档位面 14→17 + 2026-10-07 会话删除批 17→18 + 2026-10-08 剪贴板附件批 18→19〕+ /api 兜底 + SPA fallback——全族 loopbackOnly） ---- */
 
   /** API 族鉴权档（Bearer ∪ cookie 双通道——cookie 名单源） */
   const tokenOrCookie: WebuiRouteAuth = { mode: 'token-or-cookie', cookie: WEBUI_COOKIE_NAME };
@@ -498,7 +529,23 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       }
       // 近史投影兜底可拉（closed 会话同样可拉——只读腿）
       const messages = await deps.read.fetchMessages(ctx.params.id!);
-      sendJson(res, 200, { messages });
+      // 投影 images 位（03 §10.4 ⑥）：user 消息 content 块数组中的 image-ref
+      // 引用块映射为 {ref, mimeType}[]（保序、有图才注键）——GET 读面局部
+      // 增位：Message 契约形不动、content 块数组原样在场（rehydrate 单源在
+      // convertToLlm 不动），images 位只是 SPA 画图的引用形便利位（字节取用
+      // 走附件端点）；assistant 行与纯文本行零 images 键（缺省形非 null 占位）
+      const items = messages.map((m) => {
+        if (m.role !== 'user' || !Array.isArray(m.content)) return m;
+        const images: WebuiMessageImage[] = [];
+        for (const block of m.content) {
+          if (typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'image-ref') {
+            const ref = block as { ref: string; mimeType: string };
+            images.push({ ref: ref.ref, mimeType: ref.mimeType });
+          }
+        }
+        return images.length === 0 ? m : { ...m, images };
+      });
+      sendJson(res, 200, { messages: items });
     },
   });
   add({
@@ -728,7 +775,10 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     method: 'POST',
     path: WEBUI_ENDPOINTS.sessionSubmit,
     auth: tokenOrCookie,
-    bodyLimitBytes,
+    // 体帽显式 32MiB（剪贴板附件批 03 §10.4 ①——per-route 覆写缺省 256KiB：
+    // images 携图载荷预算 4 件 × 5MiB × base64 4/3 膨胀 + 文本余量；挂载
+    // 缺省帽与 sdk 面 10MiB 均不外泄到本端点，tiers PUT 显式设值同律——冷读 F2）
+    bodyLimitBytes: WEBUI_SUBMIT_BODY_LIMIT_BYTES,
     handler: async (req, res, ctx) => {
       const sessionId = ctx.params.id!;
       const state = deps.sessions.sessionStateOf(sessionId);
@@ -738,16 +788,23 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       if (!body.ok) return sendError(res, body.status, 'too_large', body.message);
       const parsed = parseJson(body.body);
       if (!parsed.ok) return sendError(res, 400, 'bad_request', parsed.reason);
-      const submit = validate<{ text: string; messageId?: string }>(SubmitSchema, parsed.value, 'submit 体');
+      const submit = validate<{ text: string; messageId?: string; images?: { data: string; mimeType: string }[] }>(
+        SubmitSchema,
+        parsed.value,
+        'submit 体',
+      );
       if (!submit.ok) return sendError(res, 400, 'bad_request', submit.reason);
       try {
         // messageId 缺席即 undefined 透传（8572ccd 拍板：件侧不再补生成——
         // undefined = 无幂等不落账，桥侧容忍形 18a3cf8 已就位；生成键旁路
-        // 与 submitSeq 计数位随本收敛退役）
+        // 与 submitSeq 计数位随本收敛退役）；images 原形透传（03 §10.4 ①——
+        // 受理执法在 host 桥受理链：能力门→数量帽→base64→字节帽→魔数→
+        // MIME→像素帽→落盘铸 image-ref 块；件侧零实现零复制）
         const outcome = deps.sessions.submitPrompt({
           sessionId,
           content: submit.value.text,
           messageId: submit.value.messageId,
+          images: submit.value.images,
         });
         sendJson(res, 200, { sessionId: outcome.sessionId });
       } catch (err) {
@@ -757,6 +814,15 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
         // PUT catch 同形）；其余异常如实上抛走面级 500（未知码不误折 400）
         if (err instanceof BaseError && err.code === 'SDK_MESSAGE_CONFLICT') {
           sendError(res, 409, err.code, err.message);
+          return;
+        }
+        // 受理拒窄 catch（03 §10.4 ②）：host 受理链拒 = 携 status 400 的普通
+        // Error（AttachmentIntakeRejectionError 鸭子形——件侧无 host 边不可
+        // instanceof，status 位判据即窄面；受理拒非进程内错误轨零新码）——
+        // 折 400 bad_request + 五族中文文案原样透传（文案单源住 host）。
+        // 其余异常继续上抛（面级 500——不误吞进程内错误）
+        if (err instanceof Error && (err as { status?: unknown }).status === 400) {
+          sendError(res, 400, 'bad_request', err.message);
           return;
         }
         throw err;
@@ -873,6 +939,42 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     handler: (req, res) => {
       const q = queryOf(req).get('q') ?? '';
       sendJson(res, 200, { items: deps.completion?.workspaceSymbols?.(q) ?? [] });
+    },
+  });
+
+  // —— 附件读回端点（2026-10-08 剪贴板附件批 03 §10.4 ④——SPA img 标签的
+  //    字节供数位；判序钉死 400→501→404→200：词法坏形最根本、注入键缺席
+  //    先于资源不在场〔/export 判序同律——序倒置则装配缺失被文件态遮蔽〕；
+  //    零请求体；鉴权随全 API 面 token-or-cookie——
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.attachments,
+    auth: tokenOrCookie,
+    handler: (_req, res, ctx) => {
+      const ref = ctx.params.ref!;
+      // ① 词法层（400）：ref 坏形 = 非 `sha256:<64hex>` 内容地址即拒，不触
+      //    读回面（URL 段做路径拼接/穿越面的结构性防线——形不符即词法错）
+      if (!ATTACHMENT_REF_PATTERN.test(ref)) {
+        sendError(res, 400, 'bad_request', '附件标识格式不对（应为 sha256 开头的内容地址）');
+        return;
+      }
+      // ② 注入窄面缺席（501）：readAttachment 键不注 = 附件面未装配（API-only
+      //    形——exportMarkdown 缺席同精神；GET /export 先例判序）
+      const readAttachment = deps.read.readAttachment;
+      if (readAttachment === undefined) {
+        sendError(res, 501, 'not_implemented', '附件读取未启用（当前运行形态不含此功能）');
+        return;
+      }
+      // ③ 资源不在场（404）：合形 ref 但落盘文件不在场（清障/跨机迁移后遗留
+      //    引用等）——读回 null 档诚实 404，不虚报空字节
+      const record = readAttachment(ref);
+      if (record === null) {
+        sendError(res, 404, 'not_found', '附件不存在');
+        return;
+      }
+      // ④ 命中（200）：字节原样回放；Content-Type 由读回记录 mimeType 单源
+      //    派生（ext→MIME 映射在 persist 单源——件侧不查扩展名不二次判）
+      res.writeHead(200, { 'content-type': record.mimeType }).end(record.bytes);
     },
   });
 

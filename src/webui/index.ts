@@ -4,7 +4,7 @@
  * 承载位改注册 sdk 路由扩展位——零自持监听）。
  *
  * 批 18a-1 服务端核心 → 18a-2' 改形：backend（UiBackend 第四实装——claim
- * 桥）+ 微路由五撮 + SSE 信封三族全维持，防线/token/体帽/SSE 基建归面级
+ * 桥）+ 微路由六撮 + SSE 信封三族全维持，防线/token/体帽/SSE 基建归面级
  * 单源；本面出 mountWebui（路由族注册形）。SPA 客户端腿（dist/webui/
  * 静态面）已落（6881b38）；host `--port` 归一已落（18a-3' 三入口咬合——
  * TUI/serve/daemon 共用统一 HTTP 面端口）。
@@ -16,6 +16,7 @@ export {
   WEBUI_DEFAULT_HOST,
   WEBUI_MAX_CONNECTIONS,
   WEBUI_BODY_LIMIT_BYTES,
+  WEBUI_SUBMIT_BODY_LIMIT_BYTES,
   WEBUI_COOKIE_NAME,
   WEBUI_ENDPOINTS,
 } from './types.js';
@@ -25,7 +26,10 @@ export type {
   WebuiApprovalAskedPayload,
   WebuiSessionSummary,
   WebuiSessionState,
+  WebuiSubmitImage,
   WebuiSubmitInput,
+  WebuiMessageImage,
+  WebuiMessageItem,
   WebuiSessionsFace,
   WebuiReadFace,
   WebuiCompletionFace,
