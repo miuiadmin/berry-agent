@@ -2,7 +2,7 @@
  * SessionManager——多会话编排面（02 §2.3「多会话单焦点」/ 03 §2.2 能力面表
  * ctx.sessions 注记 / 05 §5 fork 编排 + §9 会话内 FTS 首发口径）。
  *
- * 职责 = drivers 登记表（单焦点幂等：同 id 重复 open 回同一活体驱动）+ 五动词：
+ * 职责 = drivers 登记表（单焦点幂等：同 id 重复 open 回同一活体驱动）+ 六动词：
  *  - list：会话列表透传（workspaceRoot / limit 选取面——「按 cwd 取最新会话」）；
  *  - create：新开（origin 缺省 'conversation'）+ 驱动构造；
  *  - open：resume——装载日志 → closer 合成（05 §4「合成归调用方」条款的消费
@@ -13,7 +13,10 @@
  *    断言 + createSeededSession 同步落库（不返回幻影 id）+ session_before_fork
  *    钩子（03 主表：waterfall 可否决——否决走联合回执不造新错误码）；
  *  - search：flush 屏障先行（write-behind 在飞事件不进 FTS 索引）+ 会话内
- *    全文检索（05 §9 首发：session_id 限定）。
+ *    全文检索（05 §9 首发：session_id 限定）；
+ *  - delete：删除编排（05 §2.5 会话删除编排定形注②——六步单源：busy 守卫
+ *    → channels 收口 → 登记拆除 → 物理三删 → 授予回收 → 焦点处置；回执
+ *    三态 deleted/busy/missing）。
  *
  * 事实源纪律：源会话已 open 时 fork 直接取**活体 SessionLog** 的事件流（内存态
  * 最新鲜）；未 open 才 loadSession——避免同 id 双附着制造第二事实源（读侧以
@@ -125,6 +128,19 @@ export interface ForkVetoed {
 /** fork 联合回执（可否决语义的载荷面） */
 export type ForkOutcome = ForkedSession | ForkVetoed;
 
+/**
+ * 删除回执三态（05 §2.5 会话删除编排定形注②——编排真身 = 本管理器删除动词）：
+ *  - `deleted`——编排六步全成（busy 守卫过 → 收口 → 登记拆除 → 物理三删 →
+ *    授予回收 → 焦点处置）；
+ *  - `busy`——在飞 run 拒删（强删必撕裂在飞写笔——回执指路等待或先打断归
+ *    呈现面路由）；
+ *  - `missing`——物理删步缺席诚实拒（行不在库）。
+ * 与呈现契约面 UiSessionDeleteResult 结构同构（contracts 不依赖 conversation
+ * 是分层刻意的——RenameSessionResult 自持律同族）。
+ */
+export type DeleteSessionResult =
+  { readonly status: 'deleted' } | { readonly status: 'busy' } | { readonly status: 'missing' };
+
 /** SessionManager 构造面 */
 export interface SessionManagerOptions {
   readonly persistence: Persistence;
@@ -147,6 +163,27 @@ export interface SessionManagerOptions {
    * （owner = 会话 id 形的收口执法位）；缺席 = 零行为（测试替身形）。
    */
   readonly onSessionClosed?: (sessionId: string) => void;
+  /**
+   * 删除编排 seam①（05 §2.5 定形注②——channels 收口步）：编排第②步发射
+   * （busy 守卫之后、登记拆除之前——守卫先于收口不可倒）。装配位接
+   * channels.unregisterSession（提问队列收口 + widget 清空）。缺席 = 零动作
+   * （缺席会话 / 测试替身形）；观察者异常吞隔离不回卷编排序。
+   */
+  readonly onSessionChannelsClosed?: (sessionId: string) => void;
+  /**
+   * 删除编排 seam②（05 §2.5 定形注②——授予回收步）：物理删成功后发射。
+   * 装配位接 WorktreeService.releaseSession（槽缺席跳过）。缺席 = 零动作；
+   * 异常吞隔离同上。
+   */
+  readonly onSessionGrantsReleased?: (sessionId: string) => void;
+  /**
+   * 删除编排 seam③（05 §2.5 定形注②——焦点处置步）：物理删 + 授予回收后
+   * 发射，携被删会话工作区锚（在册活体镜像优先，未 open 会话读库行；两皆
+   * 缺席 = undefined）。装配位判聚焦态：删聚焦会话 → openStartupSession 缺省
+   * 策略复用（cwd = 被删会话工作区锚——归一根最新续接 / 无则新建）；删非
+   * 聚焦焦点不动（判定归装配闭包——本件不持焦点态，02 §2.3）。缺席 = 零动作。
+   */
+  readonly onFocusCleared?: (sessionId: string, workspaceRoot?: string) => void;
 }
 
 /**
@@ -161,6 +198,12 @@ export class SessionManager {
   private readonly onRetired?: (sessionId: string) => void;
   /** 会话关闭收口位（构造面注入——六役 CL-C ④；缺省零行为） */
   private readonly onSessionClosed?: (sessionId: string) => void;
+  /** 删除编排 seam①（channels 收口——05 §2.5 定形注②；缺省零动作） */
+  private readonly onSessionChannelsClosed?: (sessionId: string) => void;
+  /** 删除编排 seam②（授予回收——05 §2.5 定形注②；缺省零动作） */
+  private readonly onSessionGrantsReleased?: (sessionId: string) => void;
+  /** 删除编排 seam③（焦点处置——05 §2.5 定形注②；携被删会话工作区锚；缺省零动作） */
+  private readonly onFocusCleared?: (sessionId: string, workspaceRoot?: string) => void;
   /** 已开会话登记（sessionId → 驱动 + 血缘形态 + 工作区锚活体镜像——幂等 open 的判据面；锚自日志登记值 adopt 时入册，03 §10.7「锚不能走库读」律） */
   private readonly records = new Map<
     string,
@@ -180,6 +223,9 @@ export class SessionManager {
     this.createDriver = options.createDriver;
     this.onRetired = options.onRetired;
     this.onSessionClosed = options.onSessionClosed;
+    this.onSessionChannelsClosed = options.onSessionChannelsClosed;
+    this.onSessionGrantsReleased = options.onSessionGrantsReleased;
+    this.onFocusCleared = options.onFocusCleared;
     // 钩子词汇接线（一词两册幂等跳过——03 §2.4 装配序律：装载批预注册主表
     // 镜像在前，session_before_fork 已注册即共享登记；未注册自举保独立装配）；
     // 重复建管理器检测改经装配哨兵（永不 emit 的占位词——二次装配撞哨兵红）
@@ -443,6 +489,62 @@ export class SessionManager {
       /* 收口观察异常不回卷收口序 */
     }
     return true;
+  }
+
+  /**
+   * 删除会话（05 §2.5 会话删除编排定形注②——编排真身归本管理器会话生命
+   * 周期域）：六步单源不可倒——
+   *  ① busy 守卫：在飞 run 拒删（强删必撕裂在飞写笔——回执指路等待或先打断
+   *     归呈现面路由；守卫先于收口不可倒）；
+   *  ② channels 收口：onSessionChannelsClosed seam（装配位接
+   *     unregisterSession——提问队列收口 + widget 清空；未知 id 幂等安全）；
+   *  ③ 登记拆除：retire 复用（dismantle + 出册 + onRetired/onSessionClosed
+   *     清账——open 的逆向；不在册返 false 零副作用覆盖未 open 会话形态）；
+   *     在飞写排干由下一步物理删的 flush 先行承载（无另置排干屏障）；
+   *  ④ 物理三删：persistence.deleteSession（flush 先行 + sessions/events/
+   *     session_fts 三表删；缺席返 false → missing 诚实拒）；
+   *  ⑤ 授予回收：onSessionGrantsReleased seam（worktree 槽缺席跳过归
+   *     装配位；仅成功路触达）；
+   *  ⑥ 焦点处置：onFocusCleared seam（删聚焦 → openStartupSession 缺省
+   *     策略复用；删非聚焦焦点不动——判定归装配闭包，本件不持焦点态）。
+   * ②⑤⑥ seam 观察者异常吞隔离不回卷编排序（deleteSession 不因收口面炸
+   * 而半途停摆——物理删一旦完成即不可回卷）。
+   */
+  async deleteSession(sessionId: string): Promise<DeleteSessionResult> {
+    // ① busy 守卫（首查位——在册且在飞即拒；未在册/未在飞直过）
+    if (this.records.get(sessionId)?.driver.running === true) {
+      return { status: 'busy' };
+    }
+    // 焦点处置输入捕获：被删会话工作区锚（在册活体镜像优先〔retire 前唯一
+    // 时窗〕，未 open 会话读库行〔物理删前唯一时窗〕——两皆缺席 undefined）
+    const workspaceRoot =
+      this.records.get(sessionId)?.workspaceRoot ?? this.persistence.store.getSessionRow(sessionId)?.workspaceRoot;
+    // ② channels 收口 seam（吞隔离——收口面异常不阻断后续拆除与物理删）
+    try {
+      this.onSessionChannelsClosed?.(sessionId);
+    } catch {
+      /* seam 观察者异常不回卷编排序 */
+    }
+    // ③ 登记拆除（retire 复用——幂等：不在册零副作用）
+    this.retire(sessionId);
+    // ④ 物理三删（flush 先行承载在飞写排干；缺席 → missing 诚实拒）
+    const gone = await this.persistence.deleteSession(sessionId);
+    if (!gone) {
+      return { status: 'missing' };
+    }
+    // ⑤ 授予回收 seam（仅成功路触达——missing 时零发射）
+    try {
+      this.onSessionGrantsReleased?.(sessionId);
+    } catch {
+      /* seam 观察者异常不回卷编排序 */
+    }
+    // ⑥ 焦点处置 seam（删聚焦复焦归装配位判定；本件只保序）
+    try {
+      this.onFocusCleared?.(sessionId, workspaceRoot);
+    } catch {
+      /* seam 观察者异常不回卷编排序 */
+    }
+    return { status: 'deleted' };
   }
 
   /** 登记 + 驱动构造 + 入册（create/open/fork 共尾；装配覆盖位仅 create 腿携带——resume 不回放） */

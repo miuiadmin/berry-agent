@@ -70,6 +70,7 @@ import type {
   UiCallLedgerEntry,
   UiInputOptions,
   UiSelectChoice,
+  UiSessionDeleteResult,
   UiSessionSummary,
   UiUsageSummary,
   UiRewindEntry,
@@ -1322,13 +1323,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 载荷经通道核流转（openHistory 同律）；选定回调核闭包透传（registry.focus
    * 既有权威路——本件呈现不触焦点态）。totalCount = 全量总数（B2 截断披露
    * ——通道核 sessionsTotal 注入缺席时回退清单长度；超清单长时切换器头行
-   * 注记「N/M（仅显示最近）」）。已在副屏 / 主屏不在 running 返 false
+   * 注记「N/M（仅显示最近）」）。onDelete = 删除回调（05 §2.5 会话删除编排
+   * 定形注①——通道核 wrapper 透传，注入缺席 undefined 键无效；回执异步落位
+   * 经 requestRepaint 请帧）。已在副屏 / 主屏不在 running 返 false
    * （核侧 notify 降级）。打断柄锚当前交互会话位（切焦前语义）。
    */
   openSessions(
     sessions: readonly UiSessionSummary[],
     onSelect: (sessionId: string) => void,
     totalCount?: number,
+    onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>,
   ): boolean {
     if (this.altHandle !== null) return false;
     const handle = this.altHost.open(
@@ -1339,6 +1343,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onExit: () => this.closeAlt(),
         onInterrupt: () => this.onInterrupt?.(this.sessionId),
         onQuit: this.onQuit,
+        ...(onDelete !== undefined ? { onDelete } : {}),
+        requestRepaint: () => this.altHost.requestRepaint(),
       }),
     );
     if (handle === null) return false;

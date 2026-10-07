@@ -677,3 +677,79 @@ describe('sessions rename（2026-09-30 人面改名批——CLI 第七动词；�
     expect(cap.err.join('\n')).toContain('会话不存在：no-such-id');
   });
 });
+
+/* ---------------- delete（05 §2.5 定形注④——第八动词两段式，零装配直开库） ---------------- */
+
+describe('sessions delete（零装配直开库——两段式 --confirm）', () => {
+  /** 种一个可删会话（裸 SQL 三表齐种——三删断言面全真：sessions/events/session_fts） */
+  async function seedDeletable(dbPath: string, id: string, title: string): Promise<void> {
+    await seedSessionRows(dbPath, [{ id, title, origin: 'conversation', created: 1, updated: 2 }]);
+    await seedEventRows(dbPath, id, [{ seq: 0, type: 'turn/start', data: '{}' }]);
+    await seedFtsRows(dbPath, id, [{ seq: 0, body: '待删正文' }]);
+  }
+
+  /** 三表残留读（重开只读库——命令是短命进程形，断言走重开面） */
+  async function residueOf(dbPath: string, id: string): Promise<{ row: unknown; events: number; fts: number }> {
+    const persistence = Persistence.open({ dbPath, migrations: HOST_MIGRATION_TAIL });
+    try {
+      const db = persistence.store.sqlite();
+      const row = db.prepare('SELECT id FROM sessions WHERE id = ?').get(id);
+      const events = db.prepare('SELECT COUNT(*) AS n FROM events WHERE session_id = ?').get(id) as { n: number };
+      const fts = db.prepare('SELECT COUNT(*) AS n FROM session_fts WHERE session_id = ?').get(id) as { n: number };
+      return { row, events: events.n, fts: fts.n };
+    } finally {
+      await persistence.close();
+    }
+  }
+
+  it('无 --confirm 只读报告：既有清单字段 + export 留底提示 + 指路加 --confirm 退 0（库行不动）', async () => {
+    const dbPath = join(rigDir('sess-del-ro-'), 'sessions.db');
+    await seedDeletable(dbPath, 'del-ro', '待删只读');
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'delete', id: 'del-ro', confirm: false },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(0);
+    const text = cap.out.join('\n');
+    expect(text).toContain('del-ro'); // 既有清单字段（id/标题）
+    expect(text).toContain('待删只读');
+    expect(text).toContain('sessions export'); // 留底提示（既有 markdown 导出载体）
+    expect(text).toContain('--confirm'); // 指路确认旗标
+    const residue = await residueOf(dbPath, 'del-ro');
+    expect(residue.row).toBeDefined(); // 零删——只读报告档
+    expect(residue.events).toBe(1);
+    expect(residue.fts).toBe(1);
+  });
+
+  it('--confirm 直删：三表齐清 + 竞窗警示句（持有进程先关——孤儿写笔披露）退 0', async () => {
+    const dbPath = join(rigDir('sess-del-go-'), 'sessions.db');
+    await seedDeletable(dbPath, 'del-go', '待删真删');
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'delete', id: 'del-go', confirm: true },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(0);
+    const text = cap.out.join('\n');
+    expect(text).toContain('已删除');
+    expect(text).toContain('先关闭'); // 竞窗诚实披露（运行中进程后续写笔落库成孤儿行）
+    const residue = await residueOf(dbPath, 'del-go');
+    expect(residue.row).toBeUndefined(); // sessions 行
+    expect(residue.events).toBe(0); // events 三删
+    expect(residue.fts).toBe(0); // session_fts 三删
+  });
+
+  it('缺席 id 诚实拒退 1（两段同律——confirm 前后皆干净拒）', async () => {
+    const dbPath = join(rigDir('sess-del-miss-'), 'sessions.db');
+    for (const confirm of [false, true]) {
+      const cap = capture();
+      const code = await runSessionsEntry(
+        { sub: 'delete', id: 'ghost', confirm },
+        { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+      );
+      expect(code).toBe(1);
+      expect(cap.err.join('\n')).toContain('会话不存在：ghost');
+    }
+  });
+});

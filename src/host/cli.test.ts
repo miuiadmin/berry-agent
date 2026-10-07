@@ -561,6 +561,21 @@ describe('sessions 子命令族', () => {
     expectUsage(['sessions', 'rm', 'x'], '未知 sessions 子命令');
     expectUsage(['sessions'], '须带子命令');
   });
+
+  // delete（05 §2.5 会话删除编排定形注④——第八动词两段式：--confirm 旗标
+  // 与 plugins uninstall 同形；无旗标 = 只读报告档、有旗标 = 直删档）
+  it('delete 第八动词：恰一 id + --confirm 旗标（缺省 false）', () => {
+    expect(expectCommand(['sessions', 'delete', 's-42'])).toMatchObject({
+      kind: 'sessions',
+      sub: { sub: 'delete', id: 's-42', confirm: false },
+    });
+    expect(expectCommand(['sessions', 'delete', 's-42', '--confirm'])).toMatchObject({
+      kind: 'sessions',
+      sub: { sub: 'delete', id: 's-42', confirm: true },
+    });
+    expectUsage(['sessions', 'delete'], '位置参数数目不符');
+    expectUsage(['sessions', 'delete', 'a', 'b'], '位置参数数目不符');
+  });
 });
 
 describe('credentials 子命令族（c-5——03 §10.9 人面命令 CLI 面）', () => {

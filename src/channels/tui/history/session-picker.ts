@@ -10,6 +10,12 @@
  *   id；超宽整字截断（左段适配剩余宽——CJK 双宽不产半字）；
  * - **滚动**：光标驱动的窗口滚动（光标恒可见——offset 跟随夹取），非
  *   ScrollView 的自由滚动（选择模型下两者合一更直）；
+ * - **删除键与确认位**（05 §2.5 会话删除编排定形注①）：onDelete 注入在场
+ *   时 'd'（key/text 双轨）进确认视图——破坏性动作必有确认（明示删除对象
+ *   与「含审批记录在内的全部会话史将被删除且不可恢复」）；enter 确认 /
+ *   esc·q 取消；回执 busy/missing 留确认视图呈就地状态行（notify 副屏期
+ *   走停屏缓冲——面板须自带呈现），deleted 就地滤行回清单（刷新重拉最小
+ *   形）；注入缺席 'd' 键无效零行为变；
  * - **退出键面**：q/Esc 取消退出、Ctrl+C 打断、Ctrl+D 退出进程（先收副屏
  *   再转退出柄）——副屏键面补丁三件套与件 8 同律。
  */
@@ -17,8 +23,9 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
-import type { UiSessionSummary } from '../../../contracts/index.js';
+import type { UiSessionDeleteResult, UiSessionSummary } from '../../../contracts/index.js';
 import { hintLine } from '../keys/hint.js';
+import { foldErrorText } from '../../service.js';
 import { DIM_STYLE } from '../../engine/index.js';
 import { CURSOR_MARK, HEAD_MARKS } from '../panels/panel-chrome.js';
 
@@ -35,6 +42,17 @@ export interface SessionPickerOptions {
   /** 打断在飞 run（打断目标 = 当前聚焦会话——装配闭包自知，非光标行） */
   readonly onInterrupt?: () => void;
   readonly onQuit?: () => void;
+  /**
+   * 删除回调（05 §2.5 定形注①——注入在场 'd' 键有效〔进确认视图〕，缺席
+   * 键无效零行为变）。真身 = 通道核 wrapper（回执三态路由 notify 归核——
+   * 面板另呈就地状态行：busy/missing/异常留确认视图，用户可取消重试）。
+   */
+  readonly onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>;
+  /**
+   * 异步请帧（删除回执落位后重画——面板不自驱重画；装配接 altHost
+   * requestRepaint）。同步键路（视图切换/取消）由引擎事件后重画承载。
+   */
+  readonly requestRepaint?: () => void;
 }
 
 /** 提示行样式（dim——注⑩：engine DIM_STYLE 单源） */
@@ -43,6 +61,8 @@ const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 const ACTIVE_MARK = '●';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
 const WHEEL_LINES = 3;
+/** 删除确认视图警示记号 */
+const WARN_MARK = '⚠';
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -66,12 +86,23 @@ function formatStamp(ms: number): string {
  * 光标与视口窗口，非 ScrollView〔选择模型与滚动合一〕）。
  */
 export class SessionPicker implements OverlayContent {
-  private readonly sessions: readonly UiSessionSummary[];
+  /** 会话清单（删除成功就地滤行——快照档清单的确定性行移除，故持可变副本） */
+  private readonly sessions: UiSessionSummary[];
   private readonly totalCount: number | undefined;
   private readonly onSelect: (sessionId: string) => void;
   private readonly onExit: () => void;
   private readonly onInterrupt: (() => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
+  private readonly onDelete: ((sessionId: string) => Promise<UiSessionDeleteResult>) | undefined;
+  private readonly requestRepaint: (() => void) | undefined;
+  /** 当前视图（list 清单 / confirm 删除确认——视图切换形同 rewind-picker） */
+  private view: 'list' | 'confirm' = 'list';
+  /** 确认视图目标行（进视图时光标行快照） */
+  private confirmTarget: UiSessionSummary | undefined;
+  /** 确认视图就地状态行（busy/missing/异常——undefined = 无状态行） */
+  private confirmStatus: string | undefined;
+  /** 删除在飞守卫（回执落位前 enter 不双发——防双击） */
+  private deleteInFlight = false;
   /** 光标行（清单下标；空表恒 0） */
   private cursor = 0;
   /** 视口首行（光标驱动夹取） */
@@ -82,23 +113,30 @@ export class SessionPicker implements OverlayContent {
   private exited = false;
 
   constructor(options: SessionPickerOptions) {
-    this.sessions = options.sessions;
+    this.sessions = [...options.sessions]; // 可变副本（就地滤行——不回写调用方数组）
     this.totalCount = options.totalCount;
     this.onSelect = options.onSelect;
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.onDelete = options.onDelete;
+    this.requestRepaint = options.requestRepaint;
   }
 
-  /** 量高：头行 + 清单全量 + 底行提示（副屏 root 不经布局路——render 按实际 region 窗口化） */
+  /** 量高：清单形 = 头行 + 清单全量 + 底行提示（副屏 root 不经布局路——render 按实际 region 窗口化）；确认视图定高（头 + 警示 + 状态行预留 + 底行） */
   measure(width: number): number {
     void width;
+    if (this.view === 'confirm') return 5;
     return 1 + Math.max(1, this.sessions.length) + 1;
   }
 
-  /** 落位：头行 → 清单视口（光标行标记 + 活跃位 + 标题左段 / 时间·短 id 右段）→ 底行提示 */
+  /** 落位：清单视图 = 头行 → 清单视口（光标行标记 + 活跃位 + 标题左段 / 时间·短 id 右段）→ 底行提示；确认视图 = 警示文案 + 就地状态行 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
+    if (this.view === 'confirm') {
+      this.renderConfirm(buffer, region);
+      return;
+    }
     // 头行：全量已呈现原形；总数超清单长 → N/M + 仅显示最近（B2 截断披露——
     // 清单默认 100 窗，超窗不注记即「所见即全量」的静默谎）
     const n = this.sessions.length;
@@ -132,13 +170,44 @@ export class SessionPicker implements OverlayContent {
         }
       }
     }
+    // 底行提示：删除注入在场加「d 删除」段（键面如实——缺席保持原形不虚报）
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
       fitLine(
-        this.sessions.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 切换', 'q/esc 返回'),
+        this.sessions.length === 0
+          ? 'q/esc 返回'
+          : this.onDelete !== undefined
+            ? hintLine('↑↓ 移动', 'enter 切换', 'd 删除', 'q/esc 返回')
+            : hintLine('↑↓ 移动', 'enter 切换', 'q/esc 返回'),
         region.width,
       ),
+      HINT_STYLE,
+    );
+  }
+
+  /** 确认视图落位：删除对象明示（标题 + 短 id）+ 不可恢复警示（规范明文案）+ 就地状态行 + 底行键面 */
+  private renderConfirm(buffer: CellBuffer, region: Region): void {
+    const target = this.confirmTarget;
+    const title = target !== undefined && target.title !== undefined && target.title !== '' ? target.title : '（无题）';
+    const shortId = target !== undefined ? shortIdOf(target.id) : '';
+    buffer.writeText(region.row, region.col, fitLine(`${WARN_MARK} 将删除：${title}（${shortId}）`, region.width));
+    // 不可逆警示 = 规范明文（05 §2.5 定形注①确认文案——含审批记录在内的
+    // 全部会话史，且不可恢复）
+    buffer.writeText(
+      region.row + 1,
+      region.col,
+      fitLine('含审批记录在内的全部会话史将被删除，且不可恢复。', region.width),
+    );
+    // 就地状态行（busy/missing/异常折面——notify 副屏期走停屏缓冲，面板自带
+    // 呈现保确认视图内可见）
+    if (this.confirmStatus !== undefined) {
+      buffer.writeText(region.row + 2, region.col, fitLine(this.confirmStatus, region.width));
+    }
+    buffer.writeText(
+      region.row + region.height - 1,
+      region.col,
+      fitLine(hintLine('enter 确认删除', 'esc/q 取消'), region.width),
       HINT_STYLE,
     );
   }
@@ -158,9 +227,11 @@ export class SessionPicker implements OverlayContent {
     if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
   }
 
-  /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 选定/取消 → 移动键 */
+  /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 确认视图（enter 确认 / esc·q 取消）→ 删除键 → 选定/取消 → 移动键 */
   handleEvent(event: InputEvent): boolean {
     if (event.kind === 'mouse') {
+      // 确认视图吞鼠标（光标移动无意义——模态确认）
+      if (this.view === 'confirm') return true;
       // 滚轮 = 光标 ±3 行（mu-2 件族面——经 moveCursor 既有夹取与视口跟随，
       // ↑↓ 同路）；wheel 无 release 相（终端不报——press 一相到达）；非滚轮
       // 鼠标相零动作吞（v1 无选区/点击面，模态独占）
@@ -182,6 +253,18 @@ export class SessionPicker implements OverlayContent {
       if (k.ctrl && !k.alt && !k.shift && !k.meta && k.key === 'd') {
         this.exit();
         this.onQuit?.();
+        return true;
+      }
+      // —— 确认视图键面（模态独占：enter 确认 / esc·q 取消，其余吞）——
+      if (this.view === 'confirm') {
+        if (isPlainKey(k, 'enter')) {
+          this.acceptDelete();
+          return true;
+        }
+        if (isPlainKey(k, 'escape') || isPlainKey(k, 'q')) {
+          this.cancelConfirm();
+          return true;
+        }
         return true;
       }
       if (this.sessions.length > 0) {
@@ -217,17 +300,90 @@ export class SessionPicker implements OverlayContent {
           this.onSelect(chosen.id);
           return true;
         }
+        // 'd' = 删除键（05 §2.5 定形注①——注入在场才有效：进确认视图；缺席
+        // 吞而不动作——键面帮助行同步缺席不注记）
+        if (isPlainKey(k, 'd')) {
+          this.openConfirm();
+          return true;
+        }
       }
       if (isPlainKey(k, 'escape') || isPlainKey(k, 'q')) {
         this.exit();
         return true;
       }
     }
-    if (event.kind === 'text' && event.text === 'q') {
-      this.exit(); // kitty disambiguate 轨纯键打字走 text 事件
-      return true;
+    if (event.kind === 'text') {
+      // kitty disambiguate 轨纯键打字走 text 事件——q/d 双轨收键（与 key 轨
+      // 同律：q 退出/取消、d 删除）
+      if (event.text === 'q') {
+        if (this.view === 'confirm') this.cancelConfirm();
+        else this.exit();
+        return true;
+      }
+      if (event.text === 'd') {
+        if (this.view === 'list') this.openConfirm();
+        return true;
+      }
     }
     return true; // 未消费键终局吞（模态独占）
+  }
+
+  /** 进确认视图（光标行快照为删除目标——注入缺席/空表/已退出零动作） */
+  private openConfirm(): void {
+    if (this.onDelete === undefined || this.sessions.length === 0 || this.exited) return;
+    this.confirmTarget = this.sessions[this.cursor]!;
+    this.confirmStatus = undefined;
+    this.deleteInFlight = false;
+    this.view = 'confirm';
+  }
+
+  /** 取消确认回清单（零回调——未确认不删） */
+  private cancelConfirm(): void {
+    this.view = 'list';
+    this.confirmTarget = undefined;
+    this.confirmStatus = undefined;
+  }
+
+  /**
+   * 确认删除：发 onDelete（在飞守卫——回执落位前 enter 不双发）。回执路由：
+   * deleted → 就地滤行回清单（刷新重拉最小形——快照档清单的确定性行移除）；
+   * busy/missing → 留确认视图呈就地状态行（用户可取消重试）；异常 → 折状态行
+   * （不炸面板——onSelect 链直穿会成 uncaughtException 杀 TUI）。异步落位后
+   * requestRepaint 请帧（面板不自驱重画）。
+   */
+  private acceptDelete(): void {
+    const target = this.confirmTarget;
+    if (target === undefined || this.onDelete === undefined) return;
+    if (this.deleteInFlight) return; // 在飞守卫（防双击）
+    this.deleteInFlight = true;
+    this.confirmStatus = undefined;
+    this.onDelete(target.id).then(
+      (result) => {
+        this.deleteInFlight = false;
+        if (result.status === 'deleted') {
+          // 就地滤行 + 光标夹取（删尾行回退——空表如实「无会话」）
+          const at = this.sessions.findIndex((s) => s.id === target.id);
+          if (at >= 0) this.sessions.splice(at, 1);
+          this.cursor = Math.max(0, Math.min(this.sessions.length - 1, this.cursor));
+          this.clampOffset();
+          this.view = 'list';
+          this.confirmTarget = undefined;
+          this.confirmStatus = undefined;
+        } else if (result.status === 'busy') {
+          this.confirmStatus = '会话正在运行——等待完成或先打断后再删（可按 esc 取消）';
+        } else {
+          this.confirmStatus = `会话不存在：${target.id}`;
+        }
+        this.requestRepaint?.();
+      },
+      (err: unknown) => {
+        this.deleteInFlight = false;
+        // 错误折面单源 foldErrorText（689e5ba 立规——用户面折面禁裸 String；
+        // 件内可达导入，tui-backend 命令面同源）
+        this.confirmStatus = `删除失败：${foldErrorText(err)}`;
+        this.requestRepaint?.();
+      },
+    );
   }
 
   /** 光标移动（越界夹取——不循环；移动后光标恒可见） */

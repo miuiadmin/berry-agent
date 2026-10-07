@@ -2,7 +2,7 @@
  * host/sessions-cmd — `sessions` 子命令族 CLI 入口（07 §5 会话管理命令族；
  * CLI 对等律射界 02 §2.3 多会话面；批 20d）。
  *
- * 七子动词分账（开库形态两分）：
+ * 八子动词分账（开库形态两分）：
  *  - **读腿（list/search）+ 维护动词（reindex）——零装配直开库**：不开运行
  *    时、不占单活跃机标记、不装载插件（同 serve status 只读豁免族——短命
  *    查询/维护动词不是第二宿主实例）。开库走 Persistence 直开 + 宿主迁移链
@@ -23,6 +23,15 @@
  *    动词——/rename TUI 命令的 CLI 半边；净化+200 帽单源 clampTitleText
  *    与 TUI 注入侧同源〔05 §9 写面硬律〕，updateSessionTitle 裸写薄层——
  *    净化责任在人面入口非存储层）。
+ *  - **delete <id>——零装配直开库**（05 §2.5 会话删除编排定形注②④第八
+ *    动词——两段式 --confirm 与 plugins uninstall 同形：无旗标 = 只读报告
+ *    档〔既有清单字段 + export 留底提示 + 指路加 --confirm〕，有旗标 =
+ *    persistence.deleteSession 直达〔flush 先行 + sessions/events/
+ *    session_fts 三表删〕；竞窗诚实披露——运行中进程持有的会话被直删后
+ *    该进程后续写笔落库成孤儿行，回执警示先关对应进程。不删集〔定形注③
+ *    ——CLI 形零代码动作注记〕：goal 行/issue 停靠登记/checkpoint
+ *    manifest/worktree 目录与分支/input_history/memory 皆不在删除射界。
+ *    TUI 进程内编排（六步 seam 序）归 conversation-stack 装配位，非本腿）。
  *
  * 退出码：0 成功（含空清单/零命中——诚实空非失败）/ 1 执行失败（会话不
  * 存在、fork 否决、装配失败、净化归空拒不落库）/ 2 环境态误用（resume
@@ -97,6 +106,8 @@ export async function runSessionsEntry(sub: SessionsCommand, options: SessionsEn
       return runRename(options, sub.id, sub.title);
     case 'export':
       return runExport(options, sub.id);
+    case 'delete':
+      return runDelete(options, sub.id, sub.confirm);
   }
 }
 
@@ -382,6 +393,58 @@ async function runExport(options: SessionsEntryOptions, id: string): Promise<num
       return 1;
     }
     out(outcome.text); // 回执一行路径（/memory-export 同形）
+    return 0;
+  } finally {
+    await persistence.close();
+  }
+}
+
+/* ---------------- delete（CLI 第八动词——零装配直开库，两段式 --confirm） ---------------- */
+
+/**
+ * delete：会话删除（05 §2.5 会话删除编排定形注②④——CLI 零装配直开库形：
+ * 不开运行时/不占单活跃机标记/不装载插件〔reindex/rename 同形〕，
+ * persistence.deleteSession 直达——flush 先行〔在飞写排干承载〕+ sessions/
+ * events/session_fts 三表删）。两段式 = plugins uninstall --confirm 同形：
+ * 无旗标只读报告（既有清单字段 + export 留底提示 + 指路 --confirm 退 0），
+ * 有旗标直删（回执带竞窗警示句）。缺席 id 两段同律诚实拒退 1（用法错归
+ * 解析层退 2 既有）。
+ */
+async function runDelete(options: SessionsEntryOptions, id: string, confirm: boolean): Promise<number> {
+  const out = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
+  const err = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
+  // 零装配直开库（openReadSide 形——短命写动词同读腿豁免族）
+  const persistence = openReadSide(options, err);
+  try {
+    // 缺席预检（打错 id 呈报为干净失败档——两段同律）
+    const row = persistence.store.getSessionRow(id);
+    if (row === undefined) {
+      err(`会话不存在：${id}——用 sessions list 查现有 id`);
+      return 1;
+    }
+    if (!confirm) {
+      // 只读报告档：零删——既有清单字段（runList 同形字段源）+ 留底提示 +
+      // 指路确认旗标（不可逆警示与 TUI 确认文案同源——定形注①明文）
+      out(`将删除会话（只读报告——确认删除加 --confirm）：`);
+      out(
+        `  ${row.id}  ${titleOf(row)}  创建 ${isoOf(row.createdAt)}  更新 ${isoOf(row.updatedAt)}  ${lineageOf(row.origin, row.parentId)}`,
+      );
+      out(
+        '  可先 berry sessions export <id> 导出留底；加 --confirm 后含审批记录在内的全部会话史将被删除，且不可恢复。',
+      );
+      return 0;
+    }
+    // 直删档（flush 先行 + 三表删单源在 persistence.deleteSession；false =
+    // 预检后的竞窗缺席——同律诚实拒）
+    const gone = await persistence.deleteSession(id);
+    if (!gone) {
+      err(`会话不存在：${id}——用 sessions list 查现有 id`);
+      return 1;
+    }
+    out(`已删除：${id}`);
+    out(
+      '  竞窗警示：若该会话正被其他 berry 进程（TUI/守护）持有，请先关闭对应进程再删——直删会使该进程后续写笔落库成孤儿行。',
+    );
     return 0;
   } finally {
     await persistence.close();

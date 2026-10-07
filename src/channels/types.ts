@@ -29,6 +29,7 @@ export type {
   UiRewindEntry,
   UiRewindPreview,
   UiRewindActions,
+  UiSessionDeleteResult,
 } from '../contracts/index.js';
 
 // 审批 ask 词汇归位 contracts（批 11b——conversation 消费同形而边表不可达
@@ -38,6 +39,7 @@ export type { ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.j
 // 本面内用的契约类型（R7 批 10k——ChannelsOptions 两注入位的载荷形；re-export
 // 块不进本文件作用域，值用须显式 import）
 import type { UiSessionSummary, UiUsageSummary, UiCallLedger } from '../contracts/index.js';
+import type { UiSessionDeleteResult } from '../contracts/index.js';
 
 /**
  * todo 条目（07 §4.1 呈现面件 4——todoFor 注入载荷）：items 全量快照真源 =
@@ -160,6 +162,15 @@ export interface ChannelsOptions<TProjection> {
    * focus 查看器——零行为变）。
    */
   readonly resumeSession?: (sessionId: string) => Promise<boolean>;
+  /**
+   * 会话删除注入（05 §2.5 会话删除编排定形注①②——注入模板 = resumeSession/
+   * renameSession 同款「注入在场即注册、缺席不虚报」）。机器路 = manager
+   * .deleteSession 六步编排（装配侧 seam 闭包——busy 守卫→channels 收口→
+   * 登记拆除→物理三删→授予回收→焦点处置）。回执三态归核统一路由
+   * （busy→warn 指路等待或先打断 / missing→warn 不存在 / deleted→成功回执）。
+   * 消费位 = `/sessions` 面板删除键回调（picker onDelete——缺席键无效）。
+   */
+  readonly deleteSession?: (sessionId: string) => Promise<UiSessionDeleteResult>;
 }
 
 /**

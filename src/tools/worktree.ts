@@ -19,12 +19,15 @@
  * 会话可写根授予（04 §7 补钉①）：create 成功即自动将产物 canonical 路径记入
  * 该会话的授予集（fence 组合归装配——writableRoots provider 并入
  * grantedRoots(sessionId)；数据目录 carve-out 在 safety 面恒优先，本件不管
- * fence 执法只记账）；releaseSession 的生产接线仅 Job 终态位（issue 编排
- * settle 尾）——交互会话授予随会话持久存续（进程内存表，与 sessions 行
- * 同寿；进程重启表自空）。诚实边界（sweep10 laneE 件5 勘正——旧句「随会话
- * 关闭回收」不实）：交互会话无删除编排（存储面 deleteSession 零生产消费；
- * retire 是收口非终局——retire→reopen 竞窗在案，retire 位不得接线），
- * 「会话删除编排 + 授予回收接线」立题挂账需规范先行。
+ * fence 执法只记账）；releaseSession 的生产接线位 = 会话删除编排授予回收步
+ * （05 §2.5 会话删除编排定形注②——conversation-stack 装配 seam
+ * onSessionGrantsReleased）+ Job 终态位（issue 编排 settle 尾）。进程内删除
+ * 编排已接线；CLI 零装配直删形（sessions delete）下授予记账系进程内存态
+ * ——他进程授予表不随 CLI 删回收（表自空于进程重启，孤儿授予无害）。
+ * 诚实边界（sweep10 laneE 件5 勘正——旧句「随会话关闭回收」不实）：retire
+ * 是收口非终局——retire→reopen 竞窗在案，retire 位不得接线回收（授予回收
+ * 只随删除编排与 Job 终态两位）。不删集（05 §2.5 定形注③）：worktree 目录
+ * 与分支不在会话删除射界（clean 动词独立执掌——留史交付物引用）。
  *
  * git 元数据白名单（04 §8 桥条款——冷读挂账 #4 词面单源锚）：本件自身的 git
  * 调用是「工具内置受控路径」（封闭动词面则——不在 carve-out 拦截面）；
@@ -133,9 +136,11 @@ export interface WorktreeService {
   /** 会话授予集读（fence 组合装配面消费——writableRoots provider 并入） */
   grantedRoots(sessionId: string): string[];
   /**
-   * 会话授予回收（返回被释放的路径集）。生产接线现状：仅 Job 终态位（issue
-   * 编排 settle 尾）——交互会话授予随会话持久存续（头注诚实边界注——会话
-   * 删除编排接线立题挂账需规范先行）。
+   * 会话授予回收（返回被释放的路径集；槽缺席跳过——幂等）。生产接线位两处
+   * （05 §2.5 会话删除编排定形注②）：① 会话删除编排授予回收步（conversation-
+   * stack 装配 seam onSessionGrantsReleased——manager.deleteSession 成功路）；
+   * ② Job 终态位（issue 编排 settle 尾）。CLI 零装配直删形下授予记账系进程
+   * 内存态（他进程表不随删回收——进程重启自空，孤儿授予无害）。
    */
   releaseSession(sessionId: string): string[];
 }

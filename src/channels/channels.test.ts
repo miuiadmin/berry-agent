@@ -8,7 +8,14 @@
 import { describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 import { createChannels, foldErrorText } from './service.js';
-import type { ApprovalAskAnswer, SessionEnvelope, UiBackend, UiCapabilities, UiCallLedger } from './types.js';
+import type {
+  ApprovalAskAnswer,
+  SessionEnvelope,
+  UiBackend,
+  UiCapabilities,
+  UiCallLedger,
+  UiSessionDeleteResult,
+} from './types.js';
 import type { AgentEvent } from '../agent/index.js';
 
 /** 单次阻塞问询的手控柄（resolve/reject + 该次收到的 signal） */
@@ -46,8 +53,12 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
   const historyOpens: { sessionId: string; messages: readonly unknown[] }[] = [];
   const memoryOpens: number[] = [];
   let memoryOpenReturn = false;
-  const sessionsOpens: { sessions: readonly unknown[]; onSelect: (sessionId: string) => void; totalCount?: number }[] =
-    [];
+  const sessionsOpens: {
+    sessions: readonly unknown[];
+    onSelect: (sessionId: string) => void;
+    totalCount?: number;
+    onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>;
+  }[] = [];
   let sessionsOpenReturn = false;
   const usageOpens: { sessionId: string; summary: unknown }[] = [];
   let usageOpenReturn = false;
@@ -86,8 +97,13 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
             memoryOpens.push(memoryOpens.length);
             return memoryOpenReturn;
           },
-          openSessions: (sessions: readonly never[], onSelect: (sessionId: string) => void, totalCount?: number) => {
-            sessionsOpens.push({ sessions, onSelect, totalCount });
+          openSessions: (
+            sessions: readonly never[],
+            onSelect: (sessionId: string) => void,
+            totalCount?: number,
+            onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>,
+          ) => {
+            sessionsOpens.push({ sessions, onSelect, totalCount, onDelete });
             return sessionsOpenReturn;
           },
           openUsage: (sessionId: string, summary: never) => {
@@ -730,6 +746,67 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     expect(s.listCommands().map((c) => c.name)).not.toContain('sessions');
     expect(await s.dispatchCommand('/sessions')).toBe(false);
     expect(b.sessionsOpens).toEqual([]);
+  });
+
+  // —— deleteSession 注入（05 §2.5 会话删除编排定形注①——/sessions 面板删除键：
+  // 注入在场即接 picker 删除回调，缺席 = 键无效零行为变；回执三态路由归核 wrapper）——
+  it('deleteSession 注入在场：第四参 onDelete 透传后端（注入在场即接键行为）', async () => {
+    const s = createChannels({
+      sessions: async () => list,
+      deleteSession: async () => ({ status: 'deleted' as const }),
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    expect(b.sessionsOpens[0]!.onDelete).toBeInstanceOf(Function); // 透传在场
+  });
+
+  it('deleteSession 注入缺席：第四参 undefined（键无效零行为变——不虚报）', async () => {
+    const s = createChannels({ sessions: async () => list });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    expect(b.sessionsOpens[0]!.onDelete).toBeUndefined();
+  });
+
+  it('删除回执三态路由归核 wrapper：deleted 成功回执 / busy warn 指路等待或先打断 / missing warn 诚实拒', async () => {
+    const cases = [
+      { status: 'deleted' as const, level: undefined, text: '已删除会话：s1' },
+      { status: 'busy' as const, level: 'warn', text: '等待完成或先打断' },
+      { status: 'missing' as const, level: 'warn', text: '会话不存在：s1' },
+    ];
+    for (const { status, level, text } of cases) {
+      const s = createChannels({
+        sessions: async () => list,
+        deleteSession: async () => ({ status }),
+      });
+      const b = fakeBackend('tui', {}, true);
+      b.setSessionsOpen(true);
+      s.addBackend(b.backend);
+      await s.dispatchCommand('/sessions');
+      const onDelete = b.sessionsOpens[0]!.onDelete!;
+      await expect(onDelete('s1')).resolves.toEqual({ status }); // 回执原样透传（picker 消费）
+      expect(b.notified).toEqual([{ message: expect.stringContaining(text), level }]);
+    }
+  });
+
+  it('删除回调异常就地折 error notify 不直穿（直穿沿 onSelect 链成 uncaughtException 杀 TUI——selectSession 同律）', async () => {
+    const s = createChannels({
+      sessions: async () => list,
+      deleteSession: async () => {
+        throw new Error('库炸了');
+      },
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    const onDelete = b.sessionsOpens[0]!.onDelete!;
+    // 回执面折非 deleted 值（联合无 error 档——notify 已承载因，回执只需「未删」事实）
+    await expect(onDelete('s1')).resolves.toEqual({ status: 'missing' });
+    expect(b.notified).toEqual([{ message: expect.stringContaining('删除失败'), level: 'error' }]);
   });
 });
 

@@ -14,7 +14,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Message } from '../contracts/index.js';
 import { isStandardMessage } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
@@ -611,5 +611,152 @@ describe('SessionManager 会话关闭收口 seam（六役 CL-C ④——04 §10 
     expect(manager.isOpen(a.sessionId)).toBe(false);
     expect(() => manager.dispose()).not.toThrow(); // 拆解序不被单会话观察炸打断
     expect(manager.isOpen(b.sessionId)).toBe(false);
+  });
+});
+
+/* ---------------- deleteSession（05 §2.5 会话删除编排定形注②） ---------------- */
+
+describe('SessionManager deleteSession 删除编排（05 §2.5 定形注②——编排序单源不可倒）', () => {
+  /** 落库一步：turn/start 首事件即成行（删除断言面要 durable 行——零 I/O 形行不在库） */
+  async function seedDurable(manager: SessionManager, workspaceRoot?: string): Promise<string> {
+    const opened = workspaceRoot === undefined ? manager.create() : manager.create({ workspaceRoot });
+    opened.driver.session.append('turn/start', {});
+    await persistence.flush();
+    return opened.sessionId;
+  }
+
+  /**
+   * 编排追踪管理器：物理删步经原型链包一层序记录（其余真身——persistence
+   * 类实例方法在原型，Object.create 链上可达；deleteSession 覆写为自有属性）。
+   * seams 各步入 calls 账（序断言面）；seams 形参承载测试自有的额外观察位。
+   */
+  function makeTracedManager(
+    seams: {
+      onRetired?: (sessionId: string) => void;
+      onSessionChannelsClosed?: (sessionId: string) => void;
+      onSessionGrantsReleased?: (sessionId: string) => void;
+      onFocusCleared?: (sessionId: string) => void;
+    } = {},
+    calls: string[] = [],
+  ): SessionManager {
+    const dispatch = new EventDispatch();
+    const traced = Object.create(persistence) as Persistence;
+    traced.deleteSession = async (sessionId: string) => {
+      calls.push('physical');
+      const gone = await persistence.deleteSession(sessionId);
+      calls.push(gone ? 'physical:done' : 'physical:missing');
+      return gone;
+    };
+    return new SessionManager({
+      persistence: traced,
+      dispatch,
+      createDriver: makeFactory(dispatch),
+      onRetired: (sessionId) => {
+        calls.push('retired');
+        seams.onRetired?.(sessionId);
+      },
+      onSessionChannelsClosed: (sessionId) => {
+        calls.push(`channels:${sessionId}`);
+        seams.onSessionChannelsClosed?.(sessionId);
+      },
+      onSessionGrantsReleased: (sessionId) => {
+        calls.push(`grants:${sessionId}`);
+        seams.onSessionGrantsReleased?.(sessionId);
+      },
+      onFocusCleared: (sessionId) => {
+        calls.push(`focus:${sessionId}`);
+        seams.onFocusCleared?.(sessionId);
+      },
+    });
+  }
+
+  it('编排序单源：busy 守卫过 → channels 收口 → 登记拆除 → 物理三删 → 授予回收 → 焦点处置（calls 序全等 + 真删）', async () => {
+    const calls: string[] = [];
+    const manager = makeTracedManager({}, calls);
+    const id = await seedDurable(manager, '/ws');
+    const result = await manager.deleteSession(id);
+    expect(result).toEqual({ status: 'deleted' });
+    // 六步序：收口先于物理删（提问队列收口在拆除前——spec「守卫先于收口不可倒」），
+    // 授予回收与焦点处置在物理删后（成功路尾部）
+    expect(calls).toEqual([`channels:${id}`, 'retired', 'physical', 'physical:done', `grants:${id}`, `focus:${id}`]);
+    expect(manager.isOpen(id)).toBe(false); // 登记拆除（retire 出册——open 的逆向）
+    expect(persistence.hasSession(id)).toBe(false); // 物理三删真删（sessions/events/fts）
+  });
+
+  it('busy 守卫拒删：在飞 run 零收口零拆除零物理删（守卫先于收口不可倒——回执指路等待或先打断归呈现面）', async () => {
+    const calls: string[] = [];
+    const spy = vi.spyOn(persistence, 'deleteSession');
+    const dispatch = new EventDispatch();
+    const busyDriver = {
+      running: true,
+      dismantle: () => calls.push('dismantle'),
+    } as unknown as ConversationDriver;
+    const manager = new SessionManager({ persistence, dispatch, createDriver: () => busyDriver });
+    const opened = manager.create({ workspaceRoot: '/ws' });
+    const result = await manager.deleteSession(opened.sessionId);
+    expect(result).toEqual({ status: 'busy' });
+    expect(calls).toEqual([]); // dismantle 亦不触达——守卫位即返（在飞 run 不被撕裂）
+    expect(spy).not.toHaveBeenCalled(); // 零物理删
+    expect(manager.isOpen(opened.sessionId)).toBe(true); // 登记保持
+    spy.mockRestore();
+  });
+
+  it('缺席 id 诚实拒 missing：授予回收与焦点处置零发射（成功路尾部步骤不触达）', async () => {
+    const calls: string[] = [];
+    const grants: string[] = [];
+    const focus: string[] = [];
+    const manager = makeTracedManager(
+      {
+        onSessionGrantsReleased: (id) => grants.push(id),
+        onFocusCleared: (id) => focus.push(id),
+      },
+      calls,
+    );
+    const result = await manager.deleteSession('no-such-id');
+    expect(result).toEqual({ status: 'missing' });
+    // 缺席序：收口幂等先行（未知 id 安全）+ 物理删步诚实 miss；登记拆除步
+    // 零发射（不在册——retire 幂等 false）
+    expect(calls).toEqual(['channels:no-such-id', 'physical', 'physical:missing']);
+    expect(grants).toEqual([]);
+    expect(focus).toEqual([]);
+  });
+
+  it('未 open 会话（在库不在册）删除直达：picker 删非活跃会话形态——登记拆除步零副作用', async () => {
+    const calls: string[] = [];
+    const manager = makeTracedManager({}, calls);
+    // 库直种（不经 manager.open）——在库不在册
+    const log = persistence.createSession({ origin: 'conversation' });
+    log.append('turn/start', {});
+    await persistence.flush();
+    const result = await manager.deleteSession(log.sessionId);
+    expect(result).toEqual({ status: 'deleted' });
+    expect(calls).toEqual([
+      `channels:${log.sessionId}`,
+      'physical',
+      'physical:done',
+      `grants:${log.sessionId}`,
+      `focus:${log.sessionId}`,
+    ]); // 无 retired——不在册 retire 返 false 零副作用
+    expect(persistence.hasSession(log.sessionId)).toBe(false);
+  });
+
+  it('seam 缺席各步跳过（缺省装配零行为——纯库形态删除不炸）', async () => {
+    const { manager } = makeManager();
+    const id = await seedDurable(manager);
+    await expect(manager.deleteSession(id)).resolves.toEqual({ status: 'deleted' });
+  });
+
+  it('seam 观察者异常吞隔离不回卷编排（收口步炸 → 物理删照走）', async () => {
+    const dispatch = new EventDispatch();
+    const manager = new SessionManager({
+      persistence,
+      dispatch,
+      createDriver: makeFactory(dispatch),
+      onSessionChannelsClosed: () => {
+        throw new Error('收口观察者炸');
+      },
+    });
+    const id = await seedDurable(manager);
+    await expect(manager.deleteSession(id)).resolves.toEqual({ status: 'deleted' });
   });
 });

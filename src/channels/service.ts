@@ -23,6 +23,7 @@ import type {
   UiBackend,
   UiInputOptions,
   UiSelectChoice,
+  UiSessionDeleteResult,
 } from './types.js';
 import { BaseError } from '../contracts/index.js';
 import { CommandRegistry } from './commands.js';
@@ -221,6 +222,33 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
           uiCore.notify(`切换会话失败：${foldErrorText(err)}`, { level: 'error' }); // 纯 focus 查看器路同防
         });
     };
+    // 删除回调 wrapper（05 §2.5 会话删除编排定形注①——deleteSession 注入在场
+    // 即接 picker 删除键回调，缺席 = undefined 键无效零行为变）：回执三态路由
+    // 归核——deleted 成功回执 / busy warn 指路等待或先打断 / missing warn
+    // 诚实拒；异常就地折 error notify 不直穿（直穿沿 picker onDelete 链成
+    // uncaughtException 杀 TUI——selectSession 同律），回执面折非 deleted 值
+    // （联合回执无 error 档——notify 已承载因，回执只需「未删」事实）
+    const deleteSession = opts.deleteSession;
+    const deleteSessionWithReceipt =
+      deleteSession !== undefined
+        ? (sessionId: string): Promise<UiSessionDeleteResult> =>
+            deleteSession(sessionId).then(
+              (result) => {
+                if (result.status === 'deleted') {
+                  uiCore.notify(`已删除会话：${sessionId}`);
+                } else if (result.status === 'busy') {
+                  uiCore.notify(`会话正在运行——等待完成或先打断后再删（${sessionId}）`, { level: 'warn' });
+                } else {
+                  uiCore.notify(`会话不存在：${sessionId}`, { level: 'warn' });
+                }
+                return result; // 回执原样透传（picker 消费——busy/missing 留确认视图）
+              },
+              (err: unknown) => {
+                uiCore.notify(`删除失败：${foldErrorText(err)}`, { level: 'error' });
+                return { status: 'missing' };
+              },
+            )
+        : undefined;
     commands.register(
       'sessions',
       async () => {
@@ -230,7 +258,7 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
         const total = (await opts.sessionsTotal?.()) ?? sessions.length;
         let opened = false;
         for (const b of allBackends()) {
-          if (b.openSessions?.(sessions, selectSession, total) === true) opened = true;
+          if (b.openSessions?.(sessions, selectSession, total, deleteSessionWithReceipt) === true) opened = true;
         }
         if (!opened) {
           uiCore.notify('当前界面不支持会话切换', { level: 'warn' });

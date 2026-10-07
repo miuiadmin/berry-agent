@@ -140,7 +140,8 @@ const handlers: CommandHandlers = {
   // installPlugin；update 整源刷新/upgrade 对拍换装真身在席）
   marketplace: (sub) => runMarketplaceEntry(sub, {}),
   // sessions 子命令族 CLI 面（20d——list/search/reindex 读腿零装配、resume 进
-  // TUI〔resumeSessionId 载体〕、fork 全装配同 run --fork 机；07 §5 定名）
+  // TUI〔resumeSessionId 载体〕、fork 全装配同 run --fork 机；delete 第八动词
+  // 零装配直删两段式〔05 §2.5 定形注④〕；07 §5 定名）
   sessions: (sub) =>
     runSessionsEntry(sub, {
       version: readVersion(),

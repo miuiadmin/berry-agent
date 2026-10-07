@@ -1034,6 +1034,11 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       manager.open(sessionId);
       return Promise.resolve(true);
     },
+    // 会话删除注入（05 §2.5 会话删除编排定形注①②——注入模板 = resumeSession
+    // 同款）：机器路 = manager.deleteSession 六步编排真身（busy 守卫→channels
+    // 收口→登记拆除→物理三删→授予回收→焦点处置——seam 接线见 manager 构造
+    // 位）；回执三态路由归通道核 wrapper（/sessions 面板删除键消费）
+    deleteSession: (sessionId) => manager.deleteSession(sessionId),
   });
 
   // ④½ 会话维视图（e-2 观测腿——SessionView 纯派生读面）：数据三窄面全结构
@@ -1358,6 +1363,20 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     });
     return driver;
   };
+  // 开机会话缺省策略（提取为函数声明——栈字面量 openStartupSession 与删除
+  // 编排焦点处置 seam 两消费位单源；05 §2.5 定形注②「openStartupSession 缺省
+  // 策略复用」）：cwd 归一根取最新续接 / 无则新建
+  function openStartupSessionFor(cwd?: string): StartupSession {
+    const workspaceRoot = canonicalWorkspaceRoot(cwd);
+    // 按 cwd 归一根取最新会话（会话表 workspace_root 选取键——07 §5 策略真源）
+    const [latest] = manager.list({ workspaceRoot, limit: 1 });
+    if (latest !== undefined) {
+      const opened = manager.open(latest.id);
+      return { ...opened, resumed: true, workspaceRoot };
+    }
+    const created = manager.create({ workspaceRoot });
+    return { ...created, resumed: false, workspaceRoot };
+  }
   const manager = new SessionManager({
     persistence: options.runtime.persistence,
     dispatch,
@@ -1397,6 +1416,38 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     },
     // 会话关闭收口穿线（六役 CL-C ④——缺席形不设位保持测试替身零行为）
     ...(options.onSessionClosed !== undefined ? { onSessionClosed: options.onSessionClosed } : {}),
+    // —— 删除编排三 seam（05 §2.5 会话删除编排定形注②——编排真身 =
+    // manager.deleteSession，装配位在此接线；缺席形不设位保持测试替身零行为）——
+    // ① channels 收口步：unregisterSession（提问队列收口 + widget 清空——
+    // 编排②步发射，先于登记拆除〔守卫先于收口不可倒的次步〕）
+    onSessionChannelsClosed: (sessionId) => {
+      channels.unregisterSession(sessionId);
+    },
+    // ② 授予回收步：worktree 槽回收（槽缺席跳过——releaseSession 自幂等）；
+    // worktree 注入缺席形不设位（纯库形态删除零授予面）
+    ...(worktreeService !== undefined
+      ? {
+          onSessionGrantsReleased: (sessionId: string) => {
+            worktreeService.releaseSession(sessionId);
+          },
+        }
+      : {}),
+    // ③ 焦点处置步：删聚焦会话 → openStartupSession 缺省策略复用（cwd = 被删
+    // 会话工作区锚〔manager 随 seam 透传〕——归一根最新续接 / 无则新建）+
+    // 焦点切达；删非聚焦焦点不动。判据 = channels.focusedId 空悬（非比对被删
+    // id——编排②步 unregisterSession 删聚焦者时已把 focusedId 清 null，闭包内
+    // 比对恒假不可用；他者聚焦〔非空〕即跳过）。「删非聚焦时焦点本就空悬」的
+    // 理论不可达边：channels.unregisterSession 生产消费位唯本编排（删聚焦者恒
+    // 复焦），openStartupSession 恒产会话恒复焦。
+    onFocusCleared: (_sessionId, workspaceRoot) => {
+      if (channels.focusedId !== null) return; // 他者聚焦 = 删非聚焦——焦点不动
+      const next = openStartupSessionFor(workspaceRoot);
+      void channels.focus(next.sessionId).catch((err: unknown) => {
+        channels.notify(next.sessionId, `切换会话失败：${err instanceof Error ? err.message : String(err)}`, {
+          level: 'error',
+        });
+      });
+    },
   });
 
   // 操控受理器（e-4——03 §2.2 第十一面双面同源单源实现位）：栈级单例——
@@ -1676,17 +1727,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     },
     // 栈级锚取值器（闭包 const 同名 shorthand——:306 装配锚优先/缺省归一根）
     workspaceAnchor,
-    openStartupSession(cwd?: string): StartupSession {
-      const workspaceRoot = canonicalWorkspaceRoot(cwd);
-      // 按 cwd 归一根取最新会话（会话表 workspace_root 选取键——07 §5 策略真源）
-      const [latest] = manager.list({ workspaceRoot, limit: 1 });
-      if (latest !== undefined) {
-        const opened = manager.open(latest.id);
-        return { ...opened, resumed: true, workspaceRoot };
-      }
-      const created = manager.create({ workspaceRoot });
-      return { ...created, resumed: false, workspaceRoot };
-    },
+    // 开机会话缺省策略（提取单源 openStartupSessionFor——删除编排焦点处置
+    // seam 同源消费，05 §2.5 定形注②）
+    openStartupSession: openStartupSessionFor,
     // 会话累计读面 + 落账通知（07 §4.1 注⑪⑥a——V-4 底栏供数链；实现体
     // 在当日读面同域定义，同 fail-open/增量直推形）
     sessionSpentOf,

@@ -27,6 +27,7 @@ import { createBashTool, createSpawnPipeline } from '../exec/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { DEFAULT_COMPACTION_CONFIG } from '../compaction/index.js';
 import { createSandboxService } from '../safety/index.js';
+import type { WorktreeService } from '../tools/index.js';
 import { SessionLog, deriveMessages } from '../session/index.js';
 // persist 域类型经公开面 index 取（模块边界执法——测试文件同律，不深挖 store.js）
 import {
@@ -3319,5 +3320,92 @@ describe('停机序在飞 run 结算等待（件D1——04 §1②）', () => {
     expect(() => liveLog.append('turn/start', {})).not.toThrow();
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(rt.shutdownFlushFailure?.()).toBeDefined();
+  });
+});
+
+/* ---------------- 会话删除编排接线（05 §2.5 定形注②——装配位三 seam） ---------------- */
+
+describe('会话删除编排接线（05 §2.5 定形注②——装配位：channels 收口 / 授予回收 / 焦点处置）', () => {
+  /** 落库一步种活体会话（manager.create + 首事件 + flush——真 durable 行） */
+  async function seedOpenStack(
+    rt: HostRuntime,
+    stack: ReturnType<typeof createConversationStack>,
+    ws: string,
+  ): Promise<string> {
+    const opened = stack.manager.create({ workspaceRoot: ws });
+    opened.driver.session.append('turn/start', {});
+    await rt.persistence.flush();
+    return opened.sessionId;
+  }
+
+  it('删非聚焦会话：焦点不动 + channels 收口（在册出册）+ durable 三删', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { stack } = rigStack(rt, { workspace: () => ws });
+    const a = await seedOpenStack(rt, stack, ws);
+    const b = await seedOpenStack(rt, stack, ws);
+    stack.channels.registerSession(a);
+    stack.channels.registerSession(b);
+    await stack.channels.focus(a);
+    const result = await stack.manager.deleteSession(b);
+    expect(result).toEqual({ status: 'deleted' });
+    expect(stack.channels.focusedId).toBe(a); // 删非聚焦会话焦点不动
+    expect(stack.channels.hasSession(b)).toBe(false); // channels 收口出册（提问队列/widget 同笔）
+    expect(rt.persistence.hasSession(b)).toBe(false); // 物理三删
+    await rt.shutdown();
+  });
+
+  it('删聚焦会话：openStartupSession 缺省策略复用——cwd 归一根最新续接 + 焦点切达', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { stack } = rigStack(rt, { workspace: () => ws });
+    const a = await seedOpenStack(rt, stack, ws);
+    // b 后种后落——updated_at 最新；删 a（聚焦者）后归一根应续接 b
+    const b = await seedOpenStack(rt, stack, ws);
+    stack.channels.registerSession(a);
+    stack.channels.registerSession(b);
+    await stack.channels.focus(a);
+    const result = await stack.manager.deleteSession(a);
+    expect(result).toEqual({ status: 'deleted' });
+    expect(stack.channels.focusedId).toBe(b); // 焦点处置：归一根最新续接（focus 前半同步置位）
+    await new Promise<void>((resolve) => queueMicrotask(resolve)); // 切焦异步 repaint 尾步冲刷
+    await rt.shutdown();
+  });
+
+  it('授予回收接线：worktree 注入在场时 releaseSession 随删发射（05 §2.5 定形注②授予回收步）', async () => {
+    const { rt } = rigRuntime();
+    const released: string[] = [];
+    const fakeWorktree = {
+      async create() {
+        return { name: 'x', path: '/x', branch: 'x' };
+      },
+      async list() {
+        return [];
+      },
+      async clean() {
+        return { name: 'x', path: '/x' };
+      },
+      async diffPatch() {
+        return '';
+      },
+      async grant() {
+        return undefined;
+      },
+      grantedRoots() {
+        return [];
+      },
+      releaseSession(sessionId: string) {
+        released.push(sessionId);
+        return [];
+      },
+    } as unknown as WorktreeService;
+    const { stack } = rigStack(rt, { worktree: fakeWorktree });
+    const opened = stack.manager.create();
+    opened.driver.session.append('turn/start', {});
+    await rt.persistence.flush();
+    const result = await stack.manager.deleteSession(opened.sessionId);
+    expect(result).toEqual({ status: 'deleted' });
+    expect(released).toEqual([opened.sessionId]); // 授予回收步随删发射
+    await rt.shutdown();
   });
 });

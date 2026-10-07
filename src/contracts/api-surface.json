@@ -823,7 +823,7 @@
       "since": "1.0",
       "desc": "通道后端接口（通道核的呈现消费面）",
       "kind": "interface",
-      "sig": "de8d34f5ef5a4421"
+      "sig": "f0364400b05a30af"
     },
     {
       "symbol": "UiCallLedger",
@@ -905,6 +905,15 @@
       "desc": "select 单选项（07 §4.3 签名定稿形）",
       "kind": "interface",
       "sig": "b0b22829e52dcdd2"
+    },
+    {
+      "symbol": "UiSessionDeleteResult",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "`/sessions` 删除回执三态（05 §2.5 会话删除编排定形注②——编排真身 = 会话管理器删除动词：busy 守卫拒删 → 呈现面收口 → 登记拆除 → 物理三删 → 授予回收 → 焦点处置）",
+      "kind": "type",
+      "sig": "f0c1ce6d7b4b6086"
     },
     {
       "symbol": "UiSessionSummary",

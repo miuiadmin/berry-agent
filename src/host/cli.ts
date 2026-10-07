@@ -143,7 +143,7 @@ export type MarketplaceCommand =
   /** upgrade [<name@marketplace>]：catalog 对拍 + 换装分派（mp-4 真身——单件 force/全量对拍） */
   | { readonly sub: 'upgrade'; readonly id?: string };
 
-/** sessions 子命令族（07 §5——CLI 对等律射界：列表/续接/分叉/检索/改名/导出/重建） */
+/** sessions 子命令族（07 §5——CLI 对等律射界：列表/续接/分叉/检索/改名/导出/重建/删除〔05 §2.5 定形注④第八动词 delete——两段式 --confirm〕） */
 export type SessionsCommand =
   | { readonly sub: 'list' }
   | { readonly sub: 'resume'; readonly id: string }
@@ -151,7 +151,8 @@ export type SessionsCommand =
   | { readonly sub: 'search'; readonly query: string }
   | { readonly sub: 'reindex' }
   | { readonly sub: 'rename'; readonly id: string; readonly title: string }
-  | { readonly sub: 'export'; readonly id: string };
+  | { readonly sub: 'export'; readonly id: string }
+  | { readonly sub: 'delete'; readonly id: string; readonly confirm: boolean };
 
 /** 命令 tagged union（07 §5 命令族全量） */
 export type CliCommand =
@@ -658,7 +659,20 @@ function parseMarketplace(rest: readonly string[]): CliParseResult {
 function parseSessions(rest: readonly string[]): CliParseResult {
   const [head, ...tail] = rest as string[];
   if (head === undefined || head.startsWith('--')) {
-    return usageFail('sessions 须带子命令（list/resume/fork/search/rename/export/reindex）');
+    return usageFail('sessions 须带子命令（list/resume/fork/search/rename/export/reindex/delete）');
+  }
+  // delete 第八动词（05 §2.5 定形注④——两段式：--confirm 旗标与 plugins
+  // uninstall 同形）：无旗标 = 只读报告档、有旗标 = 直删档；解析律 = 恰一 id
+  // （缺 id / 多余位参退 2 用法错归本层；缺席 id 的诚实拒退 1 归执行层）
+  if (head === 'delete') {
+    const scan = scanFlags(tail, [{ name: 'confirm', kind: 'boolean' }]);
+    if (scan.error) return usageFail(scan.error);
+    const args = expectArity(scan.literals, 1, 1, 'berry sessions delete <id> [--confirm]');
+    if ('exitCode' in args) return args;
+    return finish(scan, {
+      kind: 'sessions',
+      sub: { sub: 'delete', id: args[0] as string, confirm: scan.booleans.has('confirm') },
+    });
   }
   const zeroArg = head === 'list' || head === 'reindex';
   const oneArg = head === 'resume' || head === 'fork' || head === 'search' || head === 'export';
@@ -666,7 +680,7 @@ function parseSessions(rest: readonly string[]): CliParseResult {
   // /rename 同律；含空格名走 shell 引号成单词亦并回）
   const twoArg = head === 'rename';
   if (!zeroArg && !oneArg && !twoArg) {
-    return usageFail(`未知 sessions 子命令：${head}（合法：list/resume/fork/search/rename/export/reindex）`);
+    return usageFail(`未知 sessions 子命令：${head}（合法：list/resume/fork/search/rename/export/reindex/delete）`);
   }
   const scan = scanFlags(tail, []);
   if (scan.error) return usageFail(scan.error);

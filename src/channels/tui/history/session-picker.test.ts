@@ -1,12 +1,13 @@
 /**
  * /sessions 会话切换器测试（批 10k R7）：光标模型（移动夹取/翻页/home-end/
  * 视口跟随 clamp）+ 选定序（先收副屏再 onSelect）+ 空表如实 + 行呈现
- * （光标/活跃位/无题/截断/右段时间短 id）+ 副屏键面三件套。
+ * （光标/活跃位/无题/截断/右段时间短 id）+ 副屏键面三件套 + 删除键与
+ * 确认位（05 §2.5 会话删除编排定形注①——'d' 破坏性动作必有确认）。
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid, stringWidth } from '../../engine/index.js';
-import type { UiSessionSummary } from '../../../contracts/index.js';
+import type { UiSessionDeleteResult, UiSessionSummary } from '../../../contracts/index.js';
 import { SessionPicker } from './session-picker.js';
 
 /** key 事件夹具 */
@@ -52,8 +53,15 @@ function readRow(grid: CellGrid, rowNumber: number, width: number): string {
   return out.trimEnd();
 }
 
-/** 装配便捷（全回调 vi 记录；extra = Options 可选位覆写——截断披露腿用） */
-function makePicker(sessions: readonly UiSessionSummary[], extra: { totalCount?: number } = {}) {
+/** 装配便捷（全回调 vi 记录；extra = Options 可选位覆写——截断披露/删除注入腿用） */
+function makePicker(
+  sessions: readonly UiSessionSummary[],
+  extra: {
+    totalCount?: number;
+    onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>;
+    requestRepaint?: () => void;
+  } = {},
+) {
   const onSelect = vi.fn();
   const onExit = vi.fn();
   const onInterrupt = vi.fn();
@@ -308,5 +316,171 @@ describe('SessionPicker 滚轮消费', () => {
     expect(picker.handleEvent(wheel('wheel-down'))).toBe(true);
     expect(onSelect).not.toHaveBeenCalled();
     expect(onExit).not.toHaveBeenCalled();
+  });
+});
+
+/* ---------------- 删除键与确认位（05 §2.5 会话删除编排定形注①） ---------------- */
+
+describe('SessionPicker 删除键与确认位（05 §2.5 定形注①——破坏性动作必有确认）', () => {
+  const sessions = [
+    row({ id: 'aaa111111111', title: '甲' }),
+    row({ id: 'bbb222222222', title: '乙' }),
+    row({ id: 'ccc333333333', title: '丙' }),
+  ];
+
+  /** 手控删除回执 rig（deferred——busy/missing/deleted 各态由测试注入落位） */
+  function deferredDelete() {
+    let settle!: (result: UiSessionDeleteResult) => void;
+    const calls: string[] = [];
+    const promise = new Promise<UiSessionDeleteResult>((resolve) => {
+      settle = resolve;
+    });
+    return {
+      calls,
+      onDelete: (sessionId: string) => {
+        calls.push(sessionId);
+        return promise;
+      },
+      settle,
+    };
+  }
+
+  /** 全屏读（确认视图多行断言便捷） */
+  function paintAll(picker: SessionPicker, width: number, height: number): string {
+    const grid = new CellGrid(width, height);
+    picker.render(grid, { row: 0, col: 0, width, height });
+    const lines: string[] = [];
+    for (let r = 0; r < height; r++) {
+      let out = '';
+      for (let c = 0; c < width; c++) out += grid.getCell(r, c)?.grapheme ?? ' ';
+      lines.push(out.trimEnd());
+    }
+    return lines.join('\n');
+  }
+
+  it("'d' 进确认视图：明示将删除对象与「不可恢复」（含审批记录在内的全部会话史）——key 轨", () => {
+    const rig = deferredDelete();
+    const { picker } = makePicker(sessions, { onDelete: rig.onDelete });
+    expect(picker.handleEvent(k('d'))).toBe(true);
+    const text = paintAll(picker, 70, 8);
+    expect(text).toContain('将删除'); // 删除对象明示（标题 + 短 id）
+    expect(text).toContain('甲');
+    expect(text).toContain('aaa11111');
+    expect(text).toContain('不可恢复'); // 确认文案规范明文（含审批记录在内的全部会话史）
+    expect(rig.calls).toEqual([]); // 确认位先行——未确认零回调
+  });
+
+  it("kitty text 轨 'd' 同律（双轨收键）", () => {
+    const rig = deferredDelete();
+    const { picker } = makePicker(sessions, { onDelete: rig.onDelete });
+    picker.handleEvent({ kind: 'text', text: 'd' });
+    expect(paintAll(picker, 70, 8)).toContain('不可恢复');
+    expect(rig.calls).toEqual([]);
+  });
+
+  it('enter 确认 → onDelete 光标行 + deleted 就地滤行回清单（刷新重拉最小形）+ 异步落位请帧', async () => {
+    const rig = deferredDelete();
+    const repaint = vi.fn();
+    const { picker, onSelect } = makePicker(sessions, { onDelete: rig.onDelete, requestRepaint: repaint });
+    picker.handleEvent(k('d'));
+    picker.handleEvent(k('enter'));
+    expect(rig.calls).toEqual(['aaa111111111']); // 光标行（首行默认）
+    rig.settle({ status: 'deleted' });
+    await Promise.resolve(); // 异步落位微任务冲刷（.then 链）
+    await Promise.resolve();
+    const text = paintAll(picker, 70, 8);
+    expect(text).toContain('会话切换 · 2 会话'); // 滤行后清单头（回 list 视图）
+    expect(text).toContain('乙'); // 次行上位
+    expect(text).not.toContain('甲'); // 已删行不再现
+    expect(repaint).toHaveBeenCalled(); // 异步落位请帧（面板不自驱重画）
+    picker.handleEvent(k('enter')); // 回清单后选择面恢复
+    expect(onSelect).toHaveBeenCalledWith('bbb222222222');
+  });
+
+  it('busy/missing 留确认视图：就地状态行明示因（notify 副屏期走停屏缓冲——面板须自带呈现）', async () => {
+    const rig = deferredDelete();
+    const { picker } = makePicker(sessions, { onDelete: rig.onDelete });
+    picker.handleEvent(k('down')); // 光标 → 乙
+    picker.handleEvent(k('d'));
+    picker.handleEvent(k('enter'));
+    rig.settle({ status: 'busy' });
+    await Promise.resolve();
+    await Promise.resolve();
+    const text = paintAll(picker, 70, 8);
+    expect(text).toContain('不可恢复'); // 仍留确认视图（未删——可取消重试）
+    expect(text).toContain('正在运行'); // busy 状态行（等待完成或先打断）
+  });
+
+  it('删除回调异常防御折状态行（不炸面板——.catch 折面）', async () => {
+    const calls: string[] = [];
+    const picker = new SessionPicker({
+      sessions,
+      onSelect: () => undefined,
+      onExit: () => undefined,
+      onDelete: (id) => {
+        calls.push(id);
+        return Promise.reject(new Error('库炸了'));
+      },
+    });
+    picker.handleEvent(k('d'));
+    picker.handleEvent(k('enter'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls).toEqual(['aaa111111111']);
+    const text = paintAll(picker, 70, 8);
+    expect(text).toContain('删除失败'); // 错误状态行（折面呈现于确认视图）
+  });
+
+  it('取消（esc/q 两轨）零回调回清单', () => {
+    const rig = deferredDelete();
+    const { picker } = makePicker(sessions, { onDelete: rig.onDelete });
+    picker.handleEvent(k('d'));
+    picker.handleEvent(k('escape')); // esc 取消
+    expect(paintAll(picker, 70, 8)).toContain('会话切换 · 3 会话');
+    expect(rig.calls).toEqual([]);
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('d'));
+    picker.handleEvent({ kind: 'text', text: 'q' }); // kitty text 轨 q 取消
+    expect(paintAll(picker, 70, 8)).toContain('会话切换 · 3 会话');
+    expect(rig.calls).toEqual([]);
+  });
+
+  it('注入缺席 d 键无效（键行为随注入在场——缺席不虚报，选择面不受影响）', () => {
+    const { picker, onSelect } = makePicker(sessions); // 无 onDelete
+    expect(picker.handleEvent(k('d'))).toBe(true); // 吞而不动作
+    expect(paintAll(picker, 70, 8)).toContain('会话切换 · 3 会话'); // 清单视图原形
+    picker.handleEvent({ kind: 'text', text: 'd' }); // text 轨同无效
+    expect(paintAll(picker, 70, 8)).toContain('会话切换 · 3 会话');
+    picker.handleEvent(k('enter'));
+    expect(onSelect).toHaveBeenCalledWith('aaa111111111');
+  });
+
+  it('在飞守卫：删除回执未落位前 enter 不双发（防双击）', () => {
+    const rig = deferredDelete();
+    const { picker } = makePicker(sessions, { onDelete: rig.onDelete });
+    picker.handleEvent(k('d'));
+    picker.handleEvent(k('enter')); // 发起（回执悬置）
+    picker.handleEvent(k('enter')); // 在飞——不双发
+    expect(rig.calls).toEqual(['aaa111111111']);
+  });
+
+  it('帮助行在场加「d 删除」段（注入在场才注——缺席保持原形）', () => {
+    const withDelete = makePicker(sessions, { onDelete: deferredDelete().onDelete });
+    expect(paintAll(withDelete.picker, 70, 8)).toContain('d 删除');
+    const bare = makePicker(sessions);
+    expect(paintAll(bare.picker, 70, 8)).not.toContain('d 删除');
+  });
+
+  it('删唯一行后清单如实空态（光标夹取不越界）', async () => {
+    const rig = deferredDelete();
+    const { picker } = makePicker([row({ id: 'only-000000000', title: '独' })], { onDelete: rig.onDelete });
+    picker.handleEvent(k('d'));
+    picker.handleEvent(k('enter'));
+    rig.settle({ status: 'deleted' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(paintAll(picker, 70, 8)).toContain('会话切换 · 无会话'); // 空态如实
+    picker.handleEvent(k('enter')); // 空表 enter 不选不炸
   });
 });

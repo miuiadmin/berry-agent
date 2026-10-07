@@ -135,6 +135,13 @@ export interface UiBackend<TProjection> {
     sessions: readonly UiSessionSummary[],
     onSelect: (sessionId: string) => void,
     totalCount?: number,
+    /**
+     * 删除回调（05 §2.5 会话删除编排定形注① `/sessions` 面板删除键——注入
+     * 在场才有键行为，缺席 = 键无效零行为变）。确认位归呈现件（破坏性动作
+     * 必有确认——确认文案明示「含审批记录在内的全部会话史将被删除且不可
+     * 恢复」）；回执三态路由归通道核 wrapper（后端只透传）。
+     */
+    onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>,
   ): boolean;
   /**
    * 开副屏用量面板（07 §4.1 R7 批 10k `/usage` 命令的呈现面——数据源 =
@@ -165,6 +172,16 @@ export interface UiBackend<TProjection> {
    */
   openRewindPicker?(entries: readonly UiRewindEntry[], actions: UiRewindActions): boolean;
 }
+
+/**
+ * `/sessions` 删除回执三态（05 §2.5 会话删除编排定形注②——编排真身 =
+ * 会话管理器删除动词：busy 守卫拒删 → 呈现面收口 → 登记拆除 → 物理三删
+ * → 授予回收 → 焦点处置）。本类型系呈现契约面的回执形，与编排侧回执结构
+ * 同构——contracts 不依赖 conversation 是分层刻意的（RenameSessionResult
+ * 自持律同族）。
+ */
+export type UiSessionDeleteResult =
+  { readonly status: 'deleted' } | { readonly status: 'busy' } | { readonly status: 'missing' };
 
 /**
  * 回退点选择器条目（批3 `/rewind` 副屏载荷——插件域 manifestLine 成品行）。
