@@ -94,6 +94,7 @@ import type { HostRuntime } from './runtime.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
 import { MarketplaceTuiFace } from './marketplace-tui-face.js';
 import type { UninstallChoice } from './marketplace-tui-face.js';
+import { panelBusyNotice } from './tui-panel-copy.js';
 import {
   MODE_SHORT,
   SANDBOX_MODE_DETAILS,
@@ -298,18 +299,6 @@ export function readLogTailLines(
 function rawCustomMergeBase(dataDir: string): Record<string, unknown> {
   const raw = readRawCustomProviders(dataDir);
   return typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {};
-}
-
-/**
- * 副屏占用降级回执句尾单源（本件本地命令族十三词共用——/status /debug
- * /skills /model /themes /thinking /sandbox /diff /guide /feedback /setup
- * /help /jobs）：open* 返 false = 恰一屏一副屏、占用中先收后开，回执指路 esc 收屏
- * 再试。面名（含「页/清单/向导」量词）由各命令位注入。同句尾在
- * marketplace-tui-face（插件市场）仍持第二拷贝——跨文件收口另立题挂账；
- * 「反馈页暂不可用——稍后再试」（装载期空窗档）是另一句尾，不入本源。
- */
-function panelBusyNotice(name: string): string {
-  return `${name}暂不可用——先关闭当前打开的页面（esc），再试`;
 }
 
 /**

@@ -271,12 +271,29 @@ describe('MarketplaceTuiFace 装配位（open）', () => {
     expect(notify.mock.calls[0]![0]).toContain('数据目录不可用');
   });
 
-  it('副屏占用如实 warn（openPanel false——不排队不顶替）', async () => {
+  it('副屏占用如实 warn（openPanel false——不排队不顶替；句面走单源恒等锁）', async () => {
     const rig = await rigFace('open-occupied', { openPanelResult: false });
     await rig.face.open();
     expect(rig.openPanel).toHaveBeenCalledTimes(1); // 试过一次
     expect(rig.notify).toHaveBeenCalledTimes(1);
-    expect(rig.notify.mock.calls[0]![0]).toContain('暂不可用');
+    // 锁 C（行为恒等腿，修前绿修后绿）：固定串断言（07 §4.4 追溯力条款明许
+    // 「产码固定串是产品单源、可断言」）——词面漂移即红
+    expect(rig.notify.mock.calls[0]![0]).toBe('插件市场暂不可用——先关闭当前打开的页面（esc），再试');
+  });
+
+  it('词法锁（B 类池收口批——副屏占用句尾单源）：句尾字面唯宿主 tui-panel-copy + 本面走 helper 接线（修前红：双拷贝在场 2/接线 0）', () => {
+    // 锁 A（修前红锚）：句尾字面在两消费位源文件合计恰 0——修前 tui-entry
+    // 模板串 1 + marketplace 手拼串 1 即红；修后字面仅存于单源件 tui-panel-copy
+    // （D3 双拷贝收编锁同法——句面字面量唯单源位）
+    const tuiEntrySource = readFileSync(new URL('./tui-entry.ts', import.meta.url), 'utf8');
+    const marketplaceSource = readFileSync(new URL('./marketplace-tui-face.ts', import.meta.url), 'utf8');
+    const tailCount =
+      tuiEntrySource.split('暂不可用——先关闭当前打开的页面（esc），再试').length -
+      1 +
+      (marketplaceSource.split('暂不可用——先关闭当前打开的页面（esc），再试').length - 1);
+    expect(tailCount).toBe(0);
+    // 锁 B（修前红）：本面开屏位接线单源 helper（修前手拼零调用即红）
+    expect(marketplaceSource.split("panelBusyNotice('插件市场')").length - 1).toBe(1);
   });
 });
 

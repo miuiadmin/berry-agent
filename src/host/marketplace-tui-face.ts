@@ -40,6 +40,7 @@ import type { MarketEntryRow, MarketPanelActions, MarketPanelModel } from '../ch
 import type { MarketplaceCommand } from './cli.js';
 import { discoverMarketplaces, sanitizeBlock, sanitizeLine } from './plugin-market/index.js';
 import type { MarketFs } from './plugin-market/index.js';
+import { panelBusyNotice } from './tui-panel-copy.js';
 
 /**
  * /reload 自动链提示句（编舞④）：与 /plugins 写动词成功尾句
@@ -132,7 +133,8 @@ export class MarketplaceTuiFace {
     }
     await this.rebuildRows();
     if (!this.deps.openPanel(this.model, this.actions)) {
-      this.deps.notify('插件市场暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+      // 副屏占用句尾走单源（tui-panel-copy——B 类池收口批，销手拼第二拷贝）
+      this.deps.notify(panelBusyNotice('插件市场'), { level: 'warn' });
     }
   }
 
