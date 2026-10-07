@@ -50,6 +50,9 @@ import { readHostSettings } from './settings-store.js';
 import { APPROVAL_USAGE, parseApprovalArgv, runApprovalCommand } from './approval-cmd.js';
 import { createCorePlugins } from './core-plugins.js';
 import type { GoalFace, SubagentLayerResyncHook } from './core-plugins.js';
+// crash-loop 守卫判定件（04 §5 无人值守深化批——boot 史单键判序 + clean 退出标记）
+import { judgeBootGuard, markCleanExit } from './boot-guard.js';
+import type { BootGuardStore } from './boot-guard.js';
 import { createSessionsFace } from './sessions-face.js';
 import { createSandboxDisclosureSource } from './disclosure.js';
 import type { ConversationStack } from './conversation-stack.js';
@@ -829,6 +832,24 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       runtimeNow.persistence.store.getCredential(HOST_NAMESPACE, ISSUE_WEBHOOK_SECRET_NAME)?.apiKey ??
       (env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET !== '' ? env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET : undefined);
 
+    // —— crash-loop 守卫判定（无人值守深化批——04 §5 supervisor 防环连续性
+    // 定谳②⑥：durable boot 史单键 + 启动判序，装配序早期单点判——先于
+    // createCorePlugins 装配，结果经 CorePluginHostDeps.bootRecoveryGuard 可选
+    // 槽传 goal/issue 两件。store face = persistence.store getStoreState/
+    // setStoreState 直传（与 issue 件 state 注入同源——better-sqlite3 同步
+    // 直写面）；:memory: 诊断形照跑（写 :memory: 不触真键——定谳⑤f：双
+    // daemon 同 dataDir 竞速由启动序单活跃机占标记先于开库封闭，memory 形
+    // 主库在内存即无跨进程面）。判毕即写新值（cleanExit:false——启动先自我
+    // 标记非正常，clean 位由尾位 closer 翻真）；读/写失败件内自吞降级
+    // warn（active=false 本轮不守卫——防线缺席非恢复断裂）。
+    const bootGuardStore: BootGuardStore = {
+      getStoreState: (key) => runtimeNow.persistence.store.getStoreState(key),
+      setStoreState: (key, value, options) => runtimeNow.persistence.store.setStoreState(key, value, options),
+    };
+    // 进程 boot 判一次全程不变——runBoot 闭包捕获冻结布尔（/reload 换代重跑
+    // 两扫描腿读同一冻结判定，engaged 恒跳过，语义一致——定谳⑥）
+    const bootGuard = judgeBootGuard(bootGuardStore, { warn: (message) => logger.warn(message) });
+
     // —— 宿主级 budget-extended 广播件（u-3——04 §5 定形注①：canAfford 恢复
     // watcher 自 issue 会话工厂私有升格宿主件，装配根单真身三停靠面同播
     // [issue 停靠项 / goal 停靠项 / 会话级停靠项]；电平判语义不变——有停靠
@@ -997,6 +1018,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             options.corePlugins ??
             createCorePlugins({
               dataDir: rt.dataDir,
+              // crash-loop 守卫判定冻结值（定谳②——boot 判一次全程不变：
+              // /reload 换代 runBoot 重跑，两扫描腿读同一冻结布尔）
+              bootRecoveryGuard: bootGuard.active,
               // worktree 服务共享位（件/栈同源双注之二——issue 编排授予与
               // 会话内工具消费同台账；见 stack 前单真身注）
               worktree: worktreeService,
@@ -1340,6 +1364,21 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         }
         await registry.refresh();
       },
+    });
+
+    // —— crash-loop 守卫 clean 退出标记（定谳②：退出序 closer **装配根注册集
+    // 之尾位**——注册序串行即 drain 序，尾位最易因 drain 总帽尽被跳过，跳过即
+    // 非正常归类正确：closer 未走完非正常退出）。fn = markCleanExit 写
+    // {cleanExit: true, shortLiveStreak: 0}（同步直写、保留 lastBootAt——
+    // store_state 系 better-sqlite3 同步直写非 write-behind 队列，本标记不
+    // 依赖退出序 ③ flush 步）。披露句随注（定谳②）：入口层后位 closer
+    // （tui/serve/webui/mcp 各面各自注册位）drain 于本标记之后、退出序
+    // ③-⑥ 步（flush/hooks/dispose/close）期死亡 = clean 误判一次——streak
+    // 归零、真环 K 轮重聚有界；SIGINT 硬退（process.exit 直达形不经
+    // shutdown 柄）与 kill -9 天然不写 = 非正常归类正确。
+    runtime.registerCloser({
+      label: 'boot-guard-clean-exit',
+      fn: () => Promise.resolve(markCleanExit(bootGuardStore, { warn: (message) => logger.warn(message) })),
     });
     emitBootStage('skills', 'start');
     await resyncPluginSkillLayers(boot);

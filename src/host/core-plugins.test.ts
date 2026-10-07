@@ -184,6 +184,12 @@ interface DepsForTest {
   issueWebhookSecret?: string;
   /** issue 会话日志读面（issue 停靠恢复批——CorePluginHostDeps.issueSessionReads 同形） */
   issueSessionReads?: IssueSessionReadsFace;
+  /**
+   * crash-loop 守卫判定冻结值（无人值守深化批——CorePluginHostDeps.bootRecoveryGuard
+   * 同形）：true = boot 自动恢复面两腿（goal 重挂扫描 / issue 停靠扫描）跳过；
+   * 缺席/false = 不拦截（现行行为）。
+   */
+  bootRecoveryGuard?: boolean;
   /** worktree 服务共享位（issue 件编排授予测试位——缺席 = 件内自建真身） */
   worktree?: WorktreeService;
   credentialsStore?: CredentialsCommandStore;
@@ -277,6 +283,7 @@ async function bootCore(
       ...(coreDeps.issueGithubToken !== undefined ? { issueGithubToken: coreDeps.issueGithubToken } : {}),
       ...(coreDeps.issueWebhookSecret !== undefined ? { issueWebhookSecret: coreDeps.issueWebhookSecret } : {}),
       ...(coreDeps.issueSessionReads !== undefined ? { issueSessionReads: coreDeps.issueSessionReads } : {}),
+      ...(coreDeps.bootRecoveryGuard !== undefined ? { bootRecoveryGuard: coreDeps.bootRecoveryGuard } : {}),
       ...(coreDeps.worktree !== undefined ? { worktree: coreDeps.worktree } : {}),
       ...(coreDeps.credentialsStore !== undefined ? { credentialsStore: coreDeps.credentialsStore } : {}),
       ...(coreDeps.credentialsOnChanged !== undefined ? { credentialsOnChanged: coreDeps.credentialsOnChanged } : {}),
@@ -309,6 +316,8 @@ async function bootReparkRig(options: {
   events?: Array<[type: string, data: unknown]>;
   /** 挂钟行 enabled 位；undefined = 不预置挂钟行（无行形——从未起拍/终态清账） */
   jobRowEnabled?: boolean;
+  /** crash-loop 守卫判定冻结值（无人值守深化批——true = boot 重挂扫描跳过） */
+  bootRecoveryGuard?: boolean;
 }) {
   const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-repark-'));
   dirs.push(dataDir);
@@ -395,6 +404,7 @@ async function bootReparkRig(options: {
       goalServiceSink: (service) => {
         svc = service;
       },
+      ...(options.bootRecoveryGuard !== undefined ? { bootRecoveryGuard: options.bootRecoveryGuard } : {}),
     },
   );
   return {
@@ -426,6 +436,8 @@ async function issueParkRig(options: {
   rows: Array<{ repo: string; number: number; events: Array<[type: string, data: unknown]> | 'ghost' }>;
   /** true = 不注入 issueSessionReads（读面缺席形——扫描诚实跳过行保留） */
   omitReads?: boolean;
+  /** crash-loop 守卫判定冻结值（无人值守深化批——true = boot 停靠扫描跳过） */
+  bootRecoveryGuard?: boolean;
 }) {
   const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-ipark-'));
   dirs.push(dataDir);
@@ -538,6 +550,7 @@ async function issueParkRig(options: {
       checkpointFork,
       budgetBroadcast: broadcast,
       ...(options.omitReads === true ? {} : { issueSessionReads }),
+      ...(options.bootRecoveryGuard !== undefined ? { bootRecoveryGuard: options.bootRecoveryGuard } : {}),
       notify: (source, message) => {
         if (source === 'issue') notified.push(message);
       },
@@ -2811,6 +2824,57 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     }
   });
 
+  // ── crash-loop 守卫锁（无人值守深化批——04 §5 supervisor 防环连续性定谳③：
+  //    bootRecoveryGuard=true（第 K 次短命猝死后第 K+1 轮）= goal 重挂腿整体
+  //    诚实跳过——零登记 + warn 指路 /goal wake；守卫判置于全部既有前置 return
+  //    之前〔定谳⑥〕，测试替身形亦恒可达）──
+  it('goal boot 重挂守卫锁：bootRecoveryGuard=true + 停靠态 goal（尾词 session/paused(budget) + 挂钟 disabled）——零重挂零登记零提交 + warn 固定子串指路 /goal wake；goal 行/挂钟行/尾词全不动', async () => {
+    const rig = await bootReparkRig({
+      goalId: 'g-guard-main',
+      events: [
+        ['turn/start', {}],
+        ['session/paused', { reason: 'budget' }], // 尾词 = durable 停靠真源（停靠态齐备——守卫外的既有判据全命中形）
+      ],
+      jobRowEnabled: false,
+      bootRecoveryGuard: true, // crash-loop 守卫生效（判后 streak ≥ K 的第 K+1 轮）
+    });
+    try {
+      const schedFace = rig.scope.tryGet<SchedulerFace>('scheduler')!;
+      // 修前红锚：无守卫代码三处登记照常重建——broadcast.size() 恒 1（主锁）
+      expect(rig.broadcast.size()).toBe(0); // 广播 entry 零登记
+      expect(rig.svc.isParkedForBudget('g-guard-main')).toBe(false); // service 侧登记不出现
+      expect(rig.submits).toHaveLength(0); // 零提交（本轮不自动恢复）
+      // goal 行/挂钟行/尾词全不动（零登记非清账——durable 停靠事实保留）
+      expect(schedFace.service.getJob('goal-g-guard-main')?.enabled).toBe(false);
+      const persisted = rig.persistence.queryEvents({ sessionId: rig.sessionId!, fromSeq: 0, limit: 100 });
+      expect(persisted.events.filter((e) => e.type === 'session/paused')).toHaveLength(1);
+      // warn 固定子串（生效留痕 + 人工道指路——守卫非永久态）
+      expect(
+        rig.notified.some((m) => m.includes('[goal] 重启恢复：连续短命异常退出守卫生效——本轮不自动恢复预算暂停登记')),
+      ).toBe(true);
+    } finally {
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
+  it('goal boot 重挂守卫反例：bootRecoveryGuard=false（槽在场不拦截）——既有扫描照常恢复（零行为回归）', async () => {
+    const rig = await bootReparkRig({
+      goalId: 'g-guard-off',
+      events: [['session/paused', { reason: 'budget' }]],
+      jobRowEnabled: false,
+      bootRecoveryGuard: false, // 槽在场 false = 不拦截（与缺席同现行行为）
+    });
+    try {
+      expect(rig.broadcast.size()).toBe(1); // 照常重建三处登记
+      expect(rig.svc.isParkedForBudget('g-guard-off')).toBe(true);
+      expect(rig.notified.some((m) => m.includes('[goal] 重启恢复：连续短命异常退出守卫生效'))).toBe(false); // 守卫 warn 不发射
+    } finally {
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
   // ── issue 停靠恢复批 boot 扫描（04 §5 停靠登记 daemon 重启恢复律——goal
   //    L4-1 的 issue 侧对偶：durable 登记行 + 尾词两形判据 + 单发唤醒 entry）──
   it('issue 重启恢复主径：登记行 + 尾词 session/paused(budget) → 装载即清痕重登记单发 entry；电平翻真唤醒重入全管线（外联 getIssue → enqueue 正门 → 新 run 持 onParked 写位）', async () => {
@@ -2958,6 +3022,53 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       expect(rig.fetchCalls).toContain('GET /repos/owner/repo/issues/8'); // 两行都被迭代
       expect(rig.starts).toHaveLength(1); // 仅 #7 存活重入（#8 已删清行）
       expect(rig.broadcast.size()).toBe(0); // 自摘
+    } finally {
+      rig.restore();
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
+  // ── crash-loop 守卫锁（无人值守深化批——04 §5 定谳③ issue 面：boot 停靠扫描
+  //    跳过 + **登记行保留不清**——清理判据唯三径不添第四径；warn 指路外部活动
+  //    重触发；守卫判置于 issueSessionReads 判之前〔定谳⑥〕）──
+  it('issue boot 停靠扫描守卫锁：bootRecoveryGuard=true——扫描跳过（登记行原样保留 + bootWakeEntry 零登记 + 外联零触发）+ warn 固定子串', async () => {
+    const rig = await issueParkRig({
+      rows: [
+        {
+          repo: 'owner/repo',
+          number: 7,
+          events: [['session/paused', { reason: 'budget' }]], // 停靠态齐备（守卫外的既有判据全命中形）
+        },
+      ],
+      bootRecoveryGuard: true, // crash-loop 守卫生效
+    });
+    try {
+      // 修前红锚：无守卫代码单发 entry 照常重建——broadcast.size() 恒 1（主锁）
+      expect(rig.broadcast.size()).toBe(0); // bootWakeEntry 零登记
+      expect(rig.registry()).toHaveLength(1); // dropParked 不调——登记行原样保留（清理判据唯三径不添第四径）
+      expect(rig.service().listParked()).toHaveLength(1); // service 侧行面同保
+      expect(rig.fetchCalls).toHaveLength(0); // 外联零触发（扫描跳过连带零重入判据）
+      expect(rig.starts).toHaveLength(0);
+      // warn 固定子串（生效留痕 + 指路轮询/webhook 重触发）
+      expect(rig.notified.some((m) => m.includes('[issue] 重启恢复：连续短命异常退出守卫生效——本轮停靠扫描跳过'))).toBe(
+        true,
+      );
+    } finally {
+      rig.restore();
+      rig.broadcast.dispose();
+      await rig.persistence.close();
+    }
+  });
+
+  it('issue boot 停靠扫描守卫反例：bootRecoveryGuard=false（槽在场不拦截）——既有扫描照常（零行为回归）', async () => {
+    const rig = await issueParkRig({
+      rows: [{ repo: 'owner/repo', number: 7, events: [['session/paused', { reason: 'budget' }]] }],
+      bootRecoveryGuard: false,
+    });
+    try {
+      expect(rig.broadcast.size()).toBe(1); // 照常登记单发 entry
+      expect(rig.notified.some((m) => m.includes('[issue] 重启恢复：连续短命异常退出守卫生效'))).toBe(false);
     } finally {
       rig.restore();
       rig.broadcast.dispose();

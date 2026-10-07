@@ -27,6 +27,9 @@ import type { PluginContext } from './plugin-context.js';
 import { createPluginStoreFs, readEnabledRowsForEdit } from './plugin-store.js';
 import { runWithSessionAnchor } from './session-anchor.js';
 import { createHostRuntime } from './runtime.js';
+import { judgeBootGuard } from './boot-guard.js';
+import { BOOT_GUARD_STATE_KEY, BOOT_GUARD_STATE_KIND } from './boot-guard.js';
+import type { BootGuardState, BootGuardStore } from './boot-guard.js';
 import { readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import { SETTINGS_BASENAME } from './settings-store.js';
 import { openWebuiFace } from './webui-bridge.js';
@@ -2693,5 +2696,86 @@ describe('分项目输入历史面装配（B1——05 §9 input_history / 07 §4
         await assembly.runtime.shutdown();
       }
     }
+  });
+});
+
+describe('crash-loop 守卫装配接线（无人值守深化批——04 §5 supervisor 防环连续性定谳②⑥）', () => {
+  it('接线三面：装配即判落 host:boot:guard 行（kind boot-guard、cleanExit:false）+ 同库二次 judge streak 递增（判定连续性）+ closer 尾位 clean 翻真（二次装配判别锁）', async () => {
+    const dir = tmpDir('host-asm-bootguard-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    expect(assembly.ok).toBe(true);
+    if (!assembly.ok) return;
+    const store = assembly.runtime.persistence.store;
+    try {
+      // ① 装配序早期单点判：boot 史行已落（启动自标非正常——clean 位由 closer 翻真）
+      const row = store.getStoreState(BOOT_GUARD_STATE_KEY);
+      expect(row?.kind).toBe(BOOT_GUARD_STATE_KIND);
+      expect(row?.value).toMatchObject({ cleanExit: false, shortLiveStreak: 0 });
+      expect(typeof (row?.value as BootGuardState).lastBootAt).toBe('number');
+      // ② 同库二次 judge streak 递增（判定连续性——下一 boot 读到本 boot 落的行；
+      //    间隔 60s 两连 < 短命阈 10min → 短命格累加 1、2）
+      const face: BootGuardStore = {
+        getStoreState: (key) => store.getStoreState(key),
+        setStoreState: (key, value, options) => store.setStoreState(key, value, options),
+      };
+      const t0 = Date.now();
+      expect(judgeBootGuard(face, { now: () => t0 + 60_000 }).active).toBe(false); // streak 1
+      expect(judgeBootGuard(face, { now: () => t0 + 120_000 }).active).toBe(false); // streak 2
+      expect((store.getStoreState(BOOT_GUARD_STATE_KEY)?.value as BootGuardState).shortLiveStreak).toBe(2);
+    } finally {
+      // closer drain（注册序串行）——尾位 boot-guard-clean-exit 执行：clean 翻真
+      // + streak 清零 + lastBootAt 保留（同步直写不依赖 flush 步）
+      await assembly.runtime.shutdown();
+    }
+    // ③ closer 生效判别锁（closer 列表私有不可直读——以二次装配为下一 boot 读面）：
+    // closer 跑了 → 行 cleanExit=true → 二次 judge 走格① streak=0；closer 未跑 →
+    // 行 cleanExit:false/streak2 且 lastBootAt = t0+120s（未来）→ 二次 judge 走
+    // 短命格（回拨保守向）streak=3。断言 0 即 clean 翻真证（shutdown 后库已关，
+    // 二次装配内读是唯一可达读面）。
+    const second = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    try {
+      expect(second.runtime.persistence.store.getStoreState(BOOT_GUARD_STATE_KEY)?.value).toMatchObject({
+        cleanExit: false,
+        shortLiveStreak: 0, // closer 生效 → clean 格归零（未跑则保守向 3——判别面）
+      });
+    } finally {
+      await second.runtime.shutdown();
+    }
+  });
+
+  it('接线静态锁：judgeBootGuard 调用先于 createCorePlugins + 结果入可选槽 + clean-exit closer 居装配根注册集尾位', () => {
+    const src = readFileSync(new URL('./assembly.ts', import.meta.url), 'utf8');
+    // 判定先于件装配（定谳②「装配序早期」——冻结布尔经 deps 槽传两件）
+    const judgePos = src.indexOf('judgeBootGuard(');
+    const factoryPos = src.indexOf('createCorePlugins({');
+    expect(judgePos).toBeGreaterThan(-1);
+    expect(factoryPos).toBeGreaterThan(judgePos);
+    expect(src).toContain('bootRecoveryGuard: bootGuard.active'); // 结果透传 CorePluginHostDeps 可选槽
+    // closer 尾位（定谳②「装配根注册集之尾位」——尾位最易因 drain 总帽尽被跳过，
+    // 跳过即非正常归类正确）：boot-guard-clean-exit 的 label 须在文件最后一个
+    // runtime.registerCloser 调用之内（其后零注册）
+    let lastCloserPos = -1;
+    for (
+      let pos = src.indexOf('runtime.registerCloser');
+      pos !== -1;
+      pos = src.indexOf('runtime.registerCloser', pos + 1)
+    ) {
+      lastCloserPos = pos;
+    }
+    expect(lastCloserPos).toBeGreaterThan(-1);
+    const labelPos = src.indexOf("label: 'boot-guard-clean-exit'");
+    expect(labelPos).toBeGreaterThan(lastCloserPos); // 尾位注册（注册序串行即 drain 序）
   });
 });
