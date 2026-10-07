@@ -1347,6 +1347,15 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // 不越覆盖位）。
       model: sessionModel ?? (() => currentModel),
       ...(tools !== undefined ? { tools } : {}),
+      // 后台唤醒轮工具面供应商（ASM-1 挖掘 15 轮——04 §4 定形注：v1 装配形
+      // = 恒注入、供全量工具面）：取值器形 `() => tools`——值同前台 run 工具
+      // 面终值（shapeTools 整形后集，:1298 定形先于本装配位）。修前恒不注入
+      // → 三编舞（goal 预算唤醒/issue 停靠恢复/子代理结算通知轮）后台 run
+      // 零工具起跑——issue 续跑假完成、goal 唤醒空转烧池（driver 层单测直注
+      // 供应商恒绿掩盖装配缺口）。memory 形 tools 缺席 → 空数组（与「纯对话
+      // run 降级」语义一致——工具整面缺席本就零工具）。窄面词表挂真实滥用
+      // 面另立题（无人场高危由 sandbox 档+审批门辖——04 §4 理由②）。
+      backgroundTools: () => tools ?? [],
       // tool/call 载荷 owner 位取数（T9 案一批 t-1——memory 形 undefined 不带）
       ...(resolveToolOwner !== undefined ? { resolveToolOwner } : {}),
       // lane 帽取位器（04 §4——channels 消息语义批 m-2）：followUp 起跑前

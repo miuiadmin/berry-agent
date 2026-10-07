@@ -272,6 +272,58 @@ describe('assembleHostStack 成功档', () => {
     }
   });
 
+  it('ASM-1（挖掘 15 轮）：后台唤醒轮经真装配工具面非空——修前 conversation-stack 恒不注入 backgroundTools 零工具起跑', async () => {
+    // 组合根锁：driver 层单测直注 backgroundTools 供应商恒绿（假绿本体——
+    // 测试直注 seam 键掩盖唯一真装配路径从未注入，同族 readAttachment P0）。
+    // 本腿经真装配（assembleHostStack → conversation-stack 装配位）起
+    // backgroundWake run（子代理结算通知轮编舞），断言唤醒轮请求头快照的
+    // toolSchemas 非空且含 boot 全局面工具（bash）——修前红实证：装配位
+    // 恒不带 backgroundTools → applyToolFace 置空数组 → issue 续跑假完成/
+    // goal 唤醒空转烧池（04 §4 ASM-1 定形注：v1 装配形=供应商恒注入供全量面）
+    const dir = tmpDir('host-asm-bgtools-');
+    const ws = tmpDir('host-asm-bgtools-ws-');
+    const faux = fauxProvider({ provider: 'faux-asm', models: [{ id: 'm1' }] });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-asm/m1',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const agentDef = assembly.boot.tools.definitions().find((definition) => definition.name === 'agent');
+      if (agentDef === undefined) throw new Error('agent 工具不在 boot 面');
+      const parent = assembly.stack.openStartupSession(ws);
+      // 两响：子代理 one-shot + 父结算唤醒 turn（submitText backgroundWake 起跑）
+      faux.setResponses([() => fauxText('后台工具面侦察'), () => fauxText('收到')]);
+      const result = await agentDef.execute(
+        { prompt: '后台去', background: true },
+        { toolCallId: 'c-bgt', sessionId: parent.sessionId },
+      );
+      expect(result.isError).not.toBe(true);
+      // 轮询父 durable：唤醒轮 request/header 落账（父会话本例唯一 run 即唤醒轮）
+      const parentLog = assembly.stack.manager.driverOf(parent.sessionId)!.session;
+      const deadline = Date.now() + 5_000;
+      let header: { toolSchemas?: Array<{ name: string }> } | undefined;
+      while (Date.now() < deadline) {
+        const event = parentLog.events().find((candidate) => candidate.type === 'request/header');
+        if (event !== undefined) {
+          header = event.data as { toolSchemas?: Array<{ name: string }> };
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(header).toBeDefined(); // 唤醒 turn 真起跑（header 快照真落）
+      const names = (header!.toolSchemas ?? []).map((schema) => schema.name);
+      expect(names.length).toBeGreaterThan(0); // 修前红锚：缺席 → 空数组
+      expect(names).toContain('bash'); // boot 全局面经真装配链在场（工作工具可动）
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
   it('skills_change 事件桥（批 19b-1）：registry refresh → dispatch skills_change 发射（载荷 = provider 清单）', async () => {
     const dir = tmpDir('host-asm-skchg-');
     // 缺省 createCorePlugins 真跑形（exec/web/skills 三件——桥只在 skills 服务在场时挂）

@@ -248,12 +248,13 @@ export interface ConversationDriverOptions {
   readonly settleApprovals?: () => void;
 
   /**
-   * 后台唤醒批的工具面供应商（04 §4「合批收窄工具面」）：唤醒触发的 run
-   * 工具面 = 本供应面产出（goal 续跑/tick 编排的窄面经装配根供入——批 12
-   * 接线）；**缺席 = 后台 run 零工具**（纯对话——「防后台 run 自由动用全部
-   * 工具」的最保守兑现；前台 run 不经本面恒取全量 tools）。
+   * 后台唤醒批的工具面供应商（04 §4「合批收窄工具面」+ ASM-1 定形注）：唤醒
+   * 触发的 run 工具面 = 本供应面产出；**缺席 = 后台 run 零工具**（驱动侧机制
+   * 位——装配位恒注入见 conversation-stack 装配段，v1 装配形 = 供全量工具面
+   * 〔值同前台 run 工具面终值〕，窄面词表挂真实滥用面另立题）；前台 run 不经
+   * 本面恒取全量 tools。
    */
-  readonly backgroundTools?: () => AgentTool[];
+  readonly backgroundTools?: () => readonly AgentTool[];
 
   /**
    * goal 段窄面供应商（03 §10.5 chat↔goal 数据通道）：todo fold 边界升格
