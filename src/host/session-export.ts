@@ -1,22 +1,32 @@
 /**
- * host/session-export —— 会话导出 markdown 拼装单源（07 §4.1 命令面增补批
- * C2；07 §5 sessions 行 CLI 对等位——05 §3.4 点名 CLI 导出为 queryEvents
- * 宿主面消费者）。
+ * host/session-export —— 会话导出拼装单源（07 §4.1 命令面增补批 C2；
+ * 07 §5 sessions 行 CLI 对等位——05 §3.4 点名 CLI 导出为 queryEvents 宿主面
+ * 消费者。05 §5.1 导出/导入对偶动词面批扩第二形态：`--format jsonl` 事件级
+ * 金样形——事件信封原样全量流，import 第九动词的对偶产物）。
  *
  * 两消费面同一函数：TUI `/export` 通道命令（assembly 宿主级直注册）与 CLI
  * `berry sessions export <id>`——拼装/落盘/回执文本三面同源，消费腿
  * {@link runSessionExportCommand} 只差装配位注入的 seam（数据目录/行面
  * 读/事件源/焦点位）。
  *
- * 数据源 = durable 事件日志投影（与 /history 同源族——deriveMessages 纯
- * 函数 fold，纯文本拼装零 TUI 渲染依赖）：轮次（user 消息开节、assistant/
- * toolResult 归节）+ thinking 折叠行 + 工具卡简行；**空会话 = 仅文档头骨架
- * 照落盘**（不拒——空壳导出亦是真答复）。
+ * 两形态分账（缺省 markdown 呈现形完全不变——最小扩面）：
+ *  - **markdown（呈现形）**：durable 事件日志投影（与 /history 同源族——
+ *    deriveMessages 纯函数 fold，纯文本拼装零 TUI 渲染依赖）：轮次（user
+ *    消息开节、assistant/toolResult 归节）+ thinking 折叠行 + 工具卡简行；
+ *    **空会话 = 仅文档头骨架照落盘**（不拒——空壳导出亦是真答复）。
+ *  - **jsonl（事件级金样形）**：首行 `_meta` 本体（裸对象——非
+ *    `{"_meta":{…}}` 包裹形；导入身份闸对首行 header 直判 format，包裹形必
+ *    拒——导出侧不得自产拒载形）`{format, version, exportedAt}`（epoch 毫
+ *    秒；format/version 与身份闸 KNOWN_FORMAT/SUPPORTED_VERSION 单源共享），
+ *    其后每行一条 SessionEvent 信封原样（type/seq/time/data/ignorable/
+ *    surfaceOp/sourceEventSeqs——含被遮蔽历史的保真射界：surfaceOp 遮蔽载
+ *    体随流走，不折叠不净化不重编；round-trip 经 import 四闸重建投影等价）。
  *
- * 落盘律（07 §4.1 逐件语义 7）：`数据目录/exports/<会话id>-<时间戳>.md`
- * （时间戳 ISO 压形——冒号/点替换连字符，文件名安全）；回执 = 路径一行
- * （/memory-export 同形）。会话 id 恒为宿主铸 id（uuid v7 形——CLI/TUI 两
- * 腯均先判在场才落盘，用户串不可达文件名位）。
+ * 落盘律（07 §4.1 逐件语义 7；两形态同形异扩展名）：
+ * `数据目录/exports/<会话id>-<时间戳>.md|.jsonl`（时间戳 ISO 压形——冒号/点
+ * 替换连字符，文件名安全）；回执 = 路径一行（/memory-export 同形）。会话 id
+ * 恒为宿主铸 id（uuid v7 形——CLI/TUI 两腿均先判在场才落盘，用户串不可达
+ * 文件名位）。
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -25,7 +35,7 @@ import type { SessionEvent } from '../contracts/index.js';
 import { BaseError } from '../contracts/index.js';
 import { sanitizeTitleText, sessionDisplayTitleOf } from '../persist/index.js';
 import type { ContentBlock } from '../session/index.js';
-import { deriveMessages } from '../session/index.js';
+import { KNOWN_FORMAT, SUPPORTED_VERSION, deriveMessages } from '../session/index.js';
 
 /** /export 用法（assembly 通道命令注册 description 位——PLUGINS_CMD_USAGE 同族） */
 export const SESSION_EXPORT_USAGE =
@@ -55,6 +65,9 @@ export interface SessionExportOutcome {
   readonly ok: boolean;
   readonly text: string;
 }
+
+/** 导出格式（05 §5.1 对偶动词面：markdown 呈现形既有缺省 / jsonl 事件级金样形本批新增） */
+export type SessionExportFormat = 'markdown' | 'jsonl';
 
 /**
  * markdown 拼装（纯函数——CLI/TUI 两消费面单源；测试直锁格式）。
@@ -134,14 +147,43 @@ export function renderSessionMarkdown(input: SessionExportInput): string {
 }
 
 /**
- * 落盘腿：`数据目录/exports/<会话id>-<时间戳>.md`（目录递归建；覆写同刻
- * 同名文件——时间戳含毫秒，实战不可撞）。返回落盘路径（回执/CLI 输出共用）。
+ * jsonl 拼装（事件级金样形——05 §5.1 导出/导入对偶动词面；纯函数单源，
+ * 测试直锁格式）。行律：
+ *  - 首行 = `_meta` 本体（**裸对象**，非 `{"_meta":{…}}` 包裹形——导入身份
+ *    闸 parseImportFile 对首行 header 直判 format，包裹形必拒，导出侧不得
+ *    自产拒载形）；format/version 与身份闸常量单源共享（KNOWN_FORMAT /
+ *    SUPPORTED_VERSION——round-trip 身份闭环的结构性保证），exportedAt =
+ *    导出时刻 epoch 毫秒；
+ *  - 其后每行一条 SessionEvent 信封**原样**（JSON.stringify 序列化——可选
+ *    位 ignorable/surfaceOp/sourceEventSeqs 缺席天然省略）：含被遮蔽历史的
+ *    保真射界（surfaceOp 遮蔽载体随流走，不折叠不净化不重编——markdown 形
+ *    的呈现投影不携带遮蔽史，金样形以信封原样保真）；
+ *  - 空会话 = 仅 _meta 首行（零事件行——空壳导出亦是真答复，同 markdown 形）。
  */
-export function writeSessionExport(dataDir: string, input: SessionExportInput): string {
+export function renderSessionJsonl(input: SessionExportInput): string {
+  const lines: string[] = [];
+  lines.push(JSON.stringify({ format: KNOWN_FORMAT, version: SUPPORTED_VERSION, exportedAt: input.now }));
+  for (const event of input.events) {
+    lines.push(JSON.stringify(event));
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * 落盘腿：`数据目录/exports/<会话id>-<时间戳>.md|.jsonl`（目录递归建；覆写同刻
+ * 同名文件——时间戳含毫秒，实战不可撞）。返回落盘路径（回执/CLI 输出共用）。
+ * format 缺省 markdown——既有调用面（TUI /export 与缺省 CLI）行为完全不变。
+ */
+export function writeSessionExport(
+  dataDir: string,
+  input: SessionExportInput,
+  format: SessionExportFormat = 'markdown',
+): string {
   const dir = join(dataDir, 'exports');
   mkdirSync(dir, { recursive: true });
-  const path = join(dir, `${input.meta.sessionId}-${fileStampOf(input.now)}.md`);
-  writeFileSync(path, renderSessionMarkdown(input), 'utf8');
+  const body = format === 'jsonl' ? renderSessionJsonl(input) : renderSessionMarkdown(input);
+  const path = join(dir, `${input.meta.sessionId}-${fileStampOf(input.now)}.${format === 'jsonl' ? 'jsonl' : 'md'}`);
+  writeFileSync(path, body, 'utf8');
   return path;
 }
 
@@ -170,6 +212,8 @@ export interface SessionExportCommandDeps {
   readonly eventsOf: (sessionId: string) => readonly SessionEvent[] | undefined;
   /** 焦点会话现取（无参形真源——TUI 装配位注入；CLI 恒 null） */
   readonly focusedId: () => string | null;
+  /** 导出格式（缺省 markdown——呈现形既有行为完全不变；jsonl = 事件级金样形） */
+  readonly format?: SessionExportFormat;
   /** 时钟（缺省 Date.now——测试确定性注入位） */
   readonly now?: () => number;
 }
@@ -211,18 +255,24 @@ export async function runSessionExportCommand(
   }
   const row = deps.rowOf(sessionId);
   // 展示题读路合并单源（05 §9 v13 分家③）：显式题优先、首问快照兜底——
-  // 空串/两列均缺席视缺席不造行（零事件新会话同形）
+  // 空串/两列均缺席视缺席不造行（零事件新会话同形）；jsonl 形不消费行面
+  // 元数据（_meta 只有 format/version/exportedAt——保真射界 = 事件流 + 投影，
+  // 行面 created/updated/title 不纳入），markdown 形沿用文档头三行
   const displayTitle = row !== undefined ? sessionDisplayTitleOf(row) : undefined;
-  const path = writeSessionExport(deps.dataDir, {
-    events,
-    meta: {
-      sessionId,
-      ...(displayTitle !== undefined && displayTitle !== '' ? { title: displayTitle } : {}),
-      ...(row?.workspaceRoot !== undefined ? { workspaceRoot: row.workspaceRoot } : {}),
-      ...(row?.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
+  const path = writeSessionExport(
+    deps.dataDir,
+    {
+      events,
+      meta: {
+        sessionId,
+        ...(displayTitle !== undefined && displayTitle !== '' ? { title: displayTitle } : {}),
+        ...(row?.workspaceRoot !== undefined ? { workspaceRoot: row.workspaceRoot } : {}),
+        ...(row?.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
+      },
+      now: deps.now?.() ?? Date.now(),
     },
-    now: deps.now?.() ?? Date.now(),
-  });
+    deps.format ?? 'markdown',
+  );
   return { ok: true, text: `已导出 ${events.length} 事件 → ${path}` };
 }
 

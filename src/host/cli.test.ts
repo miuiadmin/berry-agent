@@ -576,6 +576,39 @@ describe('sessions 子命令族', () => {
     expectUsage(['sessions', 'delete'], '位置参数数目不符');
     expectUsage(['sessions', 'delete', 'a', 'b'], '位置参数数目不符');
   });
+
+  // export --format 值旗标（05 §5.1 导出/导入对偶动词面批——jsonl 事件级金样
+  // 形；值域执法与 plugins uninstall --data keep|purge 同形：值域外退 2）
+  it('export --format 值旗标：markdown/jsonl 两值 + 缺省 markdown；值域外退 2', () => {
+    // 修前红：--format 在现码未入 export 白名单——「未识别旗标」退 2（成功断言红）
+    expect(expectCommand(['sessions', 'export', 's-42'])).toMatchObject({
+      kind: 'sessions',
+      sub: { sub: 'export', id: 's-42', format: 'markdown' },
+    });
+    expect(expectCommand(['sessions', 'export', 's-42', '--format', 'markdown'])).toMatchObject({
+      kind: 'sessions',
+      sub: { sub: 'export', id: 's-42', format: 'markdown' },
+    });
+    expect(expectCommand(['sessions', 'export', 's-42', '--format', 'jsonl'])).toMatchObject({
+      kind: 'sessions',
+      sub: { sub: 'export', id: 's-42', format: 'jsonl' },
+    });
+    expectUsage(['sessions', 'export', 's-42', '--format', 'yaml'], '值域外');
+    expectUsage(['sessions', 'export', 's-42', '--format'], '须带值');
+  });
+
+  // import 第九动词（05 §5.1 导出/导入对偶动词面批——恰一文件参；四闸+
+  // 种子前缀拷贝重建归执行层，本层只执法解析律）
+  it('import 第九动词：恰一文件参；缺参/多参退 2', () => {
+    // 修前红：import 在现码未知子命令面——「未知 sessions 子命令」退 2（成功断言红）
+    expect(expectCommand(['sessions', 'import', '/tmp/golden.jsonl'])).toMatchObject({
+      kind: 'sessions',
+      sub: { sub: 'import', file: '/tmp/golden.jsonl' },
+    });
+    expectUsage(['sessions', 'import'], '位置参数数目不符');
+    expectUsage(['sessions', 'import', 'a.jsonl', 'b.jsonl'], '位置参数数目不符');
+    expectUsage(['sessions', 'import', 'a.jsonl', '--x'], '未识别旗标');
+  });
 });
 
 describe('credentials 子命令族（c-5——03 §10.9 人面命令 CLI 面）', () => {

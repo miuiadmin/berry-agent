@@ -25,6 +25,7 @@ export type { CredentialsSub };
 import type { DoorsSub } from './doors-cmd.js';
 // 同上单源再导出（doors-cmd.ts 立形——CLI 解析与 TUI argv 解析/命令语义共用）
 export type { DoorsSub };
+import type { SessionExportFormat } from './session-export.js';
 
 /* ---------------- 命令形（tagged union——分派层的消费契约） ---------------- */
 
@@ -143,7 +144,7 @@ export type MarketplaceCommand =
   /** upgrade [<name@marketplace>]：catalog 对拍 + 换装分派（mp-4 真身——单件 force/全量对拍） */
   | { readonly sub: 'upgrade'; readonly id?: string };
 
-/** sessions 子命令族（07 §5——CLI 对等律射界：列表/续接/分叉/检索/改名/导出/重建/删除〔05 §2.5 定形注④第八动词 delete——两段式 --confirm〕） */
+/** sessions 子命令族（07 §5——CLI 对等律射界：列表/续接/分叉/检索/改名/导出/重建/删除/导入〔05 §2.5 定形注④ delete 第八动词两段式 --confirm；05 §5.1 导出/导入对偶动词面批 export --format jsonl 金样形 + import 第九动词四闸重建——两动词互为对偶：导出产物即导入合法输入，round-trip 投影等价〕） */
 export type SessionsCommand =
   | { readonly sub: 'list' }
   | { readonly sub: 'resume'; readonly id: string }
@@ -151,8 +152,11 @@ export type SessionsCommand =
   | { readonly sub: 'search'; readonly query: string }
   | { readonly sub: 'reindex' }
   | { readonly sub: 'rename'; readonly id: string; readonly title: string }
-  | { readonly sub: 'export'; readonly id: string }
-  | { readonly sub: 'delete'; readonly id: string; readonly confirm: boolean };
+  /** export format 恒由解析层填（缺省 markdown——呈现形既有；jsonl = 事件级金样形） */
+  | { readonly sub: 'export'; readonly id: string; readonly format: SessionExportFormat }
+  | { readonly sub: 'delete'; readonly id: string; readonly confirm: boolean }
+  /** import <file>：金样导入（四闸 + 种子前缀拷贝重建——执行层零装配直开库） */
+  | { readonly sub: 'import'; readonly file: string };
 
 /** 命令 tagged union（07 §5 命令族全量） */
 export type CliCommand =
@@ -659,7 +663,7 @@ function parseMarketplace(rest: readonly string[]): CliParseResult {
 function parseSessions(rest: readonly string[]): CliParseResult {
   const [head, ...tail] = rest as string[];
   if (head === undefined || head.startsWith('--')) {
-    return usageFail('sessions 须带子命令（list/resume/fork/search/rename/export/reindex/delete）');
+    return usageFail('sessions 须带子命令（list/resume/fork/search/rename/export/reindex/delete/import）');
   }
   // delete 第八动词（05 §2.5 定形注④——两段式：--confirm 旗标与 plugins
   // uninstall 同形）：无旗标 = 只读报告档、有旗标 = 直删档；解析律 = 恰一 id
@@ -674,13 +678,42 @@ function parseSessions(rest: readonly string[]): CliParseResult {
       sub: { sub: 'delete', id: args[0] as string, confirm: scan.booleans.has('confirm') },
     });
   }
+  // export --format 值旗标（05 §5.1 导出/导入对偶动词面批）：markdown 呈现形
+  // 缺省不变、jsonl 事件级金样形；值域执法与 plugins uninstall --data 同形
+  // （值域外/缺值退 2 归本层；缺席 id 的诚实拒退 1 归执行层）
+  if (head === 'export') {
+    const scan = scanFlags(tail, [{ name: 'format', kind: 'value', values: ['markdown', 'jsonl'] }]);
+    if (scan.error) return usageFail(scan.error);
+    const args = expectArity(scan.literals, 1, 1, 'berry sessions export <id> [--format markdown|jsonl]');
+    if ('exitCode' in args) return args;
+    const format = scan.values.get('format');
+    return finish(scan, {
+      kind: 'sessions',
+      sub: { sub: 'export', id: args[0] as string, format: format === 'jsonl' ? 'jsonl' : 'markdown' },
+    });
+  }
+  // import 第九动词（05 §5.1 导出/导入对偶动词面批——export 的对偶）：恰一
+  // 文件参（缺参/多参退 2 用法错归本层；文件缺席/四闸拒/种子锚拒/洪水闸拒
+  // 退 1 归执行层）
+  if (head === 'import') {
+    const scan = scanFlags(tail, []);
+    if (scan.error) return usageFail(scan.error);
+    const args = expectArity(scan.literals, 1, 1, 'berry sessions import <file>');
+    if ('exitCode' in args) return args;
+    return finish(scan, {
+      kind: 'sessions',
+      sub: { sub: 'import', file: args[0] as string },
+    });
+  }
   const zeroArg = head === 'list' || head === 'reindex';
-  const oneArg = head === 'resume' || head === 'fork' || head === 'search' || head === 'export';
+  const oneArg = head === 'resume' || head === 'fork' || head === 'search';
   // rename 两位参起（<id> <title...>）——title 多词裸接（argv 重拼，与 TUI
   // /rename 同律；含空格名走 shell 引号成单词亦并回）
   const twoArg = head === 'rename';
   if (!zeroArg && !oneArg && !twoArg) {
-    return usageFail(`未知 sessions 子命令：${head}（合法：list/resume/fork/search/rename/export/reindex/delete）`);
+    return usageFail(
+      `未知 sessions 子命令：${head}（合法：list/resume/fork/search/rename/export/reindex/delete/import）`,
+    );
   }
   const scan = scanFlags(tail, []);
   if (scan.error) return usageFail(scan.error);
@@ -699,7 +732,7 @@ function parseSessions(rest: readonly string[]): CliParseResult {
         ? { sub: 'search', query: args[0] as string }
         : head === 'rename'
           ? { sub: 'rename', id: args[0] as string, title: args.slice(1).join(' ') }
-          : { sub: head as 'resume' | 'fork' | 'export', id: args[0] as string },
+          : { sub: head as 'resume' | 'fork', id: args[0] as string },
   });
 }
 

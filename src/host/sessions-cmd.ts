@@ -2,7 +2,7 @@
  * host/sessions-cmd — `sessions` 子命令族 CLI 入口（07 §5 会话管理命令族；
  * CLI 对等律射界 02 §2.3 多会话面；批 20d）。
  *
- * 八子动词分账（开库形态两分）：
+ * 九子动词分账（开库形态两分）：
  *  - **读腿（list/search）+ 维护动词（reindex）——零装配直开库**：不开运行
  *    时、不占单活跃机标记、不装载插件（同 serve status 只读豁免族——短命
  *    查询/维护动词不是第二宿主实例）。开库走 Persistence 直开 + 宿主迁移链
@@ -15,30 +15,43 @@
  *  - **resume <id>——进 TUI**：直托 runTuiEntry（resumeSessionId 载体——
  *    「指定 id 续接」的 CLI 半边，与无参 TUI 的按 cwd 取最新互补〔07 §5〕）；
  *    非 TTY 卫兵同 TUI 主入口律（管道/CI 退 2 指引改 run --session）。
- *  - **export <id>——零装配直开库**（07 §4.1 命令面增补批 CLI 对等位——
- *    /export TUI 命令的 CLI 半边；markdown 拼装/落盘/回执文本与 TUI 同一
- *    命令腿单源 session-export.ts〔05 §3.4 点名 CLI 导出为 queryEvents
- *    宿主面消费者〕）。
+ *  - **export <id> [--format markdown|jsonl]——零装配直开库**（07 §4.1 命令
+ *    面增补批 CLI 对等位——/export TUI 命令的 CLI 半边；markdown 拼装/落盘/
+ *    回执文本与 TUI 同一命令腿单源 session-export.ts〔05 §3.4 点名 CLI 导出
+ *    为 queryEvents 宿主面消费者〕。05 §5.1 对偶动词面批扩 --format jsonl
+ *    事件级金样形：事件信封原样全量流——import 的对偶产物，round-trip 承诺
+ *    = 产物经四闸重建投影等价）。
  *  - **rename <id> <title>——零装配直开库**（2026-09-30 人面改名批第七
  *    动词——/rename TUI 命令的 CLI 半边；净化+200 帽单源 clampTitleText
  *    与 TUI 注入侧同源〔05 §9 写面硬律〕，updateSessionTitle 裸写薄层——
  *    净化责任在人面入口非存储层）。
  *  - **delete <id>——零装配直开库**（05 §2.5 会话删除编排定形注②④第八
  *    动词——两段式 --confirm 与 plugins uninstall 同形：无旗标 = 只读报告
- *    档〔既有清单字段 + export 留底提示 + 指路加 --confirm〕，有旗标 =
- *    persistence.deleteSession 直达〔flush 先行 + sessions/events/
- *    session_fts 三表删〕；竞窗诚实披露——运行中进程持有的会话被直删后
- *    该进程后续写笔落库成孤儿行，回执警示先关对应进程。不删集〔定形注③
- *    ——CLI 形零代码动作注记〕：goal 行/issue 停靠登记/checkpoint
- *    manifest/worktree 目录与分支/input_history/memory 皆不在删除射界。
- *    TUI 进程内编排（六步 seam 序）归 conversation-stack 装配位，非本腿）。
+ *    档〔既有清单字段 + export 留底提示（对偶动词面批升 --format jsonl
+ *    无损留底形）+ 指路加 --confirm〕，有旗标 = persistence.deleteSession
+ *    直达〔flush 先行 + sessions/events/session_fts 三表删〕；竞窗诚实披露
+ *    ——运行中进程持有的会话被直删后该进程后续写笔落库成孤儿行，回执警示
+ *    先关对应进程。不删集〔定形注③——CLI 形零代码动作注记〕：goal 行/
+ *    issue 停靠登记/checkpoint manifest/worktree 目录与分支/input_history/
+ *    memory 皆不在删除射界。TUI 进程内编排（六步 seam 序）归
+ *    conversation-stack 装配位，非本腿）。
+ *  - **import <file>——零装配直开库**（05 §5.1 导出/导入对偶动词面批第九
+ *    动词——export --format jsonl 的对偶半边：读文件 → 导入四闸中三闸
+ *    〔身份/词汇+形状/配对——runImportGates 单源〕→ 种子锚校验〔切片档
+ *    isSeededPrefix(requireEndSeed=false)——导入流无 end-seed 尾条，尾条
+ *    即末事件〕→ 洪水闸〔SessionSpawnLimiter 首个生产接线位——纯进程态
+ *    滑动窗，CLI 短命进程形每进程独立账本〕→ persistence.createSeededSession
+ *    种子前缀拷贝重建〔同步落库、seq 原序 0..N 不重编、信封零字段重写、
+ *    origin='import'〕）。
  *
  * 退出码：0 成功（含空清单/零命中——诚实空非失败）/ 1 执行失败（会话不
- * 存在、fork 否决、装配失败、净化归空拒不落库）/ 2 环境态误用（resume
- * 非 TTY——07 §5 三态）。
+ * 存在、fork 否决、装配失败、净化归空拒不落库、导入各闸拒或文件读不了）/
+ * 2 环境态误用（resume 非 TTY——07 §5 三态）。
  */
+import { readFileSync } from 'node:fs';
 import { stdin as processStdin, stdout as processStdout, stderr as processStderr } from 'node:process';
 
+import { BaseError } from '../contracts/index.js';
 import {
   Persistence,
   clampTitleText,
@@ -48,10 +61,11 @@ import {
 } from '../persist/index.js';
 import type { Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
+import { isSeededPrefix, runImportGates, SessionSpawnLimiter, type ParsedImport } from '../session/index.js';
 
 import type { SessionsCommand, TuiFlags } from './cli.js';
 import { assembleHostStack } from './assembly.js';
-import { runSessionExportCommand } from './session-export.js';
+import { runSessionExportCommand, type SessionExportFormat } from './session-export.js';
 import { HOST_MIGRATION_TAIL } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { runTuiEntry } from './tui-entry.js';
@@ -105,9 +119,11 @@ export async function runSessionsEntry(sub: SessionsCommand, options: SessionsEn
     case 'rename':
       return runRename(options, sub.id, sub.title);
     case 'export':
-      return runExport(options, sub.id);
+      return runExport(options, sub.id, sub.format);
     case 'delete':
       return runDelete(options, sub.id, sub.confirm);
+    case 'import':
+      return runImport(options, sub.file);
   }
 }
 
@@ -368,13 +384,14 @@ async function runRename(options: SessionsEntryOptions, id: string, title: strin
 /* ---------------- export（CLI 对等位——零装配直开库） ---------------- */
 
 /**
- * export：会话导出 markdown（07 §4.1 命令面增补批 CLI 对等位——/export TUI
- * 命令同腿：runSessionExportCommand 拼装/落盘/回执单源两消费）。CLI 零装配
- * 形无驱动活体——事件真源 = durable 库行（loadSession 全量读）；行缺席 =
- * SESSION_NOT_FOUND 干净退 1（打错 id 不落盘不造文件）。落盘目录 = 数据目录
- * （dbPath 路径梯子独立——exports/ 恒随 dataDir）。
+ * export：会话导出 markdown/jsonl（07 §4.1 命令面增补批 CLI 对等位——
+ * /export TUI 命令同腿：runSessionExportCommand 拼装/落盘/回执单源两消费；
+ * 05 §5.1 对偶动词面批扩 --format jsonl 事件级金样形——import 的对偶产物）。
+ * CLI 零装配形无驱动活体——事件真源 = durable 库行（loadSession 全量读）；
+ * 行缺席 = SESSION_NOT_FOUND 干净退 1（打错 id 不落盘不造文件）。落盘目录 =
+ * 数据目录（dbPath 路径梯子独立——exports/ 恒随 dataDir）。
  */
-async function runExport(options: SessionsEntryOptions, id: string): Promise<number> {
+async function runExport(options: SessionsEntryOptions, id: string, format: SessionExportFormat): Promise<number> {
   const out = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
   const err = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
   const persistence = openReadSide(options, err);
@@ -387,12 +404,93 @@ async function runExport(options: SessionsEntryOptions, id: string): Promise<num
       eventsOf: (sessionId) =>
         persistence.hasSession(sessionId) ? persistence.loadSession(sessionId).log.events() : undefined,
       focusedId: () => null, // CLI 无焦点位——id 恒由解析层必带（显式参形）
+      format, // 两形态分账归拼装单源（缺省 markdown 呈现形完全不变）
     });
     if (!outcome.ok) {
       err(outcome.text);
       return 1;
     }
     out(outcome.text); // 回执一行路径（/memory-export 同形）
+    return 0;
+  } finally {
+    await persistence.close();
+  }
+}
+
+/* ---------------- import（第九动词——零装配直开库，05 §5.1 对偶动词面） ---------------- */
+
+/**
+ * 洪水闸限流器（模块级单例——SessionSpawnLimiter 首个生产接线位：单进程
+ * 滑动窗 100/分钟防失控脚本以导入洪水填库。CLI 短命进程形每进程独立账本
+ * ——跨进程限流非本闸射界，如实弱化）。
+ */
+const importSpawnLimiter = new SessionSpawnLimiter();
+
+/**
+ * import：金样导入（05 §5.1 导出/导入对偶动词面——export --format jsonl 的
+ * 对偶半边；delete/reindex/rename 同形零装配直开库：不开运行时/不占单活跃
+ * 机标记/不装载插件）。六步：
+ * ① 读文件（缺席 = 人读句退 1）→ ② 导入四闸中的三闸（身份/词汇+形状/配对
+ * ——runImportGates 单源，BaseError 折人读句退 1）→ ③ 种子锚校验（切片档
+ * 锚定：isSeededPrefix(events, length, false)——导入流无 end-seed 尾条，
+ * 尾条即末事件）→ ④ 洪水闸（SessionSpawnLimiter.acquire——超限退 1）→
+ * ⑤ createSeededSession 种子前缀拷贝重建（同步落库、seq 原序 0..N 不重编、
+ * 信封零字段重写、归属列落新 id）→ ⑥ 回执新会话 id + 指路续接。
+ * 退出码：0 成功 / 1 文件缺席·各闸拒；用法错（缺参/多参）归解析层退 2。
+ */
+async function runImport(options: SessionsEntryOptions, file: string): Promise<number> {
+  const out = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
+  const err = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
+  // 零装配直开库（openReadSide 形——短命写动词同读腿豁免族）
+  const persistence = openReadSide(options, err);
+  try {
+    // ① 读文件（utf-8 文本——JSONL 逐行解析归闸；缺席/读不了 = 人读句退 1）
+    let text: string;
+    try {
+      text = readFileSync(file, 'utf-8');
+    } catch {
+      err(`导入文件读不了：${file}——先确认文件路径再试`);
+      return 1;
+    }
+    // ② 四闸中的三闸（真辖文件内容的纯校验单源——身份/词汇+形状/配对）；
+    // BaseError 折「码：人读原因」退 1（/export SESSION_NOT_FOUND 同形）
+    let parsed: ParsedImport;
+    try {
+      parsed = runImportGates(text);
+    } catch (error) {
+      if (error instanceof BaseError) {
+        err(`${error.code}：${error.message}`);
+        return 1;
+      }
+      throw error;
+    }
+    // ③ 种子锚校验（切片档锚定——requireEndSeed=false：导入流整体即种子前
+    // 缀，尾条即末事件；fork 流〔尾条恰 end-seed〕同过——切片档不查尾类型）
+    if (!isSeededPrefix(parsed.events, parsed.events.length, false)) {
+      const bad = new BaseError(
+        'SESSION_IMPORT_BAD_FORMAT',
+        `导入事件流不是合法种子前缀（seq 须从 0 连续、尾条对齐长度——文件可能被截半）`,
+      );
+      err(`${bad.code}：${bad.message}`);
+      return 1;
+    }
+    // ④ 洪水闸（会话增生限流——防导入洪水填库；超限 SESSION_SPAWN_RATE_LIMIT 退 1）
+    try {
+      importSpawnLimiter.acquire();
+    } catch (error) {
+      if (error instanceof BaseError) {
+        err(`${error.code}：${error.message}`);
+        return 1;
+      }
+      throw error;
+    }
+    // ⑤ 种子前缀拷贝重建（同步落库不返回幻影 id；seq 原序 0..N 不重编、信
+    // 封零字段重写——事件无 sessionId 字段，归属由 events 表 session_id 列
+    // 承载天然落新 id；origin='import' 血缘自记）
+    const log = persistence.createSeededSession(parsed.events, { origin: 'import' });
+    // ⑥ 回执：导入计数 + 新会话 id + 指路续接（runFork 回执同形）
+    out(`已导入 ${parsed.events.length} 事件 → 新会话 ${log.sessionId}`);
+    out(`  续接：berry sessions resume ${log.sessionId}`);
     return 0;
   } finally {
     await persistence.close();
@@ -430,7 +528,7 @@ async function runDelete(options: SessionsEntryOptions, id: string, confirm: boo
         `  ${row.id}  ${titleOf(row)}  创建 ${isoOf(row.createdAt)}  更新 ${isoOf(row.updatedAt)}  ${lineageOf(row.origin, row.parentId)}`,
       );
       out(
-        '  可先 berry sessions export <id> 导出留底；加 --confirm 后含审批记录在内的全部会话史将被删除，且不可恢复。',
+        '  可先 berry sessions export <id> --format jsonl 无损留底；加 --confirm 后含审批记录在内的全部会话史将被删除，且不可恢复。',
       );
       return 0;
     }

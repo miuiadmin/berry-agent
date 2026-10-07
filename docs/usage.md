@@ -113,7 +113,7 @@ berry [命令] [旗标]
 | `dump-config`       | 打印实际生效配置（诊断）                                                                                                                                                                                                                                                                                                                                     |
 | `plugins <sub>`     | 插件生命周期八个动词全可用：`list` / `check` 只读（`check` = 安装体检三色报告：绿 = 兼容通过、红 = 版本断裂/悬空安装/坏清单/坏账本〔退出码轴——任红退 1〕、legacy = api 块未声明不计断裂、黄 = 用废弃遥测〔空集无行〕），`install` / `uninstall` / `mount` / `unmount` / `toggle` / `update` 写侧（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏） |
 | `marketplace <sub>` | 插件市场：`add` / `remove` / `update` / `list` / `discover` / `install` / `uninstall` / `upgrade`（安装寻址形 `name@市场名`；明细见下文「marketplace 市场聚合」节）                                                                                                                                                                                          |
-| `sessions <sub>`    | 会话管理：`list` / `resume <id>` / `fork <id>` / `rename <id> <title>` / `search <query>` / `export <id>` / `delete <id> [--confirm]` / `reindex`                                                                                                                                                                                                           |
+| `sessions <sub>`    | 会话管理：`list` / `resume <id>` / `fork <id>` / `rename <id> <title>` / `search <query>` / `export <id> [--format markdown\|jsonl]` / `import <file>` / `delete <id> [--confirm]` / `reindex`                                                                                                                                                                                                           |
 | `credentials <sub>` | 凭证管理：`add <name> <value>` / `list` / `rm <name>`（`--namespace <ns>` 指定域；oauth 授权流仅在 TUI `/credentials`）                                                                                                                                                                                                                                      |
 | `doors <sub>`       | 开门制门态只读：`list`（开/关编辑走 TUI `/doors open\|close`）                                                                                                                                                                                                                                                                                               |
 | `update`            | 升级维护动词（`upgrade` 同义别名）：npm 全局形查 registry dist-tags，有新版即代执行 `npm i -g berry-agent@<latest>` 并提示重启生效（v1 不热换）；pnpm / yarn / bun / 源码形只打对应管理器指引不代执行；远端 `latest` 非 semver 白名单形诚实拒（registry 响应不可信——不达 spawn 插值位）                                                                                            |
@@ -291,12 +291,16 @@ berry sessions resume <id>       # 按 id 续接后进 TUI（与无参 TUI 的�
 berry sessions fork <id>         # 边界快照分叉（种子事件随种子走）
 berry sessions rename <id> <标题> # 会话改名（多词标题原样拼合；过滤不可见字符 + 200 字上限）
 berry sessions search "关键词"    # 跨会话全文检索（bm25 序，输出 id/标题/#seq/切窗摘录）
-berry sessions export <id>       # 会话导出 markdown 落盘（exports/<会话id>-<时间戳>.md——与 TUI /export 同源拼装；Web 面「导出」键同源直出下载）
-berry sessions delete <id>       # 会话删除两段式：无 --confirm 只读报告（可先 export 留底）指路加旗标；--confirm 直删（含审批记录在内的全部会话史，不可恢复——sessions/events/全文索引三表齐清）
+berry sessions export <id>       # 会话导出 markdown 落盘（exports/<会话id>-<时间戳>.md——与 TUI /export 同源拼装；Web 面「导出」键同源直出下载；不带 --format 即此形态，--format markdown 等价）
+berry sessions export <id> --format jsonl  # 会话导出事件级金样 JSONL（exports/<会话id>-<时间戳>.jsonl——逐事件一行原样全量流，与 sessions import 互为对偶）
+berry sessions import <file>     # 金样导入重建新会话（export --format jsonl 产物的对偶半边；新会话血缘记 import）
+berry sessions delete <id>       # 会话删除两段式：无 --confirm 只读报告（可先 export --format jsonl 无损留底）指路加旗标；--confirm 直删（含审批记录在内的全部会话史，不可恢复——sessions/events/全文索引三表齐清）
 berry sessions reindex           # 全文索引全量重建（派生物不修不补——重建即修复）
 ```
 
 读腿（list/search/reindex）零启动直开库——不开运行时、不占单活跃机标记；`fork` 与 `run --fork` 同机（钩子保真）；`rename` 写腿与 TUI `/rename` 同源过滤不可见字符；`resume` 在非交互环境退 2 并指引改 `run --session`。`delete` 同为零启动直删（TUI 内 `/sessions` 清单页 `d` 键走进程内六步编排——删除确认页 `Enter` 确认 / `Esc` 取消；删除聚焦会话自动续接同目录最新会话）；CLI 直删的竞窗警示：若目标会话正被其他 berry 进程（TUI/守护）持有，先关闭该进程再删——直删会使该进程后续写笔落库成孤儿行。worktree 目录与分支、goal 行、issue 停靠登记、checkpoint 清单、输入历史、记忆数据不在删除射界。
+
+导出/导入互为对偶：`export --format jsonl` 产物即 `import` 的合法输入。产物形制——首行自描述头 `{format, version, exportedAt}`（裸对象），其后每行一条事件原样（含被压缩摘要遮蔽的早期历史——信封随流走不折叠）；`import` 重建前过四道校验：格式身份、事件词面与消息形状、轮次/工具配对完整性、新建频率上限（单进程每分钟 100 个，防失控脚本填库）。全过即落新会话（事件序号原样 0..N 不重编、血缘记 `import`，回执带新会话 id 与续接指引）；任一不过整批拒收退 1（文件路径不存在同样退 1；用法错如缺参数归解析层退 2）。往返承诺：导出再导入后，对话投影与源一致（含被遮历史）；行面的创建/更新时间戳属宿主记账，不在保真射界。`import` 亦为零启动直开库（读腿同形），退出码 0/1。
 
 ### credentials 凭证管理
 

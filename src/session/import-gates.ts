@@ -17,9 +17,13 @@ export interface ImportMeta {
   readonly exportedAt?: number;
 }
 
-/** 本实现认识的格式身份与支持版本（身份闸判据单源） */
-const KNOWN_FORMAT = 'berry-agent/session';
-const SUPPORTED_VERSION = 1;
+/**
+ * 本实现认识的格式身份与支持版本（身份闸判据单源；导出面同源共享——
+ * 05 §5.1 导出/导入对偶动词面：产物 _meta 的 format/version 与身份闸单源，
+ * round-trip 身份闭环的结构性保证）。
+ */
+export const KNOWN_FORMAT = 'berry-agent/session';
+export const SUPPORTED_VERSION = 1;
 
 /** 解析出的导入物（meta + 事件体——供后续闸与建会话面消费） */
 export interface ParsedImport {

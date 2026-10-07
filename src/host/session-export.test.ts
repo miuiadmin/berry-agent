@@ -14,8 +14,10 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import type { SessionEvent } from '../contracts/index.js';
+import { KNOWN_FORMAT, SUPPORTED_VERSION } from '../session/index.js';
 
 import {
+  renderSessionJsonl,
   renderSessionMarkdown,
   runSessionExportCommand,
   SESSION_EXPORT_USAGE,
@@ -234,6 +236,64 @@ describe('writeSessionExport 落盘腿', () => {
     expect(existsSync(path)).toBe(true);
     expect(readFileSync(path, 'utf8')).toBe(renderSessionMarkdown(input)); // 两面同源
   });
+
+  it('format jsonl：落盘 .jsonl 且内容 = jsonl 单源全文；缺省（不传 format）= markdown 既有行为完全不变', () => {
+    // 修前红：writeSessionExport 尚无 format 参——jsonl 造不出（产物恒 .md）
+    const dataDir = mkdtempSync(join(tmpdir(), 'session-export-jsonl-'));
+    dirs.push(dataDir);
+    const input = { events: dialogueEvents(), meta: { sessionId: 's-write-j' }, now: NOW };
+    const jsonlPath = writeSessionExport(dataDir, input, 'jsonl');
+    // 路径律同形：exports/ 子目录 + id-时间戳.jsonl
+    expect(jsonlPath).toContain(join(dataDir, 'exports', 's-write-j-2026-09-16T00-00-00-000Z.jsonl'));
+    expect(readFileSync(jsonlPath, 'utf8')).toBe(renderSessionJsonl(input)); // 两面同源
+    // 缺省形零漂移：不传 format 的既有调用面（markdown）产物逐字节不变
+    const mdPath = writeSessionExport(dataDir, input);
+    expect(mdPath.endsWith('.md')).toBe(true);
+    expect(readFileSync(mdPath, 'utf8')).toBe(renderSessionMarkdown(input));
+  });
+});
+
+describe('renderSessionJsonl 事件级金样形（05 §5.1 导出/导入对偶动词面）', () => {
+  it('首行 _meta 裸对象恒等（format/version 与导入身份闸单源共享）+ 其后每行 SessionEvent 原样', () => {
+    // 修前红：renderSessionJsonl 尚不存在——本腿在现码上即失败（import 位炸）
+    const events = dialogueEvents();
+    const jsonl = renderSessionJsonl({ events, meta: { sessionId: 's-jsonl' }, now: NOW });
+    const lines = jsonl.split('\n');
+    // 首行 = _meta 本体（裸对象——非 {"_meta":{...}} 包裹形；身份闸对首行
+    // header 直判 format，包裹形必拒——导出侧不得自产拒载形）
+    expect(lines[0]).toBe(JSON.stringify({ format: KNOWN_FORMAT, version: SUPPORTED_VERSION, exportedAt: NOW }));
+    // 行数律：_meta + N 事件 + 尾空行（末行 \n 产物）——事件一条不少不折叠
+    expect(lines).toHaveLength(events.length + 2);
+    // 逐事件信封原样（type/seq/time/data——与内存事件 deep equal）
+    for (let i = 0; i < events.length; i++) {
+      expect(JSON.parse(lines[i + 1]!)).toEqual(events[i]);
+    }
+  });
+
+  it('surfaceOp 遮蔽载体信封原样随流走（含被遮历史的保真射界——不折叠不净化不重编）', () => {
+    const carrier: SessionEvent = {
+      type: 'compaction/surface',
+      seq: 3,
+      time: 3,
+      data: {},
+      surfaceOp: { op: 'replace', start: 1, end: 2 },
+      sourceEventSeqs: [1, 2],
+    };
+    const jsonl = renderSessionJsonl({
+      events: [
+        evt(0, 'turn/start'),
+        evt(1, 'user/message', { content: '问' }),
+        evt(2, 'assistant/message', { content: [{ type: 'text', text: '答' }], stopReason: 'end' }),
+        carrier,
+      ],
+      meta: { sessionId: 's-occ' },
+      now: NOW,
+    });
+    // 载体行信封全字段（surfaceOp/sourceEventSeqs）原样——markdown 形的呈现
+    // 投影不携带遮蔽史，金样形以信封原样保真（round-trip 重放保真的结构前提）
+    const parsed = JSON.parse(jsonl.split('\n')[4]!);
+    expect(parsed).toEqual(carrier);
+  });
 });
 
 describe('runSessionExportCommand 命令腿（TUI/CLI 两消费单源）', () => {
@@ -300,5 +360,19 @@ describe('runSessionExportCommand 命令腿（TUI/CLI 两消费单源）', () =>
     expect(outcome.ok).toBe(true);
     expect(outcome.text).toContain('已导出 0 事件 → ');
     expect(readFileSync(outcome.text.split(' → ')[1]!, 'utf8')).not.toContain('- 标题：'); // 无行面元数据行
+  });
+
+  it('deps.format jsonl：命令腿透传产物形 .jsonl（回执一行路径同形）', async () => {
+    // 修前红：SessionExportCommandDeps 尚无 format 位——jsonl 形走不通（产物恒 .md）
+    const deps = depsOf({ format: 'jsonl' });
+    const outcome = await runSessionExportCommand(['j-cmd'], undefined, deps);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.text).toContain('已导出 7 事件 → ');
+    const path = outcome.text.split(' → ')[1]!;
+    expect(path.endsWith('.jsonl')).toBe(true);
+    // 产物结构：_meta 首行 + 7 事件行（now 注入位确定性——exportedAt = NOW）
+    const lines = readFileSync(path, 'utf8').split('\n');
+    expect(JSON.parse(lines[0]!)).toEqual({ format: KNOWN_FORMAT, version: SUPPORTED_VERSION, exportedAt: NOW });
+    expect(lines).toHaveLength(7 + 2);
   });
 });

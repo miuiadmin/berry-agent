@@ -49,5 +49,7 @@ export {
   pairingGate,
   SessionSpawnLimiter,
   runImportGates,
+  KNOWN_FORMAT,
+  SUPPORTED_VERSION,
 } from './import-gates.js';
 export type { ImportMeta, ParsedImport } from './import-gates.js';

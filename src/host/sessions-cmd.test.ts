@@ -12,16 +12,18 @@
  * 纪律：mock 只停在模型层（faux provider）；库/装载/管理器全真。resume
  * 续接 happy path 归 tui-entry.test（FakeTerminalIO 全 harness 在彼）。
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import type { TerminalIO } from '../channels/index.js';
+import type { SessionEvent } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
+import { deriveMessages } from '../session/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import { HOST_MIGRATION_TAIL } from './runtime.js';
@@ -130,20 +132,43 @@ async function seedFtsRows(
   }
 }
 
-/** reindex 种子 events 行（重建面唯一真源——surface 类别 user/message 才入索引；同 dbPath 隔离律） */
+/** reindex/导出面种子 events 行（重建/导出面真源——surface 类别 user/message 才入索引；同 dbPath 隔离律） */
 async function seedEventRows(
   dbPath: string,
   sessionId: string,
-  events: readonly { seq: number; type: string; data: string }[],
+  events: readonly {
+    seq: number;
+    type: string;
+    data: string;
+    /** 事件时刻（缺省 0——测试确定性） */
+    time?: number;
+    /** 可忽略标记（0/1——缺省 0） */
+    ignorable?: number;
+    /** 遮蔽指令 JSON（缺省 NULL——导出金样形携带 surfaceOp 载体的种子位） */
+    surfaceOp?: string | null;
+    /** 溯源 seq 数组 JSON（缺省 NULL） */
+    sourceEventSeqs?: string | null;
+  }[],
 ): Promise<void> {
   const persistence = Persistence.open({ dbPath, migrations: HOST_MIGRATION_TAIL });
   try {
     const db = persistence.store.sqlite();
     const insert = db.prepare(
       `INSERT INTO events (session_id, seq, type, time, data, ignorable, surface_op, source_event_seqs)
-       VALUES (?, ?, ?, 0, ?, 0, NULL, NULL)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    for (const e of events) insert.run(sessionId, e.seq, e.type, e.data);
+    for (const e of events) {
+      insert.run(
+        sessionId,
+        e.seq,
+        e.type,
+        e.time ?? 0,
+        e.data,
+        e.ignorable ?? 0,
+        e.surfaceOp ?? null,
+        e.sourceEventSeqs ?? null,
+      );
+    }
   } finally {
     await persistence.close();
   }
@@ -578,7 +603,7 @@ describe('sessions export（07 §4.1 命令面增补批 C2——CLI 对等位）
     ]);
     const cap = capture();
     const code = await runSessionsEntry(
-      { sub: 'export', id: 's-exp' },
+      { sub: 'export', id: 's-exp', format: 'markdown' },
       { version: 'test', dataDir, dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
     );
     expect(code).toBe(0);
@@ -601,12 +626,204 @@ describe('sessions export（07 §4.1 命令面增补批 C2——CLI 对等位）
     const dbPath = join(rigDir('sess-exp-miss-db-'), 'sessions.db');
     const cap = capture();
     const code = await runSessionsEntry(
-      { sub: 'export', id: 'no-such-id' },
+      { sub: 'export', id: 'no-such-id', format: 'markdown' },
       { version: 'test', dataDir, dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
     );
     expect(code).toBe(1);
     expect(cap.err.join('\n')).toContain('SESSION_NOT_FOUND：会话不存在（no-such-id）');
     expect(existsSync(join(dataDir, 'exports'))).toBe(false); // 拒在落盘前——不造 exports 目录
+  });
+});
+
+/* ---------------- export --format jsonl + import（05 §5.1 导出/导入对偶动词面） ---------------- */
+
+/**
+ * 对偶面夹具事件：一轮完整对话 + 一条遮蔽载体（信封 surfaceOp——历史保真
+ * 射界含被遮历史；compaction/surface 是注册词汇的遮蔽指令载体本尊）。
+ */
+const dualEvents: readonly {
+  seq: number;
+  type: string;
+  data: unknown;
+  surfaceOp?: { op: 'replace'; start: number; end: number };
+  sourceEventSeqs?: number[];
+}[] = [
+  { seq: 0, type: 'turn/start', data: {} },
+  { seq: 1, type: 'user/message', data: { content: '对偶问' } },
+  { seq: 2, type: 'assistant/message', data: { content: [{ type: 'text', text: '对偶答' }], stopReason: 'end' } },
+  { seq: 3, type: 'turn/end', data: { reason: 'completed' } },
+  {
+    seq: 4,
+    type: 'compaction/surface',
+    data: {},
+    surfaceOp: { op: 'replace', start: 1, end: 3 },
+    sourceEventSeqs: [1, 2, 3],
+  },
+];
+
+/** 夹具 → seedEventRows 行形（data/信封 JSON 列序列化） */
+function dualSeedRows(): { seq: number; type: string; data: string; surfaceOp?: string; sourceEventSeqs?: string }[] {
+  return dualEvents.map((e) => ({
+    seq: e.seq,
+    type: e.type,
+    data: JSON.stringify(e.data),
+    ...(e.surfaceOp !== undefined ? { surfaceOp: JSON.stringify(e.surfaceOp) } : {}),
+    ...(e.sourceEventSeqs !== undefined ? { sourceEventSeqs: JSON.stringify(e.sourceEventSeqs) } : {}),
+  }));
+}
+
+describe('sessions export --format jsonl（对偶动词面第一动词——事件级金样）', () => {
+  it('导出 .jsonl：首行 _meta 裸对象 + 事件每行原样（surfaceOp 载体随流走）；回执一行路径', async () => {
+    // 修前红：SessionsCommand export 变体尚无 format 位 / runExport 尚无 jsonl
+    // 分支——产物恒 .md（.endsWith('.jsonl') 断言红）
+    const dataDir = rigDir('sess-jsonl-data-');
+    const dbPath = join(rigDir('sess-jsonl-db-'), 'sessions.db');
+    await seedSessionRows(dbPath, [
+      { id: 's-jsonl', title: '金样会话', origin: 'conversation', created: 1_700_000_000_000, updated: 2 },
+    ]);
+    await seedEventRows(dbPath, 's-jsonl', dualSeedRows());
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'export', id: 's-jsonl', format: 'jsonl' },
+      { version: 'test', dataDir, dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(0);
+    const receipt = cap.out.join('\n');
+    expect(receipt).toContain('已导出 5 事件 → ');
+    const path = receipt.split(' → ')[1]!;
+    expect(path.endsWith('.jsonl')).toBe(true);
+    // 产物结构：_meta 首行（裸对象——身份与版本恒等）+ 5 事件行 + 尾空行
+    const lines = readFileSync(path, 'utf8').split('\n');
+    expect(lines).toHaveLength(5 + 2);
+    const meta = JSON.parse(lines[0]!);
+    expect(meta.format).toBe('berry-agent/session');
+    expect(meta.version).toBe(1);
+    expect(typeof meta.exportedAt).toBe('number');
+    // 遮蔽载体信封原样（surfaceOp/sourceEventSeqs——被遮历史保真）
+    const carrier = JSON.parse(lines[5]!);
+    expect(carrier.type).toBe('compaction/surface');
+    expect(carrier.surfaceOp).toEqual({ op: 'replace', start: 1, end: 3 });
+    expect(carrier.sourceEventSeqs).toEqual([1, 2, 3]);
+  });
+});
+
+describe('sessions import（第九动词——四闸 + 种子前缀拷贝重建；round-trip = v1 验收基准）', () => {
+  /** 造导入文件（金样形：_meta 首行 + 事件行；行内容直拼——拒档腿的坏行注入位） */
+  function writeImportFile(dir: string, name: string, lines: readonly string[]): string {
+    const path = join(dir, name);
+    writeFileSync(path, `${lines.join('\n')}\n`, 'utf8');
+    return path;
+  }
+
+  it('round-trip：export jsonl 产物 → import 新库 → 行 origin=import + 事件信封逐字段保真 + 投影 deep equal（含被遮历史）', async () => {
+    // 修前红：runSessionsEntry 尚无 import case——switch 落穿返回 undefined（code 断言红）
+    // 源库：种对偶夹具会话 → 导出 jsonl（CLI 全链）
+    const dataDir = rigDir('sess-rt-data-');
+    const dbPath = join(rigDir('sess-rt-db-'), 'sessions.db');
+    await seedSessionRows(dbPath, [
+      { id: 's-rt', title: '往返会话', origin: 'conversation', created: 1_700_000_000_000, updated: 2 },
+    ]);
+    await seedEventRows(dbPath, 's-rt', dualSeedRows());
+    const capExp = capture();
+    expect(
+      await runSessionsEntry(
+        { sub: 'export', id: 's-rt', format: 'jsonl' },
+        { version: 'test', dataDir, dbPath, writeOut: capExp.writeOut, writeErr: capExp.writeErr },
+      ),
+    ).toBe(0);
+    const jsonlPath = capExp.out.join('\n').split(' → ')[1]!;
+    // 导入到全新库（跨库迁移形——对偶动词面的独立第二事实源）
+    const dbPath2 = join(rigDir('sess-rt-db2-'), 'sessions.db');
+    const capImp = capture();
+    expect(
+      await runSessionsEntry(
+        { sub: 'import', file: jsonlPath },
+        { version: 'test', dbPath: dbPath2, writeOut: capImp.writeOut, writeErr: capImp.writeErr },
+      ),
+    ).toBe(0);
+    const receipt = capImp.out.join('\n');
+    expect(receipt).toContain('已导入 5 事件 → 新会话 ');
+    const newId = receipt.split('新会话 ')[1]!.split('\n')[0]!.trim();
+    expect(receipt).toContain(`berry sessions resume ${newId}`); // 回执指路续接
+    // 库面验证：行血缘 origin=import + seedLength + 事件等长 seq 0..4 不重编
+    const sourceEvents: SessionEvent[] = readFileSync(jsonlPath, 'utf8')
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .slice(1)
+      .map((line) => JSON.parse(line) as SessionEvent);
+    const persistence = Persistence.open({ dbPath: dbPath2, migrations: HOST_MIGRATION_TAIL });
+    let rebuilt: readonly SessionEvent[];
+    try {
+      const row = persistence.store.getSessionRow(newId);
+      expect(row?.origin).toBe('import');
+      expect(row?.seedLength).toBe(5);
+      rebuilt = persistence.loadSession(newId).log.events();
+    } finally {
+      await persistence.close();
+    }
+    expect(rebuilt.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4]);
+    expect(rebuilt).toEqual(sourceEvents); // 信封逐字段（含 surfaceOp 遮蔽载体）保真
+    // round-trip 承诺：投影等价（deriveMessages 单源 fold——被遮历史重放保真）
+    expect(deriveMessages(rebuilt)).toEqual(deriveMessages(sourceEvents));
+  });
+
+  it('拒档分立：坏 format / 包裹形首行 / 未知事件词 / 坏 data 形状 / 配对缺 → 各码退 1；文件缺席退 1', async () => {
+    // 修前红：import 动词在现码上落穿（undefined 退出码 ≠ 1）
+    const dir = rigDir('sess-imp-rej-');
+    const dbPath = join(dir, 'sessions.db');
+    const meta = JSON.stringify({ format: 'berry-agent/session', version: 1, exportedAt: 1 });
+    const cases: readonly { name: string; lines: readonly string[]; expectText: string }[] = [
+      {
+        name: 'bad-format.jsonl',
+        lines: [
+          JSON.stringify({ format: 'evil/format', version: 1 }),
+          JSON.stringify({ type: 'turn/start', seq: 0, time: 0, data: {} }),
+        ],
+        expectText: 'SESSION_IMPORT_BAD_FORMAT',
+      },
+      {
+        // 包裹形首行（{"_meta":{...}}）——header 直判 format 必拒（非本实现认识形）
+        name: 'wrapped.jsonl',
+        lines: [
+          JSON.stringify({ _meta: { format: 'berry-agent/session', version: 1 } }),
+          JSON.stringify({ type: 'turn/start', seq: 0, time: 0, data: {} }),
+        ],
+        expectText: 'SESSION_IMPORT_BAD_FORMAT',
+      },
+      {
+        name: 'unknown-type.jsonl',
+        lines: [meta, JSON.stringify({ type: 'nope/ghost', seq: 0, time: 0, data: {} })],
+        expectText: 'SESSION_UNKNOWN_EVENT_TYPE',
+      },
+      {
+        name: 'bad-shape.jsonl',
+        lines: [meta, JSON.stringify({ type: 'assistant/message', seq: 0, time: 0, data: { content: '非块数组' } })],
+        expectText: 'SESSION_IMPORT_BAD_FORMAT',
+      },
+      {
+        name: 'orphan-end.jsonl',
+        lines: [meta, JSON.stringify({ type: 'turn/end', seq: 0, time: 0, data: { reason: 'completed' } })],
+        expectText: 'SESSION_IMPORT_BAD_FORMAT',
+      },
+    ];
+    for (const c of cases) {
+      const path = writeImportFile(dir, c.name, c.lines);
+      const cap = capture();
+      const code = await runSessionsEntry(
+        { sub: 'import', file: path },
+        { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+      );
+      expect(code, c.name).toBe(1);
+      expect(cap.err.join('\n'), c.name).toContain(c.expectText);
+    }
+    // 文件缺席：人读句退 1（读文件步先于一切闸）
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'import', file: join(dir, 'ghost.jsonl') },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(1);
+    expect(cap.err.join('\n')).toContain('ghost.jsonl');
   });
 });
 
@@ -715,6 +932,7 @@ describe('sessions delete（零装配直开库——两段式 --confirm）', () 
     expect(text).toContain('del-ro'); // 既有清单字段（id/标题）
     expect(text).toContain('待删只读');
     expect(text).toContain('sessions export'); // 留底提示（既有 markdown 导出载体）
+    expect(text).toContain('--format jsonl'); // 留底提示升级（05 §5.1 对偶动词面批——无损留底指路金样形）
     expect(text).toContain('--confirm'); // 指路确认旗标
     const residue = await residueOf(dbPath, 'del-ro');
     expect(residue.row).toBeDefined(); // 零删——只读报告档
