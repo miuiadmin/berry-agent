@@ -2248,9 +2248,15 @@ describe('skills 双注入位装配 e2e（⑤ 批）', () => {
 
       const parent = assembly.stack.openStartupSession(ws);
       let outbound: string | undefined;
+      // 卫生计数：transcript 内 system message 条数（sweep22 lock-4——
+      // getCurrentSystemPrompt 是全 transcript 重放读，多条 system 会拼出
+      // 膨胀 prompt 而下方 toContain 族断言对此不可见；本计数钉住
+      // 「子代理首轮请求只折叠一条头」的 1.0 语义）
+      let systemMessageCount: number | undefined;
       faux.setResponses([
         (context) => {
           outbound = getCurrentSystemPrompt(context.messages); // 子代理外发 LLM 请求面（非信封快照）
+          systemMessageCount = context.messages.filter((m) => m.role === 'system').length;
           return fauxText('调研完毕');
         },
       ]);
@@ -2264,6 +2270,7 @@ describe('skills 双注入位装配 e2e（⑤ 批）', () => {
       expect(outbound).toContain('提交规范正文');
       expect(outbound).toContain('<available_skills>');
       expect(outbound).toContain('<name>commit-style</name>');
+      expect(systemMessageCount).toBe(1); // 恰一条头——重放膨胀即红
 
       // 子会话 durable 行（真工厂全栈——origin delegation）
       await assembly.runtime.persistence.flush();

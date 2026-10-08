@@ -89,6 +89,26 @@ describe('complete：请求面组装与直通', () => {
     expect(seen.options?.timeoutMs).toBe(22222);
   });
 
+  it('空串 systemPrompt 不折叠：数组本体透传（toBe 零重建锁）+ 形状断言（pi-ai 1.0 语义）', async () => {
+    const captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }> = [];
+    const { faux, service } = makeService();
+    const messages = [userMsg('x')];
+    faux.setResponses([capturing(captures, messageOf('stop'))]);
+    const result = await service.complete({ systemPrompt: '', messages });
+    expect(result.message.stopReason).toBe('stop');
+    const seen = captures[0]!;
+    // pi-ai 1.0：空串 + 无 tools 时 createInitialSystemMessage 返 undefined——
+    // normalizeContext 原数组透传（不折叠头）。此非折叠路径是 llm 层
+    // buildPiContext「零拷贝直通」唯一可锁位（折叠路径的数组本体在
+    // provider 边界恒新建、不可观测）——d5aba1e 随迁丢的数组本体锁在此
+    // 恢复：buildPiContext 若改 [...messages] 浅拷贝，逐项 toBe 族全绿、
+    // 唯本断言红（sweep22 lock-1 反例实证）
+    expect(seen.context.messages).toBe(messages);
+    // 形状面：空串不产头部 system message（1.0 折叠的空串退化形——sweep22 lock-2）
+    expect(seen.context.messages.length).toBe(1);
+    expect(seen.context.messages[0]?.role).toBe('user');
+  });
+
   it('defaults.idleTimeoutMs 不透传 provider 层（04 §3.8 自产键剥离——修前红锁）', async () => {
     // 修前红：piOptions 组装原样展开 defaults——idleTimeoutMs（llm 层自产
     // watchdog 键，stream-fn :173 剥离形同律）泄漏进 streamSimple options 面。

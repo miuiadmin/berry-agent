@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 // pi-ai 1.0 起 TranscriptContext 不再携带独立 systemPrompt/tools 字段
 // （normalizeContext 折叠进 messages 头部 system message 的正文与 toolsAdded）——
 // 提示词/工具面改经包公开 helper 与折叠头读取
-import { fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt } from '@earendil-works/pi-ai';
+import { fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt, getCurrentTools } from '@earendil-works/pi-ai';
 import type {
   AssistantMessage as PiAssistantMessage,
   Context as PiContext,
@@ -176,7 +176,12 @@ describe('直通与参数组装（超集兼容子集）', () => {
     expect(head.role).toBe('system');
     messages.forEach((m, i) => expect(seen.context.messages[i + 1]).toBe(m));
     expect(getCurrentSystemPrompt(seen.context.messages)).toBe('系统提示词甲');
-    expect(head.toolsAdded?.[0]?.name).toBe('lookup');
+    // tools 锁面升格（sweep22 lock-3）：钉 provider 消费视图（getCurrentTools
+    // 重放——折叠头若被 toolsRemoved 污染此面红）而非只钉原始字段；
+    // description 收口断言补回（「描述收口」旧锁名有实锚）
+    expect(getCurrentTools(seen.context.messages).map((t) => t.name)).toEqual(['lookup']);
+    expect(head.toolsAdded?.[0]?.description).toBe('查词典');
+    expect(head.toolsRemoved).toBeUndefined();
   });
 
   it('thinkingLevel → reasoning 映射：非 off 档透传；off/缺省 = undefined（关闭）', async () => {
