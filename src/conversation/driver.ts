@@ -679,6 +679,13 @@ export class ConversationDriver {
     // 变换前原批（审计保输入——管线失败语义沿链传播，驱动不加吞）。todo 快照
     // 注入位在瀑布之后恒最后（05 §1.1「todo 走瀑布最后」——注入序 diff →
     // recall → todo）
+    // 提醒槽取清位上提瀑布之前（挖掘 19 轮 G-1）：瀑布 handler 抛错即整 run
+    // 崩溃（管线失败沿链传播）——取清若在瀑布之后，抛错路径永不执行、暂存
+    // 提醒残留到下个请求组装被陈旧注入（违「跨请求不残留」契约）。上提后
+    // 组装失败的请求其暂存随栈丢弃（一次 pre_step 暂存对应一次请求组装，
+    // 组装失败即弃——下个请求的提醒由其自身 pre_step 重新推送）
+    const reminders = this.pendingReminders;
+    this.pendingReminders = [];
     const preTransformMessages = transformed.messages;
     try {
       const payload: ContextTransformInput = {
@@ -695,10 +702,7 @@ export class ConversationDriver {
     // 披露段 + agent_pre_step 提醒 + 预算预警 + goal 轮间沉淀（批 #99 + 批 H
     // + cache 经济批 RP1）：同属请求组装瞬态层不落 durable；注入序定律（04
     // §5 H 注单源）= 披露段 → reminders → 预算预警 → goal 沉淀 → todo 恒
-    // 最后（05 §1.1）。提醒槽取后即清（跨请求不残留——一次 pre_step 暂存
-    // 对应一次请求组装）
-    const reminders = this.pendingReminders;
-    this.pendingReminders = [];
+    // 最后（05 §1.1）。reminders 已于瀑布前取清（上提理由见取清位注）
     const transientTail: Message[] = [];
     // 披露段注入位（04 §11 迁层定形）：消息尾瞬态族首位——瀑布之后注入。
     // 会话键携带（F2 披露第六件）：沙箱行 per-session fold 现值——本 driver
@@ -922,6 +926,7 @@ export class ConversationDriver {
         this.runLaneValue = false;
         this.runModelValue = undefined; // 崩溃路径同清（下一次 launch 现取新钉定）
         this.runThinkingValue = undefined; // 崩溃路径同清
+        this.pendingReminders = []; // 崩溃路径同清（挖掘 19 轮 G-1——纵深防御：组装位取清上提已治本，本位兜 pre_step 暂存后 run 未及组装即崩溃的窄窗，防跨 run 陈值泄漏）
         this.noteRunSettled(seeds, seqAtLaunch, backgroundLane); // 崩溃路径——status 缺席不虚构
         throw error;
       },

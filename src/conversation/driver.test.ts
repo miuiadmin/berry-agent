@@ -1215,6 +1215,39 @@ describe('ConversationDriver context_transform 瀑布派发', () => {
     expect((original as { role: string }[]).at(-1)).toMatchObject({ role: 'user', content: '问' });
     expect(seen).toHaveLength(0); // LLM 请求未发出（组装关口失败先于 streamFn）
   });
+
+  it('组装抛错提醒槽不残留：context_transform 抛错崩溃后，下请求不注入陈旧提醒（跨请求不残留契约——挖掘 19 轮 G-1）', async () => {
+    const dispatch = new EventDispatch();
+    // 双开关编舞：transformThrows 幕 1 抛错崩溃 / pushReminder 幕 2 停推（残留与新暂存分立——红锚只对残留敏感）
+    let transformThrows = true;
+    let pushReminder = true;
+    const { driver, seen } = makeDriver({ dispatch, scripts: [assistant({})] });
+    dispatch.onWaterfall<PreStepInput>(AGENT_PRE_STEP_EVENT, (payload, next) => {
+      if (pushReminder) payload.reminders.push('预算提醒甲');
+      return next(payload);
+    });
+    dispatch.onWaterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, async (_payload, next) => {
+      if (transformThrows) throw new Error('handler 炸');
+      return next(_payload);
+    });
+    // 幕 1：pre_step 暂存后组装关口抛错 → run 崩溃（submit 拒绝——管线失败沿链传播）
+    let caught: unknown;
+    try {
+      await driver.submit('一问');
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as Error).message).toBe('handler 炸');
+    expect(seen).toHaveLength(0); // LLM 请求未发出
+    // 幕 2：抛错摘除 + pre_step 不再推送 → 下请求组装只含种子——暂存槽的
+    // 陈旧提醒不得注入（一次 pre_step 暂存对应一次请求组装，组装失败即弃）
+    transformThrows = false;
+    pushReminder = false;
+    await driver.submit('二问');
+    expect(seen).toHaveLength(1);
+    const contents = seen[0]!.messages.map((m) => (typeof m.content === 'string' ? m.content : ''));
+    expect(contents.some((c) => c.includes('预算提醒甲'))).toBe(false); // 修前红锚：残留注入则炸
+  });
 });
 
 /* ---------------- 11f 纵切：披露段注入 / 审批挂起通知 / onRunSettled ---------------- */
