@@ -37,6 +37,13 @@ export interface SpawnPipelineOptions extends RegistryOptions {
   /** 宿主环境拷贝源（env 白名单消费；缺省 process.env） */
   readonly hostEnv?: NodeJS.ProcessEnv;
   /**
+   * close 宽限毫秒（挖掘 21 轮件4）：超时/打断树杀后等 close 事件（stdio 全
+   * 闭）的短宽限——宽限尽 force-resolve（归因已封、保尾终值、登记簿出册）。
+   * 防逃组孙进程（detached 自成组、继承管道写端）持写端存活致 close 永不
+   * 到达、run() 悬挂。缺省 2000ms。
+   */
+  readonly closeGraceMs?: number;
+  /**
    * 凭证引用形展开器（03 §10.9 注入腿——c-4）：set 面值 `@credentials:<name>`
    * 在 spawn 时刻经本器展开为明文（唯一执法点 = buildChildEnv；真身 =
    * credentials 件 createEnvRefResolver）。缺席 = 引用形 fail-loud 拒
@@ -53,6 +60,7 @@ interface RunDeps {
   readonly hostPid: number;
   readonly registry: ReturnType<typeof createProcessRegistry>;
   readonly resolveEnvRef: ((name: string) => string) | undefined;
+  readonly closeGraceMs: number;
 }
 
 /**
@@ -71,6 +79,7 @@ export function createSpawnPipeline(options: SpawnPipelineOptions = {}): SpawnPi
     hostPid,
     registry,
     resolveEnvRef: options.resolveEnvRef,
+    closeGraceMs: options.closeGraceMs ?? 2_000,
   };
   return {
     registry,
@@ -129,6 +138,14 @@ function spawnInteractiveChild(request: InteractiveSpawnRequest, deps: RunDeps):
   child.on('error', (error) => finish({ code: null, spawnError: error }));
   // close（非 exit）——stdio 全闭才是协议桥的终点事件
   child.on('close', (code) => finish({ code }));
+  // stdio 流 error 兜底监听（挖掘 21 轮件3）：child.on('error') 只收 spawn
+  // 失败（进程从未存在）；stdio 流自身的 error 事件（主形 stdin EPIPE——对端
+  // 退出后残余写缓冲继续 flush）是流对象事件，无监听即 uncaughtException 崩
+  // 宿主（crash 编舞 exit(1) 连杀在飞会话——MCP/LSP server 退出竞窗内写大
+  // 帧必踩）。对端已退后的管道错是预期 down 信号：降 debug 观测非异常
+  child.stdin.on('error', (e) => deps.logger.debug('stdin 写失败（对端已退）', { error: e.message }));
+  child.stdout?.on('error', (e) => deps.logger.debug('stdout 读失败（对端已退）', { error: e.message }));
+  child.stderr?.on('error', (e) => deps.logger.debug('stderr 读失败（对端已退）', { error: e.message }));
 
   return {
     pid: child.pid,
@@ -210,7 +227,25 @@ async function runSpawn(request: SpawnRequest, deps: RunDeps): Promise<ExecResul
       outcome = o;
       detachSources();
       // 超时/打断即树杀（close 随后到达完成结算——归因已封不改写）
-      if (o !== 'exit' && child.pid !== undefined) killProcessTree(child.pid, deps.logger);
+      if (o !== 'exit' && child.pid !== undefined) {
+        killProcessTree(child.pid, deps.logger);
+        // close 宽限 force-resolve（挖掘 21 轮件4）：树杀后 close（stdio 全闭）
+        // 通常随即到达；但逃组孙进程（detached 自成组、继承管道写端）不受组
+        // 杀、持写端存活则 close 永不到达——run() Promise 悬挂连带登记簿残留。
+        // 起短宽限，宽限尽 force-resolve（归因已封、保尾终值、出册）；close
+        // 迟到再 resolve 是 Promise 天然 no-op，迟到路径的 detachSources 也会
+        // 清掉本宽限 timer（timer 变量复用——先到者生效）
+        timer = setTimeout(() => {
+          if (child.pid !== undefined) deps.registry.remove(child.pid);
+          const finished = tail.finish();
+          resolve({
+            outcome,
+            exitCode: null,
+            ...finished,
+            durationMs: deps.now() - start,
+          });
+        }, deps.closeGraceMs);
+      }
     };
 
     child.stdout?.on('data', (chunk: Buffer) => tail.append('stdout', chunk));

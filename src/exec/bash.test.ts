@@ -18,6 +18,7 @@ import { BaseError, getErrorCodeInfo, isKnownErrorCode } from '../contracts/inde
 import { canonicalPath } from '../safety/index.js';
 import type { ConfinedArgv, SandboxMode, SandboxPolicy, SandboxService } from '../safety/index.js';
 import { assertNoBackgroundCommand, createBashTool, discoverBash } from './bash.js';
+import { BASH_TIMEOUT_MAX_MS } from './types.js';
 // 错误码册注册腿（import 发生才注册——EXEC_ABORTED 在册断言的前置副作用）
 import './codes.js';
 import { createProcessRegistry } from './registry.js';
@@ -153,6 +154,15 @@ describe('createBashTool 工具面', () => {
       ['command', 'cwd', 'justification', 'sandbox_permissions', 'timeoutMs'].sort(),
     );
     expect(schema.additionalProperties).toBe(false);
+  });
+
+  it('结算帽让位（挖掘 21 轮件5）：def.timeoutMs = 600s 上限——管道 60s 缺省帽让位于 bash 自身 120s/600s 结算帽', () => {
+    const tool = dangerTool(createSpawnPipeline());
+    // 修前红：timeoutMs 缺席——管道缺省 60s 先截（pipeline.ts def.timeoutMs ??
+    // defaultTimeoutMs），description 承诺「默认 120 秒超时（上限 600 秒）」不可
+    // 达：61-120s 命令必 TOOL_TIMEOUT、底层进程带写效应继续跑到自身预算尽而
+    // 结果静默弃置；args.timeoutMs=600s 重发更放大到 540s 脱管写窗口
+    expect(tool.timeoutMs).toBe(BASH_TIMEOUT_MAX_MS);
   });
 
   it('真 bash——echo 回执（exit 0 非 isError）', { timeout: 15_000 }, async () => {

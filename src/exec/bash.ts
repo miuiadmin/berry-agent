@@ -254,6 +254,12 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
     // 调度 write|exec 同串行屏障（03 §2.3 尾注）、审批对照走、write 档免问
     // 授权不覆盖 bash 调用（偏序窄化自限））
     effect: 'exec',
+    // 结算帽让位（挖掘 21 轮件5）：显式设 600s 上限，管道缺省 60s 帽让位于
+    // bash 自身 120s/600s 结算帽（plugin-tools.ts:298 先例形）——description
+    // 承诺「默认 120 秒超时（上限 600 秒）」可达；缺省形下 61-120s 命令会被
+    // 管道 60s 先截 TOOL_TIMEOUT，而底层进程带写效应继续跑到自身预算尽、结果
+    // 静默弃置（脱管写窗口放大）
+    timeoutMs: BASH_TIMEOUT_MAX_MS,
     execute: async (args, toolCtx): Promise<AgentToolResult> => {
       try {
         const command = String(args.command);

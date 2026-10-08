@@ -293,6 +293,61 @@ describe('createSpawnPipeline spawn 管道', () => {
 });
 
 describe('spawnInteractive 长存活双工子进程（三桥 stdio 面）', () => {
+  it('stdio 流 error 兜底监听（挖掘 21 轮件3）：stdin EPIPE（对端已退后写帧）不炸宿主', { timeout: 10_000 }, async () => {
+    const pipeline = createSpawnPipeline();
+    const child = pipeline.spawnInteractive({ argv: [execPath, '-e', 'process.exit(0)'], owner: 'test:epipe' });
+    await new Promise<void>((resolve) => child.onExit(() => resolve())); // 对端已退（残余缓冲 flush 竞窗）
+    // 修前红：stdin 流零 error 监听——'error' 事件 emit 无 listener 直接 throw
+    // （EventEmitter 语义；真实世界 EPIPE 同路 = uncaughtException 崩宿主——
+    // crash 编舞 exit(1) 连杀在飞会话，MCP/LSP server 退出竞窗内写大帧必踩）
+    expect(child.stdin.listenerCount('error')).toBeGreaterThan(0);
+    expect(() => child.stdin.emit('error', Object.assign(new Error('read EPIPE'), { code: 'EPIPE' }))).not.toThrow();
+  });
+
+  it('close 宽限 force-resolve（挖掘 21 轮件4）：逃组孙进程持管道写端——close 永不到达不悬挂', { timeout: 12_000 }, async () => {
+    // 编舞：child spawn 孙进程（detached 自成组逃组杀 + 继承 stdout 管道写端）
+    // 后自然退出。close = stdio 全闭才发：孙持写端存活 → close 永不到达（child
+    // 的 exit 事件发了也没人听——run() 只认 close 收输出终值）。超时腿树杀
+    // child 的组（child 已死 ESRCH 静默），孙已逃组不在组内——写端仍被持有。
+    // 修前：run() Promise 悬挂（本测试超时红即病灶实证）；修后：树杀后起短
+    // 宽限（注入 400ms），宽限尽 force-resolve——归因已封 timeout、保尾终值、
+    // 登记簿出册；close 迟到再 resolve 是 Promise 天然 no-op
+    const dir = await mkdtemp(join(tmpdir(), 'berry-exec-grace-'));
+    cleanups.push(dir);
+    const gpidFile = join(dir, 'gpid');
+    const grandScript = join(dir, 'grand.cjs');
+    const childScript = join(dir, 'child.cjs');
+    await writeFile(
+      grandScript,
+      // 15s 自限时：修前红跑悬挂拿不到 pid 杀孙——保底自清不留孤儿
+      `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(gpidFile)}, String(process.pid)); setTimeout(() => process.exit(0), 15000); setInterval(() => {}, 1000);\n`,
+      'utf8',
+    );
+    await writeFile(
+      childScript,
+      `const { spawn } = require('node:child_process');
+       const g = spawn(process.execPath, [${JSON.stringify(grandScript)}], { detached: true, stdio: ['ignore', 'inherit', 'ignore'] });
+       g.unref();
+       process.exit(0);
+      `,
+      'utf8',
+    );
+    const pipeline = createSpawnPipeline({ closeGraceMs: 400 });
+    const result = await pipeline.run({ argv: [execPath, childScript], timeoutMs: 600 });
+    expect(result.outcome).toBe('timeout');
+    expect(result.exitCode).toBeNull();
+    // force 腿登记簿出册（close 不达时 error 腿也不会到——修前 run() 悬挂连带
+    // registry 残留在册 pid）
+    await until(() => pipeline.registry.list().length === 0, 2_000);
+    // 清理逃组孙（组杀够不着——测试自管）
+    try {
+      const gpid = Number(await readFile(gpidFile, 'utf8'));
+      if (Number.isFinite(gpid) && gpid > 0 && isPidAlive(gpid)) process.kill(gpid, 'SIGKILL');
+    } catch {
+      // 已死
+    }
+  });
+
   it('双工往返——stdin 写入、stdout 逐行回显（echo 服务器形）', { timeout: 10_000 }, async () => {
     const pipeline = createSpawnPipeline();
     const child = pipeline.spawnInteractive({
