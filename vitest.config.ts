@@ -26,6 +26,11 @@ export default defineConfig({
     },
     projects: [
       {
+        // v5 起内联 project 缺省继承根 test 块（extends 缺省翻 true——v4 时代
+        // 不继承）；显式 extends: false 锁 v4 形轨隔离：根级未来加钩子
+        // （setupFiles/globalSetup 等）不静默波及本轨——双轨各自显式自持
+        // （批 18a-2 双轨分立设计意图书面化，sweep22 vitest5-inline-inherit）。
+        extends: false,
         test: {
           name: 'node',
           // 工具件测试（check-api 十查红绿证等——spawn 全闸 + 纯函数单元锁；
@@ -47,17 +52,26 @@ export default defineConfig({
           ],
           environment: 'node',
           setupFiles: ['tools/vitest-setup.mjs'],
+          // v5 起 clearMocks 缺省翻 true（v4 为 false——套件在 v5 缺省下全绿
+          // 实证）；显式钉扎同值：把「依赖缺省」升为拍板面，未来 major 再翻
+          // 缺省时本轨语义不动（sweep22 vitest5-clearmocks-default）。
+          clearMocks: true,
           // per-test 兜底时限（承 berry 壁钟教训：重载全栈用例并行下 5s 可超）；
           // 内层等待各自的窄帽先红，外层兜底不是常态路径。
           testTimeout: 15_000,
         },
       },
       {
+        // 同 node 轨：extends: false 锁 v4 形轨隔离（v5 缺省继承翻转的显式
+        // 拒绝——根 coverage 配置经 CLI --coverage 根级面生效，不依赖 project
+        // 继承链）；clearMocks: true 同律钉扎。
+        extends: false,
         test: {
           name: 'webui-client',
           include: ['src/webui/client/**/*.test.tsx'],
           environment: 'jsdom',
           testTimeout: 15_000,
+          clearMocks: true,
         },
       },
     ],
