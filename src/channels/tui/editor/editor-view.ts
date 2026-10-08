@@ -46,7 +46,7 @@ export class EditorView implements Renderable {
   private minPresentedLines: number;
   /** 上下空行垫行数（缺省规范值 2——五件批 A+B；底铬瞬时输入行显式 0） */
   private padRows: number;
-  /** 上次量高的裸内容视觉行数（分配梯「收缩至内容高」输入——measure 后由 renderFixed 取） */
+  /** 上次量高的裸内容视觉行数（contentRows() 夹帽导出的底数——分配梯经 contentRows() 间接取帽内值、renderFixed 从不直读本字段〔sweep23-件1 口径，挖 24 勘正原「梯输入」断言〕） */
   private lastContentRows = 0;
   /** › 提示符聚焦态样式（accent——V-0 注③ 焦点指示新载体；setTheme 随底色重建合成形） */
   private promptFocused: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });

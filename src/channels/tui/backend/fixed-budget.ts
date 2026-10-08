@@ -99,8 +99,10 @@ export function allocateFixedBudget(input: FixedBudgetInput): FixedBudget {
   const sum = (): number => overlay + ask + popup + editor + todo + tool + status;
   if (sum() > budget) {
     // 编辑器收缩制度位（五件批 A+B——态判定先于低段牺牲梯）：进入截断态即
-    // 弃上下垫与最小高 3 铺垫、收缩至裸内容高（下限 = 内容 1 行——空稿形即
-    // 1，到下限恒不再下压）。饰高先行让位防梯贪心错位：中间 sum 按量高
+    // 弃上下垫与最小高 3 铺垫、收缩至帽内内容高（editorContent 夹帽供数——
+    // sweep23-件1 口径：长稿形收缩到帽值非裸值；下限 = 内容 1 行——空稿形
+    // 即 1，到下限恒不再下压。挖 24 勘正：原句「裸内容高」系 18bb067 旧词
+    // 漏迁）。饰高先行让位防梯贪心错位：中间 sum 按量高
     // 原值虚高会把低段整段隐去而编辑器终态仍收至内容高——空垫噬内容段
     editor = Math.min(editor, Math.max(EDITOR_MIN_HEIGHT, input.editorContent));
     // 低段「先缩后隐」之一：工具进度面板（低段中之最低——瞬时活动面）
