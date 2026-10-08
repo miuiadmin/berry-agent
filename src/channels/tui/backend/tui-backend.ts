@@ -3454,6 +3454,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // 呈现面专属；speedView 观测面保持 raw〕）：须在 goIdle 首帧前落位，防
         // 中途帧携带终态已废速度；completed 复位（成功形终值冻结进仪表）
         this.speedSuppressed = event.status === 'aborted';
+        // 终态帧无条件失效显示缓存（sweep23-件2）：末轮 message_end 中间帧可
+        // 在 turn_end 落账前按旧 usageTotal 强刷缓存（相位翻转/空窗两路同险），
+        // 终帧若同相位且在 500ms 窗内持旧，陈值即冻结为 run 终读数（run 后
+        // tick 忙态门控零周期帧不自愈——与同排「✓ 用量」矛盾共处）；终帧
+        // 现算此刻全账已齐（accumulateUsage 已于各 turn_end 落账完毕）
+        this.speedDisplayCache = null;
         this.taskLine.goIdle(); // 忙态离场（零高度缺席；onChange → 首帧）
         // 件 6：落行（与 setStatus 同载体 last-writer-wins）——终态分档
         // （2026-09-19 P0 静默链修复批：failed ✗ / aborted ⏹ 不显用量成功形——

@@ -3775,12 +3775,69 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
     io.bytes = '';
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(2400)) });
     expect(io.bytes).toContain('240 tok/s');
-    // 相位切换（流中 → settled）即刷新——语义边界不吞首帧：终值冻结 600 / 2.55s ≈ 235 tok/s
-    t += 50; // 仍在节流窗内（2500 → 2550 仅 50ms）——若纯时间节流将持旧 '240'，相位切换强制刷新
+    // 相位切换（流中 → settled）：单轮流中账关窗即缺席（settled usageTotal 尚
+    // 零）→ 缓存清空，agent_end 终帧经空窗路现算——终值冻结 600 / 2.55s ≈
+    // 235 tok/s（相位键的独立锁归 sweep23-件4 专测：本腿单轮形「空窗清缓存」
+    // 与「相位键」两机制各自单独充分、删相位键不红——sweep23 突变实证）
+    t += 50; // 仍在节流窗内（2500 → 2550 仅 50ms）——若纯时间节流将持旧 '240'
     emit(backend, { type: 'message_end', message: usageMsg(600) });
     emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' }); // usageTotal = 600
     emit(backend, { type: 'agent_end', status: 'completed' }); // 终态帧触重画 + 分母冻结 2.55s
-    expect(io.bytes).toContain('235 tok/s'); // 600 / 2.55s ≈ 235.3（相位切换刷新腿——锁相位键）
+    expect(io.bytes).toContain('235 tok/s'); // 600 / 2.55s ≈ 235.3
+  });
+
+  it('【sweep23-件2 修前红→回归锁】多轮 run 终帧速度不冻结陈值：末轮 message_end 中间帧在 turn_end 落账前按旧 usageTotal 强刷缓存，agent_end 终帧失效现算全账真值', () => {
+    let t = 0;
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      now: () => t,
+      footer: { modelLabel: 'm', cwdLabel: () => 'w' },
+    });
+    emit(backend, { type: 'agent_start' }); // run 时钟起跑 t=0
+    // 轮 1：流中帧 + 收口落账（usageTotal = 600）
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    t += 1000;
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(400)) }); // 100 tok/s（stream 相位缓存）
+    emit(backend, { type: 'message_end', message: usageMsg(600) }); // 关窗中间帧：settled 速度 null（usageTotal 尚零）→ 缓存清
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' }); // usageTotal = 600
+    // 轮 2 无流中帧：message_end 中间帧（enterWorking 触发同步帧）在 turn_end
+    // 落账前按旧 usageTotal 现算强刷——600 / 4.45s ≈ 135 陈值入缓存
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    t += 3450; // run 已历时 4.45s
+    emit(backend, { type: 'message_end', message: usageMsg(2400) });
+    emit(backend, { type: 'turn_end', turn: 2, stopReason: 'stop' }); // usageTotal = 3000（不触帧）
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' }); // 终帧：分母冻结 4.45s
+    expect(io.bytes).toContain('674 tok/s'); // 修前红：同相位窗内持旧 '135'（run 后 tick 忙态门控零帧不自愈）——终帧失效现算 3000/4.45s ≈ 674
+    expect(io.bytes).not.toContain('135 tok/s'); // 陈值不冻结为 run 终读数
+    expect(io.bytes).toContain('用量 3,000'); // 同排用量真值——速度与用量不再自相矛盾
+  });
+
+  it('【sweep23-件4 修前红→回归锁】相位键独立锁：相位翻转 500ms 窗内即刷（删相位键=纯时间节流持旧相位值——既有面突变全绿不拦）', () => {
+    let t = 0;
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      now: () => t,
+      footer: { modelLabel: 'm', cwdLabel: () => 'w' },
+    });
+    emit(backend, { type: 'agent_start' }); // t=0
+    // 轮 1 落账 600（终值供数源）
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    t += 1000;
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(400)) }); // 100 tok/s {stream}
+    emit(backend, { type: 'message_end', message: usageMsg(600) }); // 关窗：settled null → 缓存清
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' }); // usageTotal = 600
+    // 轮 2：流中帧重建 stream 缓存（空窗路——100 tokens / 1s = 100 tok/s）
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    t += 1000; // t=2000
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('b'.repeat(400)) }); // {stream:'100', at:2000}
+    t += 450; // t=2450：节流窗内（450 < 500）
+    io.bytes = '';
+    // message_end 关窗中间帧：相位 stream→settled 翻转且两侧速度非空（600 已
+    // 落账）——相位键是唯一刷新路（时间窗不达、缓存非空）：600 / 2.45s ≈ 245
+    emit(backend, { type: 'message_end', message: usageMsg(600) });
+    expect(io.bytes).toContain('245 tok/s'); // 修前红（删相位键）：流中估值 '100' 跨相位持旧呈现
+    expect(io.bytes).not.toContain('100 tok/s');
   });
 
   it('【注⑪⑥(c) 诚实缺席锁】速度槽流中相位亚秒窗/零估值两缺席形（JSDoc 三形补锚——speedView 同律既有锁的流中腿）', () => {
