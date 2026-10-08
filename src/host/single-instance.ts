@@ -99,8 +99,24 @@ export interface ActiveMarkerLease {
  * 之间他人落标时撞 EEXIST 重读重判（活拒/死接管清障重写）——read-then-
  * write 盲覆写竞窗下两进程可同时过闸双开。release 带属主比对（pid+
  * startedAt 全等才拆）——标记被接管者覆写后盲拆会把其保护一并拆掉。
+ *
+ * 清障防误删（挖掘 21 轮件9）：判死与 unlink 之间隔整个判活窗（调度抢占可
+ * 任意拉宽）——并发接管者窗内落新标时，无条件 unlink 会毁掉其活标记且 wx
+ * 不撞 EEXIST（路径已清空）重判腿永不触发 → 双开。两清障腿（接管腿与
+ * EEXIST 重判腿）统一先重读确认在场仍是判死时读到的那条；已变 = 他人已
+ * 接管 → 重走判序（有界递归——标记持续变更超帽时 fail-loud 拒入，宁拒不
+ * 双开）。release 带属主比对（pid+startedAt 全等才拆）——标记被接管者覆写
+ * 后盲拆会把其保护一并拆掉。
  */
 export function acquireActiveMarker(dataDir: string, opts: AcquireOptions = {}): ActiveMarkerLease {
+  return acquireMarkerInner(dataDir, opts, 0);
+}
+
+/** 判序重入深度帽：标记持续变更（连环并发接管）超帽 fail-loud 拒入 */
+const RETRY_DEPTH_MAX = 3;
+
+/** 判序真身（depth = 清障重读已变的重走轮次） */
+function acquireMarkerInner(dataDir: string, opts: AcquireOptions, depth: number): ActiveMarkerLease {
   const pid = opts.pid ?? process.pid;
   const now = opts.now ?? (() => Date.now());
   const isAlive = opts.isAlive ?? defaultIsAlive;
@@ -150,9 +166,30 @@ export function acquireActiveMarker(dataDir: string, opts: AcquireOptions = {}):
   const writeExclusive = (): void => {
     writeFile(markerPath, text);
   };
-  if (tookOver) {
-    // 判死接管：先清陈旧标记再独占写（原盲覆写形在清判与写之间给他人让位）
+  /**
+   * 清障安全闸（挖掘 21 轮件9）：判死（judgeText = 判序读到的那条）与
+   * unlink 之间隔判活窗——并发接管者窗内落新标时无条件 unlink 会毁其活标
+   * 记（wx 不撞 EEXIST、重判腿永不触发 → 双开）。清障前重读确认在场仍是
+   * judgeText 那条；已变 = 他人已接管 → 'raced'（调用方重走判序）
+   */
+  const unlinkIfStill = (judgeText: string | null): 'cleared' | 'raced' => {
+    if (readMarker() !== judgeText) return 'raced';
     tryUnlink(markerPath);
+    return 'cleared';
+  };
+  /** 清障撞变更（他人接管落标）→ 有界重走判序；超帽 fail-loud 拒入不双开 */
+  const onRaced = (): ActiveMarkerLease => {
+    if (depth >= RETRY_DEPTH_MAX) {
+      throw new BaseError(
+        'HOST_DATA_DIR_BUSY',
+        `数据目录活跃标记在接管窗内持续变更（连环并发接管超 ${RETRY_DEPTH_MAX} 轮）——fail-loud 拒入不双开，请重试启动`,
+      );
+    }
+    return acquireMarkerInner(dataDir, opts, depth + 1);
+  };
+  if (tookOver) {
+    // 判死接管：清障安全闸确认后独占写（原形在清判与写之间给他人让位）
+    if (unlinkIfStill(prevText) === 'raced') return onRaced();
   }
   try {
     writeExclusive();
@@ -174,7 +211,10 @@ export function acquireActiveMarker(dataDir: string, opts: AcquireOptions = {}):
       throw new DataDirBusyError(raced);
     }
     tookOver = true; // 竞窗发现的标记判死/残缺/已撤 → 接管语义
-    tryUnlink(markerPath); // ENOENT 幂等（标记已撤形 no-op）
+    // 清障安全闸（挖掘 21 轮件9 同律）：raced 判死与 unlink 之间他人仍可能
+    // 落新标——已变则重走判序（ENOENT 幂等位：已撤形 judgeText=null 与当前
+    // null 相等照走 no-op 清障，与旧语义同）
+    if (unlinkIfStill(racedText) === 'raced') return onRaced();
     writeExclusive();
   }
   let released = false;

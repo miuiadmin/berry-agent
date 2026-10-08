@@ -129,7 +129,7 @@ export type ServeBridgeDeps = Omit<SdkWireDeps, 'decideApproval' | 'onSubscribed
  *   miss 缺陷的修位。
  * - queryEntries：单页全窗（重放腿跟尽 nextCursor 义务由桥并页兑现——cursor
  *   形参 v1 无第二页可续）。
- * - highWaterOf：在册 = 内存日志长度；未开 = 行 lastSeq（= 末次落账事件数）。
+ * - highWaterOf：在册 = 内存日志长度；未开 = 行 lastSeq + 1（= 事件数 = 高水位）。
  */
 export function createServeBridge(
   stack: ConversationStack,
@@ -234,7 +234,10 @@ export function createServeBridge(
       const driver = stack.driverOf(sessionId);
       if (driver !== undefined) return driver.session.events().length;
       const row = runtime.persistence.store.getSessionRow(sessionId);
-      return row === undefined ? undefined : row.lastSeq;
+      // 未开 = 行 lastSeq + 1（= 事件数 = 高水位——挖掘 21 轮件1 勘正：lastSeq
+      // 是既存末条 seq 非事件数，直返使 after=lastSeq 的完全追平客户端被判
+      // beyond-high-water 误拒；cursor.ts 单源契约——高水位 = 下一将分配 seq）
+      return row === undefined ? undefined : row.lastSeq + 1;
     },
     sessionStateOf: (sessionId: string): SdkSessionState => {
       const driver = stack.driverOf(sessionId);

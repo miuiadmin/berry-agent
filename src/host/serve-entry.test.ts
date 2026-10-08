@@ -860,6 +860,53 @@ describe('submitPrompt 携图受理（03 §10.4 ① serve 线同批——受理�
   });
 });
 
+describe('highWaterOf 重启形态（挖掘 21 轮件1——未开分支高水位与在册分支同值）', () => {
+  /** 双宿主共享 dataDir（真重启形态）：第一宿主落事件退场（write-behind 冲刷）→ 第二宿主起桥=驱动从未在册、行在库 */
+  it('库面会话高水位 = lastSeq+1（= 事件数）——重启后已追平客户端 hello after=lastSeq 恰在界内非 beyond-high-water', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'serve-hw-data-'));
+    const mkProviders = () => {
+      const faux = fauxProvider({ provider: 'faux-serve-hw', models: [{ id: 'm1' }] });
+      faux.setResponses([() => messageOf()]);
+      return faux.provider;
+    };
+    // 第一宿主：prompt 落 durable 事件 + 优雅退场（退出序含 write-behind flush——库面完整）
+    const rt1: HostRuntime = createHostRuntime({ dataDir });
+    const stack1 = createConversationStack({
+      runtime: rt1,
+      providers: [mkProviders()] as readonly Provider[],
+      model: 'faux-serve-hw/m1',
+      env: {},
+    });
+    const bridge1 = createServeBridge(stack1, rt1, { cwd: process.cwd() });
+    const { sessionId } = bridge1.submitPrompt({ content: '问', messageId: 'hw-restart' });
+    // 终态 + 库内自洽（loadEvents 长度 = lastSeq+1——write-behind 冲刷完的库面真值）
+    await pollUntil(() => {
+      const log = rt1.persistence.store.loadEvents(sessionId);
+      const row = rt1.persistence.store.getSessionRow(sessionId);
+      return log.length > 0 && row !== undefined && log.length === row.lastSeq + 1;
+    });
+    const expected = rt1.persistence.store.loadEvents(sessionId).length; // 在册分支同值锚（= 高水位 = 下一将分配 seq）
+    expect(expected).toBeGreaterThan(0);
+    await rt1.shutdown();
+    // 第二宿主（重启）：驱动不在册、行在库——未开分支必须与在册分支同值
+    // （cursor.ts 单源契约：after=既存末条 seq=lastSeq 是合法完全追平档——修前
+    // 返 lastSeq 使 after ≥ 高水位假成立，追平客户端被 SDK_CURSOR_INVALID 误拒）
+    const rt2: HostRuntime = createHostRuntime({ dataDir });
+    const stack2 = createConversationStack({
+      runtime: rt2,
+      providers: [mkProviders()] as readonly Provider[],
+      model: 'faux-serve-hw/m1',
+      env: {},
+    });
+    const bridge2 = createServeBridge(stack2, rt2, { cwd: process.cwd() });
+    try {
+      expect(bridge2.highWaterOf(sessionId)).toBe(expected);
+    } finally {
+      await rt2.shutdown();
+    }
+  });
+});
+
 describe('sessions 清单 title 净化（第五役 G6 双保险读位）', () => {
   it('存量脏 title 剥逃逸/控制字节后外发 JSON 面、净化归空诚实退 null', async () => {
     // 双保险腿锁：写路物化已源头净化，读位 sanitizeTitleText 兜旧码/异源写落库

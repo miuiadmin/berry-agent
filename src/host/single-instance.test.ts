@@ -208,6 +208,60 @@ describe('竞窗收口 + release 属主比对（挖掘 20 轮）', () => {
   });
 });
 
+describe('接管腿防误删（挖掘 21 轮件9——首读判死与清障之间的并发接管窗）', () => {
+  const markerPath = `${DIR}/${ACTIVE_MARKER_BASENAME}`;
+  const enoent = (): Error => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+  /** wx 语义注入形（在场即 EEXIST——缺省 writeFileSync flag 'wx' 同律） */
+  const wxWrite = (files: Map<string, string>) => (path: string, text: string) => {
+    if (files.has(path)) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' });
+    files.set(path, text);
+  };
+
+  it('判活窗内他进程完成接管：清障前重读发现新标 → 拒入且不毁接管者标记（修前：unlink 删活标+wx 空路径成功双开）', () => {
+    const stale = `${JSON.stringify({ pid: 999, startedAt: 5 })}\n`;
+    const files = new Map<string, string>([[markerPath, stale]]);
+    /** 直通桩（B 与 A 的 EEXIST 重判腿共用 files 真态） */
+    const passthrough = {
+      ensureDir: () => {},
+      readFile: () => {
+        const text = files.get(markerPath);
+        if (text === undefined) throw enoent();
+        return text;
+      },
+      writeFile: wxWrite(files),
+      tryUnlink: (path: string) => {
+        files.delete(path);
+      },
+    };
+    let bDone = false;
+    let a: ReturnType<typeof acquireActiveMarker> | undefined;
+    try {
+      a = acquireActiveMarker(DIR, {
+        pid: 101,
+        now: () => 9,
+        isAlive: (pid) => {
+          // A 的判活窗（isAlive(999) 求值内）：B 同步抢入并完整完成接管
+          // （读 stale 判死 → 清障 → 独占写己标——B 持锁）
+          if (pid === 999 && !bDone) {
+            bDone = true;
+            acquireActiveMarker(DIR, { pid: 202, now: () => 7, isAlive: (p) => p === 202, ...passthrough });
+          }
+          return pid === 101 || pid === 202; // 999 判死；101/202 活
+        },
+        ...passthrough,
+      });
+      expect.unreachable('接管腿盲清障——双开过闸');
+    } catch (err) {
+      expect(err).toBeInstanceOf(BaseError);
+      expect((err as BaseError).code).toBe('HOST_DATA_DIR_BUSY');
+      expect((err as Error).message).toContain('202'); // 拒入载荷指向并发接管胜者
+    }
+    // B 的标记不被 A 的清障毁掉（修前红：A unlink 删 B 标 + wx 空路径直入）
+    expect(files.get(markerPath)).toContain('"pid":202');
+    expect(a).toBeUndefined();
+  });
+});
+
 describe('defaultTryUnlink（缺省实现 fail-loud——第十五役 α4 修）', () => {
   it('ENOENT 幂等静默；非 ENOENT（目录路径 EPERM/EISDIR）上抛', () => {
     // 缺省实现此前裸 catch 全吞、与注释「其余错上抛」相悖——吞 EACCES/EROFS
