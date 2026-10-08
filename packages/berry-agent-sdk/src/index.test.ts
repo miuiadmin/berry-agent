@@ -57,6 +57,7 @@ export type SdkIndexTypeSurface = [
   apiTypes.AgentEvent,
   apiTypes.ApprovalAskAnswer,
   apiTypes.SdkRequest,
+  apiTypes.SdkPromptImage,
   apiTypes.SdkWireFrame,
   apiTypes.SdkAckFrame,
   apiTypes.SdkEntriesFrame,

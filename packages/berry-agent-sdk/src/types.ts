@@ -15,6 +15,7 @@ import type { ApprovalDecideAnswer } from '../../../src/contracts/approval.js';
 import type {
   SdkAckFrame,
   SdkEntriesFrame,
+  SdkPromptImage,
   SdkRequest,
   SdkSessionSummary,
   SdkWireFrame,
@@ -30,6 +31,10 @@ export type { ApprovalAskAnswer } from '../../../src/contracts/approval.js';
 export type { ApprovalDecideAnswer } from '../../../src/contracts/approval.js';
 /** 线协议请求族（六动词——手工构造进阶位；常规用法走 client 方法面） */
 export type { SdkRequest } from '../../../src/channels/sdk/protocol.js';
+/** prompt 单图成员（2026-10-08 剪贴板附件批 03 §10.4 ①——线协议单源
+ * re-export；挖掘 20 轮件5 删 npm 包手写副本：承载类型与线协议同一声明，
+ * 形漂移在结构上不可能） */
+export type { SdkPromptImage } from '../../../src/channels/sdk/protocol.js';
 /** 线帧全族（kind 判别联合——onFrame 消费面 pattern-match 用） */
 export type { SdkWireFrame } from '../../../src/channels/sdk/protocol.js';
 /** 受理回执帧（prompt 应答——sessionId/duplicate/highWaterSeq） */
@@ -73,7 +78,7 @@ export type SdkFrameListener = (frame: SdkWireFrame) => void;
 /** 订阅参数（= hello 动词载荷——after = 断线续读位、noDelta = 剥 delta） */
 export interface SdkLiveParams {
   readonly sessionId: string;
-  /** 重放起点（已收末条 seq——窗口 (after, 高水位]；缺席 -1 从头） */
+  /** 重放起点（已收末条 seq——重放窗口 = (after, 订阅时高水位]；缺席 = 只直播不重放——重放须显式 after〔协议 hello 注同句，挖掘 20 轮件2 勘正：非「-1 从头」〕） */
   readonly after?: number;
   /** 剥 message_update delta 帧（07 §5 --no-delta 客户端立场） */
   readonly noDelta?: boolean;
@@ -119,14 +124,6 @@ export interface SdkTransport {
   openLive(params: SdkLiveParams, onFrame: SdkFrameListener): Promise<SdkLiveHandle>;
   /** 整连接收口（幂等）：stdio 形收线子进程、HTTP 形关连接池面 */
   close(): Promise<void>;
-}
-
-/** prompt 单图成员（2026-10-08 剪贴板附件批——03 §10.4 ① SDK 线同批扩形；npm 客户端类型面对齐位——挖掘 14 轮 P1-c 补齐）。形与 /v1/prompt 载荷 images 成员同形（线侧零受理实现——执法在 host 受理漏斗） */
-export interface SdkPromptImage {
-  /** 图片原文 base64（标准带填充形） */
-  readonly data: string;
-  /** 声明 MIME（受理漏斗与魔数嗅探族核验——勿信声明） */
-  readonly mimeType: string;
 }
 
 /** prompt 入参（messageId 缺省 = 客户端计数器形 `sdk-N` 每次全新——幂等语义未申请即不虚构） */
