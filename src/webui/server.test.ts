@@ -1623,7 +1623,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
       const mirror2 = (await reader.next()) as { payload: { approvalId: string } };
       await post(`/api/approvals/${mirror2.payload.approvalId}/decide`, { answer: 'reject' });
       await expect(asked2).resolves.toBe('reject');
-      expect(asked2).resolves.not.toBe('cancel');
+      await expect(asked2).resolves.not.toBe('cancel');
     } finally {
       reader.abort();
     }
