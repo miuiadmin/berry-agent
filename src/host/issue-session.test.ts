@@ -457,25 +457,32 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
       canAfford: afford.canAfford,
       warn: () => {},
       pollMs: 5,
-      stallTimeoutMs: 120,
+      // 余量账（2026-10-09 CI run 37813819227 coverage 腿 flake 定谳后扩容）：
+      // 段间隔 ≈ sleep 80 + 管线开销，须 < 帽 200（抖动余量 120ms——原 60/120
+      // 仅 2×，coverage 仪表化拉伸事件管线即破帽误杀；破帽本身即证 CI 慢机
+      // 单段间隔曾 ≥120ms，即管线开销 ≥60ms）；总时长 ≈ 4×80=320 > 帽 200
+      // （总时长超帽侧余量同 120ms，覆盖槽两侧余量取平衡点 cap=2×sleep）。
+      stallTimeoutMs: 200,
     });
 
-    // 三段工具环（每段慢工具 60ms）：种子 → toolCall assistant（durable）→
-    // 60ms → tool/result（durable）→ toolCall → 60ms → tool/result → 终答。
-    // 总时长 ~180ms > 帽 120ms，但任意两 durable 事件间隔 ~60ms < 帽——
-    // 末位事件 time 逐段刷新钟，不误杀（帽停滞不帽时长的 durable 级锁）
+    // 四段工具环（每段慢工具 80ms）：种子 → toolCall assistant（durable）→
+    // 80ms → tool/result（durable）→ toolCall → … ×4 → 终答。
+    // 总时长 ~320ms > 帽 200ms，但任意两 durable 事件间隔 ~80ms + 管线开销
+    // < 帽——末位事件 time 逐段刷新钟，不误杀（帽停滞不帽时长的 durable 级锁）
     const slowTool = (): ToolDefinition => ({
       name: 'issue_slow_probe',
-      description: '慢探针（60ms——durable 推进间隔制造位）',
+      description: '慢探针（80ms——durable 推进间隔制造位）',
       parameters: { type: 'object', properties: {} },
       execute: async () => {
-        await sleep(60);
+        await sleep(80);
         return { content: [{ type: 'text', text: 'ok' }] };
       },
     });
     faux.setResponses([
       () => toolCallOf('t-slow-1', 'issue_slow_probe', {}),
       () => toolCallOf('t-slow-2', 'issue_slow_probe', {}),
+      () => toolCallOf('t-slow-3', 'issue_slow_probe', {}),
+      () => toolCallOf('t-slow-4', 'issue_slow_probe', {}),
       () => messageOf('分段推进完成'),
     ]);
     const { outcome } = await factory.startHeadless({
