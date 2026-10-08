@@ -101,6 +101,8 @@ export interface SchedulerEngine {
   fireNow(name: string, trigger: TriggerKind): Promise<RunOutcome>;
   /** 在飞实例数（含 manual——观察面） */
   readonly inFlightCount: number;
+  /** 钟在跑（start 置位 / stop 摘除——观察面；挖掘 20 轮 /reload 换代接钟回归锁消费） */
+  readonly running: boolean;
 }
 
 /** 引擎实装 */
@@ -180,11 +182,19 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       timers.clear(pollHandle);
       pollHandle = null;
     }
-    const earliest = dao.earliestNextFire();
     let ms = MAX_POLL_MS;
-    if (earliest !== null) {
-      const delta = Date.parse(earliest) - Date.parse(now());
-      ms = Math.min(Math.max(delta, MIN_POLL_MS), MAX_POLL_MS);
+    try {
+      const earliest = dao.earliestNextFire();
+      if (earliest !== null) {
+        const delta = Date.parse(earliest) - Date.parse(now());
+        ms = Math.min(Math.max(delta, MIN_POLL_MS), MAX_POLL_MS);
+      }
+    } catch (err) {
+      // 下一拍计算读抛错兜底（挖掘 20 轮——earliestNextFire 同为裸同步 dao 读）：
+      // 按最大巡检间隔直落 belt 定时重拍（钟不死）。不递归重调本函数——earliest
+      // 再读会再抛同错；belt 拍到的 doSweep 自带吞错收口，行照常补觉
+      warn(`[scheduler] 下一拍计算异常（按最大巡检间隔兜底重拍）：${err instanceof Error ? err.message : String(err)}`);
+      ms = MAX_POLL_MS;
     }
     pollHandle = timers.set(ms, () => {
       pollHandle = null;
@@ -246,6 +256,9 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       // 注册表的瞬态窗内单计 active 会给同步观察者假 0（fireRow 已在跑）——
       // 计 active ∪ reserved，「在飞 = 起跑中或已 spawn」。
       return new Set([...active.keys(), ...reserved.keys()]).size;
+    },
+    get running() {
+      return running; // 观察面直读（start 置位 / stop 摘除）
     },
   };
 
@@ -380,25 +393,34 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
     if (!running || sweeping) return; // 重入闸：定时回调与手动直呼不叠跑
     sweeping = true;
     try {
-      const due = dao.due(now());
-      // 帽初值同观察面：起跑预留位（spawn 的 await 前瞬态）也占帽——同帽语义
-      let launched = new Set([...active.keys(), ...reserved.keys()]).size;
-      for (const row of due) {
-        // 在飞/起跑预留不重触：settle 前 next_fire_at 仍 due，若重触会自踏
-        // 活锁（重复抢占自家实例）——抢占只留给 manual 新实例道。在飞期间
-        // 持续 poll 是廉价 belt 巡检（settle 即推进）。
-        if (active.has(row.name) || reserved.has(row.name)) continue;
-        if (launched >= maxConcurrent) break; // 帽满留 due——下轮 sweep 补觉（定时夹取防自旋）
-        launched += 1;
-        // 火种链防崩（G1）：fireRow 体内 runner.spawn / handle.settled / dao 结算
-        // 写库任一拒绝，void 调用无接即 unhandledRejection——崩溃编舞 exit(1)
-        // 会连杀在飞会话（无人值守宿主不可接受）。catch 记账（行名+火种）不
-        // 重抛：单行单次失败不阻轮询编舞（结算未推进的行下轮 sweep 照常补觉）。
-        void fireRow(row, 'clock').catch((err) => {
-          warn(
-            `[scheduler] fire 失败（任务 ${row.name}，clock 道）：${err instanceof Error ? err.message : String(err)}`,
-          );
-        });
+      try {
+        const due = dao.due(now());
+        // 帽初值同观察面：起跑预留位（spawn 的 await 前瞬态）也占帽——同帽语义
+        let launched = new Set([...active.keys(), ...reserved.keys()]).size;
+        for (const row of due) {
+          // 在飞/起跑预留不重触：settle 前 next_fire_at 仍 due，若重触会自踏
+          // 活锁（重复抢占自家实例）——抢占只留给 manual 新实例道。在飞期间
+          // 持续 poll 是廉价 belt 巡检（settle 即推进）。
+          if (active.has(row.name) || reserved.has(row.name)) continue;
+          if (launched >= maxConcurrent) break; // 帽满留 due——下轮 sweep 补觉（定时夹取防自旋）
+          launched += 1;
+          // 火种链防崩（G1）：fireRow 体内 runner.spawn / handle.settled / dao 结算
+          // 写库任一拒绝，void 调用无接即 unhandledRejection——崩溃编舞 exit(1)
+          // 会连杀在飞会话（无人值守宿主不可接受）。catch 记账（行名+火种）不
+          // 重抛：单行单次失败不阻轮询编舞（结算未推进的行下轮 sweep 照常补觉）。
+          void fireRow(row, 'clock').catch((err) => {
+            warn(
+              `[scheduler] fire 失败（任务 ${row.name}，clock 道）：${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+        }
+      } catch (err) {
+        // 轮询腿异常不炸进程（挖掘 20 轮——G1 同理由唯独未施于本位）：dao.due
+        // 瞬态错（busy 越过 busy_timeout / IOERR——跨进程写 jobs 表系 04 §12
+        // 设计内场景）穿透定时回调即 uncaughtException，崩溃编舞 exit(1) 连杀
+        // 在飞会话。吞进 warn 下一拍重试（obs/service 定时腿同律）；due 未推进
+        // 的行由重臂后的下一拍 sweep 照常补觉
+        warn(`[scheduler] 轮询拍异常（吞进 warn 下一拍重试）：${err instanceof Error ? err.message : String(err)}`);
       }
     } finally {
       sweeping = false;

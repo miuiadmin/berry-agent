@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pid as processPid } from 'node:process';
 import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
 import { SCHEDULER_MIGRATION } from './migration.js';
-import { createSchedulerEngine, type SchedulerEngine, type TimerSeam } from './engine.js';
+import { createSchedulerEngine, MAX_POLL_MS, type SchedulerEngine, type TimerSeam } from './engine.js';
 import { createSchedulerService, type JobsDao, type SchedulerService } from './service.js';
 import type { RunnerFactory, RunnerHandle, RunnerRequest } from './runner.js';
 import type { GateFacts } from './gates.js';
@@ -112,6 +112,8 @@ function assemble(
     isPidAlive?: (pid: number) => boolean;
     /** spawn 位覆写（火种链防崩测试注拒绝形——缺省 fakeRunner 记录形） */
     spawnOverride?: RunnerFactory['spawn'];
+    /** dao 包装位（挖掘 20 轮轮询裸奔回归锁——Proxy 覆写单方法抛错模拟 SQLITE 瞬态错） */
+    daoWrap?: (dao: JobsDao) => JobsDao;
   } = {},
 ): {
   service: SchedulerService;
@@ -126,12 +128,13 @@ function assemble(
     secretKey: ephemeralSecretKey(),
     migrations: [SCHEDULER_MIGRATION],
   });
-  const { service, dao } = createSchedulerService({
+  const { service, dao: rawDao } = createSchedulerService({
     db: store.sqlite(),
     now: () => new Date(nowMs).toISOString(),
     warn,
     pathExists: () => true,
   });
+  const dao = options.daoWrap === undefined ? rawDao : options.daoWrap(rawDao);
   const timers = new FakeTimers();
   const runner = fakeRunner(options.spawnOverride);
   const engine = createSchedulerEngine({
@@ -583,5 +586,67 @@ describe('sweep 火种链防崩（void fireRow 拒绝必接）', () => {
     } finally {
       process.off('unhandledRejection', onUnhandled);
     }
+  });
+});
+
+/**
+ * 轮询拍异常收口（挖掘 20 轮回归锁）：定时回调直调 doSweep / scheduleNextPoll
+ * 内 earliestNextFire 均为裸同步 dao 读——SQLITE 瞬态错（busy 越过 busy_timeout
+ * /IOERR——跨进程写 jobs 表系 04 §12 设计内场景）穿透回调即 uncaughtException，
+ * 崩溃编舞 exit(1) 连杀在飞会话（G1 同理由唯独未施于轮询腿）。修前红：异常
+ * 直穿回调（测试面即抛）；修后吞进 warn + 钟必重臂（obs/service 定时腿同律）。
+ */
+describe('轮询拍异常收口（dao 读抛错不炸进程不死钟）', () => {
+  it('轮询拍 dao.due 抛错：吞进 warn + 钟重臂续巡（下一拍补觉 due 行）', () => {
+    let dueThrows = false;
+    const { service, engine, timers } = assemble({
+      daoWrap: (d) =>
+        new Proxy(d, {
+          get(target, prop) {
+            if (prop === 'due' && dueThrows) {
+              return () => {
+                throw new Error('SQLITE_BUSY: 测试注入瞬态锁');
+              };
+            }
+            return Reflect.get(target, prop) as unknown;
+          },
+        }),
+    });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    engine.start();
+    dueThrows = true; // start 腿（重启补推进）正常跑完后再注入——锁轮询拍位
+    advance(10 * 60_000 + 1000);
+    // 修前红锚：裸回调直抛（异常穿透 fireEarliest 即测试红）——修后吞 warn 重臂
+    timers.fireEarliest();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('SQLITE_BUSY'));
+    expect(timers.pending.size).toBe(1); // 钟重臂（死钟反面——未推进 due 行由下一拍补觉）
+  });
+
+  it('下一拍计算 earliestNextFire 抛错：按最大巡检间隔兜底重拍（钟不死）', () => {
+    let earliestThrows = false;
+    const { service, engine, timers } = assemble({
+      daoWrap: (d) =>
+        new Proxy(d, {
+          get(target, prop) {
+            if (prop === 'earliestNextFire' && earliestThrows) {
+              return () => {
+                throw new Error('SQLITE_IOERR: 测试注入读错');
+              };
+            }
+            return Reflect.get(target, prop) as unknown;
+          },
+        }),
+    });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    engine.start();
+    earliestThrows = true; // start 尾首排正常跑完后再注入——锁重排位
+    advance(10 * 60_000 + 1000);
+    // 修前红锚：doSweep 正常收场后 scheduleNextPoll 内 earliestNextFire 直抛
+    timers.fireEarliest();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('SQLITE_IOERR'));
+    // 兜底重拍 = belt 最大巡检间隔（不递归重调 scheduleNextPoll——会再抛同错）
+    expect(timers.pending.size).toBe(1);
+    const [belt] = timers.pending.values();
+    expect(belt?.ms).toBe(MAX_POLL_MS);
   });
 });

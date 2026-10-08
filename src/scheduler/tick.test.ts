@@ -60,6 +60,7 @@ function fakeEngine(outcome?: RunOutcome): SchedulerEngine {
         } as RunOutcome),
     ),
     inFlightCount: 0,
+    running: false, // 观察面（start 置位/stop 摘除——/tick 面不消费，占位满足接口形）
   };
 }
 

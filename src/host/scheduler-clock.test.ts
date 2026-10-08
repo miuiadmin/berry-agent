@@ -112,6 +112,43 @@ function memoryFs(): { read: () => null; write: () => void } {
 
 /* ---------------- startSchedulerClock 起停编舞 ---------------- */
 
+/**
+ * /reload 换代接钟（挖掘 20 轮回归锁）：真 createCorePlugins 件清单 + 真装配。
+ * 修前双缺陷：①调度件 disposer 不停自建引擎——旧代引擎永生（start 每进程仅
+ * 三入口各一次，reapply 换代不重调）×②新代引擎构造不自启且无人接钟——
+ * 「首代活钟 × 最新代 /tick 面」跨代盲区破 04 §12 同任务不并发双跑不变量
+ * （同进程 pid 旁路在飞检查恒放行）。修前红锚：换代后旧代 engine.running
+ * 仍 true（永生）+ 新代 engine.running false（死火）。
+ */
+describe('/reload 换代接钟（挖掘 20 轮）', () => {
+  it('换代后旧代引擎停 + 新代引擎接钟起（两半缺一即红）', async () => {
+    const { assembly, shutdown } = await clockRig();
+    try {
+      const first = assembly.scope.tryGet<SchedulerFace>('scheduler');
+      if (first === undefined) throw new Error('scheduler 件未装载');
+      // 首启起钟（生产=长驻入口单点编舞；本测手接同一函数——closer 悬挂由
+      // shutdown abort 订阅幂等停钟兜）
+      startSchedulerClock(assembly.scope, {
+        registerCloser: () => undefined,
+        abortSignal: assembly.runtime.abortSignal,
+      });
+      expect(first.engine.running).toBe(true);
+      assembly.reloader.request();
+      await assembly.reloader.settle();
+      // 旧代引擎随回卷停（disposer engine.stop——不再永生带病跑）
+      expect(first.engine.running).toBe(false);
+      // 新代引擎接钟（reapply 尾起钟交接——只停不启=调度静默死火新缺陷）
+      const second = assembly.scope.tryGet<SchedulerFace>('scheduler');
+      expect(second).toBeDefined();
+      expect(second!.engine).not.toBe(first.engine); // 换代新铸（真值前提）
+      expect(second!.engine.running).toBe(true);
+      second!.engine.stop(); // 摘真定时器（不留 60s belt 拖活测试进程）
+    } finally {
+      await shutdown();
+    }
+  });
+});
+
 describe('startSchedulerClock 起停编舞（批 20c）', () => {
   it('件在场：起钟 true + 停钟 closer 注册（label 单源可辨）', async () => {
     const assembly = await assembleHostStack({

@@ -50,7 +50,7 @@ import { createSsrfGuardedFetch, pinnedFetch } from '../web/index.js';
 import { appendToolPolicyEntry, readToolPolicy } from './tool-policy-store.js';
 import { readHostSettings } from './settings-store.js';
 import { APPROVAL_USAGE, parseApprovalArgv, runApprovalCommand } from './approval-cmd.js';
-import { createCorePlugins } from './core-plugins.js';
+import { createCorePlugins, startSchedulerClock } from './core-plugins.js';
 import type { GoalFace, SubagentLayerResyncHook } from './core-plugins.js';
 // crash-loop 守卫判定件（04 §5 无人值守深化批——boot 史单键判序 + clean 退出标记）
 import { judgeBootGuard, markCleanExit } from './boot-guard.js';
@@ -1523,6 +1523,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     const reloadReport = (text: string): void => {
       void stack.channels.notify('reload', text);
     };
+    // let runtime 流窄化不进 reapply 闭包（:483 persistence 同律）——直线位
+    // const 固化（reapply 内接钟消费）
+    const rtReload = runtime;
     const reloader = createPluginReloader({
       // 档①预检：与装载读侧同一函数（单源——预检过装载必过清单面）
       preflight: () => void readEnabledRows(dataDir, defaultFs()),
@@ -1540,6 +1543,17 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         const previous = boot; // 换代前旧代（工具面 diff 基线——03 §2.8 通道真值）
         const handle = await runBoot!(false);
         boot = handle;
+        // 调度钟换代交接（挖掘 20 轮）：旧代引擎已随回卷腿 disposer 停（只停
+        // 不启 = reload 后调度静默死火——原行为靠旧代引擎带病永生续跑）；对新
+        // 代引擎重执行起钟编舞。reapply 语境恒长驻形态（/reload 命令面只在
+        // TUI 等长驻入口注册，诊断形 run/dump-config 无本面）；件缺席 no-op
+        // false。每换代挂一条 'scheduler-engine' closer + abort 订阅（各停各
+        // 代引擎、幂等无害——closer 随代缓慢累积是正确性优先的可接受上界）。
+        // rtReload 直引（let runtime 流窄化不进闭包——直线位固化别名）：
+        // runBoot 内层的 rt 别名（:1007）在本闭包不可见（试错实录：误引 rt
+        // 即 ReferenceError，reapply 拒绝被 runOnce 吞进 reload 失败回执
+        // ——钟死火且无栈可寻——scoped vitest 的 esbuild 只剥类型不查名）。
+        startSchedulerClock(scope, rtReload);
         Object.assign(pluginCounts, handle.counts);
         await resyncPluginSkillLayers(handle);
         await resyncPluginAgentLayers(handle);

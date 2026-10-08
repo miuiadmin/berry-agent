@@ -1427,6 +1427,13 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
       }
 
       return () => {
+        // 停自建引擎（挖掘 20 轮——/reload 换代回卷腿）：本 disposer 此前只
+        // 摘命令面，引擎跨代永生（起钟编舞每进程仅长驻入口各调一次、reapply
+        // 不重调旧钟）——旧代挂钟 × 最新代 /tick 面跨代并立时，同进程 pid 旁路
+        // 跨进程在飞检查，同任务可并发双跑（04 §12 不变量破）。stop 幂等无害
+        // （正常退出路径入口钟 closer 已停再停 no-op）；在飞实例自然收场不硬杀
+        // （引擎头注停钟语义——换代窗内钟停火由 reapply 尾接钟腿即刻续上）。
+        engine.stop();
         attachedGoal?.detachGoalJobsFace();
         disposeTick();
       };
