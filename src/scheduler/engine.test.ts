@@ -596,6 +596,48 @@ describe('sweep 火种链防崩（void fireRow 拒绝必接）', () => {
  * 崩溃编舞 exit(1) 连杀在飞会话（G1 同理由唯独未施于轮询腿）。修前红：异常
  * 直穿回调（测试面即抛）；修后吞进 warn + 钟必重臂（obs/service 定时腿同律）。
  */
+describe('activePid 记账吞错（挖掘 21 轮件10——fire 位记账抛错不泄漏表项不饿死行）', () => {
+  it('fire 位 dao.setActive 抛错：降 warn 续 fire 流——settle 清账照走、行不饿死（修前：fireNow reject + active 表项泄漏 + sweep 恒 skip）', async () => {
+    let setActiveCalls = 0;
+    let setActiveThrows = false;
+    const { service, engine, timers, runner } = assemble({
+      daoWrap: (d) =>
+        new Proxy(d, {
+          get(target, prop) {
+            if (prop === 'setActive' && setActiveThrows) {
+              return (...args: unknown[]) => {
+                setActiveCalls += 1;
+                if (setActiveCalls === 1) throw new Error('SQLITE_BUSY: 测试注入写锁');
+                return (target.setActive as (...a: unknown[]) => unknown)(...args);
+              };
+            }
+            return Reflect.get(target, prop) as unknown;
+          },
+        }),
+    });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    engine.start();
+    setActiveThrows = true; // start 腿正常跑完后再注入——锁 fire 记账位
+    const fired = engine.fireNow('j', 'manual');
+    // 修前红锚①：异常穿透 fireRow（active.set 已落而 tail 未返 spawned 不接管
+    // 清账）→ fireNow 收 reject；修后：记账吞 warn，fire 流续行
+    runner.resolve(0, { finalTextPreview: '记账瞬态错下照常收场' });
+    const result = await fired;
+    expect(result.reason).toBe('exit_code');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('SQLITE_BUSY'));
+    // settle 清账照走（对偶位 setActive(null) 第二调不抛——首调后闸关）
+    expect(engine.inFlightCount).toBe(0);
+    // 行不饿死：修前 active 表项泄漏使 sweep :404 active.has 判据恒 skip——
+    // 推进到下一刻 sweep 补觉（正常 spawn 第二实例）
+    advance(10 * 60_000 + 1000);
+    timers.fireEarliest();
+    await new Promise((r) => setTimeout(r, 0)); // fire 异步链落拍
+    expect(runner.requests.length).toBe(2);
+    runner.resolve(1);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+});
+
 describe('轮询拍异常收口（dao 读抛错不炸进程不死钟）', () => {
   it('轮询拍 dao.due 抛错：吞进 warn + 钟重臂续巡（下一拍补觉 due 行）', () => {
     let dueThrows = false;

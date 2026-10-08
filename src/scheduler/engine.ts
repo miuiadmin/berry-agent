@@ -290,7 +290,16 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       } finally {
         timers.clear(wallHandle);
         active.delete(name);
-        dao.setActive(name, null, null, now()); // durable 在飞占用面清账（claim 对偶）
+        // 清账吞错（挖掘 21 轮件10——fire 起跑记账对偶位同律）：durable 清账
+        // 抛错不吞已结算 outcome（穿透即调用方收 reject、结果丢失）——降
+        // warn，残留 durable 账由跨进程「死/超钟不拦」+ 僵行清扫自愈
+        try {
+          dao.setActive(name, null, null, now()); // durable 在飞占用面清账（claim 对偶）
+        } catch (err) {
+          warn(
+            `[scheduler] activePid 清账失败（任务 ${name}，降 warn——残留账由僵行清扫自愈）：${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
       // next 从结算时刻取下一刻（every 形锚 now——错过不重放同律）；
       // runner 内零跑判定（gated——wake 未落地/分派处理器缺席）同走 settleGated
@@ -375,8 +384,19 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       const handle = await runner.spawn({ row, trigger, wallTimeoutMs });
       active.set(name, handle);
       // claim-then-advance 记账（定形注③）：fire 起跑落 activePid（runner 句柄
-      // pid——甲案宿主 pid/乙案子进程 pid）+ 起跑墙钟；settle 清（对偶位）
-      if (handle.pid !== null) dao.setActive(name, handle.pid, now(), now());
+      // pid——甲案宿主 pid/乙案子进程 pid）+ 起跑墙钟；settle 清（对偶位）。
+      // 记账吞错（挖掘 21 轮件10——与 settle 对偶位同律）：dao 瞬态错
+      // （SQLITE_BUSY/IOERR——跨进程写 jobs 表系 04 §12 设计内场景）穿透即
+      // fireRow 抛——active 表项已落而 tail 未返 spawned 不接管清账 → 表项
+      // 泄漏 + 行被 sweep 的 active.has 判据恒 skip（饿死）。记账是观察面
+      // （跨进程在飞判定有「死/超钟不拦」自愈兜底），降 warn 不杀 fire 流
+      try {
+        if (handle.pid !== null) dao.setActive(name, handle.pid, now(), now());
+      } catch (err) {
+        warn(
+          `[scheduler] activePid 起跑记账失败（任务 ${name}，降 warn 继续——durable 账由 settle 段清账/僵行清扫自愈）：${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       // 墙钟超时守卫（kill('timeout')——TERM→宽限→KILL 由 runner 实装升级）。
       // 随注册同步挂（段体内——不落 fireRowTail 的链返回 await 后一跳）：守卫
       // 面更宽（盖住段收场到尾段接管间的链跳窗），同步可见面与旧 fireRow 齐
