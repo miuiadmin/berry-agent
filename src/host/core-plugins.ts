@@ -55,7 +55,16 @@ import {
   REWIND_USAGE,
 } from '../checkpoint/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
-import { createBashTool, createGateExec, createSpawnPipeline, buildChildEnv, isPidAlive, killProcessTree, readCmdlineSync, sweepOrphans } from '../exec/index.js';
+import {
+  createBashTool,
+  createGateExec,
+  createSpawnPipeline,
+  buildChildEnv,
+  isPidAlive,
+  killProcessTree,
+  readCmdlineSync,
+  sweepOrphans,
+} from '../exec/index.js';
 import {
   createGoalService,
   createGoalTodoTool,
@@ -244,11 +253,11 @@ function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // 不误杀）。void fire-and-forget：清扫是恢复面非启动门槛，不阻塞装载
       // 序；本代在飞条目由 hostPid === process.pid 同代判定天然保护（/reload
       // 换代重扫安全——新代 hostPid 不同、旧代宿主已死则其账被清）
-      void sweepOrphans(
-        pipeline.registry,
-        childrenFile !== undefined ? { filePath: childrenFile } : {},
-        { isAlive: isPidAlive, readCmdline: readCmdlineSync, killTree: killProcessTree },
-      );
+      void sweepOrphans(pipeline.registry, childrenFile !== undefined ? { filePath: childrenFile } : {}, {
+        isAlive: isPidAlive,
+        readCmdline: readCmdlineSync,
+        killTree: killProcessTree,
+      });
     },
   };
 }

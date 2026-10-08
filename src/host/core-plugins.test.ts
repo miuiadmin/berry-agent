@@ -620,37 +620,43 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     assembly.dispose();
   });
 
-  it('exec 件孤儿清扫接线（挖掘 21 轮件6）：装载期扫残留 children.json——上代遗产出册重写', { timeout: 15_000 }, async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-sweep-'));
-    dirs.push(dataDir);
-    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-sweep-ws-'));
-    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-sweep-home-'));
-    dirs.push(workspace, home);
-    // 预置上代残留条目：hostPid 与 pid 都取已死真 pid（spawnSync 短命进程
-    // 退后即死——两 pid 均死 → 纯出册腿，零真杀面）；hostPid 死 = 上代宿主
-    // 遗产判定成立
-    const dead = spawnSync(execPath, ['-e', '']);
-    const deadPid = dead.pid ?? 0;
-    expect(deadPid).toBeGreaterThan(0);
-    const childrenFile = join(dataDir, 'children.json');
-    writeFileSync(
-      childrenFile,
-      JSON.stringify([{ pid: deadPid, argv: [execPath, '-e', ''], owner: 'test:legacy', hostPid: deadPid, startedAt: 1 }]),
-    );
-    const { scope } = await bootCore(dataDir, memoryFs(), { cwd: workspace, homeDir: home });
-    expect(scope.tryGet('exec')).toBeDefined();
-    // 修前红：装配缺口——exec 件从未接孤儿清扫（filePath 未传 pipeline、
-    // sweepOrphans 无人调），残留 children.json 原样躺着无人消费（04 §11
-    // 「宿主启动期孤儿清扫」条款空转）。修后：装载期清扫跑——条目回填→
-    // 裁（hostPid 已死 + pid 已死 = 纯出册）→ 持久化重写空册
-    const deadline = Date.now() + 5_000;
-    let entries: unknown[] = JSON.parse(readFileSync(childrenFile, 'utf8'));
-    while (entries.length > 0 && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 50));
-      entries = JSON.parse(readFileSync(childrenFile, 'utf8'));
-    }
-    expect(entries).toHaveLength(0);
-  });
+  it(
+    'exec 件孤儿清扫接线（挖掘 21 轮件6）：装载期扫残留 children.json——上代遗产出册重写',
+    { timeout: 15_000 },
+    async () => {
+      const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-sweep-'));
+      dirs.push(dataDir);
+      const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-sweep-ws-'));
+      const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-sweep-home-'));
+      dirs.push(workspace, home);
+      // 预置上代残留条目：hostPid 与 pid 都取已死真 pid（spawnSync 短命进程
+      // 退后即死——两 pid 均死 → 纯出册腿，零真杀面）；hostPid 死 = 上代宿主
+      // 遗产判定成立
+      const dead = spawnSync(execPath, ['-e', '']);
+      const deadPid = dead.pid ?? 0;
+      expect(deadPid).toBeGreaterThan(0);
+      const childrenFile = join(dataDir, 'children.json');
+      writeFileSync(
+        childrenFile,
+        JSON.stringify([
+          { pid: deadPid, argv: [execPath, '-e', ''], owner: 'test:legacy', hostPid: deadPid, startedAt: 1 },
+        ]),
+      );
+      const { scope } = await bootCore(dataDir, memoryFs(), { cwd: workspace, homeDir: home });
+      expect(scope.tryGet('exec')).toBeDefined();
+      // 修前红：装配缺口——exec 件从未接孤儿清扫（filePath 未传 pipeline、
+      // sweepOrphans 无人调），残留 children.json 原样躺着无人消费（04 §11
+      // 「宿主启动期孤儿清扫」条款空转）。修后：装载期清扫跑——条目回填→
+      // 裁（hostPid 已死 + pid 已死 = 纯出册）→ 持久化重写空册
+      const deadline = Date.now() + 5_000;
+      let entries: unknown[] = JSON.parse(readFileSync(childrenFile, 'utf8'));
+      while (entries.length > 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+        entries = JSON.parse(readFileSync(childrenFile, 'utf8'));
+      }
+      expect(entries).toHaveLength(0);
+    },
+  );
 
   it('core:exec disabled 行 → bash 静默缺席（诚实缺席律——对话本体仍通）', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-off-'));

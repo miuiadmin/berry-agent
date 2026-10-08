@@ -160,7 +160,10 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
     // EEXIST（2026-10-08 挖掘 20 轮件9）：single-instance.test.ts 竞窗桩构造
     //（独占写撞在场标记的 writeFileSync flag 'wx' errno 形——{ code: 'EEXIST' }
     // 桩注入与断言）——同 ENOENT 桩构造族，非错误码族发射面
-    const externalSystemCodes = new Set(['ENOENT', 'EADDRINUSE', 'EACCES', 'EEXIST']);
+    // EPIPE（2026-10-08 挖掘 21 轮件3）：spawn.test.ts stdio 流 error 桩构造
+    //（对端已退后写帧的管道 errno 形——{ code: 'EPIPE' } 桩注入）——同
+    // ENOENT 桩构造族，非错误码族发射面
+    const externalSystemCodes = new Set(['ENOENT', 'EADDRINUSE', 'EACCES', 'EEXIST', 'EPIPE']);
     const patterns = [
       /new\s+BaseError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
       /\bcodedMessage\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
