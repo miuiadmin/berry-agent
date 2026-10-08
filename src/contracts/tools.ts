@@ -45,8 +45,9 @@ export interface AgentTool {
   parameters: object;
   /**
    * 效果面（03 §2.3 一位两用——批调度与审批共此单键，不另设同义键）：
-   * ① 调度语义（tools-batch 批消费序执法——04 §2 尾句）：read（含缺省）批内
-   *   可并行调度、write 批边界串行（写前清空在飞只读）；
+   * ① 调度语义（tools-batch 批消费序执法——04 §2 尾句）：read（显式
+   *   声明——审批分档批三值扩后唯一并行档，缺省与 write|exec 均走串行
+   *   屏障）批内可并行调度、write|exec 批边界串行（写前清空在飞只读）；
    * ② 审批语义：write 触发审批对（守门段校验，审批编舞归 safety 件）。
    */
   effect?: ToolEffect;

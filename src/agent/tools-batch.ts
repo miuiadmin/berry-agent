@@ -6,9 +6,10 @@
  * 批语义六条：①单响应护栏两闸（04 §2——消费序前插 limiter，零改 loop
  * 骨架）：call_id 幂等（同 id 重放不重执行——批内/跨轮/重试续入三域同律，
  * 账本挂 context）+ 批调用数上限（超帽丢尾配对 isError + 计数暴露）；
- * ②读写批调度（03 §2.3 尾注——effect 一位两用）：read（含缺省）段内并发、
- * write 批边界串行（写前清空在飞只读——段序天然执法：write 前的 read 段已
- * Promise.all 排干、write 后的 read 段待其结算才起跑）；③beforeToolCall
+ * ②读写批调度（03 §2.3 尾注——effect 一位两用）：read（显式声明——
+ * 审批分档批三值扩后唯一并行档，缺省与 write|exec 均走串行屏障）段内
+ * 并发、write|exec 批边界串行（写前清空在飞只读——段序天然执法：write 前
+ * 的 read 段已 Promise.all 排干、write 后的 read 段待其结算才起跑）；③beforeToolCall
  * block → immediate isError 结果；④terminate 批内一致裁决（批内全
  * terminate 才 terminate——单件否决不放大；回执腿/中止配对腿/丢尾腿非执行
  * 腿不否决——空真通过与批内任何真实执行腿的 false 一票即续跑，纯非执行
