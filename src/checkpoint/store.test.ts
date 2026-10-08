@@ -99,6 +99,43 @@ describe('blob 仓', () => {
     await expect(store.readBlob(hash)).resolves.toEqual(content); // 在场承诺不悬空
   });
 
+  it('ckpt-串行链二（挖掘 21 轮件8）：prune 引用快照后的落册窗——saveManifest 入链，快照不陈旧不误删（修前：快照无它 + 在飞归零双条件过 → 误删 → 落册引用悬空）', async () => {
+    // 交错序确定性钉死：prune 段二 referenced 快照（listManifests 一次性）已拍
+    // → listBlobHashes await 边内 saveManifest 落册（快照看不到）+ 注销在飞
+    // 计数（inflight 归零）→ 循环到该 hash：referenced 快照无它 + inflight 0
+    // 双条件过 → 误删 → 落册 manifest 引用悬空（restore readBlob blob 缺席）。
+    // 修后：saveManifest 入链排队（链被 prune 持有）→ prune 循环时在飞计数
+    // 仍 >0 豁免 → prune 出链后落册接管——串行化后两序只居其一
+    const content = Buffer.from('快照陈旧窗对象');
+    const hash = contentHash(content);
+    await store.writeBlob(hash, content); // blob 落盘（在飞计数 1、册未落）
+    const m = manifest({
+      id: 'm-snapshot',
+      files: [{ path: 'x.txt', hash, bytes: content.byteLength }],
+    });
+    // 钉交错：prune 段二的 listBlobHashes 被调时（referenced 快照已拍——
+    // :375 先于 :379），同步发起 saveManifest 并稍候令其完成（修前不入链
+    // 立即跑：落册 + 在飞注销归零）
+    let raceSave: Promise<void> | undefined;
+    const originalList = store.listBlobHashes.bind(store);
+    const spy = vi.spyOn(store, 'listBlobHashes').mockImplementation(async () => {
+      if (raceSave === undefined) {
+        raceSave = store.saveManifest(m);
+        await new Promise((resolve) => setTimeout(resolve, 10)); // 落册+注销落地
+      }
+      return originalList();
+    });
+    await store.prune();
+    spy.mockRestore();
+    await raceSave; // 修前：已「成功」落册但 blob 被 rm（引用悬空）；修后：排队落册接管
+    // 修前红锚：blob 被误删 → readBlob corrupt 抛；修后：在飞豁免保住 + 引用接管
+    await expect(store.readBlob(hash)).resolves.toEqual(content);
+    // 引用接管闭环：删册释放引用后 prune 可回收（豁免非永久泄漏）
+    await store.deleteManifest('m-snapshot');
+    const result = await store.prune();
+    expect(result.removedBlobs).toBe(1);
+  });
+
   it('同内容重写跳过（在场零重写——共享去重）', async () => {
     const content = Buffer.from('dup');
     const hash = contentHash(content);

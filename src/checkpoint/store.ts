@@ -200,8 +200,12 @@ export function openCheckpointStore(
    * writeBlob 在场跳写腿探测通过而不重写——rm 落地后「writeBlob 已确保在
    * 场」承诺悬空（后续落册即悬空引用）。串行化后两序只居其一：writeBlob
    * 全成后 prune 查（在飞计数 >0 跳过）或 prune 全成后 writeBlob 探测（缺席
-   * → 重写落盘）。saveManifest/readBlob/deleteManifest 不入链——无 blob 在
-   * 场性竞（引用账由在飞计数与引用扫描两层各辖一窗）。链失败不断链
+   * → 重写落盘）。saveManifest 同入链（挖掘 21 轮件8——:262「prune 引用集
+   * 看得到」兑现）：落册 + 在飞注销若落在 prune 段二引用快照之后的 await
+   * 边内，循环到该 hash 时双条件过（快照陈旧无它 + 在飞已归零）→ 误删 →
+   * 落册引用悬空；串行化后两序只居其一（prune 全成后落册接管 / 落册全成
+   * 后 prune 快照看得到）。readBlob/deleteManifest 不入链——无 blob 在场
+   * 性竞（引用账由在飞计数与引用扫描两层各辖一窗）。链失败不断链
    * （then(task, task) 形——前任异常不阻塞后任）。
    */
   let chainTail: Promise<void> = Promise.resolve();
@@ -257,11 +261,16 @@ export function openCheckpointStore(
     async saveManifest(manifest) {
       // id 白名单校验（防路径注入——manifest id 亦是路径段）
       if (!MANIFEST_ID_RE.test(manifest.id)) throw corrupt(`manifest id 格式异常：${manifest.id}`);
-      await atomicWrite(join(baseDir, 'manifests', `${manifest.id}.json`), JSON.stringify(manifest, null, 2));
-      // 落册即引用接管（ckpt-gc 定形注）：files 各 hash 在飞计数注销——此后
-      // 豁免归引用扫描（manifest 已在册，prune 引用集看得到）。写失败抛出则
-      // 不注销（计数残留=安全向豁免，同段一崩溃残留形）
-      for (const file of manifest.files) releaseInflight(file.hash);
+      // 方法级串行链入队（挖掘 21 轮件8）：落册 + 引用接管（注销）与 prune
+      // 段二扫描/rm 互斥——修前可落进引用快照后的 await 边（快照陈旧 + 在飞
+      // 归零双条件过 → blob 误删 → 落册引用悬空）。写失败抛出则链上 reject
+      //（不注销——计数残留=安全向豁免，同段一崩溃残留形）
+      await serialized(async () => {
+        await atomicWrite(join(baseDir, 'manifests', `${manifest.id}.json`), JSON.stringify(manifest, null, 2));
+        // 落册即引用接管（ckpt-gc 定形注）：files 各 hash 在飞计数注销——此后
+        // 豁免归引用扫描（manifest 已在册，prune 引用集看得到）
+        for (const file of manifest.files) releaseInflight(file.hash);
+      });
     },
 
     async loadManifest(id) {
