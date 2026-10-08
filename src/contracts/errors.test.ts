@@ -157,7 +157,10 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
     // EACCES（2026-09-28 第十五役 B3 缝）：plugin-install.test.ts 换代腿注入
     // errno 桩（rm 抛形构造 { code: 'EACCES' }——被 code:'…' 形扫中）——同
     // ENOENT 桩构造族，非错误码族发射面
-    const externalSystemCodes = new Set(['ENOENT', 'EADDRINUSE', 'EACCES']);
+    // EEXIST（2026-10-08 挖掘 20 轮件9）：single-instance.test.ts 竞窗桩构造
+    //（独占写撞在场标记的 writeFileSync flag 'wx' errno 形——{ code: 'EEXIST' }
+    // 桩注入与断言）——同 ENOENT 桩构造族，非错误码族发射面
+    const externalSystemCodes = new Set(['ENOENT', 'EADDRINUSE', 'EACCES', 'EEXIST']);
     const patterns = [
       /new\s+BaseError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
       /\bcodedMessage\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,

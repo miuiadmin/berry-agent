@@ -68,6 +68,12 @@ export interface AcquireOptions {
   readonly isAlive?: (pid: number) => boolean;
   /** 目录建（缺省 mkdirSync recursive——测试注 noop 免真目录） */
   readonly ensureDir?: (dir: string) => void;
+  /**
+   * 独占写标记（挖掘 20 轮竞窗收口——语义升级）：目标在场必须抛
+   * code='EEXIST' 错（缺省 writeFileSync flag 'wx' 同律）。首读与写之间的
+   * TOCTOU 竞窗（两进程同读缺席标记、先后盲覆写双开）由本语义收口——撞
+   * EEXIST 触发重读重判（活拒/死接管清障重写）
+   */
   readonly writeFile?: (path: string, text: string) => void;
   readonly readFile?: (path: string) => string;
   readonly tryUnlink?: (path: string) => void;
@@ -88,26 +94,35 @@ export interface ActiveMarkerLease {
  * / HOST_DATA_DIR_BUSY）；pid 死 → 接管覆写（tookOver = true）；标记残缺
  * （坏 JSON/缺字段）→ 视同陈旧接管（宁接管勿误拒——标记非真相源，durable
  * 日志才是）。标记缺席 → 直写（tookOver = false）。
+ *
+ * 竞窗收口（挖掘 20 轮）：写一律独占形（'wx'——在场即 EEXIST），首读与写
+ * 之间他人落标时撞 EEXIST 重读重判（活拒/死接管清障重写）——read-then-
+ * write 盲覆写竞窗下两进程可同时过闸双开。release 带属主比对（pid+
+ * startedAt 全等才拆）——标记被接管者覆写后盲拆会把其保护一并拆掉。
  */
 export function acquireActiveMarker(dataDir: string, opts: AcquireOptions = {}): ActiveMarkerLease {
   const pid = opts.pid ?? process.pid;
   const now = opts.now ?? (() => Date.now());
   const isAlive = opts.isAlive ?? defaultIsAlive;
   const ensureDir = opts.ensureDir ?? ((dir) => mkdirSync(dir, { recursive: true }));
-  const writeFile = opts.writeFile ?? ((path, text) => writeFileSync(path, text));
+  const writeFile = opts.writeFile ?? ((path, text) => writeFileSync(path, text, { flag: 'wx' }));
   const readFile = opts.readFile ?? ((path) => readFileSync(path, 'utf8'));
   const tryUnlink = opts.tryUnlink ?? defaultTryUnlink;
 
   const markerPath = join(dataDir, ACTIVE_MARKER_BASENAME);
   ensureDir(dataDir);
 
+  /** 标记读（缺席/读失败一律 null——两者都非拒入判据） */
+  const readMarker = (): string | null => {
+    try {
+      return readFile(markerPath);
+    } catch {
+      return null;
+    }
+  };
+
   let tookOver = false;
-  let prevText: string | null = null;
-  try {
-    prevText = readFile(markerPath);
-  } catch {
-    prevText = null; // 标记缺席（ENOENT）——首占非接管
-  }
+  const prevText = readMarker();
   if (prevText !== null) {
     let prev: Partial<ActiveMarkerRecord> | null = null;
     try {
@@ -130,7 +145,38 @@ export function acquireActiveMarker(dataDir: string, opts: AcquireOptions = {}):
   }
 
   const record: ActiveMarkerRecord = { pid, startedAt: now() };
-  writeFile(markerPath, `${JSON.stringify(record)}\n`);
+  const text = `${JSON.stringify(record)}\n`;
+  /** 独占写（在场即 EEXIST——竞窗判据面） */
+  const writeExclusive = (): void => {
+    writeFile(markerPath, text);
+  };
+  if (tookOver) {
+    // 判死接管：先清陈旧标记再独占写（原盲覆写形在清判与写之间给他人让位）
+    tryUnlink(markerPath);
+  }
+  try {
+    writeExclusive();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    // 竞窗败者腿（挖掘 20 轮）：首读后他进程已写标记——重读重判单轮（再竞
+    // 败 EEXIST 直穿——fail-loud 不双开，下次启动再战）
+    const racedText = readMarker();
+    let raced: ActiveMarkerRecord | null = null;
+    try {
+      const parsed = JSON.parse(racedText ?? '') as Partial<ActiveMarkerRecord>;
+      if (parsed !== null && typeof parsed.pid === 'number' && Number.isInteger(parsed.pid) && parsed.pid > 0) {
+        raced = { pid: parsed.pid, startedAt: typeof parsed.startedAt === 'number' ? parsed.startedAt : 0 };
+      }
+    } catch {
+      raced = null; // 残缺——清障重试
+    }
+    if (raced !== null && isAlive(raced.pid)) {
+      throw new DataDirBusyError(raced);
+    }
+    tookOver = true; // 竞窗发现的标记判死/残缺/已撤 → 接管语义
+    tryUnlink(markerPath); // ENOENT 幂等（标记已撤形 no-op）
+    writeExclusive();
+  }
   let released = false;
   return {
     tookOver,
@@ -138,6 +184,18 @@ export function acquireActiveMarker(dataDir: string, opts: AcquireOptions = {}):
     release: () => {
       if (released) return;
       released = true;
+      // 属主比对（挖掘 20 轮）：标记可能已被他进程接管覆写（本进程曾被误判
+      // 死/竞窗让位形）——盲 unlink 会拆掉接管者的保护（第三者随之可入双
+      // 开）。只拆 pid+startedAt 全等己属的标记；非己属/残缺/已缺席一律不
+      // 拆（残缺标记留给下回启动的接管判——宁留勿误拆）
+      const current = readMarker();
+      if (current === null) return;
+      try {
+        const parsed = JSON.parse(current) as Partial<ActiveMarkerRecord>;
+        if (parsed.pid !== record.pid || parsed.startedAt !== record.startedAt) return; // 非己属
+      } catch {
+        return; // 残缺——不可证己属不拆
+      }
       tryUnlink(markerPath);
     },
   };
