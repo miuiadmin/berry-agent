@@ -6,11 +6,15 @@
  * 在飞名额释放双保险、流活性 watchdog（帽停滞不帽时长 + 释放第四路径）。
  */
 import { describe, expect, it } from 'vitest';
-import { fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai';
+// pi-ai 1.0 起 TranscriptContext 不再携带独立 systemPrompt/tools 字段
+// （normalizeContext 折叠进 messages 头部 system message 的正文与 toolsAdded）——
+// 提示词/工具面改经包公开 helper 与折叠头读取
+import { fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt } from '@earendil-works/pi-ai';
 import type {
   AssistantMessage as PiAssistantMessage,
   Context as PiContext,
   SimpleStreamOptions,
+  SystemMessage,
 } from '@earendil-works/pi-ai';
 import type {
   AssistantMessage,
@@ -146,7 +150,7 @@ describe('钩子派发段前置查（钩子 handler 内流式调用 → 错误�
 /* ---------------- 成功路：直通零拷贝与参数组装 ---------------- */
 
 describe('直通与参数组装（超集兼容子集）', () => {
-  it('messages 引用相等（零拷贝）、systemPrompt 原样、工具描述收口', async () => {
+  it('messages 逐项引用相等（零重建）、systemPrompt 折叠头、工具折叠 toolsAdded（pi-ai 1.0 语义）', async () => {
     const { faux, runtime } = makeFauxRuntime();
     const captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }> = [];
     faux.setResponses([capturingFactory(captures)]);
@@ -164,9 +168,15 @@ describe('直通与参数组装（超集兼容子集）', () => {
     ).result();
     expect(final.stopReason).toBe('stop');
     const seen = captures[0]!;
-    expect(seen.context.messages).toBe(messages); // 引用同一数组——零转换零拷贝
-    expect(seen.context.systemPrompt).toBe('系统提示词甲');
-    expect(seen.context.tools?.[0]?.name).toBe('lookup');
+    // pi-ai 1.0：normalizeContext 把 systemPrompt/tools 折叠进 messages 头部
+    // system message（TranscriptContext 不再携带独立字段，工具落 toolsAdded）——
+    // 「零拷贝」锁随迁为「原 messages 逐项引用同体（零重建）+ 折叠面提取恒等」
+    expect(seen.context.messages.length).toBe(messages.length + 1);
+    const head = seen.context.messages[0] as SystemMessage;
+    expect(head.role).toBe('system');
+    messages.forEach((m, i) => expect(seen.context.messages[i + 1]).toBe(m));
+    expect(getCurrentSystemPrompt(seen.context.messages)).toBe('系统提示词甲');
+    expect(head.toolsAdded?.[0]?.name).toBe('lookup');
   });
 
   it('thinkingLevel → reasoning 映射：非 off 档透传；off/缺省 = undefined（关闭）', async () => {

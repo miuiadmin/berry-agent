@@ -17,6 +17,9 @@ import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-
 import type { AgentTool, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
 import { fauxProvider } from '../llm/index.js';
+// pi-ai 1.0 起 TranscriptContext 不再携带独立 systemPrompt 字段（normalizeContext
+// 折叠进 messages 头部 system message）——外发提示词面改经包公开 helper 提取
+import { getCurrentSystemPrompt } from '@earendil-works/pi-ai';
 
 import type { AgentMessage } from '../contracts/index.js';
 import type { Skill } from '../skills/index.js';
@@ -623,7 +626,7 @@ describe('createInProcessSubagentProvider skills 键注入与执法', () => {
     let outbound: string | undefined;
     faux.setResponses([
       (context) => {
-        outbound = context.systemPrompt;
+        outbound = getCurrentSystemPrompt(context.messages);
         return messageOf('stop');
       },
     ]);
@@ -664,7 +667,7 @@ describe('createInProcessSubagentProvider skills 键注入与执法', () => {
     let outbound: string | undefined;
     faux.setResponses([
       (context) => {
-        outbound = context.systemPrompt;
+        outbound = getCurrentSystemPrompt(context.messages);
         return messageOf('stop');
       },
     ]);
@@ -788,7 +791,7 @@ describe('createInProcessSubagentProvider skills 键注入与执法', () => {
     let outbound: string | undefined;
     faux.setResponses([
       (context) => {
-        outbound = context.systemPrompt;
+        outbound = getCurrentSystemPrompt(context.messages);
         return messageOf('stop');
       },
     ]);

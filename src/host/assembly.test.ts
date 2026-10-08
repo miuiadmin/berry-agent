@@ -48,6 +48,9 @@ import type { UiBackend } from '../channels/index.js';
 import type { GoalService } from '../goal/index.js';
 import type { JobRegistry } from '../subagent/index.js';
 import { fauxProvider } from '../llm/index.js';
+// pi-ai 1.0 起 TranscriptContext 不再携带独立 systemPrompt 字段（normalizeContext
+// 折叠进 messages 头部 system message）——外发提示词面改经包公开 helper 提取
+import { getCurrentSystemPrompt } from '@earendil-works/pi-ai';
 
 /** 临时数据目录族（统一清） */
 const dirs: string[] = [];
@@ -2247,7 +2250,7 @@ describe('skills 双注入位装配 e2e（⑤ 批）', () => {
       let outbound: string | undefined;
       faux.setResponses([
         (context) => {
-          outbound = context.systemPrompt; // 子代理外发 LLM 请求面（非信封快照）
+          outbound = getCurrentSystemPrompt(context.messages); // 子代理外发 LLM 请求面（非信封快照）
           return fauxText('调研完毕');
         },
       ]);
@@ -2301,7 +2304,7 @@ describe('skills 双注入位装配 e2e（⑤ 批）', () => {
       for (let i = 1; i <= 3; i++) {
         faux.setResponses([
           (context) => {
-            outboundPerTurn.push(context.systemPrompt ?? '');
+            outboundPerTurn.push(getCurrentSystemPrompt(context.messages));
             return fauxText(`第${i}轮答复`);
           },
         ]);

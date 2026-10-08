@@ -7,6 +7,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { fauxProvider } from './index.js';
+// pi-ai 1.0 起 TranscriptContext 不再携带独立 systemPrompt 字段（normalizeContext
+// 折叠进 messages 头部 system message）——提示词面改经包公开 helper 提取
+import { getCurrentSystemPrompt } from '@earendil-works/pi-ai';
 import type {
   AssistantMessage as PiAssistantMessage,
   Context as PiContext,
@@ -67,7 +70,7 @@ function capturing(
 /* ---------------- 请求面组装与直通 ---------------- */
 
 describe('complete：请求面组装与直通', () => {
-  it('messages 引用相等（零转换）、systemPrompt 原样、defaults 打底可被具名覆盖', async () => {
+  it('messages 逐项引用相等（零重建）、systemPrompt 折叠头（pi-ai 1.0 语义）、defaults 打底可被具名覆盖', async () => {
     const captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }> = [];
     const { faux, service } = makeService({ defaults: { timeoutMs: 11111 } });
     const messages = [userMsg('摘要这段')];
@@ -75,8 +78,13 @@ describe('complete：请求面组装与直通', () => {
     const result = await service.complete({ systemPrompt: '你是分类器', messages, timeoutMs: 22222 });
     expect(result.message.stopReason).toBe('stop');
     const seen = captures[0]!;
-    expect(seen.context.messages).toBe(messages); // 同一数组——零拷贝直通
-    expect(seen.context.systemPrompt).toBe('你是分类器');
+    // pi-ai 1.0：normalizeContext 把 systemPrompt 折叠进 messages 头部 system
+    // message（TranscriptContext 不再携带独立字段）——「零拷贝」锁随迁为
+    // 「原 messages 逐项引用同体（零重建）+ 头部折叠一条 + 提取恒等」
+    expect(seen.context.messages.length).toBe(messages.length + 1);
+    expect(seen.context.messages[0]?.role).toBe('system');
+    messages.forEach((m, i) => expect(seen.context.messages[i + 1]).toBe(m));
+    expect(getCurrentSystemPrompt(seen.context.messages)).toBe('你是分类器');
     // 参数合并序：defaults.timeoutMs=11111 打底 → req.timeoutMs=22222 覆盖
     expect(seen.options?.timeoutMs).toBe(22222);
   });
