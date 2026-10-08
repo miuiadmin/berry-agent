@@ -85,6 +85,11 @@ export function createGoalTodoTool(deps: GoalTodoToolDeps): ToolDefinition {
       },
       { additionalProperties: false },
     ),
+    // effect 归位 read 非谎报（03 §2.3「机器否决写」词汇档位类——2026-10-08
+    // 案 B）：goal 段 todo 落账三判据合取——值域封闭（固定 schema 快照账）+
+    // 固定实现（enforceScope 双向执法全批过堂后才统一落账——半批不入
+    // durable）+自守竞速（execute 零 await，守卫-写位同步段原子零窗自免）。
+    // 非用户数据变异面。
     effect: 'read',
     execute: async (args) => {
       const raw = (args as { items?: unknown }).items;

@@ -33,6 +33,12 @@ export function createGoalUpdateTool(deps: GoalUpdateToolDeps): ToolDefinition {
       },
       { additionalProperties: false },
     ),
+    // effect 归位 read 非谎报（03 §2.3「机器否决写」词汇档位类首例——2026-10-08
+    // 案 B 拍板+冷读闸 PASS）：终态申报三判据合取——①写面值域封闭（goals 行
+    // status/endedAt/endingNote 三列固定）；②宿主固定实现（模型输入只落
+    // completed|abandoned 封闭值域，evidence/reason 自由文本入账本列属记账自由
+    // 非扩权）；③自守竞速（complete/abandon 守卫-写位含宏任务窗——service 层
+    // 写前复检律首例，2026-10-08 挖 17 轮）。非用户数据变异面，不走审批对。
     effect: 'read',
     execute: async (args) => {
       const status = args.status as 'completed' | 'abandoned';

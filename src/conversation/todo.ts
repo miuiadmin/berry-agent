@@ -202,6 +202,11 @@ export function createTodoTool(append: (data: { items: TodoItemData[] }) => void
       },
       { additionalProperties: false },
     ),
+    // effect 归位 read 非谎报（03 §2.3「机器否决写」词汇档位类——2026-10-08
+    // 案 B）：todo 快照 append 账三判据合取——值域封闭（additionalProperties:
+    // false 双闸固定 schema）+固定实现（validate 产干净形再 append）+自守竞速
+    // （validate→append 全程零 await，SessionLog.append 同步签名零 I/O——
+    // 守卫-写位同步段原子零窗自免）。非用户数据变异面。
     effect: 'read',
     execute: async (args) => {
       // 管道已按 schema 校验过参数；validate 再产新拷贝（append 快照拷贝前的

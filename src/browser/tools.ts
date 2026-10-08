@@ -211,6 +211,11 @@ export function buildBrowserTools(source: BrowserToolPageSource): ToolDefinition
       name: 'screenshot',
       description: '截取当前视口 PNG，落数据目录可取阅位（滚动保留最近 20 张），回执给文件路径与字节数。',
       parameters: Type.Object({}, { additionalProperties: false }),
+      // effect 归位 read 非谎报（03 §2.3「机器否决写」词汇档位类——2026-10-08
+      // 案 B）：截图件三判据合取——值域封闭的最强形（零参数 schema——模型
+      // 输入面为空集）+固定实现（page.screenshot 落数据目录，宿主实现内
+      // 落盘）+自守竞速（无状态/终态守卫形——类律「凡含窗者」条件空真
+      // 不触发）。工件位（PNG 环形上限 20 张）非用户数据变异面。
       effect: 'read',
       timeoutMs: 30_000,
       execute: run(async (page) => {

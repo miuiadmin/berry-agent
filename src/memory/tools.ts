@@ -365,6 +365,11 @@ export function createMemoryTools(deps: MemoryToolsDeps): ToolDefinition[] {
       },
       { additionalProperties: false },
     ),
+    // effect 归位 read 非谎报（03 §2.3「机器否决写」词汇档位类——2026-10-08
+    // 案 B）：搜索件本读、附带搜索流水记账三判据合取——值域封闭
+    // （memory_access 五列全宿主铸造，模型输入不进任何流水列）+固定实现
+    // （dao.search 同步事务写流水）+自守竞速（FTS 查询→插流水全程零 await
+    // ——守卫-写位同步段原子零窗自免）。非用户数据变异面。
     effect: 'read',
     execute: async (args): Promise<AgentToolResult> => {
       try {
