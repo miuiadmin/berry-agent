@@ -395,10 +395,15 @@ class ObsServiceImpl implements ObsService {
       }
       if (mainBillable < rule.thresholdTokens) return;
 
-      // 冷却判定（per-规则 lastFiredAt；notify 失败不烧冷却——下一拍重试）
+      // 冷却判定（per-规则 lastFiredAt；notify 失败不烧冷却——下一拍重试）。
+      // 键 = 规则内容身份 kind+阈值+冷却（挖掘 20 轮）：下标键在配置重排/删行
+      // 后漂移到无关规则——同规则冷却失联窗内重响 / 新规则顶位继承他人冷却
+      // 哑火。升级兼容：内容键缺席回读旧下标键（升级首拍不重响风暴——旧值
+      // 仍有效；首响后内容键接管，旧键成孤儿行不再被读）
       const cooldownMs = rule.cooldownMs ?? DEFAULT_COOLDOWN_MS;
-      const key = `alert:${index}:lastFiredAt`;
-      const lastFiredAt = this.readMetaNumber(key) ?? 0;
+      const key = `alert:${rule.kind}:${rule.thresholdTokens}:${cooldownMs}:lastFiredAt`;
+      const legacyKey = `alert:${index}:lastFiredAt`;
+      const lastFiredAt = this.readMetaNumber(key) ?? this.readMetaNumber(legacyKey) ?? 0;
       if (now - lastFiredAt < cooldownMs) return;
 
       try {

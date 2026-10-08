@@ -341,6 +341,36 @@ describe('③ 告警：只通知不执法 + 冷却 + 观众前置', () => {
     service.dispose();
   });
 
+  it('冷却键跟规则身份不跟下标（挖掘 20 轮）：重排后同规则窗内不重响 + 改阈值新身份即响', () => {
+    const h0 = Date.UTC(2026, 8, 7, 8);
+    usage(h0 + 1000, { input: 60, output: 50 }); // 主计费 110：>100 触发、<120 不触发
+    const ruleA: ObsAlertRule = { kind: 'token_spend_hourly', thresholdTokens: 100, cooldownMs: 5 * 60_000 };
+    const ruleB: ObsAlertRule = { kind: 'token_spend_hourly', thresholdTokens: 120, cooldownMs: 5 * 60_000 };
+    const service = make({ alerts: [ruleA, ruleB] });
+    nowMs = h0 + 10 * 60_000;
+    service.refresh();
+    expect(notify.calls).toHaveLength(1); // 仅 A 响（B 未超阈）
+
+    // —— 配置重排（B 前 A 后）：A 下标 0→1。同规则同阈值仍在 5min 冷却窗内
+    service.dispose();
+    const swapped = make({ alerts: [ruleB, ruleA] });
+    nowMs = h0 + 12 * 60_000; // A 上次响 = h0+10min，窗内
+    swapped.refresh();
+    // 修前红锚：下标键 alert:1 漂到 B 的空键——A 冷却失联重响（calls=2）；
+    // 修后内容键跟 A 的 kind+阈值+冷却——窗内抑制（仍 1）
+    expect(notify.calls).toHaveLength(1);
+    swapped.dispose();
+
+    // —— 阈值改写（A→A' 同下标）：新规则身份不继承旧冷却——首拍即响
+    const ruleAPrime: ObsAlertRule = { kind: 'token_spend_hourly', thresholdTokens: 105, cooldownMs: 5 * 60_000 };
+    const edited = make({ alerts: [ruleAPrime, ruleB] });
+    edited.refresh(); // 110 > 105 仍超阈
+    // 修前锚：下标键 alert:0 是 A 的窗内 lastFiredAt——新规则被顶位继承冷却哑火；
+    // 修后内容键新身份无历史——诚实首响（共 2）
+    expect(notify.calls).toHaveLength(2);
+    edited.dispose();
+  });
+
   it('hasAudience false：整跳且不耗冷却——观众回场同阈值即响', () => {
     const h0 = Date.UTC(2026, 8, 7, 8);
     usage(h0 + 1000, { input: 60, output: 50 });
