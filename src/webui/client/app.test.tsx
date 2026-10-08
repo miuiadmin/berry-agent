@@ -991,6 +991,45 @@ describe('WebUiRoot零会话态提交（十六役补扫 N6——输入不静默�
     await screen.findByPlaceholderText('一次性 token');
     await screen.findByText(/凭证已失效/);
   });
+
+  it('自动开新竞窗不抢焦点（挖掘 21 轮件7）：挂起窗内用户已选他会话——then 到达不拽回（内容仍进新会话）', async () => {
+    primeZeroSession();
+    apiMock.submit.mockResolvedValue(undefined);
+    // 首调（submit 腿自动开新）挂起；挂起窗内用户点「+ 新会话」（按钮腿，
+    // 第二调）立即成活 s-b——选中已落 s-b
+    let releaseA!: (id: string) => void;
+    const pendingA = new Promise<string>((r) => {
+      releaseA = r;
+    });
+    let calls = 0;
+    apiMock.createSession.mockImplementation(() => {
+      calls += 1;
+      return calls === 1 ? pendingA : Promise.resolve('s-b');
+    });
+    render(<WebUiRoot />);
+    await screen.findByText('暂无会话——点「+ 新会话」开一个');
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '竞窗消息' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await waitFor(() => {
+      expect(apiMock.createSession).toHaveBeenCalledTimes(1); // submit 腿挂起中
+    });
+    // 挂起窗内用户开新并选中 s-b（活体流锚 s-b 建立）
+    fireEvent.click(screen.getByRole('button', { name: '+ 新会话' }));
+    await waitFor(() => {
+      expect(FakeEventSource.instances.some((s) => s.url === '/api/sessions/s-b/events')).toBe(true);
+    });
+    // submit 腿 promise 到达：修前红——setActiveSession 无条件拽走焦点（s-b
+    // 流被拆、s-a 流新建——用户选中的会话被抢）；修后——activeId 已非 null
+    // 则让位不拽（选中是用户意图不代言）
+    releaseA('s-a');
+    await waitFor(() => {
+      // 内容仍进新会话（提交目标不随焦点让位漂移）
+      expect(apiMock.submit).toHaveBeenCalledWith('s-a', '竞窗消息', expect.stringMatching(/.+/));
+    });
+    await new Promise((r) => setTimeout(r, 30)); // 让潜在的错误拽位 setState 落地
+    expect(FakeEventSource.instances.some((s) => s.url.includes('s-a'))).toBe(false);
+  });
 });
 
 describe('WebUiRoot稳态周期复拉（十六役补扫 N22/N23——跨会话审批可见性 + 清单运行期刷新）', () => {

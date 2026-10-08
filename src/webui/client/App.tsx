@@ -416,7 +416,9 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
     void api
       .createSession()
       .then((sessionId) => {
-        setState((prev) => setActiveSession(prev, sessionId));
+        // 竞窗守卫（挖掘 21 轮件7）：挂起窗内用户已选他会话则让位不拽——
+        // 选中是用户意图不代言；仅仍处零会话态时选中新 id
+        setState((prev) => (prev.activeId === null ? setActiveSession(prev, sessionId) : prev));
         loadSessions();
       })
       .catch((err: unknown) => {
@@ -563,7 +565,9 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
         void api
           .createSession()
           .then((newId) => {
-            setState((prev) => setActiveSession(prev, newId));
+            // 竞窗守卫（挖掘 21 轮件7）：挂起窗内用户已选他会话则让位不拽
+            //（选中是用户意图不代言）；内容提交目标不随焦点让位漂移——仍进 newId
+            setState((prev) => (prev.activeId === null ? setActiveSession(prev, newId) : prev));
             loadSessions();
             submitInto(newId, rawText, attachments);
           })
