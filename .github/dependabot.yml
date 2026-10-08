@@ -20,6 +20,15 @@ updates:
     target-branch: dev
     schedule:
       interval: weekly
+    ignore:
+      # TypeScript 大版本换代拒升（2026-10-08 PR#21 处置定谳）：TS 7 起
+      # typescript npm 包转 Go 原生实现线，不再提供 JS 编译器 API——
+      # tools/extract-api-surface.mjs 的 ts.createScanner 等面测器依赖随
+      # 之消解（PR#21 CI 16 红实证：createScanner is not a function——
+      # check-api 十查族全炸）。minor/patch 照常巡检；major 重启须先迁移
+      # 抽取器到独立词法扫描件（立题另批），拒升理由登记 docs/development.md。
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
     groups:
       # dev 依赖整组收拢（工具链抬升一 PR 过门禁——vitest/tsx/prettier 等联动换代天然同批）
       dev-dependencies:

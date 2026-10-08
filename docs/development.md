@@ -88,6 +88,8 @@ Dependabot 周检自动开更新 PR（`.github/dependabot.yml`——dev 依赖�
   2. 全量四门禁 `npm run typecheck && npm test && npm run lint:topology && npm run format:check`；
   3. 动到原生模块（`better-sqlite3`）或沙箱链（bwrap 相关）的，走上一节 docker Linux 复现谱真跑一遍 ubuntu 面；
   4. 有破坏面的（API 改形、配置换代）在 PR 里写迁移说明再合，不在门禁绿后闷头合；
+- **拒升登记**（`dependabot.yml` ignore 规则——解除须先清其依赖因）：
+  - `typescript` 大版本（2026-10-08）：TS 7 起转 Go 原生实现线、无 JS 编译器 API，`tools/extract-api-surface.mjs` 的 `ts.createScanner` 依赖面随之消解——重启须先迁移抽取器到独立词法扫描件（立题另批）；
 - **积压巡检**：每周清点一次 Dependabot PR 队列——超两周未处置的升级呈维护者拍优先级（积压本身是信号：要么分组没圈住噪音面，要么升级链条有未解依赖冲突）。
 
 ## 模块拓扑（DAG 律）
