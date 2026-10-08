@@ -107,7 +107,9 @@ export interface UsageBuckets {
 /**
  * LLM 调用终态（pi-ai 同构七值）。
  * loop 只消费 error/aborted（终态短路）与 length（截断防御）；
- * deferred 是 pi-ai 原生延迟工具装载透传值，v1 不产生但词汇保留。
+ * deferred 是 pi-ai deferred completions（响应延期）透传值——上游 1.1.0
+ * 零真实渠道实现（仅契约+faux 测试件），主仓无请求声明位，桩位语义 =
+ * 意外到达与 stop 同族自然收 completed（04 §2 pi-1 桩位批——真源）。
  */
 export type StopReason = 'pending' | 'stop' | 'length' | 'toolUse' | 'error' | 'aborted' | 'deferred';
 

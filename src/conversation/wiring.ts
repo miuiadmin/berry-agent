@@ -266,6 +266,7 @@ export class DurableWiring {
 function turnEndReasonOf(stopReason: string): 'completed' | 'aborted' | 'error' {
   if (stopReason === 'aborted') return 'aborted';
   if (stopReason === 'error') return 'error';
-  // stop / deferred——自然收尾（deferred 是延迟装载透传值，v1 不产生但词汇保留）
+  // stop / deferred——自然收尾（deferred 系 pi-ai 响应延期透传值：上游零
+  // 真实渠道、主仓无声明位，桩位语义同 stop——04 §2 pi-1 桩位批）
   return 'completed';
 }
