@@ -203,6 +203,17 @@ export function WebUiRoot(): ReactElement {
 function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
   const [state, setState] = useState<AppState>(initialAppState);
   /**
+   * 选中意图旗（挖掘 19 轮 G-2）：本挂载周期内选中曾确立（首载自动选首或
+   * 用户手选/开新均置位）。删除当前会话刻意清选后，周期复拍的清单刷新不得
+   * 再自动选首——「不自动跳选他话（选中是用户意图，不代言）」拍板不被
+   * activeId===null 守卫翻案（守卫只知「无选中」不知「为何无选中」）。幂等
+   * 置位（false→true），updater 双调（开发 StrictMode）下无副作用。
+   */
+  const hasSelectedRef = useRef(false);
+  useEffect(() => {
+    if (state.activeId !== null) hasSelectedRef.current = true;
+  }, [state.activeId]);
+  /**
    * 档位浮层开向（null = 闭）。/thinking //sandbox 恰零参命中即本地开层
    * ——不进提交流（TUI 本地拦截族同归属律：不进通道核命令表、零 submitText
    * 消费）；词面分立两值驱动 TierPopover 的 kind 半边。
@@ -289,8 +300,11 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
       .then(({ sessions, total }) => {
         setState((prev) => {
           const withSessions = loadedSessions(prev, sessions, total);
-          // 首载且无选中——自动选首会话（无会话则保持 null，SessionList 引导开新）
-          if (prev.activeId === null && sessions.length > 0) return setActiveSession(withSessions, sessions[0]!.id);
+          // 首载且无选中——自动选首会话（无会话则保持 null，SessionList 引导开新）。
+          // 选中意图旗拦截（挖掘 19 轮 G-2）：删除清选后的复拍不再自动跳选
+          //（旗在场 = 用户意图已表达过——「无选中」是刻意态非待选态）
+          if (!hasSelectedRef.current && prev.activeId === null && sessions.length > 0)
+            return setActiveSession(withSessions, sessions[0]!.id);
           return withSessions;
         });
       })

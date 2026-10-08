@@ -1279,6 +1279,47 @@ describe('WebUiRoot会话删除腿（2026-10-07 会话删除编排批——行�
     expect(screen.getByRole('button', { name: '测试会话' })).toBeTruthy();
     confirmSpy.mockRestore();
   });
+
+  it('删活动会话清选后周期复拍不自动跳选（挖掘 19 轮 G-2——「不自动跳选他话」拍板不被清单复拍推翻）', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      primeMain();
+      apiMock.listSessions.mockResolvedValue({
+        sessions: [
+          { id: 's-1', title: '甲会话', lastActivityAt: 1 },
+          { id: 's-2', title: '乙会话', lastActivityAt: 2 },
+        ],
+        total: 2,
+      });
+      render(<WebUiRoot />);
+      await screen.findAllByText('甲会话');
+      await waitFor(() => {
+        expect(FakeEventSource.instances).toHaveLength(1); // 首载自动选首 s-1
+      });
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      apiMock.deleteSession.mockResolvedValueOnce(undefined);
+      fireEvent.click(screen.getAllByRole('button', { name: '删除会话' })[0]!);
+      await waitFor(() => {
+        expect(screen.queryByText('甲会话')).toBeNull(); // 删除滤行落定 + 清选至无选中
+      });
+      // 复拍清单改服务端真形（删除已生效——单会话返回）
+      apiMock.listSessions.mockResolvedValue({
+        sessions: [{ id: 's-2', title: '乙会话', lastActivityAt: 2 }],
+        total: 1,
+      });
+      // 周期复拍一拍：刻意清选的「无选中态」须守住——乙会话在场但不得被
+      // 自动跳选（选中是用户意图，删除清选不被清单复拍代言推翻）
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      // 修前红锚：跳选乙会话则开新流（/api/sessions/s-2/events）+详情头（导出键）在场
+      expect(FakeEventSource.instances.some((s) => s.url === '/api/sessions/s-2/events')).toBe(false);
+      expect(screen.queryByRole('button', { name: '导出' })).toBeNull();
+      confirmSpy.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('WebUiRoot主题两态切换（2026-10-07 webui 深浅色批——03 §10.4 批注条款②③消费腿）', () => {
