@@ -73,6 +73,28 @@ describe('classifyError 判定序（04 §3.5 单源表）', () => {
     }
   });
 
+  it('③ QUOTA_TEXT_PATTERN 镜像对拍锁：pi-ai 1.0.4 NON_RETRYABLE 词表配额族逐词入桶（修前红=sweep22 quota-word-2——subscription_sharing 漏词实证）', () => {
+    // pi-ai 1.0.4 dist/utils/retry.js NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN
+    // 九词钉定快照（该正则模块内私有不导出——QUOTA_TEXT_PATTERN 镜像同源自写，
+    // env 键名镜像对拍锁同律）。pi-ai 升级必重读上游词表同步本快照与镜像
+    // 正则；本仓前缀形（GoUsageLimit 吸收 GoUsageLimitError 等）覆盖等价。
+    const pinnedQuotaWords = [
+      'GoUsageLimitError',
+      'FreeUsageLimitError',
+      'Monthly usage limit reached',
+      'available balance',
+      'insufficient_quota',
+      'out of budget',
+      'quota exceeded',
+      'billing',
+      // 1.0.x 新增：Sign in with ChatGPT 订阅共享限额（小时级重置非秒级）
+      'subscription_sharing_usage_limit_exceeded',
+    ];
+    for (const word of pinnedQuotaWords) {
+      expect(classifyError(messageOf({ errorMessage: word })), `上游配额词入桶: ${word}`).toBe('quota');
+    }
+  });
+
   it('④ transient 正则（429/5xx/网络/流早断）→ transient', () => {
     expect(classifyError(messageOf({ errorMessage: 'rate limit exceeded, retry after 30s' }))).toBe('transient');
     expect(classifyError(messageOf({ errorMessage: '503 service unavailable' }))).toBe('transient');

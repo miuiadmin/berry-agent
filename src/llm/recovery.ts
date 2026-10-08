@@ -68,12 +68,13 @@ export function isRetryableAssistantError(message: AssistantMessage): boolean {
 
 /**
  * 配额耗尽文案子集（pi-ai retry.ts NON_RETRYABLE 正则的配额族词表——
- * 该正则模块内私有不导出，此处同款自写）。
+ * 该正则模块内私有不导出，此处同款自写；对拍锁见 recovery.test.ts 九词
+ * 钉定快照，pi-ai 升级必随重读）。
  * quota 桶与 generic non-retryable 的分流：配额类失败要明示「重试治不了」
  * 的诊断语义（04 §3.5 桶③），不是重试判定差异——两者都不进 auto-retry。
  */
 const QUOTA_TEXT_PATTERN =
-  /(GoUsageLimit|FreeUsageLimit|Monthly usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing)/i;
+  /(GoUsageLimit|FreeUsageLimit|Monthly usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing|subscription_sharing_usage_limit_exceeded)/i;
 
 /** 错误文案的取值面：errorMessage 优先，退而 content 首文本块（与 pi-ai 判定面同源） */
 function errorText(message: AssistantMessage): string {
