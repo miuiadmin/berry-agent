@@ -25,6 +25,14 @@
  * 判定/中止分档属宿主裁决面，插件不可覆写）。**回落恒在律**：渲染器缺席/
  * 抛错/返回空行集/载荷缺席 → 宿主缺省卡体（插件渲染器结构性不可劣化呈现
  * 面）。折叠预览 N=5 与卡体帽 200 行对插件行集同律。
+ *
+ * 卡面染色带（TUI 对标 Codex 五件批 C 件 R4）：toolCardBg 语义键在场时**整
+ * 卡铺底**（卡头 + 卡体——组卡 / exec / diff 档 / 插件卡体 / 回落全变体在
+ * renderToolCardStyledLines 出口统一施加），既有前景游程并入 bg（前景律全维
+ * 持——分档与语义键引用零改）+ 游程间洞（平前景裸段）补裸 bg 游程；带覆
+ * 文本 extent（0..plain.length）非全宽——与 user 块背景带同设计语言；空行
+ * 裸行无带。键缺席（16 档降采 / 探测缺席 / 自定义板缺键——resolve 件三形
+ * 同落 undefined）恒零施加，既有 runs 形原样（回落恒在律不变）。
  */
 import {
   DIM_STYLE,
@@ -180,8 +188,11 @@ export function cardBodyOf(text: string): readonly string[] {
 export function renderToolCardStyledLines(card: ToolCardView, columns: number): StyledLine[] {
   // 组卡变体先分诊（07 §4.1 V-3 注⑩ exec 折叠组词条）：组级形是宿主聚合面
   // ——exec 单卡头/插件腿/状态行三机制均不进组卡（renderInput 不铸入，故
-  // 插件腿结构性缺席）；折叠/展开/预览帽复用单卡机制（零新呈现机制）
-  if (card.group !== undefined) return renderGroupCardStyledLines(card, card.group, columns);
+  // 插件腿结构性缺席）；折叠/展开/预览帽复用单卡机制（零新呈现机制）；卡
+  // 面染色出口统一施加（组卡同律——变体零遗漏）
+  if (card.group !== undefined) {
+    return renderGroupCardStyledLines(card, card.group, columns).map((line) => withCardBg(line, card.theme.toolCardBg));
+  }
   const statusColor =
     card.status === 'success' ? card.theme.success : card.status === 'error' ? card.theme.error : card.theme.secondary;
   const headerLines = renderExecHeaderLines(card, columns, statusColor) ?? [
@@ -201,7 +212,29 @@ export function renderToolCardStyledLines(card: ToolCardView, columns: number): 
     : statusLine === null
       ? previewWindow(bodyLines, card.toggleHint, columns).map(addDim)
       : [statusLine, ...previewWindow(bodyLines, card.toggleHint, columns).map(addDim)];
-  return [...headerLines, ...body];
+  return [...headerLines, ...body].map((line) => withCardBg(line, card.theme.toolCardBg));
+}
+
+/**
+ * 卡面染色带施加（TUI 对标 Codex 五件批 C 件 R4——toolCardBg 整卡铺底单源）：
+ * bg 缺席（16 档降采/探测缺席/自定义板缺键）或空行（裸行——user 块包夹空行
+ * 同形）原样返回；在场则既有游程样式并入 bg（前景分档与语义键引用全维持
+ * ——addDim 游程并入同构范式）+ 游程间洞（平前景裸段）补裸 bg 游程，带覆文
+ * 本 extent（0..plain.length）非全宽。纯施加——plain 与游程几何零改。
+ */
+function withCardBg(line: StyledLine, bg: ColorValue | undefined): StyledLine {
+  if (bg === undefined || line.plain === '') return line;
+  const runs: StyleRun[] = [];
+  let cursor = 0;
+  for (const run of line.runs) {
+    // 洞补：上一游程尾与本游程头之间的裸段铺裸 bg（文本 extent 内）
+    if (run.start > cursor) runs.push({ start: cursor, end: run.start, style: { bg } });
+    runs.push({ start: run.start, end: run.end, style: { ...run.style, bg } });
+    cursor = Math.max(cursor, run.end);
+  }
+  // 尾洞：末游程尾至行尾的裸段铺裸 bg（runs 空集时 = 整行单 bg 游程）
+  if (cursor < line.plain.length) runs.push({ start: cursor, end: line.plain.length, style: { bg } });
+  return { plain: line.plain, runs };
 }
 
 /**

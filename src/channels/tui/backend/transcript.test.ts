@@ -596,6 +596,23 @@ describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共�
     ]);
   });
 
+  it('tool-card 块卡间上空行垫（TUI 对标 Codex 五件批 C 件 R4）：渲染层块前空行、块账不动', () => {
+    const block: TranscriptBlock = {
+      kind: 'tool-card',
+      name: 'read',
+      brief: '(path)',
+      status: 'success',
+      body: ['行一'],
+      diff: false,
+      expanded: false,
+      theme: DEFAULT_THEME,
+      toggleHint: 'ctrl+o',
+    };
+    const lines = renderBlockStyledLines(block, 40);
+    expect(lines[0]).toEqual({ plain: '', runs: [] }); // 修前红锚：垫缺席首行即卡头
+    expect(lines[1]!.plain).toBe(' ✓ 读取文件(path)'); // 垫后卡头原形维持
+  });
+
   it('tool-call / tool-result 块：单行 dim 样式', () => {
     const toolCall = renderBlockLines({ kind: 'tool-call', name: 'read', brief: '(path)' }, 40);
     expect(toolCall).toHaveLength(1);
@@ -1251,8 +1268,10 @@ describe('LiveTranscript exec 折叠组（直播路——agent_end 窗口收口�
     expect(group.group).toMatchObject({ count: 3 });
     expect(group.group?.commands.map((c) => c.command)).toEqual(['echo a', 'echo b', 'echo c']);
     const lines = renderBlockStyledLines(group, 60);
-    expect(lines[0]!.plain).toBe(' ✓ • Ran 3 commands');
-    expect(lines.slice(1).map((l) => l.plain)).toEqual(['$ echo a', '$ echo b', '$ echo c']);
+    // 卡间上空行垫（五件批 C 件 R4）前置——首行空垫、卡头后移一位
+    expect(lines[0]!.plain).toBe('');
+    expect(lines[1]!.plain).toBe(' ✓ • Ran 3 commands');
+    expect(lines.slice(2).map((l) => l.plain)).toEqual(['$ echo a', '$ echo b', '$ echo c']);
   });
 
   it('N<3 逐条补落保序（R4 逐卡形不变——exec 单卡不携组数据）', () => {
@@ -1265,10 +1284,10 @@ describe('LiveTranscript exec 折叠组（直播路——agent_end 窗口收口�
     >;
     expect(cards).toHaveLength(2); // 两条逐卡（非组卡）
     expect(cards.every((c) => c.group === undefined)).toBe(true);
-    // 保序 + R4 逐卡形（exec 单卡头 Ran + `$` 命令位）
+    // 保序 + R4 逐卡形（exec 单卡头 Ran + `$` 命令位；卡间上空行垫前置——卡头在 [1]）
     expect(cards.map((c) => c.name)).toEqual(['bash', 'bash']);
-    expect(renderBlockStyledLines(cards[0]!, 60)[0]!.plain).toBe(' ✓ Ran $ echo a');
-    expect(renderBlockStyledLines(cards[1]!, 60)[0]!.plain).toBe(' ✓ Ran $ echo b');
+    expect(renderBlockStyledLines(cards[0]!, 60)[1]!.plain).toBe(' ✓ Ran $ echo a');
+    expect(renderBlockStyledLines(cards[1]!, 60)[1]!.plain).toBe(' ✓ Ran $ echo b');
   });
 
   it('组级最差态聚合三态：全成 ✓ / 任一失败 ✗ / 任一 aborted ⏹（中止优先于失败）', () => {

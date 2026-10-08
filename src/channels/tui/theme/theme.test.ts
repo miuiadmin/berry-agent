@@ -89,9 +89,9 @@ describe('resolveTheme（构造期一次降采 + 冻结）', () => {
   });
 
   it('值域两律全键遍历：256 档 RGB 源键落 16-255、16 档落 0-15', () => {
-    // RGB 源键 = 除 accent（AnsiColor 直通）、text（undefined）与两动态混合键
-    //（userMessageBg / weakRule——探测缺席恒 undefined，回退腿另册单测）外全集
-    const DYNAMIC_KEYS = ['userMessageBg', 'weakRule'] as const;
+    // RGB 源键 = 除 accent（AnsiColor 直通）、text（undefined）与动态混合键
+    //（userMessageBg / weakRule / toolCardBg——探测缺席恒 undefined，回退腿另册单测）外全集
+    const DYNAMIC_KEYS = ['userMessageBg', 'weakRule', 'toolCardBg'] as const;
     const rgbKeys = SEMANTIC_KEYS.filter(
       (k) => k !== 'accent' && k !== 'text' && !(DYNAMIC_KEYS as readonly string[]).includes(k),
     ) as Exclude<SemanticKey, 'accent' | 'text' | (typeof DYNAMIC_KEYS)[number]>[];
@@ -119,11 +119,11 @@ describe('resolveTheme（构造期一次降采 + 冻结）', () => {
 });
 
 describe('语义键面（SEMANTIC_KEYS 单源表）', () => {
-  it('表恒 18 键且 ResolvedTheme 全键位定值（完整性契约——编译器不核此处）', () => {
-    expect(SEMANTIC_KEYS.length).toBe(18); // 11 核心键批 10g + 高亮键族五键批 10h + userMessageBg 界面美化役 R2 扩键 + weakRule V-3 注⑨
+  it('表恒 19 键且 ResolvedTheme 全键位定值（完整性契约——编译器不核此处）', () => {
+    expect(SEMANTIC_KEYS.length).toBe(19); // 11 核心键批 10g + 高亮键族五键批 10h + userMessageBg 界面美化役 R2 扩键 + weakRule V-3 注⑨ + toolCardBg 五件批 C 件
     const t = resolveTheme(DARK_PALETTE, 'truecolor');
     for (const key of SEMANTIC_KEYS) {
-      // text / 两动态混合键（userMessageBg / weakRule）合法 undefined；余键恒有值——缺值即编程错 fail-loud 于消费
+      // text / 三动态混合键（userMessageBg / weakRule / toolCardBg）合法 undefined；余键恒有值——缺值即编程错 fail-loud 于消费
       expect(key in t).toBe(true);
     }
     expect(t.accent).toBeDefined();
@@ -155,6 +155,33 @@ describe('userMessageBg 动态混合键（界面美化役批⑦ R2 扩键注）'
     };
     // 探测值在场亦不覆写板值：16,16,16 直出（非混合 118.6 形）
     expect(resolveTheme(board, 'truecolor', { r: 100, g: 100, b: 100 }).userMessageBg).toEqual(colorRgb('#101010'));
+  });
+});
+
+describe('toolCardBg 动态混合键（TUI 对标 Codex 五件批 C 件 R2——第二背景键）', () => {
+  it('探测在场 + 非 16 档 → 按板档混合铸入（dark 白 8% / light 黑 3%——比 userMessageBg 白 12%/黑 4% 弱一档）', () => {
+    const bg = { r: 100, g: 100, b: 100 };
+    // dark：每通道 100 + 0.08×(255−100) = 112.4 → 112（0x70）——卡面是密集块面弱一档
+    expect(resolveTheme(DARK_PALETTE, 'truecolor', bg).toolCardBg).toEqual(colorRgb('#707070'));
+    // light：每通道 100×0.97 = 97（0x61）
+    expect(resolveTheme(LIGHT_PALETTE, 'truecolor', bg).toolCardBg).toEqual(colorRgb('#616161'));
+    // 256 档照常降采（rgbTo256 单源——与 userMessageBg 同链）
+    expect(resolveTheme(DARK_PALETTE, '256', bg).toolCardBg).toEqual(rgbTo256({ r: 112, g: 112, b: 112 }));
+  });
+
+  it('回退三形：16 档降采 / 探测缺席 / 缺省主题 → 全 undefined（无卡面带）', () => {
+    expect(resolveTheme(DARK_PALETTE, '16', { r: 1, g: 2, b: 3 }).toolCardBg).toBeUndefined(); // 低档位宁可无带不可错色
+    expect(resolveTheme(DARK_PALETTE, 'truecolor').toolCardBg).toBeUndefined(); // 探测缺席（OSC 11 未应答/失败）
+    expect(DEFAULT_THEME.toolCardBg).toBeUndefined(); // 缺省主题 = dark@16 无探测——无卡面
+  });
+
+  it('自定义板显式带本键 → 板值优先（混合腿不覆写——探测在场亦不覆写）', () => {
+    const board = {
+      id: 'custom-card',
+      dark: true,
+      colors: { ...DARK_PALETTE.colors, toolCardBg: { r: 20, g: 20, b: 20 } },
+    };
+    expect(resolveTheme(board, 'truecolor', { r: 100, g: 100, b: 100 }).toolCardBg).toEqual(colorRgb('#141414'));
   });
 });
 

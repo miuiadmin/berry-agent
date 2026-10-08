@@ -9,8 +9,8 @@
  * 1 发射展开 2 空格——构造位先消毒再测宽截断）。
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { stringWidth } from '../../engine/index.js';
-import { DEFAULT_THEME } from '../theme/index.js';
+import { colorRgb, stringWidth } from '../../engine/index.js';
+import { DARK_PALETTE, DEFAULT_THEME, resolveTheme } from '../theme/index.js';
 import { registerToolRenderer } from '../../renderers.js';
 import { styledLineToAnsi } from '../backend/ansi-rows.js';
 import { renderBlockLines, type TranscriptBlock } from '../backend/transcript.js';
@@ -89,6 +89,73 @@ describe('工具卡三态卡头', () => {
     );
     expect(lines[0]!.plain).toContain('Ran');
     expect(lines[0]!.plain).not.toContain('命令执行');
+  });
+});
+
+describe('卡面染色带（TUI 对标 Codex 五件批 C 件 R4——toolCardBg 整卡铺底）', () => {
+  /** 探测在场板（truecolor + 探测 bg → dark 混白 8% 铸 toolCardBg——修前红锚位） */
+  const probed = resolveTheme(DARK_PALETTE, 'truecolor', { r: 100, g: 100, b: 100 });
+
+  it('整卡铺底：卡头既有前景游程并入 bg + 名段洞补裸 bg 游程（前景律维持）', () => {
+    expect(probed.toolCardBg).toEqual(colorRgb('#707070')); // 修前红：键缺席 undefined
+    const lines = renderToolCardStyledLines(card({ theme: probed }), 40);
+    const header = lines[0]!;
+    // 符号段 fg 并入 bg（分档维持）；名段（平前景洞）补裸 bg；简述段 dim 并入 bg
+    expect(header.runs).toEqual([
+      { start: 0, end: 2, style: { fg: probed.success, bg: probed.toolCardBg } },
+      { start: 2, end: 7, style: { bg: probed.toolCardBg } },
+      { start: 7, end: 13, style: { dim: true, bg: probed.toolCardBg } },
+    ]);
+    // 卡体裸行（折叠档——addDim 先行、bg 后并入）→ 整行单游程 dim+bg 并存
+    //（带覆文本 extent——非全宽，与 user 块带同设计语言；施加序锁：bg 并入不洗 dim）
+    expect(lines[1]!.runs).toEqual([
+      { start: 0, end: lines[1]!.plain.length, style: { dim: true, bg: probed.toolCardBg } },
+    ]);
+  });
+
+  it('空卡体行裸行无带 + 缺省主题（16 档）零 bg 回落（既有 runs 形维持）', () => {
+    const lines = renderToolCardStyledLines(card({ theme: probed, body: ['行一', '', '行三'] }), 40);
+    const empty = lines.find((line) => line.plain === '');
+    expect(empty).toBeDefined();
+    expect(empty!.runs).toEqual([]); // 空行无带——user 块包夹空行同形
+    // 缺省主题 = dark@16 无探测 → toolCardBg undefined → 零 bg 游程（回落恒在）
+    expect(renderToolCardStyledLines(card({}), 40)[0]!.runs).toEqual([
+      { start: 0, end: 2, style: { fg: DEFAULT_THEME.success } },
+      { start: 7, end: 13, style: { dim: true } },
+    ]);
+  });
+
+  it('组卡头同律铺底（洞补 + bold 段并入——出口统一施加变体零遗漏）', () => {
+    const group = renderToolCardStyledLines(
+      card({
+        theme: probed,
+        group: {
+          count: 2,
+          commands: [
+            { command: 'ls', status: 'success' },
+            { command: 'pwd', status: 'success' },
+          ],
+        },
+      }),
+      40,
+    );
+    // 组卡头 ` ✓ • Ran 2 commands`：符号段 fg、• 前洞、Ran bold 段、尾段洞——四游程全 bg
+    expect(group[0]!.runs).toEqual([
+      { start: 0, end: 2, style: { fg: probed.success, bg: probed.toolCardBg } },
+      { start: 2, end: 5, style: { bg: probed.toolCardBg } },
+      { start: 5, end: 8, style: { bold: true, bg: probed.toolCardBg } },
+      { start: 8, end: group[0]!.plain.length, style: { bg: probed.toolCardBg } },
+    ]);
+  });
+
+  it('diff 档词级对行同律：删行 `-` 前缀洞补 bg + 变更词段 fg 并入', () => {
+    const diff = renderToolCardStyledLines(card({ theme: probed, diff: true, body: ['-旧', '+新'] }), 40);
+    // 卡头后首行 = 删行 `-旧`（折叠档）：洞 {0,1} 补裸 bg + 变更词段 {1,2} fg
+    // 并入（addDim 先行——fg/dim/bg 三属性并存，施加序锁）
+    expect(diff[1]!.runs).toEqual([
+      { start: 0, end: 1, style: { bg: probed.toolCardBg } },
+      { start: 1, end: 2, style: { fg: probed.diffRemoved, bg: probed.toolCardBg, dim: true } },
+    ]);
   });
 });
 

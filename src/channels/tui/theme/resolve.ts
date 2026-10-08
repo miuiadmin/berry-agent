@@ -54,6 +54,12 @@ export interface ResolvedTheme {
    */
   readonly userMessageBg: ColorValue | undefined;
   /**
+   * 工具卡卡面背景带（TUI 对标 Codex 五件批 C 件 R2——第二背景键）：undefined
+   * = 无卡面带（探测缺席、16 档降采、自定义板缺本键——回退形与 userMessageBg
+   * 同律；消费位 tool-card 件整卡铺底、前景律全维持）。
+   */
+  readonly toolCardBg: ColorValue | undefined;
+  /**
    * 弱存在感线（V-3 注⑨——回合记账分隔线/表格线/面板分段线三线族通用）：
    * undefined = 键缺席（板显式带值之外——混合基缺席〔text undefined 或色板
    * 位不可知〕/ 探测缺席 / 16 档 / 亮底对比不足四形），消费位回退 tableRule
@@ -131,6 +137,23 @@ function blendUserMessageBg(bg: RgbChannels, dark: boolean): RgbChannels {
 }
 
 /**
+ * 工具卡卡面混合（TUI 对标 Codex 五件批 C 件 R2——第二背景键，theme 侧纯
+ * 函数）：与 blendUserMessageBg 同构、强度弱一档——dark 板混白 8% alpha
+ * （每通道 c + 0.08 × (255 − c)）、light 板混黑 3%（c × 0.97）。弱一档判
+ * 据：卡面是密集块面（卡头+卡体整卡铺底），同档带与 user 块并置时层级不可
+ * 辨。逐通道四舍五入。
+ */
+function blendToolCardBg(bg: RgbChannels, dark: boolean): RgbChannels {
+  return dark
+    ? {
+        r: Math.round(bg.r + 0.08 * (255 - bg.r)),
+        g: Math.round(bg.g + 0.08 * (255 - bg.g)),
+        b: Math.round(bg.b + 0.08 * (255 - bg.b)),
+      }
+    : { r: Math.round(bg.r * 0.97), g: Math.round(bg.g * 0.97), b: Math.round(bg.b * 0.97) };
+}
+
+/**
  * 弱存在感线混合（V-3 注⑨②——theme 侧纯函数）：主题 fg @ 20% alpha 混探测
  * bg，逐通道 round(fg×0.2 + bg×0.8)——量级对齐 userMessageBg 白 12% 形（线
  * 比带更弱：前景占比更低）。
@@ -177,22 +200,28 @@ function textRgbOf(value: SemanticPalette['text']): RgbChannels | undefined {
  * 覆盖 ResolvedTheme 全部语义键（semantic 件头注两处清单同步义务）——编译器
  * 不核此约束，越键漏值属编程错、fail-loud 于消费。
  *
- * `terminalBg`（OSC 11 探测背景——界面美化役批⑦ R2 扩键注）喂两动态键的
+ * `terminalBg`（OSC 11 探测背景——界面美化役批⑦ R2 扩键注）喂动态键族的
  * 混合腿：userMessageBg（板缺本键 + 探测在场 + 非 16 档 → 按板档混合；16 档
  * 降采回退 undefined——背景带真彩近似混色不降采对位，低档位宁可无带不可错
- * 色；自定义板显式带本键值则板值优先）与 weakRule（V-3 注⑨——板缺本键 +
- * 主题 fg 可展 + 探测在场 + 非 16 档 → fg @ 20% alpha 现算，走 toDepthValue
- * 与 userMessageBg 同链降深；对比不足键缺席）。
+ * 色；自定义板显式带本键值则板值优先）、toolCardBg（五件批 C 件 R2——第二
+ * 背景键同构腿，强度弱一档）与 weakRule（V-3 注⑨——板缺本键 + 主题 fg 可
+ * 展 + 探测在场 + 非 16 档 → fg @ 20% alpha 现算，走 toDepthValue 与
+ * userMessageBg 同链降深；对比不足键缺席）。
  */
 export function resolveTheme(board: ThemeBoard, depth: ColorDepth, terminalBg?: RgbChannels): ResolvedTheme {
   const colors = {} as Record<SemanticKey, ColorValue | undefined>;
   for (const key of SEMANTIC_KEYS) {
     colors[key] = toDepthValue(board.colors[key], depth);
   }
-  // userMessageBg 动态混合腿（唯一背景键——表驱动遍历后的特例单写位）：
+  // userMessageBg 动态混合腿（背景键族——表驱动遍历后的特例单写位）：
   // 板缺本键 + 探测背景在场 + 非 16 档 → 按板档混合产出；否则维持 undefined
   if (board.colors.userMessageBg === undefined && terminalBg !== undefined && depth !== '16') {
     colors.userMessageBg = toDepthValue(blendUserMessageBg(terminalBg, board.dark), depth);
+  }
+  // toolCardBg 动态混合腿（五件批 C 件 R2——第二背景键同构腿）：供血同门
+  //（探测传值门单源——门开后本腿随行；显式带键则板值在主遍历腿已解析优先）
+  if (board.colors.toolCardBg === undefined && terminalBg !== undefined && depth !== '16') {
+    colors.toolCardBg = toDepthValue(blendToolCardBg(terminalBg, board.dark), depth);
   }
   // weakRule 动态混合腿（V-3 注⑨——第二个特例单写位）：板缺本键 + 主题 fg
   // 可展（text 直值/256 展开/ExactColor 主值——色板位与缺席同无基）+ 探测

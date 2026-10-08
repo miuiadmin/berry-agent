@@ -81,6 +81,10 @@ export const DARK_PALETTE: BuiltinPalette = {
     // user 块背景带（界面美化役批⑦ R2 扩键注）：内置板无静态定值位——恒
     // undefined，值由 resolve 件按 OSC 11 探测背景动态混合（dark 白 12%）
     userMessageBg: undefined,
+    // 工具卡卡面带（TUI 对标 Codex 五件批 C 件 R2——第二背景键）：同
+    // userMessageBg 注——恒 undefined 由 resolve 件动态混合（dark 白 8%
+    // 弱一档），探测缺席/16 档 = 无卡面带
+    toolCardBg: undefined,
     // 弱存在感线（V-3 注⑨）：内置板 text 恒 undefined → 无混合基 → 键恒缺席
     //（消费位回退 tableRule / fg+dim 既有形）；值只在自定义板定义 text 时
     // 由 resolve 件动态现算——本键无静态定值位
@@ -120,6 +124,8 @@ export const LIGHT_PALETTE: BuiltinPalette = {
     codeFunction: exact('#8250df', 5),
     // user 块背景带（同 dark 板注——light 档混合黑 4%，resolve 件动态产出）
     userMessageBg: undefined,
+    // 工具卡卡面带（同 dark 板注——light 档混合黑 3% 弱一档，resolve 件动态产出）
+    toolCardBg: undefined,
     // 弱存在感线（V-3 注⑨，同 dark 板注——混合基缺席恒 undefined）
     weakRule: undefined,
   },

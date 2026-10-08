@@ -309,22 +309,29 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
         block.doc,
       );
     case 'tool-card':
-      return renderToolCardStyledLines(
-        {
-          name: block.name,
-          brief: block.brief,
-          status: block.status,
-          body: block.body,
-          diff: block.diff,
-          expanded: block.expanded,
-          theme: block.theme,
-          durationMs: block.durationMs,
-          toggleHint: block.toggleHint,
-          renderInput: block.renderInput,
-          group: block.group,
-        },
-        columns,
-      );
+      // 卡间上空行垫（TUI 对标 Codex 五件批 C 件 R4——卡间分离）：渲染层块
+      // 前空行垫 1 行、块账不动（append-only 律——与 user 块上下空行包夹同构
+      // 的单侧形，无条件前置保渲染纯函数性）；卡面染色由 tool-card 件出口
+      // 统一施加（toolCardBg——键缺席恒零施加）
+      return [
+        { plain: '', runs: [] },
+        ...renderToolCardStyledLines(
+          {
+            name: block.name,
+            brief: block.brief,
+            status: block.status,
+            body: block.body,
+            diff: block.diff,
+            expanded: block.expanded,
+            theme: block.theme,
+            durationMs: block.durationMs,
+            toggleHint: block.toggleHint,
+            renderInput: block.renderInput,
+            group: block.group,
+          },
+          columns,
+        ),
+      ];
     case 'tool-call':
       // ⚙ 简行（孤儿兜底）：名段用户面动词（V-0 注⑤——呈现位转写，账存原始名）
       return [dimStyledLine(` ${TOOL_RUN_MARK} ${toolFaceZh(block.name)}${block.brief}`)];

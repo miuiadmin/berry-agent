@@ -3324,11 +3324,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /**
    * 探测背景传值门（界面美化役批⑦ R2 扩键注 + V-3 注⑨② 动态键族统辖——
    * applyPalette 与同板零换装判定共源）：内置探测档照传（解析位混合 dark 白
-   * 12% / light 黑 4% + weakRule fg@20% 现算）；自定义板缺 bg 键 = 无背景回
-   * 退（旧主题文件缺新键非破坏性——不倒退内置板混合值，weakRule 同门：缺
-   * userMessageBg 键即无探测 bg 供血、混合腿不产），显式带键则板值在解析位
-   * 优先、传值同腿无害；探测缺席恒 undefined（16 档降采由解析位收——低档位
-   * 宁可无带不可错色）。
+   * 12% / light 黑 4% + toolCardBg 白 8% / 黑 3%〔五件批 C 件 R2——第二背景
+   * 键供血同门无独立门：显式带键则板值静态在位不需探测〕+ weakRule fg@20%
+   * 现算）；自定义板缺 bg 键 = 无背景回退（旧主题文件缺新键非破坏性——不倒
+   * 退内置板混合值，weakRule 同门：缺 userMessageBg 键即无探测 bg 供血、混
+   * 合腿不产），显式带键则板值在解析位优先、传值同腿无害；探测缺席恒
+   * undefined（16 档降采由解析位收——低档位宁可无带不可错色）。
    */
   private terminalBgForTheme(): RgbChannels | undefined {
     if (this.terminalBg === null) return undefined;
@@ -3368,23 +3369,28 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * OSC 串上抛消费（decoder onOsc 接线）：OSC 11 背景色应答 → 明暗裁定换板。
    * 内置 auto 档 = 探测基板切换；自定义名档 = 探测基板 + 覆盖表重合成（键级
    * 回退基板随探测翻转——「键级回退探测恒在」）。显式内置档短路（2031 未
-   * 开、查询未发——防御位）；非 11 码/畸形诚实忽略。同明暗且 userMessageBg
+   * 开、查询未发——防御位）；非 11 码/畸形诚实忽略。同明暗且动态键
    * 呈现值无变 = 零换装（2031 通知的冗余应答与噪声不触发无谓重画——16 档/
    * 自定义缺键/同值应答恒无带变）；**背景值变化 → 带随新值重出**（界面美化
-   * 役批⑦：userMessageBg 混合随新值重算，applyPalette 单入口换装）。
+   * 役批⑦：动态键族混合随新值重算，applyPalette 单入口换装）。
    */
   private handleOscReply(data: string): void {
     if (!this.probeActive) return;
     const bg = parseOsc11Reply(data);
     if (bg === null) return;
-    this.terminalBg = bg; // 探测背景入账（userMessageBg 动态混合腿数据位）
+    this.terminalBg = bg; // 探测背景入账（动态键族混合腿数据位）
     const baseBoard = paletteForBackground(bg); // 探测基板（明暗裁定）
     const board = this.customOverlay !== null ? overlayBoard(baseBoard, this.customOverlay) : baseBoard;
     if (board.dark === this.theme.dark) {
       // 同明暗：动态键呈现值有变才换装（解析单源现算比对——不在 backend 复
-      // 刻混合算式；V-3 注⑨ 扩 weakRule 双键比对：任一键值变即换装）
+      // 刻混合算式；动态键族全键比对：任一键值变即换装）
       const next = resolveTheme(board, this.colorDepth, this.terminalBgForTheme());
-      if (this.theme.userMessageBg === next.userMessageBg && this.theme.weakRule === next.weakRule) return; // 同板双键零变零重画
+      if (
+        this.theme.userMessageBg === next.userMessageBg &&
+        this.theme.toolCardBg === next.toolCardBg &&
+        this.theme.weakRule === next.weakRule
+      )
+        return; // 同板三键零变零重画（userMessageBg/toolCardBg/weakRule）
     }
     this.applyPalette(board);
   }

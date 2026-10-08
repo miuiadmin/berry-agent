@@ -29,6 +29,12 @@
  *   alpha / light 板黑 4%）；探测失败/缺席、16 档降采、自定义板缺本键 =
  *   无背景回退（不扩 ExactColor 对位表）。旧主题文件无新键非破坏性——缺键
  *   即无背景，新键随更新自然生效。
+ * - `toolCardBg` 工具卡卡面背景带（TUI 对标 Codex 五件批 C 件 R2——**第二
+ *   背景键**）：机制与降级全律援引 userMessageBg 既有款——两内置板恒
+ *   `undefined`（无静态定值位），值由 resolve 件按 OSC 11 探测背景动态混合
+ *   产出（dark 板白 8% / light 板黑 3%——比 userMessageBg 弱一档：卡面是
+ *   密集块面，同档带与 user 块并置时层级不可辨）；探测缺席、16 档降采、
+ *   自定义板缺本键 = 无卡面带（供血同门——探测传值门单源，无独立门）。
  * - `weakRule` 弱存在感线（V-3 注⑨——**首个混合键**）：回合记账分隔线 /
  *   markdown 表格线 / 面板分段线三线族共用的通用弱线色，值由 resolve 件
  *   在解析期按「主题 fg @ 20% alpha 混 OSC 11 探测 bg」动态现算（与
@@ -69,6 +75,7 @@ export const SEMANTIC_KEYS = [
   'codeNumber',
   'codeFunction',
   'userMessageBg',
+  'toolCardBg',
   'weakRule',
 ] as const;
 
