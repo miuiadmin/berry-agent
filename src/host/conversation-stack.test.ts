@@ -2414,6 +2414,39 @@ describe('streamFn 凭证现取 wrapper（B3 联动批——裁决三供血面 +
     expect(providerApiKeyEnvNames('github-copilot')).toEqual(['COPILOT_GITHUB_TOKEN']);
   });
 
+  it('PROVIDER_API_KEY_ENV_SPECIALS 镜像对拍锁：与 pi-ai 1.0.4 env-api-keys 特例集逐键恒等（修前红=sweep22 P1——死键/错拼/漏特例俱红）', () => {
+    // pi-ai 1.0.4 dist/env-api-keys.js getApiKeyEnvVars 的「偏离一般律」特例集
+    // 钉定快照。该映射不在包 exports（不可 import——ProviderAuth 也不暴露
+    // env 键名，live 对拍不可达），故以快照锁钉形（recovery.ts QUOTA_TEXT_PATTERN
+    // 镜像同律先例）。**pi-ai 升级必重推导**：读上游 envMap + github-copilot/
+    // anthropic 两前置特判，凡与一般律（kebab→snake 大写 + _API_KEY）外推
+    // 不同者即特例，同步本快照与镜像表。
+    const pinned: Readonly<Record<string, readonly string[]>> = {
+      'github-copilot': ['COPILOT_GITHUB_TOKEN'],
+      anthropic: ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'],
+      // pi-ai 1.0.3 由 azure-openai-responses 更名 azure（值不变）
+      azure: ['AZURE_OPENAI_API_KEY'],
+      google: ['GEMINI_API_KEY'],
+      'google-vertex': ['GOOGLE_CLOUD_API_KEY'],
+      huggingface: ['HF_TOKEN'],
+      'vercel-ai-gateway': ['AI_GATEWAY_API_KEY'],
+      moonshotai: ['MOONSHOT_API_KEY'],
+      'moonshotai-cn': ['MOONSHOT_API_KEY'],
+      'opencode-go': ['OPENCODE_API_KEY'],
+      'kimi-coding': ['KIMI_API_KEY'],
+      // 上游键名拼写即 CLOUDFLARE（含 L）——镜像曾误写 CLOUDFARE（sweep22 勘正）
+      'cloudflare-workers-ai': ['CLOUDFLARE_API_KEY'],
+      'cloudflare-ai-gateway': ['CLOUDFLARE_API_KEY'],
+      'qwen-token-plan-individual': ['QWEN_TOKEN_PLAN_API_KEY'],
+    };
+    for (const [provider, envNames] of Object.entries(pinned)) {
+      expect(providerApiKeyEnvNames(provider), `特例 ${provider} 键面漂移`).toEqual(envNames);
+    }
+    // 死键锚：上游已更名的旧 id 必须落回一般律外推——特例表若残留死键
+    // （pi-ai 1.0.3 起 builtinProviders 已无此 id）则 env 判定永远漏判
+    expect(providerApiKeyEnvNames('azure-openai-responses')).toEqual(['AZURE_OPENAI_RESPONSES_API_KEY']);
+  });
+
   it('modelCredentialStatus（ob-2 检测腿）：供血判据纯读投影——裸栈/env/绑定行/遮蔽位四态现算', async () => {
     // 态一：无 env 无绑定行 → unconfigured（裸栈——面板第一层判据位）
     const bare = rigRuntime();

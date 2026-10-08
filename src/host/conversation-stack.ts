@@ -1995,9 +1995,9 @@ export function startOfTodayMs(now: number = Date.now()): number {
  *
  * pi-ai 的 getApiKeyEnvVars 映射不在 package exports（不可 import）——此处
  * 同源自写镜像（recovery.ts QUOTA_TEXT_PATTERN「模块内私有不导出，此处同款
- * 自写」同律先例）。特例表钉定 pi-ai 钉定 commit env-api-keys 偏离一般律的
- * 键面（anthropic 三键族 / github-copilot / gemini 缩名等）；一般律 =
- * provider id kebab → snake 大写 + 后缀 `_API_KEY`（pi-ai 未知 provider 不
+ * 自写」同律先例）。特例表钉定 pi-ai 1.0.4 env-api-keys 偏离一般律的
+ * 键面（对拍锁见 conversation-stack.test.ts 镜像对拍锁用例——pi-ai 升级
+ * 必随重推导）；一般律 = provider id kebab → snake 大写 + 后缀 `_API_KEY`（pi-ai 未知 provider 不
  * 查 env，本镜像按宿主命名约定外推——03 §10.9「模型 key env 缺省位」的
  * 自定义 provider 常规命名形）。消费位 = 供血 wrapper env 占位判 + 装配根
  * seam refreshNow 的 env-static 前判（N2：env 面不在 credentials 件内注入）。
@@ -2007,14 +2007,18 @@ const PROVIDER_API_KEY_ENV_SPECIALS: Readonly<Record<string, readonly string[]>>
   anthropic: ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'],
   google: ['GEMINI_API_KEY'],
   'google-vertex': ['GOOGLE_CLOUD_API_KEY'],
-  'azure-openai-responses': ['AZURE_OPENAI_API_KEY'],
+  // pi-ai 1.0.3 由 azure-openai-responses 更名 azure（键随迁，值不变）
+  azure: ['AZURE_OPENAI_API_KEY'],
   huggingface: ['HF_TOKEN'],
   'vercel-ai-gateway': ['AI_GATEWAY_API_KEY'],
+  // moonshotai 单段 id 一般律外推 MOONSHOTAI_API_KEY，上游实读 MOONSHOT_API_KEY
+  moonshotai: ['MOONSHOT_API_KEY'],
   'moonshotai-cn': ['MOONSHOT_API_KEY'],
   'opencode-go': ['OPENCODE_API_KEY'],
   'kimi-coding': ['KIMI_API_KEY'],
-  'cloudflare-workers-ai': ['CLOUDFARE_API_KEY'],
-  'cloudflare-ai-gateway': ['CLOUDFARE_API_KEY'],
+  // 上游键名拼写即 CLOUDFLARE（含 L）——曾误写 CLOUDFARE（sweep22 勘正）
+  'cloudflare-workers-ai': ['CLOUDFLARE_API_KEY'],
+  'cloudflare-ai-gateway': ['CLOUDFLARE_API_KEY'],
   'qwen-token-plan-individual': ['QWEN_TOKEN_PLAN_API_KEY'],
 };
 
