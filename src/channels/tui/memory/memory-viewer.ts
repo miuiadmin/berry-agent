@@ -297,7 +297,15 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
     this.onQuit = options.onQuit;
     this.onCopy = options.onCopy;
     this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
-    this.exportEditor = new Editor({ maxVisibleLines: 1, keymap: options.keymap }); // 单行档——导出参数行（同册注入）
+    // 单行档——导出参数行（同册注入）；minPresentedLines 1 + padRows 0 =
+    // 底铬瞬时输入行 opt-out（五件批 A+B 呈现策略辖主 composer 不辖底铬——
+    // 单行形设计锁，量高恒 1 回归旧几何）
+    this.exportEditor = new Editor({
+      maxVisibleLines: 1,
+      minPresentedLines: 1,
+      padRows: 0,
+      keymap: options.keymap,
+    });
     this.exportEditor.setFocused(false);
     this.rebuild(); // 开屏快照（光标落首条——顶部对齐）
   }

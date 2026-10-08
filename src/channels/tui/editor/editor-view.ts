@@ -7,6 +7,8 @@
  *   色值承旧过渡，V-3 落码批定值）；
  * - 底色染色块（userMessageBg）：探测背景在场时整 region 铺底再覆写前缀/
  *   正文；缺席零背景带诚实回退——› 前缀独挑边界；
+ * - 呈现最小高 3 + 上下空行垫各 1（2026-10-08 TUI 对标 Codex 五件批 A+B：
+ *   空稿视觉块体量化、底栈视觉呼吸垫——垫随高度一并让路的高位先行分档）；
  * - 长行字素硬折的视觉行视口——光标恒可视（渲染时滚动夹取）；
  * - 滚动指示 ↑N / ↓N overlay 写首/末内容行右端（有溢出才显；按视口宽度
  *   阈值取全形/紧凑形，不再依框形）；
@@ -17,7 +19,7 @@ import type { CellBuffer, Region, Renderable } from '../../engine/index.js';
 import { graphemeWidth, splitGraphemes, stringWidth } from '../../engine/index.js';
 import { prefixDisplayWidth } from './visual-lines.js';
 import type { EditorModel } from './editor-model.js';
-import { presentedLineCount } from './height-cap.js';
+import { EDITOR_PAD_ROWS, MIN_PRESENTED_LINES, presentedLineCount } from './height-cap.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { CellStyle } from '../../engine/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
@@ -40,6 +42,12 @@ export class EditorView implements Renderable {
   private maxVisibleLines: number;
   /** 上次呈现行数（迟滞带决策输入——R3 批 10j） */
   private lastShownLines = 0;
+  /** 呈现最小高（缺省规范值 3——五件批 A+B；底铬瞬时输入行显式 1 回归旧几何） */
+  private minPresentedLines: number;
+  /** 上下空行垫行数（缺省规范值 2——五件批 A+B；底铬瞬时输入行显式 0） */
+  private padRows: number;
+  /** 上次量高的裸内容视觉行数（分配梯「收缩至内容高」输入——measure 后由 renderFixed 取） */
+  private lastContentRows = 0;
   /** › 提示符聚焦态样式（accent——V-0 注③ 焦点指示新载体；setTheme 随底色重建合成形） */
   private promptFocused: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
   /** › 提示符非聚焦态样式（secondary 降档——承旧边框两态色过渡；setTheme 重建） */
@@ -60,9 +68,14 @@ export class EditorView implements Renderable {
 
   constructor(
     private readonly model: EditorModel,
-    options: { maxVisibleLines?: number } = {},
+    options: { maxVisibleLines?: number; minPresentedLines?: number; padRows?: number } = {},
   ) {
     this.maxVisibleLines = Math.max(1, options.maxVisibleLines ?? DEFAULT_MAX_VISIBLE_LINES);
+    // 呈现策略参数化（五件批 A+B）：缺省 = 规范值（主 composer——最小高 3 +
+    // 垫 2）；底铬瞬时输入行（viewer 导出/搜索行——单行形设计锁）显式
+    // { minPresentedLines: 1, padRows: 0 } 回归旧几何——A+B 辖主 composer 不辖底铬
+    this.minPresentedLines = Math.max(1, options.minPresentedLines ?? MIN_PRESENTED_LINES);
+    this.padRows = Math.max(0, options.padRows ?? EDITOR_PAD_ROWS);
   }
 
   /** 帽随几何重设（批 10k 遗漏修——同值早退不重置迟滞带账） */
@@ -89,34 +102,53 @@ export class EditorView implements Renderable {
   }
 
   /**
-   * 量高：呈现行数（V-0 注③——框线零占位，量高即内容行数；迟滞带——
-   * R3 批 10j：增长即时夹帽、恰降 1 行保持上次防抖、降 2 行才缩；量高即
-   * 分配承诺——不超卖）。
+   * 量高：呈现行数 + 上下空行垫（V-0 注③——框线零占位，量高即内容行数；
+   * 迟滞带——R3 批 10j：增长即时夹帽、恰降 1 行保持上次防抖、降 2 行才缩；
+   * 五件批 A+B——呈现行数最小高 3 钳底〔内容不足 3 铺空行至 3〕、上下空行
+   * 垫各 1 共 +2〔帽外叠加——与上方任务状态行/下方面板族的视觉呼吸垫〕；
+   * 量高即分配承诺——不超卖）。
    */
   measure(width: number): number {
     this.model.setLayoutWidth(innerWidth(width));
     const count = this.model.visualLines().length;
-    const shown = presentedLineCount(count, this.maxVisibleLines, this.lastShownLines);
+    this.lastContentRows = count;
+    const shown = presentedLineCount(count, this.maxVisibleLines, this.lastShownLines, this.minPresentedLines);
     this.lastShownLines = shown;
-    return shown;
+    return shown + this.padRows;
   }
 
-  /** 落位渲染：铺底染色块 → 提示符/视口行 → 滚动指示 overlay → 光标声明 */
+  /** 上次量高的裸内容视觉行数（无帽钳无垫——fixed-budget 梯「收缩至内容高」目标位） */
+  contentRows(): number {
+    return this.lastContentRows;
+  }
+
+  /** 落位渲染：铺底染色块 → 空行垫分档 → 提示符/视口行 → 滚动指示 overlay → 光标声明 */
   render(buffer: CellBuffer, region: Region): void {
     const innerW = innerWidth(region.width);
-    const innerH = region.height;
     this.model.setLayoutWidth(innerW);
-    if (innerH <= 0 || innerW <= 0) return; // 内容格都容不下——防御位（w ≤ 2）
+    if (region.height <= 0 || innerW <= 0) return; // 内容格都容不下——防御位（w ≤ 2）
 
     const map = this.model.visualLines();
     const cursorVL = this.model.currentVisualLine(map);
+    // 决议内容区高（就地重推不读迟滞账——迟滞归 measure 量高位，render 只需
+    // 目标值分档垫）：呈现最小高钳底（实例值——主 composer 3 / 底铬 1）+ 帽
+    // 辖上限（与 presentedLineCount 同式）
+    const wanted = Math.min(this.maxVisibleLines, Math.max(this.minPresentedLines, map.length));
+    // 上下空行垫分档（五件批 A+B——「垫随高度一并让路」）：高足全垫（决议高
+    // + 垫行数）；高差 1 单上垫（上侧优先——与上方任务状态行的呼吸位更关键）；
+    // 高 ≤ 决议高垫全让、内容区收窄（深截断形内部滚动——牺牲梯收缩至内容高
+    // 的渲染侧对偶）。底铬单行档 padRows 0——分档退化恒零垫
+    const pads = Math.max(0, Math.min(this.padRows, region.height - wanted));
+    const topPad = pads >= 1 ? 1 : 0;
+    const bottomPad = pads >= 2 ? 1 : 0;
+    const innerH = region.height - topPad - bottomPad; // 内容区视口高
     // 视口夹取自愈：光标恒可视（滚出上方提顶 / 滚出下方沉底）
     this.scrollOffset = clampScroll(this.scrollOffset, cursorVL, innerH, map.length);
 
     this.drawBand(buffer, region);
-    this.drawContent(buffer, region, map, innerH, cursorVL);
-    this.drawIndicators(buffer, region, map.length);
-    this.drawCursor(buffer, region, map, cursorVL);
+    this.drawContent(buffer, region, map, innerH, cursorVL, topPad);
+    this.drawIndicators(buffer, region, map.length, innerH, topPad);
+    this.drawCursor(buffer, region, map, cursorVL, topPad);
   }
 
   /* ---------------- 底色染色块（V-0 注③） ---------------- */
@@ -138,6 +170,7 @@ export class EditorView implements Renderable {
     map: ReturnType<EditorModel['visualLines']>,
     innerH: number,
     cursorVL: number,
+    topPad: number,
   ): void {
     const lines = this.model.getLines();
     const preedit = this.model.pendingPreedit;
@@ -145,7 +178,8 @@ export class EditorView implements Renderable {
     const end = Math.min(map.length, this.scrollOffset + innerH);
     for (let vi = this.scrollOffset; vi < end; vi++) {
       const seg = map[vi]!;
-      const row = region.row + (vi - this.scrollOffset);
+      // 行位 = region 顶 + 上垫 + 视口内偏移（五件批 A+B——上垫在场时内容整体下移 1）
+      const row = region.row + topPad + (vi - this.scrollOffset);
       // 视口首行缀 › 提示符（两态色）；续行两空格缩进由铺底/透明空格承载。
       // 前缀符 = panel-chrome CURSOR_MARK 单源（V-3 注⑩ ›——与 transcript
       // user 块前缀、picker 光标符同字符，codex composer 形）
@@ -179,11 +213,12 @@ export class EditorView implements Renderable {
 
   /* ---------------- 滚动指示 overlay（框退役——写首/末内容行右端） ---------------- */
 
-  private drawIndicators(buffer: CellBuffer, region: Region, totalLines: number): void {
+  private drawIndicators(buffer: CellBuffer, region: Region, totalLines: number, innerH: number, topPad: number): void {
     const above = this.scrollOffset;
-    const below = totalLines - this.scrollOffset - region.height;
-    if (above > 0) this.writeIndicator(buffer, region.row, region, above, '↑');
-    if (below > 0) this.writeIndicator(buffer, region.row + region.height - 1, region, below, '↓');
+    const below = totalLines - this.scrollOffset - innerH;
+    // 首/末**内容行**右端（上垫在场时首内容行 = region 顶 + 1——垫行不写指示）
+    if (above > 0) this.writeIndicator(buffer, region.row + topPad, region, above, '↑');
+    if (below > 0) this.writeIndicator(buffer, region.row + topPad + innerH - 1, region, below, '↓');
   }
 
   /**
@@ -218,6 +253,7 @@ export class EditorView implements Renderable {
     region: Region,
     map: ReturnType<EditorModel['visualLines']>,
     cursorVL: number,
+    topPad: number,
   ): void {
     if (!this.focused) return; // 非聚焦不声明——不抢其他交互件的本帧声明
     const seg = map[cursorVL]!;
@@ -234,7 +270,7 @@ export class EditorView implements Renderable {
       const preeditCols = prefixDisplayWidth(preedit, preedit.length);
       col = Math.min(col + preeditCols, region.col + region.width - 1);
     }
-    buffer.setCursor(region.row + (cursorVL - this.scrollOffset), col);
+    buffer.setCursor(region.row + topPad + (cursorVL - this.scrollOffset), col);
   }
 }
 

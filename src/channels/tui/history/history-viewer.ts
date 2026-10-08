@@ -157,6 +157,10 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     super.setLines(styled.map((line) => line.plain)); // 开屏贴尾（follow 初始 true）
     this.searchEditor = new Editor({
       maxVisibleLines: 1, // 单行档——搜索框
+      // minPresentedLines 1 + padRows 0 = 底铬瞬时输入行 opt-out（五件批 A+B
+      // 呈现策略辖主 composer 不辖底铬——单行形设计锁，量高恒 1 回归旧几何）
+      minPresentedLines: 1,
+      padRows: 0,
       onChange: () => this.recomputeMatches(),
       keymap: options.keymap, // 同册注入（缺席 = 缺省册单测语义）
     });

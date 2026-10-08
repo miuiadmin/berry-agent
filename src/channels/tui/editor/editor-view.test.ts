@@ -32,28 +32,93 @@ function viewOf(
 }
 
 describe('EditorView 量高', () => {
-  it('空输入量高 1（composer 形——框线零占位）', () => {
+  it('空输入呈现最小高 3 + 上下垫 2——量高 5（五件批 A+B）', () => {
     const { view } = viewOf('');
-    expect(view.measure(20)).toBe(1);
+    expect(view.measure(20)).toBe(5); // 内容 1 铺空行至 3 + 垫 2
   });
 
-  it('视觉行数夹 maxVisibleLines', () => {
-    const { view } = viewOf('a\nb\nc\nd\ne', { maxVisibleLines: 2 });
-    expect(view.measure(20)).toBe(2);
+  it('视觉行数夹 maxVisibleLines（帽 ≥ 最小高形帽辖内容；帽 < 3 退化形帽辖优先——生产帽恒 ≥5 不遇）', () => {
+    const wide = viewOf('a\nb\nc\nd\ne', { maxVisibleLines: 4 });
+    expect(wide.view.measure(20)).toBe(6); // 内容 5 夹帽 4 + 垫 2
+    const narrow = viewOf('a\nb\nc\nd\ne', { maxVisibleLines: 2 });
+    expect(narrow.view.measure(20)).toBe(4); // 帽 2 辖上限 + 垫 2（page 步幅与帽同源——帽语义不动承重旧不变式）
   });
 
-  it('迟滞带（R3 批 10j）：恰降 1 行保持上次、降 2 行才缩', () => {
+  it('迟滞带（R3 批 10j）：恰降 1 行保持上次、降 2 行才缩（垫 +2 恒叠加）', () => {
     const { view, model } = viewOf('a\nb\nc\nd', { maxVisibleLines: 8 });
-    expect(view.measure(20)).toBe(4); // 4 行即时
-    model.setText('a\nb\nc'); // 降 1 行——保持 4（空白垫底）
-    expect(view.measure(20)).toBe(4);
-    model.setText('a\nb'); // 降 2 行——缩
-    expect(view.measure(20)).toBe(2);
+    expect(view.measure(20)).toBe(6); // 4 行即时 + 垫 2
+    model.setText('a\nb\nc'); // 降 1 行——保持 4（空白垫底）+ 垫 2
+    expect(view.measure(20)).toBe(6);
+    model.setText('a\nb'); // 降 2 行——缩至最小高 3 + 垫 2
+    expect(view.measure(20)).toBe(5);
   });
 
-  it('长行折行计入量高（字素硬折）', () => {
+  it('长行折行计入量高（字素硬折——不足 3 行同铺至 3）', () => {
     const { view } = viewOf('aaaaaaaaaa', { layoutWidth: 8 });
-    expect(view.measure(10)).toBe(2); // 8 列折两行
+    expect(view.measure(10)).toBe(5); // 8 列折两行——铺至 3 + 垫 2
+  });
+});
+
+describe('EditorView 上下空行垫（五件批 A+B——量高 +2 的渲染侧分档）', () => {
+  it('高足全垫：上垫行空白 + › 行落第二行 + 下垫行空白——光标随内容行偏移', () => {
+    const { view } = viewOf('ab');
+    view.setFocused(true);
+    const grid = new CellGrid(10, 5);
+    view.render(grid, { row: 0, col: 0, width: 6, height: 5 }); // 量高恰 5（内容 1 铺 3 + 垫 2）
+    expect(readRow(grid, 0, 10)).toBe(''); // 上垫——空行（呼吸垫，非内容行）
+    expect(readRow(grid, 1, 10)).toBe('› ab'); // 内容首行（上垫之下）
+    expect(readRow(grid, 4, 10)).toBe(''); // 下垫——空行
+    expect(grid.cursor).toEqual({ row: 1, col: 4, visible: true }); // 光标随内容行偏移 +1
+  });
+
+  it('底色染色块铺底含垫行（band 整 region——垫行同带一体块面）', () => {
+    const theme = resolveTheme(builtinPalette('dark'), '256', { r: 32, g: 32, b: 32 });
+    expect(theme.userMessageBg).toBeDefined(); // rig 自证：混合腿确产底色键
+    const { view } = viewOf('ab');
+    view.setTheme(theme);
+    const grid = new CellGrid(10, 5);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 5 });
+    expect(grid.getCell(0, 0)?.style?.bg).toEqual(theme.userMessageBg); // 上垫行铺底
+    expect(grid.getCell(4, 9)?.style?.bg).toEqual(theme.userMessageBg); // 下垫行铺底
+  });
+
+  it('垫让路分档：决议高 +1 单上垫；恰决议高零垫全内容；深截断内容区收窄', () => {
+    const { view } = viewOf('ab');
+    const four = new CellGrid(10, 4);
+    view.render(four, { row: 0, col: 0, width: 6, height: 4 }); // 决议高 3 + 1——单上垫（上侧优先）
+    expect(readRow(four, 0, 10)).toBe('');
+    expect(readRow(four, 1, 10)).toBe('› ab');
+    const three = new CellGrid(10, 3);
+    view.render(three, { row: 0, col: 0, width: 6, height: 3 }); // 恰决议高——垫全让
+    expect(readRow(three, 0, 10)).toBe('› ab');
+    expect(readRow(three, 2, 10)).toBe('');
+    const one = new CellGrid(10, 1);
+    view.render(one, { row: 0, col: 0, width: 6, height: 1 }); // 深截断——内容区 1 行
+    expect(readRow(one, 0, 10)).toBe('› ab');
+  });
+
+  it('多行稿截断（高 < 决议高）：内容区内滚 + 指示 overlay 写首/末内容行（垫已让路）', () => {
+    const { view } = viewOf('a\nb\nc\nd\ne', { maxVisibleLines: 8 });
+    const grid = new CellGrid(10, 2);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 2 }); // 决议高 5 > 2——内部滚动
+    expect(readRow(grid, 0, 10)).toBe(' ↑ 3 更多'); // 光标归尾沉底——首内容行指示（零垫位）
+    expect(readRow(grid, 1, 10)).toBe('  e');
+  });
+});
+
+describe('EditorView 呈现策略参数化（五件批 A+B——底铬瞬时输入行 opt-out）', () => {
+  it('minPresentedLines 1 + padRows 0：空稿量高恒 1 零铺垫零垫——› 落 region 首行（单行档回归旧几何）', () => {
+    // viewer 导出/搜索行（单行形设计锁）显式 opt-out——A+B 最小高 3+垫 2
+    // 辖主 composer 不辖底铬；此锁钉参数化契约本体（viewer 测试只传递覆盖）
+    const model = new EditorModel();
+    model.setText('');
+    model.setLayoutWidth(200);
+    const view = new EditorView(model, { maxVisibleLines: 1, minPresentedLines: 1, padRows: 0 });
+    expect(view.measure(20)).toBe(1); // 空稿零铺垫（无最小高 3）零垫
+    const grid = new CellGrid(10, 3);
+    view.setFocused(true);
+    view.render(grid, { row: 0, col: 0, width: 6, height: 3 }); // 高足——垫分档退化恒零垫
+    expect(readRow(grid, 0, 10)).toBe('›'); // 提示符在 region 首行（无上垫）
   });
 });
 
@@ -272,7 +337,7 @@ describe('EditorView IME 预编辑折点归属（与 findVisualLineAt 同律）'
     for (let i = 0; i < 4; i++) model.moveRight(); // 光标 col 4（折点）
     model.setPreedit('x');
     const grid = new CellGrid(10, 5);
-    view.render(grid, { row: 0, col: 0, width: 7, height: 4 });
+    view.render(grid, { row: 0, col: 0, width: 7, height: 3 }); // 恰决议高 3——零垫（A+B 件后高度 ≥ 决议高 +1 才有上垫）
     // 内容区（两视觉行 × 5 列，前缀 2 起）扫下划线字形——恰一处（后段行首），
     // 修前 [{row:0,col:5},{row:1,col:2}] 双现
     const hits: Array<{ row: number; col: number }> = [];

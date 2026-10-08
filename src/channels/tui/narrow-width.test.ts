@@ -312,7 +312,7 @@ describe('编辑器极窄宽（composer 提示符 + 单列内容区——V-0 注
     const grid = new CellGrid(8, 12);
     view.setFocused(true);
     expect(() => view.render(grid, { row: 0, col: 0, width: w, height: 12 })).not.toThrow();
-    expect(readRow(grid, 0, w)).toContain('›'); // › 提示符在场（首视口行）
+    expect(readRow(grid, 1, w)).toContain('›'); // › 提示符在场（首视口行——上垫 1 之下〔五件批 A+B 高足全垫〕）
     expectGridInvariants(grid);
     // 光标声明不越网格（preedit 探出 region 形由终端 clamp 承载——不炸为锁）
     const cursor = grid.cursor;
@@ -327,12 +327,13 @@ describe('编辑器极窄宽（composer 提示符 + 单列内容区——V-0 注
     const model = new EditorModel();
     model.setText('ab中文');
     const view = new EditorView(model, { maxVisibleLines: 8 });
-    // innerW=1 硬折：a|b|中|文 各成一段（CJK 段宽 2 超帽——首格落位续格吸收）
-    expect(view.measure(3)).toBe(4);
+    // innerW=1 硬折：a|b|中|文 各成一段（CJK 段宽 2 超帽——首格落位续格吸收）；
+    // 量高 = 内容 4 + 上下垫 2（五件批 A+B——垫帽外叠加）
+    expect(view.measure(3)).toBe(6);
     const grid = new CellGrid(8, 12);
     view.render(grid, { row: 0, col: 0, width: 3, height: 12 });
-    expect(readRow(grid, 0, 8)).toBe('› a'); // ASCII 段恰占单列内容区（› 前缀 2 列后）
-    expect(readRow(grid, 1, 8)).toBe('  b');
+    expect(readRow(grid, 1, 8)).toBe('› a'); // ASCII 段恰占单列内容区（› 前缀 2 列后；上垫 1 之下）
+    expect(readRow(grid, 2, 8)).toBe('  b');
     expectGridInvariants(grid);
   });
 });

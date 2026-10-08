@@ -115,7 +115,7 @@ describe('TuiBackend 契约面', () => {
     expect(io.bytes).not.toContain('\x1b[?1049h');
     expect(io.bytes).not.toContain('\x1b[?25l');
     expect(io.bytes).toContain('\x1b[2J\x1b[H');
-    expect(io.bytes).toContain('\x1b[1;8r'); // 10 行 - 固定区 2（编辑器 1 + 状态行 1——V-0 注③ 框退役）
+    expect(io.bytes).toContain('\x1b[1;4r'); // 10 行 - 固定区 6（编辑器 5 = 呈现最小高 3 + 垫 2〔五件批 A+B〕+ 状态行 1）
     expect(io.bytes).toContain('›'); // 编辑器 composer 提示符（V-0 注③——框线零占位）
     expect(io.raw).toBe(true); // raw 模式置位
   });
@@ -474,11 +474,13 @@ describe('TuiBackend notify / repaint / resize', () => {
     backend.notify('缺子命令。\n/doors list | open | close\n  list 用法甲\n  open 用法乙');
     io.bytes = '';
     backend.notify('后继行');
-    // 光标归位在编辑声明位（0 基行 8——composer 单行 = 屏底上 1）：gotoRow 的
-    // CUU 距离 = 8 - 追加位行号。物理真相 = 回执末行行 3 → 追加位行 4 → CUU 4；
-    // 漂账形 = 追加位行 1 → CUU 7（V-0 注③ 框退役——编辑声明位随固定区收窄下移 1）
-    expect(io.bytes).toContain('\x1b[4A\r\x1b[2m• 后继行\x1b[0m\n');
-    expect(io.bytes).not.toContain('\x1b[7A\r\x1b[2m• 后继行');
+    // 光标归位在编辑声明位（0 基行 5——五件批 A+B 固定区 6：baseRow 4 + 上垫 1
+    // = composer 内容行 5）：gotoRow 的 CUU 距离 = 5 - 追加位行号。物理真相 =
+    // 滚动区 1..4（转录区 4 行）：回执 4 行恰满区，末次 LF 触滚——首行入
+    // scrollback、末三行落行 0..2 → 追加位行 3 → CUU 2；漂账形 = 追加位行 1
+    // → CUU 4（修前编辑声明位 8 = 单行 composer 屏底上 1）
+    expect(io.bytes).toContain('\x1b[2A\r\x1b[2m• 后继行\x1b[0m\n');
+    expect(io.bytes).not.toContain('\x1b[4A\r\x1b[2m• 后继行');
   });
 
   it('onRepaint：投影重建 + 清屏全量重写', () => {
@@ -629,7 +631,7 @@ describe('TuiBackend 输入管线（自持——不经 Engine）', () => {
     io.emitInput('hi');
     pump();
     expect(io.bytes).toContain('hi'); // 编辑器框内文本
-    expect(io.bytes.endsWith('\x1b[9;5H')).toBe(true); // 光标声明（文尾——composer 行 9 = 屏底上 1；1 基列 = › 前缀 2 + 文宽 2 + 1——V-0 注③ 框退役）
+    expect(io.bytes.endsWith('\x1b[6;5H')).toBe(true); // 光标声明（文尾——五件批 A+B 固定区 6：composer 内容行 = baseRow 4 + 上垫 1 = 0 基行 5；1 基列 = › 前缀 2 + 文宽 2 + 1）
     expect(calls.submitted).toEqual([]);
     io.emitInput('\r');
     pump();
@@ -1634,7 +1636,7 @@ describe('TuiBackend todo 面板（件 4）', () => {
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
     expect(io.bytes).toContain('☑ 写规范'); // 刷新三时点之三——拉到新快照（行级差分写变行）
-    expect(io.bytes).not.toContain('\x1b[1;8r'); // 固定区高未变——零滚动区重设
+    expect(io.bytes).not.toContain('\x1b[1;2r'); // 固定区高未变——零滚动区重设（todo 2 行在场形滚动区 1..2〔五件批 A+B 编辑器 5〕）
   });
 
   it('空表清板（null 与 [] 同义——面板退场）', () => {
@@ -1645,7 +1647,7 @@ describe('TuiBackend todo 面板（件 4）', () => {
     todos = [];
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
-    expect(io.bytes).toContain('\x1b[1;8r'); // 固定区高回缩——滚动区重设在场
+    expect(io.bytes).toContain('\x1b[1;4r'); // 固定区高回缩（清板——编辑器 5 + 状态行 1 → 滚动区 1..4）——滚动区重设在场
     expect(io.bytes).not.toContain('☐ 任务');
   });
 
@@ -4065,9 +4067,16 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
   });
 });
 
+/* 空态引导几何（五件批 A+B 随迁）：固定区 6（编辑器 5 + 状态 1）后 10 行屏
+ * 转录区仅 4 行——容不下 5 行引导，drawEmptyGuide「放不下不写」诚实缺席（生
+ * 产语义正确）。本 describe 锁的是引导**门控语义**（块集 × 稿件 × 忙闲 × 切
+ * 焦）非紧几何——用 14 行屏（转录区 8 = 旧 10 行屏固定区 2 时的区域尺寸，
+ * 区域内行为逐位恒等），缺席律本身归 main-screen 极小终端形另辖 */
+const GUIDE_ROWS = 14;
+
 describe('主屏空态引导（07 §4.1 空转写态注 2026-10-05——零块空稿态转录区引导）', () => {
   it('零块空稿态引导在场 / 输稿退场 / 清稿复现（门控三源：块集 × 稿件 × 忙闲）', () => {
-    const io = new MemoryTerminalIO(COLS, ROWS);
+    const io = new MemoryTerminalIO(COLS, GUIDE_ROWS);
     const backend = new TuiBackend(io, { sessionId: SESSION });
     backend.start();
     expect(io.bytes).toContain('输入消息开始对话——? 查看快捷键'); // 零块空稿闲态——引导在场（修前红：无引导）
@@ -4087,7 +4096,9 @@ describe('主屏空态引导（07 §4.1 空转写态注 2026-10-05——零块�
   });
 
   it('首块到达即退场零滞留（D 段并账 EL 清引导尾行——append-only 区不残屏）', () => {
-    const { io, backend } = makeBackend({ sessionId: SESSION });
+    const io = new MemoryTerminalIO(COLS, GUIDE_ROWS);
+    const backend = new TuiBackend(io, { sessionId: SESSION });
+    backend.start();
     expect(io.bytes).toContain('输入消息开始对话'); // 基线在场（5 行引导：字形 3 + 空 1 + 提示 1）
     io.reset();
     emit(backend, { type: 'message_end', message: { role: 'user', content: '你好', timestamp: 1 } });
@@ -4100,7 +4111,7 @@ describe('主屏空态引导（07 §4.1 空转写态注 2026-10-05——零块�
 
   it('提交清稿的等回声抑制：非命令草稿提交后回声未落前不闪引导', () => {
     const submitted: string[] = [];
-    const io = new MemoryTerminalIO(COLS, ROWS);
+    const io = new MemoryTerminalIO(COLS, GUIDE_ROWS);
     const backend = new TuiBackend(io, { sessionId: SESSION, onSubmit: (_sid, text) => submitted.push(text) });
     backend.start();
     expect(io.bytes).toContain('输入消息开始对话'); // 基线在场
@@ -4116,7 +4127,7 @@ describe('主屏空态引导（07 §4.1 空转写态注 2026-10-05——零块�
 
   it('切焦即新观察窗：旧焦等回声抑制位不跨切焦携带——空会话新焦引导即时在场', () => {
     const submitted: string[] = [];
-    const io = new MemoryTerminalIO(COLS, ROWS);
+    const io = new MemoryTerminalIO(COLS, GUIDE_ROWS);
     const backend = new TuiBackend(io, { sessionId: 'sA', onSubmit: (_sid, text) => submitted.push(text) });
     backend.start();
     io.emitInput('字');
@@ -4132,7 +4143,7 @@ describe('主屏空态引导（07 §4.1 空转写态注 2026-10-05——零块�
 
   it('同会话 refresh 重画不清位：等回声抑制跨同焦 repaint 存续（write-behind 窗防误闪——回归锁）', () => {
     const submitted: string[] = [];
-    const io = new MemoryTerminalIO(COLS, ROWS);
+    const io = new MemoryTerminalIO(COLS, GUIDE_ROWS);
     const backend = new TuiBackend(io, { sessionId: 'sA', onSubmit: (_sid, text) => submitted.push(text) });
     backend.start();
     io.emitInput('字');
@@ -4145,7 +4156,9 @@ describe('主屏空态引导（07 §4.1 空转写态注 2026-10-05——零块�
   });
 
   it('瞬时行落地即收引导不沉底（第四门——notify 推进 durable 末，引导不随行追画）', () => {
-    const { io, backend } = makeBackend({ sessionId: SESSION });
+    const io = new MemoryTerminalIO(COLS, GUIDE_ROWS);
+    const backend = new TuiBackend(io, { sessionId: SESSION });
+    backend.start();
     expect(io.bytes).toContain('输入消息开始对话'); // 基线在场
     io.reset();
     backend.notify('一行通知');
@@ -4934,15 +4947,16 @@ describe('TuiBackend resumeMain 复起附件（fx2-E——编辑器帽随动 + f
     const backend = new TuiBackend(io, { sessionId: SESSION });
     backend.start();
     // 注入 14 行内容（kitty shift+enter 换行 ×13——初始空行 1 + 13 = 14 行）：
-    // 帽 = editorHeightCap(40) = 12 → 呈现 12（V-0 注③ 框退役零占位）→ 固定区 13（含状态行）
+    // 帽 = editorHeightCap(40) = 12 → 呈现 12 + 垫 2（五件批 A+B——Renderable
+    // 量高 +2）→ 固定区 15（含状态行）
     for (let i = 0; i < 13; i++) io.emitInput('\x1b[13;2u');
     backend.suspendMain();
     io.rows = 24; // 挂起期缩窗（挂起期 resize 安全 no-op——几何真值复起重取）
     io.reset();
     backend.resumeMain();
-    // 修后：帽 = editorHeightCap(24) = 7 → 呈现 7 → 固定区 8 →
-    // DECSTBM 底 = 24 - 8 = 16；修前帽停 12 → 固定区 13 → 底 = 11（只写 1;11r）
-    expect(io.bytes).toContain('\x1b[1;16r');
+    // 修后：帽 = editorHeightCap(24) = 7 → 呈现 7 + 垫 2 → 固定区 10 →
+    // DECSTBM 底 = 24 - 10 = 14；修前帽停 12 → 固定区 13 → 底 = 11（只写 1;11r）
+    expect(io.bytes).toContain('\x1b[1;14r');
   });
 
   it('【注⑪③ 修前红→回归锁】⎇ 槽复起重读（refreshFooterGit 独立锚）：挂起期 checkout 换支复起即收敛——修前陈支名跨复起驻留（复起路不触发 onRepaint）', () => {
@@ -5066,11 +5080,11 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
     expect(io.bytes).toContain('\x1b[36m⠋'); // 态① accent 转轮（与文本段分立 SGR——不拼串断言）
     expect(io.bytes).toContain('正在对话中'); // 态① 基础文案
     expect(io.bytes).toContain('按 ESC 取消对话'); // keyText('global.interrupt') 首键 escape → ESC 显示单源
-    expect(io.bytes).toContain('\x1b[1;7r'); // 10 行 - 固定区 3（任务行 1 + 编辑器 1 + 状态行 1——框退役）
+    expect(io.bytes).toContain('\x1b[1;3r'); // 10 行 - 固定区 7（任务行 1 + 编辑器 5〔上垫 1+呈现 3+下垫 1〕+ 状态行 1——五件批 A+B）
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
     expect(io.bytes).not.toContain('正在对话中'); // 闲态零高度缺席（忙态呈现不驻留）
-    expect(io.bytes).toContain('\x1b[1;8r'); // 固定区回 2 行——高度变更滚动区重设
+    expect(io.bytes).toContain('\x1b[1;4r'); // 固定区回 6 行（任务行退役→编辑器 5+状态 1）——高度变更滚动区重设
   });
 
   it('态② 细分（V-4 注⑪⑦）：message_start → 「思考中」；尾块分诊 thinking/text → 思考中/生成中；message_end 归态①', () => {

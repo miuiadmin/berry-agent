@@ -37,6 +37,18 @@ export interface EditorOptions {
   onChange?: (text: string) => void;
   /** 最大可视行数（backend 构造期按当值行数套帽注入、resize 现值重算——生产装配层启动快照注入已撤〔第六轮批〕；缺省 8） */
   maxVisibleLines?: number;
+  /**
+   * 呈现最小高（五件批 A+B——缺省规范值 3：内容不足 3 行铺空行至 3，主
+   * composer 视觉块体量化）。底铬瞬时输入行（viewer 导出/搜索行——单行形
+   * 设计锁）显式传 1 回归旧几何——A+B 呈现策略辖主 composer 不辖底铬。
+   */
+  minPresentedLines?: number;
+  /**
+   * 上下空行垫行数（五件批 A+B——缺省规范值 2：与上方任务状态行/下方面板
+   * 族的视觉呼吸垫）。底铬瞬时输入行显式传 0（随 minPresentedLines: 1 成
+   * 对——单行档零垫）。
+   */
+  padRows?: number;
   /** 键位册（批 10j 迁册——缺省缺省册；用户覆盖形装配注入归 10k） */
   keymap?: Keymap;
   /**
@@ -83,7 +95,12 @@ export class Editor implements Renderable {
     // 持久化史种子（B1 种子路）：构造期一次满灌——缺席 = 空史旧形
     if (options.historySeed !== undefined) this.model.seedHistory(options.historySeed);
     this.model.onChange = (text) => options.onChange?.(text);
-    this.view = new EditorView(this.model, { maxVisibleLines: options.maxVisibleLines });
+    this.view = new EditorView(this.model, {
+      maxVisibleLines: options.maxVisibleLines,
+      // 呈现策略透传（五件批 A+B 参数化）：缺省 = 规范值——主 composer 零改
+      minPresentedLines: options.minPresentedLines,
+      padRows: options.padRows,
+    });
   }
 
   /**
@@ -115,6 +132,11 @@ export class Editor implements Renderable {
 
   measure(width: number): number {
     return this.view.measure(width);
+  }
+
+  /** 裸内容视觉行数委托（fixed-budget 梯「收缩至内容高」目标位——五件批 A+B） */
+  contentRows(): number {
+    return this.view.contentRows();
   }
 
   render(buffer: CellBuffer, region: Region): void {

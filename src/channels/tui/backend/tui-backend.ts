@@ -3736,7 +3736,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 总高 > 视口时依牺牲步序截断（2026-10-03 三轮深扫批注释翻档：原粗排序
    * 「行2 让位 > 输入框收窄」与实装相抵——实装行2 先于输入框让位）——
    * 低段 todo/工具进度先缩后隐 → 状态行行2 隐〔注⑪⑧ 垂直牺牲梯，行1
-   * 仪表恒保底〕→ 输入框收窄至下限 → 补全弹层隐——分配律
+   * 仪表恒保底〕→ 输入框收缩至内容高〔五件批 A+B 语义收窄——弃垫与最小
+   * 高铺垫不噬内容行，下限 1 不变〕→ 补全弹层隐——分配律
    * 单源 fixed-budget.ts；生效锚即本件段高重算既有路（touchFixed/
    * requestRender 收敛 + repaint/resize 全量重画同收敛）。
    */
@@ -3753,8 +3754,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 帧首重拉自然收敛，无需新推送锚。null / undefined / 空数组同义 = 退场。
     this.queuePreviews = this.queueFor !== undefined ? (this.queueFor(this.sessionId) ?? []) : [];
     const contents = this.stack.contents;
-    // 编辑器量高单次（fx2-B——帽计算与分配梯共用；measure 幂等无帧账副作用）
+    // 编辑器量高单次（fx2-B——帽计算与分配梯共用；measure 幂等无帧账副作用）；
+    // 量高含帽钳呈现高 + 上下空行垫 2（五件批 A+B），裸内容行数另取——梯
+    // 「收缩至内容高」目标位与最小必保段预留共用
     const editorMeasure = this.editor.measure(columns);
+    const editorContentRows = this.editor.contentRows();
+    // 编辑器必保下限（梯降底值——五件批 A+B 后梯收缩至内容高：空稿形 = 1
+    // 〔同旧〕、多行稿保内容行；四处最小必保段预留共用同一算术〔fx2-B 不变
+    // 式：梯降到底 total 恒 ≤ 截断预算〕）
+    const editorFloor = Math.min(editorMeasure, Math.max(EDITOR_MIN_HEIGHT, editorContentRows));
     const askRows = this.inputAsk !== null ? 1 : 0;
     // 状态行想占行数（V-4 注⑪⑧ 笔3——三行栈量高原值 1-2：仪表行恒 1 +
     // 环境行数据在场 1；宽度不驱退场防行跳动）；三处最小必保段预留共用
@@ -3771,8 +3779,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 固定区总高恒 ≤ 截断预算（绝不让固定区超高触发 MainScreen 陈货守卫
     // 整段不写——修前 24 行屏 21 选项 = 面板 22 + 编辑器 3 + 状态 1 = 26 >
     // 预算 23，守卫整段不写 = 模态开屏即黑）。帽 = 预算 - 任务行 - 排队行 -
-    // 状态行 statusWanted - ask 行 - 编辑器下限（编辑器恒保底对话本体；
-    // todo/tool/popup/jobs 属更低优先级段、分配梯先牺牲——按编辑器下限保守
+    // 状态行 statusWanted - ask 行 - 编辑器必保下限（编辑器恒保底对话本体；
+    // todo/tool/popup/jobs 属更低优先级段、分配梯先牺牲——按梯降底值保守
     // 计算保证梯降到底 total 恰 ≤ 预算〔任务行/排队行缺席时预留归零——极小
     // 终端保守 1 行可容忍〕）
     const overlayCap = Math.max(
@@ -3782,14 +3790,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         (queuePresent ? 1 : 0) -
         statusWanted -
         askRows -
-        Math.min(editorMeasure, EDITOR_MIN_HEIGHT),
+        editorFloor,
     );
     const overlayHeights = this.measureOverlayStack(contents, columns, overlayCap);
     const overlaySum = overlayHeights.reduce((sum, h) => sum + h, 0);
     const taskRows =
-      taskPresent &&
-      overlaySum + askRows + Math.min(editorMeasure, EDITOR_MIN_HEIGHT) + 1 + statusWanted <=
-        fixedBudgetRows(this.io.size().rows)
+      taskPresent && overlaySum + askRows + editorFloor + 1 + statusWanted <= fixedBudgetRows(this.io.size().rows)
         ? 1
         : 0;
     // 排队段占行裁决（2026-10-05 ZCode TUI 对标批）：分配梯不改面（梯键集无
@@ -3800,7 +3806,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 队段整段隐（极小终端让位——「先缩后隐」梯末位语义）
     const queueRows =
       queuePresent &&
-      overlaySum + askRows + Math.min(editorMeasure, EDITOR_MIN_HEIGHT) + (taskRows > 0 ? 1 : 0) + 1 + statusWanted <=
+      overlaySum + askRows + editorFloor + (taskRows > 0 ? 1 : 0) + 1 + statusWanted <=
         fixedBudgetRows(this.io.size().rows)
         ? 1
         : 0;
@@ -3818,12 +3824,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
             Math.min(
               jobsWanted,
               fixedBudgetRows(this.io.size().rows) -
-                (overlaySum +
-                  askRows +
-                  Math.min(editorMeasure, EDITOR_MIN_HEIGHT) +
-                  (taskRows > 0 ? 1 : 0) +
-                  queueRows +
-                  statusWanted),
+                (overlaySum + askRows + editorFloor + (taskRows > 0 ? 1 : 0) + queueRows + statusWanted),
             ),
           )
         : 0;
@@ -3836,6 +3837,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       ask: askRows,
       popup: this.popup.visible ? this.popup.measure(columns) : 0,
       editor: editorMeasure,
+      editorContent: editorContentRows,
       todo: this.todoPanel.measure(columns),
       tool: this.toolPanel.measure(columns),
       statusWanted,
@@ -3882,8 +3884,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     }
 
     // 段五：编辑器（overlay 占焦期非聚焦——› 提示符降档 secondary 态 +
-    // 不抢光标声明；截断收窄至下限 1 = 内容最小高——V-0 注③ 框退役后
-    // EditorView innerH ≤ 0 防御在位）
+    // 不抢光标声明；截断收缩至内容高〔五件批 A+B〕——EditorView render 垫
+    // 分档让路：高足上垫+内容+下垫、高不足垫先行退、深截断内容区收窄至
+    // 下限 1；V-0 注③ 框退役后 innerH ≤ 0 防御在位）
     this.editor.setFocused(this.stack.size === 0);
     this.editor.render(grid, { row, col: 0, width: columns, height: budget.editor });
     row += budget.editor;
