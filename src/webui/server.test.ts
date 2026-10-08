@@ -43,6 +43,9 @@ import type { SdkHttpBridge } from '../sdk/types.js';
 import { BaseError } from '../contracts/index.js';
 import type { AgentMessage, UiSessionDeleteResult } from '../contracts/index.js';
 import type { SessionEnvelope } from '../channels/index.js';
+// 对拍锁消费（挖掘 20 轮件3）：channels 公开面（sdk index `export *` 通）
+import { PromptImageSchema } from '../channels/index.js';
+import { SubmitImageSchema } from './server.js';
 import type {
   WebuiDeps,
   WebuiEnvelope,
@@ -92,6 +95,10 @@ function makeDeps(opts?: {
   readonly foldBadWord?: boolean;
   /** submit 幂等冲突形（桥 submitPrompt 抛 SDK_MESSAGE_CONFLICT——409 结构码路） */
   readonly conflictSubmit?: boolean;
+  /** submit 竞窗收口形（挖掘 20 轮：桥前置复检抛 SESSION_NOT_FOUND——先决门
+   * 判 open 后受理前会话被删的 TOCTOU 窗，HTTP 面应折 404 not_found 与先决
+   * 门同档——修前无 catch 走面级 500） */
+  readonly raceGoneSubmit?: boolean;
   /** submit 受理拒形（桥 submitPrompt 抛 status 400 异常——AttachmentIntakeRejectionError
    *  鸭子形最小同构：件侧窄 catch 折 400 bad_request 的对拍锚，03 §10.4 ②） */
   readonly intakeReject?: string;
@@ -219,6 +226,11 @@ function makeDeps(opts?: {
         // SDK 线同源——0dcf5c9 接线）；HTTP 面应折 409 结构码而非面级 500
         if (opts?.conflictSubmit === true) {
           throw new BaseError('SDK_MESSAGE_CONFLICT', `messageId=${input.messageId} 同键异内容（幂等 admit 冲突档）`);
+        }
+        // 竞窗收口形（挖掘 20 轮）：真身 = 桥 submitPrompt 入口 isOpen 复检
+        // fail-loud（setThinkingLevel 姊妹守卫同码同文）——桩最小同构
+        if (opts?.raceGoneSubmit === true) {
+          throw new BaseError('SESSION_NOT_FOUND', `会话已结束（${input.sessionId}）——请刷新页面或重新打开会话`);
         }
         // 受理拒形（03 §10.4 ②）：host 受理链拒 = 携 status 400 的普通 Error
         //（AttachmentIntakeRejectionError 鸭子形最小同构——件侧不可 import host
@@ -1105,6 +1117,47 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
       rigged.webui.detach();
       await rigged.face.stop();
     }
+  });
+
+  it('submit 竞窗收口：桥抛 SESSION_NOT_FOUND → 404 not_found（先决门同档；修前红：500）', async () => {
+    // 挖掘 20 轮：先决门（sessionStateOf）判 open 与桥受理之间有删除竞窗
+    // （DELETE 并发先落）——桥入口 isOpen 复检 fail-loud 抛 SESSION_NOT_FOUND
+    // （setThinkingLevel 姊妹守卫同码族），HTTP 面窄 catch 折 404 not_found
+    // 与先决门 missing 档同档；修前无此 catch 走面级 500 吞码
+    const rigged = await rig(makeDeps({ raceGoneSubmit: true }).deps);
+    try {
+      const res = await fetch(`http://127.0.0.1:${rigged.port}/api/sessions/s-1/submit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${rigged.token}` },
+        body: JSON.stringify({ text: '竞窗提交', messageId: 'm-race-1' }),
+      });
+      expect(res.status).toBe(404); // 修前红：500
+      expect(await res.json()).toMatchObject({ error: 'not_found' }); // 修前红：面级 500 无结构码
+    } finally {
+      rigged.webui.detach();
+      await rigged.face.stop();
+    }
+  });
+
+  it('携图成员形对拍锁（挖掘 20 轮件3）：SubmitImageSchema ≡ channels PromptImageSchema——单侧增删字段/松 strict 即红', () => {
+    // 剪贴板附件批宣称「形漂移由两线 schema 对拍锁」修前无锁——单侧漂移
+    // （增删字段/松 strict/改 required）静默达线：webui 受理与 SDK 受理对同
+    // 一粘贴载荷判分叉。对拍三面：properties 键集、required 集、strict
+    // （additionalProperties——两侧同律收窄）。修前红形：两面私有未导出
+    //（import 面缺口——对拍断言无处执法）
+    const left = SubmitImageSchema as unknown as {
+      properties: Record<string, unknown>;
+      required?: string[];
+      additionalProperties?: boolean;
+    };
+    const right = PromptImageSchema as unknown as {
+      properties: Record<string, unknown>;
+      required?: string[];
+      additionalProperties?: boolean;
+    };
+    expect(Object.keys(left.properties).sort()).toEqual(Object.keys(right.properties).sort());
+    expect([...(left.required ?? [])].sort()).toEqual([...(right.required ?? [])].sort());
+    expect(left.additionalProperties).toBe(right.additionalProperties); // strict 同律
   });
 
   it('submit 携图：images 原形透传入桥（受理执法在 host——件侧零实现只透传，03 §10.4 ①）', async () => {

@@ -32,9 +32,10 @@
  * 桥映射注记：createSession 走 manager.create 零 I/O（行随首事件落库——
  * 浏览器会话无 cwd 锚，workspaceRoot 缺省全局态）；sessionStateOf 三档
  * 判据 = isOpen 内存册（open）∪ 持久 list（closed）∪ 余（missing）；
- * submitPrompt 受理门前置（服务端已判 open——isOpen 真则驱动在册，
- * submitText 必达）；todoOf 无驱动回 undefined（服务端 `items ?? null`
- * 诚实空）。completion 面 workspaceFiles 已接——TUI 同源 FileMentionSource
+ * submitPrompt 受理门自带前置复检（挖掘 20 轮：先决门只保到判时——与受理
+ * 之间有删除竞窗，isOpen 再判 + submitText 返 undefined 双锚
+ * SESSION_NOT_FOUND fail-loud）；todoOf 无驱动回 undefined（服务端
+ * `items ?? null` 诚实空）。completion 面 workspaceFiles 已接——TUI 同源 FileMentionSource
  * 经 channels 公开面（@ 文件段补全；锚 = 挂载 cwd 缺省全局态，canonical 化
  * .git 上溯同 TUI mention 源律）；workspaceSymbols 诚实缺席——全仓零实现
  * 零消费、无规范语义，非欠账，有真实需求先立题再接线。
@@ -296,8 +297,10 @@ export function mountWebuiOnFace(options: WebuiFaceMountOptions): WebuiFaceMount
 /**
  * durable 查重（serve 桥 lookupDedupeKey 同族判据——本桥局部复刻）：会话
  * 日志扫 user/message 的 data.dedupeKey，命中回原内容串（admit 同键异内容
- * 判定源）。在册驱动内存日志即权威源（含 write-behind 在飞——submit 端点
- * 先决门已拦 missing/closed，驱动恒在场；防御位驱动缺席回 undefined 走原路）。
+ * 判定源）。在册驱动内存日志即权威源（含 write-behind 在飞）。驱动不恒
+ * 在场：submit 端点先决门只保到判时，受理内前置复检后仍有残余微窗（挖掘
+ * 20 轮）——驱动缺席回 undefined = 查重 miss 走受理原路（submitText 返
+ * undefined 由受理尾双锚收口，非静默成功）。
  */
 function lookupDedupeContent(stack: ConversationStack, sessionId: string, messageId: string): string | undefined {
   const events = stack.driverOf(sessionId)?.session.events();
@@ -383,6 +386,15 @@ function bridgeDeps(
         return stack.manager.exists(sessionId) ? 'closed' : 'missing';
       },
       submitPrompt: (input) => {
+        // —— 提交前置复检（挖掘 20 轮竞窗收口）：服务端先决门
+        // （sessionStateOf）与本受理之间有删除竞窗（同会话 DELETE 并发先
+        // 落——05 §2.5 编排与 submit 无跨请求互斥）。isOpen 再判失败 =
+        // SESSION_NOT_FOUND fail-loud（setThinkingLevel 姊妹守卫同码同文；
+        // server 窄 catch 折 404 not_found 与先决门同档）——前置在受理链
+        // （admitPasteImages）之前：拒路径零附件落盘次生害
+        if (!stack.manager.isOpen(input.sessionId)) {
+          throw new BaseError('SESSION_NOT_FOUND', `会话已结束（${input.sessionId}）——请刷新页面或重新打开会话`);
+        }
         // —— 剪贴板附件受理链前置（03 §10.4 ②）：images 在场非空先过链逐件
         // 校验（能力门→数量帽→base64→字节帽→魔数四族→MIME 核验→尺寸帽→
         // 内容寻址落盘）铸 image-ref 引用块族；拒 = 受理拒异常上抛（status
@@ -447,11 +459,19 @@ function bridgeDeps(
             return { sessionId: input.sessionId }; // 在飞窗幂等重收执——不重入队不重跑
           }
         }
-        void stack.submitText(input.sessionId, submitContent, {
+        // submitText 对未开会话返 undefined（goal 唤醒闭包自愈链契约——
+        // 05:291；受理面不可拿它当成功）。复检后残余微窗（isOpen 判真后、
+        // submitText 调用前删除先落）由此收口：返 undefined 同抛
+        // SESSION_NOT_FOUND（在飞账记录之前——拒路径零账面残留）
+        const run = stack.submitText(input.sessionId, submitContent, {
           // 具名通道归因（05 §3.1 channel: 前缀——投影同视 user）+ 幂等键落账
           source: 'channel:webui',
           ...(idempotent ? { dedupeKey: input.messageId } : {}),
-        }); // fire-and-forget——回执经信封回流
+        });
+        if (run === undefined) {
+          throw new BaseError('SESSION_NOT_FOUND', `会话已结束（${input.sessionId}）——请刷新页面或重新打开会话`);
+        }
+        // fire-and-forget——回执经信封回流（run 不弃接面：仅不 await）
         if (idempotent) {
           // 受理即记在飞账（durable 落账前的重发窗由此账接住）+ 帽执法
           const record = inflightDedupe.get(input.sessionId) ?? new Map<string, string>();

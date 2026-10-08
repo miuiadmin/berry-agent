@@ -33,9 +33,13 @@ const HelloSchema = Type.Object(
   strict,
 );
 
-/** prompt 单图成员 schema（剪贴板附件批 03 §10.4 ①——恰两字段收窄，与 webui
- * SubmitSchema images 位同形：单源两消费纪律，形漂移由两线 schema 对拍锁） */
-const PromptImageSchema = Type.Object({ data: Type.String(), mimeType: Type.String() }, strict);
+/**
+ * prompt 单图成员 schema（剪贴板附件批 03 §10.4 ①——恰两字段收窄，与 webui
+ * SubmitSchema images 位同形：单源两消费纪律，形漂移由两线 schema 对拍锁
+ * 〔server.test 对拍测试消费——挖掘 20 轮件3 补锁，导出面经 channels index
+ * `export *` 通公开面〕）
+ */
+export const PromptImageSchema = Type.Object({ data: Type.String(), mimeType: Type.String() }, strict);
 
 /** prompt 请求 schema（messageId/content 必填；sessionId 选填——缺席即新建；
  * images 选填 = 粘贴图族〔03 §10.4 ①〕——缺席/空数组 = 纯文本零漂移，受理

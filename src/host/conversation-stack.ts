@@ -1779,7 +1779,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     driverOf: (sessionId) => manager.driverOf(sessionId),
     submitText(sessionId, content, submitOptions) {
       const driver = manager.driverOf(sessionId);
-      if (driver === undefined) return undefined; // 未开会话——上层提交序不达（理论不达防御位）
+      if (driver === undefined) return undefined; // 未开会话返 undefined——可达非理论位（webui 受理竞窗挖掘 20 轮：受理面双锚收口抛 SESSION_NOT_FOUND；goal 唤醒闭包消费 undefined 走自愈重停靠链〔05:291〕）
       const run = driver.submit(content, submitOptions);
       // 回执面错误经 notify 回流呈现面（fire-and-forget 无未处理拒绝；await 方仍得真回执）
       void run.catch((err: unknown) => {

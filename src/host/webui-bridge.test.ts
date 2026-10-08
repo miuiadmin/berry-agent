@@ -507,6 +507,36 @@ describe('openWebuiFace 桥单元', () => {
     }
   });
 
+  it('submitPrompt 前置复检（挖掘 20 轮竞窗）：删除先落后受理 SESSION_NOT_FOUND fail-loud——不假成功', async () => {
+    // 修前红：先决门（sessionStateOf）判 open 与桥受理之间的删除竞窗——
+    // submitText 对未开会话返 undefined 被弃接，桥假成功回 {sessionId}
+    // （用户输入无声蒸发）。修后：入口 isOpen 复检 fail-loud（setThinkingLevel
+    // 姊妹守卫同码同文——server 窄 catch 折 404 not_found）
+    const rt = createHostRuntime({ dataDir: rigDir('webui-bridge-race-') });
+    const { stack } = rigStack(rt);
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      disclose: () => undefined,
+    });
+    try {
+      const id = face.deps!.sessions.createSession();
+      stack.driverOf(id)!.session.append('turn/start', {});
+      await rt.persistence.flush();
+      // 竞窗模拟：先决门判时仍 open（真值前提钉死），删除发生在判后——
+      // 同会话 DELETE（六步编排直达）先落
+      expect(face.deps!.sessions.sessionStateOf(id)).toBe('open');
+      await expect(face.deps!.sessions.deleteSession!(id)).resolves.toEqual({ status: 'deleted' });
+      expect(() =>
+        face.deps!.sessions.submitPrompt({ sessionId: id, content: '竞窗提交', messageId: undefined }),
+      ).toThrowError(/会话已结束/); // 修前红：不抛——假成功回 {sessionId}
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
   it('deleteSession 桥真身 = manager 六步编排直达（单源一行——回执三态透传 + 已闭可删）', async () => {
     // 2026-10-07 会话删除编排批 webui 第三载体：sessions face 增可选键
     // deleteSession，真身 = stack.manager.deleteSession 直达（05 §2.5 定形

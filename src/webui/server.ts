@@ -107,8 +107,10 @@ const strict = { additionalProperties: false } as const;
 const AuthSchema = Type.Object({ token: Type.String() }, strict);
 
 /** submit 体单图成员（剪贴板附件批 03 §10.4 ①——恰两字段收窄：data =
- *  base64 原文、mimeType = 声明 MIME〔受理链与魔数嗅探核验，勿信声明〕） */
-const SubmitImageSchema = Type.Object({ data: Type.String(), mimeType: Type.String() }, strict);
+ *  base64 原文、mimeType = 声明 MIME〔受理链与魔数嗅探核验，勿信声明〕；
+ *  与 channels PromptImageSchema 同形——形漂移由本件测试对拍锁执法〔挖掘
+ *  20 轮件3 补锁〕） */
+export const SubmitImageSchema = Type.Object({ data: Type.String(), mimeType: Type.String() }, strict);
 
 /** submit 体（text 必填；messageId 选填 = SPA 重试幂等位——缺席即 undefined
  * 透传、件侧不补生成〔8572ccd 拍板——与 SDK 线同律：undefined 无幂等不落账〕；
@@ -808,6 +810,14 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
         });
         sendJson(res, 200, { sessionId: outcome.sessionId });
       } catch (err) {
+        // 竞窗收口窄 catch（挖掘 20 轮）：桥 submitPrompt 前置复检（isOpen
+        // 再判）对本端点先决门与受理之间的删除竞窗 fail-loud 抛
+        // SESSION_NOT_FOUND——折 404 not_found 与先决门 missing 档同档
+        // （码不吞、message 人读因透传——SDK_MESSAGE_CONFLICT catch 同形）
+        if (err instanceof BaseError && err.code === 'SESSION_NOT_FOUND') {
+          sendError(res, 404, 'not_found', err.message);
+          return;
+        }
         // 幂等冲突 fail-loud：SPA 重试携同 messageId 异内容时桥 admit 抛
         // SDK_MESSAGE_CONFLICT——折 409 结构码（sdk 面 HTTP_STATUS_BY_CODE
         // 码表同义跨面一致；BaseError 码不吞、message 人读因透传，tiers
