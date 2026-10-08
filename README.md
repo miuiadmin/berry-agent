@@ -29,7 +29,7 @@ the same mechanism; there is no first-class private lane.
 **16** built-in capabilities ship with the package · **0** telemetry — no usage
 stats, no crash reports
 
-> Status: `0.1.1-alpha.2` — early alpha, moving fast; the plugin API may
+> Status: `0.1.1-alpha.3` — early alpha, moving fast; the plugin API may
 > still shift before 1.0.
 
 </div>
