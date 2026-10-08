@@ -239,7 +239,7 @@ TUI 内建命令（随插件安装动态扩展）：`/plugins`（插件管理 TU
 
 该文件同时承载 `/approval preset` 写入的 `sandboxMode` / `approvalPolicy` 两键（审批持久默认值）；机器写盘只动自己的键，手编的其他键原样保留。
 
-**自定义主题**：`theme` 键值域另收自定义主题名——`~/.berry-agent/themes/<名>.json`（文件名即主题名：字母数字开头，可含 `.` `_` `-`，上限 64 字符；`dark` / `light` / `auto` 为保留词，同名文件被内置主题遮蔽）。文件 = 主题语义键 16 枚的部分覆盖，缺键回退内置基板同位键（基板按终端明暗探测选定——与主题文件选择正交）。键清单：`accent` / `text` / `secondary` / `thinkingText` / `success` / `error` / `diffAdded` / `diffRemoved` / `link` / `tableRule` / `codeInline` + 高亮五键 `codeKeyword` / `codeString` / `codeComment` / `codeNumber` / `codeFunction`。色值三形（示例最小形）：
+**自定义主题**：`theme` 键值域另收自定义主题名——`~/.berry-agent/themes/<名>.json`（文件名即主题名：字母数字开头，可含 `.` `_` `-`，上限 64 字符；`dark` / `light` / `auto` 为保留词，同名文件被内置主题遮蔽）。文件 = 主题语义键 19 枚的部分覆盖，缺键回退内置基板同位键（基板按终端明暗探测选定——与主题文件选择正交）。键清单：`accent` / `text` / `secondary` / `thinkingText` / `success` / `error` / `diffAdded` / `diffRemoved` / `link` / `tableRule` / `codeInline` + 高亮五键 `codeKeyword` / `codeString` / `codeComment` / `codeNumber` / `codeFunction` + 背景与弱线三键 `userMessageBg`（用户消息底色带）/ `toolCardBg`（工具卡卡面底色带）/ `weakRule`（弱分隔线——回合记账线等）。后三键内置板不预置静态值（运行时按终端探测背景动态混合产出），自定义板可静态覆盖、缺键即无该效果。色值三形（示例最小形）：
 
 ```json
 {
