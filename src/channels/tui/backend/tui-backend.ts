@@ -3755,12 +3755,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.queuePreviews = this.queueFor !== undefined ? (this.queueFor(this.sessionId) ?? []) : [];
     const contents = this.stack.contents;
     // 编辑器量高单次（fx2-B——帽计算与分配梯共用；measure 幂等无帧账副作用）；
-    // 量高含帽钳呈现高 + 上下空行垫 2（五件批 A+B），裸内容行数另取——梯
-    // 「收缩至内容高」目标位与最小必保段预留共用
+    // 量高含帽钳呈现高 + 上下空行垫 2（五件批 A+B），帽内内容行数另取
+    // （contentRows 夹呈现帽——sweep23-件1：超帽不可呈现，裸值令垫行借内容
+    // 地板永不退让）——梯「收缩至内容高」目标位与最小必保段预留共用
     const editorMeasure = this.editor.measure(columns);
     const editorContentRows = this.editor.contentRows();
-    // 编辑器必保下限（梯降底值——五件批 A+B 后梯收缩至内容高：空稿形 = 1
-    // 〔同旧〕、多行稿保内容行；四处最小必保段预留共用同一算术〔fx2-B 不变
+    // 编辑器必保下限（梯降底值——五件批 A+B 后梯收缩至帽内内容高：空稿形 = 1
+    // 〔同旧〕、多行稿保帽内内容行；四处最小必保段预留共用同一算术〔fx2-B 不变
     // 式：梯降到底 total 恒 ≤ 截断预算〕）
     const editorFloor = Math.min(editorMeasure, Math.max(EDITOR_MIN_HEIGHT, editorContentRows));
     const askRows = this.inputAsk !== null ? 1 : 0;

@@ -4657,6 +4657,27 @@ describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②
     expect(io.bytes).toContain('\x1b[1;4r');
     expect(io.bytes).not.toContain('\x1b[9;1H'); // 无越屏定位（修前写到第 11 行）
   });
+
+  it('【sweep23-件1 修前红→回归锁】长稿极小视口收缩目标夹帽：垫行不借道内容地板保位——固定区不超屏（修前陈货守卫整段不写）', () => {
+    const io = new MemoryTerminalIO(COLS, 7); // 编辑器帽 = max(5, floor(7×0.3)) = 5
+    const backend = new TuiBackend(io, { sessionId: SESSION });
+    backend.start();
+    // 10 行稿（kitty CSI u 形 ctrl+j = editor.new-line 缺省键；裸 \x0a 在解码
+    // 器归 enter 提交——不可用）：裸内容 10 > 帽 5——超帽部分本就不可呈现
+    // （编辑器内部滚动），梯「收缩至内容高」须取帽内 5。修前收缩目标用裸
+    // 10：量高 7（帽 5 + 垫 2）钳位不咬合、垫 2 行借内容地板永不退让 → 固定
+    // 区 total 8 > 7 行屏 → MainScreen 陈货守卫固定区整段不写（›/状态行全
+    // 缺席、键盘仍路由进不可见编辑器）
+    const chars = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
+    chars.forEach((ch, i) => {
+      if (i > 0) io.emitInput('\x1b[106;5u'); // ctrl+j 换行
+      io.emitInput(ch);
+    });
+    io.bytes = ''; // 打字中间帧不计——聚焦全量重画帧取证
+    io.emitResize();
+    expect(io.bytes).toContain('↑ 5 更多'); // 编辑器在场 + 内容窗恰帽内 5 行（修前：整段缺席）
+    expect(io.bytes).toContain('\x1b[1;1r'); // 滚动区 1 行非退化（固定区 6 = 编辑器 5 + 状态 1 ≤ 预算 6）
+  });
 });
 
 /* ================= TUI 第四役 fx2（后端组——复起补吐/视口帽/残影/死路双清/复起附件） ================= */

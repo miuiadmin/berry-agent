@@ -134,7 +134,7 @@ export class Editor implements Renderable {
     return this.view.measure(width);
   }
 
-  /** 裸内容视觉行数委托（fixed-budget 梯「收缩至内容高」目标位——五件批 A+B） */
+  /** 帽内内容行数委托（裸视觉行数夹呈现帽——sweep23-件1；fixed-budget 梯「收缩至内容高」目标位——五件批 A+B） */
   contentRows(): number {
     return this.view.contentRows();
   }

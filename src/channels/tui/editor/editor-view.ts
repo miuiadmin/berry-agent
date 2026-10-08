@@ -117,9 +117,15 @@ export class EditorView implements Renderable {
     return shown + this.padRows;
   }
 
-  /** 上次量高的裸内容视觉行数（无帽钳无垫——fixed-budget 梯「收缩至内容高」目标位） */
+  /**
+   * 上次量高的帽内内容行数（裸视觉行数夹呈现帽——无垫；fixed-budget 梯
+   * 「收缩至内容高」目标位与最小必保段预留共用单源）。sweep23-件1：超帽
+   * 部分本就不可呈现（编辑器内部滚动）——裸值会令垫行借「内容行硬地板」
+   * 地位永不退让（极小视口长稿形量高钳位不咬合、固定区超屏触发 MainScreen
+   * 陈货守卫整段不写），故此处夹帽后供数。
+   */
   contentRows(): number {
-    return this.lastContentRows;
+    return Math.min(this.lastContentRows, this.maxVisibleLines);
   }
 
   /** 落位渲染：铺底染色块 → 空行垫分档 → 提示符/视口行 → 滚动指示 overlay → 光标声明 */

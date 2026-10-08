@@ -51,8 +51,10 @@ export interface FixedBudgetInput {
   /** 输入框（编辑器）量高（measure 原值——含帽钳呈现高与上下空行垫） */
   readonly editor: number;
   /**
-   * 输入框裸内容视觉行数（无帽钳无垫——五件批 A+B 梯收缩目标：预算不足时
-   * editor 收缩至 max(EDITOR_MIN_HEIGHT, 内容高)，弃垫与最小高铺垫不噬内容行）。
+   * 输入框帽内内容行数（裸视觉行数夹呈现帽、无垫——五件批 A+B 梯收缩目标：
+   * 预算不足时 editor 收缩至 max(EDITOR_MIN_HEIGHT, 内容高)，弃垫与最小高铺
+   * 垫不噬内容行。sweep23-件1：超帽内容不可呈现（编辑器内部滚动）——供数须
+   * 夹帽，裸值令垫行借内容地板地位永不退让、固定区超屏）。
    */
   readonly editorContent: number;
   /** todo 面板量高 */

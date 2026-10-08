@@ -57,6 +57,15 @@ describe('EditorView 量高', () => {
     const { view } = viewOf('aaaaaaaaaa', { layoutWidth: 8 });
     expect(view.measure(10)).toBe(5); // 8 列折两行——铺至 3 + 垫 2
   });
+
+  it('【sweep23-件1 修前红→回归锁】contentRows 帽内口径：长稿裸行数夹呈现帽（超帽不可呈现——垫行不得借道内容地板保位）', () => {
+    const { view } = viewOf('a\nb\nc\nd\ne\nf\ng\nh', { maxVisibleLines: 5 });
+    expect(view.measure(20)).toBe(7); // 呈现 5（帽钳）+ 垫 2
+    // 修前 8（裸值）：固定区梯「收缩至内容高」目标虚高——极小视口下量高 7
+    // 钳位不咬合、2 行垫借「内容行硬地板」地位永不退让 → 固定区超屏触发
+    // MainScreen 陈货守卫整段不写（7 行屏长稿实测 ›/状态行全缺席）
+    expect(view.contentRows()).toBe(5);
+  });
 });
 
 describe('EditorView 上下空行垫（五件批 A+B——量高 +2 的渲染侧分档）', () => {
