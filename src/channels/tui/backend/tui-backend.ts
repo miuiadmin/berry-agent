@@ -1116,6 +1116,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 显式放流（共享 io 换防接缝——副屏 Engine 复用同 io 场景；首启 no-op）
     this.io.resume();
     this.screen.start();
+    // 固定区首画**先于**空态引导首画（sweep23-件3）：构造期 MainScreen 预置
+    // fixedHeight 4（编辑器 3 + 状态 1 的旧缺省），真几何（编辑器量高 + 垫）
+    // 由 renderFixed 首次 setFixed 落位——引导首画若先于此 flush，「放不下不
+    // 写」缺席守卫会在预备几何下误判可容（10 行屏：预备 6 行区 ≥ 引导 5 行
+    // → 画出），真几何就位后仅清接管的末行、余行残 logo 永驻（零块态零后
+    // 续帧不自愈）。几何先定，守卫按真几何裁决——小屏诚实缺席、大屏照常。
+    this.renderFixed();
     // 空态引导首画锚（07 §4.1 空转写态注 2026-10-05）：构造期已置态（syncEmptyGuide
     // 入队 present op），起屏清屏后驱动 flush 落画（同步直出档立即；注入调度档随
     // 首帧——repaint 权威重建路随后覆盖同态）
@@ -1123,7 +1130,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.enqueuePresent();
       this.requestRender();
     }
-    this.renderFixed();
     this.unsubResize = this.io.onResize(() => this.handleResize());
     if (this.scheduleFn !== null) this.armTick();
   }

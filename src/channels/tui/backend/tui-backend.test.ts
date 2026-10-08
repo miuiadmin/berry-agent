@@ -4128,7 +4128,8 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
  * 转录区仅 4 行——容不下 5 行引导，drawEmptyGuide「放不下不写」诚实缺席（生
  * 产语义正确）。本 describe 锁的是引导**门控语义**（块集 × 稿件 × 忙闲 × 切
  * 焦）非紧几何——用 14 行屏（转录区 8 = 旧 10 行屏固定区 2 时的区域尺寸，
- * 区域内行为逐位恒等），缺席律本身归 main-screen 极小终端形另辖 */
+ * 区域内行为逐位恒等），缺席律由本 describe 末测锁定（sweep23-件3：10 行屏
+ * 诚实缺席——突变形修前红） */
 const GUIDE_ROWS = 14;
 
 describe('主屏空态引导（07 §4.1 空转写态注 2026-10-05——零块空稿态转录区引导）', () => {
@@ -4230,6 +4231,14 @@ describe('主屏空态引导（07 §4.1 空转写态注 2026-10-05——零块�
     backend.onRepaint(SESSION, [], null);
     expect(io.bytes).toContain('一行通知'); // 保全档重放（权威重建补吐——竞窗根因修锁面）
     expect(io.bytes).not.toContain('输入消息开始对话');
+  });
+
+  it('【sweep23-件3 修前红→回归锁（突变形）】「放不下不写」缺席律：10 行屏转录区 4 < 引导 5 行——诚实缺席零画出（删缺席守卫即红：5 行硬写入 4 行区越屏错位）', () => {
+    const io = new MemoryTerminalIO(COLS, 10); // 固定区 6（编辑器 5 + 状态 1）→ 转录区 4 行
+    const backend = new TuiBackend(io, { sessionId: SESSION });
+    backend.start();
+    expect(io.bytes).toContain('›'); // 固定区在场（缺席不殃及主屏——编辑器与状态行如常写出）
+    expect(io.bytes).not.toContain('输入消息开始对话'); // 引导放不下不写——诚实缺席优于截半画出一半字形（修前红验证形=突变：删 drawEmptyGuide 缺席守卫即红）
   });
 });
 
