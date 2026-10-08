@@ -55,7 +55,7 @@ import {
   REWIND_USAGE,
 } from '../checkpoint/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
-import { createBashTool, createGateExec, createSpawnPipeline, buildChildEnv } from '../exec/index.js';
+import { createBashTool, createGateExec, createSpawnPipeline, buildChildEnv, isPidAlive, killProcessTree, readCmdlineSync, sweepOrphans } from '../exec/index.js';
 import {
   createGoalService,
   createGoalTodoTool,
@@ -214,8 +214,13 @@ function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // 凭证引用形展开器（c-4 注入腿）：plugin-boot 席位在场时供入共享根
       // （先于 loadPlugins 全程——装载序无关拾取）；缺席 = undefined = 引用形
       // fail-loud（CREDENTIALS_NOT_FOUND——拒以字面值注入，席位缺席律）
+      // 登记簿持久化位（挖掘 21 轮件6 装配接线）：dataDir 真目录形持
+      // children.json（跨宿主代际的子进程账本——崩溃/被杀后下代可清扫）；
+      // dataDir null（:memory: 诊断形）= 纯内存账不落盘
+      const childrenFile = deps.dataDir !== null ? join(deps.dataDir, 'children.json') : undefined;
       const pipeline = createSpawnPipeline({
         resolveEnvRef: context.tryGet<(name: string) => string>('credentials-env-ref'),
+        ...(childrenFile !== undefined ? { filePath: childrenFile } : {}),
       });
       const sandboxService = createSandboxService({
         // dataDir null = 诊断形无敏感集（skills 工厂同款条件展开形）
@@ -234,6 +239,16 @@ function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
         createGateExec: (workspaceRoot) => createGateExec({ pipeline, sandboxService, workspaceRoot }),
       };
       context.provide('exec', service);
+      // 启动期孤儿清扫（04 §11 条款——挖掘 21 轮件6 装配接线）：上代宿主
+      // 遗产（hostPid 已死）回填出册/验命令行树杀（pid 复用防线——宁漏杀
+      // 不误杀）。void fire-and-forget：清扫是恢复面非启动门槛，不阻塞装载
+      // 序；本代在飞条目由 hostPid === process.pid 同代判定天然保护（/reload
+      // 换代重扫安全——新代 hostPid 不同、旧代宿主已死则其账被清）
+      void sweepOrphans(
+        pipeline.registry,
+        childrenFile !== undefined ? { filePath: childrenFile } : {},
+        { isAlive: isPidAlive, readCmdline: readCmdlineSync, killTree: killProcessTree },
+      );
     },
   };
 }
