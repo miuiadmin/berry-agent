@@ -15,13 +15,17 @@
  *   ——07 §4.1 /exit 批，先于通道命令分发；/quit 别名已随 2026-09-21 三反馈
  *   批A 退役）→ '/' 起手命令柄（false 落
  *   onSubmit 兜底——03 §2.2 驱动侧语义归 conversation）→ onSubmit；
- * - **固定区 v2 动态布局**（自上而下——V-4 注⑪① 笔3 定序）：overlay 段
- *   （视口帽收口 fx2-B；栈序叠放——锚定自由定位路已整域清退〔fx2-D + 第五役
- *   F3 一刀清〕）→ todo 面板（件 4）→ input-ask 提示行 → 补全弹层 → 任务
- *   状态行（件 12）→ 编辑器（动态量高 + 光标声明——setFixed 声明位落
- *   cup）→ 工具进度面板（件 5——与状态行分职互补相邻）→ 状态行底栏三行
- *   栈（行1 仪表 + 行2 环境，1-2 行）→ 后台任务面板（注⑪① 行3——迁最底
- *   行）；
+ * - **固定区 v2 动态布局**（自上而下——V-4 注⑪① 笔3 定序 + 2026-10-08 TUI
+ *   对标 Codex 五件批 D 件应答段底部迁移〔07 §4.3 呈现位翻档 + V-3 注⑦ ⑤
+ *   底栈扩段对端注〕）：todo 面板（件 4）→ 补全弹层（维持编辑器上方弹出位
+ *   ——规范明文不迁）→ 任务状态行（件 12）→ 排队常驻面板 → 编辑器（动态量
+ *   高 + 光标声明——setFixed 声明位落 cup）→ **应答段**（input-ask 提示行
+ *   + overlay 面板栈〔审批/confirm/select 浮层——自屏顶迁编辑器下方，与
+ *   footer/子 Agent 同区域；栈序叠放，锚定自由定位路已整域清退〔fx2-D +
+ *   第五役 F3 一刀清〕；视口帽收口 fx2-B；占焦模态律与键路由不变——呈现
+ *   位迁移非交互语义迁移〕，在场才占行）→ 工具进度面板（件 5——与状态行
+ *   分职互补相邻）→ 状态行底栏三行栈（行1 仪表 + 行2 环境，1-2 行）→ 后台
+ *   任务面板（注⑪① 行3——迁最底行）；
  * - **渲染合并**：调度注入后 op 队列合并（连续 present 留末次、transient
  *   到达序保持、固定区脏位重建一帧一次）+ fps 帽 60 + tick 80ms 自重排
  *   驱动任务行转轮；**无注入调度 = 同步直出**（测试语义——合并与自驱 tick
@@ -3673,14 +3677,19 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 固定区 v2 重建（自上而下段序——V-4 注⑪① 笔3 定序）：overlay 段（各层
-   * 量高叠放 + 视口帽收口 fx2-B）→ todo 面板（件 4——todoFor 缺席/空表即
-   * 零行）→ input-ask 提示行 → 补全弹层 → 任务状态行（件 12——编辑器正上
-   * 方）→ 编辑器（动态量高；聚焦态 = 无 overlay 占焦）→ 工具进度面板（件
-   * 5——与状态行分职互补相邻）→ 状态行底栏三行栈（行1 仪表 + 行2 环境
-   * ——1-2 行，注⑪①）→ 后台任务面板（注⑪① 行3——迁最底行，V-1 漂移
-   * 补列）。编辑光标经 EditorView setCursor 声明 → MainScreen.setFixed
-   * 声明位落 cup。
+   * 固定区 v2 重建（自上而下段序——V-4 注⑪① 笔3 定序 + 2026-10-08 TUI 对标
+   * Codex 五件批 D 件应答段底部迁移〔07 §4.3 呈现位翻档 + V-3 注⑦ ⑤ 底栈
+   * 扩段对端注〕）：todo 面板（件 4——todoFor 缺席/空表即零行）→ 补全弹层
+   * （维持编辑器上方弹出位——规范明文不迁）→ 任务状态行（件 12——编辑器
+   * 正上方）→ 排队常驻面板 → 编辑器（动态量高；聚焦态 = 无 overlay 占焦）
+   * → **应答段**（input-ask 提示行 + overlay 面板栈——审批/confirm/select
+   * 浮层自固定区顶部段迁编辑器下方，与 footer/子 Agent 同区域；在场才占行、
+   * 入恒保底族〔段内超帽走 fx2-B 滚动窗——不整段隐没〕；占焦模态律与键
+   * 路由不变——呈现位迁移非交互语义迁移，键路由按 stack.size 判定与渲染
+   * 位零耦合）→ 工具进度面板（件 5——与状态行分职互补相邻）→ 状态行底栏
+   * 三行栈（行1 仪表 + 行2 环境——1-2 行，注⑪①）→ 后台任务面板（注⑪①
+   * 行3——迁最底行，V-1 漂移补列）。编辑光标经 EditorView setCursor 声明 →
+   * MainScreen.setFixed 声明位落 cup。
    *
    * 段量高经固定区段优先级截断（07 §4.1 挂账解挂批 C②）：极小终端固定区
    * 总高 > 视口时依牺牲步序截断（2026-10-03 三轮深扫批注释翻档：原粗排序
@@ -3794,52 +3803,31 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const grid = new CellGrid(columns, total);
     let row = 0;
 
-    // 段一：overlay 段（栈序自上而下叠放；量高已按视口帽收口——fx2-B/D 注）
-    for (let i = 0; i < contents.length; i++) {
-      const height = overlayHeights[i]!;
-      contents[i]!.render(grid, { row, col: 0, width: columns, height });
-      row += height;
-    }
-
-    // 段二：todo 面板（件 4——输入框上方紧凑面板；清板即零行；截断隐 = 零高度）
+    // 段一：todo 面板（件 4——输入框上方紧凑面板；清板即零行；截断隐 = 零高度）
     if (budget.todo > 0) {
       this.todoPanel.render(grid, { row, col: 0, width: columns, height: budget.todo });
       row += budget.todo;
     }
 
-    // 段三：input-ask 提示行（应答期编辑器转应答车的引导位——恒保不截）。
-    // overlay 占焦期明示（件 3）：栈非空时键盘路由进栈顶面板、编辑器收不到
-    // 字——裸问句呈现为「可作答」与路由矛盾，补「待收场」标注让「问不丢
-    // 但要等」对用户诚实。异会话 FIFO 队列化（十六役扫 #2——07 §4.1 路由序条
-    // input() 异会话 FIFO 定形注〔节号勘正 2026-10-04：原引 §4.3 系错引〕）：
-    // 排队问不上屏，队首提示行缀排队数明示「后面还有几问」
-    if (this.inputAsk !== null) {
-      const waiting = this.stack.size > 0 ? '（等上方面板关闭后作答）' : '';
-      const queued = this.inputQueue.length > 0 ? `（后面还有 ${this.inputQueue.length} 个提问在排队）` : '';
-      // ellipsize … 收口（wf_3c8b00b8 组δ X-3）——长问句 + 排队缀标超列时 raw
-      // writeText 越界静默吸收硬截断无提示；收口只动呈现不动键路
-      grid.writeText(row, 0, ellipsize(`? ${this.inputAsk.message}${waiting}${queued}`, columns), { dim: true });
-      row += 1;
-    }
-
-    // 段四：补全弹层（可见才占位——非模态浮层；截断隐 = 零高度）
+    // 段二：补全弹层（可见才占位——非模态浮层；截断隐 = 零高度；维持编辑器
+    // 上方弹出位——2026-10-08 D 件应答段迁移的规范明文不迁面）
     if (budget.popup > 0) {
       this.popup.render(grid, { row, col: 0, width: columns, height: budget.popup });
       row += budget.popup;
     }
 
-    // 段五：任务状态行（件 12——编辑器正上方固定段；忙态在场闲态离场，
+    // 段三：任务状态行（件 12——编辑器正上方固定段；忙态在场闲态离场，
     // 占行裁决见上；编辑器聚焦态不受影响——overlay 占焦判定与任务行无涉）
     if (taskRows > 0) {
       this.taskLine.render(grid, { row, col: 0, width: columns, height: 1 });
       row += 1;
     }
 
-    // 段五.五：排队常驻面板（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向
+    // 段四：排队常驻面板（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向
     // 接线排队常驻面板翻档注）：已排队 N 计数 + 首条预览（ellipsize 收口防
-    // 越列硬截断——段三同形）；N≥2 加 +M 折叠计数形（+M = N-1，单件形零
-    // 折叠尾巴）；dim 档（待命性质 = 次要信息——段三 input-ask 同档）。入
-    // 列/消费增删即时刷新、队列清空即退场（帧首拉取 + 占行裁决见上）；极
+    // 越列硬截断——应答段 ask 行同形）；N≥2 加 +M 折叠计数形（+M = N-1，单
+    // 件形零折叠尾巴）；dim 档（待命性质 = 次要信息——ask 行同档）。入列/
+    // 消费增删即时刷新、队列清空即退场（帧首拉取 + 占行裁决见上）；极
     // 小终端整段隐（先缩后隐梯末位）。
     if (queueRows > 0) {
       const folded = this.queuePreviews.length > 1 ? ` +${this.queuePreviews.length - 1}` : '';
@@ -3852,12 +3840,39 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       row += 1;
     }
 
-    // 段六：编辑器（overlay 占焦期非聚焦——› 提示符降档 secondary 态 +
+    // 段五：编辑器（overlay 占焦期非聚焦——› 提示符降档 secondary 态 +
     // 不抢光标声明；截断收窄至下限 1 = 内容最小高——V-0 注③ 框退役后
     // EditorView innerH ≤ 0 防御在位）
     this.editor.setFocused(this.stack.size === 0);
     this.editor.render(grid, { row, col: 0, width: columns, height: budget.editor });
     row += budget.editor;
+
+    // 段五.五：input-ask 提示行（应答段首行——2026-10-08 D 件自固定区顶部段
+    // 迁编辑器下方：与编辑器〔应答期转应答车〕上下相邻成对话组；恒保不截）。
+    // overlay 占焦期明示（件 3）：栈非空时键盘路由进栈顶面板、编辑器收不到
+    // 字——裸问句呈现为「可作答」与路由矛盾，补「待收场」标注让「问不丢
+    // 但要等」对用户诚实（缀语方位中性——面板现居提示行下方）；异会话 FIFO
+    // 队列化（十六役扫 #2——07 §4.1 路由序条 input() 异会话 FIFO 定形注
+    // 〔节号勘正 2026-10-04：原引 §4.3 系错引〕）：排队问不上屏，队首提示行
+    // 缀排队数明示「后面还有几问」
+    if (this.inputAsk !== null) {
+      const waiting = this.stack.size > 0 ? '（等面板关闭后作答）' : '';
+      const queued = this.inputQueue.length > 0 ? `（后面还有 ${this.inputQueue.length} 个提问在排队）` : '';
+      // ellipsize … 收口（wf_3c8b00b8 组δ X-3）——长问句 + 排队缀标超列时 raw
+      // writeText 越界静默吸收硬截断无提示；收口只动呈现不动键路
+      grid.writeText(row, 0, ellipsize(`? ${this.inputAsk.message}${waiting}${queued}`, columns), { dim: true });
+      row += 1;
+    }
+
+    // 段六：overlay 段（应答面板栈——2026-10-08 D 件自屏顶迁编辑器下方应答
+    // 段：审批/confirm/select 浮层与 footer/子 Agent 同区域；栈序自上而下
+    // 叠放、量高已按视口帽收口——fx2-B/D 注；占焦模态律与键路由不变〔按
+    // stack.size 判定，与渲染位零耦合〕）
+    for (let i = 0; i < contents.length; i++) {
+      const height = overlayHeights[i]!;
+      contents[i]!.render(grid, { row, col: 0, width: columns, height });
+      row += height;
+    }
 
     // 段七：工具进度面板（件 5——正在流 partial 的工具各占一行；清板即零行）
     if (budget.tool > 0) {

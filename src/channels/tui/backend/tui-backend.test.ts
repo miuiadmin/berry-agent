@@ -1159,6 +1159,100 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
   });
 });
 
+// —— 应答段底部迁移（2026-10-08 TUI 对标 Codex 五件批 D 件——07 §4.3 呈现位
+// 翻档 + V-3 注⑦ ⑤ 底栈扩段对端注）：审批/confirm/select 面板与 input-ask
+// 提示行自固定区顶部段迁编辑器下方**应答段**（编辑器 → ask 行 → 面板栈 →
+// 工具进度 → footer → JobPanel——紧邻 footer 族与子 Agent 同区域）；占焦模态
+// 律/键路由/排队 FIFO 零变化（呈现位迁移非交互语义迁移）；补全弹层维持编辑器
+// 上方弹出位（规范明文不迁）。
+describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面板/ask 行居编辑器下方）', () => {
+  /**
+   * 屏上行序取证（行序断言辅助）：差分帧序 ≠ 屏上行序（增量帧只重写变更
+   * 行、帧间先来后到由事件序决定）——emitResize 触发 renderFixed 全量重画
+   * 帧，帧内文本序即屏上行序；取末帧做 indexOf 比较才忠实锁「谁在上谁在
+   * 下」。
+   */
+  const lastFullFrame = (io: { frames: readonly string[]; emitResize(): void }): string => {
+    io.emitResize(); // handleResize 同步直呼（不走 schedule）——clear + 全量重画帧即时落账
+    // 全量重画 = 末个清屏帧（\x1b[2J）起的整段写出（后续 region/cup/行写出/
+    // 归位尾帧同属一次重画编舞）——拼接后文本序即屏上行序
+    let clearIdx = -1;
+    for (let i = io.frames.length - 1; i >= 0; i--) {
+      if (io.frames[i]!.includes('\x1b[2J')) {
+        clearIdx = i;
+        break;
+      }
+    }
+    return io.frames.slice(clearIdx + 1).join('');
+  };
+
+  it('confirm 面板呈现于编辑器下方（修前红：屏顶浮层先于编辑器）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    io.emitInput('a');
+    pump(); // 聚焦 › 在场——首帧全量铺屏
+    const p = backend.confirm('下方确认？');
+    pump();
+    const frame = lastFullFrame(io);
+    const prompt = frame.indexOf('›');
+    const panel = frame.indexOf('下方确认');
+    expect(prompt).toBeGreaterThanOrEqual(0); // 编辑器在屏（全量帧含 ›）
+    expect(panel).toBeGreaterThanOrEqual(0); // 面板在场
+    expect(prompt).toBeLessThan(panel); // 修前红：屏顶浮层——面板行先于编辑器行
+    io.emitInput('\r');
+    pump();
+    await expect(p).resolves.toBe(true);
+  });
+
+  it('askApproval 面板呈现于编辑器下方（修前红：屏顶）', async () => {
+    const { io, backend, pump } = makeInteractive(undefined, 14); // 审批面板 5 行并陈需高窗
+    io.emitInput('a');
+    pump();
+    const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    pump();
+    const frame = lastFullFrame(io);
+    expect(frame.indexOf('›')).toBeGreaterThanOrEqual(0);
+    expect(frame.indexOf('⚙ 写入文件')).toBeGreaterThanOrEqual(0); // 面板标题（V-0 注⑤动词位）
+    expect(frame.indexOf('›')).toBeLessThan(frame.indexOf('⚙ 写入文件')); // 修前红
+    io.emitInput('\r');
+    pump();
+    await expect(p).resolves.toBe('approve');
+  });
+
+  it('input-ask 提示行迁编辑器下方（修前红：编辑器上方段）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    io.emitInput('a');
+    pump();
+    const p = backend.input('下方问？');
+    pump();
+    const frame = lastFullFrame(io);
+    expect(frame.indexOf('›')).toBeGreaterThanOrEqual(0);
+    expect(frame.indexOf('? 下方问？')).toBeGreaterThanOrEqual(0); // 提示行在场
+    expect(frame.indexOf('›')).toBeLessThan(frame.indexOf('? 下方问？')); // 修前红
+    io.emitInput('答\r');
+    pump();
+    await expect(p).resolves.toBe('答');
+  });
+
+  it('补全弹层维持编辑器上方弹出位（回归锁——规范明文不迁）', () => {
+    // 自含 rig（autocompleteRig 系他 describe 块内函数不达——同形自建）
+    const { io, clock } = makeInteractive({
+      autocomplete: {
+        commands: (query) => (query === 'he' ? [{ label: '/help', detail: '帮助', replacement: '/help ' }] : []),
+      },
+    });
+    io.emitInput('/he');
+    clock.advance(AUTOCOMPLETE_DEBOUNCE_MS + 1); // 防抖窗到——查询落层弹层在场
+    const frame = lastFullFrame(io);
+    // 编辑器行锚 = 聚焦 › 提示符转义形（› + 空格 + reset）——弹层 label 行
+    // 自带 › 前缀但无空格分隔（› 直随 reset+反白），裸 › 与「› /he」纯文本形
+    // 均不可锚；弹层非模态不占焦——编辑器恒聚焦 accent 形在场
+    const editorRow = frame.indexOf('\x1b[36m› \x1b[0m');
+    expect(frame.indexOf('帮助')).toBeGreaterThanOrEqual(0);
+    expect(editorRow).toBeGreaterThanOrEqual(0);
+    expect(frame.indexOf('帮助')).toBeLessThan(editorRow); // 弹层行在编辑器行上方
+  });
+});
+
 describe('TuiBackend ask 撤销说明行（07 §4.3 撤销面——曾在屏者 ⏹ 行 + 迟到 abort 不误写）', () => {
   it('confirm：abort → false + 撤销说明行；面板已 done 后迟到 abort 不误写', async () => {
     const { io, backend, pump } = makeInteractive();
@@ -4705,7 +4799,7 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     pump();
     // 修前红：'? 乙提问' 裸呈现——路由层（routeEvent 栈顶独占）把一切键终局
     // 于选单、编辑器收不到字；修后标注「等上方面板收场后作答」明示先后
-    expect(io.bytes).toContain('? 乙提问（等上方面板关闭后作答）');
+    expect(io.bytes).toContain('? 乙提问（等面板关闭后作答）');
     io.emitInput('\r'); // 栈顶独占——先应答选单
     pump();
     await expect(ps).resolves.toBe('a');
