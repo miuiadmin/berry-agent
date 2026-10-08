@@ -491,6 +491,18 @@ describe('sessions 行面', () => {
     expect(store.deleteSession('s-del')).toBe(false);
   });
 
+  it('零事件已登记会话删除如实返 true（挖掘 21 轮件2——gone 锚 sessions 行非 events 计数）', () => {
+    const store = open({ dbPath: join(dir, 'del-empty.db') });
+    // 预落行形态（/rename stageSessionTitle 路真实产物）：sessions 行在场、events 零行
+    store.registerSessionRow('s-reg-del', { ...REG, title: '空会话' });
+    expect(store.getSessionRow('s-reg-del')?.lastSeq).toBe(-1);
+    // 行删除真实发生（幂等腿照 false）——修前红：gone 锚 events 计数恒 0 谎报
+    // 「未删除」误导 CLI exit 1 / webui 404（行已不可逆消失，回执谎称缺席）
+    expect(store.deleteSession('s-reg-del')).toBe(true);
+    expect(store.getSessionRow('s-reg-del')).toBeUndefined();
+    expect(store.deleteSession('s-reg-del')).toBe(false); // 双删幂等诚实缺席
+  });
+
   it('retireCursor：retire 路游标出册后续写自 sessions.last_seq 重初始化（连续性断言不破——05 retire 清账律，第十一轮修前红：面不存在即 TypeError）', () => {
     const store = open({ dbPath: join(dir, 'retire-cursor.db') });
     const events = makeEvents('a', 'b'); // seq 0..3

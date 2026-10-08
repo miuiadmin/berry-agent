@@ -959,10 +959,13 @@ export class Store implements WriteTarget {
   deleteSession(sessionId: string): boolean {
     this.ensureOpen();
     const tx = this.db.transaction(() => {
-      const gone = this.stmt(`DELETE FROM events WHERE session_id = ?`).run(sessionId).changes > 0;
+      this.stmt(`DELETE FROM events WHERE session_id = ?`).run(sessionId);
       this.stmt(`DELETE FROM session_fts WHERE session_id = ?`).run(sessionId);
-      this.stmt(`DELETE FROM sessions WHERE id = ?`).run(sessionId);
-      return gone;
+      // gone 锚 sessions 行（会话身份所在表——挖掘 21 轮件2）：零事件已登记
+      // 会话（registerSessionRow 预落行、events 零行）删行真实发生而 events
+      // 计数恒 0——修前谎报「未删除」误导三消费面（CLI exit 1 / webui 404 /
+      // manager missing 路漏 deleted 正路）；幂等腿行已不在 changes=0 诚实 false
+      return this.stmt(`DELETE FROM sessions WHERE id = ?`).run(sessionId).changes > 0;
     });
     const gone = tx();
     this.cursors.delete(sessionId);
