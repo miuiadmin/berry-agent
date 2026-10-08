@@ -3746,6 +3746,41 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
     expect(io.bytes).toContain('150 tok/s'); // 600 / 4s——settled 真值（非估值账；亚秒/零 token 诚实缺席律同 speedView）
   });
 
+  it('【E 件 修前红→回归锁】速度槽显示节流 500ms：窗内值变显示持旧（供数层零降频）、推窗刷新、相位切换即刷新', () => {
+    let t = 0;
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      now: () => t,
+      footer: { modelLabel: 'm', cwdLabel: () => 'w' },
+    });
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_start', role: 'assistant' }); // 流中相位开窗（分母起跑于 t=0）
+    t += 2000; // 流中已历时 2s
+    io.bytes = '';
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(400)) }); // 100 tokens → 50 tok/s
+    expect(io.bytes).toContain('50 tok/s'); // 首帧刷新（显示缓存空——agent_start 清账）
+    // 节流窗内（<500ms）供数值变而显示持旧：+400 tokens 快照差分 → 500 tokens / 2.4s ≈ 208 tok/s
+    t += 400;
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(2000)) }); // 供数层照常收账（显示帧零写出——持旧同内容行级差分零写）
+    io.bytes = '';
+    // 取证走 resize 全量重画帧：持旧值与上帧同内容——增量帧零写出不可断（零
+    // 写出 ≠ 显示持旧），全量帧显示值整帧可见
+    io.emitResize();
+    expect(io.bytes).toContain('50 tok/s'); // 显示持旧（修前红：无节流 → '208 tok/s' 在场、'50' 缺席）
+    expect(io.bytes).not.toContain('208 tok/s'); // 供数值不进显示（节流位 = 呈现层显示缓存）
+    // 推过节流窗（≥500ms 自首帧起算）：600 tokens / 2.5s = 240 tok/s 刷新
+    t += 100;
+    io.bytes = '';
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(2400)) });
+    expect(io.bytes).toContain('240 tok/s');
+    // 相位切换（流中 → settled）即刷新——语义边界不吞首帧：终值冻结 600 / 2.55s ≈ 235 tok/s
+    t += 50; // 仍在节流窗内（2500 → 2550 仅 50ms）——若纯时间节流将持旧 '240'，相位切换强制刷新
+    emit(backend, { type: 'message_end', message: usageMsg(600) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' }); // usageTotal = 600
+    emit(backend, { type: 'agent_end', status: 'completed' }); // 终态帧触重画 + 分母冻结 2.55s
+    expect(io.bytes).toContain('235 tok/s'); // 600 / 2.55s ≈ 235.3（相位切换刷新腿——锁相位键）
+  });
+
   it('【注⑪⑥(c) 诚实缺席锁】速度槽流中相位亚秒窗/零估值两缺席形（JSDoc 三形补锚——speedView 同律既有锁的流中腿）', () => {
     // ①亚秒窗缺席：分母起跑后 500ms——亚秒平均速度无意义（判别性实证锚：
     // 改坏 elapsedMs<1000 判据后本断言红——届时将现 100/0.5s=200 tok/s）

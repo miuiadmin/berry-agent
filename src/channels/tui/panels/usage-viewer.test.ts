@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { KeyEvent } from '../../engine/index.js';
 import { stringWidth } from '../../engine/index.js';
 import type { UiUsageSummary } from '../../../contracts/index.js';
-import { buildUsageLines, formatTokensCompact, UsageViewer } from './usage-viewer.js';
+import { buildUsageLines, formatTokensCompact, formatTokensPerSecond, UsageViewer } from './usage-viewer.js';
 
 /** key 事件夹具 */
 const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
@@ -111,5 +111,22 @@ describe('UsageViewer 副屏件', () => {
     expect(onInterrupt).toHaveBeenCalledWith('sess-9');
     viewer.handleEvent(k('d', { ctrl: true }));
     expect(calls).toEqual(['exit', 'quit']);
+  });
+});
+
+describe('formatTokensPerSecond 三档（TUI 对标 Codex 五件批 E 件——k 缩写翻档）', () => {
+  it('≥1000 一位小数 k 缩写（修前红：千分位形 1,600 / 2,500）', () => {
+    expect(formatTokensPerSecond(1600)).toBe('1.6k'); // 修前 formatCount → '1,600'
+    expect(formatTokensPerSecond(2500)).toBe('2.5k'); // 修前 formatCount → '2,500'
+    expect(formatTokensPerSecond(1000)).toBe('1k'); // 尾零剥除（1.0 → 1）
+    expect(formatTokensPerSecond(1949)).toBe('1.9k'); // toFixed 截断非进位到 2.0k 边界（1.949 → 1.9）
+  });
+
+  it('≥100 整数无千分位（千分位随翻档退役）+ <100 一位小数维持', () => {
+    expect(formatTokensPerSecond(600)).toBe('600');
+    expect(formatTokensPerSecond(999)).toBe('999');
+    expect(formatTokensPerSecond(133.3)).toBe('133'); // 四舍五入
+    expect(formatTokensPerSecond(25)).toBe('25'); // 尾零剥除维持（25.0 → 25）
+    expect(formatTokensPerSecond(12.5)).toBe('12.5');
   });
 });

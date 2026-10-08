@@ -412,6 +412,14 @@ function modelShortOf(spec: string): string {
  */
 const TICK_INTERVAL_MS = 80;
 
+/**
+ * 行1 速度槽显示节流窗（ms——TUI 对标 Codex 五件批 E 件）：500ms 内速度值
+ * 变而显示持旧。**节流位 = 呈现层显示缓存，供数层零降频**（tick 80ms 维持
+ * 转轮/耗时现算现拉——只冻结速度槽文本，不冻帧率）；相位切换（流中↔
+ * settled）即失效——语义边界不吞首帧。
+ */
+const SPEED_SLOT_REFRESH_MS = 500;
+
 /** notify 档位符号（正文着色纪律——纯符号不配色，与摘要行会话色分立；注⑩：info • 列点位/error ✗ 形） */
 const NOTIFY_SYMBOLS: Readonly<Record<NotifyLevel, string>> = Object.freeze({
   info: '•',
@@ -858,6 +866,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 测面 speedView 保持 raw（G5-#10 契约——呈现缺席 ≠ 数据缺席）。
    */
   private speedSuppressed = false;
+  /**
+   * 速度槽显示缓存（E 件——SPEED_SLOT_REFRESH_MS 节流）：500ms 窗内速度
+   * 供数值变而显示持旧（供数层照常现算——getter 每帧现拉零降频）。相位键
+   * （流中 stream / settled）随缓存存——相位切换即判失效强制刷新；速度
+   * 缺席（null——亚秒/零 token 诚实缺席）就地清缓存（再现在场即刷新）；
+   * resetUsage 连清（新 run 首帧刷新）。
+   */
+  private speedDisplayCache: { text: string; phase: 'stream' | 'settled' } | null = null;
+  /** 速度槽显示缓存落账时刻（节流窗判定——注入钟） */
+  private speedDisplayAt = 0;
   /**
    * 教学提示门控三态位（V-3 注⑦② + 07 §4.1 教学位扩双态注 2026-10-05）：
    * 'off' 非空稿或应答窗；'idle' 空稿闲态（`? 快捷键`）；'busy' 空稿忙态
@@ -2098,7 +2116,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       // turn_end 落账前恒零，纯认 settled 则流中整段缺席）；流中窗外（turn
       // 间工具相位/终态）读 settled 真值（speedView——run 级平均）
       const speed = this.contextStreamLive ? this.streamSpeedView : this.speedView;
-      if (speed !== null) slots.push(`${formatTokensPerSecond(speed)} tok/s`);
+      if (speed !== null) {
+        // 显示节流 500ms（E 件）：窗内显示持旧、供数层零降频（speed 照常
+        // 现算——缺省相位值恒可再算）；相位切换即刷新（语义边界不吞首帧）
+        const phase = this.contextStreamLive ? 'stream' : 'settled';
+        const now = this.now();
+        if (
+          this.speedDisplayCache === null ||
+          this.speedDisplayCache.phase !== phase ||
+          now - this.speedDisplayAt >= SPEED_SLOT_REFRESH_MS
+        ) {
+          this.speedDisplayCache = { text: formatTokensPerSecond(speed), phase };
+          this.speedDisplayAt = now;
+        }
+        slots.push(`${this.speedDisplayCache.text} tok/s`);
+      } else {
+        this.speedDisplayCache = null; // 速度缺席即缓存失效（再现在场即刷新——缺席窗不承旧值）
+      }
     }
     const context = this.contextSlotText();
     if (context !== '') slots.push(context);
@@ -3552,6 +3586,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.pendingSeedAt = null; // 暂存位连清（切焦防上一焦种子泄漏到新焦收尾行）
     this.retryContinuation = false;
     this.speedSuppressed = false; // 行1 速度段呈现抑制复位（新 run 成功形重开——切焦同清）
+    this.speedDisplayCache = null; // 速度槽显示缓存连清（E 件——新 run 首帧刷新，不承上一 run 终值）
     this.statusLine.setStatus('');
     // 注⑪② 上下文对**不入本清账族**：used/max 是会话级量（窗口占用跨 run
     // 边界连续），新 run 流中平滑以其为基线；清位归切焦锚 onRepaint（per

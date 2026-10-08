@@ -57,12 +57,17 @@ export function formatCount(n: number): string {
 
 /**
  * 速度格式化（三反馈批C；V-4 注⑪⑦ 自 tui-backend 迁入——任务行速段与尾注
- * 速段双退役后本件持单源）：<100 tok/s 一位小数（尾零剥除——25.0 → 25，精度
- * 帽一位不失信息）、≥100 千分位整数（2,500——与 formatCount 同形）。消费位 =
- * 行1 速度段（V-4 笔3 底栏三行栈——speedView 观测面供数）。
+ * 速段双退役后本件持单源）三档（TUI 对标 Codex 五件批 E 件翻档——千分位
+ * 退役）：<100 tok/s 一位小数（尾零剥除——25.0 → 25，精度帽一位不失信息）、
+ * ≥100 无千分位整数（600）、≥1000 一位小数 k 缩写（1,600 → 1.6k——用户读
+ * 感拍板：速度槽高速段位宽压缩、千分位逗号在快速刷新语境徒增噪音）。消费位 =
+ * 行1 速度段（V-4 笔3 底栏三行栈——speedView 观测面供数 + E 件 500ms 显示
+ * 节流缓存）。档界舍入角：999.6 → Math.round → '1000' 四位直显一帧（升档
+ * 判据按入参 n 非舍入后值——边界一窗 500ms 无观测义）。
  */
 export function formatTokensPerSecond(n: number): string {
-  if (n >= 100) return formatCount(Math.round(n));
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  if (n >= 100) return String(Math.round(n));
   return n.toFixed(1).replace(/\.0$/, '');
 }
 
