@@ -2593,6 +2593,73 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
     expect(tc.io.bytes).toContain('\x1b[48;2;42;42;42m');
   });
 
+  it('同板应答唯 toolCardBg 值变 → 换装传导新卡面带（三键比对 toolCardBg 腿独立红锚——删比对腿则陈值吞带变更）', () => {
+    // 三键比对（userMessageBg / toolCardBg / weakRule 任一变即换装）的 toolCardBg
+    // 腿独立锁：自定义板显式带 userMessageBg 静态值（覆盖恒胜不随探测变——同时
+    // 开探测传值门：板列本键即动态键族供血）+ 缺 text（weakRule 无混合基恒
+    // undefined）+ 缺 toolCardBg（动态混合随探测 bg 变）——同板异值两应答间三
+    // 比对键唯 toolCardBg 腿承重。换装与否以工具卡卡面带 SGR 传导值为证（删
+    // backend handleOscReply 比对腿则零换装、陈带吞新值——本测转红）。
+    const tc = makeBackend({
+      theme: 'custom-x',
+      customThemeOverlay: { userMessageBg: { r: 40, g: 40, b: 40 } },
+      colorEnv: { COLORTERM: 'truecolor' },
+    });
+    tc.io.emitInput('\x1b]11;rgb:0000/0000/0000\x07'); // 纯黑首达——toolCardBg 铸入 round(0 + 8%×255) = 20
+    emit(tc.backend, {
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 't1', name: 'grep', arguments: {} }],
+        usage,
+        stopReason: 'stop',
+        timestamp: 1,
+      },
+    });
+    emit(tc.backend, {
+      type: 'message_end',
+      message: {
+        role: 'toolResult',
+        toolCallId: 't1',
+        toolName: 'grep',
+        content: [{ type: 'text', text: '命中 1 处' }],
+        isError: false,
+        usage,
+        timestamp: 1,
+      },
+    });
+    expect(tc.io.bytes).toContain('\x1b[48;2;20;20;20m'); // 首带传导（20,20,20——dark 混白 8%）
+    tc.io.bytes = '';
+    tc.io.emitInput('\x1b]11;rgb:0d11/0d11/0d11\x07'); // 同板异值——16bit→8bit 折算 13：round(13 + 8%×242) = 32
+    emit(tc.backend, {
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 't2', name: 'grep', arguments: {} }],
+        usage,
+        stopReason: 'stop',
+        timestamp: 2,
+      },
+    });
+    emit(tc.backend, {
+      type: 'message_end',
+      message: {
+        role: 'toolResult',
+        toolCallId: 't2',
+        toolName: 'grep',
+        content: [{ type: 'text', text: '命中 2 处' }],
+        isError: false,
+        usage,
+        timestamp: 2,
+      },
+    });
+    expect(tc.io.bytes).toContain('\x1b[48;2;32;32;32m'); // 主红锚：新带传导（删比对腿则陈值 20 在场）
+    expect(tc.io.bytes).not.toContain('\x1b[48;2;20;20;20m'); // 陈带退场
+    tc.io.bytes = '';
+    tc.io.emitInput('\x1b]11;rgb:0d11/0d11/0d11\x07'); // 同值冗余应答——三键恒等零重画
+    expect(tc.io.bytes).toBe('');
+  });
+
   it('auto 暗底应答迟到照常换装（无钟不设窗——2031 通知语义等价）', () => {
     const { io } = makeBackend({ theme: 'auto' });
     io.emitInput('\x1b]11;rgb:ffff/ffff/ffff\x07'); // 先亮底换装
@@ -4933,7 +5000,7 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     const pi = backend.input('乙提问');
     pump();
     // 修前红：'? 乙提问' 裸呈现——路由层（routeEvent 栈顶独占）把一切键终局
-    // 于选单、编辑器收不到字；修后标注「等上方面板收场后作答」明示先后
+    // 于选单、编辑器收不到字；修后标注「等面板关闭后作答」明示先后
     expect(io.bytes).toContain('? 乙提问（等面板关闭后作答）');
     io.emitInput('\r'); // 栈顶独占——先应答选单
     pump();
