@@ -12,7 +12,7 @@ import { fauxProvider } from './index.js';
 import { getCurrentSystemPrompt } from '@earendil-works/pi-ai';
 import type {
   AssistantMessage as PiAssistantMessage,
-  Context as PiContext,
+  TranscriptContext,
   SimpleStreamOptions,
 } from '@earendil-works/pi-ai';
 import type { AssistantMessage, Message } from '../contracts/index.js';
@@ -58,10 +58,10 @@ function makeService(overrides: Partial<LlmServiceOptions> = {}, providerName = 
 
 /** 捕获型响应工厂：记录 pi-ai 请求面，恒回固定终态消息 */
 function capturing(
-  captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }>,
+  captures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }>,
   message: PiAssistantMessage,
 ) {
-  return (context: PiContext, options: SimpleStreamOptions | undefined) => {
+  return (context: TranscriptContext, options: SimpleStreamOptions | undefined) => {
     captures.push({ context, options });
     return message;
   };
@@ -71,7 +71,7 @@ function capturing(
 
 describe('complete：请求面组装与直通', () => {
   it('messages 逐项引用相等（零重建）、systemPrompt 折叠头（pi-ai 1.0 语义）、defaults 打底可被具名覆盖', async () => {
-    const captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }> = [];
+    const captures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }> = [];
     const { faux, service } = makeService({ defaults: { timeoutMs: 11111 } });
     const messages = [userMsg('摘要这段')];
     faux.setResponses([capturing(captures, messageOf('stop'))]);
@@ -90,7 +90,7 @@ describe('complete：请求面组装与直通', () => {
   });
 
   it('空串 systemPrompt 不折叠：数组本体透传（toBe 零重建锁）+ 形状断言（pi-ai 1.0 语义）', async () => {
-    const captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }> = [];
+    const captures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }> = [];
     const { faux, service } = makeService();
     const messages = [userMsg('x')];
     faux.setResponses([capturing(captures, messageOf('stop'))]);
@@ -99,9 +99,9 @@ describe('complete：请求面组装与直通', () => {
     const seen = captures[0]!;
     // pi-ai 1.0：空串 + 无 tools 时 createInitialSystemMessage 返 undefined——
     // normalizeContext 原数组透传（不折叠头）。此非折叠路径是 llm 层
-    // buildPiContext「零拷贝直通」唯一可锁位（折叠路径的数组本体在
+    // buildTranscriptContext「零拷贝直通」唯一可锁位（折叠路径的数组本体在
     // provider 边界恒新建、不可观测）——d5aba1e 随迁丢的数组本体锁在此
-    // 恢复：buildPiContext 若改 [...messages] 浅拷贝，逐项 toBe 族全绿、
+    // 恢复：buildTranscriptContext 若改 [...messages] 浅拷贝，逐项 toBe 族全绿、
     // 唯本断言红（sweep22 lock-1 反例实证）
     expect(seen.context.messages).toBe(messages);
     // 形状面：空串不产头部 system message（1.0 折叠的空串退化形——sweep22 lock-2）
@@ -115,7 +115,7 @@ describe('complete：请求面组装与直通', () => {
     // JSDoc 明写 defaults「与 createStreamFn 共用同一份」，而装配面
     // createStreamFn 的 defaults 恰携 { idleTimeoutMs }（conversation-stack
     // :478）——照文档接线即触发，非虚构形。
-    const captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }> = [];
+    const captures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }> = [];
     const { faux, service } = makeService({ defaults: { idleTimeoutMs: 5000 } });
     faux.setResponses([capturing(captures, messageOf('stop'))]);
     const result = await service.complete({ systemPrompt: '', messages: [userMsg('x')] });

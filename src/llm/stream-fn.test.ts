@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt, getCurrentTools } from '@earendil-works/pi-ai';
 import type {
   AssistantMessage as PiAssistantMessage,
-  Context as PiContext,
+  TranscriptContext,
   SimpleStreamOptions,
   SystemMessage,
 } from '@earendil-works/pi-ai';
@@ -45,10 +45,10 @@ function makeFauxRuntime(providerName = 'faux-test') {
 
 /** 捕获型响应工厂：记录每次调用的 pi-ai 请求面（context/options），恒回固定文本 */
 function capturingFactory(
-  captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }>,
+  captures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }>,
   text = 'ok',
 ) {
-  return (context: PiContext, options: SimpleStreamOptions | undefined) => {
+  return (context: TranscriptContext, options: SimpleStreamOptions | undefined) => {
     captures.push({ context, options });
     return fauxAssistantMessage(text);
   };
@@ -152,7 +152,7 @@ describe('钩子派发段前置查（钩子 handler 内流式调用 → 错误�
 describe('直通与参数组装（超集兼容子集）', () => {
   it('messages 逐项引用相等（零重建）、systemPrompt 折叠头、工具折叠 toolsAdded（pi-ai 1.0 语义）', async () => {
     const { faux, runtime } = makeFauxRuntime();
-    const captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }> = [];
+    const captures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }> = [];
     faux.setResponses([capturingFactory(captures)]);
     const streamFn = createStreamFn(runtime);
     const messages = [userMsg('你好')];
@@ -186,7 +186,7 @@ describe('直通与参数组装（超集兼容子集）', () => {
 
   it('thinkingLevel → reasoning 映射：非 off 档透传；off/缺省 = undefined（关闭）', async () => {
     const { faux, runtime } = makeFauxRuntime();
-    const captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }> = [];
+    const captures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }> = [];
     faux.setResponses([capturingFactory(captures), capturingFactory(captures), capturingFactory(captures)]);
     const streamFn = createStreamFn(runtime);
     const ctx = simpleContext([userMsg('x')]);
@@ -200,7 +200,7 @@ describe('直通与参数组装（超集兼容子集）', () => {
 
   it('defaults 打底 + apiKey/signal 透传（signal 引用同体）', async () => {
     const { faux, runtime } = makeFauxRuntime();
-    const captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }> = [];
+    const captures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }> = [];
     faux.setResponses([capturingFactory(captures)]);
     const streamFn = createStreamFn(runtime, { temperature: 0.7, maxTokens: 128, timeoutMs: 11111 });
     const controller = new AbortController();

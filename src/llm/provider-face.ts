@@ -6,6 +6,11 @@
  * ctx.llm.registerProvider 入册——不自捆 pi-ai 副本（双实例 = 传输层行为分叉
  * 的温床，03 §3.2「防双实例」纪律）、不自拼 fetch。
  *
+ * pi-ai 1.0 注记（宿主已跨 major，2026-10-08）：确需自扩展裸 api 流实现的
+ * 插件，其流函数收到的 context 是**折叠形 TranscriptContext**（systemPrompt/
+ * tools 折叠进 messages 头部 system message——读提示词/工具请用包公开
+ * getCurrentSystemPrompt/getCurrentTools 重放，勿读已消解的顶层字段）。
+ *
  * 拓扑护栏：本面对象由 host 装配根经 jiti transform 注入插件模块说明符
  * `berry-agent/llm`——pi-ai 裸导入纪律（仅 llm 模块）因此不破，模块 DAG 不变。
  */
