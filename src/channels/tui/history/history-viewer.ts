@@ -106,6 +106,25 @@ function isPlainKey(e: InputEvent & { kind: 'key' }, key: string): boolean {
 }
 
 /**
+ * 长度保形小写（挖掘 28 轮 [5]）：搜索比对副本与原文逐 UTF-16 下标对齐的
+ * 保证——变长小写字（İ U+0130 → i+U+0307，1 码元→2）使小写副本坐标
+ * indexOf 的匹配区间在原文坐标消费时右漂（高亮/跳转同漂）。等长全串快路
+ * （长度不变的串与全串 toLowerCase 逐字节等价——希腊尾 sigma 语境归一等
+ * 全保留）+ 变长串逐码点保形回退（变长位保原字——诚实 miss 优于坐标漂
+ * 移；查询同源保形，İ 查询照匹配 İ 原字）。
+ */
+function lowercaseAligned(text: string): string {
+  const full = text.toLowerCase();
+  if (full.length === text.length) return full;
+  let out = '';
+  for (const ch of text) {
+    const lower = ch.toLowerCase();
+    out += lower.length === ch.length ? lower : ch;
+  }
+  return out;
+}
+
+/**
  * 回看器内容件：ScrollView 子类（滚动/折叠/偏移算术继承）+ OverlayContent
  * （副屏 root——render 直收全屏 region，量高不经布局路）。
  */
@@ -156,8 +175,9 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     }
     this.styledLines = styled;
     // 小写副本构造期预算（搜索比对单源——击键只走 indexOf 比对，不对静态行集
-    // 逐行重铸小写串；保形：与「每次 toLowerCase」输出逐字节等价）
-    this.plainLowerLines = styled.map((line) => line.plain.toLowerCase());
+    // 逐行重铸小写串；长度保形：与原文逐下标对齐——İ 等变长小写字不破匹配
+    // 坐标系，见 lowercaseAligned）
+    this.plainLowerLines = styled.map((line) => lowercaseAligned(line.plain));
     super.setLines(styled.map((line) => line.plain)); // 开屏贴尾（follow 初始 true）
     this.searchEditor = new Editor({
       maxVisibleLines: 1, // 单行档——搜索框
@@ -441,7 +461,7 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     const query = this.searchEditor.getText();
     const found: MatchSpan[] = [];
     if (query !== '') {
-      const q = query.toLowerCase();
+      const q = lowercaseAligned(query);
       for (let i = 0; i < this.plainLowerLines.length; i++) {
         const plain = this.plainLowerLines[i]!;
         let at = plain.indexOf(q);

@@ -242,6 +242,35 @@ describe('回看器搜索（开 / 跳匹配 / 关——件 8 条款锁能力不�
     expect(grid.getCell(1, 0)?.style.inverse).toBeUndefined(); // 匹配外不染
   });
 
+  it('变长小写坐标系对齐（挖掘 28 轮 [5]——修前红：İ 使高亮右漂一列）', () => {
+    // İ（U+0130）toLowerCase 1 码元→2（i+U+0307）——匹配区间在小写副本坐标
+    // indexOf、原文坐标消费，每 İ 右漂一列（高亮/跳转同漂）。修：长度保形
+    // 小写副本（等长全串快路 + 变长逐码点保形回退——变长位保原字，副本与
+    // 原文逐下标对齐；查询同源保形——İ 查询照匹配 İ 原字）
+    const { viewer, render } = rig([...manyUsers(9), userMsg('İ xyz')]); // İ 行唯一含 xyz——首匹配对齐视口顶
+    viewer.handleEvent(key('f', { ctrl: true, shift: true }));
+    for (const ch of ['x', 'y', 'z']) viewer.handleEvent(text(ch));
+    const grid = render();
+    expect(readRow(grid, 0, COLS)).toContain('1/1');
+    // 行位随块间距布局——按内容找 İ 行（不对绝对行号断言）
+    let rowIdx = -1;
+    let row = '';
+    for (let r = 1; r < ROWS - 1; r++) {
+      const candidate = readBody(grid, r);
+      if (candidate.includes('İ')) {
+        rowIdx = r;
+        row = candidate;
+        break;
+      }
+    }
+    expect(row).toBe('› İ xyz');
+    const at = row.indexOf('xyz');
+    expect(grid.getCell(rowIdx, at)?.style.inverse).toBe(true); // x 位反色（修前红锚：undefined——漂至 at+1 起）
+    expect(grid.getCell(rowIdx, at + 1)?.style.inverse).toBe(true);
+    expect(grid.getCell(rowIdx, at + 2)?.style.inverse).toBe(true);
+    expect(grid.getCell(rowIdx, at - 1)?.style.inverse).toBeUndefined(); // 匹配外不染
+  });
+
   it('不区分大小写匹配', () => {
     const { viewer, render } = searchRig();
     viewer.handleEvent(key('f', { ctrl: true, shift: true }));
