@@ -1595,10 +1595,14 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // 焦点切达；删非聚焦焦点不动。判据 = channels.focusedId 空悬（非比对被删
     // id——编排②步 unregisterSession 删聚焦者时已把 focusedId 清 null，闭包内
     // 比对恒假不可用；他者聚焦〔非空〕即跳过）。「删非聚焦时焦点本就空悬」的
-    // 理论不可达边：channels.unregisterSession 生产消费位唯本编排（删聚焦者恒
-    // 复焦），openStartupSession 恒产会话恒复焦。
+    // headless 边（挖掘 27 轮 [10]）：focus 生产位 4 处全 TUI 路径（assembly
+    // rewind adopt / tui-entry /new / tui-entry 启动 / seam 自身）——headless
+    // 下 focusedId===null 是从未聚焦常态而非「刚被清」，旧判据误触
+    // openStartupSessionFor 自动开新 + 焦点凭空切达。升格「曾有焦点」显式位
+    // （focus 首调置位永不清）：从未聚焦零复焦零开新，曾聚焦后的空悬才走复焦。
     onFocusCleared: (_sessionId, workspaceRoot) => {
       if (channels.focusedId !== null) return; // 他者聚焦 = 删非聚焦——焦点不动
+      if (!channels.hasEverFocused) return; // 从未聚焦（headless 常态）——零复焦零开新
       const next = openStartupSessionFor(workspaceRoot);
       void channels.focus(next.sessionId).catch((err: unknown) => {
         // foldErrorText 单源（挖掘 27 轮 [11]）：focus 拒绝的 BaseError（如

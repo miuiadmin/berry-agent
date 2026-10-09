@@ -72,6 +72,12 @@ export interface ChannelsService<TProjection> {
   isFocused(sessionId: string): boolean;
   /** 当前聚焦会话（null = 焦点空悬） */
   readonly focusedId: string | null;
+  /**
+   * 曾有焦点位（挖掘 27 轮 [10] headless 焦点误判防线）：focus 首调置位
+   * 永不清——消费位区分「从未聚焦」（headless 常态）与「聚焦后被注销」
+   * 须读本位，不能从 focusedId===null 反推「刚被清」。
+   */
+  readonly hasEverFocused: boolean;
 
   /** 活体信封分流入口（conversation 驱动侧 per-run sink 汇入处——按聚焦位路由扇出） */
   emit(env: SessionEnvelope): void;
@@ -449,6 +455,9 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     },
     get focusedId() {
       return registry.focusedId;
+    },
+    get hasEverFocused() {
+      return registry.hasEverFocused;
     },
     emit(env) {
       const focused = registry.isFocused(env.sessionId);

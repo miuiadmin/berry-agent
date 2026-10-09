@@ -3413,6 +3413,26 @@ describe('会话删除编排接线（05 §2.5 定形注②——装配位：chan
     await rt.shutdown();
   });
 
+  it('删会话 headless 焦点误判防线（挖掘 27 轮 [10]——修前红）：从未聚焦零自动开新', async () => {
+    // 修前判据 focusedId===null 即判「删了聚焦会话」——headless 跑法（无 UI
+    // 面；focus 生产位 4 处全 TUI 路径）focusedId 恒 null，删任意会话误触
+    // openStartupSessionFor 自动开新 + 焦点凭空切达（脚本/自动化里凭空多
+    // 会话）。修：判据升格「曾有焦点」显式位（focus 首调置位永不清）——
+    // 从未聚焦即删会话零复焦零开新（诚实边界；TUI 曾聚焦复焦路照走）
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { stack } = rigStack(rt, { workspace: () => ws });
+    const a = await seedOpenStack(rt, stack, ws);
+    const before = stack.sessionView.listSessions();
+    expect(before.length).toBe(1);
+    const result = await stack.manager.deleteSession(a);
+    expect(result).toEqual({ status: 'deleted' });
+    expect(stack.channels.focusedId).toBeNull(); // 零复焦（修前红锚：新会话 id）
+    expect(stack.channels.hasEverFocused).toBe(false); // 从未聚焦位如实
+    expect(stack.sessionView.listSessions()).toHaveLength(0); // 零自动开新（修前：删 1 开 1 净 1）
+    await rt.shutdown();
+  });
+
   it('删聚焦会话：openStartupSession 缺省策略复用——cwd 归一根最新续接 + 焦点切达', async () => {
     const { rt } = rigRuntime();
     const ws = rigWorkspace();

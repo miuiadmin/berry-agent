@@ -13,6 +13,8 @@
 export class SessionChannels<TProjection> {
   private readonly sessions = new Set<string>();
   private currentFocus: string | null = null;
+  /** 曾有焦点位（挖掘 27 轮 [10] headless 焦点误判防线）：focus 首调置位永不清 */
+  private everFocused = false;
 
   constructor(
     private readonly fetchProjection: ((sessionId: string) => Promise<readonly TProjection[]>) | undefined,
@@ -35,6 +37,15 @@ export class SessionChannels<TProjection> {
     return this.currentFocus;
   }
 
+  /**
+   * 曾有焦点位读取（挖掘 27 轮 [10]）：headless（focus 生产位全在 TUI 路径）
+   * 下 focusedId===null 是常态而非「刚被清」——消费位区分「从未聚焦」与
+   * 「聚焦后被注销」须读本位，不能从 focusedId 反推。
+   */
+  get hasEverFocused(): boolean {
+    return this.everFocused;
+  }
+
   isFocused(sessionId: string): boolean {
     return this.currentFocus === sessionId;
   }
@@ -53,6 +64,9 @@ export class SessionChannels<TProjection> {
   async focus(sessionId: string): Promise<void> {
     this.registerSession(sessionId);
     this.currentFocus = sessionId;
+    // 曾有焦点位置位（永不清——注销只清 currentFocus 不清本位）：headless
+    // 焦点误判防线的真源（见 hasEverFocused 注释）
+    this.everFocused = true;
     const projection = await (this.fetchProjection?.(sessionId) ?? []);
     // 焦点可能在拉投影期间被再切（快速切焦）——只为本焦点落画（迟到的旧画弃）
     if (this.currentFocus === sessionId) {
