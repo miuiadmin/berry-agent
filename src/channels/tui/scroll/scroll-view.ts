@@ -300,9 +300,14 @@ export class ScrollView implements Renderable {
     return map;
   }
 
-  /** 以已知折宽即时夹取（显式滚动 / 尾随贴尾的收口路——渲染后缓存命中零成本） */
+  /** 以呈现口径即时夹取（显式滚动 / 尾随贴尾的收口路——渲染后缓存命中零成本） */
   private clampNow(): void {
-    const map = this.visualMap(this.lastWidth, false);
+    // 两遍折叠同 render/scrollToLine 判溢出（挖掘 26 轮 [1]）：maxOffset 须按
+    // 溢出档让列折宽的呈现口径算——全宽口径在两档折行数分歧（CJK 恰满宽行等）
+    // 时低夹一档，带内偏移经显式滚动不可达（↑ 视觉无效 + 错误复随跳底 +
+    // scrollToLine 带内落点被夹回贴尾脱屏）
+    let map = this.visualMap(this.lastWidth, false);
+    if (map.length > this.viewportHeight) map = this.visualMap(this.lastWidth, true);
     this.clampOffset(map, this.viewportHeight);
   }
 

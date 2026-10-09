@@ -235,6 +235,57 @@ describe('ScrollView scrollToLine（批 10f-4——回看器搜索跳转消费�
   });
 });
 
+/* ---------------- 显式滚动夹取口径（挖掘 26 轮 [1]——clampNow 分槽勘正） ---------------- */
+
+describe('ScrollView 显式滚动夹取口径（挖掘 26 轮 [1]——即时夹取用呈现口径两遍折叠）', () => {
+  /**
+   * H0≠H1 折行行集：'a'×20 @10 列全宽折 2 段、让列折宽 9 折 3 段——双折叠行
+   * 时 H0=2×2+3=7 / H1=3×2+3=9，maxOffset0=4 < maxOffset1=6（10×3 视口），
+   * 带 (4,6) 内偏移在全宽口径下不可达（↑ 视觉无效 + 错误复随 + 跳转贴底）。
+   */
+  const foldLines = ['a'.repeat(20), 'a'.repeat(20), 'b', 'c', 'd'];
+  const renderInto = (view: ScrollView, grid: CellGrid): void => {
+    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
+  };
+
+  it('↑ 单行视觉有效：带内偏移可达 + 破随不误复随（修前红：全宽口径夹回误置 follow）', () => {
+    const view = new ScrollView();
+    view.setLines(foldLines);
+    const grid = new CellGrid(10, 3);
+    renderInto(view, grid); // 贴尾 offset=6（呈现口径 H1）
+    expect(view.scrollOffset).toBe(6);
+    view.handleEvent(key('up')); // ↑ → applyOffset(5)——带内
+    expect(view.scrollOffset).toBe(5); // 修前红：夹回 maxOffset0=4
+    expect(view.isFollowing).toBe(false); // 修前红：4>=maxOffset0 误置复随——下帧贴尾回 6
+    renderInto(view, grid);
+    expect(view.scrollOffset).toBe(5); // 钉住（修前红：follow 贴尾——↑ 视觉无效）
+  });
+
+  it('破随后 setLines 新内容钉住不跳底（头注「上滚破随；再滚到底复随」——修前红：误复随跳底）', () => {
+    const view = new ScrollView();
+    view.setLines(foldLines);
+    const grid = new CellGrid(10, 3);
+    renderInto(view, grid);
+    view.handleEvent(key('up')); // 破随（offset 5）
+    view.setLines([...foldLines, 'e', 'f']); // 回看期新内容到达
+    renderInto(view, grid);
+    expect(view.scrollOffset).toBe(5); // 钉住原位（修前红：误复随贴新尾 8）
+  });
+
+  it('scrollToLine 带内落点不贴底：目标折段对齐视口顶（修前红：夹回 maxOffset0 误复随贴尾脱屏）', () => {
+    const view = new ScrollView();
+    view.setLines(foldLines);
+    const grid = new CellGrid(10, 3);
+    renderInto(view, grid);
+    // 第二逻辑行 col 18 落第三折段（让列折宽 9 段界 [0,9)/[9,18)/[18,20)）→
+    // 视觉行 5——带内 (4,6)
+    view.scrollToLine(1, 18);
+    renderInto(view, grid);
+    expect(view.scrollOffset).toBe(5); // 修前红：夹回 4 误复随贴尾 6
+    expect(readRow(grid, 0, 10)).toBe('aa'); // 目标折段（chars 18-19）在视口顶——修前红：贴尾显 'b'
+  });
+});
+
 /* ---------------- 滚轮（mu-2——07 件 6 条款） ---------------- */
 
 describe('ScrollView 滚轮（mu-2：缺省三视觉行 · 显式滚动路 · 复随判据同键盘）', () => {

@@ -411,14 +411,17 @@ describe('回看器鼠标选区（press 锚定 → motion 扩展 → release 复
   });
 
   it('选区帽 64 KiB：超帽拒复制 + 底行提示常显至选区清除（拖选中滚轮扩选达帽）', () => {
-    // 三条 30000 字符长行（各折 ~770 视觉行）——锚在尾屏、滚到顶再扩焦点，
-    // 中间行全文计入 → 总量 ~87 KiB 越帽（纯视口内拖选受折宽约束达不到帽）
+    // 三条 30000 字符长行（行集经 40 列预折——让列 39 折宽下多数行 39+1 折两
+    // 视觉行，贴尾 offset ≈ 4735）——锚在尾屏、滚到顶再扩焦点，中间行全文
+    // 计入 → 总量 ~87 KiB 越帽（纯视口内拖选受折宽约束达不到帽）。滚轮次数
+    // 取 ⌈4735/3⌉ 上取整的 1600：呈现口径夹取（挖掘 26 轮 [1]）下诚实滚到顶
+    // ——旧全宽夹取首滚即把带内偏移跳夹回半程，800 次够到顶纯靠该 bug。
     const long = (ch: string): AgentMessage => userMsg(ch.repeat(30000));
     const { viewer, copies, render } = rig([long('x'), long('y'), long('z')]);
-    render(); // ~2310 视觉行贴尾
-    viewer.handleEvent(mouse('left', { row: 1, col: 0 }, 'press')); // 锚 = 行 2 尾段列 ~29718
-    for (let i = 0; i < 800; i++) viewer.handleEvent(mouse('wheel-up')); // 滚到顶
-    viewer.handleEvent(mouse('left', { row: 8, col: 3 }, 'motion')); // 焦点 = 行 0 首段列 ~276
+    render(); // 贴尾 offset ≈ 4735
+    viewer.handleEvent(mouse('left', { row: 1, col: 0 }, 'press')); // 锚 = 消息 2 尾段
+    for (let i = 0; i < 1600; i++) viewer.handleEvent(mouse('wheel-up')); // 诚实滚到顶（3 视觉行/次）
+    viewer.handleEvent(mouse('left', { row: 8, col: 3 }, 'motion')); // 焦点 = 消息 0 首段
     viewer.handleEvent(mouse('left', { row: 8, col: 3 }, 'release'));
     expect(copies).toEqual([]); // 超帽拒复制
     expect(readRow(render(), ROWS - 1, COLS)).toContain('选区过大未复制'); // 底行提示
