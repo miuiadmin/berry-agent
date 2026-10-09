@@ -27,7 +27,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
-import { canonicalWorkspaceRoot, EventDispatch, Scope } from '../context/index.js';
+import { canonicalWorkspaceRoot, createLogger, EventDispatch, LogLevelState, Scope } from '../context/index.js';
 import type { Disposer } from '../context/index.js';
 import { createChannels } from '../channels/index.js';
 import type { ChannelsService } from '../channels/index.js';
@@ -539,6 +539,56 @@ export function providerGuidanceForMessageEvent(event: AgentEvent, modelSpec: st
  */
 export function createConversationStack(options: ConversationStackOptions): ConversationStack {
   const warn = options.warn ?? ((message: string) => process.stderr.write(`${message}\n`));
+
+  // provider 观测桩位（04 §3——provider-event-6+pi-7 件 B）：宿主装配位注入的
+  // 只观察回调，stream/complete 两路 defaults 同面（两路同笔——complete 是
+  // compaction/memory/goal 后台件唯一模型面）。debug 行走 leveled logger
+  //（BERRY_AGENT_LOG_LEVEL 单源——缺省 info 下观测行不可见即零配置常开的
+  // 静默形，debug 档全见）。元数据级 only：尺寸/键名/status——值位恒不入
+  //（03 §10.9 模型可见性铁律同向；原始面零 durable 零新词）。回调体第一道
+  // 防线：自持 try/catch+丢账 warn 不静默（llm 域 observationCallbacks 包装
+  // 是第二道——恒返 undefined+故障兜底）。
+  const observeLog = createLogger('host:llm-observe', LogLevelState.fromEnv(process.env.BERRY_AGENT_LOG_LEVEL));
+  const observeModel = (m: { provider: string; id: string }): string => `${m.provider}/${m.id}`;
+  const observationDefaults = {
+    onPayload: (payload: unknown, m: { provider: string; id: string }): void => {
+      try {
+        const bytes = JSON.stringify(payload)?.length ?? 0;
+        const keys =
+          payload !== null && typeof payload === 'object'
+            ? Object.keys(payload as Record<string, unknown>).join(',')
+            : typeof payload;
+        observeLog.debug('provider 观测 onPayload（请求载荷元数据）', { model: observeModel(m), bytes, keys });
+      } catch (error) {
+        observeLog.warn('provider 观测 onPayload 丢账（不静默）', { error: String(error) });
+      }
+    },
+    onResponse: (
+      response: { status: number; headers: Record<string, string> },
+      m: { provider: string; id: string },
+    ): void => {
+      try {
+        observeLog.debug('provider 观测 onResponse（响应终态元数据）', {
+          model: observeModel(m),
+          status: response.status,
+          headerKeys: Object.keys(response.headers ?? {}).join(','),
+        });
+      } catch (error) {
+        observeLog.warn('provider 观测 onResponse 丢账（不静默）', { error: String(error) });
+      }
+    },
+    onProviderStreamEvent: (event: unknown, m: { provider: string; id: string }): void => {
+      try {
+        const type =
+          event !== null && typeof event === 'object' && 'type' in event
+            ? String((event as { type: unknown }).type)
+            : typeof event;
+        observeLog.debug('provider 观测流事件（归一化前）', { model: observeModel(m), eventType: type });
+      } catch (error) {
+        observeLog.warn('provider 观测流事件丢账（不静默）', { error: String(error) });
+      }
+    },
+  };
   // 自定义渠道 env 豁免集（07 §8.4 裁决——env 不合成不供血，绑定行唯一源）
   const customProviderIdSet = new Set(options.customProviderIds ?? []);
   /** env 键名族（自定义渠道豁免形——回空数组 = env 判据恒缺席，绑定行唯一供血判据） */
@@ -686,7 +736,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
 
   const baseStreamFn = createStreamFn(
     llmRuntime,
-    llmIdleTimeoutMs > 0 ? { idleTimeoutMs: llmIdleTimeoutMs } : {},
+    // 观测回调注入（04 §3 provider 观测桩位——两路同笔之一）
+    { ...observationDefaults, ...(llmIdleTimeoutMs > 0 ? { idleTimeoutMs: llmIdleTimeoutMs } : {}) },
     tracker,
     options.hookDispatchGuard,
   );
@@ -694,6 +745,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // 连接级 15s 帽——maxTokens 是 StreamFnDefaults 构造期键非 per-call，专用
   // 工厂是唯一帽支出法；与主链路 baseStreamFn 分立 defaults 不相扰（同一
   // createStreamFn 真供血路形，非第二传输实现）。消费位 probeModelConnectivity。
+  // 探针不注入观测回调：内部诊断面自有产物（连通判定+probe 计量），混入
+  // 观测流即噪音——「观测缺席≠请求未发生」如实条款覆盖（04 §3）。
   const probeStreamFn = createStreamFn(
     llmRuntime,
     { maxTokens: 1, timeoutMs: SETUP_PROBE_TIMEOUT_MS },
@@ -827,6 +880,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   const meteringLogHold = new Map<string, SessionLog>();
   const llm = createLlmService({
     runtime: llmRuntime,
+    // 观测回调注入（04 §3 provider 观测桩位——两路同笔之二：complete 单发路
+    // 是后台件唯一模型面，与 baseStreamFn 同面 defaults）
+    defaults: observationDefaults,
     tracker,
     defaultModel: () => currentModel,
     ...(options.hookDispatchGuard !== undefined ? { hookDispatch: options.hookDispatchGuard } : {}),

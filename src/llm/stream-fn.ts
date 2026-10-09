@@ -78,6 +78,22 @@ export interface StreamFnDefaults {
    * 级、本帽是流中段活性——两帽正交互补。
    */
   idleTimeoutMs?: number;
+  /**
+   * provider 观测桩位三挂点（04 §3 provider 观测桩位——provider-event-6+pi-7
+   * 批）：宿主装配位注入的**只观察**回调（窄面——model 参只见 {provider,id}
+   * 元数据）。组装位统一包装（observationCallbacks）：onPayload 恒返
+   * undefined（pi-ai 替换语义禁用）+三回调故障隔离（第二道防线；回调体
+   * 自持 try/catch+丢账可观测是第一道，04 §3 三律）。原始面零 durable——
+   * 回调体只产元数据级 debug 日志（尺寸/键名/时延，值位恒不入）。三键
+   * 缺省缺席 = 观测面不接（常开指回调注入后 debug 门控归
+   * BERRY_AGENT_LOG_LEVEL 既有面辖）。
+   */
+  onPayload?: (payload: unknown, model: { provider: string; id: string }) => void;
+  onResponse?: (
+    response: { status: number; headers: Record<string, string> },
+    model: { provider: string; id: string },
+  ) => void;
+  onProviderStreamEvent?: (event: unknown, model: { provider: string; id: string }) => void;
 }
 
 /** 零用量（错误合成消息用） */
@@ -239,6 +255,65 @@ export function stripWatchdogDefaults(defaults: StreamFnDefaults): Omit<StreamFn
 }
 
 /**
+ * 观测回调包装（04 §3 provider 观测桩位三律的组装位实现，两出口单源——
+ * stream 路本函数与 complete 单发路 piOptions 组装同用，stripWatchdogDefaults
+ * 同形先例）：pi-ai 钩子原签名带完整 model 参与可替换返回，包装层收紧为
+ * 宿主窄面（{provider,id} 元数据）+恒只读——①onPayload 恒返 undefined
+ * （返回非 undefined 即整替换外发载荷且 anthropic 腿强制 stream:true，
+ * 观测用途禁用；types.d.ts 注释 Return undefined to keep the payload
+ * unchanged 的语义纪律）；②三回调统一 try/catch 兜底（pi-ai 适配器裸
+ * await 派发无局部 try，回调抛错经适配器外层 catch 编码 error 终值
+ * =杀本次请求——本兜底保观测故障零影响；注入方回调体第一道防线仍
+ * 自持）。三回调均缺席时返回空对象——options 零键扩（观测面不接）。
+ */
+export function observationCallbacks(defaults: StreamFnDefaults): {
+  onPayload?: (payload: unknown, model: { provider: string; id: string }) => undefined;
+  onResponse?: (
+    response: { status: number; headers: Record<string, string> },
+    model: { provider: string; id: string },
+  ) => void;
+  onProviderStreamEvent?: (event: unknown, model: { provider: string; id: string }) => void;
+} {
+  const wrapped: {
+    onPayload?: (payload: unknown, model: { provider: string; id: string }) => undefined;
+    onResponse?: (
+      response: { status: number; headers: Record<string, string> },
+      model: { provider: string; id: string },
+    ) => void;
+    onProviderStreamEvent?: (event: unknown, model: { provider: string; id: string }) => void;
+  } = {};
+  if (defaults.onPayload !== undefined) {
+    wrapped.onPayload = (payload, model) => {
+      try {
+        defaults.onPayload?.(payload, model);
+      } catch {
+        // 结构性防线（第二道）：观测故障不杀请求——丢账可观测归注入方第一道
+      }
+      return undefined;
+    };
+  }
+  if (defaults.onResponse !== undefined) {
+    wrapped.onResponse = (response, model) => {
+      try {
+        defaults.onResponse?.(response, model);
+      } catch {
+        // 同上
+      }
+    };
+  }
+  if (defaults.onProviderStreamEvent !== undefined) {
+    wrapped.onProviderStreamEvent = (event, model) => {
+      try {
+        defaults.onProviderStreamEvent?.(event, model);
+      } catch {
+        // 同上
+      }
+    };
+  }
+  return wrapped;
+}
+
+/**
  * defaults 打底 + 具名覆盖 + signal 透传（reasoning 无 'off' 档——undefined 即
  * 关闭）。pi-4 组装单点：渠道声明思考预算经工厂侧 def 注册表查询单点
  * （customThinkingBudgetsFor）进请求级 SimpleStreamOptions.thinkingBudgets
@@ -256,6 +331,8 @@ function buildPiOptions(
   const thinkingBudgets = customThinkingBudgetsFor(model.provider);
   return {
     ...stripWatchdogDefaults(defaults),
+    // 观测包装后置覆盖 spread 的裸回调键（缺省两 spread 均无该键——零扩）
+    ...observationCallbacks(defaults),
     reasoning:
       options.thinkingLevel !== undefined && options.thinkingLevel !== 'off' ? options.thinkingLevel : undefined,
     ...(thinkingBudgets !== undefined ? { thinkingBudgets } : {}),
