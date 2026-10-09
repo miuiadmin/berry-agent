@@ -20,6 +20,9 @@ export { createLlmRuntime, builtinProviderIds, type LlmRuntime, type LlmRuntimeO
 export {
   createCustomChannelProvider,
   CUSTOM_PROVIDER_PROTOCOLS,
+  customCompatProblem,
+  customSamplingParamsByThinkingLevelProblem,
+  customSamplingParamsProblem,
   type CustomProviderDef,
   type CustomProviderProtocol,
   type ResolveCustomProviderKey,

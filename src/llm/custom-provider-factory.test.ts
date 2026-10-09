@@ -8,7 +8,15 @@
  * 元数据 / headers 透传。零网络（lazy api 工厂构造零副作用——流不触）。
  */
 import { describe, expect, it } from 'vitest';
-import { createCustomChannelProvider, fauxProvider, resolveModel, type CustomProviderDef } from './index.js';
+import {
+  createCustomChannelProvider,
+  customCompatProblem,
+  customSamplingParamsByThinkingLevelProblem,
+  customSamplingParamsProblem,
+  fauxProvider,
+  resolveModel,
+  type CustomProviderDef,
+} from './index.js';
 import { createLlmRuntime } from './runtime.js';
 import { BaseError } from '../contracts/index.js';
 
@@ -111,5 +119,183 @@ describe('占位元数据（v1 保守占位——注释定形见工厂常量头�
     // 占位值不共享引用（防未来单条改写污染整批）
     const m2 = provider.getModels()[1]!;
     expect(m2.cost).not.toBe(m.cost);
+  });
+});
+
+describe('pi-8 批：compat/采样参三键注入（Model 级字段——读侧闭集执法后直挂）', () => {
+  it('三键在场直挂 Model；缺席恒 undefined（开面零行为变化）', () => {
+    const def: CustomProviderDef = {
+      protocol: 'openai-completions',
+      baseUrl: 'https://gw.example.test/v1',
+      models: ['model-a'],
+      compat: { supportsStore: true, thinkingFormat: 'zai' },
+      samplingParams: { top_p: 0.9 },
+      samplingParamsByThinkingLevel: { off: { top_k: 5 } },
+    };
+    const provider = createCustomChannelProvider('my-gw', def, () => 'sk-test');
+    const m = provider.getModels()[0]!;
+    expect(m.compat).toEqual({ supportsStore: true, thinkingFormat: 'zai' });
+    expect(m.samplingParams).toEqual({ top_p: 0.9 });
+    expect(m.samplingParamsByThinkingLevel).toEqual({ off: { top_k: 5 } });
+    // 嵌套表深拷贝（内层 Record 不共享引用——防跨渠道条目串写）
+    expect(m.samplingParamsByThinkingLevel?.off).not.toBe(def.samplingParamsByThinkingLevel?.off);
+    // 缺席腿：三字段不设（开面零行为变化——与占位元数据同保守缺省）
+    const bare = createCustomChannelProvider('bare-gw', makeDef('anthropic-messages'), () => 'sk-test');
+    const bm = bare.getModels()[0]!;
+    expect(bm.compat).toBeUndefined();
+    expect(bm.samplingParams).toBeUndefined();
+    expect(bm.samplingParamsByThinkingLevel).toBeUndefined();
+  });
+});
+
+describe('pi-8 批判据单源（customCompatProblem——白名单按协议分家 + 值域 + 依赖执法）', () => {
+  /** anthropic 腿 12 键全好形（全键设值——计数 12 由全键通过隐锁） */
+  const FULL_ANTHROPIC = {
+    supportsEagerToolInputStreaming: true,
+    supportsLongCacheRetention: false,
+    sendSessionAffinityHeaders: true,
+    sessionAffinityFormat: 'openrouter',
+    supportsCacheControlOnTools: true,
+    supportsTemperature: false,
+    forceAdaptiveThinking: true,
+    allowEmptySignature: false,
+    supportsStrictTools: true,
+    supportsMidConvoEffort: false,
+    supportsMidConvoSystemMessages: true,
+    supportsMidConvoToolChanges: true,
+  } as const;
+  /** openai 腿 23 键全好形（枚举键取真值域成员；vllmPriority 数值） */
+  const FULL_OPENAI = {
+    supportsStore: true,
+    supportsDeveloperRole: false,
+    supportsReasoningEffort: true,
+    supportsUsageInStreaming: true,
+    supportsFinishReason: false,
+    maxTokensField: 'max_completion_tokens',
+    requiresToolResultName: true,
+    requiresAssistantAfterToolResult: false,
+    requiresThinkingAsText: true,
+    requiresReasoningContentOnAssistantMessages: false,
+    thinkingFormat: 'zai',
+    zaiToolStream: true,
+    thinkingTokenBudgetField: 'thinking_budget',
+    supportsThinkingTokenBudget: true,
+    supportsOpenAIGrammarTools: false,
+    supportsMidConvoSystemMessages: true,
+    supportsMidConvoToolAdditions: true,
+    supportsStrictMode: true,
+    cacheControlFormat: 'anthropic',
+    sendSessionAffinityHeaders: true,
+    sessionAffinityFormat: 'openai-nosession',
+    supportsLongCacheRetention: false,
+    vllmPriority: 1,
+  } as const;
+
+  it('两腿全键好形零问题（anthropic 12 键 / openai 23 键——计数由全键通过隐锁）', () => {
+    expect(customCompatProblem('anthropic-messages', FULL_ANTHROPIC)).toBeUndefined();
+    expect(customCompatProblem('openai-completions', FULL_OPENAI)).toBeUndefined();
+  });
+
+  it('白名单外键坏形丢条点名（anthropic 腿 allowedFallbackModels / openai 腿嵌套四键）', () => {
+    expect(customCompatProblem('anthropic-messages', { allowedFallbackModels: [] })).toContain('不被支持');
+    for (const key of ['chatTemplateKwargs', 'chatTemplateArgs', 'openRouterRouting', 'vercelGatewayRouting']) {
+      expect(customCompatProblem('openai-completions', { [key]: {} })).toContain('不被支持');
+    }
+    // 腿分家：anthropic 腿开 openai 腿键 = 未知键（白名单不跨腿）
+    expect(customCompatProblem('anthropic-messages', { supportsStrictMode: true })).toContain('不被支持');
+  });
+
+  it('值域执法：boolean 键拒非布尔 / 枚举键拒越域值 / 数值键拒字符串', () => {
+    expect(customCompatProblem('anthropic-messages', { supportsStrictTools: 'yes' })).toContain('supportsStrictTools');
+    // anthropic 腿 sessionAffinityFormat 单值闭集——openai 腿三值 'openai' 在此越域
+    expect(customCompatProblem('anthropic-messages', { sessionAffinityFormat: 'openai' })).toContain(
+      'sessionAffinityFormat',
+    );
+    expect(customCompatProblem('openai-completions', { thinkingFormat: 'not-a-format' })).toContain('thinkingFormat');
+    expect(customCompatProblem('openai-completions', { vllmPriority: 'high' })).toContain('vllmPriority');
+  });
+
+  it('ToolChanges/ToolAdditions 单开依赖违例（两腿同形执法——齐开即好形）', () => {
+    // anthropic 腿：ToolChanges 单开 = 静默 no-op → 坏形丢条点名
+    expect(customCompatProblem('anthropic-messages', { supportsMidConvoToolChanges: true })).toContain(
+      'supportsMidConvoToolChanges 需与 supportsMidConvoSystemMessages 同时开启',
+    );
+    // openai 腿对称件：ToolAdditions 单开同形
+    expect(customCompatProblem('openai-completions', { supportsMidConvoToolAdditions: true })).toContain(
+      'supportsMidConvoToolAdditions 需与 supportsMidConvoSystemMessages 同时开启',
+    );
+    // 齐开 = 好形（依赖满足——pi-3 件 B 原位增量块的联动开关）
+    expect(
+      customCompatProblem('anthropic-messages', {
+        supportsMidConvoSystemMessages: true,
+        supportsMidConvoToolChanges: true,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('非对象形坏形点名', () => {
+    expect(customCompatProblem('anthropic-messages', 'yes')).toContain('compat 须为对象');
+    expect(customCompatProblem('openai-completions', [1])).toContain('compat 须为对象');
+  });
+});
+
+describe('pi-8 批判据单源（采样参两函数——黑名单 25 键 + 标量 + 档位 off 闭集）', () => {
+  /** 黑名单 25 键全集（= pi-ai buildParams 具名赋位测绘闭集——升级随迁重测绘） */
+  const FORBIDDEN_25 = [
+    'model',
+    'messages',
+    'stream',
+    'stream_options',
+    'store',
+    'prompt_cache_key',
+    'prompt_cache_retention',
+    'max_tokens',
+    'max_completion_tokens',
+    'temperature',
+    'tools',
+    'tool_stream',
+    'tool_choice',
+    'priority',
+    'enable_thinking',
+    'reasoning_effort',
+    'reasoning',
+    'thinking',
+    'chat_template_kwargs',
+    'chat_template_args',
+    'provider',
+    'providerOptions',
+    'thinking_token_budget',
+    'thinking_budget',
+    'thinking_budget_tokens',
+  ] as const;
+
+  it('黑名单 25 键逐键恒拒（预算护栏旁路面——samplingParams 尾段 Object.assign 覆盖一切具名位）', () => {
+    expect(FORBIDDEN_25).toHaveLength(25); // 全集计数锁（防例示截取）
+    for (const key of FORBIDDEN_25) {
+      expect(customSamplingParamsProblem({ [key]: 1 })).toContain(`键「${key}」不允许`);
+    }
+  });
+
+  it('自由键好形（string/number/boolean 标量）+ 非标量值拒（防结构注入）', () => {
+    expect(customSamplingParamsProblem({ top_p: 0.9, top_k: 5, frequency_penalty: 0.1, seed: 42 })).toBeUndefined();
+    expect(customSamplingParamsProblem({ presence_penalty: true })).toBeUndefined();
+    expect(customSamplingParamsProblem({ custom_flag: 'yes' })).toBeUndefined();
+    expect(customSamplingParamsProblem({ nested: { a: 1 } })).toContain('JSON 标量');
+    expect(customSamplingParamsProblem({ arr: [1] })).toContain('JSON 标量');
+    expect(customSamplingParamsProblem({ nil: null })).toContain('JSON 标量');
+  });
+
+  it('按档表：档位键 off 闭集（reasoning:false 占位门）+ 叶值内外两层同执法', () => {
+    expect(customSamplingParamsByThinkingLevelProblem({ off: { top_p: 0.9 } })).toBeUndefined();
+    // 非 off 档位键 = 永不命中的静默死键类——诚实律拒（reasoning 升格批扩值域）
+    expect(customSamplingParamsByThinkingLevelProblem({ low: { top_p: 0.9 } })).toContain('档「low」不支持');
+    // 叶值同黑名单+标量两判据（内外两层同执法）
+    expect(customSamplingParamsByThinkingLevelProblem({ off: { max_tokens: 999 } })).toContain(
+      'samplingParamsByThinkingLevel.off 键「max_tokens」不允许',
+    );
+    expect(customSamplingParamsByThinkingLevelProblem({ off: { nested: {} } })).toContain(
+      'samplingParamsByThinkingLevel.off.nested 值须为 JSON 标量',
+    );
+    expect(customSamplingParamsByThinkingLevelProblem('nope')).toContain('须为对象');
   });
 });

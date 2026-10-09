@@ -371,6 +371,94 @@ describe('customProviders 第五键（2026-09-28 模型渠道批 C-1——条目
     writeHostSettings(dir, { customProviders: GOOD });
     expect(existsSync(join(dir, SETTINGS_BASENAME))).toBe(true);
   });
+
+  it('pi-8 批：三键好形读入通过（openai 腿 compat+采样参两键全好形——读侧闭集执法不误伤）', () => {
+    const dir = tmpDir('settings-pi8-good-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          'oa-full': {
+            protocol: 'openai-completions',
+            baseUrl: 'https://b.example.test/v1',
+            models: ['g1'],
+            compat: { supportsStore: true, thinkingFormat: 'zai', sessionAffinityFormat: 'openai' },
+            samplingParams: { top_p: 0.9 },
+            samplingParamsByThinkingLevel: { off: { top_k: 5 } },
+          },
+        },
+      }),
+    );
+    const load = readHostSettings(dir);
+    expect(load.settings.customProviders?.['oa-full']?.compat).toEqual({
+      supportsStore: true,
+      thinkingFormat: 'zai',
+      sessionAffinityFormat: 'openai',
+    });
+    expect(load.settings.customProviders?.['oa-full']?.samplingParams).toEqual({ top_p: 0.9 });
+    expect(load.settings.customProviders?.['oa-full']?.samplingParamsByThinkingLevel).toEqual({ off: { top_k: 5 } });
+  });
+
+  it('pi-8 批闭集执法：未知条目键 / 未白名单 compat 键 / 黑名单采样键 / 非 off 档位键全坏形丢条点名', () => {
+    const dir = tmpDir('settings-pi8-closed-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          'ok-gw': GOOD['my-gw'],
+          'extra-key': { ...GOOD['oa-gw'], whoops: 1 }, // 条目级未知键（修前：放行幸存=纯静默死键）
+          'compat-stray': { ...GOOD['my-gw'], compat: { allowedFallbackModels: [] } }, // 白名单外 compat 键
+          'sam-black': { ...GOOD['oa-gw'], samplingParams: { max_tokens: 999 } }, // 黑名单键（护栏旁路面）
+          'level-stray': { ...GOOD['oa-gw'], samplingParamsByThinkingLevel: { low: { top_p: 0.9 } } }, // 非 off 档位键
+        },
+      }),
+    );
+    const { warnings, warn } = captureWarn();
+    const load = readHostSettings(dir, { warn });
+    expect(load.settings.customProviders).toEqual({ 'ok-gw': GOOD['my-gw'] });
+    expect(warnings.some((w) => w.includes('customProviders.extra-key 坏形'))).toBe(true);
+    expect(warnings.some((w) => w.includes('未知键「whoops」'))).toBe(true);
+    expect(warnings.some((w) => w.includes('键「allowedFallbackModels」不被支持'))).toBe(true);
+    expect(warnings.some((w) => w.includes('键「max_tokens」不允许'))).toBe(true);
+    expect(warnings.some((w) => w.includes('档「low」不支持'))).toBe(true);
+  });
+
+  it('pi-8 批：anthropic 腿采样参两键拒声明（上游忽略零效果——诚实律）+ ToolChanges 单开丢条', () => {
+    const dir = tmpDir('settings-pi8-anthro-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          'sam-anthro': { ...GOOD['my-gw'], samplingParams: { top_p: 0.9 } }, // anthropic 腿声明采样参
+          'tc-solo': { ...GOOD['my-gw'], compat: { supportsMidConvoToolChanges: true } }, // 依赖违例单开
+        },
+      }),
+    );
+    const { warnings, warn } = captureWarn();
+    const load = readHostSettings(dir, { warn });
+    expect(load.settings.customProviders).toEqual({});
+    expect(warnings.some((w) => w.includes('设置无效'))).toBe(true);
+    expect(
+      warnings.some((w) => w.includes('supportsMidConvoToolChanges 需与 supportsMidConvoSystemMessages 同时开启')),
+    ).toBe(true);
+  });
+
+  it('pi-8 批破坏性收紧回归锁：既有档含未知键条目从「渠道可用」翻「整条丢点名」（有意收紧——boot warn 指路手编修复）', () => {
+    const dir = tmpDir('settings-pi8-tighten-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          // 修前此条「渠道可用但额外键无效」（未知键放行）；本批起整条丢
+          legacy: { protocol: 'openai-completions', baseUrl: 'https://x.test/v1', models: ['m'], legacyFlag: true },
+        },
+      }),
+    );
+    const { warnings, warn } = captureWarn();
+    const load = readHostSettings(dir, { warn });
+    expect(load.settings.customProviders).toEqual({}); // 整条丢——渠道不可用（fail-loud 优先）
+    expect(warnings.some((w) => w.includes('未知键「legacyFlag」'))).toBe(true);
+  });
 });
 
 describe('readRawCustomProviders（#2 前半——写侧合并基单源：原始文件原样供料，04 §9 ⑥ 2026-09-29 笔）', () => {

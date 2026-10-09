@@ -573,6 +573,15 @@ async function customFormLeg(
       baseUrl,
       models,
       ...(headers !== undefined ? { headers } : {}),
+      // pi-8 批向导编辑腿透传律（04 §9 ⑥ pi-8 批注）：v1 向导不开采集步
+      // （compat 白名单/采样参自由形均手编 settings 面），但编辑保存必透传
+      // 新三键——「向导编辑保存即静默清除手编键」是 R-3 name 丢键先例 bug
+      // 族的复发面，透传是防丢键义务非 UX 扩展
+      ...(existing?.def.compat !== undefined ? { compat: existing.def.compat } : {}),
+      ...(existing?.def.samplingParams !== undefined ? { samplingParams: existing.def.samplingParams } : {}),
+      ...(existing?.def.samplingParamsByThinkingLevel !== undefined
+        ? { samplingParamsByThinkingLevel: existing.def.samplingParamsByThinkingLevel }
+        : {}),
     },
     apiKey,
     isNew: existing === undefined,

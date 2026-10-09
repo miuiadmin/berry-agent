@@ -43,8 +43,13 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path';
 
 import { isValidCustomThemeName, type ThemeSetting } from '../channels/index.js';
-import type { CustomProviderDef } from '../llm/index.js';
-import { CUSTOM_PROVIDER_PROTOCOLS } from '../llm/index.js';
+import {
+  CUSTOM_PROVIDER_PROTOCOLS,
+  customCompatProblem,
+  customSamplingParamsByThinkingLevelProblem,
+  customSamplingParamsProblem,
+} from '../llm/index.js';
+import type { CustomProviderDef, CustomProviderProtocol } from '../llm/index.js';
 import type { ApprovalPolicyMode, SandboxMode } from '../safety/index.js';
 
 /** 配置文件名（数据目录单段——04 §9 ⑥「本批定名」） */
@@ -100,6 +105,22 @@ const THEME_SETTINGS: readonly string[] = ['dark', 'light', 'auto'];
 export const CUSTOM_CHANNEL_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
 
 /**
+ * customProviders 条目键闭集（pi-8 批——8 键；真源 = llm 域 CustomProviderDef
+ * 字段面）：未知键坏形丢条点名（镜像校验彻底化——原「放行幸存」系静默死键
+ * bug 形收口）。
+ */
+const CUSTOM_PROVIDER_ENTRY_KEYS: ReadonlySet<string> = new Set([
+  'name',
+  'protocol',
+  'baseUrl',
+  'models',
+  'headers',
+  'compat',
+  'samplingParams',
+  'samplingParamsByThinkingLevel',
+]);
+
+/**
  * customProviders 单条目形校验（读侧丢条点名的判据单源）：返回坏形原因
  * （undefined = 好形）。字段集 = llm 域 CustomProviderDef 逐字段镜像校验
  * ——models 空数组放行（先建渠道后补模型的合法中间态），元素坏丢整条。
@@ -143,6 +164,38 @@ function customProviderEntryProblem(raw: unknown, protocols: readonly string[]):
       Object.values(def.headers).some((v) => typeof v !== 'string'))
   ) {
     return 'headers 须为 string→string 对象';
+  }
+  // —— pi-8 批闭集执法（04 §9 ⑥ pi-8 批注「条目级闭集执法」：镜像校验彻底化
+  // ——未知键从「放行幸存」改坏形丢条点名；三键判据单源在 llm 域三函数，
+  // pi-ai 知识不出 llm 域；破坏性收紧有意为之——boot warn 指路手编修复） ——
+  // 未知键闭集（8 键）：手编额外键原「读侧过校验+工厂不消费 = 纯静默死键」，本批收口
+  for (const key of Object.keys(def)) {
+    if (!CUSTOM_PROVIDER_ENTRY_KEYS.has(key)) {
+      return `未知键「${key}」（customProviders 条目仅认 8 个键）——丢该条`;
+    }
+  }
+  if (def.compat !== undefined) {
+    // protocol 运行时已由上方 protocols.includes 校验背书——as 收口仅类型面
+    const problem = customCompatProblem(def.protocol as CustomProviderProtocol, def.compat);
+    if (problem !== undefined) return problem;
+  }
+  if (def.samplingParams !== undefined || def.samplingParamsByThinkingLevel !== undefined) {
+    // anthropic 腿上游忽略采样参（pi-ai 明言 Only applied by OpenAI-compatible
+    // adapters）——声明零效果，诚实律拒（防用户误解「已生效」）
+    if (def.protocol === 'anthropic-messages') {
+      if (def.samplingParams !== undefined) {
+        return 'samplingParams 不被 anthropic-messages 协议支持（上游忽略——设置无效）';
+      }
+      return 'samplingParamsByThinkingLevel 不被 anthropic-messages 协议支持（上游忽略——设置无效）';
+    }
+    if (def.samplingParams !== undefined) {
+      const problem = customSamplingParamsProblem(def.samplingParams);
+      if (problem !== undefined) return problem;
+    }
+    if (def.samplingParamsByThinkingLevel !== undefined) {
+      const problem = customSamplingParamsByThinkingLevelProblem(def.samplingParamsByThinkingLevel);
+      if (problem !== undefined) return problem;
+    }
   }
   return undefined;
 }

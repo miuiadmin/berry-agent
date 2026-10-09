@@ -536,6 +536,31 @@ describe('runSetupWizard 既有自定义渠道（编辑重入 / 删除）', () =
     expect(log.savedChannels[0]?.def.models).toEqual(['old-a', 'old-b']);
   });
 
+  it('pi-8 批透传律：编辑保存透传 compat/采样参三键（防「向导编辑保存即静默清除手编键」——R-3 name 丢键先例 bug 族）', async () => {
+    // 修前红主证：draft 构造只透传 name/headers——三键手编值在编辑保存后静默消失
+    const existing: CustomProviderDef = {
+      ...EXISTING,
+      compat: { supportsStore: true, thinkingFormat: 'zai' },
+      samplingParams: { top_p: 0.9 },
+      samplingParamsByThinkingLevel: { off: { top_k: 5 } },
+    };
+    const { prompter } = makePrompter({
+      select: ['custom:my-gw', '__entry_edit__', 'openai-completions', '__models_manual__'],
+      text: ['', '', 'new-a'],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = makeDeps(prompter, {
+      customChannels: { 'my-gw': existing },
+      currentApiKeyOf: () => 'sk-gw-current',
+    });
+    await runSetupWizard(deps);
+    expect(log.savedChannels[0]?.def.compat).toEqual({ supportsStore: true, thinkingFormat: 'zai' });
+    expect(log.savedChannels[0]?.def.samplingParams).toEqual({ top_p: 0.9 });
+    expect(log.savedChannels[0]?.def.samplingParamsByThinkingLevel).toEqual({ off: { top_k: 5 } });
+    // 活注册腿同透传（confirmAndSaveCustom 直接消费 draft.def——单点透传全链同面）
+    expect(log.registered[0]?.def.samplingParams).toEqual({ top_p: 0.9 });
+  });
+
   it('删除：confirm 缺省否 + 拒 → 零删；允 → 写序（凭证行先、settings 后）', async () => {
     // 拒路
     const rejected = makePrompter({ select: ['custom:my-gw', '__entry_delete__'], confirm: [false] });
