@@ -473,7 +473,10 @@ export class InputDecoder {
     this.csiBuf = '';
     this.csiPoisoned = false;
     this.pasteBuf = '';
-    this.pendingPasteTail = '';
+    // 悬置尾保留（挖掘 28 轮 [6]）：tail 值域按构造恒为 PASTE_END 真前缀
+    // （≤5 字节非粘贴体）——吸收态唯一出口靠下 chunk 与 tail 拼回命中真终
+    // 界；此处清尾使跨 chunk 劈分的终界后半永远拼不齐 → 吸收态吞尽此后
+    // 全部键盘输入（再粘贴一次才可自愈且该次内容也被吞）。保留零泄漏。
     this.textRun = '';
     this.escPendingAt = null;
     this.preedit = null;
@@ -802,7 +805,9 @@ export class InputDecoder {
     if (this.pasteBuf.length > PASTE_CAP) {
       const text = this.pasteBuf;
       this.pasteBuf = '';
-      this.pendingPasteTail = ''; // 悬置尾同弃（已离粘贴态——半截终界无意义）
+      // 悬置尾保留（挖掘 28 轮 [6]）：吸收态出口必需的拼接材料——旧注
+      // 「半截终界无意义」恰是错误论据，劈 chunk 的终界后半在下 chunk 到
+      // 齐时须靠 tail 拼回才能命中真终界回地面（清尾 = 吸收态吞尽键盘）
       this.mode = 'paste-drain';
       if (text.length > 0) this.queue.push({ kind: 'paste', text });
     }

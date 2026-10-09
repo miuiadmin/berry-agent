@@ -457,6 +457,28 @@ describe('bracketed paste（整段交付 + 跨 chunk 终界悬置）', () => {
     decoder.feed('tial\x1b[201~ok'); // 残余到真终界全吞、'ok' 正常解
     expect(decoder.take()).toEqual([{ kind: 'text', text: 'ok' }]);
   });
+
+  it('换防劈终界形：悬置尾保留——吸收态出口不被孤儿化（挖掘 28 轮 [6]——修前红：此后全部键盘输入吞尽）', () => {
+    const decoder = new InputDecoder();
+    decoder.feed('\x1b[200~body\x1b[20'); // 终界劈 chunk：尾 '\x1b[20'（终界真前缀）悬置
+    expect(decoder.take()).toEqual([]); // paste 体在途——零事件
+    decoder.discardPending(); // 换防——粘贴体半截被弃、态转吸收（悬置尾须保留）
+    decoder.feed('1~ok\r'); // 终界后半到齐：tail 拼回命中真终界 → 吸收态出口 → 地面续解
+    // 修前红锚：discardPending 清悬置尾 → '\x1b[201~' 永不拼回 → 吸收态吞尽
+    // 此后全部键盘输入（take() == [] 锁死——再粘贴一次才可自愈且该次内容也被吞）
+    expect(decoder.take()).toEqual([{ kind: 'text', text: 'ok' }, key('enter')]);
+  });
+
+  it('超帽冲刷劈终界形：悬置尾保留——吸收态出口不被孤儿化（挖掘 28 轮 [6]）', () => {
+    const decoder = new InputDecoder();
+    const big = 'a'.repeat(4 * 1024 * 1024 + 1);
+    decoder.feed(`\x1b[200~${big}\x1b[20`); // 超帽冲刷转吸收态 + 终界劈 chunk 悬置
+    expect(decoder.take()).toEqual([{ kind: 'paste', text: big }]);
+    decoder.feed('1~ok\r'); // 终界后半到齐拼回 → 吸收态出口 → 地面续解
+    // 修前红锚：enforcePasteCap 清悬置尾（旧注「半截终界无意义」恰是错误论据
+    // ——半截终界正是吸收态出口必需的拼接材料）→ 同上吞尽锁死
+    expect(decoder.take()).toEqual([{ kind: 'text', text: 'ok' }, key('enter')]);
+  });
 });
 
 describe('畸形流防御（宁丢不错）', () => {
