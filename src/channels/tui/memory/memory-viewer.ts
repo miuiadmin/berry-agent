@@ -417,9 +417,13 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
       // enter 族含 alt 修饰（挖掘 26 轮 [3]）+ 册驱动升格（挖掘 27 轮 [5]/[6]）：
       // 册内 submit/queue-followup 命中（出厂 enter/alt+enter 与改键面习惯提交
       // 键同义——修前字面拦截对改键盲视，穿透命中 handleSubmit 全清取文静默
-      // 丢已输路径）归并执行导出
+      // 丢已输路径）或字面 enter 回退（挖掘 28 轮 [4]：submit 改键后 plain
+      // enter 册内三动作皆不中成死键——/history 同景同形补齐）归并执行导出；
+      // shift 排除——shift+enter 仍归编辑器换行语义位（记名拍板 5fb5ba6）
       if (k !== null && k.phase !== 'release') {
-        if (this.keymap.actionMatches(k, 'editor.submit') || this.keymap.actionMatches(k, 'editor.queue-followup')) {
+        const confirmHit =
+          this.keymap.actionMatches(k, 'editor.submit') || this.keymap.actionMatches(k, 'editor.queue-followup');
+        if (confirmHit || (k.key === 'enter' && !k.ctrl && !k.meta && !k.shift)) {
           void this.runExport();
           return true;
         }

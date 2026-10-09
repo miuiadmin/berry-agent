@@ -510,6 +510,28 @@ describe('e 导出输入行（/memory-export 真身同一函数——argv 切分
     expect(readRow(r.render(), ROWS - 1)).toContain('已导出 2 条'); // 回执呈现（修前路径被清）
   });
 
+  it('字面 enter 回退（挖掘 28 轮 [4]——修前红）：submit 改键后 plain enter 不死键', async () => {
+    // Slack 形改键（editor.submit→ctrl+enter）后 plain enter 册内三动作皆不
+    // 中（submit 已挪/new-line 出厂 ctrl+j/queue-followup 出厂 alt+enter）——
+    // 修前穿透入 exportEditor 死键零执行（/history 同景仍有字面回退跳匹配
+    // ——不对称）。修：与 history-viewer 同形补字面回退（!ctrl/!meta/!shift
+    // ——shift+enter 仍归编辑器换行语义位，记名拍板 5fb5ba6 不动）
+    const exportCalls: (readonly string[])[] = [];
+    const r = rig(basicRows(), {
+      exportImpl: (argv) => {
+        exportCalls.push(argv);
+        return Promise.resolve('已导出 2 条\n路径：mem.md');
+      },
+      keybindings: { 'editor.submit': 'ctrl+enter' },
+    });
+    r.viewer.handleEvent(text('e'));
+    type(r.viewer, '--out mem.md');
+    r.viewer.handleEvent(key('enter'));
+    await tick();
+    expect(exportCalls).toEqual([['--out', 'mem.md']]); // 修前红锚：[]——死键零调用
+    expect(readRow(r.render(), ROWS - 1)).toContain('已导出 2 条'); // 回执呈现
+  });
+
   it('导出异常折底行（无 code 形走 message 直呈）', async () => {
     const r = rig(basicRows(), { exportImpl: () => Promise.reject(new Error('导出失败：目标目录不可写')) });
     r.viewer.handleEvent(text('e'));
