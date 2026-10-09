@@ -98,6 +98,19 @@ describe('legacy 轨：C0 控制码与功能键', () => {
     expect(decoder.take()).toEqual([key('up')]);
   });
 
+  it('SS3 态 C0/DEL 查表未中：i 不进回地面重解（挖掘 28 轮 [9]——修前红：alt+O 驻留后 enter 静默吞）', () => {
+    // legacy 轨 alt+O（\x1bO）驻留 ss3 态后 enter/backspace/tab 到达——修前
+    // 任意字节无条件当终点消费（LETTER_KEYS 只有大写 A-S 位）查表必空静默
+    // 吞；修后 C0/DEL 未中回地面态重解，用户本能键如实落地
+    const decoder = new InputDecoder();
+    decoder.feed('\x1bO');
+    decoder.feed('\r');
+    expect(decoder.take()).toEqual([key('enter')]); // 修前红锚：[]——\r 被当终点消费
+    decoder.feed('\x1bO');
+    decoder.feed('\x7f'); // DEL 同形
+    expect(decoder.take()).toEqual([key('backspace')]);
+  });
+
   it('ESC 后 DEL = legacy alt+backspace（\\x1b\\x7f）——与键位册注册绑定契约一致', () => {
     // option-as-meta 终端（无 kitty 的 macOS Terminal.app 等）alt+backspace
     // 恒 \x1b\x7f 编码；出厂键位册注册该绑定（editor.delete-word-backward
@@ -490,6 +503,36 @@ describe('畸形流防御（宁丢不错）', () => {
     expect(decoder.take()).toEqual([key('enter')]);
   });
 
+  it('csi 态 C0/DEL/ESC 出口收口（挖掘 28 轮 [7]——修前红：alt+[ 驻留后 enter/DEL/新序列起手被吞进参数区）', () => {
+    // alt+[（\x1b[）驻留 csi 态后 C0/DEL 被当参数字节积攒、终点字节到后整序
+    // 丢弃——OSC 态 C0 中止自愈（27 轮 [3]）的不对称黑洞半边；ESC 被吞还
+    // 吞掉后续序列起手（\x1b[A 整序丢弃）。修后 C0/DEL 中止自愈（毒化丢
+    // 弃、当前字节回地面重解 i 不进——ESC 由地面态按新转义起手消费）
+    const decoder = new InputDecoder();
+    decoder.feed('\x1b[');
+    decoder.feed('\r');
+    expect(decoder.take()).toEqual([key('enter')]); // 修前红锚：[]——\r 入参数区
+    decoder.feed('\x1b[');
+    decoder.feed('\x7f'); // DEL 同形
+    expect(decoder.take()).toEqual([key('backspace')]);
+    decoder.feed('\x1b[');
+    decoder.feed('\x1b[A'); // ESC 重解——新序列起手不被吞
+    expect(decoder.take()).toEqual([key('up')]); // 修前红锚：[]——整序被毒化丢弃
+  });
+
+  it('mouse-x10 遇 U+FFFD 保守清零回地面（挖掘 28 轮 [10]——修前红：失步余量吞后续真实按键）', () => {
+    // X10 报文坐标字节（列 ≥96 即 0x80+）非合法 UTF-8——上游解码合并/替换
+    // 成单 U+FFFD 码元后，按解码后单元计数的余量与原始三字节报文失步：修
+    // 前后续真实按键被当余量吞。宁少吞不误吞：遇替换符判整段失步清余量回
+    // 地面。（与 D4② 三形穿透分立：那三条是文本通道保形律——替换符当可打
+    // 印透传；X10 余量是二进制计数域——替换符即原始字节已损的证据）
+    const decoder = new InputDecoder();
+    decoder.feed('\x1b[M �'); // 报文本体零事件（' '=button 位，坐标位替换符=失步）
+    expect(decoder.take()).toEqual([]);
+    decoder.feed('\r'); // 修前红锚：remain 失步未清——enter 被当 X10 余量吞
+    expect(decoder.take()).toEqual([key('enter')]);
+  });
+
   it('地面态 discardPending：解析态全清、续解不坏（地面游程在 feed 尾已恒冲刷）', () => {
     const clock = new FakeClock();
     const decoder = new InputDecoder({ now: clock.now });
@@ -602,6 +645,16 @@ describe('OSC 串（ESC ] data 终结——BEL / ST 两形整串上抛）', () =
     const { osc, events } = runOsc(['\x1b]ab\x1bz']);
     expect(osc).toEqual(['ab']);
     expect(events).toEqual([key('z', { alt: true })]);
+  });
+
+  it('oscEsc 悬置期 C0：回地面重解不伪造 alt+enter（挖掘 28 轮 [8]——修前红：CR 落 esc 态成 alt+enter）', () => {
+    // 主题应答 OSC 的 ST 前半 ESC 悬置后用户 CR 到达——修前 oscEsc 分支排
+    // 在 C0 自愈分支之前，任意非 '\' 字节无条件转 esc 态重解：CR 被 esc 态
+    // 归义 alt+enter（册内 queue-followup 键=幻动作实害）。修后 C0 半边回
+    // 地面态重解成素 enter；ESC 保留 esc 态重解（上测形不破）
+    const { osc, events } = runOsc(['\x1b]ab\x1b', '\r']);
+    expect(osc).toEqual(['ab']); // 截断上抛不变（宁截不留）
+    expect(events).toEqual([key('enter')]); // 修前红锚：[key('enter', { alt: true })]
   });
 
   it('alt 右方括号语义退役：ESC ] 不再产 alt 键（OSC 起始位收编）', () => {

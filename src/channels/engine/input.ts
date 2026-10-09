@@ -293,6 +293,23 @@ export class InputDecoder {
             i++;
             continue;
           }
+          // C0/DEL（含 ESC）非法中止自愈（挖掘 28 轮 [7]）：CSI 参数区合法
+          // 字节仅 0x20-0x3f（终点 0x40-0x7e 已上方分支收）——alt+[
+          // （\x1b[）驻留后 enter/backspace/tab/DEL 被当参数字节积攒、终点
+          // 字节到后整序丢弃；ESC 被吞还吞掉后续序列起手（如迟到箭头
+          // \x1b[A 整序丢弃）。OSC 态 C0 中止自愈（挖掘 27 轮 [3]）同款：
+          // 毒化丢弃不上抛（半截序语义解读无意义）、当前字节回地面态重解
+          //（i 不进——ESC 由地面态按新转义起手消费、C0/DEL 由地面态派发
+          // 用户本能键；不直入 esc 态：迟答防御 ESC-ESC 分支会误配对——
+          // SS3 态 ESC 特判同律）；escPendingAt 清位重记：入态前旧锚已隔
+          // 任意久，沿用会把新挂起判定窗截到零
+          if (cp < 0x20 || cp === 0x7f) {
+            this.csiBuf = '';
+            this.csiPoisoned = false;
+            this.escPendingAt = null;
+            this.mode = 'ground';
+            continue;
+          }
           this.csiBuf += String.fromCodePoint(cp);
           i += cp > 0xffff ? 2 : 1;
           if (this.csiBuf.length > CSI_CAP) {
@@ -322,9 +339,20 @@ export class InputDecoder {
           // SS3 单字母终点（A/B/C/D/E/H/F/P/Q/R/S）
           const key = LETTER_KEYS[String.fromCodePoint(cp)];
           this.escPendingAt = null;
-          if (key) this.emitKey(key, { ...NO_MODS }, 'press');
-          this.mode = 'ground';
-          i++;
+          if (key) {
+            this.emitKey(key, { ...NO_MODS }, 'press');
+            this.mode = 'ground';
+            i++;
+          } else if (cp < 0x20 || cp === 0x7f) {
+            // C0/DEL 未中回地面重解（挖掘 28 轮 [9]）：修前任意字节无条件当
+            // 终点消费——alt+O（\x1bO）驻留后 enter/backspace/tab 被静默吞
+            //（LETTER_KEYS 只有大写 A-S 位）。i 不进——地面态派发本能键；
+            // 其余未中形保持终点消费（SS3 单字母终点后残余无续解语义）
+            this.mode = 'ground';
+          } else {
+            this.mode = 'ground';
+            i++;
+          }
           continue;
         }
         case 'osc': {
@@ -338,6 +366,13 @@ export class InputDecoder {
             if (cp === 0x5c) {
               this.mode = 'ground';
               i++;
+            } else if (cp < 0x20 && cp !== 0x1b) {
+              // C0 半边回地面重解（挖掘 28 轮 [8]）：oscEsc 分支排在体积攒
+              // 期 C0 自愈分支之前——修前任意非 '\' 字节无条件转 esc 态重
+              // 解，CR/LF 变体被 esc 态归义 alt+enter（册内 queue-followup
+              // 键=幻动作实害）；地面态派发素 enter。ESC 保留 esc 态重解
+              //（新转义起手 + ESC-ESC 迟答分支——既有形不破）
+              this.mode = 'ground';
             } else {
               this.mode = 'esc';
             }
@@ -383,6 +418,17 @@ export class InputDecoder {
           // 地面态重解会伪造 text/按键；降级（DECRST）后不再有后续 X10 报文，
           // 吞态必终止
           i++;
+          // U+FFFD 失步自愈（挖掘 28 轮 [10]）：高坐标报文坐标字节（列 ≥96
+          // 即 0x80+）非合法 UTF-8——上游解码合并/替换成单 U+FFFD 码元后，
+          // 按解码后单元计数的余量与原始三字节报文失步（后续真实按键被当
+          // 余量吞）。宁少吞不误吞：替换符即原始字节已损证据——判整段失步
+          // 清余量回地面。（与 D4② 三形穿透分立：那三条是文本通道保形律
+          // ——替换符当可打印透传；本态余量是二进制计数域不当透传）
+          if (cp === 0xfffd) {
+            this.mouseX10Remain = 0;
+            this.mode = 'ground';
+            continue;
+          }
           this.mouseX10Remain--;
           if (this.mouseX10Remain <= 0) this.mode = 'ground';
           continue;
