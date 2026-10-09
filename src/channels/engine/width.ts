@@ -269,6 +269,9 @@ function consumeEscapeSequence(text: string, start: number): number {
  * - **CJK 折行禁则（kinsoku，2026-09-20 增）**：折点行首不可为闭合标点
  *   （回送当行末字素下移）、行尾不可悬挂开括号（推下开行）——两规则同一
  *   操作「当行末字素携下移」；回送后新行越帽即放弃硬断（不无限回送）；
+ * - **折点空守卫（幽灵空行防线，挖掘 26 轮 [0]）**：折点落在行首（current
+ *   空——吞空格收笔 / 禁则弹空 / 段首字素越帽）不推空行——foldLine /
+ *   layoutParts 两引擎同律；
  * - **折点空格处理**：折点字素为空格时吞掉不转行、续行行首空格跳过
  *   （段首行缩进保留——与 markdown layoutParts 对齐）；
  * - **源头消毒**：段文本先经 sanitizeDisplayText（tab 展开 / CR 与 ESC
@@ -324,7 +327,10 @@ export function wrapText(text: string, cols: number): string[] {
           carry.unshift(head);
           carryWidth += headW;
         }
-        lines.push(current.join('')); // 当前行满——整字下移开新行（双宽字不悬挂第二列）
+        // 折点空守卫（挖掘 26 轮 [0]）：折点落在行首（current 空——吞空格路
+        // 收笔清空 / 禁则弹丢弹空 / 段首字素即越帽）不推幽灵空行——与 foldLine
+        // （segLen>0）/ layoutParts（current.length>0）两引擎防线同律
+        if (current.length > 0) lines.push(current.join('')); // 当前行满——整字下移开新行（双宽字不悬挂第二列）
         current = carry.length > 0 ? [...carry, g] : [g];
         used = carryWidth + w;
       } else {

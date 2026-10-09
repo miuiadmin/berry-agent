@@ -15,6 +15,9 @@
  * 2026-09-21 TUI 第四役批二再增两律（仍与 wrapText 同律）：
  * - 整字独行——比行宽还宽的字素（width=1 遇双宽字素）开新行整字承载不丢弃；
  * - 禁则回送弹丢空格——被弹空格不入新行行首（空格不是排版内容）。
+ *
+ * 2026-10-10 挖掘 26 轮 [0] 折点空守卫（三引擎同律终齐）：折点把 current
+ * 弹空/收空（禁则弹丢、吞空格收笔、段首字素越帽）不推幽灵空行。
  */
 // 禁则谓词与消毒经 engine 聚合面（index）消费——TUI 第四役残腿收纳
 // （批内注释例注撤除：聚合面已收录，子目录直达形不复存在）
@@ -126,7 +129,10 @@ export function layoutParts(parts: readonly StylePart[], width: number): StyledG
           carry.unshift(head);
           carryWidth += headW;
         }
-        rows.push(current);
+        // 折点空守卫（挖掘 26 轮 [0]——与 wrapText 折点空守卫同律）：禁则弹丢/
+        // 回送把 current 弹空时不推幽灵空行（对拍锁『a 。』形实证：段首弹丢
+        // 全部字素后空行占位）
+        if (current.length > 0) rows.push(current);
         openRow();
         for (const c of carry) {
           current.push(c); // 回送图素回填新行头（宽度账同步）

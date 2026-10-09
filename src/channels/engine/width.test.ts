@@ -151,6 +151,17 @@ describe('TUI 第四役批二（tab 记宽 / 段尾尾推守卫 / 禁则扩集 /
     expect(wrapText('abc \n\nb', 3)).toEqual(['abc', '', 'b']);
   });
 
+  it('折点空守卫：折点落在行首不推幽灵空行（与 foldLine/layoutParts 两引擎防线同律——挖掘 26 轮 [0]）', () => {
+    // cols=1 遇双宽字素首折：current 空 used=0 即折——修前 ['', '你', '好'] 首行幽灵
+    expect(wrapText('你好', 1)).toEqual(['你', '好']);
+    // 吞空格路收笔后紧接宽字素：current 被吞空格清空再折——修前 ['e','c','h','o','','你']
+    expect(wrapText('echo 你', 1)).toEqual(['e', 'c', 'h', 'o', '你']);
+    // 禁则回送弹空格把 current 弹空：段首两空格弹丢后折点——修前 ['', '）', '你']
+    expect(wrapText('  ）你', 2)).toEqual(['）', '你']);
+    // 显式空段的空行语义不受扰（守卫只作用于段中折点——段首空段仍产空行）
+    expect(wrapText('\n你', 1)).toEqual(['', '你']);
+  });
+
   it('禁则回送弹丢空格：续行行首不悬挂空格（空格不是排版内容）', () => {
     // 修前 ['ab',' 。']——被弹空格落新行行首，绕过「续行行首空格跳过」自规则
     expect(wrapText('ab 。', 3)).toEqual(['a', 'b。']);

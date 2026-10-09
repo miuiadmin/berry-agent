@@ -93,13 +93,19 @@ describe('TUI 第四役批二同律（回送弹丢空格 / 整字独行 / 三族
         expect(wrapText(t, w), `t=${JSON.stringify(t)} w=${w}`).toEqual(joined(layoutPlain(t, w)));
       }
     }
-    // width=1 族：wrapText 超帽前置空行形（行首字素即超宽时先推空行再整字
-    // 独行）过滤后与 layoutParts 整字独行行集同行集——内容行同律
+    // width=1 族：两引擎折点空守卫（挖掘 26 轮 [0]）后均无幽灵空行形——
+    // 裸对拍（旧形滤 '' 补偿随守卫终齐而撤——滤撤即收紧，幽灵复发直接红）
     for (const t of ['你', '你我', 'a你b', '你a', '😀你', 'ab', 'ab  你', '一二三四五］']) {
-      expect(
-        wrapText(t, 1).filter((line) => line !== ''),
-        `t=${JSON.stringify(t)} w=1`,
-      ).toEqual(joined(layoutPlain(t, 1)));
+      expect(wrapText(t, 1), `t=${JSON.stringify(t)} w=1`).toEqual(joined(layoutPlain(t, 1)));
     }
+  });
+
+  it('折点空守卫同律：禁则弹空不推幽灵空行（挖掘 26 轮 [0]）', () => {
+    // 修前 ['','a。']——弹丢空格+回送 a 把 current 弹空，无守卫推空行占位
+    expect(joined(layoutPlain('a 。', 3))).toEqual(['a。']);
+    // 段首空格全弹丢形——修前 ['','）','你']
+    expect(joined(layoutPlain('  ）你', 2))).toEqual(['）', '你']);
+    // 与 wrapText 侧守卫同形同律（width 件已锁——此处锁 layout 侧不复发）
+    expect(wrapText('a 。', 3)).toEqual(['a。']);
   });
 });
