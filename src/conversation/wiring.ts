@@ -229,6 +229,10 @@ export class DurableWiring {
         // （errorMessage 同式——缺席不带，旧日志读侧同视零迁移）
         ...(assistant.provider !== undefined ? { provider: assistant.provider } : {}),
         ...(assistant.model !== undefined ? { model: assistant.model } : {}),
+        // pi-5 兑现——05 §1.1 生效档实录位：值 = clampThinkingLevel 夹取后
+        // 生效档（llm 域回带——上游零回填 caller 侧自记）；缺席不带（前置拒绝
+        // 合成流与旧日志同形——无请求即无生效档）
+        ...(assistant.thinkingLevel !== undefined ? { thinkingLevel: assistant.thinkingLevel } : {}),
       });
       this.lastAssistantSeqValue = event.seq;
       // 工具调用分立落账：arguments 回写原始串（审计保真——读侧解析失败兜底 {}）；

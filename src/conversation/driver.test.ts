@@ -222,6 +222,23 @@ describe('ConversationDriver durable 接线', () => {
     expect(data[1]).not.toHaveProperty('model');
   });
 
+  it('生效档实录位透传落账：assistant 终值带 thinkingLevel 则 data 携、不带则缺席（05 §1.1 pi-5 兑现）', async () => {
+    // 在场形：llm 域 withEffectiveThinkingLevel 回带夹取后生效档 → wiring 落账
+    // 可选带出（与 provider/model 响应实录位同式）
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '答一' }], thinkingLevel: 'high' }),
+        assistant({ content: [{ type: 'text', text: '答二' }] }),
+      ],
+    });
+    await driver.submit('问一');
+    await driver.submit('问二');
+    const data = dataOf(driver, 'assistant/message');
+    expect(data[0]).toMatchObject({ thinkingLevel: 'high' });
+    // 缺席锁（防「恒带空值」假阳）：前置拒绝合成流形终值不带键 → data 不携
+    expect(data[1]).not.toHaveProperty('thinkingLevel');
+  });
+
   it('工具批：一 durable turn 内 assistant/toolCall/toolResult/二 assistant（turn_end=toolUse 不闭）', async () => {
     const { driver, seen } = makeDriver({
       scripts: [

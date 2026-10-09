@@ -158,6 +158,14 @@ export interface AssistantMessage {
   model?: string;
   /** 供应商标识 */
   provider?: string;
+  /**
+   * 生效思考档实录（pi-5——05 §1.1 生效档实录位）：值 = clampThinkingLevel
+   * 夹取后**生效档**（请求声明值 vs 生效值分立——声明值在 request/header
+   * 快照；夹降形照实入账，如声明 xhigh 在无 map 渠道入账 high）。缺席语义：
+   * 前置拒绝合成流（钩子段查/模型解析失败/在飞帽）与历史旧日志——无请求
+   * 即无生效档；真实发出请求的流恒带（请求档缺席归一 'off'）。
+   */
+  thinkingLevel?: ThinkingLevel;
   /** stopReason=error/aborted 时的错误说明（错误是数据契约之一） */
   errorMessage?: string;
   /**

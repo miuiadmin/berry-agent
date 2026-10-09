@@ -21,7 +21,9 @@ import type {
 } from '@earendil-works/pi-ai';
 // 注意：AssistantMessageEventStream 类名被 pi-ai types 的 type-only 再输出遮蔽，
 // 值只能经官方工厂函数取得（该工厂即为此用途提供——"for use in extensions"）
-import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
+// clampThinkingLevel 系生效档单源（04 §5 定谳②——先升后降+map 缺省规则
+// caller 侧复刻必漂移，pi-ai 知识不出 llm 域）
+import { clampThinkingLevel, createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import type {
   AssistantMessage,
   AssistantStream,
@@ -29,6 +31,7 @@ import type {
   LlmContext,
   StreamFn,
   StreamFnOptions,
+  ThinkingLevel,
 } from '../contracts/index.js';
 import { BaseError } from '../contracts/index.js';
 import type { InFlightSlot, InFlightTracker } from './inflight.js';
@@ -135,9 +138,15 @@ export function createStreamFn(
         ) as unknown as AssistantStream,
         slot,
       );
-      return defaults.idleTimeoutMs !== undefined && defaults.idleTimeoutMs > 0
-        ? withIdleTimeout(released, defaults.idleTimeoutMs)
-        : released;
+      // pi-5 兑现——真请求流恒带生效档（包装在最外层：idle 帽合成终值同样
+      // 附键——请求已真实发出）；三处前置拒绝 errorStream 不经本包装（键缺席）
+      return withEffectiveThinkingLevel(
+        defaults.idleTimeoutMs !== undefined && defaults.idleTimeoutMs > 0
+          ? withIdleTimeout(released, defaults.idleTimeoutMs)
+          : released,
+        model,
+        options.thinkingLevel,
+      );
     }
 
     // 事件流结构同构（12 型协议 + result()），超集兼容子集直通
@@ -146,9 +155,36 @@ export function createStreamFn(
       buildPiContext(context),
       buildPiOptions(defaults, options, signal),
     ) as unknown as AssistantStream;
-    return defaults.idleTimeoutMs !== undefined && defaults.idleTimeoutMs > 0
-      ? withIdleTimeout(passthrough, defaults.idleTimeoutMs)
-      : passthrough;
+    // pi-5 同上——直通分支同为真请求流（归一口径两分支同面，勿单分支漏包）
+    return withEffectiveThinkingLevel(
+      defaults.idleTimeoutMs !== undefined && defaults.idleTimeoutMs > 0
+        ? withIdleTimeout(passthrough, defaults.idleTimeoutMs)
+        : passthrough,
+      model,
+      options.thinkingLevel,
+    );
+  };
+}
+
+/**
+ * 生效档实录包装（pi-5——05 §1.1 生效档实录位，04 §5 入账归一口径）：
+ * 请求侧纯函数计算 clampThinkingLevel 夹取后生效档（不依赖响应——错误/
+ * abort 终值同样可算），代理 result() 在终值消息附 thinkingLevel 键。
+ * 事件迭代面原样转发（增量 partial 不附键——终值面单在 result()，与
+ * agent 消费位 agent/stream.ts 终值落位同源）；请求档缺席归一 'off'
+ * （「这轮没用思考」系有效审计信息）；夹降形照实入账（声明 xhigh 在
+ * 无 map 渠道入账 high——「是否生效随模型能力」诚实句的账面兜底）。
+ */
+function withEffectiveThinkingLevel(
+  stream: AssistantStream,
+  model: Model<string>,
+  requested: ThinkingLevel | undefined,
+): AssistantStream {
+  const effective = clampThinkingLevel(model, requested ?? 'off');
+  return {
+    // 迭代面零改动转发（partial 流不动——生效档只属终值面）
+    [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](),
+    result: async () => ({ ...(await stream.result()), thinkingLevel: effective }),
   };
 }
 

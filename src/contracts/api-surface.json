@@ -108,7 +108,7 @@
       "since": "1.0",
       "desc": "助手消息（流式组装终值；stopReason=error/aborted 时错误即数据，见 AssistantStream）",
       "kind": "interface",
-      "sig": "d13b04c0d40f7c7b"
+      "sig": "9a71d7280181e2b3"
     },
     {
       "symbol": "AssistantStream",

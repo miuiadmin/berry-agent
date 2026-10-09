@@ -147,6 +147,80 @@ describe('钩子派发段前置查（钩子 handler 内流式调用 → 错误�
   });
 });
 
+/* ---------------- pi-5：生效档实录（05 §1.1 生效档实录位——04 §5 归一口径） ---------------- */
+
+/** 建一个带 reasoning:true 模型的 faux 运行时（pi-5 夹降锁素材——faux 缺省 reasoning:false） */
+function makeReasoningFauxRuntime(providerName = 'faux-think') {
+  const faux = fauxProvider({ provider: providerName, models: [{ id: 'm1', reasoning: true }] });
+  const runtime = createLlmRuntime({ providers: [faux.provider] });
+  return { faux, runtime };
+}
+
+describe('生效档实录（真请求流恒带；前置拒绝合成流键缺席）', () => {
+  it('归一锁：请求档缺席 → 终值 thinkingLevel=off（「这轮没用思考」系有效审计信息）', async () => {
+    const { faux, runtime } = makeFauxRuntime();
+    faux.setResponses([() => fauxAssistantMessage('答')]);
+    const streamFn = createStreamFn(runtime);
+    const final = await (await streamFn(simpleContext([userMsg('x')]), { model: 'faux-test/m1' })).result();
+    expect(final.thinkingLevel).toBe('off'); // 请求未带档——归一 off 而非缺席
+  });
+
+  it('reasoning 门锁：reasoning:false 模型请求 high → 生效 off（门即裁定，照实入账）', async () => {
+    const { faux, runtime } = makeFauxRuntime();
+    faux.setResponses([() => fauxAssistantMessage('答')]);
+    const streamFn = createStreamFn(runtime);
+    const final = await (
+      await streamFn(simpleContext([userMsg('x')]), { model: 'faux-test/m1', thinkingLevel: 'high' })
+    ).result();
+    expect(final.thinkingLevel).toBe('off');
+  });
+
+  it('夹降照实锁：reasoning:true 无 map 模型请求 xhigh → 生效 high（支持集恰五值——xhigh/max 须 map 显式条目）', async () => {
+    const { faux, runtime } = makeReasoningFauxRuntime();
+    faux.setResponses([() => fauxAssistantMessage('答'), () => fauxAssistantMessage('答')]);
+    const streamFn = createStreamFn(runtime);
+    const xhigh = await (
+      await streamFn(simpleContext([userMsg('x')]), { model: 'faux-think/m1', thinkingLevel: 'xhigh' })
+    ).result();
+    expect(xhigh.thinkingLevel).toBe('high'); // 夹降照实——「是否生效随模型能力」诚实句的账面兜底
+    const high = await (
+      await streamFn(simpleContext([userMsg('x')]), { model: 'faux-think/m1', thinkingLevel: 'high' })
+    ).result();
+    expect(high.thinkingLevel).toBe('high'); // 支持集内档直落
+  });
+
+  it('前置拒绝键缺席锁：钩子段查/模型解析失败/在飞帽三路合成流终值不带 thinkingLevel（无请求即无生效档）', async () => {
+    const { runtime } = makeFauxRuntime();
+    // 三路均请求 high——若包装误盖前置拒绝路则键错现（修前红锚：包装只可盖真请求流）
+    const inHook = await (
+      await createStreamFn(runtime, {}, undefined, { inHookDispatch: () => true })(simpleContext([userMsg('x')]), {
+        model: 'faux-test/m1',
+        thinkingLevel: 'high',
+      })
+    ).result();
+    expect(inHook.thinkingLevel).toBeUndefined();
+    const notFound = await (
+      await createStreamFn(runtime)(simpleContext([userMsg('x')]), { model: 'faux-test/m9', thinkingLevel: 'high' })
+    ).result();
+    expect(notFound.thinkingLevel).toBeUndefined();
+    const tracker = new InFlightTracker(1);
+    const held = tracker.tryAcquire('faux-test');
+    expect(held).not.toBeNull();
+    const capped = await (
+      await createStreamFn(
+        runtime,
+        {},
+        tracker,
+      )(simpleContext([userMsg('x')]), {
+        model: 'faux-test/m1',
+        thinkingLevel: 'high',
+      })
+    ).result();
+    expect(capped.thinkingLevel).toBeUndefined();
+    held!.release();
+  });
+});
+
 /* ---------------- 成功路：直通零拷贝与参数组装 ---------------- */
 
 describe('直通与参数组装（超集兼容子集）', () => {
