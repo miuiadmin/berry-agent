@@ -35,7 +35,10 @@ function run(chunks: string[], opts?: InputDecoderOptions, clock?: FakeClock): I
 describe('legacy 轨：C0 控制码与功能键', () => {
   it('C0 映射：enter/tab/backspace/ctrl+字母/ctrl+标点', () => {
     expect(run(['\r'])).toEqual([key('enter')]);
-    expect(run(['\n'])).toEqual([key('enter')]);
+    // LF（0x0a）归义 ctrl+j（挖掘 27 轮 [2]）：termios raw 下 Enter=CR 绝对
+    // 主流、LF 到达几乎总是 ctrl+j 的 legacy 编码——旧译 enter 使 ctrl+j 在
+    // legacy 轨提前提交半成品（规范 07 §4.1「ctrl+j 换行」无轨制限定）
+    expect(run(['\n'])).toEqual([key('j', { ctrl: true })]);
     expect(run(['\t'])).toEqual([key('tab')]);
     expect(run(['\x7f'])).toEqual([key('backspace')]);
     expect(run(['\x00'])).toEqual([key('space', { ctrl: true })]);

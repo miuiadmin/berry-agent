@@ -262,7 +262,9 @@ export class InputDecoder {
           // \x1b\x7f；CR/LF 批（挖掘 26 轮 [4]）——metaSendsEscape 终端
           // option+enter 恒 \x1b\r，两形出厂键位册均注册绑定（delete-word-
           // backward / queue-followup 消费面）——解码面与册契约一致；
-          // 其余控制码罕见——吞
+          // 其余控制码罕见——吞。LF 形（\x1b\n）保持 alt+enter 宽容（挖掘
+          // 27 轮 [2] 注记：alt+enter 主发 \x1b\r，LF 形终端归并同键不折
+          // alt+ctrl+j——与裸 0x0a 归 ctrl+j 的地面态归义分立）
           this.escPendingAt = null;
           if (cp === 0x7f) {
             this.emitKey('backspace', { ...NO_MODS, alt: true }, 'press');
@@ -527,7 +529,10 @@ export class InputDecoder {
 
   /** C0 控制码 → 键事件（legacy ctrl 映射表：a-z=0x01-0x1a 等） */
   private dispatchControl(cp: number): void {
-    if (cp === 0x0d || cp === 0x0a) {
+    if (cp === 0x0d) {
+      // CR = enter（termios raw 下 Enter 键主发 CR——LF 不入此位：挖掘 27 轮
+      // [2] 归义，0x0a 落下方 ctrl+字母路译 ctrl+j——legacy 轨换行键不再被
+      // 译 enter 提前提交半成品）
       this.emitKey('enter', { ...NO_MODS }, 'press');
       return;
     }
