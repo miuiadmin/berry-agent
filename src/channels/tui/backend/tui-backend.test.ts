@@ -2843,6 +2843,36 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
     backend.stop(); // 收尾：卸钩不泄漏到后续进程退出
   });
 
+  it('挂起窗硬退复原含 DECSTBM 复位且落 1049l 之后（挖掘 27 轮 [7]——修前红：裸钩零复位）', () => {
+    // 副屏在场窗硬退：副屏 Engine 自家钩复原屏形（1049l 回主屏缓冲），但主屏
+    // margins（MainScreen applyScrollRegion 反复写 1;{N}r 设区——终端侧状态
+    // 不随进程退出自复位）无人清——shell 继承破 margins（光标在区外 LF 不滚、
+    // 长输出覆写屏底）。修前挂起档钩只收终端级写点（2031/raw/osc）。复位还
+    // 须落在 1049l 之后（先收副屏再复位——margins 按 grid 的 tmux 形裸写在
+    // 副屏期 no-op；与 stop()/armExitRestore 两路同形）
+    class CapturingProcessIO extends ProcessTerminalIO {
+      captured = '';
+      override write(data: string): void {
+        this.captured += data;
+      }
+    }
+    const io = new CapturingProcessIO();
+    const backend = new TuiBackend(io, { theme: 'auto' });
+    const before = new Set(process.listeners('exit'));
+    backend.start();
+    backend.suspendMain();
+    backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]); // 挂起窗副屏在场
+    io.captured = ''; // 挂起/开屏编舞字节不计入
+    // 模拟硬退：先跑本件挂起档钩（注册序先于副屏 Engine 钩）——修内收副屏
+    // 写 1049l；副屏 Engine 钩随后幂等零写
+    const added = process.listeners('exit').filter((l) => !before.has(l));
+    (added[0] as () => void)();
+    expect(io.captured).toContain('\x1b[r'); // 修复点：DECSTBM 复位（修前红锚——裸钩零复位）
+    // 落位序：复位落在副屏退场（1049l 回主屏缓冲）之后——修前裸加形亦红
+    expect(io.captured.lastIndexOf('\x1b[r')).toBeGreaterThan(io.captured.lastIndexOf('\x1b[?1049l'));
+    backend.stop(); // 收尾：卸钩不泄漏到后续进程退出
+  });
+
   it('resumeMain auto 档补发 OSC 11 重查（七役扫描批——副屏在场窗通知丢弃的复起补偿）', () => {
     const { io, backend } = makeBackend({ theme: 'auto' });
     backend.suspendMain();

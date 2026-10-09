@@ -4138,7 +4138,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    *（挂起期写出会污染在场副屏），只收口本件挂起期特意保活的终端级写点：
    * 2031 订阅关（probeActive 条件与 stop 同形——显式档从未开不写关）+
    * osc.restore（title 基线 + 进度清零）+ raw 交还（幂等——副屏 Engine 钩
-   * 同写）。仅真 ProcessTerminalIO 武装（注入 io 零污染）；resumeMain 经
+   * 同写）+ DECSTBM 复位（挖掘 27 轮 [7]——主屏 margins 无人清则 shell 继承
+   * 破 margins；复位前先收在场副屏，保证落在 1049l 回主屏缓冲之后——margins
+   * 按 grid 的 tmux 形裸写在副屏期 no-op；与 stop()/armExitRestore 两路同形）。
+   * 仅真 ProcessTerminalIO 武装（注入 io 零污染）；resumeMain 经
    * armExitRestore 换回全档体（arm 幂等——先解除旧钩再挂）。
    */
   private armSuspendExitRestore(): void {
@@ -4149,6 +4152,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         if (this.probeActive) this.io.write(THEME_CHANGE_DISABLE);
         this.io.setRawMode(false);
         this.osc.restore(); // 件 7：硬退复原两写点（title 基线 + 进度清零——与 stop 同收口）
+        // [7]（挖掘 27 轮）屏形收口：先收在场副屏（handle.close 写 1049l 退场
+        //——回主屏缓冲；幂等——无副屏直返），复位随写必落其后
+        this.closeAlt();
+        this.io.write(SCROLL_REGION_RESET + cup(this.io.size().rows - 1, 0));
       } catch {
         // 复位尽力而为——退出路径不允许二次异常
       }
