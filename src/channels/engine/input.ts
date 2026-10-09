@@ -256,14 +256,19 @@ export class InputDecoder {
             i++;
             continue;
           }
-          // ESC + 可打印 = legacy alt 编码（如 \x1bx → alt+x）。DEL（0x7f）是
-          // ESC 后控制码中唯一主流 alt 编码形（2026-09-21 修复批）：option-
-          // as-meta 终端（无 kitty 的 macOS Terminal.app 等）alt+backspace 恒
-          // \x1b\x7f 编码、出厂键位册注册该绑定（editor.delete-word-backward
-          // 消费面）——解码面与册契约一致；其余控制码罕见——吞
+          // ESC + 可打印 = legacy alt 编码（如 \x1bx → alt+x）。DEL（0x7f）与
+          // CR/LF（0x0d/0x0a）是 ESC 后控制码中主流 alt 编码形：DEL 批
+          //（2026-09-21 修复批）——option-as-meta 终端 alt+backspace 恒
+          // \x1b\x7f；CR/LF 批（挖掘 26 轮 [4]）——metaSendsEscape 终端
+          // option+enter 恒 \x1b\r，两形出厂键位册均注册绑定（delete-word-
+          // backward / queue-followup 消费面）——解码面与册契约一致；
+          // 其余控制码罕见——吞
           this.escPendingAt = null;
           if (cp === 0x7f) {
             this.emitKey('backspace', { ...NO_MODS, alt: true }, 'press');
+            i++;
+          } else if (cp === 0x0d || cp === 0x0a) {
+            this.emitKey('enter', { ...NO_MODS, alt: true }, 'press');
             i++;
           } else if (cp >= 0x20) {
             this.emitKey(String.fromCodePoint(cp), { ...NO_MODS, alt: true }, 'press');

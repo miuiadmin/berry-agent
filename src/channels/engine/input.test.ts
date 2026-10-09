@@ -104,6 +104,19 @@ describe('legacy 轨：C0 控制码与功能键', () => {
     expect(run(['\x1b', '\x7f'])).toEqual([key('backspace', { alt: true })]);
   });
 
+  it('ESC 后 CR = legacy alt+enter（\\x1b\\r）——册内候跑键解码面不死键（挖掘 26 轮 [4]——修前红）', () => {
+    // metaSendsEscape 终端（iTerm2「Esc+」/Terminal.app option-as-meta）按
+    // option+enter 恒发 \x1b\r；册内 queue-followup 缺省键 = alt+enter。修前
+    // esc 态控制码静默吞（0x7f 修复批同原则漏施 0x0d——「控制码罕见吞」防
+    // 御不覆盖自家册注册的键）：busy 期候跑提交零事件死键、稿滞留框内无反
+    // 馈。整 chunk 与劈 chunk 两形同修；LF 变体同译（地面态 \r|\n 同镜）
+    expect(run(['\x1b\r'])).toEqual([key('enter', { alt: true })]);
+    expect(run(['\x1b', '\r'])).toEqual([key('enter', { alt: true })]);
+    expect(run(['\x1b\n'])).toEqual([key('enter', { alt: true })]);
+    // kitty 轨对照（契约一致——两轨同键同事件形）
+    expect(run(['\x1b[13;3u'])).toEqual([key('enter', { alt: true })]);
+  });
+
   it('ESC 前缀 = alt：\\x1bx = alt+x；ESC ESC 相邻形 = Esc×2（迟答防御律——legacy alt+escape 降级）', () => {
     expect(run(['\x1bx'])).toEqual([key('x', { alt: true })]);
     // 相邻双 ESC：前枚立即判 Esc 键（无修饰）、当枚消费为新 lone-ESC 候选
