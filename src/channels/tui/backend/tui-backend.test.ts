@@ -4268,6 +4268,30 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
     expect(submitted).toEqual(['?']);
   });
 
+  it('`?` 教学键 jump 待靶期不劫（挖掘 27 轮 [4]）：待靶态为五闸漏位——? 入编辑器消费靶、后续打字不吞首字', () => {
+    const helps: number[] = [];
+    const submitted: string[] = [];
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, {
+      sessionId: SESSION,
+      onHelpShortcut: () => helps.push(1),
+      onSubmit: (_sid, text) => submitted.push(text),
+    });
+    backend.start();
+    // 空稿置 jump 待靶态（ctrl+] = 0x1d legacy 映射）：模型不动仍空稿、
+    // 忙态/overlay/弹层/应答四闸全开——恰是旧五闸的盲区形
+    io.emitInput('\x1d');
+    io.emitInput('?');
+    // 修前红①：? 被 teachingGatesOpen 劫去开 /help（Editor 私有 jumpPending
+    // 盲视——待靶态跨开/关面板残留），helps 计 1
+    expect(helps).toHaveLength(0); // 待靶期不劫——? 入编辑器消费靶（空稿无命中 no-op 清靶）
+    io.emitInput('你好');
+    io.emitInput('\r');
+    // 修前红②：待靶态残留使首字素「你」被 consumeJumpTarget 吞作跳靶——
+    // submitted=['好']；修后待靶态已被 ? 消费清空，全稿 intact
+    expect(submitted).toEqual(['你好']);
+  });
+
   it('`?` 教学键 input-ask 应答期不劫（修前红：问题行在场/编辑器空/闲态三闸全开——? 被劫去开 /help 顶掉应答）', async () => {
     const helps: number[] = [];
     const io = new MemoryTerminalIO(COLS, ROWS);

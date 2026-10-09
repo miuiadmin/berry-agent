@@ -132,6 +132,15 @@ export class Editor implements Renderable {
     this.model.setText(text);
   }
 
+  /**
+   * jump 待靶态在场查询（挖掘 27 轮 [4]）：backend 层门判（教学键 `?` 等）
+   * 需感知待靶期——待靶中用户下一键是跳靶字符（应入编辑器消费），不得被
+   * 上层劫持（私有字段不外露，仅此语义化查询面）。
+   */
+  hasPendingJump(): boolean {
+    return this.jumpPending !== null;
+  }
+
   /* ---------------- 渲染委托（两段协商直通视图） ---------------- */
 
   measure(width: number): number {

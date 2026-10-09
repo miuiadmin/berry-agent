@@ -2701,9 +2701,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 教学窗五闸（`?` 教学键与 leader arm 共用门判——B4「复用门判函数勿复制」）：
-   * 空稿 + 闲态 + overlay 不在场 + 弹层不在场 + 无 input-ask 应答窗。任一
-   * 不满足 = 键透传编辑器（终局丢弃——零打扰）。
+   * 教学窗六闸（`?` 教学键与 leader arm 共用门判——B4「复用门判函数勿复制」）：
+   * 空稿 + 闲态 + overlay 不在场 + 弹层不在场 + 无 input-ask 应答窗 + 非 jump
+   * 待靶期。任一不满足 = 键透传编辑器（终局丢弃——零打扰；待靶期透传则键作
+   * 跳靶字符入编辑器消费——挖掘 27 轮 [4]：劫持开帮助面板会使待靶态跨开/关
+   * 残留，关面板后首字素被吞作跳靶）。
    */
   private teachingGatesOpen(): boolean {
     return (
@@ -2711,7 +2713,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.editor.model.isEmpty() &&
       !this.progressBusy &&
       this.stack.size === 0 &&
-      !this.popup.visible
+      !this.popup.visible &&
+      !this.editor.hasPendingJump()
     );
   }
 
