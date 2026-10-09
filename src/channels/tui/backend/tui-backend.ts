@@ -2908,13 +2908,31 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private toggleThinking(): void {
     this.transcript.toggleThinking();
-    this.screen.repaint(this.transcript.snapshot, this.transcript.trimmedBlockCount);
+    this.authoritativeRepaint();
   }
 
   /** 工具卡会话级开关（ctrl+o 批 10i）——同律：改写 + repaint */
   private toggleToolCards(): void {
     this.transcript.toggleToolCards();
+    this.authoritativeRepaint();
+  }
+
+  /**
+   * 权威全量重画收口（挖掘 26 轮 [6]——toggle 两路抽单源）：翻转前入队的
+   * present op 持翻转前块对象（rewriteExpandedFlags 换新块非原地改），迟到
+   * 的帧回调会按旧 expanded 态重渲在飞流式槽尾窗——刚达成的翻转在屏面翻回。
+   * 同 onRepaint/handleResize/suspendMain/resumeMain 四路权威重建律：清点前
+   * 抢救合并窗内未落帧瞬时行（S1-a——裸清永失竞窗 notify 行）→ 清队
+   * （pendingOps/needFixed）→ repaint → 补吐。
+   */
+  private authoritativeRepaint(): void {
+    const rescued = this.collectAllTransients();
+    this.transientLanded = rescued.length > 0;
+    this.syncEmptyGuide();
+    this.pendingOps = [];
+    this.needFixed = false;
     this.screen.repaint(this.transcript.snapshot, this.transcript.trimmedBlockCount);
+    this.replayTransients(rescued); // 重建后按到达序补吐（槽让位/现宽收口编舞单源）
   }
 
   /**

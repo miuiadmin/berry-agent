@@ -2858,6 +2858,26 @@ describe('TuiBackend 会话级开关键（批 10i ctrl+t / ctrl+o）', () => {
     expect(io.bytes).toContain('行3'); // 全量展开——中段回场
   });
 
+  // 挖掘 26 轮 [6]：翻转前入队的 present op 持翻转前块对象（rewriteExpandedFlags
+  // 换新块非原地改），repaint 后迟到的帧回调按旧 expanded 态重渲在飞流式槽尾窗
+  // ——刚展开的思考在屏面塌回折叠态。toggle 两路须同其余四路权威重建
+  //（onRepaint/handleResize/suspendMain/resumeMain）先清队（pendingOps/needFixed），
+  // 清点前抢救合并窗内瞬时行防裸清永失。复现形 = 在飞流式槽（durable 段被绝对
+  // 位对账遮蔽零写、观察面在 C 段旧思考态——verify 实证形）；ctrl+o 定稿卡
+  // 全程被绝对位对账遮蔽无观察面（修法同笔对齐——同族权威重建不变式）。
+  it('ctrl+t 后迟到的排队 present 帧不把在飞思考塌回折叠态（队列随 repaint 清点）', () => {
+    const { io, backend, pump } = makeInteractive();
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    // 在飞流式槽带思考（mixedSnapshot——thinking 块累计形）：present op 入队
+    // 携折叠态快照，不泵帧留住竞窗
+    emit(backend, { type: 'message_update', role: 'assistant', partial: mixedSnapshot(['流式中思考'], []) });
+    io.bytes = '';
+    io.emitInput('\x14'); // ctrl+t：repaint 同步重渲展开档（队内旧 op 仍在）
+    expect(io.bytes).toContain('流式中思考'); // 展开思考体在场（repaint 真相）
+    pump(); // 迟到的帧回调落地——队已清则零回写
+    expect(io.bytes).not.toContain('（ctrl+t 展开）'); // 旧 op 不得把折叠标签写回
+  });
+
   it('层② overlay 占焦期吞 ctrl+t（模态独占——层③.5 应用键不越层）', async () => {
     const { io, backend, pump } = makeInteractive();
     emit(backend, { type: 'message_end', message: thinkingMsg('想法', '文') });
