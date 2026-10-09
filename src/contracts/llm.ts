@@ -183,7 +183,12 @@ export interface ToolResultMessage {
   details?: unknown;
   /** 工具执行自身的用量（若可得上报；不进主上下文计费） */
   usage?: Usage;
-  /** 本次结果后新可用的工具名（延迟装载透传） */
+  /**
+   * 动作回执预留通道（03 §2.8 定名勘正——值恒诚实空的预留态即其名下属性）：
+   * 装机/挂载类动作的工具结果携带本字段恒 `[]`（模型面动词不自动链 reload
+   * ——动作时点回执不虚构）。换装时点的模型面通告走 LlmContext.toolFaceChange
+   * 瞬态通道（pi-3 件 B）——两通道分立并存。
+   */
   addedToolNames?: string[];
 }
 
@@ -200,11 +205,34 @@ export interface LlmTool {
   parameters: object;
 }
 
+/**
+ * mid-convo 工具面变化瞬态通告（pi-3 件 B——03 §2.8「模型上下文通道启用
+ * 语义」换装时点通告通道的本地形）。专用瞬态字段位而非宽 Message union
+ * （本仓 union 现仅标准三角色）；不进 timeline、不落 durable——瞬态不
+ * 重放，工具面真值由 request/header 边界制快照承载（重放以最后一条
+ * request/header 为基准，新面全量直效）。pi-ai 类型映射（SystemMessage
+ * toolsAdded/toolsRemoved 增量字段族）停在 llm 席 buildPiContext 单点。
+ */
+export interface ToolFaceChangeNotice {
+  /** 可选通告文本（缺席时 llm 席组装缺省文案） */
+  content?: string;
+  /** 本请求新可用的工具完整定义（pi-ai 契约「Complete definitions」——非名账） */
+  addedTools: LlmTool[];
+  /** 本请求起不再可用的工具名清单 */
+  removedToolNames: string[];
+}
+
 /** 单次 LLM 请求上下文（StreamFn 第一参数；04 §3.1） */
 export interface LlmContext {
   systemPrompt?: string;
   messages: Message[];
   tools?: LlmTool[];
+  /**
+   * mid-convo 工具面变化瞬态通告（pi-3 件 B）：换装时点由宿主在请求组装位
+   * 现算净差注入（净差空不注）；llm 席折叠为 mid-convo SystemMessage。会话
+   * 粒度瞬态——同一 LlmContext 上多余一次换装由后笔覆盖前笔语义收口。
+   */
+  toolFaceChange?: ToolFaceChangeNotice;
 }
 
 /* ---------------- 模型层调用接缝（agent 与 llm 在此会合） ---------------- */

@@ -462,6 +462,13 @@ export interface ConversationStack {
    */
   projectionWithSeqOf(sessionId: string): Promise<readonly (AgentMessage & { readonly seq: number })[]>;
   driverOf(sessionId: string): ConversationDriver | undefined;
+  /**
+   * 工具面换代代投（pi-3 件 B——03 §2.8 换装时点通告通道）：/reload reapply
+   * 成功尾、两代差集非空时调用（世代号自增）。各在飞会话的下一请求组装位
+   * 现算净差注入 mid-convo 瞬态通告（净差空不注）；零请求会话不投不耗
+   * （世代号随栈存续，无后台投递）。
+   */
+  notifyToolFaceChange(): void;
   /** 提交入口（fire-and-forget 形——回执经信封回流；无该会话驱动时 undefined）。
    * content 宽形（03 §10.4 ② 剪贴板附件批）：string 原样（既有流零漂移）；
    * 块数组 = 受理链铸形的 text/image-ref 引用块族（image-only 合法——空文本
@@ -544,6 +551,12 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // const 基线同源单变量族——读面/defaultModel 闭包/驱动装配取值器三消费位
   // 活读同一持有（setModel 换档三面齐动，零第二事实源）。
   let currentModel = model;
+  // 工具面世代号（pi-3 件 B——03 §2.8 换装时点通告通道的栈级槽）：/reload
+  // reapply 成功尾经两代差集非空闸自增（notifyToolFaceChange）；各驱动请求
+  // 组装位比对自持已消费世代号（toolFaceGeneration 取值器穿线），不同即
+  // 现算净差注入 mid-convo 瞬态通告。后笔覆盖前笔天然成立（槽只保最新代）
+  // ——换代窗内多笔 reload 中间代免逐笔通告。
+  let toolFaceGeneration = 0;
   // 附件库单持有（03 §10.4 ③）：options 显式注入 ?? 数据目录在场自铸；内存
   // 模式 = undefined 诚实缺席（受理链拒/再水化降占位两消费位同判）
   const attachments =
@@ -1372,6 +1385,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // （agent_pre_step 瀑布后——到达窗分面对账位）；memory 形 undefined
       // 不带（装配时点定格既有行为）
       ...(refreshToolFace !== undefined ? { refreshToolFace } : {}),
+      // 工具面世代取值器穿线（pi-3 件 B）：恒注入——驱动比对自持已消费世代号
+      // 消费通告（世代恒 0 形 = 零通告；纯对话形 tools 缺席净差恒空同零通告）
+      toolFaceGeneration: () => toolFaceGeneration,
       // 后台唤醒轮工具面供应商（ASM-1 挖掘 15 轮——04 §4 定形注：v1 装配形
       // = 恒注入、供全量工具面）：取值器形 `() => tools`——值同前台 run 工具
       // 面终值（shapeTools 整形后集，:1298 定形先于本装配位）。修前恒不注入
@@ -1802,6 +1818,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // 卡② 腿①：GET 读面带 seq 投影（副本增位——共享输出零改动）
     projectionWithSeqOf,
     driverOf: (sessionId) => manager.driverOf(sessionId),
+    // 工具面换代代投（pi-3 件 B）：世代号自增——各驱动下一请求组装位消费
+    notifyToolFaceChange() {
+      toolFaceGeneration += 1;
+    },
     submitText(sessionId, content, submitOptions) {
       const driver = manager.driverOf(sessionId);
       if (driver === undefined) return undefined; // 未开会话返 undefined——可达非理论位（webui 受理竞窗挖掘 20 轮：受理面双锚收口抛 SESSION_NOT_FOUND；goal 唤醒闭包消费 undefined 走自愈重停靠链〔05:291〕）

@@ -38,6 +38,7 @@ function rig(overrides: Partial<PluginReloadOptions> = {}): {
         failed: 1,
         failures: [{ id: 'bad-row', code: 'PLUGIN_APPLY_FAILED', message: 'apply 崩了' }],
         addedTools: [],
+        removedTools: [],
       };
     },
     isBusy: () => busy,
@@ -226,7 +227,7 @@ describe('链串行（in-flight 链——并发请求不交错）', () => {
       },
       reapply: async () => {
         calls.push('reapply');
-        return { total: 1, enabled: 1, failed: 0, failures: [], addedTools: [] };
+        return { total: 1, enabled: 1, failed: 0, failures: [], addedTools: [], removedTools: [] };
       },
     });
     const reloader = createPluginReloader(rig_.options);
@@ -252,6 +253,7 @@ describe('新代工具面 diff 呈现（03 §2.8 通道真值——装载史批 
           { pluginId: 'acme:tools', tools: ['acme_probe', 'acme_scan'] },
           { pluginId: 'demo:calc', tools: ['demo_calc'] },
         ],
+        removedTools: [],
       }),
     });
     const reloader = createPluginReloader(rig_.options);
@@ -267,6 +269,30 @@ describe('新代工具面 diff 呈现（03 §2.8 通道真值——装载史批 
     await reloader.settle();
     expect(rig_.reports[0]).toContain('插件已重载：启用 2/3');
     expect(rig_.reports[0]).not.toContain('新增工具面');
+  });
+
+  it('removedTools 非空（pi-3 件 B 双翼）：回执含「移除工具面」行；空不加行', async () => {
+    const removed = rig({
+      reapply: async () => ({
+        total: 1,
+        enabled: 1,
+        failed: 0,
+        failures: [],
+        addedTools: [],
+        removedTools: ['acme_probe', 'acme_scan'],
+      }),
+    });
+    const removedReloader = createPluginReloader(removed.options);
+    removedReloader.request();
+    await removedReloader.settle();
+    expect(removed.reports[0]).toContain('移除工具面：acme_probe、acme_scan');
+    const kept = rig({
+      reapply: async () => ({ total: 1, enabled: 1, failed: 0, failures: [], addedTools: [], removedTools: [] }),
+    });
+    const keptReloader = createPluginReloader(kept.options);
+    keptReloader.request();
+    await keptReloader.settle();
+    expect(kept.reports[0]).not.toContain('移除工具面'); // 空不加行不造噪声
   });
 });
 

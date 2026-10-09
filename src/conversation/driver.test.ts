@@ -2819,3 +2819,84 @@ describe('ConversationDriver 宿主凭证刷新联动腿（04 §3.3 条 8——B
     expect((headers[1] as { config: { model: string } }).config.model).toBe('test/model');
   });
 });
+
+/* ---------------- mid-convo 工具面通告（pi-3 件 B——03 §2.8 换装时点通告通道） ---------------- */
+
+describe('ConversationDriver mid-convo 工具面通告（pi-3 件 B）', () => {
+  it('首请求立位不注 + 换代净差注入（added/removed 双翼）', async () => {
+    let generation = 0; // 栈级世代号（测试可变持有——模拟 /reload reapply 自增）
+    let face: AgentTool[] = [makeTool('read'), makeTool('bash')]; // 面持有（可变——模拟 boot 册换代）
+    const { driver, seen } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一' }] }),
+        assistant({ content: [{ type: 'text', text: '二' }] }),
+      ],
+      tools: face,
+      refreshToolFace: () => face, // 面换新供应（件 A 路径——引用判等，face 重赋即换新）
+      toolFaceGeneration: () => generation,
+    });
+    await driver.submit('一');
+    // 首请求：初见全量不注（tools 参数直效即知）
+    expect(seen[0]!.toolFaceChange).toBeUndefined();
+    // 换代：面变（+grep、-bash）+ 世代号自增 → 下一请求净差注入（件 A 面换新 + 件 B 叙事同请求兑现）
+    generation = 1;
+    face = [makeTool('read'), makeTool('grep')];
+    await driver.submit('二');
+    expect(seen[1]!.toolFaceChange).toMatchObject({
+      addedTools: [expect.objectContaining({ name: 'grep' })],
+      removedToolNames: ['bash'],
+    });
+  });
+
+  it('消费闸：换代信号在、净差空不注（防重复通告）', async () => {
+    let generation = 0;
+    const { driver, seen } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一' }] }),
+        assistant({ content: [{ type: 'text', text: '二' }] }),
+      ],
+      toolFaceGeneration: () => generation,
+    });
+    await driver.submit('一');
+    generation = 1; // 换代但面未变（同代等价重载）
+    await driver.submit('二');
+    expect(seen[1]!.toolFaceChange).toBeUndefined();
+  });
+
+  it('静默面变不叙事（件 A 到达形——无换代信号零注入，送达记录仍推进）', async () => {
+    let generation = 0;
+    let face: AgentTool[] = [makeTool('read')];
+    const { driver, seen } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一' }] }),
+        assistant({ content: [{ type: 'text', text: '二' }] }),
+        assistant({ content: [{ type: 'text', text: '三' }] }),
+      ],
+      tools: face,
+      refreshToolFace: () => face,
+      toolFaceGeneration: () => generation,
+    });
+    await driver.submit('一');
+    // 件 A 到达：面换新无换代信号（agent_pre_step 携带注册形）——静默送达
+    face = [makeTool('read'), makeTool('hook_spawned')];
+    await driver.submit('二');
+    expect(seen[1]!.toolFaceChange).toBeUndefined();
+    expect(seen[1]!.tools?.map((t) => t.name)).toContain('hook_spawned'); // 面已换新（件 A 域）
+    // 换代后通告只报换代差（hook_spawned 已静默送达——不谎报为新增）
+    generation = 1;
+    face = [makeTool('read'), makeTool('hook_spawned'), makeTool('reload_added')];
+    await driver.submit('三');
+    expect(seen[2]!.toolFaceChange).toMatchObject({
+      addedTools: [expect.objectContaining({ name: 'reload_added' })],
+      removedToolNames: [],
+    });
+  });
+
+  it('缺席取值器零通告（无换装编舞装配形——既有行为）', async () => {
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({ content: [{ type: 'text', text: '一' }] })],
+    });
+    await driver.submit('一');
+    expect(seen[0]!.toolFaceChange).toBeUndefined();
+  });
+});

@@ -180,6 +180,14 @@ export class ConversationDriver {
   private lastFaceRef: readonly AgentTool[] | undefined;
   /** 当前面车道（pi-3 件 A）：applyToolFace 置位——对账换新后按当前车道重铺 */
   private faceWake = false;
+  /**
+   * 上次请求送达的工具名集（pi-3 件 B 净差基准——模型认知面）：首请求组装位
+   * 立位（初见全量不注），此后每请求组装位换新（真实送达记录——非换代面变
+   * 〔件 A 到达静默形〕也更新，防下次通告把已静默送达的面当新见谎报）。
+   */
+  private deliveredToolNames: Set<string> | undefined;
+  /** 已消费工具面世代号（pi-3 件 B——与栈级取值器比对，不同即消费通告） */
+  private noticedToolFaceGeneration = 0;
   /** 警示面（缺省 stderr——护栏不静默） */
   private readonly warnFace: (message: string) => void;
   /**
@@ -742,6 +750,31 @@ export class ConversationDriver {
     // §5 H 注单源）= 披露段 → reminders → 预算预警 → goal 沉淀 → todo 恒
     // 最后（05 §1.1）。reminders 已于瀑布前取清（上提理由见取清位注）
     const transientTail: Message[] = [];
+    // mid-convo 工具面通告注入位（pi-3 件 B——03 §2.8 换装时点通告通道，
+    // 序位=瀑布后披露段前）：世代号推进时现算净差（上次送达面 vs 本次组装
+    // 面——非简单转发代投差集，防会话面已经件 A 对账后的重复通告；shapeTools
+    // 滤形/车道面口径自然诚实——净差按本会话真实送达面算）。净差空零注入
+    // （消费闸）；静默面变（件 A 到达、无换代信号）不叙事只更新送达记录。
+    // 首请求立位不注（模型初见全量——tools 参数直效即知）。后台唤醒轮
+    // （faceWake 车道窄面）不消费不更新——窄面是车道语义非「移除」语义，
+    // 通告与送达记录都只按前台面算（防把合批收窄谎报成工具移除）。
+    if (!this.faceWake) {
+      const currentTools = transformed.tools ?? [];
+      const currentToolNames = new Set(currentTools.map((tool) => tool.name));
+      const stackGeneration = this.options.toolFaceGeneration?.() ?? 0;
+      if (this.deliveredToolNames === undefined) {
+        this.deliveredToolNames = currentToolNames; // 首请求立位——初见不注
+      } else if (stackGeneration !== this.noticedToolFaceGeneration) {
+        const deliveredNames = this.deliveredToolNames; // 局部窄化（else 分支恒已立位）
+        const addedTools = currentTools.filter((tool) => !deliveredNames.has(tool.name));
+        const removedToolNames = [...deliveredNames].filter((name) => !currentToolNames.has(name));
+        if (addedTools.length > 0 || removedToolNames.length > 0) {
+          transformed = { ...transformed, toolFaceChange: { addedTools, removedToolNames } };
+        }
+      }
+      this.noticedToolFaceGeneration = stackGeneration; // 消费即清（世代推进——净差空也消费）
+      this.deliveredToolNames = currentToolNames; // 送达面换新（每请求——真实认知记录）
+    }
     // 披露段注入位（04 §11 迁层定形）：消息尾瞬态族首位——瀑布之后注入。
     // 会话键携带（F2 披露第六件）：沙箱行 per-session fold 现值——本 driver
     // 所属会话的锚；闭包侧缺键消费 = boot 解析值（M2 fallback）

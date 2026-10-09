@@ -61,6 +61,12 @@ export interface ReapplyReceipt {
     readonly pluginId: string;
     readonly tools: readonly string[];
   }[];
+  /**
+   * 旧代有名新代无名的工具清单（pi-3 件 B——add-only 差集扩双翼）：uninstall/
+   * disable/换代移除形的诚实呈现；同时是模型面换代代投闸的一半判据（03 §2.8
+   * 「两代差集非空才投」——added ∪ removed 皆空零投递）。
+   */
+  readonly removedTools: readonly string[];
 }
 
 /** 编舞注入面（全部闭包真身——本件零 db/fs/驱动知识，词面独立律） */
@@ -137,6 +143,10 @@ export function createPluginReloader(options: PluginReloadOptions): PluginReload
       if (receipt.addedTools.length > 0) {
         // 新代工具面 diff 呈现（03 §2.8——新增工具名逐插件；无新增不加行不造噪声）
         lines.push(`新增工具面：${receipt.addedTools.map((a) => `${a.pluginId} → ${a.tools.join('、')}`).join('；')}`);
+      }
+      if (receipt.removedTools.length > 0) {
+        // 旧代有名新代无名（pi-3 件 B 双翼——uninstall/disable/换代移除形诚实呈现）
+        lines.push(`移除工具面：${receipt.removedTools.join('、')}`);
       }
       if (receipt.failures.length > 0) {
         // 行级失败附错误文本（03 §5.7② obs-a 呈现三面之③——与 plugins list

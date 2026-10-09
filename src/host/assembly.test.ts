@@ -1006,6 +1006,46 @@ describe('/reload 热重载 e2e（03 §5.7——手编漂移换代全链）', ()
     expect(disposed).toEqual(['provider', 'credentials', 'provider', 'credentials']);
     expect(gen).toBe(2); // 两代各跑一次 apply
   });
+
+  it('换代移除翼（pi-3 件 B——add-only 差集扩双翼）：旧代工具换代不在 → 回执「移除工具面」行', async () => {
+    const dir = tmpDir('host-asm-toolface-');
+    let gen = 0;
+    // 初代专属工具件：gen1 注册 gen1_only_tool、gen2 不注册（uninstall/换代
+    // 移除形的最小模拟——removed 翼差集探针）
+    const evictor: CorePluginReference = {
+      name: 'evictor',
+      apply: async (ctx) => {
+        gen += 1;
+        if (gen === 1) {
+          (ctx as { tools: { register: (def: unknown) => unknown } }).tools.register({
+            name: 'gen1_only_tool',
+            description: '初代专属（换代移除翼探针）',
+            parameters: { type: 'object' },
+            execute: async () => ({ content: [] }),
+          });
+        }
+        return () => undefined;
+      },
+    };
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [evictor],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      assembly.reloader.request();
+      await assembly.reloader.settle();
+      expect(notified.some((t) => t.includes('移除工具面：gen1_only_tool'))).toBe(true);
+      expect(notified.some((t) => t.includes('重载失败'))).toBe(false);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
 });
 
 /* ---------------- /plugins TUI 命令面 e2e（03 §5.8——命令注册 + 自动链 + 审计落账） ---------------- */

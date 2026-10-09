@@ -1566,9 +1566,19 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         if (previous !== undefined) {
           for (const a of previous.report.activated) for (const t of previous.toolsOf(a.id)) previousTools.add(t);
         }
+        const currentToolNames = new Set<string>();
+        for (const a of handle.report.activated) for (const t of handle.toolsOf(a.id)) currentToolNames.add(t);
         const addedTools = handle.report.activated
           .map((a) => ({ pluginId: a.id, tools: handle.toolsOf(a.id).filter((t) => !previousTools.has(t)) }))
           .filter((entry) => entry.tools.length > 0);
+        // 移除翼（pi-3 件 B——add-only 差集扩双翼）：旧代有名新代无名（uninstall/
+        // disable/换代移除形）
+        const removedTools = [...previousTools].filter((name) => !currentToolNames.has(name));
+        // 换装时点模型面换代代投（pi-3 件 B——03 §2.8「两代差集非空才投」代投闸）：
+        // 世代号自增——各在飞会话下一请求组装位现算净差注入 mid-convo 瞬态通告
+        // （净差空不注——消费闸在驱动侧；零请求会话不投不耗）。与回执（人面）、
+        // 世代行（durable）三通道同源 = 本差集。
+        if (addedTools.length > 0 || removedTools.length > 0) stack.notifyToolFaceChange();
         return {
           total: handle.counts.total,
           enabled: handle.counts.enabled,
@@ -1577,6 +1587,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           // 三键结构满足即透传，与 plugins list 失败分区同源同形）
           failures: handle.report.failed.map((f) => ({ id: f.id, code: f.code, message: f.message })),
           addedTools,
+          removedTools,
         };
       },
       isBusy: () => stack.manager.anyRunning(),

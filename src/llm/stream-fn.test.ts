@@ -462,3 +462,60 @@ describe('流活性 watchdog（04 §3.8——帽停滞不帽时长）', () => {
     expect(tracker.inFlight('faux-test')).toBe(0);
   });
 });
+
+/* ---------------- mid-convo 工具面通告折叠（pi-3 件 B——03 §2.8） ---------------- */
+
+describe('mid-convo 工具面通告折叠（pi-3 件 B——buildPiContext 单点映射）', () => {
+  it('toolFaceChange → 尾附 mid-convo SystemMessage（toolsAdded 完整定义 + toolsRemoved 名单 + 缺省文案）；消费视图重放合并', async () => {
+    const { faux, runtime } = makeFauxRuntime();
+    const captures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }> = [];
+    faux.setResponses([capturingFactory(captures)]);
+    const streamFn = createStreamFn(runtime);
+    const messages = [userMsg('跑')];
+    const final = await (
+      await streamFn(
+        {
+          systemPrompt: 'sys',
+          messages,
+          tools: [{ name: 'read', description: '读', parameters: { type: 'object', properties: {} } }],
+          toolFaceChange: {
+            addedTools: [{ name: 'grep', description: '检索', parameters: { type: 'object', properties: {} } }],
+            removedToolNames: ['bash'],
+          },
+        },
+        { model: 'faux-test/m1' },
+      )
+    ).result();
+    expect(final.stopReason).toBe('stop');
+    const seen = captures[0]!;
+    // 折叠头（systemPrompt/tools）+ 原 messages 逐项 + 尾附 mid-convo 通告条
+    expect(seen.context.messages.length).toBe(messages.length + 2);
+    const notice = seen.context.messages[seen.context.messages.length - 1] as SystemMessage;
+    expect(notice.role).toBe('system');
+    expect(notice.toolsAdded?.map((t) => t.name)).toEqual(['grep']);
+    expect(notice.toolsAdded?.[0]?.description).toBe('检索'); // 完整定义非名账（pi-ai 契约）
+    expect(notice.toolsRemoved).toEqual([{ name: 'bash' }]);
+    // 缺省文案（缺席 content 时 llm 席单点组装）
+    expect(notice.content).toContain('[工具面更新]');
+    expect(notice.content).toContain('grep');
+    expect(notice.content).toContain('bash');
+    // 消费视图锁（与 :153 直通用例同款——provider 重放视角）：面含新件、
+    // 不含移除件（mid-convo toolsAdded/toolsRemoved 重放合并语义）
+    expect(
+      getCurrentTools(seen.context.messages)
+        .map((t) => t.name)
+        .sort(),
+    ).toEqual(['grep', 'read']);
+  });
+
+  it('缺席 toolFaceChange 零附加（既有直通形零漂移）', async () => {
+    const { faux, runtime } = makeFauxRuntime();
+    const captures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }> = [];
+    faux.setResponses([capturingFactory(captures)]);
+    const streamFn = createStreamFn(runtime);
+    const messages = [userMsg('hi')];
+    await (await streamFn({ systemPrompt: 'sys', messages }, { model: 'faux-test/m1' })).result();
+    // 仅折叠头 + 原 messages——无 mid-convo 附加条
+    expect(captures[0]!.context.messages.length).toBe(messages.length + 1);
+  });
+});

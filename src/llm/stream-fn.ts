@@ -152,13 +152,42 @@ export function createStreamFn(
   };
 }
 
-/** 标准三角色零转换直通（超集兼容子集；引用同一数组，无拷贝） */
+/**
+ * 标准三角色零转换直通（超集兼容子集；引用同一数组，无拷贝）。
+ * mid-convo 工具面通告折叠（pi-3 件 B——03 §2.8）：toolFaceChange 在场时
+ * 附加一条 pi-ai SystemMessage 增量更新（toolsAdded 完整定义 / toolsRemoved
+ * 名单 / content 通告文本）——支持渠道原位发增量块、不支持渠道由 pi-ai
+ * 自动 collapse 合流进 leading（宿主零渠道分叉）。类型映射停本单点
+ * （07 栈纪律 pi-ai import 白名单）。
+ */
 function buildPiContext(context: LlmContext): PiContext {
-  return {
+  const base: PiContext = {
     systemPrompt: context.systemPrompt,
     messages: context.messages as PiMessage[],
     tools: context.tools?.map(toPiTool),
   };
+  const notice = context.toolFaceChange;
+  if (notice === undefined) return base;
+  const midConvo: PiMessage = {
+    role: 'system',
+    content: notice.content ?? defaultToolFaceNoticeText(notice),
+    ...(notice.addedTools.length > 0 ? { toolsAdded: notice.addedTools.map(toPiTool) } : {}),
+    ...(notice.removedToolNames.length > 0 ? { toolsRemoved: notice.removedToolNames.map((name) => ({ name })) } : {}),
+    timestamp: Date.now(),
+  };
+  return { ...base, messages: [...base.messages, midConvo] };
+}
+
+/** 工具面通告缺省文案（缺席 content 时单点组装——中文 UI 文案律） */
+function defaultToolFaceNoticeText(notice: { addedTools: { name: string }[]; removedToolNames: string[] }): string {
+  const parts: string[] = [];
+  if (notice.addedTools.length > 0) {
+    parts.push(`本次起可用新工具：${notice.addedTools.map((t) => t.name).join('、')}`);
+  }
+  if (notice.removedToolNames.length > 0) {
+    parts.push(`以下工具已移除、不再可用：${notice.removedToolNames.join('、')}`);
+  }
+  return `[工具面更新] ${parts.join('；')}`;
 }
 
 /**

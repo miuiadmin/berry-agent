@@ -267,6 +267,18 @@ export interface ConversationDriverOptions {
   readonly refreshToolFace?: () => readonly AgentTool[];
 
   /**
+   * 工具面世代取值器（pi-3 件 B——03 §2.8 换装时点通告通道）：返回栈级
+   * 世代号（/reload reapply 成功尾经两代差集非空闸自增）。驱动在请求组装
+   * 位（onTransformContext 瞬态尾区）比对自持已消费世代号——不同即现算
+   * 净差（上次送达面 vs 本次组装面），净差非空注入 LlmContext.toolFaceChange
+   * 瞬态通告（净差空不注——防重复通告）；消费即清（世代号推进）。**缺席 =
+   * 零通告**（无换装编舞的装配形）。与 refreshToolFace 分立：件 A 管面换新
+   * （tools 投影真值），件 B 管叙事（mid-convo 通告——静默面变的到达不
+   * 叙事，仅换装时点通告）。
+   */
+  readonly toolFaceGeneration?: () => number;
+
+  /**
    * goal 段窄面供应商（03 §10.5 chat↔goal 数据通道）：todo fold 边界升格
    * 「goal 生命周期段」的判据面——装配根注入 goal 件 `goalScopeFor` 闭包
    * （词面独立零 import、结构兼容编译期即验）；**缺席 = fold 退化 run-scoped

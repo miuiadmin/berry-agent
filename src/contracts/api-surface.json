@@ -404,7 +404,7 @@
       "since": "1.0",
       "desc": "单次 LLM 请求上下文（StreamFn 第一参数；04 §3.1）",
       "kind": "interface",
-      "sig": "ee023bbf51ec4750"
+      "sig": "2311128ee588af65"
     },
     {
       "symbol": "LlmTool",
@@ -779,6 +779,15 @@
       "desc": "工具效果面（03 §2.3 一位两用）——**工具档三值**（04 §9 定形块①，2026-09-11 审批分档批）：`read` = 只读（批内并行调度、不走审批对）；`write` = 写面（批边界串行屏障 + 审批对触发）；`exec` = 任意进程执行类（v1 升档清单恰一处 = bash——exec/bash.ts；write/exec 同触发审批对、同走批边界串行）",
       "kind": "type",
       "sig": "a1f0c02a6ea977f7"
+    },
+    {
+      "symbol": "ToolFaceChangeNotice",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "mid-convo 工具面变化瞬态通告（pi-3 件 B——03 §2.8「模型上下文通道启用语义」换装时点通告通道的本地形）",
+      "kind": "interface",
+      "sig": "98c4d3486005ca84"
     },
     {
       "symbol": "ToolPipelineExecutor",
