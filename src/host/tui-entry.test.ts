@@ -40,6 +40,9 @@ const todoForCapture = vi.hoisted(() => ({
     | undefined,
 }));
 
+/** 终退排空接线序事件账（挖掘 26 轮 [9]）：drainInput/stop 调用序——drain 先于 stop */
+const exitSeqCapture = vi.hoisted(() => ({ events: [] as string[] }));
+
 // passthrough 单点包裹（issue barrel 捕获先例同形——run-issue-verify.test.ts）：
 // spread 全真导出 + TuiBackend 构造时记录注入的 todoFor 后原样转发——零行为
 // 替身，捕获到的是 tui-entry 装配的生产闭包本体（todoFor 折叠 memo 行为锁
@@ -54,6 +57,22 @@ vi.mock('../channels/index.js', async (importOriginal) => {
     ) {
       todoForCapture.fn = options?.todoFor;
       super(io, options);
+      // 终退排空接线序观测缝（挖掘 26 轮 [9]）：drainInput 先于 stop = 07
+      // §4.1 件5 编舞序。运行时条件探测 wrap——修前 drainInput 缺席零记录
+      //（红锚即「无 drain」），非类型面依赖
+      const self = this as unknown as { drainInput?: (...args: unknown[]) => Promise<void> };
+      if (typeof self.drainInput === 'function') {
+        const origDrain = self.drainInput.bind(this);
+        self.drainInput = async (...args: unknown[]) => {
+          exitSeqCapture.events.push('drain');
+          return origDrain(...args);
+        };
+      }
+      const origStop = this.stop.bind(this);
+      this.stop = () => {
+        exitSeqCapture.events.push('stop');
+        origStop();
+      };
     }
   }
   return { ...actual, TuiBackend: CapturingTuiBackend };
@@ -371,6 +390,16 @@ describe('runTuiEntry 装配序', () => {
     expect(code).toBe(0);
     expect(faux.state.callCount).toBe(0); // 未提交零模型调用
     expect(io.output).toContain('berry-agent'); // 起屏 title 基线（version 注入）
+  });
+
+  it('终退排空编舞接线（挖掘 26 轮 [9]——修前红）：closer 内 drainInput 先于 stop（07 §4.1 件5 装配侧显式调用位）', async () => {
+    exitSeqCapture.events.length = 0;
+    const { entry, io } = await rigEntry(rigDir('entry-drain-'), rigDir('entry-ws-'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    // 修前红：closer 只 stop——events 仅 ['stop']（drainInput 生产零调用、
+    // 运行时探测 wrap 零记录）；修后编舞序 = 排空 → 出屏
+    expect(exitSeqCapture.events).toEqual(['drain', 'stop']);
   });
 
   it('退出序落盘失败折非零（十六役补扫 N3）：flush 抛错 → ctrl+d 退 1 不再零码假绿', async () => {

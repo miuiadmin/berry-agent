@@ -1706,8 +1706,18 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       cancelSchedule: (handle) => clearTimeout(handle as NodeJS.Timeout),
     });
 
-    // 出屏复原进退出序 closer——quit 路径与信号路径（onGraceful→shutdown）同享
-    runtime.registerCloser({ label: 'tui-backend', fn: () => backend.stop() });
+    // 出屏复原进退出序 closer——quit 路径与信号路径（onGraceful→shutdown）同享。
+    // 终退排空先行（07 §4.1 件5「终退排空已裁做」——装配侧显式调用位，挖掘
+    // 26 轮 [9] 接线）：排空 → 出屏 → 进程退出——raw 期连打字节交回 shell 会被
+    // 误执行（berry desktop 线实证同款）。drainInput 总帽 1000ms 内嵌 closer
+    // 共享 5s 帽（排空吞不进强杀继续出屏——恢复面非启动门槛）
+    runtime.registerCloser({
+      label: 'tui-backend',
+      fn: async () => {
+        await backend.drainInput();
+        backend.stop();
+      },
+    });
 
     // —— 会话用量结算总线呈现订阅（V-4 注⑪②——footer 行1 累计段即时刷新锚）：
     // run 结算落账即通知（通知时点后于缓存推进，现拉必含本笔——sessionSpentOf

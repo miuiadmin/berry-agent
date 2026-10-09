@@ -396,6 +396,13 @@ const STREAM_FRAME_BYTE_CAP = 256 * 1024;
 const LANDED_TRANSIENT_CAP = 200;
 /** lone-ESC 判定窗缺省（对齐 Engine DEFAULT_ESCAPE_WINDOW_MS） */
 const DEFAULT_ESCAPE_WINDOW_MS = 30;
+/**
+ * drainInput 缺省窗（对齐 Engine.drainInput 同源值——07 §4.1 件5 终退排空
+ * 行为预算：总帽 1000 / 闲窗 50 承 berry 实证值）。主屏输入管线自持（不经
+ * Engine——本件头注），故主屏终退排空由本件自持同舞非借 Engine。
+ */
+const DRAIN_MAX_MS = 1000;
+const DRAIN_IDLE_MS = 50;
 /** footer 教学提示闲态文案（V-3 注⑦④——`?` 键投影与 footer 提示同文单源） */
 const FOOTER_HINT_TEXT = '? 快捷键';
 /**
@@ -1190,6 +1197,42 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 终退无条件复 raw 先验（挂起期不再复——换防恒 raw 律见 suspendMain 注；
     // 从挂起态直接终退亦须交还，条件位随换防批删除）
     this.io.setRawMode(this.priorRaw);
+  }
+
+  /**
+   * 排空 stdin 缓冲（终退回 shell 前——07 §4.1 件5「终退排空已裁做」；主屏
+   * 形与 Engine.drainInput 同源舞）：临时吞处理器 + 放流 → 闲窗（idleMs 无
+   * 新数据）或总帽（maxMs）到点收手。raw 期连打字节交回 shell 会被误执行
+   * （berry desktop 线实证同款）——终退编舞（排空 → 出屏 → 进程退出）由
+   * 装配侧 closer 显式调用（tui-entry tui-backend closer——挖掘 26 轮 [9]
+   * 接线）。未启/已停 = no-op（无 raw 接管即无残账可排）；挂起期主屏处理器
+   * 已卸（unsubInput null）——不重装（副屏编舞归 closeAlt）。
+   */
+  async drainInput(maxMs: number = DRAIN_MAX_MS, idleMs: number = DRAIN_IDLE_MS): Promise<void> {
+    if (!this.startedOnce || !this.running) return;
+    const hadHandler = this.unsubInput !== null;
+    this.unsubInput?.();
+    this.unsubInput = null;
+    let lastData = this.now();
+    const swallow = (): void => {
+      lastData = this.now();
+    };
+    const unsubSwallow = this.io.onInput(swallow);
+    this.io.resume(); // 放流：缓冲数据事件化（被吞处理器吃掉）
+    const deadline = this.now() + maxMs;
+    // 闲窗轮询调度：注入 schedule 缺席（同步直出测试语义）兜底真定时器——
+    // 非同步即决（同步执行会把轮询旋成热自旋到总帽）
+    const schedule = this.scheduleFn ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+    while (this.now() < deadline && this.now() - lastData < idleMs) {
+      await new Promise<void>((res) => void schedule(res, idleMs));
+    }
+    unsubSwallow();
+    this.io.pause();
+    if (hadHandler) {
+      // 运行态调用后恢复：处理器重装 + 流复起（终退形随后 stop 再卸——幂等无害）
+      this.unsubInput = this.io.onInput(this.handleInput);
+      this.io.resume();
+    }
   }
 
   /**

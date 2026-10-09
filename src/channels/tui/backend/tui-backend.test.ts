@@ -665,6 +665,65 @@ describe('TuiBackend 输入管线（自持——不经 Engine）', () => {
     expect(io.bytes).toBe(''); // 停后渲染请求静默短路
   });
 
+  it('drainInput 终退排空：吞窗内输入不进编辑器 + 收手停流（07 §4.1 件5——挖掘 26 轮 [9]，Engine.drainInput 同源舞）', async () => {
+    const { io, backend, clock, calls } = makeInteractive();
+    io.reset();
+    const draining = backend.drainInput(1000, 50);
+    let done = false;
+    void draining.then(() => {
+      done = true;
+    });
+    clock.advance(10);
+    io.emitInput('a'); // 第一波（swallow 接管——主屏处理器已卸）
+    clock.advance(40);
+    io.emitInput('b'); // 第二波（lastData 重置——闲窗续期）
+    for (let elapsed = 0; elapsed < 2000 && !done; elapsed += 10) {
+      clock.advance(10);
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    expect(done).toBe(true);
+    // 吞后空稿证吞尽：补打 'x' 提交——draft 只含 'x'（若处理器未卸则 'ab'
+    // 已入稿随提交 'abx'——红锚即此）
+    io.emitInput('x\r');
+    clock.advance(1);
+    expect(calls.submitted).toEqual([['s1', 'x']]);
+    expect(io.pauseCount).toBeGreaterThanOrEqual(1); // 收手停流
+  });
+
+  it('drainInput 运行态恢复：处理器重装 + 流复起（终退形随后 stop 再卸——幂等无害）', async () => {
+    const { io, backend, clock } = makeInteractive();
+    io.reset();
+    const draining = backend.drainInput(1000, 50);
+    let done = false;
+    void draining.then(() => {
+      done = true;
+    });
+    for (let elapsed = 0; elapsed < 2000 && !done; elapsed += 10) {
+      clock.advance(10);
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    expect(done).toBe(true);
+    expect(io.resumeCount).toBeGreaterThanOrEqual(1); // 恢复放流
+    io.emitInput('hi'); // 处理器已重装——编辑器收字
+    clock.advance(1);
+    expect(io.bytes).toContain('hi');
+  });
+
+  it('drainInput 未启/已停 no-op：无排空舞副作用（无 raw 接管即无残账可排）', async () => {
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, {}); // 未 start
+    io.pauseCount = 0; // reset() 只清输出账——计数手置零（engine 测试同款先例）
+    await backend.drainInput(10, 5);
+    expect(io.pauseCount).toBe(0);
+    backend.start();
+    backend.stop();
+    io.pauseCount = 0;
+    await backend.drainInput(10, 5);
+    expect(io.pauseCount).toBe(0); // 已停同理
+  });
+
   it('ctrl+c → onInterrupt 连按计次；ctrl+d 空框 → onQuit', () => {
     const { io, calls } = makeInteractive();
     io.emitInput('\x03');
