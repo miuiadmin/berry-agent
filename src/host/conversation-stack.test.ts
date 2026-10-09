@@ -107,8 +107,10 @@ class RecordingBackend implements UiBackend<AgentMessage> {
   hasAudience(): boolean {
     return true;
   }
-  notify(): void {
-    // 本组不断言 notify 载荷——通道核降级路径单测在 channels 域
+  notify(message?: string, _opts?: { level?: string }): void {
+    // 本组不断言 notify 载荷——通道核降级路径单测在 channels 域；
+    // 声明留参位供个别测试实例遮蔽覆写捕载荷（UiBackend 扇出形 (message, opts)）
+    void message;
   }
   onEnvelope(env: SessionEnvelope): void {
     this.envelopes.push(env);
@@ -203,6 +205,29 @@ describe('createConversationStack 装配序', () => {
     expect(projection.some((m) => m.role === 'user' && m.content === '你好')).toBe(true);
     expect(projection.some((m) => m.role === 'assistant')).toBe(true);
 
+    await rt.shutdown();
+  });
+
+  it('submitText 回执失败折面走 foldErrorText 单源（挖掘 27 轮 [11]）：BaseError 码直呈非裸 message', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const ws = rigWorkspace();
+    const backend = new RecordingBackend();
+    const notified: string[] = [];
+    // 实例遮蔽覆写：捕 notify 载荷（RecordingBackend 原实现不断言载荷；
+    // UiBackend.notify 扇出形 = (message, opts)——无 sessionId 位）
+    backend.notify = (message: string) => {
+      notified.push(message);
+    };
+    stack.channels.addBackend(backend);
+    const session = stack.openStartupSession(ws);
+    // 坏档事件直落（webui-bridge.test 同款构造）→ submit 起跑同步段
+    // thinkingSource() 抛 THINKING_LEVEL_INVALID——run 回执 reject 的实锤形
+    stack.driverOf(session.sessionId)!.session.append('session/thinking-level', { level: '幽灵档' });
+    await expect(stack.submitText(session.sessionId, '炸')).rejects.toThrow();
+    // 修前红：裸三元折 err.message 丢码（「提交失败：session/thinking-level 事件
+    // 的思考级别无效：…」）；修后 foldErrorText 带码形——码前缀即回归锚
+    expect(notified.some((m) => m.startsWith('提交失败：THINKING_LEVEL_INVALID'))).toBe(true);
     await rt.shutdown();
   });
 

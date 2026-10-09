@@ -29,7 +29,7 @@ import { join } from 'node:path';
 
 import { canonicalWorkspaceRoot, createLogger, EventDispatch, LogLevelState, Scope } from '../context/index.js';
 import type { Disposer } from '../context/index.js';
-import { createChannels } from '../channels/index.js';
+import { createChannels, foldErrorText } from '../channels/index.js';
 import type { ChannelsService } from '../channels/index.js';
 import type {
   AgentMessage,
@@ -1601,7 +1601,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       if (channels.focusedId !== null) return; // 他者聚焦 = 删非聚焦——焦点不动
       const next = openStartupSessionFor(workspaceRoot);
       void channels.focus(next.sessionId).catch((err: unknown) => {
-        channels.notify(next.sessionId, `切换会话失败：${err instanceof Error ? err.message : String(err)}`, {
+        // foldErrorText 单源（挖掘 27 轮 [11]）：focus 拒绝的 BaseError（如
+        // PERSIST_DATA_CORRUPT）码直呈——与 /sessions 切焦命令路同口径（689e5ba
+        // 立规用户面折面禁裸 String；此前裸三元丢码属 wf_3c8b00b8 组α漏网位）
+        channels.notify(next.sessionId, `切换会话失败：${foldErrorText(err)}`, {
           level: 'error',
         });
       });
@@ -1884,7 +1887,11 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       const run = driver.submit(content, submitOptions);
       // 回执面错误经 notify 回流呈现面（fire-and-forget 无未处理拒绝；await 方仍得真回执）
       void run.catch((err: unknown) => {
-        channels.notify(sessionId, `提交失败：${err instanceof Error ? err.message : String(err)}`, {
+        // foldErrorText 单源（挖掘 27 轮 [11]）：全部生产提交入口（TUI/webui/
+        // serve/run/goal 唤醒/trigger/scheduler）的统一错误回流面——BaseError
+        // 码直呈（如 THINKING_LEVEL_INVALID），与命令分发路同口径（此前裸
+        // 三元丢码属 wf_3c8b00b8 组α漏网位）
+        channels.notify(sessionId, `提交失败：${foldErrorText(err)}`, {
           level: 'error',
         });
       });
