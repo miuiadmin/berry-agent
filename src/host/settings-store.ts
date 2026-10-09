@@ -48,6 +48,7 @@ import {
   customCompatProblem,
   customSamplingParamsByThinkingLevelProblem,
   customSamplingParamsProblem,
+  customThinkingBudgetsProblem,
 } from '../llm/index.js';
 import type { CustomProviderDef, CustomProviderProtocol } from '../llm/index.js';
 import type { ApprovalPolicyMode, SandboxMode } from '../safety/index.js';
@@ -105,9 +106,9 @@ const THEME_SETTINGS: readonly string[] = ['dark', 'light', 'auto'];
 export const CUSTOM_CHANNEL_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
 
 /**
- * customProviders 条目键闭集（pi-8 批——8 键；真源 = llm 域 CustomProviderDef
- * 字段面）：未知键坏形丢条点名（镜像校验彻底化——原「放行幸存」系静默死键
- * bug 形收口）。
+ * customProviders 条目键闭集（pi-8 批 8 键 → pi-4 批 10 键；真源 = llm 域
+ * CustomProviderDef 字段面）：未知键坏形丢条点名（镜像校验彻底化——原
+ * 「放行幸存」系静默死键 bug 形收口）。
  */
 const CUSTOM_PROVIDER_ENTRY_KEYS: ReadonlySet<string> = new Set([
   'name',
@@ -118,6 +119,8 @@ const CUSTOM_PROVIDER_ENTRY_KEYS: ReadonlySet<string> = new Set([
   'compat',
   'samplingParams',
   'samplingParamsByThinkingLevel',
+  'reasoning',
+  'thinkingBudgets',
 ]);
 
 /**
@@ -168,11 +171,20 @@ function customProviderEntryProblem(raw: unknown, protocols: readonly string[]):
   // —— pi-8 批闭集执法（04 §9 ⑥ pi-8 批注「条目级闭集执法」：镜像校验彻底化
   // ——未知键从「放行幸存」改坏形丢条点名；三键判据单源在 llm 域三函数，
   // pi-ai 知识不出 llm 域；破坏性收紧有意为之——boot warn 指路手编修复） ——
-  // 未知键闭集（8 键）：手编额外键原「读侧过校验+工厂不消费 = 纯静默死键」，本批收口
+  // 未知键闭集（10 键）：手编额外键原「读侧过校验+工厂不消费 = 纯静默死键」，本批收口
   for (const key of Object.keys(def)) {
     if (!CUSTOM_PROVIDER_ENTRY_KEYS.has(key)) {
-      return `未知键「${key}」（customProviders 条目仅认 8 个键）——丢该条`;
+      return `未知键「${key}」（customProviders 条目仅认 10 个键）——丢该条`;
     }
+  }
+  // —— pi-4 批两键（04 §9 ⑥ pi-4 批注）：reasoning 布尔走原生类型面；thinkingBudgets
+  // 判据单源 = llm 域 customThinkingBudgetsProblem（四键闭集+正整数）——
+  if (def.reasoning !== undefined && typeof def.reasoning !== 'boolean') {
+    return 'reasoning 须为 boolean';
+  }
+  if (def.thinkingBudgets !== undefined) {
+    const problem = customThinkingBudgetsProblem(def.thinkingBudgets);
+    if (problem !== undefined) return problem;
   }
   if (def.compat !== undefined) {
     // protocol 运行时已由上方 protocols.includes 校验背书——as 收口仅类型面

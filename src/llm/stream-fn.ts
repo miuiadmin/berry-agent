@@ -36,6 +36,7 @@ import type {
 import { BaseError } from '../contracts/index.js';
 import type { InFlightSlot, InFlightTracker } from './inflight.js';
 import type { LlmRuntime } from './runtime.js';
+import { customThinkingBudgetsFor } from './custom-provider-factory.js';
 
 /**
  * 钩子派发段只读窄面（03 §3.4 执法——02 §5.3 LLM_CALL_IN_HOOK 接线消费）。
@@ -134,7 +135,7 @@ export function createStreamFn(
         runtime.models.streamSimple(
           model,
           buildPiContext(context),
-          buildPiOptions(defaults, options, signal),
+          buildPiOptions(model, defaults, options, signal),
         ) as unknown as AssistantStream,
         slot,
       );
@@ -153,7 +154,7 @@ export function createStreamFn(
     const passthrough = runtime.models.streamSimple(
       model,
       buildPiContext(context),
-      buildPiOptions(defaults, options, signal),
+      buildPiOptions(model, defaults, options, signal),
     ) as unknown as AssistantStream;
     // pi-5 同上——直通分支同为真请求流（归一口径两分支同面，勿单分支漏包）
     return withEffectiveThinkingLevel(
@@ -237,16 +238,27 @@ export function stripWatchdogDefaults(defaults: StreamFnDefaults): Omit<StreamFn
   return passthrough;
 }
 
-/** defaults 打底 + 具名覆盖 + signal 透传（reasoning 无 'off' 档——undefined 即关闭） */
+/**
+ * defaults 打底 + 具名覆盖 + signal 透传（reasoning 无 'off' 档——undefined 即
+ * 关闭）。pi-4 组装单点：渠道声明思考预算经工厂侧 def 注册表查询单点
+ * （customThinkingBudgetsFor）进请求级 SimpleStreamOptions.thinkingBudgets
+ * ——Model 接口无位，非 custom 渠道/未声明即缺席（不虚构预算）；complete
+ * 单发路不经本函数（04 §5 明约——v1 射程 = 流路单点）。
+ */
 function buildPiOptions(
+  model: Model<string>,
   defaults: StreamFnDefaults,
   options: StreamFnOptions,
   signal: AbortSignal | undefined,
 ): SimpleStreamOptions {
+  // 组装位取注册表现值（渠道卸载/编辑重注册后新请求即见新面——与 def 可变
+  // 性边界条款同向：声明活在可变 settings，请求组装时点取现值）
+  const thinkingBudgets = customThinkingBudgetsFor(model.provider);
   return {
     ...stripWatchdogDefaults(defaults),
     reasoning:
       options.thinkingLevel !== undefined && options.thinkingLevel !== 'off' ? options.thinkingLevel : undefined,
+    ...(thinkingBudgets !== undefined ? { thinkingBudgets } : {}),
     ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
     ...(signal !== undefined ? { signal } : {}),
   };

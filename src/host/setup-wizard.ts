@@ -582,6 +582,10 @@ async function customFormLeg(
       ...(existing?.def.samplingParamsByThinkingLevel !== undefined
         ? { samplingParamsByThinkingLevel: existing.def.samplingParamsByThinkingLevel }
         : {}),
+      // pi-4 批沿透传律（04 §9 ⑥ pi-4 批注）：v1 向导不开思考面采集步（手编
+      // settings 面），编辑保存必透传两新键——丢键即 R-3 name 先例 bug 族复发
+      ...(existing?.def.reasoning !== undefined ? { reasoning: existing.def.reasoning } : {}),
+      ...(existing?.def.thinkingBudgets !== undefined ? { thinkingBudgets: existing.def.thinkingBudgets } : {}),
     },
     apiKey,
     isNew: existing === undefined,

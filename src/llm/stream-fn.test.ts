@@ -26,6 +26,7 @@ import type {
 } from '../contracts/index.js';
 import { classifyError } from './recovery.js';
 import { createStreamFn, withIdleTimeout } from './stream-fn.js';
+import { createCustomChannelProvider, unregisterCustomProviderDef, type CustomProviderDef } from './index.js';
 import { createLlmRuntime } from './runtime.js';
 import { InFlightTracker } from './inflight.js';
 
@@ -218,6 +219,49 @@ describe('生效档实录（真请求流恒带；前置拒绝合成流键缺席�
     ).result();
     expect(capped.thinkingLevel).toBeUndefined();
     held!.release();
+  });
+});
+
+/* ---------------- pi-4：思考预算组装（工厂侧 def 注册表 → 请求级 options） ---------------- */
+
+describe('思考预算组装（pi-4——customThinkingBudgetsFor 注册表单点进请求 options）', () => {
+  it('在册渠道 def.thinkingBudgets 同值进 options；非在册渠道键缺席（不虚构预算）', async () => {
+    // 注册腿走真工厂（channelDefs 登记单点）；流路走同 id faux——注册表恰按
+    // provider id 键取，faux 顶名即走全真组装链（零网络；faux 即模型层 mock 纪律位）
+    const def: CustomProviderDef = {
+      protocol: 'openai-completions',
+      baseUrl: 'https://gw.example.test/v1',
+      models: ['m1'],
+      reasoning: true,
+      thinkingBudgets: { low: 4096, high: 16384 },
+    };
+    createCustomChannelProvider('faux-budget', def, () => undefined);
+    try {
+      const faux = fauxProvider({ provider: 'faux-budget', models: [{ id: 'm1', reasoning: true }] });
+      const runtime = createLlmRuntime({ providers: [faux.provider] });
+      const captures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }> = [];
+      faux.setResponses([capturingFactory(captures)]);
+      await (
+        await createStreamFn(runtime)(simpleContext([userMsg('x')]), {
+          model: 'faux-budget/m1',
+          thinkingLevel: 'low',
+        })
+      ).result();
+      expect((captures[0]!.options as Record<string, unknown>).thinkingBudgets).toEqual({ low: 4096, high: 16384 });
+      // 对照：非在册渠道（faux-test 未注册 def）键缺席——缺席形组装不虚构预算
+      const { faux: plainFaux, runtime: plainRuntime } = makeFauxRuntime();
+      const plainCaptures: Array<{ context: TranscriptContext; options: SimpleStreamOptions | undefined }> = [];
+      plainFaux.setResponses([capturingFactory(plainCaptures)]);
+      await (
+        await createStreamFn(plainRuntime)(simpleContext([userMsg('x')]), {
+          model: 'faux-test/m1',
+          thinkingLevel: 'low',
+        })
+      ).result();
+      expect(plainCaptures[0]!.options).not.toHaveProperty('thinkingBudgets');
+    } finally {
+      unregisterCustomProviderDef('faux-budget'); // 注册表模块级全局——测试收尾摘
+    }
   });
 });
 

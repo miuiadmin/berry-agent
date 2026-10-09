@@ -13,8 +13,11 @@ import {
   customCompatProblem,
   customSamplingParamsByThinkingLevelProblem,
   customSamplingParamsProblem,
+  customThinkingBudgetsFor,
+  customThinkingBudgetsProblem,
   fauxProvider,
   resolveModel,
+  unregisterCustomProviderDef,
   type CustomProviderDef,
 } from './index.js';
 import { createLlmRuntime } from './runtime.js';
@@ -239,7 +242,7 @@ describe('pi-8 批判据单源（customCompatProblem——白名单按协议分�
   });
 });
 
-describe('pi-8 批判据单源（采样参两函数——黑名单 25 键 + 标量 + 档位 off 闭集）', () => {
+describe('pi-8 批判据单源（采样参两函数——黑名单 25 键 + 标量 + 档位五档闭集〔pi-4 批升格〕）', () => {
   /** 黑名单 25 键全集（= pi-ai buildParams 具名赋位测绘闭集——升级随迁重测绘） */
   const FORBIDDEN_25 = [
     'model',
@@ -285,10 +288,15 @@ describe('pi-8 批判据单源（采样参两函数——黑名单 25 键 + 标�
     expect(customSamplingParamsProblem({ nil: null })).toContain('JSON 标量');
   });
 
-  it('按档表：档位键 off 闭集（reasoning:false 占位门）+ 叶值内外两层同执法', () => {
+  it('按档表：档位键五档闭集（pi-4 批升格扩容）+ 叶值内外两层同执法', () => {
     expect(customSamplingParamsByThinkingLevelProblem({ off: { top_p: 0.9 } })).toBeUndefined();
-    // 非 off 档位键 = 永不命中的静默死键类——诚实律拒（reasoning 升格批扩值域）
-    expect(customSamplingParamsByThinkingLevelProblem({ low: { top_p: 0.9 } })).toContain('档「low」不支持');
+    // pi-4 批升格：reasoning:true 后实际可产集恰五档——off/minimal/low/medium/high 全合法
+    expect(customSamplingParamsByThinkingLevelProblem({ low: { top_p: 0.9 } })).toBeUndefined();
+    expect(customSamplingParamsByThinkingLevelProblem({ high: { top_p: 0.9 } })).toBeUndefined();
+    // 五档之外（xhigh/max 须 thinkingLevelMap 显式条目——自定义渠道恒不可产
+    // = 静默死键，诚实律拒；随 map 声明面立题扩）+ 07 替词表「级别」形文案
+    expect(customSamplingParamsByThinkingLevelProblem({ xhigh: { top_p: 0.9 } })).toContain('级别「xhigh」不支持');
+    expect(customSamplingParamsByThinkingLevelProblem({ max: { top_p: 0.9 } })).toContain('级别「max」不支持');
     // 叶值同黑名单+标量两判据（内外两层同执法）
     expect(customSamplingParamsByThinkingLevelProblem({ off: { max_tokens: 999 } })).toContain(
       'samplingParamsByThinkingLevel.off 键「max_tokens」不允许',
@@ -297,5 +305,57 @@ describe('pi-8 批判据单源（采样参两函数——黑名单 25 键 + 标�
       'samplingParamsByThinkingLevel.off.nested 值须为 JSON 标量',
     );
     expect(customSamplingParamsByThinkingLevelProblem('nope')).toContain('须为对象');
+  });
+});
+
+describe('pi-4 批声明面（thinkingBudgets 判据 + reasoning 升格 + def 注册表承载面）', () => {
+  it('思考预算判据（pi-4 批）：四键闭集+正整数——0/负数/非整数/xhigh 键全拒', () => {
+    // 好形：四键闭集内子集+正整数
+    expect(customThinkingBudgetsProblem({ low: 4096, high: 16384 })).toBeUndefined();
+    expect(customThinkingBudgetsProblem({ minimal: 1 })).toBeUndefined();
+    // 0 形两义拒收（openai 腿 ≤0 不发 / anthropic 腿 min 形）+ 负数 + 非整数
+    expect(customThinkingBudgetsProblem({ low: 0 })).toContain('须为 ≥1 的整数');
+    expect(customThinkingBudgetsProblem({ low: -100 })).toContain('须为 ≥1 的整数');
+    expect(customThinkingBudgetsProblem({ low: 1.5 })).toContain('须为 ≥1 的整数');
+    expect(customThinkingBudgetsProblem({ low: '4096' })).toContain('须为 ≥1 的整数');
+    // 四键闭集外（xhigh/max 请求档预算侧由 pi-ai clampReasoning 降 high——不设键）
+    expect(customThinkingBudgetsProblem({ xhigh: 8192 })).toContain('级别「xhigh」不支持');
+    expect(customThinkingBudgetsProblem({ off: 8192 })).toContain('级别「off」不支持');
+    expect(customThinkingBudgetsProblem('nope')).toContain('须为对象');
+  });
+
+  it('reasoning 升格 + def 注册表（pi-4 批承载面——工厂侧单点维护）', () => {
+    const resolveKey = (): undefined => undefined;
+    // 缺省占位维持 false（不宣称网关不可知的推理支持）
+    const legacy = createCustomChannelProvider(
+      'rg-legacy',
+      { protocol: 'openai-completions', baseUrl: 'https://g.test/v1', models: ['m1'] },
+      resolveKey,
+    );
+    expect(legacy.getModels()[0]!.reasoning).toBe(false);
+    expect(customThinkingBudgetsFor('rg-legacy')).toBeUndefined(); // 未声明缺席形
+    // 升格形：reasoning 直挂 Model + 预算进注册表（查询浅拷贝）
+    const def: CustomProviderDef = {
+      protocol: 'openai-completions',
+      baseUrl: 'https://g.test/v1',
+      models: ['m1'],
+      reasoning: true,
+      thinkingBudgets: { low: 4096, high: 16384 },
+    };
+    const upgraded = createCustomChannelProvider('rg-up', def, resolveKey);
+    expect(upgraded.getModels()[0]!.reasoning).toBe(true);
+    expect(customThinkingBudgetsFor('rg-up')).toEqual({ low: 4096, high: 16384 });
+    // 浅拷贝锁：外改查询产物不串写注册表
+    const leaked = customThinkingBudgetsFor('rg-up') as Record<string, number>;
+    leaked['low'] = -1;
+    expect(customThinkingBudgetsFor('rg-up')).toEqual({ low: 4096, high: 16384 });
+    // 除名摘表（卸载腿同步——运行时除名与声明面除名同批回撤）
+    unregisterCustomProviderDef('rg-up');
+    expect(customThinkingBudgetsFor('rg-up')).toBeUndefined();
+    // 重注册覆盖同 id（向导编辑 = 删除+重建形）
+    createCustomChannelProvider('rg-up', def, resolveKey);
+    expect(customThinkingBudgetsFor('rg-up')).toEqual({ low: 4096, high: 16384 });
+    unregisterCustomProviderDef('rg-up'); // 测试收尾清表
+    unregisterCustomProviderDef('rg-legacy');
   });
 });

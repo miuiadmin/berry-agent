@@ -67,6 +67,24 @@ export interface CustomProviderDef {
    * customSamplingParamsByThinkingLevelProblem。
    */
   readonly samplingParamsByThinkingLevel?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  /**
+   * 思考能力声明（pi-4 批——04 §9 ⑥ pi-4 批注）：占位元数据 reasoning:false
+   * 占位族**唯一升格件**——true 时本渠道 clampThinkingLevel 可产五档
+   * （off/minimal/low/medium/high；xhigh/max 须 thinkingLevelMap 显式条目，
+   * 渠道声明面立题时随扩）。两腿思考预算消费均以 model.reasoning 为前置门
+   * （anthropic 腿 buildParams 门内挂 budget_tokens / openai 腿
+   * resolveClampedThinkingBudget !model.reasoning 门）。
+   */
+  readonly reasoning?: boolean;
+  /**
+   * 按档思考预算声明（pi-4 批）：四键闭集 minimal/low/medium/high（xhigh/max
+   * 请求档预算侧由 pi-ai clampReasoning 降 high——不设键）**正整数 ≥1**
+   * （0 形两义拒收：openai 腿预算 ≤0 不发 / anthropic 腿 min 形）。组装 =
+   * 请求级（Model 接口无位〔实测 :930-953〕）——经工厂侧 def 注册表查询单点
+   * 进 SimpleStreamOptions.thinkingBudgets。判据单源 =
+   * customThinkingBudgetsProblem。
+   */
+  readonly thinkingBudgets?: Readonly<Partial<Record<'minimal' | 'low' | 'medium' | 'high', number>>>;
 }
 
 /** 取 key 闭包（host 装配位接凭证表绑定行现算——undefined = 未配置） */
@@ -237,21 +255,49 @@ export function customSamplingParamsProblem(raw: unknown): string | undefined {
 }
 
 /**
- * 按档采样参表判据（undefined = 好形）：外层档位键域 = 单值 'off' 闭集
- * （reasoning:false 占位门使非 off 档行永不命中 = 静默死键类——诚实律拒之；
- * reasoning 升格批落码时扩值域）+ 叶值同黑名单+标量两判据（内外两层同执法）。
+ * 档位键闭集（pi-4 批扩容——04 §9 ⑥ pi-4 批注）：off/minimal/low/medium/
+ * high 五档——reasoning:true 后 getSupportedThinkingLevels 实际可产集恰五值
+ * （xhigh/max 须 thinkingLevelMap 显式条目〔pi-ai models.js :686-687 特判〕，
+ * 自定义渠道无 map 键恒不可产 = 静默死键，诚实律拒之；xhigh/max 档位行随
+ * thinkingLevelMap 渠道声明面立题随扩）。
+ */
+const THINKING_LEVEL_KEYS: ReadonlySet<string> = new Set(['off', 'minimal', 'low', 'medium', 'high']);
+
+/**
+ * 按档采样参表判据（undefined = 好形）：外层档位键域 = 五档闭集（pi-4 批
+ * 由 'off' 单值扩容——07 §4.4 替词表：思考域用户面文案用「级别」）+
+ * 叶值同黑名单+标量两判据（内外两层同执法）。
  */
 export function customSamplingParamsByThinkingLevelProblem(raw: unknown): string | undefined {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return 'samplingParamsByThinkingLevel 须为对象';
   }
   for (const [level, leaf] of Object.entries(raw as Record<string, unknown>)) {
-    // 档位键闭集：v1 仅 'off'（占位元数据 reasoning:false 的裁定门）
-    if (level !== 'off') {
-      return `samplingParamsByThinkingLevel 档「${level}」不支持（当前仅支持 'off'）`;
+    // 档位键闭集：五档（reasoning 升格后实际可产集——超集即死键，诚实律点名）
+    if (!THINKING_LEVEL_KEYS.has(level)) {
+      return `samplingParamsByThinkingLevel 级别「${level}」不支持（当前支持 off/minimal/low/medium/high）`;
     }
     const problem = customSamplingParamsProblem(leaf);
     if (problem !== undefined) return problem.replace(/^samplingParams/, `samplingParamsByThinkingLevel.${level}`);
+  }
+  return undefined;
+}
+
+/**
+ * 按档思考预算判据（pi-4 批——undefined = 好形）：四键闭集 minimal/low/
+ * medium/high（xhigh/max 请求档预算侧由 pi-ai clampReasoning 降 high——不设
+ * 键）+ 值须正整数 ≥1（0 形两义拒收：openai 腿预算 ≤0 不发 / anthropic 腿
+ * min 形——语义模糊不开；非整数同拒）。
+ */
+export function customThinkingBudgetsProblem(raw: unknown): string | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'thinkingBudgets 须为对象';
+  for (const [level, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (level !== 'minimal' && level !== 'low' && level !== 'medium' && level !== 'high') {
+      return `thinkingBudgets 级别「${level}」不支持（当前支持 minimal/low/medium/high）`;
+    }
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+      return `thinkingBudgets.${level} 须为 ≥1 的整数`;
+    }
   }
   return undefined;
 }
@@ -262,11 +308,39 @@ export function customSamplingParamsByThinkingLevelProblem(raw: unknown): string
  *   早触发属安全侧；虚报 200k 属风险侧，不取）；
  * - maxTokens 8k：输出帽保守低报（预算/护栏面低报无害）；
  * - cost 四率全零：预算面诚实「无价目数据」（高报/臆造价目即预算护栏失真）；
- * - input 恒 ['text']、reasoning 恒 false：不宣称网关不可知的图像/推理支持。
+ * - input 恒 ['text']、reasoning 缺省 false（pi-4 批经 def.reasoning 升格）：
+ *   不宣称网关不可知的图像/推理支持。
  */
 const PLACEHOLDER_CONTEXT_WINDOW = 128_000;
 const PLACEHOLDER_MAX_TOKENS = 8_192;
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } as const;
+
+// —— pi-4 批承载面（04 §5 定谳）：工厂侧 def 注册表 ——
+// create 时登记 id→def（装配/向导两注册腿同经本工厂——单点维护）、卸载腿
+// 同步摘（host 侧 unregisterCustomProviderDef）；查询单点供 stream-fn
+// buildPiOptions 组装请求级 thinkingBudgets（Model 接口无位〔实测
+// :930-953〕——与 pi-8 samplingParams「Model 直挂」不同形；defaults 注入
+// 形否决〔穿 agent 契约面〕，def 构造者持有 def 知识链最短，llm 域内自持）
+const channelDefs = new Map<string, CustomProviderDef>();
+
+/**
+ * 除名自定义渠道 def 注册表（卸载腿同步摘——向导删除三联动之运行时除名步
+ * 与本注册表同批回撤；重注册走 create 覆盖同 id 无须显式清）。
+ */
+export function unregisterCustomProviderDef(id: string): void {
+  channelDefs.delete(id);
+}
+
+/**
+ * 生效思考预算查询（pi-4 组装位单点）：undefined = 非 custom 渠道或未声明
+ * ——组装位缺席形（不虚构预算）。返回浅拷贝防注册表外泄可变引用。
+ */
+export function customThinkingBudgetsFor(
+  providerId: string,
+): Readonly<Partial<Record<'minimal' | 'low' | 'medium' | 'high', number>>> | undefined {
+  const budgets = channelDefs.get(providerId)?.thinkingBudgets;
+  return budgets !== undefined ? { ...budgets } : undefined;
+}
 
 /**
  * 造自定义渠道 Provider。
@@ -287,6 +361,8 @@ export function createCustomChannelProvider(
   // pi-8 三键注入：读侧（settings-store 闭集执法）过的好形直挂 Model 级字段
   // ——流路与 complete 单发路两出口自动同面；compat 条件类型（按 api 分家联合）
   // 由读侧白名单+值域执法背书，此处 as 收口不重复校验（判据单源律）。
+  // pi-4 reasoning 升格：def.reasoning ?? false（占位元数据唯一升格件——
+  // 默认 false 维持「不宣称网关不可知的推理支持」保守面）。
   const models: Model<Api>[] = def.models.map(
     (bareId) =>
       ({
@@ -295,7 +371,7 @@ export function createCustomChannelProvider(
         api: def.protocol,
         provider: id,
         baseUrl: def.baseUrl,
-        reasoning: false,
+        reasoning: def.reasoning ?? false,
         input: ['text'],
         cost: { ...ZERO_COST },
         contextWindow: PLACEHOLDER_CONTEXT_WINDOW,
@@ -314,6 +390,9 @@ export function createCustomChannelProvider(
           : {}),
       }) satisfies Model<Api>,
   );
+  // def 注册表登记（pi-4 承载面——装配/向导两腿同经本工厂单点维护；重注册
+  // 覆盖同 id〔向导编辑 = 删除+重建流程走 unregister+create 成对〕）
+  channelDefs.set(id, def);
   // auth 最小实装：ProviderAuth 是 {apiKey?, oauth?} 容器——走 apiKey 腿；
   // resolve 是 Models.checkAuth 的判据位（key 在场即已配置；apiKey 注入请求
   // 头由协议 streams 自理：anthropic=x-api-key / openai=Bearer——v1 按协议

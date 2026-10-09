@@ -561,6 +561,28 @@ describe('runSetupWizard 既有自定义渠道（编辑重入 / 删除）', () =
     expect(log.registered[0]?.def.samplingParams).toEqual({ top_p: 0.9 });
   });
 
+  it('pi-4 批透传律：编辑保存透传 reasoning/thinkingBudgets 两键（同 pi-8 透传族——防向导编辑静默清除手编键）', async () => {
+    const existing: CustomProviderDef = {
+      ...EXISTING,
+      reasoning: true,
+      thinkingBudgets: { low: 4096, high: 16384 },
+    };
+    const { prompter } = makePrompter({
+      select: ['custom:my-gw', '__entry_edit__', 'openai-completions', '__models_manual__'],
+      text: ['', '', 'new-a'],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = makeDeps(prompter, {
+      customChannels: { 'my-gw': existing },
+      currentApiKeyOf: () => 'sk-gw-current',
+    });
+    await runSetupWizard(deps);
+    expect(log.savedChannels[0]?.def.reasoning).toBe(true);
+    expect(log.savedChannels[0]?.def.thinkingBudgets).toEqual({ low: 4096, high: 16384 });
+    // 活注册腿同透传（draft.def 单点——两腿同面）
+    expect(log.registered[0]?.def.reasoning).toBe(true);
+  });
+
   it('删除：confirm 缺省否 + 拒 → 零删；允 → 写序（凭证行先、settings 后）', async () => {
     // 拒路
     const rejected = makePrompter({ select: ['custom:my-gw', '__entry_delete__'], confirm: [false] });

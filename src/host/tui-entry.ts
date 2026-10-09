@@ -73,7 +73,12 @@ import {
   exitCommandItems,
 } from './static-completions.js';
 import { readHostSettings, readRawCustomProviders, writeHostSettings } from './settings-store.js';
-import { builtinProviderIds, createCustomChannelProvider, type CustomProviderDef } from '../llm/index.js';
+import {
+  builtinProviderIds,
+  createCustomChannelProvider,
+  unregisterCustomProviderDef,
+  type CustomProviderDef,
+} from '../llm/index.js';
 import { fetchChannelModels } from './channel-models-fetch.js';
 import { daemonPaths } from './serve-daemon.js';
 import { fileStampOf } from './session-export.js';
@@ -1329,6 +1334,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         // 不复位仅流程侧点名——R-1 D2 定形）
         unregisterCustomProvider: (id) => {
           stack.unregisterCustomProvider(id);
+          // pi-4 def 注册表同批回撤（工厂侧承载面——运行时除名与声明面除名
+          // 同步，防除名渠道残留思考预算声明）
+          unregisterCustomProviderDef(id);
           const spec = stack.model;
           if (spec.startsWith(`${id}/`)) {
             const fallback = stack.llm.listModels()[0]?.id;

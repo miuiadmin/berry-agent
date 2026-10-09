@@ -399,7 +399,7 @@ describe('customProviders 第五键（2026-09-28 模型渠道批 C-1——条目
     expect(load.settings.customProviders?.['oa-full']?.samplingParamsByThinkingLevel).toEqual({ off: { top_k: 5 } });
   });
 
-  it('pi-8 批闭集执法：未知条目键 / 未白名单 compat 键 / 黑名单采样键 / 非 off 档位键全坏形丢条点名', () => {
+  it('pi-8 批闭集执法：未知条目键 / 未白名单 compat 键 / 黑名单采样键 / 越域档位键全坏形丢条点名', () => {
     const dir = tmpDir('settings-pi8-closed-');
     writeFileSync(
       join(dir, SETTINGS_BASENAME),
@@ -409,7 +409,8 @@ describe('customProviders 第五键（2026-09-28 模型渠道批 C-1——条目
           'extra-key': { ...GOOD['oa-gw'], whoops: 1 }, // 条目级未知键（修前：放行幸存=纯静默死键）
           'compat-stray': { ...GOOD['my-gw'], compat: { allowedFallbackModels: [] } }, // 白名单外 compat 键
           'sam-black': { ...GOOD['oa-gw'], samplingParams: { max_tokens: 999 } }, // 黑名单键（护栏旁路面）
-          'level-stray': { ...GOOD['oa-gw'], samplingParamsByThinkingLevel: { low: { top_p: 0.9 } } }, // 非 off 档位键
+          // 越域档位键（pi-4 批五档扩容后 xhigh 仍越域——须 thinkingLevelMap 显式条目）
+          'level-stray': { ...GOOD['oa-gw'], samplingParamsByThinkingLevel: { xhigh: { top_p: 0.9 } } },
         },
       }),
     );
@@ -420,7 +421,7 @@ describe('customProviders 第五键（2026-09-28 模型渠道批 C-1——条目
     expect(warnings.some((w) => w.includes('未知键「whoops」'))).toBe(true);
     expect(warnings.some((w) => w.includes('键「allowedFallbackModels」不被支持'))).toBe(true);
     expect(warnings.some((w) => w.includes('键「max_tokens」不允许'))).toBe(true);
-    expect(warnings.some((w) => w.includes('档「low」不支持'))).toBe(true);
+    expect(warnings.some((w) => w.includes('级别「xhigh」不支持'))).toBe(true);
   });
 
   it('pi-8 批：anthropic 腿采样参两键拒声明（上游忽略零效果——诚实律）+ ToolChanges 单开丢条', () => {
@@ -458,6 +459,29 @@ describe('customProviders 第五键（2026-09-28 模型渠道批 C-1——条目
     const load = readHostSettings(dir, { warn });
     expect(load.settings.customProviders).toEqual({}); // 整条丢——渠道不可用（fail-loud 优先）
     expect(warnings.some((w) => w.includes('未知键「legacyFlag」'))).toBe(true);
+  });
+
+  it('pi-4 批：reasoning/thinkingBudgets 两键好形读入 + 坏形丢条点名（非布尔 / 越域级别 / 非正整数）', () => {
+    const dir = tmpDir('settings-pi4-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          'rg-full': { ...GOOD['oa-gw'], reasoning: true, thinkingBudgets: { low: 4096, high: 16384 } },
+          'rg-badbool': { ...GOOD['oa-gw'], reasoning: 'yes' }, // reasoning 非布尔
+          'budget-stray': { ...GOOD['oa-gw'], thinkingBudgets: { xhigh: 8192 } }, // 越域级别（不设 xhigh 键）
+          'budget-zero': { ...GOOD['oa-gw'], thinkingBudgets: { low: 0 } }, // 非正整数（0 形两义拒收）
+        },
+      }),
+    );
+    const { warnings, warn } = captureWarn();
+    const load = readHostSettings(dir, { warn });
+    // 好形条目两键照常读入（reasoning 布尔原生 + 预算判据单源在 llm 域）
+    expect(load.settings.customProviders?.['rg-full']?.reasoning).toBe(true);
+    expect(load.settings.customProviders?.['rg-full']?.thinkingBudgets).toEqual({ low: 4096, high: 16384 });
+    expect(warnings.some((w) => w.includes('customProviders.rg-badbool 坏形（reasoning 须为 boolean）'))).toBe(true);
+    expect(warnings.some((w) => w.includes('thinkingBudgets 级别「xhigh」不支持'))).toBe(true);
+    expect(warnings.some((w) => w.includes('thinkingBudgets.low 须为 ≥1 的整数'))).toBe(true);
   });
 });
 
