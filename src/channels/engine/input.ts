@@ -354,6 +354,19 @@ export class InputDecoder {
             i++;
             continue;
           }
+          if (cp < 0x20) {
+            // 非法 C0 中止自愈（挖掘 27 轮 [3]）：OSC 规范串体不含 C0（除两
+            // 终结 BEL/ST 前半 ESC——上方两分支已收）——xterm 形 CAN/SUB
+            // 中止序列，本件取宽自愈形：任意 C0 即中止。串毒化丢弃不上抛
+            //（半截串语义解读无意义）、当前字节回地面态重解（i 不进——
+            // enter/ctrl+c 等用户本能键如实落地）。对照 csi 态 [0x40,0x7e]
+            // 终点字节自愈——OSC 无终结黑洞的 C0 出口收口不对称面
+            this.oscBuf = '';
+            this.oscDropped = true;
+            this.mode = 'ground';
+            this.escPendingAt = null;
+            continue;
+          }
           this.oscBuf += String.fromCodePoint(cp);
           i += cp > 0xffff ? 2 : 1;
           if (this.oscBuf.length > OSC_CAP) {

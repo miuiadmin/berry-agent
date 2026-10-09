@@ -600,6 +600,29 @@ describe('OSC 串（ESC ] data 终结——BEL / ST 两形整串上抛）', () =
     expect(osc).toEqual(['11;rgb:0/0/0']);
   });
 
+  it('体积攒期 C0 非法中止自愈（挖掘 27 轮 [3]——修前红：无终结黑洞吞尽后续输入）', () => {
+    // 无终结 OSC 起手（粘贴垃圾/程序 bug）后 osc 态永驻——后续一切输入被吞
+    //（对照 csi 态 [0x40,0x7e] 终点字节自愈的不对称黑洞）。C0 自愈：OSC
+    // 规范串体不含 C0（xterm 形 CAN/SUB 中止序列）——体积攒期任意 C0（除
+    // 两终结 BEL/ST 前半 ESC）即中止：串毒化丢弃、当前字节回地面态重解
+    //（enter/ctrl+c 等用户本能键如实落地——黑洞有 C0 出口）
+    const clock = new FakeClock();
+    const osc: string[] = [];
+    const events: InputEvent[] = [];
+    const decoder = new InputDecoder({ now: clock.now, onOsc: (d) => osc.push(d) });
+    decoder.feed('\x1b]11;rgb:'); // OSC 起手无终结（体积攒期）
+    decoder.feed('\r'); // CR——中止（修前：入体被吞零事件）
+    decoder.feed('a'); // 后续字母正常 text（修前：黑洞吞）
+    expect(osc).toEqual([]); // 毒化串不上抛
+    events.push(...decoder.take());
+    expect(events).toEqual([key('enter'), { kind: 'text', text: 'a' }]);
+    // CAN（0x18）同族中止——ANSI 序列中止标准字节（legacy 轨 0x18 = ctrl+x）
+    decoder.feed('\x1b]x');
+    decoder.feed('\x18');
+    decoder.feed('b');
+    expect(decoder.take()).toEqual([key('x', { ctrl: true }), { kind: 'text', text: 'b' }]);
+  });
+
   it('OSC 悬置期 discardPending：全清后续解不坏', () => {
     const clock = new FakeClock();
     const osc: string[] = [];
