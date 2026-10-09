@@ -2367,8 +2367,11 @@ describe('TuiBackend /history 副屏装配（openHistory / collapseAltScreen—�
     io.reset();
     backend.stop();
     expect(io.frames[0]).toBe(ALT_LEAVE); // 防御收副屏在前
-    expect(io.bytes).toContain(MAIN_ENTER);
-    expect(io.bytes).toContain(MAIN_LEAVE); // 终退出屏串照常
+    // 复起编舞退役（挖掘 27 轮 [8]）：stop 先置停再收副屏——resumeMain 守卫
+    // skip，终退路零 ENTER_MAIN 探测/零清屏重画闪帧（旧锁 MAIN_ENTER/
+    // MAIN_LEAVE 断言随编舞退役——挂起期主屏模式串已在 suspendMain 收口）
+    expect(io.bytes).not.toContain('\x1b[c'); // DA1 探测零发出（复起编舞零跑）
+    expect(io.bytes).toContain('\x1b[r'); // DECSTBM 终退复位照写（[7] 三边齐）
     expect(backend.lifecycle).toBe('disposed');
   });
 
@@ -2871,6 +2874,25 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
     // 落位序：复位落在副屏退场（1049l 回主屏缓冲）之后——修前裸加形亦红
     expect(io.captured.lastIndexOf('\x1b[r')).toBeGreaterThan(io.captured.lastIndexOf('\x1b[?1049l'));
     backend.stop(); // 收尾：卸钩不泄漏到后续进程退出
+  });
+
+  it('stop 挂起态副屏收屏不复起主屏探测（挖掘 27 轮 [8]——修前红）：应答无 cooked 回显窗', () => {
+    // 修前 stop→closeAlt→primary.resumeMain 全编舞照跑（ENTER_MAIN 含 DA1/
+    // kitty 探测 + auto 档 OSC 11 重查 + 清屏重画闪帧）——探测应答落在输入
+    // 卸订/raw 交还之后到达，cooked+ECHOCTL 下内核回显应答字节进 shell
+    //（乱码）；复起重画随即被终退收口覆盖本就浪费。修向 = stop 先置
+    // running=false 再收副屏——resumeMain 守卫即 skip（探测零发出）
+    const { io, backend } = makeBackend({ theme: 'auto' });
+    // openHistory 自带挂起（coordinator.open 内部 suspendMain——显式先挂会置
+    // lifecycle='suspended' 使 open 拒绝，生产序无此形）
+    backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]); // 挂起窗副屏在场
+    io.reset(); // 挂起/开屏编舞字节不计入
+    backend.stop();
+    expect(io.bytes).not.toContain('\x1b[c'); // DA1 探测查询零发出（修前红锚——复起编舞含探测）
+    expect(io.bytes).not.toContain('\x1b]11;?\x07'); // OSC 11 重查零发出（同编舞）
+    expect(io.bytes).toContain('\x1b[?1049l'); // 副屏退场照收（收口序不变）
+    expect(io.bytes).toContain('\x1b[r'); // DECSTBM 复位照写（[7] 收口三边齐）
+    expect(backend.lifecycle).toBe('disposed');
   });
 
   it('resumeMain auto 档补发 OSC 11 重查（七役扫描批——副屏在场窗通知丢弃的复起补偿）', () => {

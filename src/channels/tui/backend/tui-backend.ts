@@ -1170,8 +1170,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 对称出屏：模式串反序 + 输入卸订 + 定时器全收 + 外显复原 + raw 复原（终退不可复用） */
   stop(): void {
     if (!this.running) return;
-    this.closeAlt(); // 防御位：在场副屏先收（装配纪律先收再退——泄漏则副屏 Engine 残活）
+    // 先置停再收副屏（挖掘 27 轮 [8]）：closeAlt→primary.resumeMain 守卫即
+    // skip——终退路复起编舞（ENTER_MAIN 含 DA1/kitty 探测 + auto 档 OSC 11
+    // 重查 + 清屏重画闪帧）本就被随后的终退收口覆盖；且探测应答落在输入
+    // 卸订/raw 交还之后到达，cooked+ECHOCTL 下内核回显应答字节进 shell
     this.running = false;
+    this.closeAlt(); // 防御位：在场副屏先收（装配纪律先收再退——泄漏则副屏 Engine 残活）
     // 挂起期主屏已出屏（suspendMain 已写出屏串）——重写会污染在场副屏；
     // 装配纪律恒「先收副屏再退出」，本闸是防御位非编舞路
     if (!this.suspendedMain) {
