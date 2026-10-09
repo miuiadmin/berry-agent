@@ -2390,25 +2390,29 @@ describe('TuiBackend /history 副屏装配（openHistory / collapseAltScreen—�
   });
 
   it('搜索行同册注入（批 10k 遗漏修装配位证）：editor.new-line 用户覆盖对 /history 搜索框生效', () => {
-    // 装配缝：openHistory 经 options.keymap 把 backend 会话册注入搜索行子编辑器
-    // ——用户覆盖不因进副屏失联。行为锚 = 匹配计数：查询含换行 → 逐行子串
-    // 扫描恒零匹配（0/0）；注入缺席时 alt+j 非编辑键零动作、查询不变（仍 1/1）
-    const { io, backend } = historyRig({ keybindings: { 'editor.new-line': 'alt+j' } });
-    backend.openHistory(SESSION, [{ role: 'user', content: '正文中藏 needle 一枚', timestamp: 1 }]);
+    // 装配缝：openHistory 经 options.keymap 把 backend 会话册注入搜索行守卫与
+    // 子编辑器——用户覆盖不因进副屏失联。行为锚（挖掘 27 轮 [5] 锚迁移）：
+    // queue-followup 覆盖键被守卫册驱动同义归并跳匹配（计数随跳进）；注入
+    // 缺席时 alt+j 非编辑键零动作、计数不动。原锚（new-line 覆盖键插 \n 致
+    // 0/0）在 [5] 定谳后是污染非特性——单行框换行键一律吞，锚随迁
+    const { io, backend } = historyRig({ keybindings: { 'editor.queue-followup': 'alt+j' } });
+    backend.openHistory(SESSION, [
+      { role: 'user', content: 'needle 其一', timestamp: 1 },
+      { role: 'user', content: 'needle 其二', timestamp: 2 },
+    ]);
     io.reset();
     io.emitInput('\x06'); // ctrl+f 开搜索（legacy 0x06 归一）
-    io.emitInput('needle'); // 键入查询——恰 1 匹配
+    io.emitInput('needle'); // 键入查询——恰 2 匹配
     // 渲染强制：副屏 Engine 输入后不自动重画、resize 等几何守卫直退——改几何
     // 后 emitResize 触发 forceFull 全帧（同步直出档即时落账）
     io.rows = 12;
     io.emitResize();
-    expect(io.bytes).toContain('1/1');
+    expect(io.bytes).toContain('1/2');
     io.reset();
-    io.emitInput('\x1bj'); // alt+j = 用户覆盖的 editor.new-line：查询内插换行
+    io.emitInput('\x1bj'); // alt+j = 用户覆盖的 editor.queue-followup 提交键
     io.rows = 14;
     io.emitResize();
-    expect(io.bytes).toContain('0/0'); // 查询含 \n → 匹配清零（覆盖生效的行为证据）
-    expect(io.bytes).not.toContain('1/1');
+    expect(io.bytes).toContain('2/2'); // 册驱动确认同义跳下一（覆盖生效的行为证据）
   });
 });
 
@@ -2596,12 +2600,14 @@ describe('TuiBackend /memory 副屏装配（setMemoryScreen / openMemory——mm
     expect(io.bytes).not.toContain('记忆管理'); // 两屏行集分立——管理面不渗主屏
   });
 
-  it('导出行同册注入（批 10k 遗漏修装配位证）：editor.new-line 用户覆盖对 /memory 导出行生效', () => {
-    // 装配缝：setMemoryScreen 经 options.keymap 把 backend 会话册注入导出行子
-    // 编辑器。行为锚 = 导出命令 argv：tokenize 只按空格/制表切分——输入行内
-    // 换行保位在单 token（['a\\nb']）；注入缺席时 alt+j 非编辑键零动作（['ab']）
+  it('导出行同册注入（批 10k 遗漏修装配位证；27 轮 [5] 锚迁移）：queue-followup 用户覆盖对 /memory 导出行生效', () => {
+    // 装配缝：setMemoryScreen 经 options.keymap 把 backend 会话册注入导出行守卫
+    // 与子编辑器。行为锚（挖掘 27 轮 [5] 锚迁移）：queue-followup 覆盖键被守卫
+    // 册驱动同义归并执行导出（argv 落账）；注入缺席时 alt+j 非编辑键零动作
+    // （exportArgv 恒空）。原锚（new-line 覆盖键插 \n——argv ['a\\nb'] 保位）
+    // 在 [5] 定谳后是污染非特性（LF 落怪名文件）——单行行换行键一律吞，锚随迁
     const exportArgv: string[][] = [];
-    const { io, backend } = memoryRig({ keybindings: { 'editor.new-line': 'alt+j' } });
+    const { io, backend } = memoryRig({ keybindings: { 'editor.queue-followup': 'alt+j' } });
     backend.setMemoryScreen({
       ...memoryDeps(),
       exportCommand: (argv) => {
@@ -2611,11 +2617,9 @@ describe('TuiBackend /memory 副屏装配（setMemoryScreen / openMemory——mm
     });
     backend.openMemory();
     io.emitInput('e'); // 开导出参数行（text 轨）
-    io.emitInput('a');
-    io.emitInput('\x1bj'); // alt+j = 用户覆盖的 editor.new-line：输入行内插换行
-    io.emitInput('b');
-    io.emitInput('\r'); // Enter 执行导出（runExport → tokenize 原文 → 注入闭包）
-    expect(exportArgv).toEqual([['a\nb']]); // 换行保位在单 token——覆盖生效的行为证据
+    io.emitInput('--out mem.md');
+    io.emitInput('\x1bj'); // alt+j = 用户覆盖的 editor.queue-followup 提交键
+    expect(exportArgv).toEqual([['--out', 'mem.md']]); // 册驱动确认同义执行（覆盖生效的行为证据）
   });
 });
 
