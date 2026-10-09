@@ -136,10 +136,13 @@ export class JobPanel implements Renderable {
     }
     const visible = this.entries.slice(0, visibleCount);
     // 可见窗容量随帧同步（光标域夹取同源）+ 越界光标即帧夹取（先按键后
-    // 渲染的残窗自守——本帧绘制用夹取前值，下一击/下一帧已在可见域）
+    // 渲染的残窗自守——本帧绘制用夹取前值，下一击/下一帧已在可见域）。
+    // 零可见行（段高 1 挤压让位形）失位归 null 非 -1（挖掘 28 轮 [1]）：
+    // clampCursor 的 limit<0→null 同形——cursorActive 只判非 null，-1 会使
+    // enter 路由读 selectedId 取 entries[-1].id 抛 TypeError 杀进程
     this.visibleCapacity = visibleCount;
     if (this.cursor !== null && this.cursor > visibleCount - 1) {
-      this.cursor = visibleCount - 1;
+      this.cursor = visibleCount > 0 ? visibleCount - 1 : null;
     }
     visible.forEach((entry, i) => {
       const selected = this.cursor === i;

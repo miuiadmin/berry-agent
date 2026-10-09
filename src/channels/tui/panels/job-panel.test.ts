@@ -228,6 +228,20 @@ describe('JobPanel 光标翻页态（批6 问题②一期直接做）', () => {
     expect(readRow(grid, 0)).toContain('›'); // 当帧在选记即在可见首行
   });
 
+  it('挤压段高 1 零可见行——光标失位归 null 非 -1（挖掘 28 轮 [1]——修前红：enter 读 selectedId 抛 TypeError 杀进程）', () => {
+    const panel = makePanel();
+    panel.update([job('job-1'), job('job-2')]);
+    panel.moveCursor(1); // 激活光标置 0（visibleCapacity 尚未随帧同步——初值帽 ≥2）
+    // 挤压帧：段高 1 容 1 行但溢出行让位再扣 1 → visibleCount=0（只剩溢出行指路）
+    const grid = new CellGrid(WIDTH, 1);
+    panel.render(grid, { row: 0, col: 0, width: WIDTH, height: 1 });
+    // 修前红锚：render 尾夹取把 cursor 置 -1（非 null）——cursorActive 仍 true，
+    // enter 路由读 selectedId 取 entries[-1].id 抛 TypeError 经 crash 编舞杀进程
+    expect(panel.cursorActive).toBe(false);
+    expect(panel.selectedId).toBeNull();
+    expect(readRow(grid, 0)).toContain('+ 2 更多'); // 零可见行帧只剩溢出指路（诚实边界）
+  });
+
   it('setTheme 重建在选行 accent（换装随动）', () => {
     const panel = makePanel();
     panel.update([job('job-1')]);
