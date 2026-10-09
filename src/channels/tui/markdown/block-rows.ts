@@ -76,7 +76,16 @@ function tableRows(
   width: number,
   theme: Readonly<ResolvedTheme>,
 ): StyledGrapheme[][] {
-  const cols = Math.max(block.header.length, ...block.rows.map((row) => row.length), 1);
+  const allCols = Math.max(block.header.length, ...block.rows.map((row) => row.length), 1);
+  // 窄屏列收缩（挖掘 27 轮 [1]）：每列最窄占位 = TABLE_MIN_COL 3 + 两侧空
+  // 2 = 5——双地板（avail≥cols×3 / cap≥3）保列宽下限使窄屏 tableWidth 恒
+  // ≥5×cols 溢出视口，越界列下游 writeText 静默丢（markdown 逐游程无钳制
+  // + cell 越界静默吸收）——整列裁失无指路。收缩到屏幕可容纳列数
+  // floor(width/5)（≥1 下限），余列丢弃 + 末行「+ N 列更多」dim 指路
+  //（诚实边界优于静默裁失；列宽地板是反退化取舍不动）
+  const maxCols = Math.max(1, Math.floor(width / (TABLE_MIN_COL + 2)));
+  const droppedCols = Math.max(0, allCols - maxCols);
+  const cols = allCols - droppedCols;
   // 自然列宽 = 表头 + 数据行整格宽最大值（min 3）
   const natural: number[] = [];
   for (let j = 0; j < cols; j++) {
@@ -133,6 +142,8 @@ function tableRows(
       rows.push(renderLine(lineCells));
     }
   }
+  // 收缩指路行：余列丢弃的诚实边界（溢出指示统一律「+ N 更多」族——列向形）
+  if (droppedCols > 0) rows.push(prefixCells(`+ ${droppedCols} 列更多`, DIM_STYLE));
   return rows;
 }
 

@@ -11,7 +11,7 @@ import { colorRgb } from '../../engine/index.js';
 import { DARK_PALETTE, DEFAULT_THEME, resolveTheme } from '../theme/index.js';
 import { parseMarkdown, type MarkdownBlock } from './blocks.js';
 import { blockRows } from './block-rows.js';
-import type { StyledGrapheme } from './layout.js';
+import { DIM_STYLE, type StyledGrapheme } from './layout.js';
 
 /** 行集 → 字符串行（样式另查） */
 function texts(rows: StyledGrapheme[][]): string[] {
@@ -55,6 +55,29 @@ describe('blockRows 表格渲染（V-3 注⑨④ codex 双线制）', () => {
     // 空表边界形：头 + 重线即收（旧形底线封口随全框退役）
     const empty = blockRows(first('| a | b |\n| --- |'), 20, DEFAULT_THEME);
     expect(texts(empty)).toEqual([' a    b', '━━━━━━━━━━']);
+  });
+
+  it('窄屏列收缩 + 截断指路（挖掘 27 轮 [1]——修前红：双地板溢出整列静默裁失）', () => {
+    // 5 列表 @ width 20：每列最窄占位 = 内容 3 + 两侧空 2 = 5——5 列须 25
+    // 列宽。双地板（avail≥cols×3 / cap≥3）保列宽下限使 tableWidth 恒
+    // ≥5×cols 溢出视口——越界列下游 writeText 静默丢（markdown 逐游程无
+    // 钳制 + cell 越界静默吸收）——整列裁失无指路。修：收缩到屏幕可容纳
+    // 列数 floor(width/5)，余列丢弃 + 末行「+ N 列更多」dim 指路（诚实
+    // 边界优于静默裁失；列宽地板是反退化取舍不动）
+    const table = '| a | b | c | d | e |\n| - | - | - | - | - |\n| 1 | 2 | 3 | 4 | 5 |';
+    const rows = blockRows(first(table), 20, DEFAULT_THEME);
+    const lines = texts(rows);
+    expect(lines[0]).not.toContain('e'); // 可容纳 4 列（floor(20/5)）——第 5 列收缩让位
+    expect(lines[0]).toContain('a');
+    expect(lines[2]).not.toContain('5');
+    expect(lines.at(-1)).toBe('+ 1 列更多'); // 末行截断指路
+    // 指路行 dim 样式（同溢出指示族弱存在感——DIM_STYLE 单源）
+    const mark = rows.at(-1)!.find((c) => c.grapheme === '+');
+    expect(mark?.style).toBe(DIM_STYLE);
+    // 宽屏零收缩零指路（floor(40/5)=8 ≥ 5 列——既有全量形不动）
+    const wide = texts(blockRows(first(table), 40, DEFAULT_THEME));
+    expect(wide[0]).toContain('e');
+    expect(wide.at(-1)).not.toBe('+ 1 列更多');
   });
 
   it('线色 = 混合现算弱线优先（weakRule 在场整线着弱线色；tableRule 回退位让渡）', () => {
