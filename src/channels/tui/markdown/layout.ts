@@ -80,7 +80,7 @@ export function layoutParts(parts: readonly StylePart[], width: number): StyledG
     // 段文本源头消毒（单源 sanitizeDisplayText——tab 展开 2 空格 / CR 与 ESC 序列剥除）
     for (const g of splitGraphemes(sanitizeDisplayText(part.text))) {
       if (g === '\n') continue; // 残余 LF 跳过（多行拆分归行模型——布局只在行内折）
-      if (g === ' ' && used === 0 && rows.length > 0) continue; // 折点后行首空格跳过
+      if (g === ' ' && current.length === 0 && rows.length > 0) continue; // 折点后行首空格跳过（字素数判据——与 wrapText 同律；零宽字素开行 current 已非空不误吞，挖掘 27 轮 [0]）
       const w = graphemeWidth(g);
       if (w > width) {
         // 整字独行例外（2026-09-21 TUI 第四役批二——与 wrapText/foldLine 同律）：

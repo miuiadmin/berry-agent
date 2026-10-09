@@ -71,10 +71,10 @@ describe('TUI 第四役批二同律（回送弹丢空格 / 整字独行 / 三族
     expect(rowWidth(layoutPlain('你', 1)[0]!)).toBe(2);
   });
 
-  it('三族对拍锁：wrapText 行集 === layoutPlain 拼接行集（trailing-space / carry 族）', () => {
+  it('三族对拍锁：wrapText 行集 === layoutPlain 拼接行集（trailing-space / carry / zero-width 族）', () => {
     // 单段文本（无 \n——layoutParts 的 LF 跳过与 wrapText 分段不对拍）、
-    // 无零宽字素（两引擎行首空格跳过判据 used===0 与 current.length===0 的
-    // 唯一分歧位）——其余形两引擎必须同行集
+    // 零宽族入列（挖掘 27 轮 [0] 判据统一后可对拍——行首空格跳过判据两引擎
+    // 同为字素数 current.length===0）——其余形两引擎必须同行集
     const trailingSpace = ['abc ', 'hello world! ', 'a b c ', '一二三 ', 'ab ', 'ab   。', 'a  b  '];
     const carry = [
       'ab 。',
@@ -86,10 +86,13 @@ describe('TUI 第四役批二同律（回送弹丢空格 / 整字独行 / 三族
       'ab  你',
       'a 。',
     ];
+    // 零宽字素族（ZWSP/ZWNJ 按 0 列记账不剥除）：折点恰落在「空格+零宽游程」
+    // 边界时行首空格跳过判据受烤——统一字素数判据后两引擎同行集
+    const zeroWidth = ['é（b「c ​ 汉」a，字b', 'ab ​ cd', 'a​b‌ c', 'ab ​‌ c'];
     // w ≥ 2：全字素宽 ≤ 2 不触 wrapText 的超帽前置空行形（fold-from-empty）——
     // 可裸对拍；trailing-space 族同时锁「段尾不推空行」两引擎同守卫
     for (const w of [2, 3, 4, 5, 6, 7, 8, 10, 12]) {
-      for (const t of [...trailingSpace, ...carry]) {
+      for (const t of [...trailingSpace, ...carry, ...zeroWidth]) {
         expect(wrapText(t, w), `t=${JSON.stringify(t)} w=${w}`).toEqual(joined(layoutPlain(t, w)));
       }
     }
@@ -98,6 +101,19 @@ describe('TUI 第四役批二同律（回送弹丢空格 / 整字独行 / 三族
     for (const t of ['你', '你我', 'a你b', '你a', '😀你', 'ab', 'ab  你', '一二三四五］']) {
       expect(wrapText(t, 1), `t=${JSON.stringify(t)} w=1`).toEqual(joined(layoutPlain(t, 1)));
     }
+  });
+
+  it('零宽字素开行：行首空格不吞（挖掘 27 轮 [0]）——行首空格跳过判据统一字素数（三引擎同律）', () => {
+    // 修前判据 used===0：折点吞空格收行（「c 后空格触发折——折点空格不转行）
+    // 后零宽字素（0 列）入行使 used 仍 0 而 current 已非空，随后内容空格被
+    // 误当折点空格吞掉且行界漂移（修前 layoutPlain(text,7)=["é（b「c","汉」a，",
+    // "字b"]——第二行缺 ZWSP+空格、行界漂移多塞一字）；wrapText 判据
+    // current.length===0 正确保留——被判据差异烘焙进 durable 行即持久内容
+    // 丢失（docRowToStyledLine 烘焙面零宽按设计丢弃，被吞空格缺席不可复原）
+    const text = 'é（b「c ​ 汉」a，字b';
+    expect(joined(layoutPlain(text, 7))).toEqual(wrapText(text, 7));
+    // 第二行必须以零宽字素+内容空格起（「 汉」——被吞空格在场即回归锚）
+    expect(joined(layoutPlain(text, 7))[1]).toBe('​ 汉」');
   });
 
   it('折点空守卫同律：禁则弹空不推幽灵空行（挖掘 26 轮 [0]）', () => {
