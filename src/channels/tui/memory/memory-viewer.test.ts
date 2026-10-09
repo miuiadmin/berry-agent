@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 import { CellGrid, type CellBuffer, type InputEvent, type MouseEvent } from '../../engine/index.js';
 import { BaseError } from '../../../contracts/index.js';
 import { MemoryViewer, type MemoryDaoFace, type MemoryRowFace, type MemorySanitize } from './memory-viewer.js';
+import { Keymap } from '../keys/registry.js';
 
 /* ---------------- 工厂与便捷 ---------------- */
 
@@ -119,7 +120,11 @@ const CLEAN: ReturnType<MemorySanitize> = { blocked: false, patterns: [], quoted
 /** 装配：三柄串账 + 导出捕获（回执/异常可换装） */
 function rig(
   rows: readonly MutRow[] = basicRows(),
-  opts: { sanitize?: MemorySanitize; exportImpl?: (argv: readonly string[]) => Promise<string> } = {},
+  opts: {
+    sanitize?: MemorySanitize;
+    exportImpl?: (argv: readonly string[]) => Promise<string>;
+    keybindings?: Readonly<Record<string, string>>;
+  } = {},
 ) {
   const log: string[] = [];
   const calls: string[] = [];
@@ -135,6 +140,7 @@ function rig(
     onInterrupt: () => log.push('interrupt'), // 零参形——装配闭包已知目标会话
     onQuit: () => log.push('quit'),
     onCopy: (t) => copies.push(t), // 拖选复制捕获（挂账解挂批①——件 8 细则）
+    ...(opts.keybindings !== undefined ? { keymap: new Keymap(opts.keybindings) } : {}),
   });
   const render = (): CellGrid => {
     const grid = new CellGrid(COLS, ROWS);
@@ -460,6 +466,48 @@ describe('e 导出输入行（/memory-export 真身同一函数——argv 切分
     await tick();
     expect(exportCalls).toEqual([['--out', 'mem.md']]); // 同语义执行（修前 [] 零调用）
     expect(readRow(r.render(), ROWS - 1)).toContain('已导出 2 条'); // 回执呈现（修前输入被清）
+  });
+
+  it('ctrl+j 单行框吞（挖掘 27 轮 [5]——修前红）：换行缺省键不插不可见 LF、路径不被污染', async () => {
+    // 修前：ctrl+j（editor.new-line 缺省键，key='j'）穿透字面守卫直入
+    // exportEditor 命中 addNewLine——单行行插入不可见 LF：tokenize 只切空格/
+    // 制表保留字面 LF，导出落含 LF 怪名文件或写失败
+    const exportCalls: (readonly string[])[] = [];
+    const r = rig(basicRows(), {
+      exportImpl: (argv) => {
+        exportCalls.push(argv);
+        return Promise.resolve('已导出 2 条\n路径：mem.md');
+      },
+    });
+    r.viewer.handleEvent(text('e'));
+    type(r.viewer, '--out mem.md');
+    r.viewer.handleEvent(key('j', { ctrl: true }));
+    await tick();
+    expect(exportCalls).toEqual([]); // 吞不触发（LF 污染路径不发单）
+    // 路径 intact：随后真确认仍取净路径（修前路径已含 LF——导出 argv 带换行）
+    r.viewer.handleEvent(key('enter'));
+    await tick();
+    expect(exportCalls).toEqual([['--out', 'mem.md']]);
+  });
+
+  it('改键面提交键归并执行（挖掘 27 轮 [6]——修前红）：Slack 形 ctrl+enter 不静默清空路径', async () => {
+    // 修前：用户改键（editor.submit→ctrl+enter / new-line→enter）后习惯提交
+    // 键穿透字面守卫（ctrl 修饰不拦）命中 handleSubmit——model.submit() 全清
+    // 取文 → 已输路径整行消失、导出零调用、undo 亦不可恢复
+    const exportCalls: (readonly string[])[] = [];
+    const r = rig(basicRows(), {
+      exportImpl: (argv) => {
+        exportCalls.push(argv);
+        return Promise.resolve('已导出 2 条\n路径：mem.md');
+      },
+      keybindings: { 'editor.submit': 'ctrl+enter', 'editor.new-line': 'enter' },
+    });
+    r.viewer.handleEvent(text('e'));
+    type(r.viewer, '--out mem.md');
+    r.viewer.handleEvent(key('enter', { ctrl: true })); // 习惯提交键（改键面）
+    await tick();
+    expect(exportCalls).toEqual([['--out', 'mem.md']]); // 册驱动确认同义执行（修前 [] 静默清空）
+    expect(readRow(r.render(), ROWS - 1)).toContain('已导出 2 条'); // 回执呈现（修前路径被清）
   });
 
   it('导出异常折底行（无 code 形走 message 直呈）', async () => {

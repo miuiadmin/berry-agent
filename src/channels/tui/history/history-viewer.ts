@@ -34,7 +34,7 @@ import type { CellBuffer, CellStyle, InputEvent, MouseEvent, Region } from '../.
 import { graphemeWidth, splitGraphemes, stringWidth } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { Editor } from '../editor/editor.js';
-import type { Keymap } from '../keys/registry.js';
+import { Keymap } from '../keys/registry.js';
 import { hintLine } from '../keys/hint.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { fitLine } from '../row-segments.js';
@@ -124,6 +124,8 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
   /* ---- 搜索态（开/跳/关三动作状态机） ---- */
   private searchOpen = false;
   private readonly searchEditor: Editor;
+  /** 会话键位册（单行守卫册驱动判据用——与 searchEditor 同实例） */
+  private readonly keymap: Keymap;
   private matches: readonly MatchSpan[] = [];
   private matchIndex = -1;
   /** 退出闭锁（同批多事件只退一次——q 与 Esc 竞发的防御位） */
@@ -143,6 +145,8 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.onCopy = options.onCopy;
+    // 会话键位册自持（守卫判据与子编辑器同实例——缺席自建缺省册，单测语义）
+    this.keymap = options.keymap ?? new Keymap();
     // 全量档行集：投影 → LiveTranscript（Infinity 帽恒不截）→ 带样式行（管线单源）
     const transcript = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY, theme: options.theme });
     transcript.loadProjection(options.messages);
@@ -162,7 +166,7 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
       minPresentedLines: 1,
       padRows: 0,
       onChange: () => this.recomputeMatches(),
-      keymap: options.keymap, // 同册注入（缺席 = 缺省册单测语义）
+      keymap: this.keymap, // 同册注入（缺席 = 缺省册单测语义）
     });
     this.searchEditor.setFocused(false);
   }
@@ -269,13 +273,24 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
           return true;
         }
       }
-      // enter 族含 alt 修饰（挖掘 26 轮 [3]）：主框候跑键 alt+enter 习惯带入
-      // 搜索框——修前穿透上方守卫直入 searchEditor，命中册内 queue-followup
-      // 提交路静默清空已输入查询（子编辑器无 onSubmit 消费者）。同语义归并：
-      // alt 剥修饰并入 enter 动作（shift 定向）；ctrl/meta 不归并（无同语义）
-      if (k !== null && k.phase !== 'release' && k.key === 'enter' && !k.ctrl && !k.meta) {
-        this.jumpMatch(k.shift ? -1 : 1); // Enter/Alt+Enter 下一、Shift(+Alt)+Enter 上一
-        return true;
+      // enter 族含 alt 修饰（挖掘 26 轮 [3]）+ 册驱动确认键（挖掘 27 轮 [5]/[6]）：
+      // 字面 Enter 族（!ctrl/!meta——alt/shift 组合全兼容，alt+enter 候跑习惯键
+      // 与 shift 定向既有锁）或册内 submit/queue-followup 命中（改键面习惯提交键
+      // ——修前字面拦截对改键盲视，穿透命中 handleSubmit 全清取文静默丢查询）
+      // 同语义归并跳匹配
+      if (k !== null && k.phase !== 'release') {
+        const confirmHit =
+          this.keymap.actionMatches(k, 'editor.submit') || this.keymap.actionMatches(k, 'editor.queue-followup');
+        if (confirmHit || (k.key === 'enter' && !k.ctrl && !k.meta)) {
+          this.jumpMatch(k.shift ? -1 : 1); // Enter/Alt+Enter 下一、Shift(+Alt)+Enter 上一
+          return true;
+        }
+        // 其余换行键（出厂 ctrl+j / 改键形——非字面 enter）吞：单行框无换行
+        // 语义（挖掘 27 轮 [5]：修前穿透插不可见 LF，查询被 LF 污染恒 0 匹配
+        // 且已输文本滚出 1 行视口）
+        if (this.keymap.actionMatches(k, 'editor.new-line')) {
+          return true;
+        }
       }
       // 其余（文本/IME/粘贴/编辑键）入搜索框；未消费键层内终局（模态）
       this.searchEditor.handleEvent(event);

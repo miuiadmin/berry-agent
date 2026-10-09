@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { CellGrid, type CellBuffer, type InputEvent, type MouseEvent } from '../../engine/index.js';
 import { HistoryViewer } from './history-viewer.js';
+import { Keymap } from '../keys/registry.js';
 import type { AgentMessage } from '../../../contracts/index.js';
 import { sessionColor } from '../theme/index.js';
 
@@ -78,7 +79,7 @@ const COLS = 40;
 const ROWS = 10;
 
 /** 装配：事件副作用经 log 串账（exit / interrupt / quit 三柄时序可断言）+ onCopy 捕获（选区复制断言面） */
-function rig(messages: readonly AgentMessage[], rows = ROWS) {
+function rig(messages: readonly AgentMessage[], rows = ROWS, keybindings?: Readonly<Record<string, string>>) {
   const log: string[] = [];
   const copies: string[] = [];
   const viewer = new HistoryViewer({
@@ -89,6 +90,7 @@ function rig(messages: readonly AgentMessage[], rows = ROWS) {
     onInterrupt: (id) => log.push(`interrupt:${id}`),
     onQuit: () => log.push('quit'),
     onCopy: (text) => copies.push(text),
+    ...(keybindings !== undefined ? { keymap: new Keymap(keybindings) } : {}),
   });
   const render = (): CellGrid => {
     const grid = new CellGrid(COLS, rows);
@@ -291,6 +293,40 @@ describe('回看器搜索（开 / 跳匹配 / 关——件 8 条款锁能力不�
     viewer.handleEvent(key('enter', { alt: true, shift: true })); // alt+shift 上一同律
     grid = render();
     expect(readRow(grid, 0, COLS)).toContain('1/11');
+  });
+
+  it('ctrl+j 单行框吞（挖掘 27 轮 [5]——修前红）：换行缺省键不插不可见 LF、查询不被污染', () => {
+    // 修前：ctrl+j（editor.new-line 缺省键，key='j'）穿透字面守卫直入
+    // searchEditor 命中 addNewLine——单行框插入不可见 LF：查询被 LF 污染对
+    // 无 LF 行集 indexOf 恒失败 → 计数 '0/0'、高亮全灭、已输文本滚出
+    // 1 行视口仅剩「↑1 更多」
+    const { viewer, render } = searchRig();
+    viewer.handleEvent(key('f', { ctrl: true, shift: true }));
+    viewer.handleEvent(text('m'));
+    viewer.handleEvent(text('2'));
+    expect(readRow(render(), 0, COLS)).toContain('1/11');
+    viewer.handleEvent(key('j', { ctrl: true }));
+    const grid = render();
+    expect(readRow(grid, ROWS - 1, COLS)).toContain('m2'); // 查询词 intact（修前 LF 污染）
+    expect(readRow(grid, 0, COLS)).toContain('1/11'); // 计数不归零（修前 '0/0'）
+  });
+
+  it('改键面提交键归并跳匹配（挖掘 27 轮 [6]——修前红）：Slack 形 ctrl+enter 不清空查询', () => {
+    // 修前：用户改键（editor.submit→ctrl+enter / new-line→enter）后习惯提交
+    // 键穿透字面守卫（ctrl 修饰不拦）命中 handleSubmit——model.submit() 全清
+    // 取文（连 undoStack 一并清空）→ 查询整行消失、计数 0/0、无跳转无回执
+    const { viewer, render } = rig(manyUsers(30), ROWS, {
+      'editor.submit': 'ctrl+enter',
+      'editor.new-line': 'enter',
+    });
+    viewer.handleEvent(key('f', { ctrl: true, shift: true }));
+    viewer.handleEvent(text('m'));
+    viewer.handleEvent(text('2'));
+    expect(readRow(render(), 0, COLS)).toContain('1/11');
+    viewer.handleEvent(key('enter', { ctrl: true })); // 习惯提交键（改键面）
+    const grid = render();
+    expect(readRow(grid, ROWS - 1, COLS)).toContain('m2'); // 查询 intact（修前静默清空）
+    expect(readRow(grid, 0, COLS)).toContain('2/11'); // 册驱动确认同义跳下一（修前 '0/0'）
   });
 });
 

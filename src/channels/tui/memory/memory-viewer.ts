@@ -56,7 +56,7 @@ import type { CellBuffer, CellStyle, InputEvent, MouseEvent, Region } from '../.
 import { graphemeWidth, splitGraphemes } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { Editor } from '../editor/editor.js';
-import type { Keymap } from '../keys/registry.js';
+import { Keymap } from '../keys/registry.js';
 import { hintLine } from '../keys/hint.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { shortIdOf } from '../backend/transcript.js';
@@ -269,6 +269,8 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
   /** 输入态（e 导出参数行在场位） */
   private exportOpen = false;
   private readonly exportEditor: Editor;
+  /** 会话键位册（单行守卫册驱动判据用——与 exportEditor 同实例） */
+  private readonly keymap: Keymap;
   /** 底行一次性提示（守卫错/导出回执/解冻指引——常态下次按键即清） */
   private notice: string | null = null;
   /** 退出闭锁（同批多事件只退一次——q 与 Esc 竞发的防御位） */
@@ -296,6 +298,9 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.onCopy = options.onCopy;
+    // 会话键位册自持（单行守卫册驱动判据用——与 exportEditor 同实例；缺席
+    // 自建缺省册，单测语义）
+    this.keymap = options.keymap ?? new Keymap();
     this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
     // 单行档——导出参数行（同册注入）；minPresentedLines 1 + padRows 0 =
     // 底铬瞬时输入行 opt-out（五件批 A+B 呈现策略辖主 composer 不辖底铬——
@@ -304,7 +309,7 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
       maxVisibleLines: 1,
       minPresentedLines: 1,
       padRows: 0,
-      keymap: options.keymap,
+      keymap: this.keymap,
     });
     this.exportEditor.setFocused(false);
     this.rebuild(); // 开屏快照（光标落首条——顶部对齐）
@@ -409,12 +414,22 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
           return true;
         }
       }
-      // enter 族含 alt 修饰（挖掘 26 轮 [3]）：候跑键 alt+enter 修前穿透守卫
-      // 入 exportEditor 命中 queue-followup 提交路静默清空已输路径——同语义
-      // 归并执行；ctrl/meta/shift 不归并（shift+enter 仍归编辑器换行语义位）
-      if (k !== null && k.phase !== 'release' && k.key === 'enter' && !k.ctrl && !k.meta && !k.shift) {
-        void this.runExport();
-        return true;
+      // enter 族含 alt 修饰（挖掘 26 轮 [3]）+ 册驱动升格（挖掘 27 轮 [5]/[6]）：
+      // 册内 submit/queue-followup 命中（出厂 enter/alt+enter 与改键面习惯提交
+      // 键同义——修前字面拦截对改键盲视，穿透命中 handleSubmit 全清取文静默
+      // 丢已输路径）归并执行导出
+      if (k !== null && k.phase !== 'release') {
+        if (this.keymap.actionMatches(k, 'editor.submit') || this.keymap.actionMatches(k, 'editor.queue-followup')) {
+          void this.runExport();
+          return true;
+        }
+        // 其余换行键（出厂 ctrl+j / 改键形）吞：单行行无换行语义（挖掘 27 轮
+        // [5]：修前穿透插不可见 LF，tokenize 只切空白保留字面 LF——导出落
+        // 含 LF 怪名文件或写失败）；shift+enter 归编辑器换行语义位不动
+        //（记名拍板 5fb5ba6）
+        if (this.keymap.actionMatches(k, 'editor.new-line') && !k.shift) {
+          return true;
+        }
       }
       this.exportEditor.handleEvent(event);
       return true;
