@@ -125,6 +125,10 @@ export class Editor implements Renderable {
   }
 
   setText(text: string): void {
+    // 整稿替换清待靶态（挖掘 26 轮 [2]）：jump 靶属旧稿——外部清稿/回填路
+    //（ctrl+d 清空腿 / inputAsk 激活与 abort 残稿清 / 斜杠命令回填）经本面
+    // 绕 handleEvent 单源锚，待靶态残留会把用户下一首字素静默吞作跳靶
+    this.jumpPending = null;
     this.model.setText(text);
   }
 

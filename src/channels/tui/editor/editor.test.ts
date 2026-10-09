@@ -267,6 +267,23 @@ describe('Editor jump 词向两态', () => {
     editor.handleEvent(text('x'));
     expect(editor.getText()).toBe('ax👉b');
   });
+
+  it('setText 整稿替换清待靶态：外部清稿后首字符不被吞作跳靶（挖掘 26 轮 [2]——修前红）', () => {
+    // 外部清稿/回填路（ctrl+d 清空腿 / inputAsk 激活与 abort 残稿清 / 斜杠
+    // 命令回填）经 setText 绕 handleEvent 单源锚——修前待靶态残留，用户下一
+    // 首字素被静默吞作靶（清稿后稿空 jumpToChar 无命中，净效果纯丢首字符）
+    const editor = new Editor();
+    editor.handleEvent(text('hello world'));
+    expect(editor.handleEvent(key(']', { ctrl: true }))).toBe(true);
+    editor.setText(''); // 外部清稿（tui-backend 三处清稿路同形）
+    editor.handleEvent(text('abc'));
+    expect(editor.getText()).toBe('abc'); // 修前 'bc'——首字符被吞
+    // 斜杠命令回填变体：待靶后整稿回填同律清态（回填稿上首输入正常入文）
+    editor.handleEvent(key(']', { ctrl: true }));
+    editor.setText('/rename');
+    editor.handleEvent(text(' x'));
+    expect(editor.getText()).toBe('/rename x'); // 修前空格被吞作靶——'x' 顶前成 '/renamex'
+  });
 });
 
 describe('Editor IME 与粘贴', () => {
