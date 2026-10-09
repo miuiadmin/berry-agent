@@ -274,6 +274,24 @@ describe('回看器搜索（开 / 跳匹配 / 关——件 8 条款锁能力不�
     viewer.handleEvent(key('f', { ctrl: true, shift: true }));
     expect(readRow(render(), 0, COLS)).toContain('1/11');
   });
+
+  it('alt+enter 归并跳匹配：候跑习惯键不清空已输入查询（挖掘 26 轮 [3]——修前红）', () => {
+    // 修前：alt+enter 穿透让位守卫（!alt 判）直入 searchEditor——命中册内
+    // queue-followup 提交路，model.submit() 全清（子编辑器无 onSubmit 消费
+    // 者）——查询静默消失、计数与高亮随 onChange 重算归零（'0/0'）
+    const { viewer, render } = searchRig();
+    viewer.handleEvent(key('f', { ctrl: true, shift: true }));
+    viewer.handleEvent(text('m'));
+    viewer.handleEvent(text('2'));
+    expect(readRow(render(), 0, COLS)).toContain('1/11');
+    viewer.handleEvent(key('enter', { alt: true })); // 主框候跑键习惯带入
+    let grid = render();
+    expect(readRow(grid, ROWS - 1, COLS)).toContain('m2'); // 查询词仍在框内（修前清空）
+    expect(readRow(grid, 0, COLS)).toContain('2/11'); // 同语义跳下一（修前 '0/0'）
+    viewer.handleEvent(key('enter', { alt: true, shift: true })); // alt+shift 上一同律
+    grid = render();
+    expect(readRow(grid, 0, COLS)).toContain('1/11');
+  });
 });
 
 /* ---------------- 让位判据与退出键 ---------------- */

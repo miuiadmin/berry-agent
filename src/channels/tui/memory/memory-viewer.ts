@@ -408,10 +408,13 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
           this.closeExport();
           return true;
         }
-        if (isPlainKey(k, 'enter')) {
-          void this.runExport();
-          return true;
-        }
+      }
+      // enter 族含 alt 修饰（挖掘 26 轮 [3]）：候跑键 alt+enter 修前穿透守卫
+      // 入 exportEditor 命中 queue-followup 提交路静默清空已输路径——同语义
+      // 归并执行；ctrl/meta/shift 不归并（shift+enter 仍归编辑器换行语义位）
+      if (k !== null && k.phase !== 'release' && k.key === 'enter' && !k.ctrl && !k.meta && !k.shift) {
+        void this.runExport();
+        return true;
       }
       this.exportEditor.handleEvent(event);
       return true;

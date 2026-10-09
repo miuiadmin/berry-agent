@@ -268,14 +268,14 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
           this.closeSearch();
           return true;
         }
-        if (isPlainKey(k, 'enter')) {
-          this.jumpMatch(1); // 跳匹配：Enter 下一
-          return true;
-        }
-        if (k.shift && k.key === 'enter') {
-          this.jumpMatch(-1); // Shift+Enter 上一
-          return true;
-        }
+      }
+      // enter 族含 alt 修饰（挖掘 26 轮 [3]）：主框候跑键 alt+enter 习惯带入
+      // 搜索框——修前穿透上方守卫直入 searchEditor，命中册内 queue-followup
+      // 提交路静默清空已输入查询（子编辑器无 onSubmit 消费者）。同语义归并：
+      // alt 剥修饰并入 enter 动作（shift 定向）；ctrl/meta 不归并（无同语义）
+      if (k !== null && k.phase !== 'release' && k.key === 'enter' && !k.ctrl && !k.meta) {
+        this.jumpMatch(k.shift ? -1 : 1); // Enter/Alt+Enter 下一、Shift(+Alt)+Enter 上一
+        return true;
       }
       // 其余（文本/IME/粘贴/编辑键）入搜索框；未消费键层内终局（模态）
       this.searchEditor.handleEvent(event);

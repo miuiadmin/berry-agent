@@ -443,6 +443,25 @@ describe('e 导出输入行（/memory-export 真身同一函数——argv 切分
     expect(readRow(r.render(), ROWS - 1)).toContain('已导出 2 条 · 路径：mem.md'); // 回执折行单行呈现
   });
 
+  it('alt+enter 归并执行：候跑习惯键不清空导出输入行（挖掘 26 轮 [3]——修前红）', async () => {
+    // 修前：alt+enter 穿透输入态守卫（!alt 判）直入 exportEditor——命中册内
+    // queue-followup 提交路，model.submit() 全清（子编辑器无 onSubmit 消费
+    // 者）——已输路径静默消失、导出零调用
+    const exportCalls: (readonly string[])[] = [];
+    const r = rig(basicRows(), {
+      exportImpl: (argv) => {
+        exportCalls.push(argv);
+        return Promise.resolve('已导出 2 条\n路径：mem.md');
+      },
+    });
+    r.viewer.handleEvent(text('e'));
+    type(r.viewer, '--out mem.md');
+    r.viewer.handleEvent(key('enter', { alt: true })); // 主框候跑键习惯带入
+    await tick();
+    expect(exportCalls).toEqual([['--out', 'mem.md']]); // 同语义执行（修前 [] 零调用）
+    expect(readRow(r.render(), ROWS - 1)).toContain('已导出 2 条'); // 回执呈现（修前输入被清）
+  });
+
   it('导出异常折底行（无 code 形走 message 直呈）', async () => {
     const r = rig(basicRows(), { exportImpl: () => Promise.reject(new Error('导出失败：目标目录不可写')) });
     r.viewer.handleEvent(text('e'));
