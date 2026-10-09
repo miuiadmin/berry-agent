@@ -658,6 +658,48 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     },
   );
 
+  it(
+    'exec 件清扫 logger 走 fromEnv（挖掘 26 轮 [8]）：silent 下登记簿缺失 warn 不落 stderr',
+    { timeout: 15_000 },
+    async () => {
+      const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-swlog-'));
+      dirs.push(dataDir);
+      const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-swlog-ws-'));
+      const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-swlog-home-'));
+      dirs.push(workspace, home);
+      // children.json 不预置——装载期清扫 readFile ENOENT → warn
+      // 『登记簿文件缺失/坏形——空册起步』（恢复面 warn，非门槛）
+      const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
+      process.env.BERRY_AGENT_LOG_LEVEL = 'silent';
+      // spy 先立（清扫在 boot 内 fire-and-forget 发起——罩晚即竞速漏截）；
+      // 缺省 sink 动态调 process.stderr.write——spyOn 可截（context/logger.ts）
+      let stderrText = '';
+      const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+        stderrText += String(chunk);
+        return true;
+      });
+      try {
+        const { scope } = await bootCore(dataDir, memoryFs(), { cwd: workspace, homeDir: home });
+        expect(scope.tryGet('exec')).toBeDefined();
+        // 落定窗（负断言唯一可依形状）：ENOENT 读已在装载内发起——修前形
+        // （缺省 info 盒）warn 窗内必现（正条件轮询快路径）；窗尽即定谳
+        const deadline = Date.now() + 500;
+        while (!stderrText.includes('登记簿文件缺失') && Date.now() < deadline) {
+          await new Promise((r) => void setTimeout(r, 10));
+        }
+      } finally {
+        writeSpy.mockRestore();
+        if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
+        else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
+      }
+      // 修前红：sweepOrphans 无 logger 实参 → 缺省 createLogger('exec') 缺省
+      // 盒 new LogLevelState() 不解 BERRY_AGENT_LOG_LEVEL——silent 形 warn 照
+      // 写 stderr（PTY 实证注入 raw 模式 TUI 屏；/plugins 装卸成功尾自动链
+      // /reload 重跑 apply 即触发面）。修后：fromEnv 盒 silent 辖 warn
+      expect(stderrText).not.toContain('登记簿文件缺失');
+    },
+  );
+
   it('core:exec disabled 行 → bash 静默缺席（诚实缺席律——对话本体仍通）', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-off-'));
     dirs.push(dataDir);

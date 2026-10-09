@@ -253,11 +253,22 @@ function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // 不误杀）。void fire-and-forget：清扫是恢复面非启动门槛，不阻塞装载
       // 序；本代在飞条目由 hostPid === process.pid 同代判定天然保护（/reload
       // 换代重扫安全——新代 hostPid 不同、旧代宿主已死则其账被清）
-      void sweepOrphans(pipeline.registry, childrenFile !== undefined ? { filePath: childrenFile } : {}, {
-        isAlive: isPidAlive,
-        readCmdline: readCmdlineSync,
-        killTree: killProcessTree,
-      });
+      // logger 显式 fromEnv（挖掘 26 轮 [8]）：缺省盒 new LogLevelState() 不解
+      // BERRY_AGENT_LOG_LEVEL——silent/error 下「登记簿文件缺失/坏形」warn JSON
+      // 仍写 stderr，注入在线 raw 模式 TUI 屏（/plugins 装卸成功尾自动链
+      // /reload 重跑本 apply 即触发面）；与七姊妹 warnLogger 位点同律
+      void sweepOrphans(
+        pipeline.registry,
+        {
+          ...(childrenFile !== undefined ? { filePath: childrenFile } : {}),
+          logger: createLogger('exec', LogLevelState.fromEnv(process.env.BERRY_AGENT_LOG_LEVEL)),
+        },
+        {
+          isAlive: isPidAlive,
+          readCmdline: readCmdlineSync,
+          killTree: killProcessTree,
+        },
+      );
     },
   };
 }
