@@ -198,6 +198,36 @@ describe('JobPanel 光标翻页态（批6 问题②一期直接做）', () => {
     expect(panel.selectedId).toBe('job-5');
   });
 
+  it('光标域随渲染可见窗同源（挖掘 27 轮 [9]）——挤压段高在选不可见分叉收口', () => {
+    const panel = makePanel();
+    panel.update(Array.from({ length: 5 }, (_, i) => job(`job-${i + 1}`)));
+    // 段高 2 渲染：可见 1 行（挤压期让位一行给溢出行）——可见窗容量随帧同步
+    const grid = new CellGrid(WIDTH, 2);
+    panel.render(grid, { row: 0, col: 0, width: WIDTH, height: 2 });
+    panel.moveCursor(1); // 首按激活置 0
+    panel.moveCursor(99); // 大 delta——须夹在可见窗内 job-1（修前夹到帽内末行 job-5——屏上不可见而 enter 有作用对象）
+    expect(panel.selectedId).toBe('job-1');
+    const g2 = new CellGrid(WIDTH, 2);
+    panel.render(g2, { row: 0, col: 0, width: WIDTH, height: 2 });
+    expect(readRow(g2, 0)).toContain('›'); // 在选记落在可见行（修前 cursor 越可见窗——零 › 记）
+    // 段高恢复全量：可见窗容量随帧扩容——光标域随动可漫游
+    renderPanel(panel);
+    panel.moveCursor(99);
+    expect(panel.selectedId).toBe('job-5');
+  });
+
+  it('先按键后渲染的残窗即帧夹取（render 尾自守）——在选恒可见', () => {
+    const panel = makePanel();
+    panel.update(Array.from({ length: 5 }, (_, i) => job(`job-${i + 1}`)));
+    panel.moveCursor(1); // 首按激活置 0（首渲染前光标域 = 帽——既有形）
+    panel.moveCursor(99); // 漫游到帽内末行 job-5
+    expect(panel.selectedId).toBe('job-5');
+    const grid = new CellGrid(WIDTH, 2); // 随后挤压段高渲染——越界光标即帧收到可见窗
+    panel.render(grid, { row: 0, col: 0, width: WIDTH, height: 2 });
+    expect(panel.selectedId).toBe('job-1');
+    expect(readRow(grid, 0)).toContain('›'); // 当帧在选记即在可见首行
+  });
+
   it('setTheme 重建在选行 accent（换装随动）', () => {
     const panel = makePanel();
     panel.update([job('job-1')]);

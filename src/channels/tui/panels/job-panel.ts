@@ -46,6 +46,12 @@ export class JobPanel implements Renderable {
   private readonly now: () => number;
   /** 光标位（null = 光标态未激活——alt+↑/↓ 首按激活置 0） */
   private cursor: number | null = null;
+  /**
+   * 可见窗容量（最近渲染帧的 visibleCount——光标域夹取同源；挖掘 27 轮
+   * [9] 收口：挤压段高可见窗小于帽时，光标域随窗收（在选恒可见——enter
+   * 有作用对象必屏上在）。首渲染前按帽（与旧形兼容）。
+   */
+  private visibleCapacity = MAX_ROWS;
   /** 在选行 accent 样式（theme 注入位——缺省 DEFAULT_THEME） */
   private selectedStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
 
@@ -100,7 +106,9 @@ export class JobPanel implements Renderable {
       this.cursor = 0; // 首按激活置 0（首行之上无路——↑ 同位）
       return true;
     }
-    const limit = Math.min(this.entries.length, MAX_ROWS) - 1; // 溢出行不可选——帽内行是光标域
+    // 光标域 = 可见窗内行（帽与可见窗容量的较小界——可见窗随帧同步，挤压
+    // 期光标不漫游到屏外行）
+    const limit = Math.min(this.entries.length, this.visibleCapacity) - 1;
     this.cursor = Math.max(0, Math.min(limit, this.cursor + delta));
     return true;
   }
@@ -127,6 +135,12 @@ export class JobPanel implements Renderable {
       overflow += 1;
     }
     const visible = this.entries.slice(0, visibleCount);
+    // 可见窗容量随帧同步（光标域夹取同源）+ 越界光标即帧夹取（先按键后
+    // 渲染的残窗自守——本帧绘制用夹取前值，下一击/下一帧已在可见域）
+    this.visibleCapacity = visibleCount;
+    if (this.cursor !== null && this.cursor > visibleCount - 1) {
+      this.cursor = visibleCount - 1;
+    }
     visible.forEach((entry, i) => {
       const selected = this.cursor === i;
       // 光标期首列 › 记（未激活零占列——无光标帧不缩内容预算）；内容预算 =
@@ -155,7 +169,7 @@ export class JobPanel implements Renderable {
   /** 行集收缩时光标夹取（update 后自守——越界即收到新末行） */
   private clampCursor(): void {
     if (this.cursor === null) return;
-    const limit = Math.min(this.entries.length, MAX_ROWS) - 1;
+    const limit = Math.min(this.entries.length, this.visibleCapacity) - 1;
     this.cursor = limit < 0 ? null : Math.min(this.cursor, limit);
   }
 }
