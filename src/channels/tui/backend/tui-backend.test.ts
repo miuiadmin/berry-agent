@@ -5677,6 +5677,35 @@ describe('TuiBackend 后台任务段 + /jobs 副屏（界面美化役批6——U
     expect(io.bytes).not.toContain('›'); // 光标离场帧
   });
 
+  // 挖掘 26 轮 [5]：jobs 光标态跨 input-ask 激活存续——应答窗内 enter 被层③.5
+  // 劫去开 /jobs 副屏而非提交答案（答案滞框；且退出副屏后光标仍活须先 escape
+  // 才能提交）。修法同「?」教学键族先例：应答窗属应答车道（07:218 编辑器作
+  // 应答车接管提交首序）——activateInputAsk 清光标 + jobs 劫持分支加 inputAsk 闸。
+  it('jobs 光标态不跨 input-ask 应答窗：enter 交答案非开 /jobs（修前红）', async () => {
+    const { io, backend, pump } = makeInteractive(
+      { now: () => 65_000, jobs: jobsOf(() => [job('job-1'), job('job-2')]) },
+      24,
+    );
+    io.emitInput('\x1b[1;3B'); // alt+↓ 激活 jobs 光标（应答窗开启前）
+    pump();
+    const p = backend.input('选哪个？'); // 应答窗接管主编辑器
+    pump();
+    io.bytes = '';
+    io.emitInput('答\r'); // 应答 + enter——应答车道提交
+    pump();
+    expect(backend.lifecycle).toBe('running'); // 修前红：被劫 suspended 开 /jobs
+    await expect(p).resolves.toBe('答'); // 答案提交（修前红：滞框永悬）
+    // 应答窗内 alt+↓ 不新激活光标（inputAsk 闸——teachingGatesOpen 同款门）
+    const p2 = backend.input('第二问？');
+    pump();
+    io.emitInput('\x1b[1;3B'); // 应答窗内 alt+↓
+    pump();
+    io.emitInput('又答\r');
+    pump();
+    expect(backend.lifecycle).toBe('running'); // 修前红：光标激活 → enter 劫持开副屏
+    await expect(p2).resolves.toBe('又答');
+  });
+
   it('副屏 q 返回主屏（生命周期复原——件族退出律）', () => {
     const { io, backend, pump } = makeInteractive({ now: () => 65_000, jobs: jobsOf(() => [job('job-1')]) }, 24);
     expect(backend.openJobs()).toBe(true);

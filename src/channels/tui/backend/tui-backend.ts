@@ -2544,6 +2544,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.editor.setText(''); // 应答起始清框（草稿让位——提交路模型自清）
     this.autocompleteCompleter.cancel(); // 应答期弹层抑制：撤窗 + 在途作废
     this.popup.applyResult(null); // 在层即刻收层
+    this.clearJobsCursor(); // jobs 光标让位（挖掘 26 轮 [5]——应答窗 enter 属应答车道，劫持面随激活拆除）
     this.touchFixed();
   }
 
@@ -2852,8 +2853,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       // 移动光标（键位册零在册动作、编辑器只绑 alt+y/alt+enter——无争键，
       // 直达判形）；jobs 段在场且有行才劫（空段/注入缺席透传——既有键语义
       // 零扰动）；enter 光标激活期开 /jobs 副屏定位在选任务（未激活不劫——
-      // 提交语义零扰动；开屏失败〔副屏已占〕清光标消费不透传）
-      if (this.jobsSource !== undefined && this.jobPanel.hasRows) {
+      // 提交语义零扰动；开屏失败〔副屏已占〕清光标消费不透传）。input-ask
+      // 应答窗闸（挖掘 26 轮 [5]——「?」教学键 teachingGatesOpen 同款门）：
+      // 应答期编辑器作应答车接管提交首序，enter 属应答车道——alt+↑/↓ 与
+      // enter 两劫持腿皆让位
+      if (this.jobsSource !== undefined && this.jobPanel.hasRows && this.inputAsk === null) {
         if (ev.alt && !ev.ctrl && !ev.shift && !ev.meta && (ev.key === 'up' || ev.key === 'down')) {
           this.jobPanel.moveCursor(ev.key === 'up' ? -1 : 1);
           this.touchFixed();
