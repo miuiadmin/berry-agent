@@ -4153,12 +4153,19 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.disarmExitRestore?.();
     const restore = (): void => {
       try {
+        // 先置停再收副屏（挖掘 28 轮 [2]——stop() 同律）：closeAlt→
+        // primary.resumeMain 守卫即 skip——exit 钩内不复起主屏编舞
+        //（ENTER_MAIN 含 DA1/kitty 探测 + auto 档 OSC 11 重查 + 清屏重画；
+        // 探测应答在进程死后到达被 cooked+ECHOCTL 回显进 shell 成乱码）
+        this.running = false;
         if (this.probeActive) this.io.write(THEME_CHANGE_DISABLE);
         this.io.setRawMode(false);
         this.osc.restore(); // 件 7：硬退复原两写点（title 基线 + 进度清零——与 stop 同收口）
         // [7]（挖掘 27 轮）屏形收口：先收在场副屏（handle.close 写 1049l 退场
         //——回主屏缓冲；幂等——无副屏直返），复位随写必落其后
         this.closeAlt();
+        // 副屏 Engine dispose 把 raw 复位成进屏前的 true——钩尾重申交还 shell
+        this.io.setRawMode(false);
         this.io.write(SCROLL_REGION_RESET + cup(this.io.size().rows - 1, 0));
       } catch {
         // 复位尽力而为——退出路径不允许二次异常

@@ -2852,7 +2852,11 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
     // 不随进程退出自复位）无人清——shell 继承破 margins（光标在区外 LF 不滚、
     // 长输出覆写屏底）。修前挂起档钩只收终端级写点（2031/raw/osc）。复位还
     // 须落在 1049l 之后（先收副屏再复位——margins 按 grid 的 tmux 形裸写在
-    // 副屏期 no-op；与 stop()/armExitRestore 两路同形）
+    // 副屏期 no-op；与 stop()/armExitRestore 两路同形）。
+    // 【挖掘 28 轮 [3] 锁勘正】原形 openHistory 前显式 suspendMain 使
+    // altHost.open 被 lifecycle 闸拒（返 null——副屏从未打开，钩内 closeAlt
+    // no-op 零 1049l），lastIndexOf 对 -1 恒过=落序锁空转；删显式挂起走
+    // 生产序（openHistory 自带挂起）+ 增 1049l 在场断言去空化
     class CapturingProcessIO extends ProcessTerminalIO {
       captured = '';
       override write(data: string): void {
@@ -2863,17 +2867,56 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
     const backend = new TuiBackend(io, { theme: 'auto' });
     const before = new Set(process.listeners('exit'));
     backend.start();
-    backend.suspendMain();
-    backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]); // 挂起窗副屏在场
+    backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]); // 挂起窗副屏在场（生产序——openHistory 自带挂起）
     io.captured = ''; // 挂起/开屏编舞字节不计入
     // 模拟硬退：先跑本件挂起档钩（注册序先于副屏 Engine 钩）——修内收副屏
     // 写 1049l；副屏 Engine 钩随后幂等零写
     const added = process.listeners('exit').filter((l) => !before.has(l));
     (added[0] as () => void)();
     expect(io.captured).toContain('\x1b[r'); // 修复点：DECSTBM 复位（修前红锚——裸钩零复位）
+    expect(io.captured).toContain('\x1b[?1049l'); // 去空化：副屏确经钩收退（空转锁恒过缺陷——挖掘 28 轮 [3]）
     // 落位序：复位落在副屏退场（1049l 回主屏缓冲）之后——修前裸加形亦红
     expect(io.captured.lastIndexOf('\x1b[r')).toBeGreaterThan(io.captured.lastIndexOf('\x1b[?1049l'));
     backend.stop(); // 收尾：卸钩不泄漏到后续进程退出
+  });
+
+  it('挂起档硬退钩先置停不复起主屏探测（挖掘 28 轮 [2]——修前红）：exit 钩内零编舞零 raw 残留', () => {
+    // 修前挂起档钩在 running=true 时 closeAlt→primary.resumeMain 守卫通过
+    // ——ENTER_MAIN（含 DA1/kitty 探测）+ auto 档 OSC 11 重查 + 清屏重画全在
+    // process 'exit' 钩内复起；探测应答在进程死后到达被 cooked+ECHOCTL 回显
+    // 进 shell 成乱码（e4bae0a 给 stop() 修的同一缺陷在钩路未修）。且副屏
+    // Engine dispose 把 raw 复位成进屏前 true——钩首 setRawMode(false) 被冲
+    // 掉，raw 残留 ON 交还 shell。修向 = 钩内先置停（resumeMain 守卫短路）
+    // + 钩尾重申交还
+    class HookProbeIO extends ProcessTerminalIO {
+      captured = '';
+      rawCalls: boolean[] = [];
+      override write(data: string): void {
+        this.captured += data;
+      }
+      override setRawMode(raw: boolean): void {
+        this.rawCalls.push(raw);
+        super.setRawMode(raw);
+      }
+    }
+    const io = new HookProbeIO();
+    const backend = new TuiBackend(io, { theme: 'auto' });
+    const before = new Set(process.listeners('exit'));
+    backend.start();
+    backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]); // 生产序——副屏真在场
+    io.captured = '';
+    io.rawCalls = [];
+    const added = process.listeners('exit').filter((l) => !before.has(l));
+    (added[0] as () => void)(); // 直调挂起档收口钩
+    expect(io.captured).not.toContain('\x1b[c'); // DA1 探测零发出（修前红锚——复起编舞含探测）
+    expect(io.captured).not.toContain('\x1b]11;?\x07'); // OSC 11 重查零发出（同编舞）
+    expect(io.captured).toContain('\x1b[?1049l'); // 副屏退场照收（收口序不变）
+    expect(io.captured).toContain('\x1b[r'); // DECSTBM 复位照写（[7] 收口三边齐）
+    expect(io.rawCalls.at(-1)).toBe(false); // raw 终态交还 shell（修前红锚——dispose/复起把 raw 复位 ON 残留）
+    // 置停即名义 disposed（lifecycle getter !running→disposed——exit 钩内进程
+    // 将死，名义态无害）；置停也使后续 stop() 入口守卫直返不卸钩——手动卸
+    expect(backend.lifecycle).toBe('disposed');
+    process.removeListener('exit', added[0] as () => void); // 收尾：钩不泄漏到测试进程退出
   });
 
   it('stop 挂起态副屏收屏不复起主屏探测（挖掘 27 轮 [8]——修前红）：应答无 cooked 回显窗', () => {
