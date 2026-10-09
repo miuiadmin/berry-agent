@@ -227,6 +227,12 @@ async function assertCleanExitRestored(lock: ReturnType<typeof spawnTuiEntry>): 
   // (b) 出屏复原字节在场（LEAVE_MAIN 与进屏严格对称反序——单源常量）
   expect(count(out, '\x1b[<u')).toBeGreaterThanOrEqual(1); // kitty 键盘协议弹栈（恢复宿主栈态）
   expect(count(out, '\x1b[?2004l')).toBeGreaterThanOrEqual(1); // 粘贴关
+  // (b) DECSTBM 滚动区复位在场（挖掘 26 轮 [7]）：MainScreen applyScrollRegion
+  // 反复写 1;{rows-fixedHeight}r 设区——终端侧状态不随进程退出自复位，不复位
+  // 则 shell 继承 margins（光标在区外 LF 不滚、长输出覆写屏底；tmux pane 退出
+  // 由 tmux 重置幸免，裸终端必现）。复位串归位光标是 DECSTBM 规范行为，随后
+  // cup 回屏底保 shell 提示符落位（两写点同笔——复位不孤写）。
+  expect(count(out, '\x1b[r')).toBeGreaterThanOrEqual(1);
   // (b) 外显复原：OSC 9;4 进度清零（stop 的 osc.restore 无条件写——终态收口）
   expect(count(out, '\x1b]9;4;0\x07')).toBeGreaterThanOrEqual(1);
   // (c) 主屏 inline 形态恒不碰备屏（1049 零进出——结构性义务非行为巧合）

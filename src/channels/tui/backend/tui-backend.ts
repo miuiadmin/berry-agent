@@ -118,7 +118,7 @@ import {
   type ThemeBoard,
   type ThemeSetting,
 } from '../theme/index.js';
-import { buildSgr, capAnsiLine, SGR_RESET } from './ansi-rows.js';
+import { buildSgr, capAnsiLine, cup, SGR_RESET } from './ansi-rows.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
 import { toolFaceZh } from '../../../contracts/index.js';
 import { keyEventToBinding, Keymap, type ActionView, type KeybindingRejection } from '../keys/registry.js';
@@ -359,6 +359,14 @@ export interface TuiBackendOptions {
 const ENTER_MAIN = '\x1b[?2004h' + '\x1b[>1u' + '\x1b[?u' + '\x1b[c';
 /** 出屏模式串（与进屏严格对称反序——单源常量） */
 const LEAVE_MAIN = '\x1b[<u' + '\x1b[?2004l';
+/**
+ * DECSTBM 滚动区复位（挖掘 26 轮 [7]）：MainScreen applyScrollRegion 反复写
+ * 1;{rows-fixedHeight}r 设区——终端侧状态不随进程退出自复位，出屏不复位则
+ * shell 继承 margins（光标在区外 LF 不滚、长输出覆写屏底；tmux pane 退出由
+ * tmux 重置幸免，裸终端必现）。复位按 DECSTBM 规范归位光标，调用位随后
+ * cup 回屏底（复位不孤写）。
+ */
+const SCROLL_REGION_RESET = '\x1b[r';
 /** OSC 11 背景色查询（BEL 终结形——xterm 主流；auto 档 start 时发） */
 const OSC11_QUERY = '\x1b]11;?\x07';
 /** 明暗变化通知订阅开/关（CSI ?2031——支持终端主题切换即时跟随、不支持无感） */
@@ -1145,6 +1153,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.io.write(LEAVE_MAIN);
       if (this.probeActive) this.io.write(THEME_CHANGE_DISABLE); // 2031 复原（显式内置档从未开）
     }
+    // DECSTBM 复位无条件写（[7]）：两路径此时主屏缓冲皆已回前台（非挂起路本就
+    // 前台；挂起路 closeAlt 已收副屏）——margins 皆须清，否则 shell 继承破退出后输出
+    const { rows } = this.io.size();
+    this.io.write(SCROLL_REGION_RESET + cup(rows - 1, 0));
     this.unsubInput?.();
     this.unsubInput = null;
     this.unsubResize?.();
@@ -4001,6 +4013,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const restore = (): void => {
       try {
         this.io.write(LEAVE_MAIN);
+        // [7] 同 stop 收口：硬退钩与正常退出同写 DECSTBM 复位（复原面不得留单边缺口）
+        this.io.write(SCROLL_REGION_RESET + cup(this.io.size().rows - 1, 0));
         // 2031 复原（七役扫描批 A2——复原对称律）：终端私有模式不随进程退出
         // 自复位，stop 既写关则硬退钩同写关、复原面不得留单边缺口。条件与
         // stop() 同形（auto 档才开过订阅）；挂起态本钩已换挂起档收口体
