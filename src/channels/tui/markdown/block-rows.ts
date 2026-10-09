@@ -11,7 +11,7 @@
  * 双线（表头 ━ 重线 + 表体行间 ─ 轻线、无纵向线——全框形退役）、代码沟线
  * dim + 闭栏语言标签收尾、无序嵌套符号梯度 •/◦/-、hr 虚线形。
  */
-import { graphemeWidth, sanitizeDisplayText, splitGraphemes, type CellStyle } from '../../engine/index.js';
+import { ellipsize, graphemeWidth, sanitizeDisplayText, splitGraphemes, type CellStyle } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import type { MarkdownBlock } from './blocks.js';
 import { highlight, tokenStyle } from './highlight/index.js';
@@ -142,8 +142,11 @@ function tableRows(
       rows.push(renderLine(lineCells));
     }
   }
-  // 收缩指路行：余列丢弃的诚实边界（溢出指示统一律「+ N 更多」族——列向形）
-  if (droppedCols > 0) rows.push(prefixCells(`+ ${droppedCols} 列更多`, DIM_STYLE));
+  // 收缩指路行：余列丢弃的诚实边界（溢出指示统一律「+ N 更多」族——列向形）。
+  // 指路行文本自宽（CJK 宽 10 起步）在 width ≤9 时自身溢出被 cell 越界静默
+  // 吸收——ellipsize 单源收口到 width（挖掘 28 轮 [12]：截断指路行对截断
+  // 几何也诚实，省略号在场而非硬切口）
+  if (droppedCols > 0) rows.push(prefixCells(ellipsize(`+ ${droppedCols} 列更多`, width), DIM_STYLE));
   return rows;
 }
 

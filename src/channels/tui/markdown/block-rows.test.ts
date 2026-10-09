@@ -80,6 +80,18 @@ describe('blockRows 表格渲染（V-3 注⑨④ codex 双线制）', () => {
     expect(wide.at(-1)).not.toBe('+ 1 列更多');
   });
 
+  it('指路行自身窄屏收口（挖掘 28 轮 [12]——修前红：自宽 10 在 width 8 被静默硬裁无省略号）', () => {
+    // 「+ N 列更多」CJK 宽 10 起步——width ≤9 时指路行自身溢出被 cell 越界
+    // 静默吸收（42fc328 要消灭的缺陷类在诚实指路行身上复发；width 8 实测
+    // 只见硬切口）。修：ellipsize 单源收口到 width（省略号在场 = 截断指路
+    // 行对截断几何也诚实）
+    const table = '| a | b | c |\n| - | - | - |\n| 1 | 2 | 3 |';
+    const rows = blockRows(first(table), 8, DEFAULT_THEME);
+    expect(texts(rows).at(-1)).toBe('+ 2 列…'); // 修前红锚：'+ 2 列更多'（10 列裸直写）
+    // 极窄形同源：width 4 → '+ 2…'（truncate 3 列整字 + 省略号——尾随空格随截除）
+    expect(texts(blockRows(first(table), 4, DEFAULT_THEME)).at(-1)).toBe('+ 2…');
+  });
+
   it('线色 = 混合现算弱线优先（weakRule 在场整线着弱线色；tableRule 回退位让渡）', () => {
     const rows = blockRows(first('| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |'), 20, WEAK_THEME);
     expect(WEAK_THEME.weakRule).toEqual(colorRgb('#383d43')); // 混合基自证（fg@20% 混 bg）
