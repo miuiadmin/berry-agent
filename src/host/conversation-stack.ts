@@ -1154,6 +1154,12 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // 在场时从会话注册表构造（listFor 两层并集 live 查询——覆盖装配后动态
     // 注册）；memory 形（无工具面）保持 undefined——纯对话 run 无 tool/call
     let resolveToolOwner: ((name: string) => string | undefined) | undefined;
+    // 请求边界工具面对账供应商（pi-3 件 A——04 §4 装配接线义务）：非 memory
+    // 形块内构造（assembly 闭包捕获）；memory 形保持 undefined（无工具面零
+    // 对账源）。驱动每请求组装时调用（agent_pre_step 瀑布后）——未变返同
+    // 引用、有变重取投影（tools 重赋 → backgroundTools 供应商同闭包随活，
+    // 后台车道换新同步穿透）
+    let refreshToolFace: (() => readonly AgentTool[]) | undefined;
     if (options.runtime.dataDir !== null) {
       // goal 段换装（批 19c-3——03 §10.5）：goal 件在场 + 锚注入在位 →
       // per-session 扩展 todo 工具替换内置件（openTools todoTool 注入位——
@@ -1301,6 +1307,21 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // 可查（live 形——named provider 程序化注册等后续注册天然覆盖）
       resolveToolOwner = (name) => assembly.registry.listFor(sessionId).find((def) => def.name === name)?.owner;
       settleApprovals = assembly.settlePending;
+      // 对账供应商闭包（pi-3 件 A）：extraTools 腿装配恒注入（:1285）→
+      // reconcileExtraTools 恒在。false = 面未变返同引用（驱动零换面）；
+      // true = 重取 agentToolsFor 现值投影并按 shapeTools 重整形（tools
+      // 重赋——子代理派生面随代换新同律）。「形活实死」终结位：供应商腿
+      // （backgroundTools）与前台面（tools）同源重赋，两车道同享换新
+      refreshToolFace = () => {
+        // 非空断言：本闭包只在非 memory 块内构造——tools 于 :1298 恒已赋值
+        // （两分支重赋亦恒非空），undefined 联合仅来自块外声明类型
+        if (assembly.reconcileExtraTools?.() !== true) return tools!;
+        // 重取须走 registry 现值（agentToolsFor 现取全局层 ∪ 驱动层）——
+        // assembly.tools 是装配时点一次性快照，对账注册的新件不在其中
+        const freshFace = assembly.registry.agentToolsFor(sessionId);
+        tools = shapeTools !== undefined ? [...shapeTools(freshFace)] : freshFace;
+        return tools!;
+      };
     } // memory 形：工具整面缺席——纯对话 run（件头注降级语义）
     const driver = new ConversationDriver({
       session,
@@ -1347,6 +1368,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // 不越覆盖位）。
       model: sessionModel ?? (() => currentModel),
       ...(tools !== undefined ? { tools } : {}),
+      // 工具面请求边界对账供应商穿线（pi-3 件 A）：驱动每请求组装时调用
+      // （agent_pre_step 瀑布后——到达窗分面对账位）；memory 形 undefined
+      // 不带（装配时点定格既有行为）
+      ...(refreshToolFace !== undefined ? { refreshToolFace } : {}),
       // 后台唤醒轮工具面供应商（ASM-1 挖掘 15 轮——04 §4 定形注：v1 装配形
       // = 恒注入、供全量工具面）：取值器形 `() => tools`——值同前台 run 工具
       // 面终值（shapeTools 整形后集，:1298 定形先于本装配位）。修前恒不注入

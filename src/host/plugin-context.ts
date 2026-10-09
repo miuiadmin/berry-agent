@@ -918,7 +918,25 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         // pluginId（fork 闭包单源）——插件自报 owner 值恒不达注册表（冒名
         // 结构性不存在；覆写无条件非「缺省补齐」）；agent_ 派生族经本动词
         // 注册（core:subagent 域物化）自然铸得 'core:subagent'，无需另立位
-        const inner = registry.register({ ...def, owner: pluginId }, opts);
+        // 工具执行体回调窗外包（03 §2.1 立法「装载器在派发插件钩子 handler /
+        // 工具执行体前后开合回调窗」的码面兑现——2026-10-09 pi-3 件 A 批勘正
+        // 滞后）：插件 execute 经三段管道执行时本插件回调窗开——执行期内
+        // 注册动词合法（「宿主回调上下文内合法」条款的工具执行期到达形，
+        // 组装后到达窗语义见 03 §2.1 pi-3 批辖域勘正注）。裸窗非 guard 窗
+        // （03 §3.4 分界：工具段不禁模型调用——只计 hostCallbackDepth 不动
+        // hookDispatchGuard）；async 腿 await 全程窗内、fire-and-forget 尾链
+        // 窗外（与钩子派发窗同律）；深度计数天然支持执行体内嵌套。宿主直
+        // 构件不经本壳（open-tools 直接 registry.register——无插件身份亦无
+        // 窗需求）
+        const executeWithWindow: ToolDefinition['execute'] = async (args, toolCtx) => {
+          hostCallbackDepth++;
+          try {
+            return await def.execute(args, toolCtx);
+          } finally {
+            hostCallbackDepth--;
+          }
+        };
+        const inner = registry.register({ ...def, execute: executeWithWindow, owner: pluginId }, opts);
         options.toolLedger?.add(pluginId, def.name);
         return () => {
           inner();

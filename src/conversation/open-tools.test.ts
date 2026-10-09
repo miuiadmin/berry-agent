@@ -147,6 +147,57 @@ describe('assembleOpenTools 组装面', () => {
     expect(first.assembly.tools.length).toBe(second.assembly.tools.length); // 两会话各自完整工具面
     expect(dispatch.isRegistered('conversation/open-tools-mounted')).toBe(true); // 哨兵词恰一册
   });
+
+  it('reconcileExtraTools 三态对账（pi-3 件 A）：未变零动作 / 新增注册 / 换形重注册 / 移除回卷；extraTools 缺席不提供面', () => {
+    // 缺席形：纯宿主构件面恒定——对账面不提供（消费位按 undefined 直通）
+    const bare = makeAssembly();
+    expect(bare.assembly.reconcileExtraTools).toBeUndefined();
+
+    // 可变供应源（模拟 boot 册动态——hook 携带注册/执行期注册后 definitions() 现值）
+    let supply: ToolDefinition[] = [
+      {
+        name: 'dyn_a',
+        description: '动态件 A',
+        parameters: { type: 'object' as const },
+        execute: async () => ({ content: [{ type: 'text', text: 'a' }] }),
+      },
+    ];
+    const { assembly } = makeAssembly({
+      extraTools: () => supply,
+      sessionId: 's-open',
+    });
+    const face = () => assembly.registry.agentToolsFor('s-open').map((t) => t.name);
+    // 装配首取：dyn_a 已入驱动层
+    expect(face()).toContain('dyn_a');
+
+    // 未变：同形零动作（返回 false——调用方不重取投影）
+    expect(assembly.reconcileExtraTools!()).toBe(false);
+
+    // 新增 dyn_b：返回 true + 现值面在场
+    supply = [
+      ...supply,
+      {
+        name: 'dyn_b',
+        description: '动态件 B',
+        parameters: { type: 'object' as const },
+        execute: async () => ({ content: [{ type: 'text', text: 'b' }] }),
+      },
+    ];
+    expect(assembly.reconcileExtraTools!()).toBe(true);
+    expect(face()).toContain('dyn_b');
+
+    // 换形（description 变）：返回 true + 册面描述随新代（回卷重注册非原地改）
+    supply = supply.map((d) => (d.name === 'dyn_a' ? { ...d, description: '动态件 A2' } : d));
+    expect(assembly.reconcileExtraTools!()).toBe(true);
+    const reshaped = assembly.registry.listFor('s-open').find((d) => d.name === 'dyn_a');
+    expect(reshaped?.description).toBe('动态件 A2');
+
+    // 移除 dyn_b：返回 true + 回卷（驱动层不在场）
+    supply = supply.filter((d) => d.name !== 'dyn_b');
+    expect(assembly.reconcileExtraTools!()).toBe(true);
+    expect(face()).not.toContain('dyn_b');
+    expect(face()).toContain('dyn_a'); // 余量不受移除腿牵连
+  });
 });
 
 /* ---------------- 真三段管道执法 ---------------- */

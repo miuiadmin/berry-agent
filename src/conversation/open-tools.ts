@@ -18,8 +18,9 @@
  *     todo/write）。
  *
  * 工具注册走注册表驱动层（{driver: sessionId}——per-session 工具面）；
- * agentToolsFor 快照即驱动 tools 面直用形。dispose 按 LIFO 拆解（工具注册 →
- * 守门 → answerer）。
+ * agentToolsFor 快照即驱动 tools 面直用形；extraTools 腿另经请求边界差量
+ * 对账换新（reconcileExtraTools——pi-3 件 A）。dispose 按 LIFO 拆解（工具
+ * 注册 → 守门 → answerer）。
  */
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import type { EventDispatch, Scope } from '../context/index.js';
@@ -71,7 +72,7 @@ export interface OpenToolsOptions {
   readonly toolPolicy?: readonly ToolPolicyEntry[];
   /** carve-out 例外条目（缺省内置 .git/.env 条目；传 [] 显式关闭例示面——数据目录条恒在） */
   readonly entries?: readonly CarveOutEntry[];
-  /** 装载工具定义取值器（批 19a 消费腿：boot 全局层定义经会话装配重放注册——走本管道守门/审批与驱动层同律；每会话装配时调用一次） */
+  /** 装载工具定义取值器（批 19a 消费腿：boot 全局层定义经会话装配重放注册——走本管道守门/审批与驱动层同律；装配首取一次 + 每请求差量对账〔pi-3 件 A——到达窗分面语义见 03 §2.8〕） */
   readonly extraTools?: () => readonly ToolDefinition[];
   /**
    * todo 工具换装注入位（03 §10.5 goal 换装律）：goal 件在场时装配根以
@@ -114,6 +115,14 @@ export interface OpenToolsAssembly {
   readonly approval: ApprovalService;
   /** 审批挂起收口面（驱动 settleApprovals 注入目标） */
   settlePending(): void;
+  /**
+   * 请求边界差量对账（pi-3 件 A——04 §4 装配接线义务真身）：与 extraTools
+   * 取值器现值对账（新增注册/移除回卷/未变不动），返回 true = 工具面有变
+   * （调用方重取 tools 投影）。消费位 = 驱动请求组装（agent_pre_step 瀑布
+   * 后）。extraTools 缺席的装配形不提供（undefined——纯宿主构件面恒定，
+   * 零对账源）。
+   */
+  readonly reconcileExtraTools?: () => boolean;
   /** LIFO 拆解（工具注册 → 守门 → answerer；词汇注册不可逆——dispatch 同生命周期） */
   dispose(): void;
 }
@@ -227,10 +236,28 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
     // ——grantedRoots live callback 同栈并入 fs fence）
     ...(opts.worktree !== undefined ? createWorktreeTools(opts.worktree) : []),
     todoTool,
-    // 装载工具重放（批 19a 消费腿：boot 全局层定义经驱动层注册走真三段
-    // 管道——04 §7 插件工具同管线执法；每会话重放一次，快照在装配时点取）
-    ...(opts.extraTools !== undefined ? [...opts.extraTools()] : []),
   ];
+  // extraTools 腿改名键追踪账（pi-3 件 A——04 §4 装配接线义务真身「请求边界
+  // 差量对账」）：装载工具重放不再装配时点一次展平定格——追踪账承载已注册
+  // 面，reconcileExtraTools 每请求与取值器现值对账（新增注册/移除回卷/未变
+  // 不动），bootTools 活取值器由此穿透至会话注册表（03 §2.1「变更对下一次
+  // 消费点生效」的请求组装位兑现——到达窗分面语义见 03 §2.8）
+  const extraTools = opts.extraTools;
+  const extraLeg = new Map<string, { faceKey: string; dispose: () => void }>();
+  const faceKeyOf = (definition: ToolDefinition): string =>
+    JSON.stringify({
+      name: definition.name,
+      owner: definition.owner ?? 'core:host',
+      description: definition.description,
+      parameters: definition.parameters,
+    });
+  const registerExtra = (definition: ToolDefinition): void => {
+    const stamped = { ...definition, owner: definition.owner ?? 'core:host' };
+    extraLeg.set(stamped.name, {
+      faceKey: faceKeyOf(stamped),
+      dispose: registry.register(stamped, { driver: opts.sessionId }),
+    });
+  };
   // 驱动层注册（{driver: sessionId}——per-session 工具面；批 12 前插件的
   // beforeToolCall 钩子同 dispatch 挂后续守门位）；owner 缺省盖章
   // 'core:host'（03 §2.3 尾注族谱——T9 案一批 t-1）：本注册点是宿主装配
@@ -240,14 +267,50 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
   const disposers = definitions.map((definition) =>
     registry.register({ ...definition, owner: definition.owner ?? 'core:host' }, { driver: opts.sessionId }),
   );
+  if (extraTools !== undefined) for (const definition of extraTools()) registerExtra(definition);
+  // 请求边界差量对账（pi-3 件 A）：与 extraTools 取值器现值对账。未变判据 =
+  // {name, owner, description, parameters} 序列化同形——execute 闭包同形不
+  // 重注册（面粒度对账的有意边界：reload 后同形工具沿用旧执行体，任何面
+  // 变化/增删即换新）。返回 true = 面有变（调用方重取 tools 投影）
+  const reconcileExtraTools = (): boolean => {
+    const freshByName = new Map<string, ToolDefinition>();
+    for (const definition of extraTools!()) freshByName.set(definition.name, definition);
+    let changed = false;
+    // 移除回卷：追踪账有名而现值无名（boot 册已回卷——uninstall/换代移除）
+    for (const [name, entry] of [...extraLeg]) {
+      if (freshByName.has(name)) continue;
+      entry.dispose();
+      extraLeg.delete(name);
+      changed = true;
+    }
+    // 新增/换形：未变不动（面键同形零动作）；面键变 = 回卷重注册（owner
+    // 换主同面也换——归因面随新代）
+    for (const [name, definition] of freshByName) {
+      const existing = extraLeg.get(name);
+      const faceKey = faceKeyOf(definition);
+      if (existing !== undefined) {
+        if (existing.faceKey === faceKey) continue;
+        existing.dispose();
+        extraLeg.delete(name);
+      }
+      registerExtra(definition);
+      changed = true;
+    }
+    return changed;
+  };
 
   return {
     tools: registry.agentToolsFor(opts.sessionId),
     registry,
     approval: approvalWiring.approval,
     settlePending: approvalWiring.settlePending,
+    // 对账面（pi-3 件 A）：消费位 = 驱动请求组装（agent_pre_step 瀑布后）；
+    // extraTools 缺席的装配形不提供（纯宿主构件面恒定，零对账源）
+    reconcileExtraTools: extraTools !== undefined ? reconcileExtraTools : undefined,
     dispose() {
-      // LIFO 拆解：先摘工具注册（含执行面）→ 守门 → answerer
+      // LIFO 拆解：先摘工具注册（含执行面）→ 守门 → answerer；extra 腿先
+      // 回卷（注册序在宿主构件后，与原展平序一致）
+      for (const entry of extraLeg.values()) entry.dispose();
       for (const dispose of disposers.reverse()) dispose();
       uninstallGate();
       approvalWiring.dispose();

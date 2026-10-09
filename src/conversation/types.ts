@@ -257,6 +257,16 @@ export interface ConversationDriverOptions {
   readonly backgroundTools?: () => readonly AgentTool[];
 
   /**
+   * 工具面刷新取值器（pi-3 件 A——04 §4 装配接线义务「请求边界差量对账」）：
+   * 每请求组装时（agent_pre_step 瀑布收口后）调用——装配根先经对账面
+   * （open-tools reconcileExtraTools）与 boot 册现值对账，面有变则重取
+   * tools 投影返回新面、未变返回同引用（驱动以引用判等零换面成本）。
+   * **缺席 = 工具面装配时点定格**（既有行为——无 extraTools 腿的装配形）。
+   * 与 backgroundTools 供应商同享换新（闭包重赋自然活——供应商腿穿透）。
+   */
+  readonly refreshToolFace?: () => readonly AgentTool[];
+
+  /**
    * goal 段窄面供应商（03 §10.5 chat↔goal 数据通道）：todo fold 边界升格
    * 「goal 生命周期段」的判据面——装配根注入 goal 件 `goalScopeFor` 闭包
    * （词面独立零 import、结构兼容编译期即验）；**缺席 = fold 退化 run-scoped

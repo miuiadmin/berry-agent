@@ -4,10 +4,11 @@
  * 锁的对象：第三方（磁盘行）异步发现的官方表达 = apply 期 fire-and-forget
  * 起异步任务（结果暂存闭包变量）+ 前置消费钩（agent_pre_step——生产派发的
  * 请求前瀑布钩）handler 内携带注册（回调窗内合法）。全链四断言（分面语义
- * ——冷读闸核真勘正后定形）：
+ * ——冷读闸核真勘正后定形；2026-10-09 pi-3 件 A 批断言② 翻转+另立执行期锁）：
  *  ① 注册即时入 boot 全局册（owner 归因插件 id）；
- *  ② 在飞会话的工具面当轮不可见（现状锁——工具面消费点 = 会话装配，driver
- *     构造时冻结拷贝，已开会话不重取）；
+ *  ② 在飞会话当轮即见（pi-3 件 A 翻转锁——组装前到达窗：agent_pre_step
+ *     钩内携带注册先于请求组装，驱动请求边界差量对账〔refreshToolFace〕
+ *     当轮换新面——03 §2.8 到达窗分面）；
  *  ③ 之后新装配的会话工具面可见（bootTools 供应子会话装配时点重取当前册）；
  *  ④ 窗外直调红例照旧（异步任务内直接 ctx.tools.register 撞
  *     PLUGIN_WINDOW_CLOSED——窗闸对无钩携带形照执法，有意禁区的执法面）。
@@ -22,6 +23,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
+import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
 
 import { EventDispatch, Scope } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
@@ -166,12 +168,130 @@ describe('hook-carried 模式全链（03 §2.1 异步续段开窗批——磁盘
     // ① 注册即时入 boot 全局册 + owner 归因插件 id（受理壳铸造——自报不达）
     const def = boot.tools.definitions().find((t) => t.name === 'hc_async_lookup');
     expect(def).toMatchObject({ name: 'hc_async_lookup', owner: 'hc-async' });
-    // ② 在飞会话当轮不可见（现状锁——driver 构造时冻结拷贝，已开会话不重取）
-    expect(stack.driverOf(s1.sessionId)!.toolNames).not.toContain('hc_async_lookup');
+    // ② 在飞会话当轮即见（pi-3 件 A 翻转——组装前到达窗：钩内注册先于请求
+    // 组装位，驱动对账当轮换新面；修前「装配断链」形下本位为 not.toContain
+    // 现状锁——04 §4 义务句兑现后翻转）
+    expect(stack.driverOf(s1.sessionId)!.toolNames).toContain('hc_async_lookup');
     // ③ 之后新装配的会话工具面可见（bootTools 供应子装配时点重取当前册）
     const s2 = stack.openStartupSession(ws2);
     expect(stack.driverOf(s2.sessionId)!.toolNames).toContain('hc_async_lookup');
 
     await rt.shutdown(); // 真库收口（closer 序含 persistence flush）
+  });
+
+  it('执行期注册下一请求即见（pi-3 件 A——组装后到达窗：工具执行体内注册，下一请求组装位兑现）', async () => {
+    // globality 旗清残（用例幂等——重跑不读上轮残值）
+    delete (globalThis as Record<string, unknown>).__hcSpawnCode;
+
+    const dataDir = mkdtempSync(join(tmpdir(), 'hc2-data-'));
+    const ws = mkdtempSync(join(tmpdir(), 'hc2-ws-'));
+    dirs.push(dataDir, ws);
+
+    // 种子工具插件：apply 期注册携 execute 的种子件；execute 体内（宿主
+    // 回调窗——plugin-context 受理壳外包，03 §2.1 例外条款）再注册派生件
+    // ——组装后到达窗形（请求已在飞、工具面已快照，兑现位 = 下一请求组装）。
+    // 种子件声明 effect read：缺席归一 write/exec 最危形走审批闸，测试环境
+    // 无审批人应答即 fail-closed 拒执行（execute 体进不去——到达窗测不到）
+    const pluginDir = join(dataDir, 'plugins', 'node_modules', 'hc-spawn');
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(
+      join(pluginDir, 'package.json'),
+      JSON.stringify({ name: 'hc-spawn', version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+    );
+    writeFileSync(
+      join(pluginDir, 'entry.js'),
+      [
+        'export const inject = [];',
+        'export default async (ctx) => {',
+        '  ctx.tools.register({',
+        '    name: "hc_seed_tool",',
+        '    description: "种子工具（执行期派生注册）",',
+        '    parameters: { type: "object", properties: {} },',
+        '    effect: "read",',
+        '    execute: async () => {',
+        '      try {',
+        '        ctx.tools.register({',
+        '          name: "hc_runtime_spawned",',
+        '          description: "执行期派生工具",',
+        '          parameters: { type: "object", properties: {} },',
+        '          execute: async () => ({ content: [{ type: "text", text: "ok" }] }),',
+        '        });',
+        '        globalThis.__hcSpawnCode = "REGISTERED";',
+        '      } catch (err) {',
+        '        globalThis.__hcSpawnCode = err && err.code ? err.code : String(err);',
+        '      }',
+        '      return { content: [{ type: "text", text: "spawned" }] };',
+        '    },',
+        '  });',
+        '};',
+      ].join('\n'),
+    );
+    writeFileSync(join(dataDir, 'enabled.yaml'), 'plugins:\n  - id: hc-spawn\n');
+    writeFileSync(
+      join(dataDir, 'plugins', 'ledger.json'),
+      JSON.stringify({ 'hc-spawn': { installPath: 'plugins/node_modules/hc-spawn' } }),
+    );
+
+    const rt = createHostRuntime({ dataDir });
+    const dispatch = new EventDispatch();
+    let boot: Awaited<ReturnType<typeof bootPlugins>> | undefined;
+    const faux = fauxProvider({ provider: 'faux-hc2', models: [{ id: 'm1' }] });
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-hc2/m1',
+      env: {},
+      dispatch,
+      bootTools: () => [...(boot?.tools.definitions() ?? [])],
+    });
+
+    boot = await bootPlugins({
+      runtime: rt,
+      scope: Scope.createRoot(),
+      dispatch,
+      commands: { register: () => () => undefined },
+      llm: { registerProvider: () => () => undefined },
+      version: '9.9.9-test',
+      warn: () => undefined,
+    });
+    expect(boot.report.failed).toEqual([]);
+    expect(boot.tools.definitions().map((t) => t.name)).toContain('hc_seed_tool'); // 种子件 apply 期入册
+
+    const s1 = stack.openStartupSession(ws);
+    // 装配面含种子件（apply 期注册先于会话装配）；派生件尚未注册
+    expect(stack.driverOf(s1.sessionId)!.toolNames).toContain('hc_seed_tool');
+    expect(stack.driverOf(s1.sessionId)!.toolNames).not.toContain('hc_runtime_spawned');
+
+    // 两步脚本：① toolUse 调种子件（执行体内注册派生件）；② 捕获第二请求
+    // 组装面（context.tools——到达窗兑现位）后收 stop
+    const secondFace: string[] = [];
+    faux.setResponses([
+      () => fauxAssistantMessage(fauxToolCall('hc_seed_tool', {}), { stopReason: 'toolUse' }),
+      (context) => {
+        // TranscriptContext 无顶层 tools 字段——normalizeContext 把工具声明
+        // 折叠进 leading SystemMessage.toolsAdded（pi-ai 1.x 折叠形）
+        const leading = context.messages.find((m) => m.role === 'system') as
+          { toolsAdded?: Array<{ name: string }> } | undefined;
+        secondFace.push(...(leading?.toolsAdded ?? []).map((tool) => tool.name));
+        return messageOf();
+      },
+    ]);
+    const receipt = await stack.submitText(s1.sessionId, '跑种子');
+    expect(receipt).toMatchObject({ status: 'completed' });
+    // 执行体内注册成功（非窗拒）——执行体回调窗兑现（03 §2.1 立法：受理壳
+    // executeWithWindow 外包；若无外包此位 = PLUGIN_WINDOW_CLOSED——本断言
+    // 即窗闸修复的执行期回归锁）
+    expect((globalThis as Record<string, unknown>).__hcSpawnCode).toBe('REGISTERED');
+    // 执行期注册即时入 boot 册全局层（owner 归因 hc-spawn）
+    const spawned = boot!.tools.definitions().find((t) => t.name === 'hc_runtime_spawned');
+    expect(spawned).toMatchObject({ name: 'hc_runtime_spawned', owner: 'hc-spawn' });
+
+    // 组装后到达窗兑现：执行期注册的派生件在第二请求组装面在场（第一请求
+    // 面无此件——当轮请求已在飞不可见，下一请求即见）
+    expect(secondFace).toContain('hc_seed_tool'); // 种子件未变不动（对账不回卷）
+    expect(secondFace).toContain('hc_runtime_spawned'); // 派生件下一请求即见
+    expect(stack.driverOf(s1.sessionId)!.toolNames).toContain('hc_runtime_spawned'); // 驱动面同换新
+
+    await rt.shutdown();
   });
 });

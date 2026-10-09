@@ -217,6 +217,51 @@ describe('装载窗口律（03 §2.1）', () => {
     expectCode(() => handle.ctx.channels.registerCommand('x-after-restore', () => undefined), 'PLUGIN_WINDOW_CLOSED');
   });
 
+  it('工具执行体回调窗（03 §2.1 立法兑现：受理壳 executeWithWindow 外包）——执行内注册合法、抛错窗恢复、毕后关死', async () => {
+    const { handle, tools } = assemble();
+    let spawnCode = '';
+    handle.ctx.tools.register({
+      name: 'acme_spawn_host',
+      description: '执行体窗探针',
+      parameters: { type: 'object' as const },
+      execute: async () => {
+        // 执行体即回调窗（裸窗——工具段不禁模型调用）：体内注册合法
+        try {
+          handle.ctx.tools.register({
+            name: 'acme_spawned_child',
+            description: '执行期派生',
+            parameters: { type: 'object' as const },
+            execute: async () => ({ content: [] }),
+          });
+          spawnCode = 'REGISTERED';
+        } catch (err) {
+          spawnCode = err instanceof BaseError ? err.code : String(err);
+        }
+        throw new Error('boom'); // 抛错腿——finally 恢复不改窗态（深度计数回零）
+      },
+    });
+    handle.closeWindow(); // 装载窗关死——此后仅各回调窗内可注册
+    // 执行体经受理壳外包调用：体内窗开（注册成功非窗拒）
+    const host = tools.listFor('s-any').find((def) => def.name === 'acme_spawn_host');
+    expect(host).toBeDefined();
+    await expect(host!.execute({}, { signal: undefined } as never)).rejects.toThrow('boom');
+    expect(spawnCode).toBe('REGISTERED'); // 修前形：PLUGIN_WINDOW_CLOSED（窗闸缺口回归锁）
+    // 派生件真实入册 + owner 归因本插件（受理壳铸造）
+    const child = tools.listFor('s-any').find((def) => def.name === 'acme_spawned_child');
+    expect(child).toMatchObject({ name: 'acme_spawned_child', owner: 'acme-widgets' });
+    // 抛错后窗照关死——深度计数 finally 回零（窗外注册仍拒）
+    expectCode(
+      () =>
+        handle.ctx.tools.register({
+          name: 'acme_after_exec',
+          description: '执行毕后窗外',
+          parameters: { type: 'object' as const },
+          execute: async () => ({ content: [] }),
+        }),
+      'PLUGIN_WINDOW_CLOSED',
+    );
+  });
+
   it('inLoadWindow 镜像窗位（c-6——宿主面专用 getter：构造即 true，关窗 false，回调窗不回落装载位）', () => {
     const { handle } = assemble();
     expect(handle.inLoadWindow).toBe(true); // apply 期（plugin-boot 绑 registerOAuthFlow 窗判据）

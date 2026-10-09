@@ -165,8 +165,21 @@ export class ConversationDriver {
    * 护栏目的已达，不承诺跨进程精确保留）。
    */
   private a2aDepthValue = 0;
-  /** 全量工具面快照（工具面切换的还原基准——backgroundTools 的对照面） */
-  private readonly fullTools: AgentTool[] | undefined;
+  /**
+   * 全量工具面快照（工具面切换的还原基准——backgroundTools 的对照面）。
+   * pi-3 件 A：去 readonly——请求边界对账（refreshToolFace）可换新（04 §4
+   * 装配接线义务「差量对账」的驱动侧承载；换新后 toolNames/applyToolFace
+   * 前台还原面随之反映新代）。
+   */
+  private fullTools: AgentTool[] | undefined;
+  /**
+   * 对账返回面引用锚（pi-3 件 A）：装配根 refreshToolFace 供应商「未变返回
+   * 同引用」约定（open-tools reconcileExtraTools false → 调用方返同引用）——
+   * 引用判等零换面成本，同引用跳过一切换新动作。
+   */
+  private lastFaceRef: readonly AgentTool[] | undefined;
+  /** 当前面车道（pi-3 件 A）：applyToolFace 置位——对账换新后按当前车道重铺 */
+  private faceWake = false;
   /** 警示面（缺省 stderr——护栏不静默） */
   private readonly warnFace: (message: string) => void;
   /**
@@ -213,6 +226,9 @@ export class ConversationDriver {
       ...(options.resolveToolOwner !== undefined ? { resolveToolOwner: options.resolveToolOwner } : {}),
     });
     this.fullTools = options.tools !== undefined ? [...options.tools] : undefined;
+    // 对账锚随构造立位（pi-3 件 A）：持有 options.tools 原引用——后续每请求
+    // 与供应商现值引用判等，同引用 = 面未变零动作
+    this.lastFaceRef = options.tools;
     this.warnFace = options.warn ?? ((message) => console.error(message));
     this.context = {
       ...(options.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
@@ -569,7 +585,29 @@ export class ConversationDriver {
       return 'stop';
     }
     if (out.reminders.length > 0) this.pendingReminders = out.reminders;
+    // 请求边界差量对账（pi-3 件 A——04 §4 装配接线义务）：瀑布收口后、请求
+    // 组装前——本位即「到达窗分面」的对账位（03 §2.1 定形注/03 §2.8）：钩内
+    // 携带注册的到达先于本位落册 → 当轮即见；在飞工具执行期注册的到达在本
+    // 位后的下一请求兑现。供应商缺席（无 extraTools 腿装配形）零动作。
+    this.refreshToolFace();
   };
+
+  /**
+   * 工具面请求边界对账（pi-3 件 A）：调装配根供应商（open-tools
+   * reconcileExtraTools + tools 投影重取）——面有变换新 fullTools 并按当前
+   * 车道重铺 context.tools（本请求组装即见）；未变（同引用）零动作。纯对话
+   * 形（tools undefined 且供应商在）以供应商现值为准（undefined → 纯对话
+   * 形保持——供应商只对有 extraTools 腿的装配注入，恒非 undefined 面）。
+   */
+  private refreshToolFace(): void {
+    const provider = this.options.refreshToolFace;
+    if (provider === undefined) return;
+    const fresh = provider();
+    if (fresh === this.lastFaceRef) return;
+    this.lastFaceRef = fresh;
+    this.fullTools = [...fresh];
+    this.applyToolFace(this.faceWake);
+  }
 
   /**
    * 模型请求失败钩子分派（03 §2.5 agent_request_error——批 E 发射腿）：
@@ -1337,6 +1375,8 @@ export class ConversationDriver {
    * context.tools——换面即刻生效。
    */
   private applyToolFace(wakeTriggered: boolean): void {
+    // 车道位置位（pi-3 件 A）：对账换新（refreshToolFace）重铺时按当前车道
+    this.faceWake = wakeTriggered;
     if (wakeTriggered) {
       this.context.tools = [...(this.options.backgroundTools?.() ?? [])];
     } else if (this.fullTools !== undefined) {
