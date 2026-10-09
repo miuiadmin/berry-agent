@@ -548,6 +548,21 @@ describe('TuiBackend notify / repaint / resize', () => {
     expect(io.bytes).toContain('已续接：e2ehist');
   });
 
+  // 挖掘 26 轮 [10]：保全账使命是单次重画竞窗不丢非历史全保——无帽则长会话
+  // 随通知量单调增长且每次重画全账 O(N) 重放。小帽注入（3）证 FIFO 裁旧腿：
+  // 帽外最旧行让位，重放只见帽内最新行。
+  it('保全账帽 FIFO 裁旧：超帽最旧行让位，重放只见帽内最新行（修前红：无帽全量回放）', () => {
+    const { io, backend } = makeBackend({ landedTransientCap: 3 });
+    for (let i = 1; i <= 5; i++) backend.notify(`回执 ${i}`);
+    io.bytes = '';
+    backend.onRepaint(SESSION, [], null);
+    expect(io.bytes).not.toContain('回执 1'); // 帽外最旧让位
+    expect(io.bytes).not.toContain('回执 2');
+    expect(io.bytes).toContain('回执 3'); // 帽内最新 3 补吐在场
+    expect(io.bytes).toContain('回执 4');
+    expect(io.bytes).toContain('回执 5');
+  });
+
   it('当场档瞬时行跨 repaint 不重放（Job 收口行——结算线零复现，两档分立负锁）', () => {
     const { io, backend } = makeBackend();
     const plain = (s: string): string => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');

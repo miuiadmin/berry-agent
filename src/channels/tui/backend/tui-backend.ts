@@ -353,6 +353,12 @@ export interface TuiBackendOptions {
    * 降档路可证；缺省行为不变）。
    */
   readonly streamFrameByteCap?: number;
+  /**
+   * 瞬时行保全账帽（挖掘 26 轮 [10]）：缺省 LANDED_TRANSIENT_CAP 定值
+   * （同族帽量级）。注入面 = 测试语义（生产帽量级下裁旧腿结构性不可测——
+   * 小帽注入使 FIFO 裁旧可证；缺省行为不变）。
+   */
+  readonly landedTransientCap?: number;
 }
 
 /** 主屏形进屏模式串：粘贴开 + kitty 推栈（disambiguate 最小位）+ 探测哨兵（无光标藏无 1049——与 Engine 全屏形分立） */
@@ -381,6 +387,13 @@ const DEFAULT_FPS_CAP = 60;
  * 纯文本（旧路径为降档开关——R1 分句原文），下条 message_start 复位重试。
  */
 const STREAM_FRAME_BYTE_CAP = 256 * 1024;
+/**
+ * 瞬时行保全账帽缺省（挖掘 26 轮 [10]）：账的使命是单次权威重建竞窗不丢
+ * （repaint/resize/复起补吐源——bac1320），非历史全保——无帽则长会话随
+ * 通知量单调增长且每次重画全账 O(N) 重放渐卡。定值 200 对齐同族帽量级
+ * （转录块帽 500/卡体行帽 200/编辑器史帽 100）；FIFO 裁旧（最旧让位）。
+ */
+const LANDED_TRANSIENT_CAP = 200;
 /** lone-ESC 判定窗缺省（对齐 Engine DEFAULT_ESCAPE_WINDOW_MS） */
 const DEFAULT_ESCAPE_WINDOW_MS = 30;
 /** footer 教学提示闲态文案（V-3 注⑦④——`?` 键投影与 footer 提示同文单源） */
@@ -637,7 +650,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * pendingOps（未落帧）半边，与 suspendMain 挂起转账律不对称——本账补
    * 「flush 已达成 / appendTransientCapped 已直写」的落屏行，权威清点时
    * 与 pending 合并（到达序：先落屏在前）重放。重放产物经同路再入账
-   * （下次重建再补吐），循环自洽不双记。
+   * （下次重建再补吐），循环自洽不双记。账帽 FIFO 裁旧（挖掘 26 轮 [10]——
+   * 入账单源 landTransientLines 执法，最旧让位）。
    */
   private landedTransients: string[] = [];
 
@@ -925,6 +939,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly footerEnabled: boolean;
   /** 流式帧字节帽（选项注入面——缺省 STREAM_FRAME_BYTE_CAP 生产定值 256KB） */
   private readonly streamFrameByteCap: number;
+  /** 瞬时行保全账帽（选项注入面——缺省 LANDED_TRANSIENT_CAP 生产定值） */
+  private readonly landedTransientCap: number;
 
   constructor(io: TerminalIO, options: TuiBackendOptions = {}) {
     this.io = io;
@@ -946,6 +962,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.escapeWindowMs = options.escapeWindowMs ?? DEFAULT_ESCAPE_WINDOW_MS;
     // 流式帧字节帽：注入面（测试小帽证降档路）缺席 = 生产定值 256KB
     this.streamFrameByteCap = options.streamFrameByteCap ?? STREAM_FRAME_BYTE_CAP;
+    // 瞬时行保全账帽：注入面（测试小帽证 FIFO 裁旧）缺席 = 生产定值
+    this.landedTransientCap = options.landedTransientCap ?? LANDED_TRANSIENT_CAP;
     // 件 7：title 基线（version 注入缺席 = 裸名）；外显件复用本件调度注入
     // （schedule 缺席 = 保活缺位——同步测试语义，与渲染合并同构）
     this.titleBaseline = options.version ? `berry-agent ${options.version}` : 'berry-agent'; // 空串同缺席归裸名（无尾随空格脏基线）
@@ -3253,7 +3271,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // 真相）：op 在队即到达时无槽，此处无条件直写（到达序呈现位——同帧后续
         // 开槽 present 在其下起笔）；drainSlotTransients 防御序保留（snapshot 现
         // 判无槽时排空陈缓冲——replayTransients 同形）
-        if (op.persist) this.landedTransients.push(...op.lines); // 保全档落屏入账（权威重建补吐源——竞窗根因修）
+        if (op.persist) this.landTransientLines(op.lines); // 保全档落屏入账（权威重建补吐源——竞窗根因修）
         // 空态引导第四门：瞬时行落地即收引导（先置态 null——appendTransient
         // 余行清除仍以旧 guideRows 并账清引导尾，随后走无引导支清账）
         this.retireEmptyGuideAtLanding();
@@ -3289,11 +3307,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 清点（repaint/resize）的抢救行是清点前旧宽产物，经 replayTransients
    * 走此收口重截（第五役 S1-a 起清点不再裸丢瞬时行）。
    */
+  /**
+   * 保全档入账单源（挖掘 26 轮 [10]）：flush 直写位与 appendTransientCapped
+   * 收口位共用——入账 + FIFO 裁旧（超帽最旧让位）。帽执法只在此一处，两路
+   * 入账同律不分叉。
+   */
+  private landTransientLines(lines: readonly string[]): void {
+    this.landedTransients.push(...lines);
+    if (this.landedTransients.length > this.landedTransientCap) {
+      this.landedTransients.splice(0, this.landedTransients.length - this.landedTransientCap);
+    }
+  }
+
   private appendTransientCapped(lines: readonly string[], opts?: { persist?: boolean }): void {
     const columns = this.io.size().columns;
     // 保全档入账取原始行（非截宽产物）——重放走本路按重建时刻新宽收口（与
     // 第五役「抢救行是清点前旧宽产物、重放逐行重截」同语义——账面恒存原文）
-    if (opts?.persist === true) this.landedTransients.push(...lines); // 落屏入账（权威重建补吐源——竞窗根因修）
+    if (opts?.persist === true) this.landTransientLines(lines); // 落屏入账（权威重建补吐源——竞窗根因修）
     // 空态引导第四门（重放/排空共通收口路——replayTransients 全系经此）：瞬时
     // 行落地即收引导，同 flush 直写位前置形
     this.retireEmptyGuideAtLanding();
