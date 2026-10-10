@@ -12,6 +12,12 @@
  * ctrl+o 会话级展开（全量行、正常亮度）。exec 卡族卡体首行状态行（批③）：
  * 退出码数值 + ` · {时长}` dim——两档恒在。
  *
+ * ④⑦（Codex 样式复刻批 R-5 件 A）：exec 卡头命令续行翻 `  │ ` 独立窄槽
+ * （dim 档——续行折宽 columns−4 不对齐命令起始列、超帽省略行同获槽）；bash
+ * 卡族卡体翻 exec 输出窗（`  └ ` 转折首行 + 4 空格槽续行 + **整窗 dim 两档
+ * 皆然** + 折叠帽 5 中段截断 + 空输出 `(no output)` 形）——替代通用
+ * previewWindow/addDim 路（插件腿优先律维持）。
+ *
  * diff 档（edit 类工具——patch 体卡）：卡体行按 patch 判形渲染，1 删 1 增
  * 相邻对走词级高亮（删行变更词红 / 增行变更词绿——word-diff 件 LCS），
  * 孤立删/增整行红/绿，'***' 头行 dim。纯函数：同一 (卡数据, columns) 恒同
@@ -200,11 +206,19 @@ export function renderToolCardStyledLines(card: ToolCardView, columns: number): 
   ];
   // 插件卡体现调（null = 回落——未命中/抛错/空行集/载荷缺席四形同落宿主缺省）
   const pluginBody = renderPluginBodyLines(card, columns);
+  // 状态行（exec 卡族恒 dim——折叠/展开两档同形，钉卡头之后卡体之前）
+  const statusLine = renderExecStatusLine(card);
+  // ④ 分路：bash 卡族（插件腿缺席——插件渲染钩子优先律维持）卡体 = exec 输出
+  // 窗终形（└ 槽 + 整窗 dim + 折叠帽自持——两档皆窗，绕过下方通用两档路；
+  // diff 档恒非 bash——edit 族卡，不另判）
+  if (card.name === 'bash' && pluginBody === null) {
+    const window = renderExecOutputWindow(card.body, columns, card.expanded);
+    const body = statusLine === null ? window : [statusLine, ...window];
+    return [...headerLines, ...body].map((line) => withCardBg(line, card.theme.toolCardBg));
+  }
   const bodyLines =
     pluginBody ??
     (card.diff ? renderDiffBodyLines(card.body, columns, card.theme) : renderPlainBodyLines(card.body, columns));
-  // 状态行（exec 卡族恒 dim——折叠/展开两档同形，钉卡头之后预览窗之前）
-  const statusLine = renderExecStatusLine(card);
   const body = card.expanded
     ? statusLine === null
       ? bodyLines
@@ -256,18 +270,24 @@ function renderGenericHeaderLine(card: ToolCardView, columns: number, statusColo
   return capStyledLine({ plain: header, runs }, columns);
 }
 
-/** exec 卡头命令折行帽（UX 五问题批①——超出走省略行） */
+/** exec 卡头命令折行帽（UX 五问题批①——超出走省略行；⑦ 帽语义 = 首行 + 续行总视觉行帽） */
 const EXEC_HEADER_COMMAND_LINES = 2;
 
-/** exec 卡头前缀宽（` ✓ Ran $ ` ——1+1+1+3+1+1+1 = 9 列；`$ ` 命令位〔注⑩〕；续行对齐位） */
+/** exec 卡头前缀宽（` ✓ Ran $ ` ——1+1+1+3+1+1+1 = 9 列；`$ ` 命令位〔注⑩〕；首行命令预算让位） */
 const EXEC_HEADER_PREFIX_WIDTH = 9;
 
+/** exec 卡头续行轨道前缀（⑦——`  │ ` 独立窄槽：2 空格 + 轨道线 + 空格；④ 符号册 │ 新符，dim 档） */
+const EXEC_TRACK_PREFIX = '  │ ';
+
 /**
- * exec 卡头行集（bash 族——UX 五问题批① 复刻 codex 形）。命令源 = 卡面
- * renderInput.arguments 的 `command` 键（数据面事实——呈现层只读）；缺席/
- * 非字符串返 null（调用方回落常量卡头）。序：消毒 → `bash -lc` 外壳剥除 →
- * 折行（前缀宽让位）→ 帽 2 视觉行 → 逐行词法高亮（自研 bash 词法器——
- * codeKeyword 键族，串接恒等原文律保证游程进位无漂移）。
+ * exec 卡头行集（bash 族——UX 五问题批① 复刻 codex 形；⑦ 续行翻独立窄槽）。
+ * 命令源 = 卡面 renderInput.arguments 的 `command` 键（数据面事实——呈现层
+ * 只读）；缺席/非字符串返 null（调用方回落常量卡头）。序：消毒 → `bash -lc`
+ * 外壳剥除 → **两段折行**（⑦：首段在卡头前缀让位预算 columns−9 内纯截断
+ * 〔truncateToWidth 纯前缀形——余量 slice 精确衔接〕；余量进续行窄槽
+ * columns−4 折行——**不对齐命令起始列**）→ 总视觉行帽 2 → 超帽省略行（同获
+ * `  │ ` 槽 + 整行 dim）→ 逐行词法高亮（自研 bash 词法器——codeKeyword 键
+ * 族，串接恒等原文律保证游程进位无漂移）。
  */
 function renderExecHeaderLines(card: ToolCardView, columns: number, statusColor: ColorValue): StyledLine[] | null {
   // 命令源 = 卡面 renderInput.arguments 的 `command` 键（载荷面 unknown——
@@ -280,30 +300,35 @@ function renderExecHeaderLines(card: ToolCardView, columns: number, statusColor:
   if (commandArg === '') return null;
   const command = stripShellWrapper(sanitizeLineText(commandArg));
   if (command === '') return null;
-  const wrapped = wrapText(command, Math.max(1, columns - EXEC_HEADER_PREFIX_WIDTH));
-  const shown = wrapped.slice(0, EXEC_HEADER_COMMAND_LINES);
-  const lines: StyledLine[] = shown.map((line, i): StyledLine => {
-    const plain = (i === 0 ? ` ${STATUS_SYMBOL[card.status]} Ran $ ` : ' '.repeat(EXEC_HEADER_PREFIX_WIDTH)) + line;
-    const runs: StyleRun[] = [
-      { start: 0, end: 2, style: { fg: statusColor } }, // 符号段（含首空格——失败红系/中止次文维持）
-    ];
-    if (i === 0) {
-      runs.push({ start: 3, end: 6, style: { bold: true } }); // 动词段 Ran bold（成功/失败同词）
-      runs.push({ start: 7, end: 8, style: DIM_STYLE }); // `$` 命令位符 dim（注⑩——位符弱存在感，命令文本主体亮度）
-    }
-    runs.push(...commandRuns(line, EXEC_HEADER_PREFIX_WIDTH, card.theme)); // 命令段词法高亮（自 col 9 起）
-    return capStyledLine({ plain, runs }, columns);
-  });
-  if (wrapped.length > shown.length) {
-    // 命令超折行帽：省略行收口（续行对齐位 + dim——真实行数明示）
-    const dropped = wrapped.length - shown.length;
-    const marker = `${' '.repeat(EXEC_HEADER_PREFIX_WIDTH)}⋯（命令已省 ${dropped} 行）`;
-    lines.push(
-      capStyledLine(
-        { plain: marker, runs: [{ start: EXEC_HEADER_PREFIX_WIDTH, end: marker.length, style: DIM_STYLE }] },
-        columns,
-      ),
-    );
+  // ⑦ 两段折行：首段纯截断（前缀让位预算）、余量窄槽折行（独立域不与首行
+  // 折行耦合——续行视觉行 = wrapText(rest) 段集）
+  const first = truncateToWidth(command, Math.max(1, columns - EXEC_HEADER_PREFIX_WIDTH));
+  const rest = command.slice(first.length);
+  const wrappedRest = rest === '' ? [] : wrapText(rest, Math.max(1, columns - EXEC_TRACK_PREFIX.length));
+  const shownRest = wrappedRest.slice(0, EXEC_HEADER_COMMAND_LINES - 1);
+  // 首行（既有形维持）：符号段语义色 + 动词 Ran bold + `$` 位符 dim + 命令高亮
+  const firstPlain = ` ${STATUS_SYMBOL[card.status]} Ran $ ${first}`;
+  const firstRuns: StyleRun[] = [
+    { start: 0, end: 2, style: { fg: statusColor } }, // 符号段（含首空格——失败红系/中止次文维持）
+    { start: 3, end: 6, style: { bold: true } }, // 动词段 Ran bold（成功/失败同词）
+    { start: 7, end: 8, style: DIM_STYLE }, // `$` 命令位符 dim（注⑩——位符弱存在感，命令文本主体亮度）
+  ];
+  firstRuns.push(...commandRuns(first, EXEC_HEADER_PREFIX_WIDTH, card.theme));
+  const lines: StyledLine[] = [capStyledLine({ plain: firstPlain, runs: firstRuns }, columns)];
+  // 续行（⑦）：`  │ ` 轨道前缀 dim 游程 + 命令段高亮自槽后起（无动词/位符段）
+  for (const seg of shownRest) {
+    const plain = EXEC_TRACK_PREFIX + seg;
+    const runs: StyleRun[] = [{ start: 0, end: EXEC_TRACK_PREFIX.length, style: DIM_STYLE }];
+    runs.push(...commandRuns(seg, EXEC_TRACK_PREFIX.length, card.theme));
+    lines.push(capStyledLine({ plain, runs }, columns));
+  }
+  const totalVisual = 1 + wrappedRest.length;
+  if (totalVisual > EXEC_HEADER_COMMAND_LINES) {
+    // 命令超折行帽：省略行收口（⑦——同获 │ 槽 + 整行 dim；文案与 ④ 输出窗
+    // 省略行 `⋯ +N 行` 同族：N = 帽外省略的视觉行数）
+    const dropped = totalVisual - (1 + shownRest.length);
+    const marker = `${EXEC_TRACK_PREFIX}⋯ +${dropped} 行`;
+    lines.push(capStyledLine({ plain: marker, runs: [{ start: 0, end: marker.length, style: DIM_STYLE }] }, columns));
   }
   return lines;
 }
@@ -475,6 +500,48 @@ function previewWindow(lines: readonly StyledLine[], toggleHint: string, columns
     ...lines.slice(0, 2),
     ...(marker === '' ? [] : [{ plain: marker, runs: [{ start: 0, end: marker.length, style: DIM_STYLE }] }]),
     ...lines.slice(-2),
+  ];
+}
+
+/** exec 输出窗首行转折前缀（④——`  └ `：2 空格 + 转折符 + 空格；与 4 空格续行槽同 4 列对齐） */
+const EXEC_WINDOW_PREFIX = '  └ ';
+
+/** exec 输出窗槽宽（④——`  └ ` 首行与 4 空格续行/省略行槽同宽；窗行折宽 columns − 4 让位） */
+const EXEC_WINDOW_SLOT_WIDTH = 4;
+
+/**
+ * exec 输出窗（④——Codex 样式复刻批）：bash 卡族卡体专用形（装配位
+ * renderToolCardStyledLines 分路启用——插件腿缺席时，插件渲染钩子优先律
+ * 维持）。首视觉行 `  └ ` 转折前缀、其余视觉行 4 空格槽（└ 词条扩例——
+ * ④ 符号册）；折宽 columns − 4（槽宽让位）；**整窗 DIM 档**——前缀与内容
+ * 同档单游程（批 10i「展开正常亮度」两档律于 exec 输出窗翻档：折叠/展开
+ * 两档皆 dim）。折叠帽 5 = 头 2 + 省略行（4 空格槽 `⋯ +N 行`——N = 中段
+ * 省略的视觉行数；文案与 ⑦ 卡头省略行同族）+ 尾 2（中段截断既有律）；
+ * 展开 = 全量窗行。空输出（全行皆空——含 cardBodyOf('') 的 [''] 形）→
+ * `  └ (no output)` dim 单行（§4.4 文案律——落码定值）。
+ */
+function renderExecOutputWindow(body: readonly string[], columns: number, expanded: boolean): StyledLine[] {
+  // 空输出判据：全行皆空串（多空行形同落——「无输出」语义不看行数看内容）
+  if (body.every((line) => line === '')) {
+    const plain = `${EXEC_WINDOW_PREFIX}(no output)`;
+    return [{ plain, runs: [{ start: 0, end: plain.length, style: DIM_STYLE }] }];
+  }
+  // 体行 join 整体折行（wrapText 显式 \n 分段保留空行段——窗内空行语义不
+  // 丢）；首视觉行 └、其余视觉行 4 空格槽——源行界与折行续行界同形（视觉
+  // 行序 ≥ 1 恒槽，两界无需区分）
+  const wrapped = wrapText(body.join('\n'), Math.max(1, columns - EXEC_WINDOW_SLOT_WIDTH));
+  const visual: StyledLine[] = wrapped.map((line, i): StyledLine => {
+    const plain = (i === 0 ? EXEC_WINDOW_PREFIX : ' '.repeat(EXEC_WINDOW_SLOT_WIDTH)) + line;
+    // 整窗 dim 单游程（纯空格槽行同律——前缀槽也是窗体）
+    return { plain, runs: [{ start: 0, end: plain.length, style: DIM_STYLE }] };
+  });
+  if (expanded || visual.length <= CARD_PREVIEW_LINES) return visual;
+  const dropped = visual.length - (CARD_PREVIEW_LINES - 1); // 头 2 + 尾 2 之外的省略视觉行数
+  const marker = truncateToWidth(`${' '.repeat(EXEC_WINDOW_SLOT_WIDTH)}⋯ +${dropped} 行`, Math.max(0, columns));
+  return [
+    ...visual.slice(0, 2),
+    ...(marker === '' ? [] : [{ plain: marker, runs: [{ start: 0, end: marker.length, style: DIM_STYLE }] }]),
+    ...visual.slice(-2),
   ];
 }
 
