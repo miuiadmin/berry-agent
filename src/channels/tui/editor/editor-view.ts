@@ -28,6 +28,12 @@ import { CURSOR_MARK, moreHint } from '../panels/panel-chrome.js';
 /** 提示符前缀占列宽（`› `——首行前缀与续行缩进同宽 2，折行算术对称） */
 const PREFIX_WIDTH = 2;
 
+/**
+ * 右缘恒空列（R-1——Codex 样式复刻批：输入行右缘 1 列不落字——长行近缘呼吸
+ * 位；与 user 块折行宽 −3 同口径〔前缀 2 + 右缘 1〕）
+ */
+const RIGHT_PAD = 1;
+
 /** 最大可视行数缺省（backend 构造期注入帽公式同值 max(5, rows*0.3)——pi 同形；装配层启动快照注入已撤〔第六轮批〕） */
 const DEFAULT_MAX_VISIBLE_LINES = 8;
 
@@ -314,9 +320,12 @@ function writeTextClamped(
   return col + used;
 }
 
-/** 内容区宽（› 前缀 / 续行缩进各占 2 列——折行算术与前缀占列对称） */
+/** 内容区宽（› 前缀 / 续行缩进各占 2 列 + 右缘恒空 1 列——折行算术与前缀占列对称、右缘与 user 块同口径） */
 function innerWidth(width: number): number {
-  return Math.max(0, width - PREFIX_WIDTH);
+  const base = Math.max(0, width - PREFIX_WIDTH);
+  // 右缘让位守卫：右缘恒空 1 列仅在内容尚余 ≥1 列时扣（极窄退化形 3 列 →
+  // 单列内容区不灭——V-0 注③ 单列量高锁不破）
+  return base > RIGHT_PAD ? base - RIGHT_PAD : base;
 }
 
 /** 视口夹取：光标滚出上方提顶、滚出下方沉底；内容短于视口归零 */

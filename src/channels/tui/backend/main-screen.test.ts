@@ -51,7 +51,7 @@ describe('MainScreen 启动与基础编舞', () => {
   it('start：清屏 + 滚动区确立 + 光标归固定区末行', () => {
     const { io, screen } = makeScreen();
     screen.start();
-    expect(io.bytes).toBe('\x1b[2J\x1b[H' + '\x1b[1;8r' + '\x1b[10;1H');
+    expect(io.bytes).toBe('\x1b[2J\x1b[H' + '\x1b[1;7r' + '\x1b[10;1H'); // R-1 间隔折入：10−2−1 = 7
   });
 
   it('首块直写：CUU 归追加位 + CR 行内容 LF 推进 + 光标归位', () => {
@@ -70,18 +70,20 @@ describe('MainScreen 启动与基础编舞', () => {
     screen.present([userBlock('第一')]);
     io.bytes = '';
     screen.present([userBlock('第一'), userBlock('第二')]);
-    // 前块 3 行（空行 + 正文 + 空行）→ 追加位行 3：CUU 距离 = 9 - 3 = 6
-    expect(io.bytes).toBe('\x1b[6A' + '\r\n' + '\r\x1b[1;2m› \x1b[0m第二\n' + '\r\n' + '\x1b[10;1H');
+    // 前块 3 行（空行 + 正文 + 空行——首块豁免无垫）→ 追加位行 3：CUU 距离
+    // = 9 - 3 = 6；第二块 R-1 块前垫 1 行 + 三明治 3 行
+    expect(io.bytes).toBe('\x1b[6A' + '\r\n' + '\r\n' + '\r\x1b[1;2m› \x1b[0m第二\n' + '\r\n' + '\x1b[10;1H');
   });
 
   it('user 块折行续挂对齐（续行两空格前缀）', () => {
     const { io, screen } = makeScreen();
     screen.start();
     io.bytes = '';
-    // 宽 78 列（80 - 前缀 2）：恰 20 个汉字 40 列 ×2 行
+    // R-1 折行宽 −3（前缀 2 + 右缘 1 恒空——与 composer innerWidth 同口径）：
+    // 内容宽 77 列 → 38 字（76 列）+ 7 字两行
     screen.present([userBlock('一'.repeat(45))]);
-    expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m' + '一'.repeat(39) + '\n');
-    expect(io.bytes).toContain('\n\r  ' + '一'.repeat(6) + '\n');
+    expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m' + '一'.repeat(38) + '\n');
+    expect(io.bytes).toContain('\n\r  ' + '一'.repeat(7) + '\n');
   });
 
   it('⚙ / ↳ 简行块 dim 包裹', () => {
@@ -113,8 +115,9 @@ describe('MainScreen 流式槽与固定区', () => {
     screen.present([userBlock('问')]);
     io.bytes = '';
     screen.present([userBlock('问'), slotBlock('流式回答')]);
-    // user 块 3 行（行 0..2）→ 槽首 = 行 3：光标从行 9 CUU 6 → 写槽行 → 归位
-    expect(io.bytes).toBe('\x1b[6A' + '\r• 流式回答\n' + '\x1b[10;1H');
+    // user 块 3 行（行 0..2）→ 槽首 = 行 3：光标从行 9 CUU 6 → 写槽行 → 归位；
+    // R-1 非首槽头垫 1 行（durable 前块在场）
+    expect(io.bytes).toBe('\x1b[6A' + '\r\n' + '\r• 流式回答\n' + '\x1b[10;1H');
   });
 
   it('槽增长换装：整槽重写（旧槽行被覆盖）', () => {
@@ -256,7 +259,7 @@ describe('MainScreen 滚动与重建', () => {
     io.bytes = '';
     screen.handleResize([userBlock('内容')]);
     expect(io.bytes).toContain('\x1b[2J\x1b[H');
-    expect(io.bytes).toContain('\x1b[1;4r'); // 6 行 - 固定区 2 = DECSTBM 1..4
+    expect(io.bytes).toContain('\x1b[1;3r'); // 6 行 - 固定区 2 - 间隔 1 = DECSTBM 1..3（R-1 间隔折入）
     expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m内容\n');
   });
 

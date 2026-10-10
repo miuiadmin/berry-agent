@@ -213,6 +213,20 @@ export function shortIdOf(sessionId: string): string {
 /** bullet 槽前缀宽（注⑩——`• ` 首行与 `  ` 续行同宽 2 列） */
 const BULLET_PREFIX_WIDTH = 2;
 
+/** 素空行单例（块间空行制度 R-1 垫行——plain 空零游程，主屏空行直写形字节不变） */
+const BLANK_LINE: StyledLine = { plain: '', runs: [] };
+
+/**
+ * 块前垫施加（Codex 样式复刻批 R-1——07 §4.1 直播路注①：块间空行制度）：
+ * 每块渲染层行首垫 1 素空行（块账不动——垫是渲染层行）；首块豁免位
+ * leadingGap=false（top:0 无垫，头卡即首块）；流式续接块豁免对齐冻结面前缀
+ * 连续律（续接块不另起垫——垫只在槽组合的腿界插入，见 streaming case）。
+ * 五件批「卡间上空行垫」与本制度同律（tool-card case 既有垫即制度行）。
+ */
+function withPad(lines: readonly StyledLine[], leadingGap: boolean): StyledLine[] {
+  return leadingGap ? [BLANK_LINE, ...lines] : [...lines];
+}
+
 /**
  * agent 消息 bullet 槽行（注⑩ 符号册——• 列点前缀位）：doc/降档内容按
  * columns−2 折行后首行 `• `、续行两空格缩进（user 块 › 同构）；游程整段
@@ -247,22 +261,27 @@ function bulletSlotLine(line: StyledLine, rowIndex: number): StyledLine {
  * （801bdb0 同族）；折行族（user/error/streaming/网格管线）实践上恒不超帽
  * 走同引用快路，帽真实咬合的是无折行简行族（tool-call ⚙ / tool-result ↳）。
  */
-export function renderBlockStyledLines(block: TranscriptBlock, columns: number): StyledLine[] {
-  return renderBlockStyledLinesUncapped(block, columns).map((line) => capStyledLine(line, columns));
+export function renderBlockStyledLines(block: TranscriptBlock, columns: number, leadingGap = true): StyledLine[] {
+  return renderBlockStyledLinesUncapped(block, columns, leadingGap).map((line) => capStyledLine(line, columns));
 }
 
-/** 各块类型本体渲染（无帽——出口帽单点在 renderBlockStyledLines） */
-function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number): StyledLine[] {
+/** 各块类型本体渲染（无帽——出口帽单点在 renderBlockStyledLines；leadingGap = 块前垫开关，R-1 块间空行制度——首块豁免位 false） */
+function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number, leadingGap = true): StyledLine[] {
   switch (block.kind) {
     case 'markdown':
       // bullet 槽（注⑩）：内容按 columns−2 折行 + `• `/`  ` 前缀（agent 消息
-      // 列点位——user 块 › 同构的左缘结构）
-      return renderDocLines(block.doc, columns - BULLET_PREFIX_WIDTH).map((line, i) => bulletSlotLine(line, i));
+      // 列点位——user 块 › 同构的左缘结构）；块前垫 1 素空行（R-1 制度行）
+      return withPad(
+        renderDocLines(block.doc, columns - BULLET_PREFIX_WIDTH).map((line, i) => bulletSlotLine(line, i)),
+        leadingGap,
+      );
     case 'user': {
       // user 块三要素（界面美化役批⑦——UX 五问题批 2026-09-30）：`› ` 前缀
       // bold+dim 游程（续行两空格缩进既有）+ 背景带（userMessageBg 语义键
       // ——R2 扩键注：探测缺席/16 档降采/自定义缺键 = 无背景回退）+ 上下空行
-      // 包夹（空行是块内行——块账不动，帽语义零变）。
+      // 包夹（空行是块内行——块账不动，帽语义零变）。R-1 制度：三明治之上
+      // 另加通用块前垫（前视觉 2 空行 = 外素垫 + 内包夹——codex「外 1 素 +
+      // 内 1 染」同构）；豁免位剥通用垫、包夹空行保留（块内行不属制度垫）。
       // 斜杠兜底回显弱化（V-0 注③——斜杠命令提交回显 07 零条款真空白，
       // 补落码定值）：命令文本以 '/' 开头（本地命令族外的斜杠输入兜底落
       // user 块路）按回执层级呈现——整块 dim、无背景带（不占全宽染色块，
@@ -271,7 +290,8 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
       const bg = slashEcho ? undefined : block.theme.userMessageBg;
       const prefixStyle: Readonly<CellStyle> =
         bg === undefined ? Object.freeze({ bold: true, dim: true }) : Object.freeze({ bold: true, dim: true, bg });
-      const lines = wrapText(block.text, columns - 2);
+      // 折行宽 columns−3（R-1——前缀 2 + 右缘 1 列恒空，与 composer innerWidth 同口径）
+      const lines = wrapText(block.text, columns - 3);
       const styled = lines.map((line, i): StyledLine => {
         // 前缀符 = panel-chrome CURSOR_MARK 单源（V-3 注⑩ ›——与 editor 输入
         // 提示符同字符，codex composer 形）
@@ -291,52 +311,60 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
         if (plain.length > 2) runs.push({ start: 2, end: plain.length, style: Object.freeze({ bg }) });
         return { plain, runs };
       });
-      return [{ plain: '', runs: [] }, ...styled, { plain: '', runs: [] }];
+      return withPad([{ plain: '', runs: [] }, ...styled, { plain: '', runs: [] }], leadingGap);
     }
     case 'thinking':
       // 思考块两档渲染（blocks/thinking 纯函数——槽前缀行同函数两用）；定稿块
-      // 恒 settled 档（durationMs 缺席 = 投影形——标签诚实无时长）
-      return renderThinkingStyledLines(
-        {
-          text: block.text,
-          expanded: block.expanded,
-          phase: 'settled',
-          durationMs: block.durationMs,
-          theme: block.theme,
-          toggleHint: block.toggleHint,
-        },
-        columns,
-        block.doc,
-      );
-    case 'tool-card':
-      // 卡间上空行垫（TUI 对标 Codex 五件批 C 件 R4——卡间分离）：渲染层块
-      // 前空行垫 1 行、块账不动（append-only 律——与 user 块上下空行包夹同构
-      // 的单侧形，无条件前置保渲染纯函数性）；卡面染色由 tool-card 件出口
-      // 统一施加（toolCardBg——键缺席恒零施加）
-      return [
-        { plain: '', runs: [] },
-        ...renderToolCardStyledLines(
+      // 恒 settled 档（durationMs 缺席 = 投影形——标签诚实无时长）；块前垫
+      // 1 素空行（R-1 制度行——与槽组合腿间垫镜像同形）
+      return withPad(
+        renderThinkingStyledLines(
           {
-            name: block.name,
-            brief: block.brief,
-            status: block.status,
-            body: block.body,
-            diff: block.diff,
+            text: block.text,
             expanded: block.expanded,
-            theme: block.theme,
+            phase: 'settled',
             durationMs: block.durationMs,
+            theme: block.theme,
             toggleHint: block.toggleHint,
-            renderInput: block.renderInput,
-            group: block.group,
           },
           columns,
+          block.doc,
         ),
-      ];
+        leadingGap,
+      );
+    case 'tool-card':
+      // 块前垫（TUI 对标 Codex 五件批 C 件 R4 起垫——R-1 块间空行制度并入：
+      // 卡间分离垫即制度行不再单列）：渲染层块前空行垫 1 行、块账不动
+      // （append-only 律——与 user 块上下空行包夹同构的单侧形，无条件前置保
+      // 渲染纯函数性）；卡面染色由 tool-card 件出口统一施加（toolCardBg
+      // ——键缺席恒零施加）
+      return withPad(
+        [
+          ...renderToolCardStyledLines(
+            {
+              name: block.name,
+              brief: block.brief,
+              status: block.status,
+              body: block.body,
+              diff: block.diff,
+              expanded: block.expanded,
+              theme: block.theme,
+              durationMs: block.durationMs,
+              toggleHint: block.toggleHint,
+              renderInput: block.renderInput,
+              group: block.group,
+            },
+            columns,
+          ),
+        ],
+        leadingGap,
+      );
     case 'tool-call':
       // ⚙ 简行（孤儿兜底）：名段用户面动词（V-0 注⑤——呈现位转写，账存原始名）
-      return [dimStyledLine(` ${TOOL_RUN_MARK} ${toolFaceZh(block.name)}${block.brief}`)];
+      // + 块前垫（R-1 制度行）
+      return withPad([dimStyledLine(` ${TOOL_RUN_MARK} ${toolFaceZh(block.name)}${block.brief}`)], leadingGap);
     case 'tool-result':
-      return [dimStyledLine(` ↳ ${block.brief}`)];
+      return withPad([dimStyledLine(` ↳ ${block.brief}`)], leadingGap);
     case 'error': {
       // 错误块（P0 静默链修复批——07 §4.1）：行首 ✗ 前缀（注⑩——✗ 形退役）+
       // error 语义键前景整行（与 tool-card.ts 语义色消费同源）；折行续行两空格
@@ -353,25 +381,30 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
         const plain = (i === 0 ? '✗ ' : '  ') + line;
         return { plain, runs: [{ start: 0, end: plain.length, style }] };
       };
-      if (lines.length <= ERROR_PREVIEW_LINES) return lines.map(renderErrorLine);
+      if (lines.length <= ERROR_PREVIEW_LINES) return withPad(lines.map(renderErrorLine), leadingGap);
       const kept = lines.slice(0, ERROR_PREVIEW_LINES - 1).map(renderErrorLine);
       const dropped = lines.length - (ERROR_PREVIEW_LINES - 1);
       const marker = `  ⋯（错误详情已省 ${dropped} 行）`;
-      return [...kept, { plain: marker, runs: [{ start: 0, end: marker.length, style }] }];
+      return withPad([...kept, { plain: marker, runs: [{ start: 0, end: marker.length, style }] }], leadingGap);
     }
     case 'compaction':
       // 压缩时间线分隔行（B2 批 2）：dim 单行（回合记账线族同款——不占全宽
       // 染色、无背景带）；N 缺席 = 旧载体降级形。词面单源 compactionSeparatorLine
       // （contracts/ccr-marker——B2 webui 对端迁移批起 TUI/webui 双消费，本位
-      // 原两形模板串收敛单源）
-      return [dimStyledLine(compactionSeparatorLine(block.count))];
+      // 原两形模板串收敛单源）+ 块前垫（R-1 制度行）
+      return withPad([dimStyledLine(compactionSeparatorLine(block.count))], leadingGap);
     case 'streaming': {
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
       // markdown 直推档走网格管线（bullet 槽同轴——与定稿 markdown 块逐行同形）；
-      // 降档（doc = null）纯文本直推（bullet 前缀同律）；空文本零行
+      // 降档（doc = null）纯文本直推（bullet 前缀同律）；空文本零行。
+      // R-1 槽组合镜像：[头垫]+think+[腿间垫]+doc——每腿各前 1 素空行（闭槽
+      // 拆块后 thinking 块+[垫]+markdown 块逐行同形）；leadingGap=false 首槽
+      // top:0 无头垫（首块豁免位——B 段/C 段同参冻结跳行不漂移）
       const lines: StyledLine[] = [];
+      if (leadingGap) lines.push(BLANK_LINE);
       if (block.thinking !== '')
         lines.push(...renderThinkingStyledLines(slotThinkingView(block), columns, block.thinkingDoc));
+      if (block.thinking !== '' && (block.doc !== null || block.text !== '')) lines.push(BLANK_LINE); // 腿间垫（两腿在场才插——思考未 settled 全槽不冻定律护住前缀稳定性）
       if (block.doc !== null)
         lines.push(
           ...renderDocLines(block.doc, columns - BULLET_PREFIX_WIDTH).map((line, i) => bulletSlotLine(line, i)),
@@ -419,7 +452,11 @@ function slotThinkingView(slot: Extract<TranscriptBlock, { kind: 'streaming' }>)
  * 「冻结面收缩到零、帧帧全量重写、正确性不破」句只述未冻起步形、漏
  * frozen-then-flip 形，冻结账不清即陈旧字数永久呈现缺陷）。
  */
-export function stableSlotLineCount(slot: Extract<TranscriptBlock, { kind: 'streaming' }>, columns: number): number {
+export function stableSlotLineCount(
+  slot: Extract<TranscriptBlock, { kind: 'streaming' }>,
+  columns: number,
+  leadingGap = true,
+): number {
   if (slot.thinking !== '' && !slot.thinkingSettled) return 0; // 不稳头行止冻——前缀连续律
   // 渲染热路径 D2——思考行计数算术：修前经 renderThinkingStyledLines 全量
   // 渲染（展开档 = CellGrid 整面分配 + 落格 + 逐行读回）只为取 .length；改
@@ -432,10 +469,17 @@ export function stableSlotLineCount(slot: Extract<TranscriptBlock, { kind: 'stre
           slot.thinkingDoc,
         )
       : 0;
+  // R-1 槽组合镜像账（与 renderBlockStyledLinesUncapped streaming case 逐行同形）：
+  // [头垫]+think+[腿间垫]+doc——两垫各 1 行；腿间垫两腿在场才插（思考
+  // append-only → 垫出现即不消失，且出现时 doc 腿零行在账、无既有行移位）
+  const gap = leadingGap ? 1 : 0;
+  const interGap = slot.thinking !== '' && (slot.doc !== null || slot.text !== '') ? 1 : 0;
   // doc 腿计量宽 = 渲染腿同宽（bullet 槽前缀宽 2——renderDocLines/rowsFor 均
   // 按 columns−2 折行；修前全宽计量使折行数与渲染行集漂移，窄形边界文本
   // 冻结账错位）
-  return thinkingRows + (slot.doc !== null ? slot.doc.stableLineCount(columns - BULLET_PREFIX_WIDTH) : 0);
+  return (
+    gap + thinkingRows + interGap + (slot.doc !== null ? slot.doc.stableLineCount(columns - BULLET_PREFIX_WIDTH) : 0)
+  );
 }
 
 /**
@@ -536,15 +580,17 @@ export interface SlotTailLines {
 
 /**
  * 流式槽尾窗渲染（渲染热路径 D1——尾窗渲染）：只渲染 [startRow, total) 段。
+ * leadingGap = 槽头垫开关（R-1 槽组合镜像——与全量渲染 streaming case 的
+ * [头垫]+think+[腿间垫]+doc 同形同账；首槽 top:0 豁免位 false）。
  *
  * 动机：修前 present() 每帧全量渲染整槽（含冻结前缀）——已冻结行是
  * append-only 升格 durable 的不可回改内容（升格后永不再写），重渲染纯白算
  * 且不进 slotFrameBytes 帽（冻结面白算不可观测）；3600 行槽实测 75ms/帧 =
  * 60fps 预算 4.5 倍。
  *
- * 字节等价契约：`(total, lines) ≡ (renderBlockLines(slot, columns).length,
- * renderBlockLines(slot, columns).slice(startRow))`——对拍锁在
- * transcript.test.ts（多形语料 × 多宽 × 多起点）。legs：
+ * 字节等价契约：`(total, lines) ≡ (renderBlockLines(slot, columns, leadingGap).length,
+ * renderBlockLines(slot, columns, leadingGap).slice(startRow))`——对拍锁在
+ * transcript.test.ts（多形语料 × 多宽 × 多起点 × 双 leadingGap）。legs：
  * - thinking 腿：行数走 thinkingRowCount 算术；startRow 落思考区内才渲染
  *   （折叠档 = 标签单行便宜；展开档 opt-in 走原渲染函数——ctrl+t 罕见路径，
  *   仍经 renderThinkingStyledLines 保字节同源）；
@@ -562,7 +608,13 @@ export function renderSlotTailLines(
   slot: Extract<TranscriptBlock, { kind: 'streaming' }>,
   columns: number,
   startRow: number,
+  leadingGap = true,
 ): SlotTailLines {
+  // R-1 槽组合镜像账（renderBlockStyledLinesUncapped streaming case 同形）：
+  // [头垫]+think+[腿间垫]+doc——startRow 偏移映射随两垫前移；垫行 ANSI 空串
+  // （主屏空行直写形字节不变——BLANK_LINE 序列化同形）
+  const gap = leadingGap ? 1 : 0;
+  const interGap = slot.thinking !== '' && (slot.doc !== null || slot.text !== '') ? 1 : 0;
   const thinkingRows =
     slot.thinking !== ''
       ? thinkingRowCount(
@@ -572,16 +624,21 @@ export function renderSlotTailLines(
         )
       : 0;
   const lines: string[] = [];
+  // 头垫尾窗段（startRow = 0 落垫上——仅全量形触达，垫行单字节空串）
+  if (startRow < gap) lines.push('');
   // thinking 尾窗段（startRow 落思考区内——超出则思考行全在冻结前缀，零渲染）
-  if (slot.thinking !== '' && startRow < thinkingRows) {
+  if (slot.thinking !== '' && startRow < gap + thinkingRows) {
     const thinkingLines = renderThinkingStyledLines(slotThinkingView(slot), columns, slot.thinkingDoc).map((line) =>
       styledLineToAnsi(capStyledLine(line, columns)),
     );
-    for (let i = startRow; i < thinkingLines.length; i++) lines.push(thinkingLines[i]!);
+    for (let i = Math.max(0, startRow - gap); i < thinkingLines.length; i++) lines.push(thinkingLines[i]!);
   }
+  // 腿间垫尾窗段（垫行槽位 = gap+thinkingRows——startRow 未越过才发；空串与
+  // BLANK_LINE 序列化同形）
+  if (interGap === 1 && startRow < gap + thinkingRows + interGap) lines.push('');
   // doc 尾窗段（行集直转——自 docStart 起逐行；bullet 槽前缀同轴〔注⑩〕；
   // 行宽 = columns−2 内容 + 前缀 2 = columns——出口帽 + 序列化与全量管线同律）
-  const docStart = Math.max(0, startRow - thinkingRows);
+  const docStart = Math.max(0, startRow - gap - thinkingRows - interGap);
   let docRowCount = 0;
   if (slot.doc !== null) {
     const rows = slot.doc.rowsFor(columns - BULLET_PREFIX_WIDTH);
@@ -600,7 +657,7 @@ export function renderSlotTailLines(
     for (let i = docStart; i < wrapped.length; i++)
       lines.push(styledLineToAnsi(capStyledLine(bulletSlotLine({ plain: wrapped[i]!, runs: [] }, i), columns)));
   }
-  return { total: thinkingRows + docRowCount, lines };
+  return { total: gap + thinkingRows + interGap + docRowCount, lines };
 }
 
 /** 简行块的带样式形（整行 dim——与 ANSI 形 dim() 字节同源） */
@@ -613,8 +670,8 @@ function dimStyledLine(text: string): StyledLine {
  * 带样式行本体经 styledLineToAnsi 导出 ANSI 串——与回看器 cell 写出形零第二
  * 渲染器（renderBlockStyledLines 注）。
  */
-export function renderBlockLines(block: TranscriptBlock, columns: number): string[] {
-  return renderBlockStyledLines(block, columns).map(styledLineToAnsi);
+export function renderBlockLines(block: TranscriptBlock, columns: number, leadingGap = true): string[] {
+  return renderBlockStyledLines(block, columns, leadingGap).map(styledLineToAnsi);
 }
 
 /** 消息文本块拼接（user/assistant/toolResult 通用；自定义角色与无文本块返 ''） */

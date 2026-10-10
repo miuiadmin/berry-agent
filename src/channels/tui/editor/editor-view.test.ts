@@ -196,12 +196,13 @@ describe('EditorView composer 形（V-0 注③——全宽框退役）', () => {
 
 describe('EditorView 长行字素硬折', () => {
   it('超宽逻辑行折入多行（整字下移、续行两空格缩进对齐）', () => {
+    // R-1 右缘 1 列：region 7 → 内容宽 7−3 = 4（layoutWidth 直注 4 同宽）
     const { view } = viewOf('中中中中', { layoutWidth: 4 });
-    const grid = new CellGrid(6, 5);
-    view.render(grid, { row: 0, col: 0, width: 6, height: 2 });
+    const grid = new CellGrid(7, 5);
+    view.render(grid, { row: 0, col: 0, width: 7, height: 2 });
     // 每视觉行恰 2 个 CJK（4 列），共 2 行；续行缩进 2 与 › 前缀同宽对齐
-    expect(readRow(grid, 0, 6)).toBe('› 中中');
-    expect(readRow(grid, 1, 6)).toBe('  中中');
+    expect(readRow(grid, 0, 7)).toBe('› 中中');
+    expect(readRow(grid, 1, 7)).toBe('  中中');
   });
 });
 
@@ -366,25 +367,26 @@ describe('EditorView IME 预编辑宽度钳制', () => {
   // 网格恒比 region 宽 2 列——region 右界（无右边框列后右界即 region 边）与
   // 界外残迹（网格内）分别可读回
   it('光标近满行尾组字：组字段不越 region 右界（右界整字截断）', () => {
-    // 内容区宽 8、正文恰满段 8 字符、光标归段尾——组字 '中'（宽 2）合成宽超界
+    // 内容区宽 8、正文恰满段 8 字符、光标归段尾——组字 '中'（宽 2）合成宽超界；
+    // R-1 右缘 1 列 → region 11（内容宽 11−3 = 8），网格恒比 region 宽 2 列
     const { view, model } = viewOf('abcdefgh');
     model.setPreedit('中');
-    const grid = new CellGrid(12, 5);
-    view.render(grid, { row: 0, col: 0, width: 10, height: 1 });
-    // region 右界外（col 10-11）无组字残迹（续格/越界写均不得落）
-    expect(grid.getCell(0, 10)).toBeNull();
+    const grid = new CellGrid(13, 5);
+    view.render(grid, { row: 0, col: 0, width: 11, height: 1 });
+    // region 右界外（col 11-12）无组字残迹（续格/越界写均不得落）
     expect(grid.getCell(0, 11)).toBeNull();
-    expect(readRow(grid, 0, 12)).toBe('› abcdefgh'); // 组字段放不下整字——整字截断
+    expect(grid.getCell(0, 12)).toBeNull();
+    expect(readRow(grid, 0, 13)).toBe('› abcdefgh'); // 组字段放不下整字——整字截断
   });
 
   it('光标段中组字：prefix 完整 + 预编辑按剩余宽整字截断 + suffix 让位', () => {
     const { view, model } = viewOf('abcdefgh');
     model.moveHome();
     for (let i = 0; i < 4; i++) model.moveRight(); // 光标 col 4（段中）
-    model.setPreedit('中中中'); // 宽 6——prefix 后剩余 4 列恰容 '中中'，第三字整字截断
-    const grid = new CellGrid(12, 5);
-    view.render(grid, { row: 0, col: 0, width: 10, height: 1 });
-    expect(readRow(grid, 0, 12)).toBe('› abcd中中');
+    model.setPreedit('中中中'); // 宽 6——prefix 后剩余 4 列恰容 '中中'，第三字整字截断；R-1 右缘 → region 11（内容宽 8 同旧几何）
+    const grid = new CellGrid(13, 5);
+    view.render(grid, { row: 0, col: 0, width: 11, height: 1 });
+    expect(readRow(grid, 0, 13)).toBe('› abcd中中e'); // 第三组字整字截断；suffix 'e' 随宽让位入场（region 11 末格）
     expect(grid.getCell(0, 6)?.style.underline).toBe(true); // 呈现的组字段仍是下划线样式
     expect(grid.getCell(0, 8)?.style.underline).toBe(true);
   });

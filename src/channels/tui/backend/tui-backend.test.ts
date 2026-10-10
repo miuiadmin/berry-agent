@@ -115,7 +115,7 @@ describe('TuiBackend 契约面', () => {
     expect(io.bytes).not.toContain('\x1b[?1049h');
     expect(io.bytes).not.toContain('\x1b[?25l');
     expect(io.bytes).toContain('\x1b[2J\x1b[H');
-    expect(io.bytes).toContain('\x1b[1;4r'); // 10 行 - 固定区 6（编辑器 5 = 呈现最小高 3 + 垫 2〔五件批 A+B〕+ 状态行 1）
+    expect(io.bytes).toContain('\x1b[1;3r'); // 10 行 - 固定区 6（编辑器 5 = 呈现最小高 3 + 垫 2〔五件批 A+B〕+ 状态行 1）- R-1 间隔 1
     expect(io.bytes).toContain('›'); // 编辑器 composer 提示符（V-0 注③——框线零占位）
     expect(io.raw).toBe(true); // raw 模式置位
   });
@@ -476,10 +476,10 @@ describe('TuiBackend notify / repaint / resize', () => {
     backend.notify('后继行');
     // 光标归位在编辑声明位（0 基行 5——五件批 A+B 固定区 6：baseRow 4 + 上垫 1
     // = composer 内容行 5）：gotoRow 的 CUU 距离 = 5 - 追加位行号。物理真相 =
-    // 滚动区 1..4（转录区 4 行）：回执 4 行恰满区，末次 LF 触滚——首行入
-    // scrollback、末三行落行 0..2 → 追加位行 3 → CUU 2；漂账形 = 追加位行 1
-    // → CUU 4（修前编辑声明位 8 = 单行 composer 屏底上 1）
-    expect(io.bytes).toContain('\x1b[2A\r\x1b[2m• 后继行\x1b[0m\n');
+    // 滚动区 1..2（R-1 转录 3 行 + 间隔行 1）：回执 4 行超区 1 行，末两次 LF
+    // 触滚——首行入 scrollback、末三行落行 0..2 → 追加位行 2 → CUU 3；
+    // 漂账形 = 追加位行 1 → CUU 4（修前编辑声明位 8 = 单行 composer 屏底上 1）
+    expect(io.bytes).toContain('\x1b[3A\r\x1b[2m• 后继行\x1b[0m\n');
     expect(io.bytes).not.toContain('\x1b[4A\r\x1b[2m• 后继行');
   });
 
@@ -501,7 +501,7 @@ describe('TuiBackend notify / repaint / resize', () => {
     io.bytes = '';
     io.emitResize();
     expect(io.bytes).toContain('\x1b[2J\x1b[H');
-    expect(io.bytes).toContain('\x1b[1;4r'); // 6 行 - 固定区 2（状态 1 + 编辑器 1——V-0 注③ 框退役）= DECSTBM 1..4
+    expect(io.bytes).toContain('\x1b[1;3r'); // 6 行 - 固定区 2（状态 1 + 编辑器 1——V-0 注③ 框退役）- R-1 间隔 1 = DECSTBM 1..3
     expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m内容\n'); // 行集重画
   });
 
@@ -1710,7 +1710,10 @@ describe('TuiBackend todo 面板（件 4）', () => {
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
     expect(io.bytes).toContain('☑ 写规范'); // 刷新三时点之三——拉到新快照（行级差分写变行）
-    expect(io.bytes).not.toContain('\x1b[1;2r'); // 固定区高未变——零滚动区重设（todo 2 行在场形滚动区 1..2〔五件批 A+B 编辑器 5〕）
+    // R-1 间隔迁移：todos 2→1 行固定区 8→7 收缩重设——新底 = 10-7-1 = 2 在场；
+    // 旧底 1（todos 2 行形 10-8-1）不残留（agent_end 窗内零旧值重设）
+    expect(io.bytes).toContain('\x1b[1;2r');
+    expect(io.bytes).not.toContain('\x1b[1;1r');
   });
 
   it('空表清板（null 与 [] 同义——面板退场）', () => {
@@ -1721,7 +1724,7 @@ describe('TuiBackend todo 面板（件 4）', () => {
     todos = [];
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
-    expect(io.bytes).toContain('\x1b[1;4r'); // 固定区高回缩（清板——编辑器 5 + 状态行 1 → 滚动区 1..4）——滚动区重设在场
+    expect(io.bytes).toContain('\x1b[1;3r'); // 固定区高回缩（清板——编辑器 5 + 状态行 1）→ 滚动区 1..3（R-1 间隔 1：10-6-1）——滚动区重设在场
     expect(io.bytes).not.toContain('☐ 任务');
   });
 
@@ -2437,11 +2440,11 @@ describe('TuiBackend /history 鼠标面 e2e（mu-2）', () => {
     const { io, backend } = histRig();
     backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]); // 副屏首帧同步落地
     io.reset(); // 进屏 / 首帧字节不计入——聚焦复制写出
-    // 屏行 2（0 基）= 正文行 '\x1b[1;2m› \x1b[0m回看正文'（user 块三行形——空白行垫底正文居中）：
-    // CJK 双宽——列 2 = 回首、列 6 = 正首
-    io.emitInput(sgr(0, 3, 3)); // 左键 press（1 基 col 3/row 3 → 0 基 2/2）
-    io.emitInput(sgr(32, 7, 3)); // 按住拖动（motion）
-    io.emitInput(sgr(0, 7, 3, 'm')); // 释放——触发复制
+    // 屏行 3（0 基）= 正文行 '\x1b[1;2m› \x1b[0m回看正文'（R-1 块前垫 + user 三明治
+    // 前置空行后正文居中）：CJK 双宽——列 2 = 回首、列 6 = 正首
+    io.emitInput(sgr(0, 3, 4)); // 左键 press（1 基 col 3/row 4 → 0 基 2/3）
+    io.emitInput(sgr(32, 7, 4)); // 按住拖动（motion）
+    io.emitInput(sgr(0, 7, 4, 'm')); // 释放——触发复制
     expect(io.bytes).toContain(`\x1b]52;c;${Buffer.from('回看', 'utf8').toString('base64')}\x07`);
   });
 
@@ -5003,8 +5006,8 @@ describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②
     io.emitResize(); // 预算 7：todo 缩 1 + 编辑器 1 + 状态行 2 = 4 ≤ 7——「先缩后隐」之缩形
     expect(io.bytes).toContain('任务零0'); // todo 缩到 1 行——首条在场（段在场）
     expect(io.bytes).not.toContain('任务零1'); // 缩掉的不虚报（修前 6 条全量进画）
-    // 固定区总高 4（V-0 注③ 框退役编辑器 1 + V-4 注⑪ 状态行 2）→ 滚动区底 = 8 - 4 = 4（修前总高 11 → 退化 [1;1r + 越屏定位）
-    expect(io.bytes).toContain('\x1b[1;4r');
+    // 固定区总高 4（V-0 注③ 框退役编辑器 1 + V-4 注⑪ 状态行 2）→ 滚动区底 = 8 - 4 - R-1 间隔 1 = 3（修前总高 11 → 退化 [1;1r + 越屏定位）
+    expect(io.bytes).toContain('\x1b[1;3r');
     expect(io.bytes).not.toContain('\x1b[9;1H'); // 无越屏定位（修前写到第 11 行）
   });
 
@@ -5326,8 +5329,8 @@ describe('TuiBackend resumeMain 复起附件（fx2-E——编辑器帽随动 + f
     io.reset();
     backend.resumeMain();
     // 修后：帽 = editorHeightCap(24) = 7 → 呈现 7 + 垫 2 → 固定区 10 →
-    // DECSTBM 底 = 24 - 10 = 14；修前帽停 12 → 固定区 13 → 底 = 11（只写 1;11r）
-    expect(io.bytes).toContain('\x1b[1;14r');
+    // DECSTBM 底 = 24 - 10 - R-1 间隔 1 = 13；修前帽停 12 → 固定区 13 → 底 = 10（只写 1;10r）
+    expect(io.bytes).toContain('\x1b[1;13r');
   });
 
   it('【注⑪③ 修前红→回归锁】⎇ 槽复起重读（refreshFooterGit 独立锚）：挂起期 checkout 换支复起即收敛——修前陈支名跨复起驻留（复起路不触发 onRepaint）', () => {
@@ -5451,11 +5454,11 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
     expect(io.bytes).toContain('\x1b[36m⠋'); // 态① accent 转轮（与文本段分立 SGR——不拼串断言）
     expect(io.bytes).toContain('正在对话中'); // 态① 基础文案
     expect(io.bytes).toContain('按 ESC 取消对话'); // keyText('global.interrupt') 首键 escape → ESC 显示单源
-    expect(io.bytes).toContain('\x1b[1;3r'); // 10 行 - 固定区 7（任务行 1 + 编辑器 5〔上垫 1+呈现 3+下垫 1〕+ 状态行 1——五件批 A+B）
+    expect(io.bytes).toContain('\x1b[1;2r'); // 10 行 - 固定区 7（任务行 1 + 编辑器 5〔上垫 1+呈现 3+下垫 1〕+ 状态行 1——五件批 A+B）- R-1 间隔 1
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
     expect(io.bytes).not.toContain('正在对话中'); // 闲态零高度缺席（忙态呈现不驻留）
-    expect(io.bytes).toContain('\x1b[1;4r'); // 固定区回 6 行（任务行退役→编辑器 5+状态 1）——高度变更滚动区重设
+    expect(io.bytes).toContain('\x1b[1;3r'); // 固定区回 6 行（任务行退役→编辑器 5+状态 1）——高度变更滚动区重设（10-6-1=R-1 间隔）
   });
 
   it('态② 细分（V-4 注⑪⑦）：message_start → 「思考中」；尾块分诊 thinking/text → 思考中/生成中；message_end 归态①', () => {

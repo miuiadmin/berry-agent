@@ -62,6 +62,15 @@ const DEFAULT_COLUMNS = 80;
 const DEFAULT_ROWS = 24;
 
 /**
+ * 转录固定区间隔（R-1——07 §4.1 转录固定区间隔注）：滚动区末行与固定区顶
+ * 之间恒 1 素空行（内容与 composer 呼吸位——codex 转录区/固定区同构间隔）。
+ * 折入全部几何位单源：内容区末行（0 基）= rows−fixedHeight−间隔−1、
+ * DECSTBM bottom = rows−fixedHeight−间隔、余行清除上界 = fixedTop−间隔−1；
+ * 间隔行不入滚动区不被写出（writeLine 区底触滚护住）恒素空。
+ */
+const TRANSCRIPT_FIXED_GAP = 1;
+
+/**
  * 主屏编舞：正文直写 + 槽换装 + 固定区差分。无自驱时钟（请求合并归装配），
  * 所有公开方法同步产写出（测试经 MemoryTerminalIO 收帧断言）。
  */
@@ -144,7 +153,7 @@ export class MainScreen {
     // 空态引导占位行并账（07 §4.1 空转写态注——guideRows 与槽行数同尺取大：
     // 引导尾行也是「上次呈现的物理末行」，漏并即首块/槽到达后引导尾行残屏）
     const prevBottomRow = Math.min(
-      this.rows - this.fixedHeight - 1,
+      this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP - 1,
       this.durableEndRow + Math.max(this.slotLineCount, this.guideRows) - 1,
     );
     // E'. 空态引导稳态短路（07 §4.1 空转写态注）：零块无槽且引导已按当前行集
@@ -177,7 +186,10 @@ export class MainScreen {
       let skip = this.frozenSlotLines;
       const start = Math.max(0, this.writtenAbsolute - blocksOffset);
       for (let i = start; i < durableCount; i++) {
-        for (const line of renderBlockLines(blocks[i]!, this.columns)) {
+        // R-1 首块豁免位：绝对首块（行集首块且无裁块前缀）top:0 无块前垫——
+        // 其余块每块前垫 1 素空行（豁免判据跨帧稳定：append-only 下已写块不
+        // 重写、trim 只增 blocksOffset 不改在屏首块豁免态）
+        for (const line of renderBlockLines(blocks[i]!, this.columns, !(i === 0 && blocksOffset === 0))) {
           if (skip > 0) {
             skip--;
             continue;
@@ -206,6 +218,11 @@ export class MainScreen {
     // C. 槽换装（光标已在槽尾段首 = durable 末；partial 是完整快照——逐行整写）
     let slotTotal = 0;
     if (slot !== null) {
+      // R-1 首槽豁免位（B 段首块判据同源）：槽即绝对首块（无 durable 前块且无
+      // 裁块前缀）时无头垫——判据跨 epoch 稳定（durable 前块 append-only 不
+      // 会后插），冻结账与渲染行集同参数（冻结跳行不变量）。注：此处账的是
+      // leadingGap 本值（首块 = 无垫 = false——与 B 段 `!(i===0 && …)` 同一判据）
+      const slotLeadingGap = !(blocksOffset === 0 && durableCount === 0);
       // 让位重算（2026-09-15 挂账解挂批——交错思考标签字数勘正）：稳定面前缀
       // 收缩（settled 非单调：后到思考使已冻思考行变不稳内容；doc 降档同形）
       // 时冻结账为不稳头行让位——收缩到当前稳定面，让位行回换装重写域（新
@@ -213,7 +230,7 @@ export class MainScreen {
       // 回抬同量（首未冻行落笔位上移），负值钳 0——深溢出形让位行已滚出
       // scrollback 物理不可回改，重写自视口顶起笔、新内容顺流出窗（scrollback
       // 留旧行副本是 append-only 物理律的接受代价，非账面失真）
-      const stableNow = stableSlotLineCount(slot, this.columns);
+      const stableNow = stableSlotLineCount(slot, this.columns, slotLeadingGap);
       if (stableNow < this.frozenSlotLines) {
         this.durableEndRow = Math.max(0, this.durableEndRow - (this.frozenSlotLines - stableNow));
         this.frozenSlotLines = stableNow;
@@ -223,13 +240,13 @@ export class MainScreen {
       // 帧全量渲染整槽纯白算（且冻结面渲染不进 slotFrameBytes 帽不可观测）。
       // startRow = 0 即全量渲染回退形：repaint/resize/新槽开账（冻结账清零）
       // 与让位收缩（frozenSlotLines 回抬变小）天然经此回退，正确性优先。
-      const tail = renderSlotTailLines(slot, this.columns, this.frozenSlotLines);
+      const tail = renderSlotTailLines(slot, this.columns, this.frozenSlotLines, slotLeadingGap);
       slotTotal = tail.total;
       // 稳定面冻结：可视余量外的稳定前缀升格 durable 直写（写行即交
       // scrollback 不可回改——冻结额 = min(溢出量, 稳定行数 - 已冻结)）；
       // 稳定面含思考前缀行（批 10i——thinkingSettled 判据下思考行全稳，
       // stableSlotLineCount 单源；降档 doc = null 走 doc 面 0 + 思考行稳面）
-      const regionBottom = this.rows - this.fixedHeight - 1;
+      const regionBottom = this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP - 1;
       const capacity = regionBottom - this.durableEndRow + 1;
       const overflow = tail.total - this.frozenSlotLines - capacity;
       const freezable = stableNow - this.frozenSlotLines;
@@ -249,9 +266,10 @@ export class MainScreen {
       }
     }
 
-    // D. 余行清除（新槽末到上次槽末之间的 stale 行——EL 擦除禁空格填充）
+    // D. 余行清除（新槽末到上次槽末之间的 stale 行——EL 擦除禁空格填充）；
+    // 上界 = 间隔行之上（间隔行不被内容写出恒素空——无需擦）
     const fixedTop = this.rows - this.fixedHeight;
-    const clearEnd = Math.min(fixedTop - 1, prevBottomRow);
+    const clearEnd = Math.min(fixedTop - TRANSCRIPT_FIXED_GAP - 1, prevBottomRow);
     for (let row = this.cursorRow; row <= clearEnd; row++) {
       this.io.write((row > this.cursorRow ? cud(1) : '') + CR + EL_TO_EOL);
     }
@@ -279,7 +297,7 @@ export class MainScreen {
   private drawEmptyGuide(): void {
     const lines = this.emptyGuide;
     if (lines === null) return;
-    if (lines.length > this.rows - this.fixedHeight) {
+    if (lines.length > this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP) {
       // 极小终端诚实缺席：截半字形无意义——零画出零占账（guideSig 记当前签
       // 名防稳态帧反复试探重画；行账 0 = 不占清除上界）
       this.guideRows = 0;
@@ -322,11 +340,14 @@ export class MainScreen {
       this.writeLine(line);
     }
     this.durableEndRow = this.cursorRow;
-    const fixedTop = this.rows - this.fixedHeight;
     // 余行清除上界并账空态引导（07 §4.1 空转写态注）：瞬时行占位后引导旧位
     // 行（含未被覆写的尾行）一并 EL 清，随后按新 durable 末重画引导（零块
-    // 态引导恒随内容底重定位——瞬时行是过客不入块集，durable 末已推进）
-    const clearEnd = Math.min(fixedTop - 1, this.durableEndRow + Math.max(this.slotLineCount, this.guideRows) - 1);
+    // 态引导恒随内容底重定位——瞬时行是过客不入块集，durable 末已推进）；
+    // 上界 = 间隔行之上（间隔行不被写出恒素空）
+    const clearEnd = Math.min(
+      this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP - 1,
+      this.durableEndRow + Math.max(this.slotLineCount, this.guideRows) - 1,
+    );
     for (let row = this.cursorRow; row <= clearEnd; row++) {
       this.io.write((row > this.cursorRow ? cud(1) : '') + CR + EL_TO_EOL);
     }
@@ -355,14 +376,14 @@ export class MainScreen {
       }
       this.fixedHeight = grid.rows;
       this.applyScrollRegion();
-      this.prevFixed = null; // 高度变化——差分基准失效全量重画；durable 末行按区底钳
-      this.durableEndRow = Math.min(this.durableEndRow, this.rows - this.fixedHeight - 1);
+      this.prevFixed = null; // 高度变化——差分基准失效全量重画；durable 末行按区底钳（间隔行之上）
+      this.durableEndRow = Math.min(this.durableEndRow, this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP - 1);
       this.slotLineCount = 0;
       // 空态引导账随几何重推（07 §4.1 空转写态注）：引导底行仍在新区内 = 屏上
       // 原位仍有效（固定区只覆写自身行——账保持，防「账清零 + 屏上残画」分叉
       // 漏清残行）；底行越入固定区（durable 末被钳或区缩）= 固定区全量重画已
       // 覆写该行——账清零（下帧 present 按态重画于新位）
-      if (this.durableEndRow + this.guideRows - 1 > this.rows - this.fixedHeight - 1) {
+      if (this.durableEndRow + this.guideRows - 1 > this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP - 1) {
         this.guideRows = 0;
         this.guideSig = '';
       }
@@ -399,9 +420,9 @@ export class MainScreen {
 
   /* ---------------- 内部编舞 ---------------- */
 
-  /** 滚动区确立/重设（DECSTBM 规范行为是光标归 home——随后显式归位呈现不变式位） */
+  /** 滚动区确立/重设（DECSTBM 规范行为是光标归 home——随后显式归位呈现不变式位）；间隔行不入滚动区 */
   private applyScrollRegion(): void {
-    const bottom = Math.max(1, this.rows - this.fixedHeight);
+    const bottom = Math.max(1, this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP);
     this.io.write(setScrollRegion(bottom));
     this.io.write(cup(this.rows - 1, 0));
     this.cursorRow = this.rows - 1;
@@ -415,7 +436,7 @@ export class MainScreen {
    * 拆段后物理行账与终端一致；raw 模式 LF 纯行进不回列，每段显式 CR 起笔。
    */
   private writeLine(text: string): void {
-    const regionBottom = this.rows - this.fixedHeight - 1;
+    const regionBottom = this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP - 1;
     for (const line of text.split('\n')) {
       // 控制字节兜底（2026-09-20 TUI 修复组 1 批 F2；第五役 G7 扩 tab）：
       // 残余 C0/DEL 剥除——CR 落屏即回列覆写正文、其余 C0 终端误解执行；LF

@@ -112,30 +112,33 @@ describe('回看器行集构建（同一渲染管线——零第二渲染器）'
     const { render } = rig([userMsg('甲'), assistantMsg('# 标题')]);
     const grid = render();
     expect(readRow(grid, 0, COLS)).toContain('↩ 历史回看 · sess-aaa'); // 会话短 id 在头行
-    // user 块三明治（界面美化役批⑦）：前置空行 + '› ' 前缀正文 + 后置空行
-    expect(readRow(grid, 1, COLS)).toBe('');
-    expect(readRow(grid, 2, COLS)).toBe('› 甲'); // user 块 '› ' 前缀
-    expect(readRow(grid, 3, COLS)).toBe(''); // markdown 块间空行
-    expect(readRow(grid, 4, COLS)).toContain('标题'); // markdown 定稿块
+    // user 块三明治（界面美化役批⑦）+ R-1 块前垫（回看器行集缺省 leadingGap——
+    // 副屏自有头行隔开，首块也垫）：垫 + 前置空行 + '› ' 前缀正文 + 后置空行
+    expect(readRow(grid, 1, COLS)).toBe(''); // R-1 块前垫
+    expect(readRow(grid, 2, COLS)).toBe(''); // 三明治前置空行
+    expect(readRow(grid, 3, COLS)).toBe('› 甲'); // user 块 '› ' 前缀
+    expect(readRow(grid, 4, COLS)).toBe(''); // 三明治尾空行
+    expect(readRow(grid, 5, COLS)).toBe(''); // R-1 markdown 块前垫
+    expect(readRow(grid, 6, COLS)).toContain('标题'); // markdown 定稿块
     expect(readRow(grid, ROWS - 1, COLS)).toContain('q/esc 返回'); // 底行键面提示
   });
 
   it('⚙ 工具行 dim 样式段进副屏（带样式写出的 cell 级证据）', () => {
     const { render } = rig([assistantMsg('', [{ id: 't1', name: 'read', arguments: { path: 'x' } }])]);
     const grid = render();
-    const row = readRow(grid, 1, COLS);
+    const row = readRow(grid, 2, COLS); // R-1 块前垫后工具行落屏行 2
     // 白名单键值短显（UX 五问题批②）：路径=x 形（键位用户面中文化 V-0 注⑤）
     expect(row).toContain('⚙ 读取文件(路径=x)');
     // 「 ⚙」起首即 dim 段（run 覆写经 writeSlice 落 cell 样式）
-    const cell = grid.getCell(1, row.indexOf('⚙'));
+    const cell = grid.getCell(2, row.indexOf('⚙'));
     expect(cell?.style.dim).toBe(true);
   });
 
   it('markdown H1 bold 样式保留（样式段经 gridRowToStyled 全程不丢）', () => {
     const { render } = rig([assistantMsg('# 标题')]);
     const grid = render();
-    const row = readRow(grid, 1, COLS);
-    const cell = grid.getCell(1, row.indexOf('标'));
+    const row = readRow(grid, 2, COLS); // R-1 块前垫后 H1 落屏行 2
+    const cell = grid.getCell(2, row.indexOf('标'));
     expect(cell?.style.bold).toBe(true);
   });
 
@@ -144,9 +147,9 @@ describe('回看器行集构建（同一渲染管线——零第二渲染器）'
     const { viewer, render } = rig(messages);
     messages.push(userMsg('乙')); // 构造后追加——行集是构造时快照
     const grid = render();
-    expect(readRow(grid, 2, COLS)).toBe('› 甲');
+    expect(readRow(grid, 3, COLS)).toBe('› 甲'); // R-1 垫 + 三明治前置后正文落屏行 3
     viewer.handleEvent(key('home'));
-    expect(readRow(render(), 2, COLS)).toBe('› 甲'); // 全档滚动也只有快照行
+    expect(readRow(render(), 3, COLS)).toBe('› 甲'); // 全档滚动也只有快照行
     for (let r = 0; r < ROWS; r++) expect(readRow(render(), r, COLS)).not.toContain('乙'); // 乙不在场（全屏扫）
   });
 });
@@ -156,28 +159,29 @@ describe('回看器行集构建（同一渲染管线——零第二渲染器）'
 describe('回看器滚动（ScrollView 装载——开屏贴尾 / 破随 / 翻页）', () => {
   it('开屏贴尾（follow 初始 true），↑ 破随、Home 到顶', () => {
     const { viewer, render } = rig(manyUsers(30));
-    let grid = render(); // 90 行（user 三明治 3 行/条）、视口 8（ROWS-2）→ offset 82
-    expect(readBody(grid, 1)).toBe('› m27');
+    let grid = render(); // 120 行（R-1 块前垫 + user 三明治 4 行/条）、视口 8（ROWS-2）→ offset 112
+    expect(readBody(grid, 3)).toBe('› m28');
     expect(readBody(grid, 7)).toBe('› m29');
     expect(viewer.handleEvent(key('up'))).toBe(true);
-    grid = render(); // offset 81——m27 让位至屏行 2（行 81 = 空行）
-    expect(readBody(grid, 2)).toBe('› m27');
+    grid = render(); // offset 111——行 112 = m28 块前垫，m28 正文让位至屏行 4
+    expect(readBody(grid, 4)).toBe('› m28');
     expect(viewer.handleEvent(key('home'))).toBe(true);
-    grid = render(); // offset 0——行 0 = 前置空行、行 1 = m0 正文
+    grid = render(); // offset 0——行 0 = 块前垫、行 1 = 三明治前置空行、行 2 = m0 正文
     expect(readBody(grid, 1)).toBe('');
-    expect(readBody(grid, 2)).toBe('› m0');
+    expect(readBody(grid, 2)).toBe('');
+    expect(readBody(grid, 3)).toBe('› m0');
     expect(viewer.handleEvent(key('end'))).toBe(true); // End 复随贴尾
-    expect(readBody(render(), 1)).toBe('› m27');
+    expect(readBody(render(), 3)).toBe('› m28');
   });
 
   it('PgUp/PgDn 按视口高翻页', () => {
     const { viewer, render } = rig(manyUsers(30));
-    render(); // offset 82、页高 8 回写
+    render(); // offset 112、页高 8 回写
     viewer.handleEvent(key('home'));
     viewer.handleEvent(key('pagedown'));
-    expect(readBody(render(), 3)).toBe('› m3'); // offset 8：行 8-9 空行、行 10 = m3 正文
+    expect(readBody(render(), 3)).toBe('› m2'); // offset 8：行 8 = m2 块前垫、行 9 空行、行 10 = m2 正文
     viewer.handleEvent(key('pageup'));
-    expect(readBody(render(), 2)).toBe('› m0'); // 回顶：行 0 空行、行 1 = m0 正文
+    expect(readBody(render(), 3)).toBe('› m0'); // 回顶：行 0 垫、行 1 空行、行 2 = m0 正文
   });
 
   it('未消费键层内终局吞（模态——无穿透位）', () => {
@@ -211,7 +215,7 @@ describe('回看器搜索（开 / 跳匹配 / 关——件 8 条款锁能力不�
     viewer.handleEvent(text('2')); // 查询 'm2' → 11 匹配、首匹配 m2
     let grid = render();
     expect(readRow(grid, 0, COLS)).toContain('1/11');
-    expect(readBody(grid, 1)).toBe('› m2'); // 首匹配对齐视口顶（行 7 = m2 正文）
+    expect(readBody(grid, 1)).toBe('› m2'); // 首匹配对齐视口顶（匹配行 10 = m2 正文——R-1 4 行/块）
     viewer.handleEvent(key('enter')); // 下一 → m20
     grid = render();
     expect(readRow(grid, 0, COLS)).toContain('2/11');
@@ -222,9 +226,9 @@ describe('回看器搜索（开 / 跳匹配 / 关——件 8 条款锁能力不�
     viewer.handleEvent(key('enter', { shift: true })); // 首前往尾 → m29
     grid = render();
     expect(readRow(grid, 0, COLS)).toContain('11/11');
-    // 末行匹配：偏移夹底——匹配行 88 在视口内可见（搜索框在场视口 8——V-0 注③
-    // 框退役后底铬单行：偏移夹底 82，m28/m29 皆入窗）
-    expect(readBody(grid, 4)).toBe('› m28');
+    // 末行匹配：偏移夹底——匹配行 118 在视口内可见（搜索框在场视口 8：
+    // 偏移夹底 112，m28/m29 皆入窗——R-1 4 行/块下 120 行行集）
+    expect(readBody(grid, 3)).toBe('› m28');
     expect(readBody(grid, 7)).toBe('› m29');
   });
 
@@ -441,55 +445,55 @@ describe('回看器鼠标选区（press 锚定 → motion 扩展 → release 复
   }
 
   it('线性选区全链：release 行间拼 LF 复制（中间行全文 · 首尾行按列切）', () => {
-    // 30 行（user 三明治 3 行/条）/ 视口 8 高——offset 贴尾 22：屏行 1..8 = 逻辑行 22..29
+    // 40 行（R-1 块前垫 + user 三明治 4 行/条）/ 视口 8 高——offset 贴尾 32：屏行 1..8 = 逻辑行 32..39
     const { viewer, copies, render } = rig(manyUsers(10));
     render(); // 视口几何回写（screenToLogical 的前提）
-    drag(viewer, { row: 1, col: 2 }, { row: 4, col: 4 });
-    // 行 22 从列 2（剥 '› ' 前缀）、行 23-24 空行全文、行 25 到列 4（含前缀列切）
-    expect(copies).toEqual(['m7\n\n\n› m8']);
+    drag(viewer, { row: 3, col: 2 }, { row: 7, col: 4 });
+    // 行 34 从列 2（剥 '› ' 前缀）、行 35-37 空行全文（三明治尾 + 块前垫 + 前置）、行 38 到列 4（含前缀列切）
+    expect(copies).toEqual(['m8\n\n\n\n› m9']);
   });
 
   it('反向拖选规范化（锚在焦点后——升序两端点同一明文）', () => {
     const { viewer, copies, render } = rig(manyUsers(10));
     render();
-    drag(viewer, { row: 4, col: 4 }, { row: 1, col: 2 });
-    expect(copies).toEqual(['m7\n\n\n› m8']);
+    drag(viewer, { row: 7, col: 4 }, { row: 3, col: 2 });
+    expect(copies).toEqual(['m8\n\n\n\n› m9']);
   });
 
   it('CJK 双宽列反查：半格命中归字素首（与折叠算术同源）', () => {
-    const { viewer, copies, render } = rig([userMsg('中文字')]); // 行 1 '› 中文字'：中 2-3 / 文 4-5 / 字 6-7
+    const { viewer, copies, render } = rig([userMsg('中文字')]); // 行 3 '› 中文字'（R-1 垫 + 三明治前置后）：中 2-3 / 文 4-5 / 字 6-7（列位不随行迁移——前缀恒 2 列）
     render();
-    drag(viewer, { row: 2, col: 3 }, { row: 2, col: 6 }); // col3 = 中的右半格 → 逻辑 2；col6 = 字首 → 逻辑 6
+    drag(viewer, { row: 3, col: 3 }, { row: 3, col: 6 }); // col3 = 中的右半格 → 逻辑 2；col6 = 字首 → 逻辑 6
     expect(copies).toEqual(['中文']);
   });
 
   it('拖选中滚动坐标不漂：锚存逻辑位，滚后 motion 命中新逻辑行（渲染无关坐标系）', () => {
     const { viewer, copies, render } = rig(manyUsers(10));
-    render(); // offset 22
-    viewer.handleEvent(mouse('left', { row: 1, col: 0 }, 'press')); // 锚 = 逻辑行 22 列 0（'› m7' 行首）
-    viewer.handleEvent(mouse('wheel-up')); // offset 22-3 → 19（破随）
-    viewer.handleEvent(mouse('left', { row: 1, col: 0 }, 'motion')); // 同屏位已是逻辑行 19（'› m6'）
+    render(); // offset 32
+    viewer.handleEvent(mouse('left', { row: 1, col: 0 }, 'press')); // 锚 = 逻辑行 32 列 0（m8 块前垫行首）
+    viewer.handleEvent(mouse('wheel-up')); // offset 32-3 → 29（破随）
+    viewer.handleEvent(mouse('left', { row: 1, col: 0 }, 'motion')); // 同屏位已是逻辑行 29（m7 三明治尾）
     viewer.handleEvent(mouse('left', { row: 1, col: 0 }, 'release'));
-    // 行 19 全文 + 行 20-21 空行全文 + 行 22 列 0 空——锚逻辑位跨滚不漂
-    expect(copies).toEqual(['› m6\n\n\n']);
+    // 行 29-31 全文（空 / '› m7' / 空）+ 行 32 列 0 空——锚逻辑位跨滚不漂
+    expect(copies).toEqual(['\n› m7\n\n']);
   });
 
   it('选区高亮反色：press+motion 后视口内 inverse + release 后保留 + 下次 press 清除', () => {
     const { viewer, render } = rig(manyUsers(10));
     render();
-    viewer.handleEvent(mouse('left', { row: 1, col: 2 }, 'press'));
-    viewer.handleEvent(mouse('left', { row: 7, col: 4 }, 'motion')); // 焦点 = 逻辑行 28（'› m9'）
+    viewer.handleEvent(mouse('left', { row: 3, col: 2 }, 'press'));
+    viewer.handleEvent(mouse('left', { row: 7, col: 4 }, 'motion')); // 焦点 = 逻辑行 38（'› m9'）
     const grid = render();
-    expect(grid.getCell(1, 2)?.style.inverse).toBe(true); // 行 22 选中段（列 2 起至行尾）
-    expect(grid.getCell(1, 0)?.style.inverse).toBeUndefined(); // 行 22 前缀未选
-    expect(grid.getCell(2, 0)?.style.inverse).toBeUndefined(); // 包夹空行无字可染（写位缺席即无反色）
-    expect(grid.getCell(4, 0)?.style.inverse).toBe(true); // 行 25 全文选中（中间文本行）
-    expect(grid.getCell(7, 3)?.style.inverse).toBe(true); // 行 28 选中段（列 0..3）
+    expect(grid.getCell(3, 2)?.style.inverse).toBe(true); // 行 34 选中段（列 2 起至行尾）
+    expect(grid.getCell(3, 0)?.style.inverse).toBeUndefined(); // 行 34 前缀未选
+    expect(grid.getCell(4, 0)?.style.inverse).toBeUndefined(); // 包夹空行族无字可染（R-1 4 行/块——中间皆空行）
+    expect(grid.getCell(5, 0)?.style.inverse).toBeUndefined(); // 同上（块前垫行）
+    expect(grid.getCell(7, 3)?.style.inverse).toBe(true); // 行 38 选中段（列 0..3）
     viewer.handleEvent(mouse('left', { row: 7, col: 4 }, 'release'));
-    expect(render().getCell(1, 2)?.style.inverse).toBe(true); // release 后高亮保留
+    expect(render().getCell(3, 2)?.style.inverse).toBe(true); // release 后高亮保留
     viewer.handleEvent(mouse('left', { row: 5, col: 2 }, 'press')); // 新选区起手 = 清除位
     const grid2 = render();
-    expect(grid2.getCell(1, 2)?.style.inverse).toBeUndefined(); // 旧选区已清
+    expect(grid2.getCell(3, 2)?.style.inverse).toBeUndefined(); // 旧选区已清
     expect(grid2.getCell(5, 2)?.style.inverse).toBeUndefined(); // 新锚零宽不高亮
   });
 
@@ -519,7 +523,7 @@ describe('回看器鼠标选区（press 锚定 → motion 扩展 → release 复
     viewer.handleEvent(key('f', { ctrl: true, shift: true })); // 开搜索
     drag(viewer, { row: 1, col: 2 }, { row: 4, col: 4 });
     expect(copies).toEqual([]); // 禁拖选
-    for (let i = 0; i < 8; i++) viewer.handleEvent(mouse('wheel-up')); // 22-24 夹 0
+    for (let i = 0; i < 12; i++) viewer.handleEvent(mouse('wheel-up')); // 32-36 夹 0（R-1 4 行/块 → 贴尾 32）
     expect(viewer.handleEvent(mouse('wheel-up'))).toBe(true); // 滚轮仍滚（走 super 消费路）
     expect(viewer.scrollOffset).toBe(0); // 搜索在场不拦滚动
   });
@@ -541,8 +545,8 @@ describe('回看器鼠标选区（press 锚定 → motion 扩展 → release 复
     render();
     expect(viewer.handleEvent(mouse('middle', { row: 1, col: 2 }))).toBe(true);
     expect(viewer.handleEvent(mouse('right', { row: 1, col: 2 }))).toBe(true);
-    drag(viewer, { row: 1, col: 2 }, { row: 4, col: 4 }); // 中/右未建锚——左键拖选照常
-    expect(copies).toEqual(['m7\n\n\n› m8']);
+    drag(viewer, { row: 3, col: 2 }, { row: 7, col: 4 }); // 中/右未建锚——左键拖选照常
+    expect(copies).toEqual(['m8\n\n\n\n› m9']);
   });
 
   it('零宽选区 release 零复制（press 即 release 同点）', () => {
@@ -556,12 +560,12 @@ describe('回看器鼠标选区（press 锚定 → motion 扩展 → release 复
   it('motion 拖出视口保焦点不扩（头行/底铬命中不移动焦点——释放按已存焦点）', () => {
     const { viewer, copies, render } = rig(manyUsers(10));
     render();
-    viewer.handleEvent(mouse('left', { row: 1, col: 2 }, 'press'));
-    viewer.handleEvent(mouse('left', { row: 4, col: 4 }, 'motion')); // 有效焦点
+    viewer.handleEvent(mouse('left', { row: 3, col: 2 }, 'press'));
+    viewer.handleEvent(mouse('left', { row: 7, col: 4 }, 'motion')); // 有效焦点
     viewer.handleEvent(mouse('left', { row: 0, col: 5 }, 'motion')); // 头行——焦点不动
     viewer.handleEvent(mouse('left', { row: 9, col: 5 }, 'motion')); // 底铬——焦点不动
     viewer.handleEvent(mouse('left', { row: 9, col: 5 }, 'release')); // 释放坐标不更新焦点
-    expect(copies).toEqual(['m7\n\n\n› m8']);
+    expect(copies).toEqual(['m8\n\n\n\n› m9']);
   });
 
   it('onCopy 缺席安全（装配可不接——选区路不炸）', () => {
