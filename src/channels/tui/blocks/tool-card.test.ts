@@ -153,14 +153,22 @@ describe('卡面染色带（TUI 对标 Codex 五件批 C 件 R4——toolCardBg 
     ]);
   });
 
-  it('diff 档词级对行同律：删行 `-` 前缀洞补 bg + 变更词段 fg 并入', () => {
-    const diff = renderToolCardStyledLines(card({ theme: probed, diff: true, body: ['-旧', '+新'] }), 40);
-    // 卡头后首行 = 删行 `-旧`（折叠档）：洞 {0,1} 补裸 bg + 变更词段 {1,2} fg
-    // 并入（addDim 先行——fg/dim/bg 三属性并存，施加序锁）
-    expect(diff[1]!.runs).toEqual([
-      { start: 0, end: 1, style: { bg: probed.toolCardBg } },
-      { start: 1, end: 2, style: { fg: probed.diffRemoved, bg: probed.toolCardBg, dim: true } },
-    ]);
+  it('diff 档行 bg 优先：fillBg 行整行跳过卡面铺底（diff bg 带 = 卡面 bg 上的局部覆盖）', () => {
+    const diff = renderToolCardStyledLines(
+      card({
+        theme: probed,
+        diff: true,
+        expanded: true,
+        body: ['*** Update File: a.ts', '-旧', '+新'],
+        diffStartLines: [undefined],
+      }),
+      40,
+    );
+    // 卡头行照常铺底（toolCardBg）；diff 行 fillBg 在场 → 整行跳过 withCardBg
+    expect(diff[0]!.runs.every((r) => r.style.bg === probed.toolCardBg)).toBe(true);
+    expect(diff[1]!.fillBg).toBe(probed.diffRemovedBg);
+    expect(diff[1]!.runs.every((r) => r.style.bg === probed.diffRemovedBg)).toBe(true);
+    expect(diff[2]!.fillBg).toBe(probed.diffAddedBg);
   });
 });
 
@@ -240,7 +248,7 @@ describe('卡体两档与存账帽', () => {
   });
 });
 
-describe('edit diff 档', () => {
+describe('edit diff 档（⑥ 行几何与 bg 双通道——R-5 件 C）', () => {
   const patch = [
     '*** Begin Patch',
     '*** Update File: a.ts',
@@ -248,47 +256,173 @@ describe('edit diff 档', () => {
     '-const old = 2;',
     '+const new = 3;',
     '-孤行删除',
+    '*** End Patch',
   ].join('\n');
+  /** truecolor 板（bg 键在场——16 档 DEFAULT_THEME bg 降采缺席，缺席腿测用） */
+  const themeTc = resolveTheme(DARK_PALETTE, 'truecolor');
+  /** 成功 update 卡（startLine=2：hunk 首行〔ctx〕在原文件第 2 行） */
+  const diffCard = (over: Partial<ToolCardView> = {}): ToolCardView =>
+    card({
+      name: 'edit',
+      brief: '(patch)',
+      diff: true,
+      body: patch.split('\n'),
+      expanded: true,
+      diffStartLines: [2],
+      theme: themeTc,
+      ...over,
+    });
 
-  it('1 删 1 增相邻对词级高亮（变更词红/绿、锚词裸）', () => {
-    const lines = renderToolCardStyledLines(
-      card({ name: 'edit', brief: '(patch)', diff: true, body: patch.split('\n'), expanded: true }),
-      80,
-    );
-    // 行 3/4 = 词级对：'-const old = 2;' 与 '+const new = 3;'
-    const delLine = lines.find((l) => l.plain === '-const old = 2;')!;
-    const addLine = lines.find((l) => l.plain === '+const new = 3;')!;
-    // 词级对：'-const old = 2;' 与 '+const new = 3;'——'old'/'new' 与尾值
-    // '2;'/'3;' 各成变字段（token 边界：非空串连吃），锚段裸
-    expect(delLine.runs).toEqual([
-      { start: 7, end: 10, style: { fg: DEFAULT_THEME.diffRemoved } }, // 'old'
-      { start: 13, end: 15, style: { fg: DEFAULT_THEME.diffRemoved } }, // '2;'
+  it('卡头：• dim + 动词 bold + 路径 + 计数括号（+N 绿/−M 红/括号默认色）', () => {
+    const lines = renderToolCardStyledLines(diffCard(), 80);
+    // 单文件 update：动词 Edited + 路径 + (+1 −2)；Begin/End meta 行退役不呈现
+    expect(lines[0]!.plain).toBe('• Edited a.ts (+1 −2)');
+    expect(lines[0]!.runs).toEqual([
+      { start: 0, end: 2, style: { dim: true } }, // '• '
+      { start: 2, end: 8, style: { bold: true } }, // 'Edited'
+      { start: 15, end: 17, style: { fg: themeTc.diffAdded } }, // '+1'
+      { start: 18, end: 20, style: { fg: themeTc.diffRemoved } }, // '−2'
     ]);
-    expect(addLine.runs).toEqual([
-      { start: 7, end: 10, style: { fg: DEFAULT_THEME.diffAdded } }, // 'new'
-      { start: 13, end: 15, style: { fg: DEFAULT_THEME.diffAdded } }, // '3;'
+    expect(lines).toHaveLength(5); // 头 + 4 行体（meta 不呈现）
+  });
+
+  it('行几何：4 空格缩进 + 右对齐行号槽 + 符号列（ctx 双计数同进、del 旧侧/add 新侧）', () => {
+    const lines = renderToolCardStyledLines(diffCard(), 80);
+    // startLine=2：ctx 显 2；对行 del 旧侧 3 / add 新侧 3；孤 del 旧侧 4
+    expect(lines[1]!.plain).toBe('    2  const same = 1;'); // ctx 符号列空格
+    expect(lines[2]!.plain).toBe('    3 -const old = 2;');
+    expect(lines[3]!.plain).toBe('    3 +const new = 3;');
+    expect(lines[4]!.plain).toBe('    4 -孤行删除');
+    expect(lines[1]!.runs).toEqual([]); // ctx 行裸
+  });
+
+  it('bg 双通道：del/add 行 fillBg 色带 + 文本 extent 内 runs 并 bg', () => {
+    expect(themeTc.diffAddedBg).toEqual(colorRgb('#213a2b'));
+    expect(themeTc.diffRemovedBg).toEqual(colorRgb('#4a221d'));
+    const lines = renderToolCardStyledLines(diffCard(), 80);
+    // 对行 del：词级变字段段 fg + 洞补裸 bg（gutter/sign/锚段）+ fillBg 尾腿铺屏宽
+    expect(lines[2]!.fillBg).toBe(themeTc.diffRemovedBg);
+    expect(lines[2]!.runs).toEqual([
+      { start: 0, end: 13, style: { bg: themeTc.diffRemovedBg } }, // gutter+sign+'const '（洞补）
+      { start: 13, end: 16, style: { fg: themeTc.diffRemoved, bg: themeTc.diffRemovedBg } }, // 'old'
+      { start: 16, end: 19, style: { bg: themeTc.diffRemovedBg } }, // ' = '
+      { start: 19, end: 21, style: { fg: themeTc.diffRemoved, bg: themeTc.diffRemovedBg } }, // '2;'
+    ]);
+    expect(lines[3]!.fillBg).toBe(themeTc.diffAddedBg);
+    expect(lines[4]!.fillBg).toBe(themeTc.diffRemovedBg);
+    // 孤立 del 整行红（R4 前景律维持）+ bg 并入（'    4 -孤行删除' = 11 units）
+    expect(lines[4]!.runs).toEqual([
+      { start: 0, end: 11, style: { fg: themeTc.diffRemoved, bg: themeTc.diffRemovedBg } },
     ]);
   });
 
-  it('孤立删整行红、meta 头行 dim、ctx 裸行', () => {
-    const lines = renderToolCardStyledLines(
-      card({ name: 'edit', diff: true, body: patch.split('\n'), expanded: true }),
-      80,
+  it('bg 缺席腿：16 档降采 bg 键缺席 → 前景独行可读（无 fillBg、runs 无 bg）', () => {
+    // DEFAULT_THEME = 16 档解析（bg 键降采缺席——resolve 件设计）；fg 键仍在
+    expect(DEFAULT_THEME.diffAddedBg).toBeUndefined();
+    expect(DEFAULT_THEME.diffRemoved).toBeDefined();
+    const lines = renderToolCardStyledLines(diffCard({ theme: DEFAULT_THEME }), 80);
+    expect(lines[2]!.fillBg).toBeUndefined();
+    expect(lines[2]!.runs).toEqual([
+      { start: 13, end: 16, style: { fg: DEFAULT_THEME.diffRemoved } },
+      { start: 19, end: 21, style: { fg: DEFAULT_THEME.diffRemoved } },
+    ]);
+    // 板缺键腿同形（truecolor 板显式去 bg 键——colors 层缺席）
+    const boardless = resolveTheme(
+      { ...DARK_PALETTE, colors: { ...DARK_PALETTE.colors, diffAddedBg: undefined, diffRemovedBg: undefined } },
+      'truecolor',
     );
-    const loneDel = lines.find((l) => l.plain === '-孤行删除')!;
-    expect(loneDel.runs).toEqual([{ start: 0, end: 5, style: { fg: DEFAULT_THEME.diffRemoved } }]);
-    const meta = lines.find((l) => l.plain.includes('Begin Patch'))!;
-    expect(meta.runs.every((r) => r.style.dim === true)).toBe(true);
-    const ctx = lines.find((l) => l.plain === ' const same = 1;')!;
-    expect(ctx.runs).toEqual([]);
+    expect(boardless.diffRemovedBg).toBeUndefined();
+    const lines2 = renderToolCardStyledLines(diffCard({ theme: boardless }), 80);
+    expect(lines2[2]!.fillBg).toBeUndefined();
   });
 
-  it('超宽行截断 + 游程钳制（变字段越界部分丢弃；界面美化役批① … 记号）', () => {
-    const longPatch = ['-' + 'a'.repeat(20) + '尾旧', '+' + 'a'.repeat(20) + '尾新'];
-    const lines = renderToolCardStyledLines(card({ name: 'edit', diff: true, body: longPatch, expanded: true }), 12);
-    // 12 列宽帽：截 11 + … 记号（被切行与真实行尾可辨——裸切翻档）
-    expect(lines[1]!.plain).toBe('-' + 'a'.repeat(10) + '…');
-    for (const run of lines[1]!.runs) expect(run.end).toBeLessThanOrEqual(lines[1]!.plain.length);
+  it('失败卡：通用头维持（✗ 符号位保留——失败可见性优先）+ 行号槽整列空白（诚实缺席）', () => {
+    const lines = renderToolCardStyledLines(diffCard({ status: 'error', diffStartLines: undefined }), 80);
+    expect(lines[0]!.plain).toBe(' ✗ 编辑文件(patch)');
+    // 无 startLines：行号槽空（gutter 空槽 1 + 分隔 1）符号列照常——前缀 6 空格
+    expect(lines[2]!.plain).toBe('      -const old = 2;');
+    expect(lines[3]!.plain).toBe('      +const new = 3;');
+  });
+
+  it('多文件：Edited N files + 总计数 + `  └` 段头 + 段间空行；add 段行号自 1', () => {
+    const multi = [
+      '*** Begin Patch',
+      '*** Update File: a.ts',
+      '-x',
+      '+y',
+      '*** Add File: b.txt',
+      '+n1',
+      '+n2',
+      '*** End Patch',
+    ].join('\n');
+    const lines = renderToolCardStyledLines(diffCard({ body: multi.split('\n'), diffStartLines: [3, undefined] }), 80);
+    expect(lines[0]!.plain).toBe('• Edited 2 files (+3 −1)');
+    expect(lines[0]!.runs).toEqual([
+      { start: 0, end: 2, style: { dim: true } },
+      { start: 2, end: 8, style: { bold: true } },
+      { start: 18, end: 20, style: { fg: themeTc.diffAdded } },
+      { start: 21, end: 23, style: { fg: themeTc.diffRemoved } },
+    ]);
+    // 段头：'  └ ' dim + 路径裸 + 计数红绿
+    expect(lines[1]!.plain).toBe('  └ a.ts (+1 −1)');
+    expect(lines[1]!.runs).toEqual([
+      { start: 0, end: 4, style: { dim: true } },
+      { start: 10, end: 12, style: { fg: themeTc.diffAdded } },
+      { start: 13, end: 15, style: { fg: themeTc.diffRemoved } },
+    ]);
+    // a.ts 段：startLine 3 → del 3 / add 3
+    expect(lines[2]!.plain).toBe('    3 -x');
+    expect(lines[3]!.plain).toBe('    3 +y');
+    // 段间空行
+    expect(lines[4]!.plain).toBe('');
+    // b.txt 段头 + add 段行号 1..N
+    expect(lines[5]!.plain).toBe('  └ b.txt (+2 −0)');
+    expect(lines[6]!.plain).toBe('    1 +n1');
+    expect(lines[7]!.plain).toBe('    2 +n2');
+  });
+
+  it('单文件动词随段：Added（add 段行号自 1）/ Deleted（无计数括号——无行体无计数）', () => {
+    const addOnly = ['*** Begin Patch', '*** Add File: fresh.txt', '+line1', '+line2', '*** End Patch'].join('\n');
+    const addLines = renderToolCardStyledLines(
+      diffCard({ body: addOnly.split('\n'), diffStartLines: [undefined] }),
+      80,
+    );
+    expect(addLines[0]!.plain).toBe('• Added fresh.txt (+2 −0)');
+    expect(addLines[1]!.plain).toBe('    1 +line1');
+    expect(addLines[2]!.plain).toBe('    2 +line2');
+    const delOnly = ['*** Begin Patch', '*** Delete File: gone.ts', '*** End Patch'].join('\n');
+    const delLines = renderToolCardStyledLines(diffCard({ body: delOnly.split('\n') }), 80);
+    expect(delLines[0]!.plain).toBe('• Deleted gone.ts'); // delete 段无行体 → 无计数括号
+    expect(delLines).toHaveLength(1); // 纯删除卡只有卡头行
+  });
+
+  it('超宽硬折行：内容列硬切 + 续行对齐内容列 + 游程跨折行边界保留（整字截断退役）', () => {
+    const long = ['*** Begin Patch', '*** Update File: w.ts', '-' + 'a'.repeat(15), '*** End Patch'].join('\n');
+    const lines = renderToolCardStyledLines(diffCard({ body: long.split('\n'), diffStartLines: [1] }), 20);
+    // 内容列宽 = 20 − 7 = 13：首行 13 a + 续行 2 a（续行 = 4 空格 + 空号槽 1 + 2 空格对齐内容列）
+    expect(lines[1]!.plain).toBe('    1 -' + 'a'.repeat(13));
+    expect(lines[2]!.plain).toBe('       ' + 'a'.repeat(2));
+    // 孤立 del 整行红跨折行保留 + bg 色带随折行延伸
+    expect(lines[1]!.runs).toEqual([
+      { start: 0, end: 20, style: { fg: themeTc.diffRemoved, bg: themeTc.diffRemovedBg } },
+    ]);
+    expect(lines[2]!.runs).toEqual([
+      { start: 0, end: 9, style: { fg: themeTc.diffRemoved, bg: themeTc.diffRemovedBg } },
+    ]);
+    expect(lines[2]!.fillBg).toBe(themeTc.diffRemovedBg);
+  });
+
+  it('行内 tab 展开 4 空格档（diff 位专用——全域缺省 2 维持）', () => {
+    const tabby = ['*** Begin Patch', '*** Update File: t.ts', '-\tsx', '*** End Patch'].join('\n');
+    const lines = renderToolCardStyledLines(diffCard({ body: tabby.split('\n'), diffStartLines: [1] }), 40);
+    expect(lines[1]!.plain).toBe('    1 -    sx'); // 4 空格缩进 + 号槽 + '-' + tab→4 空格
+  });
+
+  it('非段形回落：无 *** 段头的 body → 通用头 + plain 体（不装 diff 几何）', () => {
+    const lines = renderToolCardStyledLines(diffCard({ body: ['-旧一行', '+新一行'], diffStartLines: undefined }), 80);
+    expect(lines[0]!.plain).toBe(' ✓ 编辑文件(patch)');
+    expect(lines[1]!.plain).toBe('-旧一行');
+    expect(lines[2]!.plain).toBe('+新一行');
   });
 });
 
@@ -525,16 +659,13 @@ describe('构造位消毒：tab 记宽 1 发射展开 2 空格（修前截断记
     for (const dispose of disposers.splice(0)) dispose();
   });
 
-  it('edit 孤立增行含 tab：真管线发射行宽 ≤ 帽（修前 10 tab 记宽 10 恰放行、发射展开 20 空格宽 30 > 20）', () => {
-    // 修前形：truncateToWidth 按 tab=1 记宽，'+'+10 tab+9 数字恰记宽 20 通过
-    // 出口帽；发射位 styledLineToAnsi 消毒把 tab 展开 2 空格 → 实际发射 30
-    // 列，终端 autowrap 产未记账物理行（物理行账漂移族）
+  it('edit 孤立增行含 tab：真管线发射行宽 ≤ 帽（tab 4 档展开 + 折行段各 ≤ 帽）', () => {
     const block: Extract<TranscriptBlock, { kind: 'tool-card' }> = {
       kind: 'tool-card',
       name: 'edit',
       brief: '(patch)',
       status: 'success',
-      body: ['+' + '\t'.repeat(10) + '0123456789'],
+      body: ['*** Update File: tab.ts', '+' + '\t'.repeat(10) + '0123456789'],
       diff: true,
       expanded: true,
       theme: DEFAULT_THEME,
@@ -545,9 +676,15 @@ describe('构造位消毒：tab 记宽 1 发射展开 2 空格（修前截断记
     }
   });
 
-  it('词级对行含 tab：发射宽 ≤ 帽（修前 4 tab 记宽 4 放行、发射展开 8 空格宽 9 > 6）', () => {
+  it('词级对行含 tab（4 档展开）：发射宽 ≤ 帽（极窄形整行帽兜底截断）', () => {
     const lines = renderToolCardStyledLines(
-      card({ name: 'edit', diff: true, body: ['-' + '\t'.repeat(4), '+' + '\t'.repeat(4) + 'x'], expanded: true }),
+      card({
+        name: 'edit',
+        diff: true,
+        expanded: true,
+        body: ['*** Update File: t.ts', '-' + '\t'.repeat(4), '+' + '\t'.repeat(4) + 'x'],
+        diffStartLines: [1],
+      }),
       6,
     );
     for (const line of lines) {
@@ -573,9 +710,9 @@ describe('构造位消毒：tab 记宽 1 发射展开 2 空格（修前截断记
     expect(emittedWidth(styledLineToAnsi(lines[0]!))).toBeLessThanOrEqual(10);
   });
 
-  it('tab 语义展开为空格（构造位消毒先行——发射字节零 tab）', () => {
-    const lines = renderToolCardStyledLines(card({ name: 'edit', diff: true, body: ['+\tfoo'], expanded: true }), 40);
-    expect(lines[1]!.plain).toBe('+  foo'); // 1 tab → 2 空格
+  it('tab 语义展开全域缺省 2 维持（diff 位 4 档不外溢——卡头名 2 档）', () => {
+    const lines = renderToolCardStyledLines(card({ name: 'a\tb', brief: '' }), 40);
+    expect(lines[0]!.plain).toContain('a  b'); // 卡头名 tab → 2 空格（全域缺省档）
   });
 });
 

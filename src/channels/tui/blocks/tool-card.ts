@@ -23,10 +23,16 @@
  * 皆然** + 折叠帽 5 中段截断 + 空输出 `(no output)` 形）——替代通用
  * previewWindow/addDim 路（插件腿优先律维持）。
  *
- * diff 档（edit 类工具——patch 体卡）：卡体行按 patch 判形渲染，1 删 1 增
- * 相邻对走词级高亮（删行变更词红 / 增行变更词绿——word-diff 件 LCS），
- * 孤立删/增整行红/绿，'***' 头行 dim。纯函数：同一 (卡数据, columns) 恒同
- * 行集（repaint / 回看器同管线零漂移）。
+ * diff 档（edit 类工具——patch 体卡；⑥ Codex 样式复刻批 R-5 件 C）：patch
+ * 体段结构化（word-diff 件 parsePatchSections）→ 专用卡头（`• ` dim + 动词
+ * bold + 路径 + `(+N −M)` 计数红绿——成功卡；失败/中止腿通用头维持）+ 段
+ * 几何体（4 空格缩进 + 右对齐行号槽〔edit 回执 startLine 注入，缺席空槽
+ * 诚实缺席〕+ 符号列 + 续行对齐内容列 + 行级 bg 色带〔fillBg 尾腿 + 文本
+ * extent 洞补——双通道，bg 键缺席腿前景独行〕+ 硬折行〔字素硬切、游程跨
+ * 折行边界保留〕+ tab 4 档）；1 删 1 增相邻对词级高亮维持（word-diff 件
+ * LCS），孤立删/增整行红/绿；多文件段 `  └` 子头 + 段间空行；非段形回落
+ * 通用头 + plain 体。纯函数：同一 (卡数据, columns) 恒同行集（repaint /
+ * 回看器同管线零漂移）。
  *
  * 插件卡体（2026-09-17 TUI 余量收官批③——07 §4.1 插件工具渲染钩子签名
  * 钉位）：查表命中且 renderResult 钩子在场 → **每次渲染现调**（定稿渲染与
@@ -48,7 +54,9 @@
 import {
   DIM_STYLE,
   ellipsize,
+  graphemeWidth,
   sanitizeDisplayText,
+  splitGraphemes,
   truncateToWidth,
   wrapText,
   type CellStyle,
@@ -57,7 +65,7 @@ import {
 import type { ResolvedTheme } from '../theme/index.js';
 import { capStyledLine, clampRuns, type StyledLine, type StyleRun } from '../backend/ansi-rows.js';
 import { highlight, tokenStyle } from '../markdown/highlight/index.js';
-import { diffWords, parsePatchLines, type PatchLine } from './word-diff.js';
+import { diffWords, parsePatchSections, type PatchSection } from './word-diff.js';
 import { lookupToolRenderer, type RendererLine, type ToolRenderResultInput } from '../../renderers.js';
 import { toolFaceZh } from '../../../contracts/index.js';
 
@@ -108,8 +116,15 @@ export interface ToolCardView {
   readonly status: ToolCardStatus;
   /** 卡体行（result 文本或 edit 的 patch 体——cardBodyOf 产物） */
   readonly body: readonly string[];
-  /** diff 档旗标（true = body 是 patch 体——词级高亮渲染） */
+  /** diff 档旗标（true = body 是 patch 体——⑥ 段几何渲染） */
   readonly diff: boolean;
+  /**
+   * diff 档行号序列（07 §4.3 ⑥——edit 成功回执 operations 段序注入）：与
+   * patch 段序同源对齐，update 段取 startLine（1-based 旧侧起点）、add/delete
+   * 段 undefined。整席缺席（失败/中止/回执非法形）= 行号槽空白整列（诚实
+   * 缺席非伪号——apply_patch 文法无 @@ hunk 头，渲染面不可推导 Update 偏移）。
+   */
+  readonly diffStartLines?: ReadonlyArray<number | undefined>;
   readonly expanded: boolean;
   readonly theme: ResolvedTheme;
   /**
@@ -230,9 +245,35 @@ export function renderToolCardStyledLines(card: ToolCardView, columns: number): 
     const body = statusLine === null ? window : [statusLine, ...window];
     return [...headerLines, ...body].map((line) => withCardBg(line, card.theme.toolCardBg));
   }
-  const bodyLines =
-    pluginBody ??
-    (card.diff ? renderDiffBodyLines(card.body, columns, card.theme) : renderPlainBodyLines(card.body, columns));
+  // ⑥ diff 档分路：patch 体段结构化成功 → 专用卡头 + 段几何体（4 空格缩进 +
+  // 右对齐行号槽 + 符号列 + 行级 bg 色带 + 硬折行 + tab 4 档）；非段形（模型
+  // 输出坏形防御）回落下方通用路（通用头 + plain 体——不装 diff 几何）。
+  // 成功卡换专用头（• 动词 路径/计数——edit 族专用形不破 argsBrief 白名单
+  // 面）；失败/中止腿通用头维持（失败可见性优先——✗/⏹ 符号位保留）。edit
+  // 族恒非 bash → statusLine 结构性缺席（renderExecStatusLine 判 bash）
+  if (card.diff) {
+    const sections = parsePatchSections(card.body.join('\n'));
+    if (sections.length > 0) {
+      const headerLines =
+        card.status === 'success'
+          ? [renderDiffHeaderLine(sections, columns, card.theme)]
+          : [renderGenericHeaderLine(card, columns, statusColor)];
+      const bodyLines = renderDiffSectionLines(sections, columns, card.theme, card.diffStartLines);
+      const body = card.expanded ? bodyLines : previewWindow(bodyLines, card.toggleHint, columns).map(addDim);
+      return [...headerLines, ...body].map((line) => withCardBg(line, card.theme.toolCardBg));
+    }
+    // 非段形回落（模型坏形防御）：通用头 + 逐行截断裸体（不装 diff 几何、
+    // 不折行——窄宽截断帽与段形路径同律，1 列极端窄无单字素例外）
+    const bodyLines = card.body.map((line) => {
+      const clipped = truncateToWidth(sanitizeLineText(line, DIFF_TAB_WIDTH), columns);
+      return { plain: clipped, runs: [] };
+    });
+    const headerLines = [renderGenericHeaderLine(card, columns, statusColor)];
+    const body = card.expanded ? bodyLines : previewWindow(bodyLines, card.toggleHint, columns).map(addDim);
+    return [...headerLines, ...body].map((line) => withCardBg(line, card.theme.toolCardBg));
+  }
+  // 通用路（含 diff 非段形回落）：插件腿 ?? plain 体（diff 段形已在上方分路）
+  const bodyLines = pluginBody ?? renderPlainBodyLines(card.body, columns);
   const body = card.expanded
     ? statusLine === null
       ? bodyLines
@@ -251,7 +292,9 @@ export function renderToolCardStyledLines(card: ToolCardView, columns: number): 
  * 本 extent（0..plain.length）非全宽。纯施加——plain 与游程几何零改。
  */
 function withCardBg(line: StyledLine, bg: ColorValue | undefined): StyledLine {
-  if (bg === undefined || line.plain === '') return line;
+  // fillBg 在场行（⑥ diff 行 bg 带）整行跳过：该行自持 bg 面（runs 已含
+  // diffAddedBg/diffRemovedBg + fillBg 尾腿），卡面 bg 不覆写（局部覆盖律）
+  if (bg === undefined || line.plain === '' || line.fillBg !== undefined) return line;
   const runs: StyleRun[] = [];
   let cursor = 0;
   for (const run of line.runs) {
@@ -660,56 +703,298 @@ function renderPlainBodyLines(body: readonly string[], columns: number): StyledL
   return lines;
 }
 
-/** diff 卡体行：patch 判形 + 1 删 1 增词级高亮（长行截断不折行——游程几何保简） */
-function renderDiffBodyLines(body: readonly string[], columns: number, theme: ResolvedTheme): StyledLine[] {
-  const patch = parsePatchLines(body.join('\n'));
+/* ---------------- ⑥ diff 档段几何与 bg 双通道（R-5 件 C——codex 对标） ---------------- */
+
+/** diff 块体 4 空格缩进（codex diff 前缀位——块体各行共享） */
+const DIFF_INDENT = '    ';
+/** diff 位 tab 展开档（07 §4.3 ⑥——全域缺省 2 维持，diff 位专用 4） */
+const DIFF_TAB_WIDTH = 4;
+
+/** 段行 kind（渲染位形——meta 已被段结构化消费） */
+type DiffRowKind = 'ctx' | 'del' | 'add';
+
+/** 计数括号串与游程（`(+N −M)`——+N 绿/−M 红/括号默认色；runs 相对串起点） */
+function diffCountRuns(added: number, removed: number, theme: ResolvedTheme): { text: string; runs: StyleRun[] } {
+  const addedText = `+${added}`;
+  const removedText = `−${removed}`;
+  return {
+    text: `(${addedText} ${removedText})`,
+    runs: [
+      { start: 1, end: 1 + addedText.length, style: { fg: theme.diffAdded } },
+      {
+        start: 2 + addedText.length,
+        end: 2 + addedText.length + removedText.length,
+        style: { fg: theme.diffRemoved },
+      },
+    ],
+  };
+}
+
+/** 段 added 行数（'+' 标记行——计数括号与卡头总计数消费） */
+function sectionAdded(section: PatchSection): number {
+  return section.lines.filter((line) => line.kind === 'add').length;
+}
+
+/** 段 removed 行数（'-' 标记行） */
+function sectionRemoved(section: PatchSection): number {
+  return section.lines.filter((line) => line.kind === 'del').length;
+}
+
+/**
+ * diff 卡头行（成功卡专用形）：`• ` dim + 动词 bold + 路径 + `(+N −M)` 计数
+ * 括号。单文件动词随段（Added/Deleted/Edited）+ 路径在头（无段头）；多文件
+ * `Edited N files` + 总计数（N = 去重路径数——同文件多段罕见形按路径数计）。
+ * delete 段无行体 → 无计数括号（无行体无计数——诚实）。
+ */
+function renderDiffHeaderLine(sections: readonly PatchSection[], columns: number, theme: ResolvedTheme): StyledLine {
+  const verbOf = (section: PatchSection): string =>
+    section.kind === 'add' ? 'Added' : section.kind === 'delete' ? 'Deleted' : 'Edited';
+  let plain: string;
+  let runs: StyleRun[];
+  if (sections.length === 1) {
+    const section = sections[0]!;
+    const verb = verbOf(section);
+    plain = `• ${verb} ${sanitizeLineText(section.path)}`;
+    runs = [
+      { start: 0, end: 2, style: DIM_STYLE }, // '• '
+      { start: 2, end: 2 + verb.length, style: { bold: true } }, // 动词段
+    ];
+    if (section.kind !== 'delete') {
+      const counts = diffCountRuns(sectionAdded(section), sectionRemoved(section), theme);
+      const base = plain.length + 1;
+      plain += ` ${counts.text}`;
+      runs.push(...counts.runs.map((run) => ({ ...run, start: run.start + base, end: run.end + base })));
+    }
+  } else {
+    const fileCount = new Set(sections.map((section) => section.path)).size;
+    plain = `• Edited ${fileCount} ${fileCount === 1 ? 'file' : 'files'}`;
+    runs = [
+      { start: 0, end: 2, style: DIM_STYLE },
+      { start: 2, end: 8, style: { bold: true } }, // 'Edited'
+    ];
+    const totalAdded = sections.reduce((sum, section) => sum + sectionAdded(section), 0);
+    const totalRemoved = sections.reduce((sum, section) => sum + sectionRemoved(section), 0);
+    const counts = diffCountRuns(totalAdded, totalRemoved, theme);
+    const base = plain.length + 1;
+    plain += ` ${counts.text}`;
+    runs.push(...counts.runs.map((run) => ({ ...run, start: run.start + base, end: run.end + base })));
+  }
+  return capStyledLine({ plain, runs }, columns);
+}
+
+/** 多文件段头行：`  └ ` dim + 路径裸 + 计数红绿（delete 段无计数括号） */
+function renderDiffSectionHeaderLine(section: PatchSection, columns: number, theme: ResolvedTheme): StyledLine {
+  let plain = `  └ ${sanitizeLineText(section.path)}`;
+  const runs: StyleRun[] = [{ start: 0, end: 4, style: DIM_STYLE }]; // '  └ '
+  if (section.kind !== 'delete') {
+    const counts = diffCountRuns(sectionAdded(section), sectionRemoved(section), theme);
+    const base = plain.length + 1;
+    plain += ` ${counts.text}`;
+    runs.push(...counts.runs.map((run) => ({ ...run, start: run.start + base, end: run.end + base })));
+  }
+  return capStyledLine({ plain, runs }, columns);
+}
+
+/**
+ * diff 段集 → 行集：多文件逐段 `  └` 段头 + 段间空行（单文件段头 skip——
+ * 路径已在卡头）；段体行号流见 renderDiffSectionBodyLines 注。
+ */
+function renderDiffSectionLines(
+  sections: readonly PatchSection[],
+  columns: number,
+  theme: ResolvedTheme,
+  startLines: ReadonlyArray<number | undefined> | undefined,
+): StyledLine[] {
+  const lines: StyledLine[] = [];
+  sections.forEach((section, i) => {
+    if (i > 0) lines.push({ plain: '', runs: [] }); // 段间空行
+    if (sections.length > 1) lines.push(renderDiffSectionHeaderLine(section, columns, theme));
+    lines.push(...renderDiffSectionBodyLines(section, columns, theme, startLines?.[i]));
+  });
+  return lines;
+}
+
+/**
+ * 段体行集：行号流 + 逐行几何。行号流——update 段双计数器自 startLine 起
+ * （ctx 显旧侧号两侧同进、del 旧侧、add 新侧；add 段自 1；startLine 缺席
+ * 〔失败/回执缺席〕全空号——诚实缺席非伪号）。1 删 1 增相邻对走词级
+ * intra-line 高亮（R4 主形态维持）；孤立删/增整行红/绿（R4 前景律——含
+ * 号槽/符号列整行着色）；ctx 裸。tab 4 档消毒先行。
+ */
+function renderDiffSectionBodyLines(
+  section: PatchSection,
+  columns: number,
+  theme: ResolvedTheme,
+  startLine: number | undefined,
+): StyledLine[] {
+  if (section.kind === 'delete') return []; // 纯删除段无行体（只有卡头/段头）
+  // 行号计数器：update 双侧同起 startLine；add 段新侧自 1（旧侧不在场）
+  let oldNo: number | undefined = section.kind === 'update' ? startLine : undefined;
+  let newNo: number | undefined = section.kind === 'add' ? 1 : startLine;
+  const rows: Array<{ kind: DiffRowKind; text: string; lineNo: number | undefined }> = [];
+  for (const line of section.lines) {
+    // ctx 行剥文法前导空格（apply_patch ctx 标记列——符号列自置空格）
+    const text = line.kind === 'ctx' && line.text.startsWith(' ') ? line.text.slice(1) : line.text;
+    if (line.kind === 'ctx') {
+      // add 段宽容 ctx 按内容收（号随新侧）；update 段 ctx 显旧侧号
+      rows.push({ kind: 'ctx', text, lineNo: section.kind === 'add' ? newNo : oldNo });
+      if (oldNo !== undefined) oldNo++;
+      if (newNo !== undefined) newNo++;
+    } else if (line.kind === 'del') {
+      rows.push({ kind: 'del', text, lineNo: oldNo });
+      if (oldNo !== undefined) oldNo++;
+    } else {
+      rows.push({ kind: 'add', text, lineNo: newNo });
+      if (newNo !== undefined) newNo++;
+    }
+  }
+  // 号槽宽 = 段内显号最大位数（min 1——无号段空槽 1，符号列跨行恒对齐）
+  const gutterWidth = Math.max(1, ...rows.map((row) => (row.lineNo === undefined ? 0 : String(row.lineNo).length)));
   const lines: StyledLine[] = [];
   let i = 0;
-  while (i < patch.length) {
-    const line = patch[i]!;
-    // 1 删 1 增相邻对：词级 intra-line 高亮（R4 条款主形态）
-    if (line.kind === 'del' && patch[i + 1]?.kind === 'add') {
-      const add = patch[i + 1]!;
-      lines.push(...renderWordDiffPair(line, add, columns, theme));
+  while (i < rows.length) {
+    const row = rows[i]!;
+    if (row.kind === 'del' && rows[i + 1]?.kind === 'add') {
+      // 词级对（R4 主形态）：del 行 + add 行各带号与 bg，变字段段着色锚段裸
+      const add = rows[i + 1]!;
+      const delText = sanitizeLineText(row.text, DIFF_TAB_WIDTH);
+      const addText = sanitizeLineText(add.text, DIFF_TAB_WIDTH);
+      const segs = diffWords(delText, addText);
+      lines.push(
+        ...diffRowStyledLines(
+          'del',
+          delText,
+          row.lineNo,
+          gutterWidth,
+          columns,
+          theme,
+          segRuns(segs, 'del', theme.diffRemoved, 0),
+          false,
+        ),
+      );
+      lines.push(
+        ...diffRowStyledLines(
+          'add',
+          addText,
+          add.lineNo,
+          gutterWidth,
+          columns,
+          theme,
+          segRuns(segs, 'add', theme.diffAdded, 0),
+          false,
+        ),
+      );
       i += 2;
       continue;
     }
-    lines.push(renderSinglePatchLine(line, columns, theme));
+    // 孤立行整行红/绿（含号槽/符号列——R4 整行前景律）；ctx 裸（无色无 bg）
+    const text = sanitizeLineText(row.text, DIFF_TAB_WIDTH);
+    const fg = row.kind === 'del' ? theme.diffRemoved : row.kind === 'add' ? theme.diffAdded : undefined;
+    lines.push(
+      ...diffRowStyledLines(
+        row.kind,
+        text,
+        row.lineNo,
+        gutterWidth,
+        columns,
+        theme,
+        fg === undefined ? [] : wholeRun(text, { fg }),
+        fg !== undefined, // 整行着色旗（前缀段并入 fg——词级对行前缀恒裸）
+      ),
+    );
     i++;
   }
   return lines;
 }
 
-/** 词级对行：删行（变更词红）+ 增行（变更词绿）——same 段裸、变段着色 */
-function renderWordDiffPair(del: PatchLine, add: PatchLine, columns: number, theme: ResolvedTheme): StyledLine[] {
-  // 构造位消毒先行（B-render 批）：词元切分与测宽截断都以消毒后文本为基
-  // （tab 展开记宽 2——修前 tab 记宽 1、发射展开 2 空格致超帽行 autowrap
-  // 漂移物理行账；游程进位 = 消毒后段长，段几何与 plain 一致）
-  const delBody = sanitizeLineText(del.text);
-  const addBody = sanitizeLineText(add.text);
-  const segs = diffWords(delBody, addBody);
-  const delRuns = segRuns(segs, 'del', theme.diffRemoved, 1); // 偏移 1 = '-' 前缀
-  const addRuns = segRuns(segs, 'add', theme.diffAdded, 1); // 偏移 1 = '+' 前缀
-  // 超宽走 … 记号（界面美化役批①——被切行与真实行尾可辨；尾段着色吞记号）
-  const delText = `-${delBody}`;
-  const addText = `+${addBody}`;
-  return [
-    capStyledLine({ plain: delText, runs: clampRuns(delRuns, delText.length) }, columns),
-    capStyledLine({ plain: addText, runs: clampRuns(addRuns, addText.length) }, columns),
-  ];
+/**
+ * 单 diff 行 → 带样式行集（⑥ 行几何核心）：首行 = 4 空格 + 右对齐号槽（缺
+ * 席 = 空槽）+ 空格 + 符号列（+/−/空格）+ 内容；续行 = 内容列对齐（4 +
+ * gutterWidth + 2 空格）。内容列**硬折行**（字素推进硬切——整字截断退役，
+ * 前导空格保留：内容对齐是代码 diff 的语义）；contentRuns 相对内容串起点，
+ * 按源区间交集平移到各折行段（游程跨折行边界保留）。paintWholeRow = 整行
+ * 着色旗（孤立行——各折行段整行单游程 fg）。bg 双通道：del/add 行 bg 键在
+ * 场 → 文本 extent runs 洞补 + fillBg 尾腿（BCE 全宽）；缺席腿前景独行。
+ * 全行恒过整行帽（极窄屏 < 8 列兜底截断——发射宽恒 ≤ 屏宽）。
+ */
+function diffRowStyledLines(
+  kind: DiffRowKind,
+  content: string,
+  lineNo: number | undefined,
+  gutterWidth: number,
+  columns: number,
+  theme: ResolvedTheme,
+  contentRuns: StyleRun[],
+  paintWholeRow: boolean,
+): StyledLine[] {
+  const sign = kind === 'del' ? '-' : kind === 'add' ? '+' : ' ';
+  const gutter = lineNo === undefined ? ' '.repeat(gutterWidth) : String(lineNo).padStart(gutterWidth);
+  const contentCol = DIFF_INDENT.length + gutterWidth + 2; // 首行内容列 = 续行内容列
+  const segments = wrapByGraphemes(content, Math.max(1, columns - contentCol));
+  const bg = kind === 'add' ? theme.diffAddedBg : kind === 'del' ? theme.diffRemovedBg : undefined;
+  const lines: StyledLine[] = [];
+  for (let s = 0; s < segments.length; s++) {
+    const seg = segments[s]!;
+    const prefix = s === 0 ? `${DIFF_INDENT}${gutter} ${sign}` : ' '.repeat(contentCol);
+    const plain = `${prefix}${seg.text}`;
+    const rowRuns = paintWholeRow
+      ? wholeRun(plain, contentRuns[0]?.style ?? {}) // 孤立行：整行（含号槽/符号列）单游程
+      : mapRunsOntoSegment(contentRuns, seg.start, seg.end, prefix.length);
+    if (bg !== undefined) {
+      // bg 在场：文本 extent 全覆盖（前缀/游程间洞补裸 bg）+ fillBg 尾腿铺屏宽
+      const merged: StyleRun[] = [];
+      let cursor = 0;
+      for (const run of rowRuns) {
+        if (run.start > cursor) merged.push({ start: cursor, end: run.start, style: { bg } });
+        merged.push({ ...run, style: { ...run.style, bg } });
+        cursor = Math.max(cursor, run.end);
+      }
+      if (cursor < plain.length) merged.push({ start: cursor, end: plain.length, style: { bg } });
+      // cap 后回填 fillBg（capStyledLine 重建行对象不带尾腿字段）
+      lines.push({ ...capStyledLine({ plain, runs: merged }, columns), fillBg: bg });
+    } else {
+      lines.push(capStyledLine({ plain, runs: rowRuns }, columns)); // bg 缺席腿：前景独行
+    }
+  }
+  return lines;
 }
 
-/** 孤立行整行着色：删红 / 增绿 / meta dim / ctx 裸行（超宽 … 记号——整行着色吞入） */
-function renderSinglePatchLine(line: PatchLine, columns: number, theme: ResolvedTheme): StyledLine {
-  const prefix = line.kind === 'del' || line.kind === 'add' ? (line.kind === 'del' ? '-' : '+') : '';
-  // 构造位消毒先行（B-render 批）——patch 体是模型生成真源码、tab 缩进日常
-  const text = sanitizeLineText(prefix + line.text);
-  if (line.kind === 'del')
-    return capStyledLine({ plain: text, runs: wholeRun(text, { fg: theme.diffRemoved }) }, columns);
-  if (line.kind === 'add')
-    return capStyledLine({ plain: text, runs: wholeRun(text, { fg: theme.diffAdded }) }, columns);
-  if (line.kind === 'meta') return capStyledLine({ plain: text, runs: wholeRun(text, DIM_STYLE) }, columns);
-  return capStyledLine({ plain: text, runs: [] }, columns);
+/**
+ * 内容列硬折行（字素推进硬切）：产出源串 UTF-16 区间随段携带（供游程交集
+ * 映射）；空内容单空段（首行仍出——bg 带形）。与 wrapText 分立：diff 内容
+ * 列保真优先（wrapText 续行跳行首空格会丢字符——内容对齐是代码 diff 的语义）。
+ */
+function wrapByGraphemes(text: string, avail: number): Array<{ text: string; start: number; end: number }> {
+  if (text === '') return [{ text: '', start: 0, end: 0 }];
+  const segments: Array<{ text: string; start: number; end: number }> = [];
+  let current = '';
+  let start = 0;
+  let width = 0;
+  for (const grapheme of splitGraphemes(text)) {
+    const w = graphemeWidth(grapheme);
+    // 硬切：累计宽超内容列即断段（当前段非空——单字素超列直接入段由整行帽兜底）
+    if (current !== '' && width + w > avail) {
+      segments.push({ text: current, start, end: start + current.length });
+      start += current.length;
+      current = '';
+      width = 0;
+    }
+    current += grapheme;
+    width += w;
+  }
+  if (current !== '') segments.push({ text: current, start, end: start + current.length });
+  return segments;
+}
+
+/** 内容游程 → 折行段源区间交集平移（游程跨折行边界保留——各段各持交集片） */
+function mapRunsOntoSegment(runs: readonly StyleRun[], segStart: number, segEnd: number, offset: number): StyleRun[] {
+  const out: StyleRun[] = [];
+  for (const run of runs) {
+    const start = Math.max(run.start, segStart);
+    const end = Math.min(run.end, segEnd);
+    if (start < end) out.push({ start: start - segStart + offset, end: end - segStart + offset, style: run.style });
+  }
+  return out;
 }
 
 /** 段族 → 游程（目标类段着色、其余裸；offset = 前缀字符位平移） */
@@ -754,8 +1039,8 @@ function wholeRun(text: string, style: CellStyle): StyleRun[] {
  * 导出单源（backend/transcript 简行族 argsBrief/resultBrief 同律消费——
  * 2026-09-21 补修批升格；依赖方向 backend→blocks 既有）。
  */
-export function sanitizeLineText(text: string): string {
-  return sanitizeDisplayText(text).replace(/\n/g, ' ');
+export function sanitizeLineText(text: string, tabWidth = 2): string {
+  return sanitizeDisplayText(text, tabWidth).replace(/\n/g, ' ');
 }
 
 /** 折叠预览整面 dim（既有游程样式并入 dim——diff 色保留亮度降档） */

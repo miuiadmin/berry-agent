@@ -133,10 +133,19 @@ export function parseApplyPatch(text: string): PatchOperation[] {
 
 /**
  * 对单文件内容应用 Update 行流：在原行序列中滑窗找**首个**完全匹配点，替
- * 换后返回新内容。匹配 = 行流中 context/removed 行与原文连续片段逐行全等
- * （added 行不参与匹配）；无匹配点 = 补丁基于过时内容，FS_PATCH_FAILED 拒。
+ * 换后返回新内容 + 匹配位行号。匹配 = 行流中 context/removed 行与原文连续
+ * 片段逐行全等（added 行不参与匹配）；无匹配点 = 补丁基于过时内容，
+ * FS_PATCH_FAILED 拒。
+ *
+ * 返回 startLine（1-based）= hunk 首行（context/removed 首行）在原文的行号
+ * ——edit 回执 operations 注入此值，TUI diff 档行号源（07 §4.3 ⑥：apply_patch
+ * 文法无 @@ hunk 头，行号唯一诚实源 = 本滑窗匹配位）。
  */
-export function applyUpdateLines(path: string, source: string, patchLines: PatchLine[]): string {
+export function applyUpdateLines(
+  path: string,
+  source: string,
+  patchLines: PatchLine[],
+): { content: string; startLine: number } {
   const original = source.split('\n');
   // 尾换行剥除记号：原文以 \n 收尾时 split 产空尾，应用后按原样补回
   const hadTrailingNewline = source.endsWith('\n');
@@ -170,7 +179,8 @@ export function applyUpdateLines(path: string, source: string, patchLines: Patch
     replacement.push(line.text);
   }
   const merged = [...original.slice(0, matchAt), ...replacement, ...original.slice(matchAt + matchSeq.length)];
-  return merged.length === 0 ? '' : `${merged.join('\n')}${hadTrailingNewline ? '\n' : ''}`;
+  const content = merged.length === 0 ? '' : `${merged.join('\n')}${hadTrailingNewline ? '\n' : ''}`;
+  return { content, startLine: matchAt + 1 }; // 1-based：hunk 首行在原文的行号
 }
 
 /** Add 行流 → 文件内容（全 added；context 行在 Add 语义下也按内容收——宽容） */

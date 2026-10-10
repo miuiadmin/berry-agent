@@ -120,20 +120,28 @@ describe('parseApplyPatch（解析面）', () => {
   });
 });
 
-describe('applyUpdateLines（Update 定位与应用）', () => {
+describe('applyUpdateLines（Update 定位与应用——⑥ 行号源：返回 { content, startLine }）', () => {
   const ctx = [{ tag: 'context' as const, text: 'keep' }];
   const del = [{ tag: 'removed' as const, text: 'gone' }];
 
   it('context 锚定位替换：锚行保留、删除行移除、新增行落入', () => {
     const lines = [...ctx, ...del, { tag: 'added' as const, text: 'fresh' }];
-    expect(applyUpdateLines('f', 'head\nkeep\ngone\ntail', lines)).toBe('head\nkeep\nfresh\ntail');
+    expect(applyUpdateLines('f', 'head\nkeep\ngone\ntail', lines).content).toBe('head\nkeep\nfresh\ntail');
   });
 
-  it('多个匹配点取首个出现处（贪心首匹配）', () => {
+  it('startLine = hunk 首行在原文的 1-based 行号（TUI diff 行号源）', () => {
+    // matchSeq = [keep, gone] 在 [head, keep, gone, tail] 匹配位 0-based 1 → 1-based 2
+    const lines = [...ctx, ...del, { tag: 'added' as const, text: 'fresh' }];
+    const { content, startLine } = applyUpdateLines('f', 'head\nkeep\ngone\ntail', lines);
+    expect(content).toBe('head\nkeep\nfresh\ntail');
+    expect(startLine).toBe(2);
+  });
+
+  it('多个匹配点取首个出现处（贪心首匹配——startLine 同源首匹配位）', () => {
     const lines = [...del];
-    expect(applyUpdateLines('f', 'gone\nX\ngone\ngone', [...lines, { tag: 'added', text: 'once' }])).toBe(
-      'once\nX\ngone\ngone',
-    );
+    const result = applyUpdateLines('f', 'gone\nX\ngone\ngone', [...lines, { tag: 'added', text: 'once' }]);
+    expect(result.content).toBe('once\nX\ngone\ngone');
+    expect(result.startLine).toBe(1);
   });
 
   it('锚不在场 → FS_PATCH_FAILED（定位失败，文件可能已被修改）', () => {
@@ -146,11 +154,13 @@ describe('applyUpdateLines（Update 定位与应用）', () => {
 
   it('尾换行保形：原文以 \n 收尾 → 产物同以 \n 收尾', () => {
     // 锚行保留 + 新增行落入：a,keep,[z],c —— 尾 \n 保形
-    expect(applyUpdateLines('f', 'a\nkeep\nc\n', [...ctx, { tag: 'added', text: 'z' }])).toBe('a\nkeep\nz\nc\n');
+    expect(applyUpdateLines('f', 'a\nkeep\nc\n', [...ctx, { tag: 'added', text: 'z' }]).content).toBe(
+      'a\nkeep\nz\nc\n',
+    );
   });
 
   it('无尾换行形：原文不以 \n 收尾 → 产物同形', () => {
-    expect(applyUpdateLines('f', 'a\nkeep\nc', [...ctx, { tag: 'added', text: 'z' }])).toBe('a\nkeep\nz\nc');
+    expect(applyUpdateLines('f', 'a\nkeep\nc', [...ctx, { tag: 'added', text: 'z' }]).content).toBe('a\nkeep\nz\nc');
   });
 });
 

@@ -175,7 +175,7 @@ describe('write（观察态分派 + fence）', () => {
 describe('edit（apply_patch 两阶段：全检后写）', () => {
   const patchOf = (...lines: string[]): string => ['*** Begin Patch', ...lines, '*** End Patch'].join('\n');
 
-  it('Update File：先读后改（context 锚定位替换）', async () => {
+  it('Update File：先读后改（context 锚定位替换；回执 operations 注 startLine——⑥ diff 行号源）', async () => {
     await exec('write', { path: 'code.ts', content: 'a\nkeep\nb\n' });
     await exec('read', { path: 'code.ts' });
     const result = await exec('edit', {
@@ -183,6 +183,36 @@ describe('edit（apply_patch 两阶段：全检后写）', () => {
     });
     expect(firstText(result)).toContain('updated code.ts');
     expect(await readFile(join(root, 'code.ts'), 'utf8')).toBe('a\nkeep\nc\n');
+    // matchSeq = [keep, b] 在 [a, keep, b] 匹配位 0-based 1 → startLine 2（1-based）
+    // path 锚用 realpath 解（macOS mkdtemp 落 /var symlink，回执 canonical 是 /private/var 真身）
+    const real = await realpath(root);
+    expect(result.details).toEqual({
+      operations: [{ op: 'update', path: join(real, 'code.ts'), startLine: 2 }],
+    });
+  });
+
+  it('回执 operations 段序注记：update 注 startLine / add·delete 不注（add 行号自 1 自明、delete 无行体）', async () => {
+    await exec('write', { path: 'mix.txt', content: 'p\nq\n' });
+    await exec('read', { path: 'mix.txt' });
+    const result = await exec('edit', {
+      patch: patchOf(
+        '*** Update File: mix.txt',
+        '-p',
+        '+P',
+        '*** Add File: extra.txt',
+        '+x',
+        '*** Delete File: mix.txt',
+      ),
+    });
+    // path 锚用 realpath 解（同上——回执 canonical 是 symlink 真身）
+    const real = await realpath(root);
+    expect(result.details).toEqual({
+      operations: [
+        { op: 'update', path: join(real, 'mix.txt'), startLine: 1 },
+        { op: 'add', path: join(real, 'extra.txt') },
+        { op: 'delete', path: join(real, 'mix.txt') },
+      ],
+    });
   });
 
   it('Update 未读 → FS_NOT_OBSERVED', async () => {

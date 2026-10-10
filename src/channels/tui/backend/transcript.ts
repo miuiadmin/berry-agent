@@ -136,6 +136,12 @@ export type TranscriptBlock =
       readonly status: ToolCardStatus;
       readonly body: readonly string[];
       readonly diff: boolean;
+      /**
+       * diff 段行号源（07 §4.3 ⑥——edit 成功回执注入）：operations[].startLine
+       * 按补丁段序对齐（undefined 填充——add/delete/缺席段）；整缺席 = 号槽
+       * 整列空白（诚实缺席）。铸入位 = buildToolCard edit 补丁腿。
+       */
+      readonly diffStartLines?: ReadonlyArray<number | undefined>;
       readonly expanded: boolean;
       readonly theme: ResolvedTheme;
       /**
@@ -1344,6 +1350,9 @@ export class LiveTranscript {
     // edit 词级 diff 档：patch 参数体作卡体（R4「参数对」语义——呈现的是改了什么）
     const isEditPatch = call.name === 'edit' && typeof call.arguments.patch === 'string';
     const bodyText = isEditPatch ? (call.arguments.patch as string) : textOf(message);
+    // ⑥ diff 行号源：成功回执 operations 段序提取（update 注 startLine；失败/
+    // 回执缺席/非法形 → undefined——渲染面行号槽空白整列，诚实缺席非伪号）
+    const diffStartLines = isEditPatch ? extractDiffStartLines(message.details) : undefined;
     // background 委派卡体抑制（07 §4.1 V-0 注①——起跑回执退役入面板行）：
     // 模型面结果文本不动（回执是模型的委派知情位），用户面卡体零行（过程
     // 呈现归 JobPanel 运行行）；one-shot agent / 普通工具卡体照常
@@ -1359,6 +1368,7 @@ export class LiveTranscript {
       status,
       body: isBackgroundDelegation ? [] : cardBodyOf(bodyText),
       diff: isEditPatch,
+      ...(diffStartLines !== undefined ? { diffStartLines } : {}),
       expanded: this.toolCardsExpanded,
       theme: this.theme,
       durationMs,
@@ -1384,6 +1394,26 @@ export class LiveTranscript {
       this.blocks = this.blocks.slice(this.blocks.length - this.blockCap);
     }
   }
+}
+
+/**
+ * edit 回执 operations → diff 档行号序列（07 §4.3 ⑥——纯函数）：与 patch 段
+ * 序同源对齐（同一 patch 体两侧解析，段序一致），update 段取 startLine、
+ * add/delete 段 undefined 占位。防御：details 非法形（operations 非数组/项非
+ * 对象/startLine 非数）整席缺席返回 undefined——渲染面以 undefined 判「行号
+ * 不可知」走空槽腿（诚实缺席，不造伪号）。
+ */
+function extractDiffStartLines(details: unknown): ReadonlyArray<number | undefined> | undefined {
+  if (typeof details !== 'object' || details === null) return undefined;
+  const operations = (details as { operations?: unknown }).operations;
+  if (!Array.isArray(operations) || operations.length === 0) return undefined;
+  const starts: Array<number | undefined> = [];
+  for (const item of operations) {
+    if (typeof item !== 'object' || item === null) return undefined;
+    const startLine = (item as { startLine?: unknown }).startLine;
+    starts.push(typeof startLine === 'number' ? startLine : undefined);
+  }
+  return starts;
 }
 
 /**

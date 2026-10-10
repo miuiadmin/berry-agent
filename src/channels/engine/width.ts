@@ -102,9 +102,11 @@ const ZERO_WIDTH_CODE_POINTS = new Set([0x200b, 0x200c, 0x200d, 0x00ad, 0x2060, 
  * ④ 孤立零宽字素（单码点格式控制）→ 0（2026-09-20 增——算术面与 cell.ts
  *    网格面零宽防御位对齐，ZWSP 伪装可见字符占列的失真收口）；
  * ⑤ tab（U+0009）→ 2（2026-09-21 TUI 第四役批二增——语义展开两空格，与
- *    sanitizeDisplayText 的 tab→2 空格、cell.ts writeText 的落格展开三面
- *    单源；编辑器粘贴路 tab 原样入模型不经消毒，模型侧全部宽度算术
- *    〔折行/光标列/垂直移动〕在此记 2 使与落格账对齐）；
+ *    sanitizeDisplayText 的 tab→2 空格〔缺省全域档〕、cell.ts writeText 的
+ *    落格展开三面单源；2026-10-10 R-5 件 C 注记：diff 位消费 4 空格档
+ *    〔07 §4.3 ⑥〕——tab 在构造位已被 sanitize 展开为空格、测宽不遇 tab，
+ *    本规则仍记全域缺省 2；编辑器粘贴路 tab 原样入模型不经消毒，模型侧
+ *    全部宽度算术〔折行/光标列/垂直移动〕在此记 2 使与落格账对齐）；
  * ⑥ 其余 → 1。
  */
 export function graphemeWidth(grapheme: string): 0 | 1 | 2 {
@@ -177,14 +179,15 @@ export function ellipsize(text: string, width: number): string {
 
 /**
  * 控制字符消毒（单源——inline 呈现面源头消毒，2026-09-20 TUI 修复组 1）：
- * - tab → 2 空格（语义展开，非剥除——列对齐意图保留）；
+ * - tab → 语义展开空格（非剥除——列对齐意图保留；缺省 2 空格全域档，diff 档
+ *   消费 4 空格档〔07 §4.3 ⑥——tabWidth 参数化，缺省值即全域档维持〕）；
  * - LF 保留（段语义——调用方分段折行）、CR 剥除（CRLF 归一 LF）；
  * - ESC 序列整段剥除：CSI（ESC [ … final 0x40–0x7E）/ OSC（ESC ] … BEL 或
  *   ST）/ 传统式（ESC + 中间码 0x20–0x2F + final 0x30–0x7E）——呈现文本里
  *   的 ESC 序列是模型输出或网关报文夹带的转义残留，落屏即伪控制；
  * - 其余 C0（<0x20）与 DEL 剥除（与 cell.ts 网格面零控制字节律同律）。
  */
-export function sanitizeDisplayText(text: string): string {
+export function sanitizeDisplayText(text: string, tabWidth = 2): string {
   let out = '';
   let i = 0;
   while (i < text.length) {
@@ -195,7 +198,7 @@ export function sanitizeDisplayText(text: string): string {
       continue;
     }
     if (code === 0x09) {
-      out += '  '; // tab 语义展开 2 空格
+      out += ' '.repeat(tabWidth); // tab 语义展开（缺省 2 = 全域档；diff 位 4）
       i++;
       continue;
     }

@@ -465,8 +465,11 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
       // resolveTarget/canonicalize 归一同键同并入——旧形 Map 存单 op、同键
       // set 覆写致前段静默丢弃系缺陷，2026-09-14 批勘正为按序生效）。
       // sessionId 穿线（F2 M1）——fence 按本会话档位解根
-      const targets = new Map<string, Array<{ op: PatchOperation; abs: string }>>();
-      for (const op of ops) {
+      // targets 段项记补丁全局段序号 index（阶段二按补丁序落盘/回执——分组
+      // 只是同键并链做阶段一链式核算，落盘与回执序 = 补丁序〔04 §7「补丁序
+      // 即应用序」〕；TUI diff 档 diffStartLines 按段序索引对齐消费）
+      const targets = new Map<string, Array<{ op: PatchOperation; abs: string; index: number }>>();
+      for (const [index, op] of ops.entries()) {
         const abs = resolveTarget(op.path);
         const canonical = await assertWritable(abs, toolCtx.sessionId);
         // 读侧 carve-out 路径判（04 §7 定形⑤——2026-09-08 P0①）：edit 的隐式
@@ -475,14 +478,21 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
         // 篡改敏感件同面，敏感件归 persist 自管不归 fs 工具族）
         rejectProtectedReadPath(canonical, protectedReadFiles);
         const segments = targets.get(canonical);
-        if (segments === undefined) targets.set(canonical, [{ op, abs }]);
-        else segments.push({ op, abs }); // 同键后段尾插——补丁序即应用序
+        if (segments === undefined) targets.set(canonical, [{ op, abs, index }]);
+        else segments.push({ op, abs, index }); // 同键后段尾插——段链内序 = 补丁子序
       }
       // 两阶段全段入链：阶段一的读-CAS-算内容与阶段二的顺序落盘在同一互
       // 斥段内（阶段间窗口的并发写会让「已校验内容」过期——全段互斥才闭合）
       return serializeWrites([...targets.keys()], async () => {
         /** 阶段一产物：通过全部校验、目标内容已就绪的待应用操作（总段数计——回执计数源） */
-        const planned: Array<{ op: PatchOperation; abs: string; canonical: string; content?: string }> = [];
+        const planned: Array<{
+          op: PatchOperation;
+          abs: string;
+          canonical: string;
+          index: number;
+          content?: string;
+          startLine?: number;
+        }> = [];
         for (const [canonical, segments] of targets) {
           // 盘上真态只查一次（阶段一零落盘——组内全程不变）；首段守卫（未读
           // 拒 / CAS 指纹 / Add 在场拒）以此为准
@@ -497,7 +507,7 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
            * （FS_PATCH_FAILED），不进半途落盘窗。
            */
           let staged: { exists: boolean; content?: string } | undefined;
-          for (const { op, abs } of segments) {
+          for (const { op, abs, index } of segments) {
             if (op.kind === 'update') {
               // 内容源分派：首段 = 盘上守卫读；后段 = 前段产物（按序链式）
               let text: string;
@@ -520,9 +530,10 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
                 }
                 text = staged.content!;
               }
-              const content = applyUpdateLines(abs, text, op.lines);
+              const { content, startLine } = applyUpdateLines(abs, text, op.lines);
               staged = { exists: true, content };
-              planned.push({ op, abs, canonical, content });
+              // startLine 随段注记（⑥ diff 行号源——TUI 档消费，见阶段二注释）
+              planned.push({ op, abs, canonical, index, content, startLine });
             } else if (op.kind === 'add') {
               if (staged === undefined) {
                 if (currentRef !== undefined) {
@@ -541,7 +552,7 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
               }
               const content = addLinesToContent(op.lines);
               staged = { exists: true, content };
-              planned.push({ op, abs, canonical, content });
+              planned.push({ op, abs, canonical, index, content });
             } else {
               // 删除守卫与 update 同款：首段删之前必须读过（知道删的是什
               // 么）；后段只查段链在场性——重复删在阶段一即拒
@@ -554,7 +565,7 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
                 );
               }
               staged = { exists: false };
-              planned.push({ op, abs, canonical });
+              planned.push({ op, abs, canonical, index });
             }
           }
         }
@@ -563,9 +574,16 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
            径；同文件多段逐段落盘〔中间态短暂可见——与跨文件顺序应用同一
            非原子语义声明〕，末段即终态，回计按总段数报） */
         const summary: string[] = [];
-        /** 结构化操作账（消费面 = 后续诊断注入等按 op 分型的面） */
-        const operations: Array<{ op: string; path: string }> = [];
-        for (const item of planned) {
+        /**
+         * 结构化操作账（消费面 = TUI diff 档行号源 + 后续诊断注入等按 op 分型
+         * 的面）。update 段注 startLine（1-based 旧侧起点——07 §4.3 ⑥：apply_
+         * patch 文法无 @@ hunk 头，行号唯一诚实源 = 定位滑窗匹配位）；add 段
+         * 行号自 1 自明不注、delete 段无行体不注。
+         */
+        const operations: Array<{ op: string; path: string; startLine?: number }> = [];
+        // 补丁段序迭代（index 排序——分组并链只服务阶段一链式核算；阶段二
+        // 落盘序与回执序回归补丁序，TUI diff 档按段索引对齐 startLine）
+        for (const item of [...planned].sort((a, b) => a.index - b.index)) {
           // 段内漂移重验：每个物理写（writeFile/rm）前逐项重验——与物理写
           // 零 await 相接，多文件补丁不因前项耗时给后项留窗
           await assertTargetStable(item.abs, item.canonical);
@@ -579,7 +597,11 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
           const after = await currentVersion(item.canonical);
           if (after !== undefined) observed.observePresent(item.abs, after);
           summary.push(`${item.op.kind === 'add' ? 'added' : 'updated'} ${item.op.path}`);
-          operations.push({ op: item.op.kind, path: item.canonical });
+          operations.push(
+            item.op.kind === 'update'
+              ? { op: 'update', path: item.canonical, startLine: item.startLine }
+              : { op: item.op.kind, path: item.canonical },
+          );
         }
         return textResult(`补丁已应用（${summary.length} 个操作）：\n${summary.join('\n')}`, {
           operations,

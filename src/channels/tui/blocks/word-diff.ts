@@ -5,7 +5,8 @@
  * 词元参锚），产出 same/del/add 三类段；edit 工具的 patch 体由
  * parsePatchLines 解析为 meta/ctx/del/add 行（呈现语义的轻解析——apply_patch
  * 文法在 tools 件，本件不越件复用只取显示层判形：'***' 头行 meta、'-' 前
- * 缀删、'+' 前缀增、其余上下文）。
+ * 缀删、'+' 前缀增、其余上下文）；parsePatchSections 进一步段结构化
+ * （`*** Xxx File:` 开段——07 §4.3 ⑥ diff 档行几何消费）。
  *
  * 消费位：工具卡渲染（tool-card 件）——1 删 1 增相邻对走词级高亮（删行内
  * 变更词红、增行内变更词绿），孤立删/增整行红/绿。
@@ -89,4 +90,39 @@ export function parsePatchLines(patch: string): readonly PatchLine[] {
     if (line.startsWith('-')) return { kind: 'del', text: line.slice(1) };
     return { kind: 'ctx', text: line };
   });
+}
+
+/** patch 文件段（07 §4.3 ⑥——段结构化：kind = 段指令、lines = 段内行流） */
+export interface PatchSection {
+  readonly kind: 'update' | 'add' | 'delete';
+  readonly path: string;
+  readonly lines: readonly PatchLine[];
+}
+
+/** 文件段头指令形（`*** Update File: path` 族——路径剥指令前缀取尾段） */
+const SECTION_HEAD_RE = /^\*\*\* (Update|Add|Delete) File: (.*)$/;
+
+/**
+ * apply_patch 体解析为文件段列表（⑥ diff 档行几何消费——显示层段结构化）：
+ * `*** Update/Add/Delete File: <路径>` 开段，`*** Begin/End Patch` 及未识别
+ * meta 行剥除；段头前的悬空行防御剥除（文法外形）。空结果 = 非段形（渲染面
+ * 回落 plain 体——不装 diff 几何）。ctx 行保留 parsePatchLines 原样 text
+ * （含文法前导空格——符号列语义位由渲染位剥）。
+ */
+export function parsePatchSections(patch: string): readonly PatchSection[] {
+  const sections: PatchSection[] = [];
+  for (const line of parsePatchLines(patch)) {
+    if (line.kind === 'meta') {
+      const head = SECTION_HEAD_RE.exec(line.text);
+      if (head !== null) {
+        const kind = head[1] === 'Update' ? 'update' : head[1] === 'Add' ? 'add' : 'delete';
+        sections.push({ kind, path: head[2]!, lines: [] });
+      }
+      continue; // Begin/End Patch 与未识别 meta 剥除
+    }
+    if (sections.length === 0) continue; // 段头前悬空行（文法外防御）剥除
+    const current = sections[sections.length - 1]!;
+    sections[sections.length - 1] = { ...current, lines: [...current.lines, line] };
+  }
+  return sections;
 }

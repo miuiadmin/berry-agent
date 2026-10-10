@@ -997,6 +997,54 @@ describe('LiveTranscript 工具卡配对账（批 10i R4——直播路）', () 
     expect(card.status).toBe('success');
   });
 
+  it('edit diffStartLines 注卡：成功回执 operations 段序提取（update 注/add 不注；⑥ 行号源）', () => {
+    const t = new LiveTranscript();
+    apply(t, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'edit', arguments: { patch: '*** Begin Patch' } }]),
+    });
+    apply(t, {
+      type: 'message_end',
+      message: toolResultMsg('已应用', {
+        toolCallId: 'tc1',
+        details: {
+          operations: [
+            { op: 'update', path: '/x/a.ts', startLine: 7 },
+            { op: 'add', path: '/x/b.ts' },
+          ],
+        },
+      }),
+    });
+    const card = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(card.diffStartLines).toEqual([7, undefined]);
+  });
+
+  it('diffStartLines 缺席腿：失败/回执无 operations / 非法形 → undefined（诚实缺席非伪号）', () => {
+    const t = new LiveTranscript();
+    apply(t, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'edit', arguments: { patch: '*** Begin Patch' } }]),
+    });
+    apply(t, {
+      type: 'message_end',
+      message: toolResultMsg('定位失败', { toolCallId: 'tc1', isError: true }),
+    });
+    const failed = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(failed.diffStartLines).toBeUndefined();
+    // 非法 operations 形（防御：非数组/项非对象）同样缺席
+    const t2 = new LiveTranscript();
+    apply(t2, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'edit', arguments: { patch: '*** Begin Patch' } }]),
+    });
+    apply(t2, {
+      type: 'message_end',
+      message: toolResultMsg('已应用', { toolCallId: 'tc1', details: { operations: '坏形' } }),
+    });
+    const malformed = t2.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(malformed.diffStartLines).toBeUndefined();
+  });
+
   it('插件渲染腿载荷铸入（收官批③）：renderInput 携 toolCall 参数 + 结果全量事实；aborted 同步', () => {
     const t = new LiveTranscript();
     apply(t, {
