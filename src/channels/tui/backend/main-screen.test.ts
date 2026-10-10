@@ -721,3 +721,39 @@ describe('槽呈现尾窗化（渲染热路径 D1——冻结前缀不重渲染�
     expect((src.match(/renderSlotLines\(/g) ?? []).length).toBe(0); // 修前红锚：旧私法在场
   });
 });
+
+/* 挖掘 29 轮件 6：空态引导「放不下不写」守卫按 durable 末折算（头卡占位同缺席）。
+ * 几何：15 行屏 × 固定区 6 → 区底 = 15−6−1−1 = 7（行 0..7 共 8 行）；头卡 5 行
+ * （行 0..4，durableEndRow=4）+ 引导 5 行（行 4..8）——末行越区底 7 触滚头卡上移；
+ * 旧守卫只按全高（5 > 8 否）误放行。同几何无头卡（起笔行 0，末行 4 ≤ 7）照常
+ * 在场——同屏对照锁非全局缺席。 */
+describe('空态引导守卫扣 durable 末（挖掘 29 轮件 6——R-7 头卡占位后紧几何诚实缺席）', () => {
+  /** 头卡块（R-7 durable 首块——renderBlockLines 走 5 行框形） */
+  const headerBlock: TranscriptBlock = {
+    kind: 'session-header',
+    version: '0.1.1',
+    model: 'm1',
+    directory: '/d',
+  };
+
+  it('头卡占位后引导越区底诚实缺席（修前红：旧守卫按全高放行——末行写越区底触滚头卡上移漂账）', () => {
+    const io = new MemoryTerminalIO(COLS, 15);
+    const screen = new MainScreen(io, { fixedHeight: 6 });
+    screen.start();
+    screen.present([headerBlock]); // 头卡 5 行落账（durableEndRow=4）
+    expect(io.bytes).toContain('berry-agent'); // 头卡确在场（防误锁假绿——占位前提确达）
+    io.bytes = ''; // 收帧边界（逐帧记录语义——本文件同律）
+    screen.setEmptyGuide(['引导一', '引导二', '引导三', '引导四', '引导五']);
+    screen.present([headerBlock]); // 零对话块 + 头卡在场——drawEmptyGuide 判几何
+    expect(io.bytes).not.toContain('引导一'); // 修前红位：末行（行 8）越区底（7）——诚实缺席零画出
+  });
+
+  it('同几何无头卡照常在场（对照锁：缺席归因于 durable 末占位非全局缺席）', () => {
+    const io = new MemoryTerminalIO(COLS, 15);
+    const screen = new MainScreen(io, { fixedHeight: 6 });
+    screen.start();
+    screen.setEmptyGuide(['引导一', '引导二', '引导三', '引导四', '引导五']);
+    screen.present([]); // 零块零头卡——起笔行 0 末行 4 全在区内
+    expect(io.bytes).toContain('引导一'); // 全高容得下（8 行 ≥ 5 行）——照常在场
+  });
+});

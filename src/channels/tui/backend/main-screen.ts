@@ -306,7 +306,10 @@ export class MainScreen {
   private drawEmptyGuide(): void {
     const lines = this.emptyGuide;
     if (lines === null) return;
-    if (lines.length > this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP) {
+    // 守卫按 durable 末折算（挖掘 29 轮件 6）：引导从 durableEndRow 起笔——头卡
+    // 占位后余区不足同缺席（与 setFixed 几何收账守卫同形：durable 末 + 引导行数
+    // 超 区底 = 触滚上移头卡漂账）；纯全高判据在头卡 5 行在场时误放行
+    if (this.durableEndRow + lines.length - 1 > this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP - 1) {
       // 极小终端诚实缺席：截半字形无意义——零画出零占账（guideSig 记当前签
       // 名防稳态帧反复试探重画；行账 0 = 不占清除上界）
       this.guideRows = 0;
