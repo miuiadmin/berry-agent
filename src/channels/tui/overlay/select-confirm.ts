@@ -11,7 +11,10 @@
  *   其余修饰键维持纯吞（模态独占不穿透主屏键路）；
  * - 一次性问答不值得整屏切换——主屏浮层形态（挂 OverlayStack，不进 1049）；
  * - 面板底先铺空格再写内容（写格覆盖下层浮出内容——不写格的位置会透出
- *   主树文字）；
+ *   主树文字）；select 面板 menu surface（2026-10-10 Codex 样式复刻批 R-6）：
+ *   探测背景在场时铺 userMessageBg 底色块 + inset 上1/下1/左2/右2（「面板即
+ *   大号用户消息块」；缺席诚实回退无底色无 inset 现状形；confirm 面板不吃
+ *   底色——无选中行的两键问答，非 menu surface 族）；
  * - onFinish 单次语义（触发即完成态，后续事件静默——防连按双 resolve）；
  *   关层归装配（onFinish 回调里 close 句柄——裸件不持栈引用）。
  */
@@ -21,16 +24,18 @@ import type { CellStyle } from '../../engine/index.js';
 import { ellipsize } from '../../engine/index.js';
 import { hintLine } from '../keys/hint.js';
 import { fitRowSegments } from '../row-segments.js';
-import { CURSOR_MARK, moreHint } from '../panels/panel-chrome.js';
+import { moreHint } from '../panels/panel-chrome.js';
 import { DIM_STYLE } from '../../engine/index.js';
 
 /** 保守取消值（select——空串与撤销面同语义） */
 export const SELECT_CANCELLED = '';
 
-/** 高亮行样式（整行反色——面板内最强存在感） */
-const ACTIVE_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 /** 说明段样式（dim） */
 const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
+
+/** menu surface inset 常数（Codex 复刻 R-6：上1/下1/左2/右2——「面板即大号用户消息块」） */
+const SURFACE_INSET_V = 1;
+const SURFACE_INSET_H = 2;
 
 /**
  * 单行左右双段预算排版已迁件外单源 row-segments（2026-09-21 TUI 第四役挂账②
@@ -98,21 +103,33 @@ export class SelectPanel implements Renderable, ViewportCapAware {
   private readonly options: readonly SelectOption[];
   /** 标题样式（accent 派生——构造期主题定值，一次性面板无换装面） */
   private readonly titleStyle: Readonly<CellStyle>;
+  /**
+   * 选中行样式（整行 accent bold——2026-10-10 Codex 样式复刻批 R-6：弃
+   * inverse 反色与 › 光标前缀符，accent bold 即选中态；构造期主题定值）
+   */
+  private readonly activeStyle: Readonly<CellStyle>;
+  /**
+   * menu surface 底色铺底样式（userMessageBg——Codex 复刻 R-6：探测背景
+   * 在场时面板铺底色块 + inset 上1/下1/左2/右2，「面板即大号用户消息块」；
+   * 缺席 = null——无底色无 inset 诚实回退现状形。补全弹窗不吃底色——两类
+   * 面分立在案（autocomplete/popup）
+   */
+  private readonly surfaceStyle: Readonly<CellStyle> | null;
+  /** surface 在场时的 inset 行数（量高参与——缺席 0） */
+  private readonly surfaceRows: number;
   /** 视口帽（null = 未注入——恒满高不窗口化；装配层逐帧注入最新值） */
   private maxHeight: number | null = null;
-  /**
-   * 光标符样式（界面美化役美学注③）：› 符位 accent 着色——高亮行上与
-   * inverse 合成（反相行内符位前景仍带语义色）。
-   */
-  private readonly cursorStyle: Readonly<CellStyle>;
   /** 退出进程柄（ctrl+d——与 esc 同路保守收层后转装配；缺席 = 无退出义仅收层） */
   private readonly onQuit: (() => void) | undefined;
 
   constructor(options: SelectPanelOptions) {
+    const theme = options.theme ?? DEFAULT_THEME;
     this.title = options.title;
     this.options = options.options;
-    this.titleStyle = Object.freeze({ fg: (options.theme ?? DEFAULT_THEME).accent });
-    this.cursorStyle = Object.freeze({ inverse: true, fg: (options.theme ?? DEFAULT_THEME).accent });
+    this.titleStyle = Object.freeze({ fg: theme.accent });
+    this.activeStyle = Object.freeze({ fg: theme.accent, bold: true });
+    this.surfaceStyle = theme.userMessageBg === undefined ? null : Object.freeze({ bg: theme.userMessageBg });
+    this.surfaceRows = this.surfaceStyle === null ? 0 : SURFACE_INSET_V * 2;
     this.onQuit = options.onQuit;
   }
 
@@ -123,79 +140,84 @@ export class SelectPanel implements Renderable, ViewportCapAware {
 
   /**
    * 取景窗口（measure / render 单源）：未超帽恒全景；超帽开窗——窗行 =
-   * 帽 - 标题行 - 上下指示行 2（下限 1——光标行恒可视），窗顶 = 光标 -
-   * 半窗居中钳 [0, 末窗顶]；above/below = 窗外隐藏数（指示行渲染依据）。
+   * 帽 - 标题行 - 上下指示行 2 - surface inset 行（下限 1——光标行恒可视），
+   * 窗顶 = 光标 - 半窗居中钳 [0, 末窗顶]；above/below = 窗外隐藏数（指示行
+   * 渲染依据）。
    */
   private view(): { windowed: boolean; titleRows: number; start: number; count: number; above: number; below: number } {
     const titleRows = this.title !== undefined ? 1 : 0;
     const total = this.options.length;
-    const full = titleRows + total;
+    const full = titleRows + total + this.surfaceRows;
     if (this.maxHeight === null || full <= this.maxHeight) {
       return { windowed: false, titleRows, start: 0, count: total, above: 0, below: 0 };
     }
-    const count = Math.max(1, this.maxHeight - titleRows - 2); // 1 = 光标行保底
+    const count = Math.max(1, this.maxHeight - titleRows - 2 - this.surfaceRows); // 1 = 光标行保底
     // 光标居中（半窗偏移钳窗界——首项贴顶 / 末项沉底自然涌现）
     const start = Math.min(Math.max(0, this.activeIndex - Math.floor(count / 2)), Math.max(0, total - count));
     return { windowed: true, titleRows, start, count, above: start, below: Math.max(0, total - start - count) };
   }
 
-  /** 量高：标题（有则 1）+ 选项行数（超帽窗口化——实显窗行 + 实显指示行） */
+  /** 量高：surface inset + 标题（有则 1）+ 选项行数（超帽窗口化——实显窗行 + 实显指示行） */
   measure(width: number): number {
     void width; // 高与宽无关（截断不折行）
     const v = this.view();
-    if (!v.windowed) return v.titleRows + this.options.length;
+    if (!v.windowed) return v.titleRows + this.options.length + this.surfaceRows;
     // 帽内如实（实显指示行才计——above/below 隐藏侧为 0 时不占行）
     return Math.min(
       Math.max(1, this.maxHeight ?? 1),
-      v.titleRows + v.count + (v.above > 0 ? 1 : 0) + (v.below > 0 ? 1 : 0),
+      v.titleRows + v.count + (v.above > 0 ? 1 : 0) + (v.below > 0 ? 1 : 0) + this.surfaceRows,
     );
   }
 
-  /** 落位：铺底空格 → 标题 →（窗口化时顶指示）→ 选项行（窗内切片）→（底指示） */
+  /** 落位：铺底（surface 在场 = 底色块）→ inset 内：标题 →（窗口化时顶指示）→ 选项行 →（底指示） */
   render(buffer: CellBuffer, region: Region): void {
-    // 铺底空格（写格覆盖——未写格会透出主树文字）
+    // 铺底（写格覆盖——未写格会透出主树文字；menu surface 在场 = userMessageBg
+    // 底色块 + inset 上1/下1/左2/右2——「面板即大号用户消息块」〔Codex 复刻
+    // R-6〕；缺席 = 空格白底现状形）
+    const base = this.surfaceStyle;
     for (let r = 0; r < region.height; r++) {
       for (let c = 0; c < region.width; c++) {
-        buffer.setCell(region.row + r, region.col + c, ' ');
+        buffer.setCell(region.row + r, region.col + c, ' ', base ?? undefined);
       }
     }
+    // 内容原点与可用宽（inset 在场时整体内收；缺席 = 全宽原点）
+    const insetV = base === null ? 0 : SURFACE_INSET_V;
+    const col0 = region.col + (base === null ? 0 : SURFACE_INSET_H);
+    const width = region.width - (base === null ? 0 : SURFACE_INSET_H * 2);
     const v = this.view();
-    const bottom = region.row + region.height; // 区域界（防御——measure 钳帽后行数可少于内容需求）
-    let row = region.row;
+    // 内容界（防御——measure 钳帽后行数可少于内容需求；底 inset 行不写内容）
+    const bottom = region.row + region.height - insetV;
+    let row = region.row + insetV;
     if (this.title !== undefined && row < bottom) {
-      // 标题超宽 … 收口（区域 = 全终端宽——无帽裸裁会静默丢失段尾）
-      buffer.writeText(row, region.col, ellipsize(this.title, region.width), this.titleStyle);
+      // 标题超宽 … 收口（内容宽 = 区域宽 − 左右 inset——无帽裸裁会静默丢失段尾）
+      buffer.writeText(row, col0, ellipsize(this.title, width), this.titleStyle);
       row += 1;
     }
     if (v.windowed && v.above > 0 && row < bottom) {
       // 界面美化役美学注②：溢出指示中文单形「↑ N 更多」（moreHint 单源）
-      buffer.writeText(row, region.col, moreHint('↑', v.above), HINT_STYLE);
+      buffer.writeText(row, col0, moreHint('↑', v.above), HINT_STYLE);
       row += 1;
     }
     const end = v.start + v.count;
     for (let i = v.start; i < end && row < bottom; i++, row++) {
       const active = i === this.activeIndex;
       const option = this.options[i]!;
-      // 前缀 + label 段（高亮行整段反色）；光标符走 panel-chrome CURSOR_MARK
-      // 单源（美学注③→V-3 注⑩ 翻档现值 ›——▸/❯ 时代符形已退役）——符位
-      // 独立写（accent/inverse 合成）
-      const prefix = active ? `${CURSOR_MARK} ` : '  ';
+      // 前缀统一 2 空格缩进（Codex 复刻 R-6：› 光标前缀符退役——选中态 =
+      // 整行 accent bold，不再靠符位指认）
+      const prefix = '  ';
       // 行预算排版（件外单源 row-segments）：label 段与 hint 段各自 … 收口
       // 不交叠——极长 hint 原宽右对齐会负起列覆写整行（生产链 fs 写审批
       // 路径 hint 的修前坏形）；预算 0（窗宽 ≤ 2）丢右段不放行原宽
-      const { left, right, rightWidth } = fitRowSegments(`${prefix}${option.label}`, option.hint, region.width);
-      buffer.writeText(row, region.col, left, active ? ACTIVE_STYLE : undefined);
-      // 符位 accent 覆写（美学注③——只换首符样式不改截断几何；极窄窗 left
-      // 可被 … 收到比前缀短，setCell 越界静默吸收零防御负担）
-      if (active) buffer.setCell(row, region.col, CURSOR_MARK, this.cursorStyle);
+      const { left, right, rightWidth } = fitRowSegments(`${prefix}${option.label}`, option.hint, width);
+      buffer.writeText(row, col0, left, active ? this.activeStyle : undefined);
       // 说明段右对齐（dim 恒态——不随高亮变脸；按显示宽——CJK 段宽 ≠ 码位数）
       if (rightWidth > 0) {
-        buffer.writeText(row, region.col + region.width - rightWidth, right, HINT_STYLE);
+        buffer.writeText(row, col0 + width - rightWidth, right, HINT_STYLE);
       }
     }
     if (v.windowed && v.below > 0 && row < bottom) {
       // 界面美化役美学注②：溢出指示中文单形「↓ N 更多」（moreHint 单源）
-      buffer.writeText(row, region.col, moreHint('↓', v.below), HINT_STYLE);
+      buffer.writeText(row, col0, moreHint('↓', v.below), HINT_STYLE);
     }
   }
 

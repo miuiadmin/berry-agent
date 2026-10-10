@@ -1,12 +1,13 @@
 /**
- * 补全弹层件单测（2026-09-20 TUI 视觉品质战役·组 2）：
+ * 补全弹层件单测（2026-09-20 TUI 视觉品质战役·组 2 起）：
  * - escape 关层通知（onDismiss 回调）：popup 消费 escape 关本轮时恰回调一次
  *   ——backend 接线 autocompleteCompleter.cancel()（撤 20ms 防抖窗 + 在途
  *   作废），堵「关层后窗内迟到 fire 重开弹层」的建议框闪回（修前红在
  *   tui-backend.test.ts 纵切锁——本件锁件内回调契约面）；
- * - 行预算排版（market-picker renderRow 预算律同款）：label 帽 + detail
- *   预算——极长 detail 按原宽右对齐起列为负、余段从行首覆写 label 的修前
- *   坏形锁（detail 当前无生产产源属休眠面，与 label 无帽同形一并修）。
+ * - 行预算排版（2026-10-10 Codex 样式复刻批 R-6 翻档后 = label 帽 + desc
+ *   列对齐制）：label 段行宽帽 … 收口、desc 段起列 = 全集 max(label 宽)+4
+ *   （缩进 2 + 间隔 2）、段右界帽 ≤ 区域宽 70%、desc 无位诚实不显——右对齐
+ *   制（row-segments）已退役本件位。
  */
 import { describe, expect, it } from 'vitest';
 import { CellGrid } from '../../engine/index.js';
@@ -70,8 +71,8 @@ describe('AutocompletePopup escape 关层通知（组 2）', () => {
   });
 });
 
-describe('AutocompletePopup 行预算排版（组 2 修前红）', () => {
-  it('极长 label + 极长 detail：双段各自 … 收口不交叠（修前 detail 负起列从行首覆写整行红）', () => {
+describe('AutocompletePopup 行预算排版（组 2 起；R-6 翻档锚）', () => {
+  it('极长 label + 极长 detail：label 行宽帽 … 收口 + desc 无位诚实不显（修前〔右对齐制〕detail 负起列从行首覆写整行红；翻档后结构性封堵——descAvail ≤ 0 不写）', () => {
     const model = new EditorModel();
     const popup = new AutocompletePopup(model);
     popup.applyResult({
@@ -81,10 +82,9 @@ describe('AutocompletePopup 行预算排版（组 2 修前红）', () => {
     });
     const grid = new CellGrid(30, 1);
     popup.render(grid, { row: 0, col: 0, width: 30, height: 1 });
-    // item 0 恒高亮 → 前缀 '› '（› 宽 1——与 '  ' 同占 2 列，列算不变）；
-    // leftReserve = min(72, 15) = 15 → rightBudget = 30-1-15 = 14 → detail = 'd'×13 + '…'
-    // maxLeft = 30 - 14 - 1 = 15 → label 段 = '› ' + 'x'×12 + '…'（15 列）+ 间隔 1 + detail 14 列
-    expect(readRow(grid, 0, 30)).toBe(`› ${'x'.repeat(12)}… ${'d'.repeat(13)}…`);
+    // maxLabelW = 70 → descCol = 74；descCap = ⌊30×0.7⌋ = 21 → descAvail < 0
+    // ——desc 诚实不显；label 段 = 缩进 2 + x×27 + …（行宽帽 30 … 收口）
+    expect(readRow(grid, 0, 30)).toBe(`  ${'x'.repeat(27)}…`);
   });
 
   it('无 detail：label 独占全宽 … 截断（修前裸裁到缓冲界红）', () => {
@@ -97,13 +97,12 @@ describe('AutocompletePopup 行预算排版（组 2 修前红）', () => {
     });
     const grid = new CellGrid(20, 1);
     popup.render(grid, { row: 0, col: 0, width: 20, height: 1 });
-    expect(readRow(grid, 0, 20)).toBe(`› ${'y'.repeat(17)}…`);
+    expect(readRow(grid, 0, 20)).toBe(`  ${'y'.repeat(17)}…`);
   });
 
-  it('极窄窗（宽 2）预算 0 丢右段：detail 不放行原宽（单源收紧位——私拷贝放行原宽右对齐起列为负、尾段从行首覆写行内容红）', () => {
-    // 宽 2：left = '› cmd'（5 列）→ leftReserve = min(5, 1) = 1 →
-    // rightBudget = 2 - 1 - 1 = 0——单源 row-segments 收紧为丢弃右段
-    // （预算 0 = 无位可放），行内只剩左段按帽 2 … 收口：'›…'
+  it('极窄窗（宽 2）：label 按帽 … 收口、desc 隐（起列越帽结构性封堵——右对齐制时代「预算 0 放行原宽」坏形的同位收口）', () => {
+    // 宽 2：descCap = ⌊2×0.7⌋ = 1 < descCol ——desc 不放行；label 段
+    // '  cmd'（5 列）按帽 2 收口 = ' …'
     const model = new EditorModel();
     const popup = new AutocompletePopup(model);
     popup.applyResult({
@@ -113,26 +112,123 @@ describe('AutocompletePopup 行预算排版（组 2 修前红）', () => {
     });
     const grid = new CellGrid(2, 1);
     popup.render(grid, { row: 0, col: 0, width: 2, height: 1 });
-    expect(readRow(grid, 0, 2)).toBe('›…');
+    expect(readRow(grid, 0, 2)).toBe(' …');
   });
 });
 
-describe('AutocompletePopup 光标符 › accent（界面美化役美学注③）', () => {
-  it('高亮行首符 › 带 inverse + accent 合成；setTheme 换装后符位前景随迁', () => {
+describe('AutocompletePopup 选中行 accent bold（R-6 翻档——光标符/inverse 退役）', () => {
+  it('选中行整行 accent bold、无 › 前缀符无 inverse；未选中行 2 空格缩进无样式', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [
+        { label: '/help', replacement: '/help' },
+        { label: '/hint', replacement: '/hint' },
+      ],
+      replaceStart: 0,
+      replaceEnd: 1,
+    });
+    const grid = new CellGrid(20, 2);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 2 });
+    // 选中行（item 0）：首格 = 空格（2 空格缩进——› 光标前缀符退役）、
+    // label 格 accent + bold、无 inverse（修前红：inverse 反色 + › 符位）
+    expect(grid.getCell(0, 0)?.grapheme).toBe(' ');
+    expect(grid.getCell(0, 2)?.style?.fg).toBe(DEFAULT_THEME.accent);
+    expect(grid.getCell(0, 2)?.style?.bold).toBe(true);
+    expect(grid.getCell(0, 2)?.style?.inverse).toBeUndefined();
+    // 未选中行（item 1）：label 格默认前景（无 fg/bold——空样式对象）
+    expect(grid.getCell(1, 2)?.style?.fg).toBeUndefined();
+    expect(grid.getCell(1, 2)?.style?.bold).toBeUndefined();
+  });
+
+  it('setTheme 换装后选中行前景随迁（activeStyle 重建）', () => {
     const model = new EditorModel();
     const popup = new AutocompletePopup(model);
     popup.applyResult({ items: [{ label: '/help', replacement: '/help' }], replaceStart: 0, replaceEnd: 1 });
-    const grid = new CellGrid(20, 1);
-    popup.render(grid, { row: 0, col: 0, width: 20, height: 1 });
-    expect(grid.getCell(0, 0)?.grapheme).toBe('›');
-    expect(grid.getCell(0, 0)?.style?.inverse).toBe(true);
-    // 换装（setTheme 重建 cursorStyle）——注入亮色板 accent 后符位前景随迁
     const light = resolveTheme(builtinPalette('light'), DEFAULT_THEME.depth);
     popup.setTheme(light);
-    const grid2 = new CellGrid(20, 1);
-    popup.render(grid2, { row: 0, col: 0, width: 20, height: 1 });
-    expect(grid2.getCell(0, 0)?.grapheme).toBe('›');
-    expect(grid2.getCell(0, 0)?.style?.fg).toBe(light.accent);
+    const grid = new CellGrid(20, 1);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 1 });
+    expect(grid.getCell(0, 2)?.style?.fg).toBe(light.accent);
+  });
+});
+
+describe('AutocompletePopup 弹层观感四点（Codex 样式复刻批 R-6 修前红）', () => {
+  it('可见行帽 8：12 条候选 measure = 8（修前红位：帽 10 → measure 10）', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: Array.from({ length: 12 }, (_, i) => ({ label: `cmd${i}`, replacement: `cmd${i}` })),
+      replaceStart: 0,
+      replaceEnd: 1,
+    });
+    expect(popup.measure(80)).toBe(8);
+  });
+
+  it('空态行 dim + italic（修前红：accent 空态档——fg=accent 无 dim/italic）', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({ items: [], replaceStart: 0, replaceEnd: 2 });
+    const grid = new CellGrid(10, 1);
+    popup.render(grid, { row: 0, col: 0, width: 10, height: 1 });
+    const style = grid.getCell(0, 0)?.style;
+    expect(style?.dim).toBe(true);
+    expect(style?.italic).toBe(true);
+    expect(style?.fg).toBeUndefined();
+  });
+
+  it('desc 列对齐制：起列 = 全集 max(label 宽)+4、段 dim、选中行覆盖 accent bold；desc 超可用宽 … 收口', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [
+        { label: 'cmd', replacement: 'cmd', detail: 'info' },
+        { label: 'x', replacement: 'x', detail: 'y' },
+      ],
+      replaceStart: 0,
+      replaceEnd: 1,
+    });
+    const grid = new CellGrid(20, 2);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 2 });
+    // maxLabelW = 3 → descCol = 2+3+2 = 7；descCap = ⌊20×0.7⌋ = 14 →
+    // descAvail = 7。两行 desc 同列 7 起（列对齐——修前右对齐制锚退役）
+    expect(readRow(grid, 0, 20)).toBe('  cmd  info');
+    expect(readRow(grid, 1, 20)).toBe('  x    y');
+    // 选中行（item 0）desc 段 accent bold 覆盖；未选中行 desc dim
+    expect(grid.getCell(0, 7)?.style?.fg).toBe(DEFAULT_THEME.accent);
+    expect(grid.getCell(1, 7)?.style?.dim).toBe(true);
+  });
+
+  it('desc 段右界帽 ≤ 区域宽 70%：超帽 … 收口（descAvail 内收口不越 70% 界）', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [{ label: 'ab', replacement: 'ab', detail: 'd'.repeat(10) }],
+      replaceStart: 0,
+      replaceEnd: 1,
+    });
+    const grid = new CellGrid(20, 1);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 1 });
+    // maxLabelW = 2 → descCol = 6；descCap = 14 → descAvail = 8 →
+    // 'd'×7 + …（8 列，尾列 13 ≤ 帽 14——右对齐制时代右贴 region 边形退役）
+    expect(readRow(grid, 0, 20)).toBe(`  ab  ${'d'.repeat(7)}…`);
+  });
+
+  it('滚动不挪列：desc 起列按全集 max(label 宽)（不可见长 label 也在基准内——修前右对齐制无列概念，本测锁全集基准语义）', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: Array.from({ length: 12 }, (_, i) => ({ label: `cmd${i}`, replacement: `cmd${i}`, detail: 'd' })),
+      replaceStart: 0,
+      replaceEnd: 1,
+    });
+    // 高亮移到 item 8 → 窗口滚动（windowStart = 1），可见窗 [1..8]
+    for (let i = 0; i < 8; i++) popup.handleEvent(key('down'));
+    const grid = new CellGrid(20, 8);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 8 });
+    // 全集 maxLabelW = 5（cmd10/cmd11）→ descCol = 9（若按可见窗算会挪到
+    // col 8——锁全集基准〔滚动不挪列〕）；可见首行 item 1 = '  cmd1' + 3 空 + 'd'
+    expect(readRow(grid, 0, 20)).toBe('  cmd1   d');
   });
 });
 

@@ -451,8 +451,8 @@ function isFooterLine(line: string): boolean {
   return line.includes('工作区写') && line.includes(' · ') && line.includes('? 快捷键');
 }
 
-/** composer 输入行（V-0 注③ 框退役——`›` 提示符空输入形：起跑屏零 user 消息，› 行唯一属于输入件） */
-const isComposerLine = (line: string): boolean => /^›\s*$/.test(line);
+/** composer 输入行（V-0 注③ 框退役——`›` 提示符形；R-6 起跑空稿显占位符「输入消息…」——两形皆收） */
+const isComposerLine = (line: string): boolean => /^›( 输入消息…)?\s*$/.test(line);
 
 /** 起跑就绪判据：footer 分栏左段在场（档位段 + 教学提示）+ composer 输入行在场 */
 function isStartupScreen(lines: string[]): boolean {

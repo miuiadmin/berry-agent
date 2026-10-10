@@ -49,6 +49,11 @@ export interface EditorOptions {
    * 对——单行档零垫）。
    */
   padRows?: number;
+  /**
+   * 空稿占位文案（R-6——composer 缺省「输入消息…」；底铬功能输入行显式
+   * null 退役：viewer 搜索/导出参数行是功能框非消息 composer，占位文不辖）。
+   */
+  placeholder?: string | null;
   /** 键位册（批 10j 迁册——缺省缺省册；用户覆盖形装配注入归 10k） */
   keymap?: Keymap;
   /**
@@ -100,6 +105,7 @@ export class Editor implements Renderable {
       // 呈现策略透传（五件批 A+B 参数化）：缺省 = 规范值——主 composer 零改
       minPresentedLines: options.minPresentedLines,
       padRows: options.padRows,
+      placeholder: options.placeholder,
     });
   }
 

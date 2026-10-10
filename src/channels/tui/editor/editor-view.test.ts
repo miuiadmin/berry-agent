@@ -1,8 +1,9 @@
 /**
  * 编辑器视图单测：CellGrid 真身读回——composer 形（V-0 注③ 框退役：`› `
- * 提示符 + 底色染色块 + 框线零占位；聚焦 accent / 非聚焦 secondary 两态）、
- * 长行字素硬折落格、滚动指示 overlay、视口滚动光标恒可视、光标声明
- * （聚焦独占）、IME 预编辑下划线段。
+ * 提示符 + 底色染色块 + 框线零占位；› 恒 bold 默认前景 / 失焦·禁用档 dim
+ * 〔R-6 翻档——accent/secondary 两态色退役〕+ 空稿占位符 dim）、长行字素
+ * 硬折落格、滚动指示 overlay、视口滚动光标恒可视、光标声明（聚焦独占）、
+ * IME 预编辑下划线段。
  */
 import { describe, expect, it } from 'vitest';
 import { CellGrid, sanitizeDisplayText } from '../../engine/index.js';
@@ -116,18 +117,24 @@ describe('EditorView 上下空行垫（五件批 A+B——量高 +2 的渲染侧
 });
 
 describe('EditorView 呈现策略参数化（五件批 A+B——底铬瞬时输入行 opt-out）', () => {
-  it('minPresentedLines 1 + padRows 0：空稿量高恒 1 零铺垫零垫——› 落 region 首行（单行档回归旧几何）', () => {
+  it('minPresentedLines 1 + padRows 0 + placeholder null：空稿量高恒 1 零铺垫零垫——› 落 region 首行独占（单行档回归旧几何）', () => {
     // viewer 导出/搜索行（单行形设计锁）显式 opt-out——A+B 最小高 3+垫 2
-    // 辖主 composer 不辖底铬；此锁钉参数化契约本体（viewer 测试只传递覆盖）
+    // 辖主 composer 不辖底铬；R-6 占位符同族第三参——功能输入行 null 退役
+    // （composer 占位文不辖该位）；此锁钉参数化契约本体（viewer 测试只传递覆盖）
     const model = new EditorModel();
     model.setText('');
     model.setLayoutWidth(200);
-    const view = new EditorView(model, { maxVisibleLines: 1, minPresentedLines: 1, padRows: 0 });
+    const view = new EditorView(model, {
+      maxVisibleLines: 1,
+      minPresentedLines: 1,
+      padRows: 0,
+      placeholder: null,
+    });
     expect(view.measure(20)).toBe(1); // 空稿零铺垫（无最小高 3）零垫
     const grid = new CellGrid(10, 3);
     view.setFocused(true);
     view.render(grid, { row: 0, col: 0, width: 6, height: 3 }); // 高足——垫分档退化恒零垫
-    expect(readRow(grid, 0, 10)).toBe('›'); // 提示符在 region 首行（无上垫）
+    expect(readRow(grid, 0, 10)).toBe('›'); // 提示符在 region 首行独占（无上垫无占位符——修前红位：R-6 直合并显「› 输…」）
   });
 });
 
@@ -147,17 +154,35 @@ describe('EditorView composer 形（V-0 注③——全宽框退役）', () => {
     }
   });
 
-  it('聚焦态 › accent、非聚焦 › secondary（焦点指示新载体——V-0 注③）', () => {
+  it('› 恒 bold 默认前景（聚焦）/ 非聚焦 dim（R-6 翻档——accent/secondary 两态色退役该位）', () => {
     const { view } = viewOf('ab');
     const focused = new CellGrid(10, 5);
     view.setFocused(true);
     view.render(focused, { row: 0, col: 0, width: 6, height: 1 });
     expect(focused.getCell(0, 0)?.grapheme).toBe('›');
-    expect(focused.getCell(0, 0)?.style.fg).toEqual(DEFAULT_THEME.accent);
+    // 修前红位：聚焦 fg = accent；翻档后 = bold + 默认前景（无 fg）
+    expect(focused.getCell(0, 0)?.style.bold).toBe(true);
+    expect(focused.getCell(0, 0)?.style.fg).toBeUndefined();
     const plain = new CellGrid(10, 5);
     view.setFocused(false);
     view.render(plain, { row: 0, col: 0, width: 6, height: 1 });
-    expect(plain.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.secondary);
+    // 修前红位：非聚焦 fg = secondary；翻档后 = dim
+    expect(plain.getCell(0, 0)?.style.dim).toBe(true);
+    expect(plain.getCell(0, 0)?.style.fg).toBeUndefined();
+  });
+
+  it('空稿占位符：› 后同列 dim「输入消息…」；有稿即被正文覆盖（R-6 新增面）', () => {
+    // 空稿：占位符与正文同位（列 2 起——无额外缩进）
+    const empty = viewOf('');
+    const grid = new CellGrid(12, 3);
+    empty.view.render(grid, { row: 0, col: 0, width: 12, height: 1 });
+    expect(readRow(grid, 0, 12)).toBe('› 输入消息…');
+    expect(grid.getCell(0, 2)?.style?.dim).toBe(true); // dim 弱提示（非 accent）
+    // 有稿：占位符不显（正文覆盖位）
+    const filled = viewOf('ab');
+    const grid2 = new CellGrid(10, 3);
+    filled.view.render(grid2, { row: 0, col: 0, width: 10, height: 1 });
+    expect(readRow(grid2, 0, 10)).toBe('› ab');
   });
 
   it('region 平移：起点非零', () => {
@@ -182,7 +207,9 @@ describe('EditorView composer 形（V-0 注③——全宽框退役）', () => {
     expect(grid.getCell(0, 2)?.style?.bg).toEqual(theme.userMessageBg);
     expect(grid.getCell(0, 9)?.style?.bg).toEqual(theme.userMessageBg);
     expect(grid.getCell(0, 0)?.style?.bg).toEqual(theme.userMessageBg);
-    expect(grid.getCell(0, 0)?.style?.fg).toEqual(theme.accent); // 聚焦 › 仍携 accent（fg+bg 合成）
+    // R-6 翻档：聚焦 › = bold + bg 合成（accent 前景退役该位）
+    expect(grid.getCell(0, 0)?.style?.bold).toBe(true);
+    expect(grid.getCell(0, 0)?.style?.fg).toBeUndefined();
   });
 
   it('底色缺席（探测缺席/降采形）：零背景带诚实回退—— › 前缀独挑边界', () => {
@@ -403,17 +430,19 @@ describe('EditorView IME 预编辑宽度钳制', () => {
 });
 
 describe('EditorView 焦点提示符随换装（V-0 注③——框退役后焦点载体）', () => {
-  it('setTheme 后两态 › 各随主题键取值：聚焦 accent / 非聚焦 secondary', () => {
+  it('setTheme 换装后两态 › 恒 bold/dim 不随主题色漂（R-6 翻档——主题无关位）', () => {
     const light = resolveTheme(builtinPalette('light'), DEFAULT_THEME.depth);
     const { view } = viewOf('ab');
     view.setTheme(light);
     view.setFocused(true);
     const focused = new CellGrid(10, 5);
     view.render(focused, { row: 0, col: 0, width: 10, height: 1 });
-    expect(focused.getCell(0, 0)?.style.fg).toBe(light.accent);
+    expect(focused.getCell(0, 0)?.style.bold).toBe(true); // 修前红位：fg = light.accent
+    expect(focused.getCell(0, 0)?.style.fg).toBeUndefined();
     view.setFocused(false);
     const plain = new CellGrid(10, 5);
     view.render(plain, { row: 0, col: 0, width: 10, height: 1 });
-    expect(plain.getCell(0, 0)?.style.fg).toBe(light.secondary); // 降档色随换装重建
+    expect(plain.getCell(0, 0)?.style.dim).toBe(true); // 修前红位：fg = light.secondary
+    expect(plain.getCell(0, 0)?.style.fg).toBeUndefined();
   });
 });

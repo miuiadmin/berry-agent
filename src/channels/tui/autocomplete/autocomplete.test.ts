@@ -11,6 +11,7 @@ import { tokenAtCursor } from './token.js';
 import { CombinedAutocompleteProvider } from './autocomplete.js';
 import type { AutocompleteItem, AutocompleteOutcome, AutocompleteResult } from './provider.js';
 import { AutocompletePopup } from './popup.js';
+import { DEFAULT_THEME } from '../theme/index.js';
 
 /** Promise 形判别（union 收窄用类型守卫） */
 function isPromiseOutcome(value: AutocompleteOutcome): value is Promise<AutocompleteResult | null> {
@@ -465,21 +466,27 @@ describe('AutocompletePopup', () => {
     expect(model2.getText()).toBe('see @"my file.txt"'); // 引号形防尾空格击穿
   });
 
-  it('渲染：候选行 + 高亮反色 + 说明右对齐 dim + 铺底遮蔽', () => {
+  it('渲染：候选行 + 选中行 accent bold + desc 列对齐 dim + 铺底遮蔽（R-6 翻档——› 光标符/inverse/右对齐制退役）', () => {
     const { popup, refresh } = rig(['/']);
     refresh();
     const grid = new CellGrid(22, 5);
     grid.writeText(0, 0, '______________________'); // 下层文字
     popup.render(grid, { row: 0, col: 0, width: 22, height: 3 });
-    expect(readRow(grid, 0, 22)).toBe('› /help       查看帮助');
-    expect(grid.getCell(0, 0)?.style.inverse).toBe(true);
-    expect(readRow(grid, 1, 22)).toBe('  /model      切换模型');
-    expect(grid.getCell(1, 0)?.style.inverse).toBeUndefined();
-    expect(grid.getCell(0, 14)?.style.dim).toBe(true); // 说明段 dim（右对齐 col 14 起）
-    expect(grid.getCell(0, 7)?.grapheme).toBe(' '); // 铺底空格遮蔽（非内容格已写空格非 null）
+    // maxLabelW = 7（/memory）→ descCol = 11；descCap = ⌊22×0.7⌋ = 15 →
+    // descAvail = 4——中文 desc 宽 8 越帽 … 收口（'查看帮助' → '查…'）
+    expect(readRow(grid, 0, 22)).toBe('  /help    查…');
+    // 选中行（item 0）整行 accent bold：label 段与 desc 段同覆盖、无 inverse
+    expect(grid.getCell(0, 2)?.style?.fg).toBe(DEFAULT_THEME.accent);
+    expect(grid.getCell(0, 2)?.style?.bold).toBe(true);
+    expect(grid.getCell(0, 2)?.style?.inverse).toBeUndefined();
+    expect(grid.getCell(0, 11)?.style?.fg).toBe(DEFAULT_THEME.accent); // desc 段同覆盖
+    expect(readRow(grid, 1, 22)).toBe('  /model   切…');
+    expect(grid.getCell(1, 2)?.style?.fg).toBeUndefined(); // 未选中行默认前景
+    expect(grid.getCell(1, 11)?.style?.dim).toBe(true); // desc 段 dim（列对齐制 col 11——修前右对齐 col 14 起）
+    expect(grid.getCell(0, 9)?.grapheme).toBe(' '); // 铺底空格遮蔽（非内容格已写空格非 null）
   });
 
-  it('候选窗口 10 行帽 + 高亮跟随滚动', () => {
+  it('候选窗口 8 行帽 + 高亮跟随滚动（R-6 翻档——帽 10→8 弹层族一致律）', () => {
     const model = new EditorModel();
     const many = Array.from({ length: 12 }, (_, i) => item(`opt${i}`));
     const provider = new CombinedAutocompleteProvider({ commands: () => many });
@@ -492,11 +499,12 @@ describe('AutocompletePopup', () => {
       );
     };
     refresh();
-    expect(popup.measure(20)).toBe(10); // 12 条夹 10
+    expect(popup.measure(20)).toBe(8); // 12 条夹 8（修前红位：帽 10 → measure 10）
     for (let i = 0; i < 11; i++) popup.handleEvent(key('down')); // activeIndex 0 → 11
-    const grid = new CellGrid(20, 10);
-    popup.render(grid, { row: 0, col: 0, width: 20, height: 10 });
-    expect(readRow(grid, 0, 20)).toBe('  opt2'); // 窗口滚到 [2,12)
-    expect(readRow(grid, 9, 20)).toBe('› opt11'); // 高亮行入窗末
+    const grid = new CellGrid(20, 8);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 8 });
+    expect(readRow(grid, 0, 20)).toBe('  opt4'); // 窗口滚到 [4,12)（修前 [2,12)——帽 8 下 activeIndex 11 沉窗末）
+    expect(readRow(grid, 7, 20)).toBe('  opt11'); // 高亮行入窗末（› 光标符退役——2 空格缩进）
+    expect(grid.getCell(7, 2)?.style?.fg).toBe(DEFAULT_THEME.accent); // 选中行 accent bold
   });
 });

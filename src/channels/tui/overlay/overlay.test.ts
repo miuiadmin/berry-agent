@@ -16,6 +16,7 @@ import type { InputEvent } from '../../engine/types.js';
 import { AltScreenHost, type AltScreenPrimary } from './alt-screen.js';
 import { OverlayStack, type OverlayContent } from './overlay.js';
 import { ConfirmPanel, SELECT_CANCELLED, SelectPanel } from './select-confirm.js';
+import { DEFAULT_THEME } from '../theme/index.js';
 
 /* ---------------- 助手 ---------------- */
 
@@ -184,18 +185,19 @@ describe('SelectPanel', () => {
     expect(results).toEqual([]);
   });
 
-  it('渲染：铺底空格遮下层 + 高亮行反色 + 说明右对齐 dim + 标题 accent', () => {
+  it('渲染：铺底空格遮下层 + 高亮行 accent bold + 说明右对齐 dim + 标题 accent（R-6 翻档——› 前缀/inverse 退役）', () => {
     const panel = new SelectPanel({ title: '标题', options });
     const grid = new CellGrid(24, 5);
     grid.writeText(1, 0, '████████████████████████'); // 下层主树文字
     panel.render(grid, { row: 0, col: 0, width: 24, height: 4 }); // 1 标题 + 3 选项
     expect(readRow(grid, 0, 24)).toBe('标题');
-    // 光标符 ❯→›（界面美化役美学注③——SelectPanel 已迁 CURSOR_MARK，期望帧随档）
-    expect(readRow(grid, 1, 24)).toBe('› 选项甲          hint-a'); // 8 格 + 10 空格 + 右对齐说明
-    expect(grid.getCell(1, 0)?.style.inverse).toBe(true); // 高亮行反色
-    expect(grid.getCell(1, 18)?.style.dim).toBe(true); // 说明段 dim
+    expect(readRow(grid, 1, 24)).toBe('  选项甲          hint-a'); // 2 空格缩进（› 退役）+ 右对齐说明
+    expect(grid.getCell(1, 2)?.style?.fg).toBe(DEFAULT_THEME.accent); // 高亮行 label 段 accent bold（修前红位：inverse 反色 + › 符位）
+    expect(grid.getCell(1, 2)?.style?.bold).toBe(true);
+    expect(grid.getCell(1, 2)?.style?.inverse).toBeUndefined();
+    expect(grid.getCell(1, 18)?.style?.dim).toBe(true); // 说明段恒 dim（选中行不覆盖 hint 段）
     expect(readRow(grid, 2, 24)).toBe('  选项乙');
-    expect(grid.getCell(2, 0)?.style.inverse).toBeUndefined();
+    expect(grid.getCell(2, 2)?.style?.fg).toBeUndefined(); // 未选中行默认前景
     // 铺底遮蔽：选项行右侧无主树 █ 残留（未写格 = null，写格空格遮下层）
     const cell = grid.getCell(1, 17);
     expect(cell?.grapheme).toBe(' ');

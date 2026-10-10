@@ -1216,21 +1216,22 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
     expect(calls.submitted).toEqual([['s1', 'x']]);
   });
 
-  it('overlay 占焦期编辑器非聚焦：› 无 accent + 光标回退屏底', async () => {
+  it('overlay 占焦期编辑器非聚焦：› 降档 dim（bold 退）+ 光标回退屏底（R-6 翻档——两态色退役）', async () => {
     const { io, backend, pump } = makeInteractive();
     io.emitInput('a');
-    pump(); // 有变更才有帧——差分只重写内容行：聚焦 accent › 提示符在场
-    expect(io.bytes).toContain('\x1b[36m›');
+    pump(); // 有变更才有帧——差分只重写内容行：聚焦 › bold 提示符在场
+    expect(io.bytes).toContain('\x1b[1m›');
     const p = backend.confirm('占焦？');
     io.bytes = '';
     pump();
-    expect(io.bytes).not.toContain('\x1b[36m›'); // 非聚焦 › 降档 secondary（面板标题 accent 是文本段不撞提示符）
+    expect(io.bytes).not.toContain('\x1b[1m›'); // 非聚焦 › 降档 dim——bold 退场（R-6 翻档：secondary 退役）
+    expect(io.bytes).toContain('\x1b[2m›'); // dim › 在场
     expect(io.bytes.endsWith('\x1b[10;1H')).toBe(true); // 无光标声明回退屏底
     io.emitInput('\r');
     io.bytes = '';
     pump();
     await expect(p).resolves.toBe(true);
-    expect(io.bytes).toContain('\x1b[36m›'); // 层关复聚焦——accent › 回归（V-0 注③ 框退役）
+    expect(io.bytes).toContain('\x1b[1m›'); // 层关复聚焦——bold › 回归（R-6 翻档锚）
   });
 });
 
@@ -1238,8 +1239,9 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
 // 翻档 + V-3 注⑦ ⑤ 底栈扩段对端注）：审批/confirm/select 面板与 input-ask
 // 提示行自固定区顶部段迁编辑器下方**应答段**（编辑器 → ask 行 → 面板栈 →
 // 工具进度 → footer → JobPanel——紧邻 footer 族与子 Agent 同区域）；占焦模态
-// 律/键路由/排队 FIFO 零变化（呈现位迁移非交互语义迁移）；补全弹层维持编辑器
-// 上方弹出位（规范明文不迁）。
+// 律/键路由/排队 FIFO 零变化（呈现位迁移非交互语义迁移）；补全弹层已随
+// 2026-10-10 Codex 样式复刻批 R-6 迁编辑器下方弹出位（段序：编辑器 → 弹层 →
+// ask 行/应答段；fixed-budget 梯不动——牺牲序不变）。
 describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面板/ask 行居编辑器下方）', () => {
   /**
    * 屏上行序取证（行序断言辅助）：差分帧序 ≠ 屏上行序（增量帧只重写变更
@@ -1308,7 +1310,7 @@ describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面�
     await expect(p).resolves.toBe('答');
   });
 
-  it('补全弹层维持编辑器上方弹出位（回归锁——规范明文不迁）', () => {
+  it('补全弹层迁编辑器下方弹出位（R-6 修前红：编辑器上方弹出位）', () => {
     // 自含 rig（autocompleteRig 系他 describe 块内函数不达——同形自建）
     const { io, clock } = makeInteractive({
       autocomplete: {
@@ -1318,13 +1320,13 @@ describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面�
     io.emitInput('/he');
     clock.advance(AUTOCOMPLETE_DEBOUNCE_MS + 1); // 防抖窗到——查询落层弹层在场
     const frame = lastFullFrame(io);
-    // 编辑器行锚 = 聚焦 › 提示符转义形（› + 空格 + reset）——弹层 label 行
-    // 自带 › 前缀但无空格分隔（› 直随 reset+反白），裸 › 与「› /he」纯文本形
-    // 均不可锚；弹层非模态不占焦——编辑器恒聚焦 accent 形在场
-    const editorRow = frame.indexOf('\x1b[36m› \x1b[0m');
+    // 编辑器行锚 = 聚焦 › 提示符转义形（bold + 空格 + reset——R-6 翻档后
+    // 聚焦 › 恒 bold 默认前景）；弹层 label 行 2 空格前缀（光标符已退役）
+    // 不含 › 字符——› 字符全域唯 composer 提示符位
+    const editorRow = frame.indexOf('\x1b[1m› \x1b[0m');
     expect(frame.indexOf('帮助')).toBeGreaterThanOrEqual(0);
     expect(editorRow).toBeGreaterThanOrEqual(0);
-    expect(frame.indexOf('帮助')).toBeLessThan(editorRow); // 弹层行在编辑器行上方
+    expect(editorRow).toBeLessThan(frame.indexOf('帮助')); // 修前红：弹层行在编辑器行上方
   });
 });
 
@@ -2630,10 +2632,13 @@ describe('TuiBackend /memory 副屏装配（setMemoryScreen / openMemory——mm
 
 describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明暗）', () => {
   it('缺省注入缺席 = dark 确定性基线：零探测写出、accent 落 ANSI 6（与批 10g 前字节同源）', () => {
-    const { io } = makeBackend();
+    const { io, backend } = makeBackend();
     expect(io.bytes).not.toContain('\x1b]11;?'); // 无 OSC 11 查询
     expect(io.bytes).not.toContain('\x1b[?2031h'); // 无明暗变化订阅
-    expect(io.bytes).toContain('\x1b[36m'); // accent ANSI 6 cyan（编辑器 › 提示符载体——V-0 注③）
+    io.bytes = '';
+    emit(backend, { type: 'agent_start' });
+    // accent ANSI 6 cyan（转轮载体——R-6 翻档后编辑器 › 恒 bold 不再携 accent）
+    expect(io.bytes).toContain('\x1b[36m');
   });
 
   it('auto 档 start：OSC 11 查询 + 2031 订阅两写点', () => {
@@ -2643,10 +2648,11 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
   });
 
   it('auto 亮底应答换装：accent 翻 ANSI 4（SGR 34）固定区重画', () => {
-    const { io } = makeBackend({ theme: 'auto' });
+    const { io, backend } = makeBackend({ theme: 'auto' });
+    emit(backend, { type: 'agent_start' }); // 转轮 accent 载体在屏（换装重画帧可锚）
     io.bytes = '';
     io.emitInput('\x1b]11;rgb:ffff/ffff/ffff\x07'); // 白底应答（同步直出——换装即时落帧）
-    expect(io.bytes).toContain('\x1b[34m'); // light accent ANSI 4 blue
+    expect(io.bytes).toContain('\x1b[34m'); // light accent ANSI 4 blue（转轮换装重建）
     expect(io.bytes).not.toContain('\x1b[36m'); // dark accent 不再上帧
   });
 
@@ -2744,7 +2750,8 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
   });
 
   it('auto 暗底应答迟到照常换装（无钟不设窗——2031 通知语义等价）', () => {
-    const { io } = makeBackend({ theme: 'auto' });
+    const { io, backend } = makeBackend({ theme: 'auto' });
+    emit(backend, { type: 'agent_start' }); // 转轮 accent 载体在屏
     io.emitInput('\x1b]11;rgb:ffff/ffff/ffff\x07'); // 先亮底换装
     io.bytes = '';
     io.emitInput('\x1b]11;rgb:0d11/0d11/0d11\x07'); // 再暗底（GitHub dark #0d1117）——换回
@@ -2960,6 +2967,7 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
   it('colorEnv 三档接线：truecolor 档 accent 仍 ANSI 6 直通、RGB 键走 38;2 直出', () => {
     // accent AnsiColor 全档直通——truecolor 档字节与 16 档同源
     const tc = makeBackend({ colorEnv: { COLORTERM: 'truecolor' } });
+    emit(tc.backend, { type: 'agent_start' }); // 转轮 accent 载体（R-6 翻档——编辑器 › 不再携 accent）
     expect(tc.io.bytes).toContain('\x1b[36m');
     expect(tc.io.bytes).not.toContain('38;5;'); // 非聚焦会话色表未进帧（accent 直通自证）
   });
@@ -3689,6 +3697,7 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
 
   it('setThemeChoice 换装即时落帧：dark → light accent 翻 ANSI 4（SGR 34）', () => {
     const { io, backend } = rig(); // dark 基线
+    emit(backend, { type: 'agent_start' }); // 转轮 accent 载体在屏
     io.reset();
     backend.setThemeChoice('light', null);
     expect(io.bytes).toContain('\x1b[34m');
@@ -3697,9 +3706,10 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
 
   it('自定义档运行时切档：覆盖表随装 + 探测开（customOverlay 即探测档）', () => {
     const { io, backend } = rig(); // dark 显式基线
+    emit(backend, { type: 'agent_start' }); // 转轮 accent 载体在屏
     io.reset();
     backend.setThemeChoice('my-theme', { accent: ansiColor(3) });
-    expect(io.bytes).toContain('\x1b[33m'); // 覆盖键生效（accent → ANSI 3 yellow）
+    expect(io.bytes).toContain('\x1b[33m'); // 覆盖键生效（accent → ANSI 3 yellow——转轮换装重建）
     expect(io.bytes).toContain('\x1b[?2031h'); // 自定义档 = 键级回退探测恒在
   });
 
@@ -3712,7 +3722,8 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
       theme: 'custom-x',
       customThemeOverlay: { accent: ansiColor(3) },
     });
-    expect(io.bytes).toContain('\x1b[33m'); // 构造期：dark 基板 + 覆盖 accent 3
+    emit(backend, { type: 'agent_start' }); // 转轮 accent 载体（R-6 翻档——编辑器 › 不再携 accent）
+    expect(io.bytes).toContain('\x1b[33m'); // dark 基板 + 覆盖 accent 3（转轮载体）
     io.reset();
     io.emitInput('\x1b]11;rgb:ffff/ffff/ffff\x07'); // 亮底应答——重合成
     expect(io.bytes).not.toBe(''); // 重画路过（换装四面重渲染发生了）
@@ -3725,12 +3736,13 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
   });
 
   it('自定义档 OSC 11 应答重合成：缺键随基板（accent 未覆盖——dark 6 翻 light 4）', () => {
-    const { io } = makeBackend({
+    const { io, backend } = makeBackend({
       sessionId: SESSION,
       theme: 'custom-x',
       customThemeOverlay: { secondary: ansiColor(5) }, // 覆盖非 accent 键
     });
-    expect(io.bytes).toContain('\x1b[36m'); // 构造期：dark 基板 accent 6
+    emit(backend, { type: 'agent_start' }); // 转轮 accent 载体（R-6 翻档——编辑器 › 不再携 accent）
+    expect(io.bytes).toContain('\x1b[36m'); // dark 基板 accent 6（转轮载体）
     io.reset();
     io.emitInput('\x1b]11;rgb:ffff/ffff/ffff\x07'); // 亮底应答
     expect(io.bytes).toContain('\x1b[34m'); // 基板翻 light——缺键回退同位键（accent 4）
@@ -4985,7 +4997,7 @@ describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②
     // 2 行——低段从「整段隐」升为「缩 1 行」；段内梯缩至首条摘要行）
     // 状态行恒保底且钉屏底（注⑪①——环境行 = 最底行；secondary 弱化 SGR）
     expect(io.bytes).toContain('\x1b[5;1H\x1b[0m\x1b[90msess-aaa · 只读'); // 钉屏底（1 基第 5 行——环境行短 id 起）
-    expect(io.bytes).toContain('\x1b[3;1H\x1b[0m\x1b[36m›'); // composer 输入行（1 基第 3 行——状态 2 行上移）
+    expect(io.bytes).toContain('\x1b[3;1H\x1b[0m\x1b[1m›'); // composer 输入行（1 基第 3 行——状态 2 行上移；R-6 翻档：聚焦 › bold）
     expect(io.bytes).toContain('任务零0'); // 低段缩至首条在场——段不虚报缺席
     expect(io.bytes).not.toContain('任务零1'); // 缩掉的不虚报（修前 7 行全量进画）
     expect(io.bytes).not.toContain('\x1b[6;1H'); // 无越屏定位（修前固定区 11 行越 5 行屏）
@@ -5145,8 +5157,9 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     // 终态窗块 = 末次 ↑ 指示之后的 diff 段（onRepaint 的 repaint 先陈货全量
     // 重画再同帧 diff 收敛——流中旧窗字节是中间态非终态证据，同 fx2-A 谱）
     const finalWindow = io.bytes.slice(io.bytes.lastIndexOf('↑'));
-    // ❯→› 图标收敛批：光标记号独立 accent 段（› 与反白正文分属两个 SGR 段）
-    expect(finalWindow).toContain('\x1b[7;36m›\x1b[0m\x1b[7m opt-20'); // 高亮末项——光标移动且窗沉底跟随
+    // R-6 翻档：选中行整行 accent bold（bold 属性位 1 先于色位 36——SGR 段
+    // '\x1b[1;36m'）、› 光标前缀符与 inverse 反色退役
+    expect(finalWindow).toContain('\x1b[1;36m  opt-20'); // 高亮末项——光标移动且窗沉底跟随
     expect(finalWindow).not.toContain('↓ '); // 窗沉底——底部无隐藏（指示行消失）
     io.emitInput('\r');
     pump();
@@ -5162,7 +5175,7 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     io.emitInput('\x1b[B\x1b[B\x1b[B'); // ↓×3 → opt-3
     pump();
     expect(io.bytes.length).toBeGreaterThan(0); // 键即帧（修前 0——面板态已变从未画出）
-    expect(io.bytes).toContain('\x1b[7;36m›\x1b[0m\x1b[7m opt-3'); // 高亮随键可见（› 反白段——图标收敛批形）
+    expect(io.bytes).toContain('\x1b[1;36m  opt-3'); // 高亮随键可见（整行 accent bold——R-6 翻档锚）
     io.emitInput('\r');
     pump();
     await expect(p).resolves.toBe('v3');

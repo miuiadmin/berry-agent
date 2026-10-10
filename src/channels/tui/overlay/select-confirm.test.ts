@@ -14,11 +14,15 @@
  * rightBudget = width - 1 - leftReserve（leftReserve = min(label 宽, 半窗)）
  * 截成 … 省略形再右对齐；label 以右段实占余宽为帽 … 收口；title/message
  * 超宽 truncateToWidth + …。
+ *
+ * 2026-10-10 Codex 样式复刻批 R-6：选中形翻档（整行 accent bold——› 光标
+ * 前缀符与 inverse 反色退役）+ menu surface 底色块（userMessageBg 在场铺底
+ * + inset 上1/下1/左2/右2；缺席诚实回退——16 档缺省主题天然缺席腿）。
  */
 import { describe, expect, it } from 'vitest';
 import { CellGrid, truncateToWidth } from '../../engine/index.js';
 import { ConfirmPanel, SELECT_CANCELLED, SelectPanel } from './select-confirm.js';
-import { DEFAULT_THEME } from '../theme/index.js';
+import { DARK_PALETTE, DEFAULT_THEME, resolveTheme } from '../theme/index.js';
 
 /** 读回一行（未写格按空格、宽字素续格空串——trimEnd） */
 function readRow(grid: CellGrid, row: number, width: number): string {
@@ -72,10 +76,11 @@ describe('SelectPanel 呈现宽度预算（组 2 修前红）', () => {
     const panel = new SelectPanel({ options: [{ value: 'x', label: 'a'.repeat(70), hint: 'h' }] });
     const grid = new CellGrid(30, 1);
     panel.render(grid, { row: 0, col: 0, width: 30, height: 1 });
-    // item 0 恒高亮 → 前缀 '› '（› 宽 1——与 '  ' 同占 2 列，列算不变）；
+    // item 0 恒选中 → 前缀统一 2 空格缩进（R-6 翻档——› 光标前缀符退役，
+    // 与旧 '› ' 同占 2 列，列算不变）；
     // leftReserve = min(72, 15) = 15 → rightBudget = 30-1-15 = 14（hint 'h' 适装）
-    // maxLeft = 30 - 1 - 1 = 28 → label 段 = '› ' + 'a'×25 + '…'（28 列）+ 间隔 1 + 'h'
-    expect(readRow(grid, 0, 30)).toBe(`› ${'a'.repeat(25)}… h`);
+    // maxLeft = 30 - 1 - 1 = 28 → label 段 = 缩进 + 'a'×25 + '…'（28 列）+ 间隔 1 + 'h'
+    expect(readRow(grid, 0, 30)).toBe(`  ${'a'.repeat(25)}… h`);
   });
 
   it('title 超宽 … 截断（修前裸裁到缓冲界——写目标身份段静默丢失红）', () => {
@@ -97,18 +102,18 @@ describe('SelectPanel 呈现宽度预算（组 2 修前红）', () => {
     const grid = new CellGrid(24, 4);
     panel.render(grid, { row: 0, col: 0, width: 24, height: 4 });
     expect(readRow(grid, 0, 24)).toBe('标题');
-    expect(readRow(grid, 1, 24)).toBe('› 选项甲          hint-a');
+    expect(readRow(grid, 1, 24)).toBe('  选项甲          hint-a'); // R-6 翻档：› 前缀符退役
     expect(readRow(grid, 2, 24)).toBe('  选项乙');
   });
 
   it('极窄窗（宽 2）预算 0 丢右段：hint 不放行原宽（单源收紧位——私拷贝放行原宽右对齐起列为负、尾段从行首覆写行内容红）', () => {
-    // 宽 2：left = '› approve'（9 列）→ leftReserve = min(9, 1) = 1 →
+    // 宽 2：left = '  approve'（9 列）→ leftReserve = min(9, 1) = 1 →
     // rightBudget = 2 - 1 - 1 = 0——单源 row-segments 收紧为丢弃右段
-    // （预算 0 = 无位可放），行内只剩左段按帽 2 … 收口：'›…'
+    // （预算 0 = 无位可放），行内只剩左段按帽 2 … 收口（R-6 翻档：' …'）
     const panel = new SelectPanel({ options: [{ value: 'a', label: 'approve', hint: 'hint-x' }] });
     const grid = new CellGrid(2, 1);
     panel.render(grid, { row: 0, col: 0, width: 2, height: 1 });
-    expect(readRow(grid, 0, 2)).toBe('›…');
+    expect(readRow(grid, 0, 2)).toBe(' …');
   });
 
   it('键面与预算律互不扰动（截断呈现不影响应答值）', () => {
@@ -209,7 +214,7 @@ describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
     expect(panel.measure(80)).toBe(5);
     const grid = new CellGrid(20, 5);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 5 });
-    expect(readRow(grid, 1, 20)).toBe('› opt-0');
+    expect(readRow(grid, 1, 20)).toBe('  opt-0');
     expect(readRow(grid, 4, 20)).toBe('  opt-3'); // 全集在场
   });
 
@@ -220,7 +225,7 @@ describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
     const grid = new CellGrid(20, 6);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 6 });
     expect(readRow(grid, 0, 20)).toBe('T');
-    expect(readRow(grid, 1, 20)).toBe('› opt-0'); // 光标项窗首（居中钳 0）
+    expect(readRow(grid, 1, 20)).toBe('  opt-0'); // 光标项窗首（居中钳 0）
     expect(readRow(grid, 4, 20)).toBe('  opt-3'); // 窗尾
     expect(readRow(grid, 5, 20)).toBe('↓ 6 更多'); // 窗外 6 项隐藏
   });
@@ -233,7 +238,7 @@ describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
     const grid = new CellGrid(20, 7);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 7 });
     expect(readRow(grid, 1, 20)).toBe('↑ 3 更多'); // start = 5-2 = 3
-    expect(readRow(grid, 4, 20)).toBe('› opt-5'); // 居中可视
+    expect(readRow(grid, 4, 20)).toBe('  opt-5'); // 居中可视
     expect(readRow(grid, 6, 20)).toBe('↓ 3 更多');
   });
 
@@ -245,7 +250,7 @@ describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
     const grid = new CellGrid(20, 6);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 6 });
     expect(readRow(grid, 1, 20)).toBe('↑ 6 更多'); // start = 6（沉底钳）
-    expect(readRow(grid, 5, 20)).toBe('› opt-9'); // 末项窗尾可视
+    expect(readRow(grid, 5, 20)).toBe('  opt-9'); // 末项窗尾可视
   });
 
   it('退化小帽防御：measure 恒 ≤ 帽、render 区域界内不越写（不抛不丢格）', () => {
@@ -255,7 +260,7 @@ describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
     const grid = new CellGrid(20, 2);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 2 });
     expect(readRow(grid, 0, 20)).toBe('T'); // 标题优先在场
-    expect(readRow(grid, 1, 20)).toBe('› opt-0'); // 光标行保底可视
+    expect(readRow(grid, 1, 20)).toBe('  opt-0'); // 光标行保底可视
   });
 
   it('窗口化不改选值语义（enter 应答高亮项全集值——呈现取景非数据截断）', () => {
@@ -342,7 +347,7 @@ describe('SelectPanel 翻页键族（B1——pagedown/pageup/home/end）', () =>
     const grid = new CellGrid(20, 6);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 6 });
     expect(readRow(grid, 1, 20)).toBe('↑ 6 更多'); // 顶指示（窗外 6 项）
-    expect(readRow(grid, 5, 20)).toBe('› opt-9'); // 末项窗尾可视（居中钳沉底）
+    expect(readRow(grid, 5, 20)).toBe('  opt-9'); // 末项窗尾可视（居中钳沉底）
   });
 
   it('空集防御：四键零选项不炸、enter 应答保守值（end = max(0, -1) = 0 钳位）', () => {
@@ -360,8 +365,8 @@ describe('SelectPanel 翻页键族（B1——pagedown/pageup/home/end）', () =>
   });
 });
 
-describe('SelectPanel 光标符 › accent（界面美化役美学注③）', () => {
-  it('高亮行首符 › 带合成样式（inverse + accent 前景）；非高亮行无符', () => {
+describe('SelectPanel 选中行 accent bold（R-6 翻档——光标符/inverse 退役）', () => {
+  it('选中行整行 accent bold、无 › 前缀符无 inverse；未选中行 2 空格缩进默认前景', () => {
     const panel = new SelectPanel({
       options: [
         { value: 'a', label: '选项甲' },
@@ -370,17 +375,73 @@ describe('SelectPanel 光标符 › accent（界面美化役美学注③）', ()
     });
     const grid = new CellGrid(20, 2);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 2 });
-    // 高亮行（行 0）首符 = ›，样式 = inverse + accent（DEFAULT_THEME accent 前景）
-    const cell = grid.getCell(0, 0);
-    expect(cell?.grapheme).toBe('›');
-    expect(cell?.style?.inverse).toBe(true);
-    expect(cell?.style?.fg).toBe(DEFAULT_THEME.accent); // ANSI 6 cyan（ branded 数形）
-    // 行内容整体反相（次格样式无 accent 前景——仅符位带）
-    expect(grid.getCell(0, 1)?.style?.inverse).toBe(true);
-    expect(grid.getCell(0, 1)?.style?.fg).toBeUndefined();
-    // 非高亮行无符（空格前缀）
-    expect(grid.getCell(1, 0)?.grapheme).toBe(' ');
-    expect(grid.getCell(1, 0)?.style?.inverse).toBeUndefined();
+    // 选中行（行 0）：首格 = 空格（› 光标前缀符退役）、label 格 accent +
+    // bold、无 inverse（修前红：inverse 反色 + › 符位 accent 合成）
+    expect(grid.getCell(0, 0)?.grapheme).toBe(' ');
+    expect(grid.getCell(0, 2)?.style?.fg).toBe(DEFAULT_THEME.accent);
+    expect(grid.getCell(0, 2)?.style?.bold).toBe(true);
+    expect(grid.getCell(0, 2)?.style?.inverse).toBeUndefined();
+    // 未选中行（行 1）：默认前景无 bold
+    expect(grid.getCell(1, 2)?.style?.fg).toBeUndefined();
+    expect(grid.getCell(1, 2)?.style?.bold).toBeUndefined();
+  });
+});
+
+/* ================= menu surface 底色块（Codex 样式复刻批 R-6——「面板即大号用户消息块」） ================= */
+
+describe('SelectPanel menu surface 底色块（R-6 修前红）', () => {
+  /** truecolor 主题（探测背景在场 → userMessageBg 动态混合腿产出；16 档 DEFAULT_THEME 天然缺席腿对照） */
+  const tc = resolveTheme(DARK_PALETTE, 'truecolor', { r: 100, g: 100, b: 100 });
+
+  it('userMessageBg 在场：整区铺底色 + inset 上1/下1/左2/右2（内容原点内收、量高 +2）', () => {
+    const panel = new SelectPanel({
+      title: 'T',
+      theme: tc,
+      options: [
+        { value: 'a', label: '选项甲' },
+        { value: 'b', label: '选项乙' },
+      ],
+    });
+    // 修前红位：measure = 3（无 surface 概念）；翻档后 = 标题 1 + 选项 2 + inset 2
+    expect(panel.measure(80)).toBe(5);
+    const grid = new CellGrid(20, 5);
+    panel.render(grid, { row: 0, col: 0, width: 20, height: 5 });
+    // 铺底格携 userMessageBg（顶 inset 行也是底色块成员）
+    expect(grid.getCell(0, 0)?.style?.bg).toBe(tc.userMessageBg);
+    expect(grid.getCell(4, 19)?.style?.bg).toBe(tc.userMessageBg);
+    // 内容原点内收：标题在 row 1 / col 2（非 row 0 / col 0——修前红位）
+    expect(grid.getCell(1, 2)?.grapheme).toBe('T');
+    expect(grid.getCell(0, 2)?.grapheme).toBe(' '); // 顶 inset 行无内容
+    // 选项行随 inset 下移：row 2/3、行头 = inset 左 2 + 前缀缩进 2（共 4 空格头）
+    expect(readRow(grid, 2, 20)).toBe('    选项甲');
+    expect(readRow(grid, 3, 20)).toBe('    选项乙');
+  });
+
+  it('userMessageBg 缺席诚实回退：无底色无 inset——量高与内容原点维持现状形（16 档天然缺席腿）', () => {
+    const panel = new SelectPanel({
+      title: 'T',
+      options: [{ value: 'a', label: '选项甲' }],
+    }); // 缺省 theme = DEFAULT_THEME（16 档降采——userMessageBg 缺席）
+    expect(panel.measure(80)).toBe(2); // 标题 1 + 选项 1（无 inset 加行）
+    const grid = new CellGrid(20, 2);
+    panel.render(grid, { row: 0, col: 0, width: 20, height: 2 });
+    expect(grid.getCell(0, 0)?.grapheme).toBe('T'); // 标题在原点
+    expect(grid.getCell(0, 0)?.style?.bg).toBeUndefined(); // 无底色铺底
+    expect(readRow(grid, 1, 20)).toBe('  选项甲');
+  });
+
+  it('surface 在场窗口化：inset 行计入帽扣减（帽内自洽——固定区总高不因 surface 超帽）', () => {
+    const opts = Array.from({ length: 10 }, (_, i) => ({ value: `v${i}`, label: `opt-${i}` }));
+    const panel = new SelectPanel({ title: 'T', theme: tc, options: opts });
+    panel.setMaxHeight(9); // full = 1+10+2 = 13 > 9 → 窗行 = 9-1-2-2 = 4
+    expect(panel.measure(80)).toBe(8); // 标题 1 + 顶指示 1 + 窗 4 + 底指示 1 + inset 2（首帧贴顶无顶指示则 7——见下断言形）
+    const grid = new CellGrid(20, panel.measure(80));
+    panel.render(grid, { row: 0, col: 0, width: 20, height: panel.measure(80) });
+    // 窗口化内容序：inset(row0) → 标题(row1) → 选项窗(row2-5，首帧贴顶无顶
+    // 指示) → 底指示(row6) → 底 inset(row7)；行头 = inset 左 2 + 前缀缩进 2
+    expect(readRow(grid, 2, 20)).toBe('    opt-0'); // 首窗项
+    expect(readRow(grid, 6, 20)).toBe('  ↓ 6 更多'); // 底指示（inset 下移后随行）
+    expect(grid.getCell(7, 19)?.style?.bg).toBe(tc.userMessageBg); // 底 inset 行
   });
 });
 

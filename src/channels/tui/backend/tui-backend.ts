@@ -3979,12 +3979,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       row += budget.todo;
     }
 
-    // 段二：补全弹层（可见才占位——非模态浮层；截断隐 = 零高度；维持编辑器
-    // 上方弹出位——2026-10-08 D 件应答段迁移的规范明文不迁面）
-    if (budget.popup > 0) {
-      this.popup.render(grid, { row, col: 0, width: columns, height: budget.popup });
-      row += budget.popup;
-    }
+    // 段二：（已迁——2026-10-10 Codex 样式复刻批 R-6 弹出位翻档：补全弹层
+    // 自编辑器上方迁编辑器下方〔段五后〕——渲染段序「…编辑器 → 补全弹层 →
+    // ask 提示行/应答段…」；fixed-budget 梯不动〔popup 仍梯末位——牺牲序
+    // 不变〕，只动 renderFixed 段序；弹层展开吃转录区、编辑器随固定区增高
+    // 上移，footer/状态行不随让位）
 
     // 段三：任务状态行（件 12——编辑器正上方固定段；忙态在场闲态离场，
     // 占行裁决见上；编辑器聚焦态不受影响——overlay 占焦判定与任务行无涉）
@@ -4017,6 +4016,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.editor.setFocused(this.stack.size === 0);
     this.editor.render(grid, { row, col: 0, width: columns, height: budget.editor });
     row += budget.editor;
+
+    // 段五.四：补全弹层（R-6 弹出位翻档——自段二〔编辑器上方〕迁编辑器下方：
+    // 可见才占位非模态浮层；截断隐 = 零高度〔fixed-budget 梯末位——牺牲序
+    // 不变〕；弹层在场时 footer/状态行不随让位〔popup 只是段序成员非让位源〕）
+    if (budget.popup > 0) {
+      this.popup.render(grid, { row, col: 0, width: columns, height: budget.popup });
+      row += budget.popup;
+    }
 
     // 段五.五：input-ask 提示行（应答段首行——2026-10-08 D 件自固定区顶部段
     // 迁编辑器下方：与编辑器〔应答期转应答车〕上下相邻成对话组；恒保不截）。

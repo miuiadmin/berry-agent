@@ -1,12 +1,18 @@
 /**
- * 补全弹层件（07 §4.1 引擎节件 6（组件与呈现装配件））：候选列表浮层——输入框上方按多行输入件
- * 坐标定位（定位由主屏固定区槽位装配承载——fixed-budget 弹层槽；锚定注册表
+ * 补全弹层件（07 §4.1 引擎节件 6（组件与呈现装配件））：候选列表浮层——按多行输入件
+ * 坐标定位（定位由主屏固定区槽位装配承载——fixed-budget 弹层槽；弹出位 =
+ * 编辑器下方〔2026-10-10 Codex 样式复刻批翻档——段序见 renderFixed〕；锚定注册表
  * 形已判死路清除〔fx2-D〕；本件是纯内容——只画列表）。
  *
  * - 结果落位驱动：R6 批 10j 异步形——backend 持防抖调度器（AutocompleteCompleter），
  *   onResult 回调调 applyResult 注入（null 收层不显；空条目弹「无匹配」
  *   空态行——2026-10-04 空态反馈批，键面见 handleEvent 空态注）；候选窗口
- *   10 行帽 + 高亮跟随滚动；
+ *   8 行帽（弹层族一致律——2026-10-10 Codex 样式复刻批 10→8）+ 高亮跟随滚动；
+ * - 观感（2026-10-10 Codex 样式复刻批）：选中行 = 整行所有 span accent bold
+ *   （弃 inverse 反色与 › 光标前缀符——未选中行 2 空格缩进维持）；空态行
+ *   dim + italic（accent 空态档退役）；desc 列对齐制——起列 = 全集条目
+ *   max(label 显示宽) + 2（全集基准滚动不挪列；右对齐制退役）、段右界帽
+ *   ≤ 区域宽 70%、desc 段 dim（选中行整行 accent bold 覆盖 dim）；
  * - 键面：↑/↓ 循环换高亮、enter/tab 应用、escape 关本轮（后续输入再发新查
  *   重开；关层回调 onDismiss——backend 撤防抖窗作废在途，堵迟到 fire 重开
  *   闪回——2026-09-20 TUI 视觉品质战役·组 2）；其余键不消费（穿透回
@@ -22,29 +28,26 @@
  *   与引号形）。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region, Renderable } from '../../engine/index.js';
-import { fitRowSegments } from '../row-segments.js';
+import { ellipsize, stringWidth } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { EditorModel } from '../editor/editor-model.js';
 import type { AutocompleteResult } from './provider.js';
 import { tokenAtCursor } from './token.js';
-import { CURSOR_MARK } from '../panels/panel-chrome.js';
-import { DIM_STYLE } from '../../engine/index.js';
 
-/** 弹层可见条目帽（超出窗口滚动跟随高亮） */
-const MAX_VISIBLE_ITEMS = 10;
+/** 弹层可见条目帽（弹层族一致律 8 行——超出窗口滚动跟随高亮） */
+const MAX_VISIBLE_ITEMS = 8;
 
-/** 高亮行样式（整行反色——与 SelectPanel 同视觉语言） */
-const ACTIVE_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
-/** 补充说明段样式（dim） */
-const DETAIL_STYLE: Readonly<CellStyle> = DIM_STYLE;
+/** 未选中行首缩进（选中行同形——光标前缀符已退役，全行统一 2 空格） */
+const ROW_INDENT = '  ';
 
-/**
- * 单行左右双段预算排版已迁件外单源 row-segments（2026-09-21 TUI 第四役挂账②
- * 私拷贝收尾——两处私拷贝删除，本件只消费）：detail 段先按预算截成 … 省略形
- * 再右对齐、label 段以右段实占后余宽为帽 … 收口。单源较私拷贝收紧一处——
- * 预算 0（窗宽 ≤ 2 且右段非空）由放行原宽（右对齐起列为负、尾段从行首
- * 覆写整行）收紧为丢弃右段（负起列结构性封堵）。
- */
+/** desc 段右界帽系数（≤ 区域宽 70%——desc 短说明位不霸屏） */
+const DESC_RIGHT_RATIO = 0.7;
+
+/** 空态行样式（dim + italic——「无匹配」弱反馈，accent 空态档已退役） */
+const EMPTY_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true, italic: true });
+
+/** desc 段常态样式（dim——选中行整行 accent bold 覆盖位由 render 分派） */
+const DETAIL_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 
 /** 弹层件：结果落位面 + 模型代换原语调用（provider 归 backend 调度器持有） */
 export class AutocompletePopup implements Renderable {
@@ -52,13 +55,11 @@ export class AutocompletePopup implements Renderable {
   private activeIndex = 0;
   private windowStart = 0;
   private readonly model: EditorModel;
-  /** 无候选提示样式（accent 派生——主题单源，setTheme 整体重建） */
-  private emptyStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
   /**
-   * 光标符样式（界面美化役美学注③）：› 符位 accent 着色——高亮行上与
-   * inverse 合成（反相行内符位前景仍带语义色；setTheme 整体重建同 emptyStyle）。
+   * 选中行样式（整行 accent bold——主题派生，setTheme 重建；codex 形：
+   * 弃 inverse 反色与 › 光标前缀符）
    */
-  private cursorStyle: Readonly<CellStyle> = Object.freeze({ inverse: true, fg: DEFAULT_THEME.accent });
+  private activeStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent, bold: true });
   /**
    * escape 关层通知（2026-09-20 TUI 视觉品质战役·组 2）：popup 消费 escape
    * 关本轮时回调——backend 接线 autocompleteCompleter.cancel()（撤 20ms 防
@@ -75,8 +76,7 @@ export class AutocompletePopup implements Renderable {
 
   /** 主题换装（OSC 11 probe 裁定后 backend 注入——accent 派生样式重建） */
   setTheme(theme: ResolvedTheme): void {
-    this.emptyStyle = Object.freeze({ fg: theme.accent });
-    this.cursorStyle = Object.freeze({ inverse: true, fg: theme.accent });
+    this.activeStyle = Object.freeze({ fg: theme.accent, bold: true });
   }
 
   /** 弹层在场态（无补全不显） */
@@ -107,10 +107,11 @@ export class AutocompletePopup implements Renderable {
     return Math.max(1, Math.min(this.result.items.length, MAX_VISIBLE_ITEMS));
   }
 
-  /** 落位：铺底空格 → 可见窗条目行（高亮反色 + 说明右对齐） */
+  /** 落位：铺底空格 → 可见窗条目行（选中整行 accent bold + desc 列对齐） */
   render(buffer: CellBuffer, region: Region): void {
     if (this.result === null) return;
-    // 铺底空格（写格覆盖——未写格会透出主树文字）
+    // 铺底空格（写格覆盖——未写格会透出主树文字；补全弹窗不吃底色——menu
+    // surface 族分立在案，与 select/审批面板两类面分立）
     for (let r = 0; r < region.height; r++) {
       for (let c = 0; c < region.width; c++) {
         buffer.setCell(region.row + r, region.col + c, ' ');
@@ -118,27 +119,24 @@ export class AutocompletePopup implements Renderable {
     }
     const items = this.result.items;
     if (items.length === 0) {
-      buffer.writeText(region.row, region.col, '无匹配', this.emptyStyle);
+      buffer.writeText(region.row, region.col, '无匹配', EMPTY_STYLE);
       return;
     }
+    // desc 起列（全集基准——滚动不挪列）：缩进 2 + max(label 显示宽) + 间隔 2
+    const descCol = ROW_INDENT.length + Math.max(...items.map((item) => stringWidth(item.label))) + ROW_INDENT.length;
+    // desc 段右界帽 ≤ 区域宽 70%——起列已越帽的极长 label 形 desc 诚实不显
+    const descAvail = Math.floor(region.width * DESC_RIGHT_RATIO) - descCol;
     const end = Math.min(items.length, this.windowStart + MAX_VISIBLE_ITEMS);
     for (let i = this.windowStart; i < end; i++) {
       const row = region.row + (i - this.windowStart);
       const item = items[i]!;
       const active = i === this.activeIndex;
-      // 光标符走 panel-chrome CURSOR_MARK 单源（美学注③→V-3 注⑩ 翻档现值
-      // ›——▸/❯ 时代符形已退役，选形改动单源处生效）
-      const prefix = active ? `${CURSOR_MARK} ` : '  ';
-      // 行预算排版（件外单源 row-segments）：label 段（前缀 + label）与
-      // detail 段各自 … 收口不交叠——极长 detail 原宽右对齐会负起列覆写
-      // 整行（组 2 修前坏形）；预算 0（窗宽 ≤ 2）丢右段不放行原宽
-      const { left, right, rightWidth } = fitRowSegments(`${prefix}${item.label}`, item.detail, region.width);
-      buffer.writeText(row, region.col, left, active ? ACTIVE_STYLE : undefined);
-      // 符位 accent 覆写（美学注③——只换首符样式不改截断几何；极窄窗 left
-      // 可被 … 收到比前缀短，setCell 越界静默吸收零防御负担）
-      if (active) buffer.setCell(row, region.col, CURSOR_MARK, this.cursorStyle);
-      if (rightWidth > 0) {
-        buffer.writeText(row, region.col + region.width - rightWidth, right, DETAIL_STYLE);
+      // label 帽 = 行宽 − 缩进（… 收口）；选中行整行 accent bold（含 desc 段）
+      const label = ellipsize(`${ROW_INDENT}${item.label}`, region.width);
+      buffer.writeText(row, region.col, label, active ? this.activeStyle : undefined);
+      if (descAvail > 0 && item.detail !== undefined && item.detail !== '') {
+        const detail = ellipsize(item.detail, descAvail);
+        buffer.writeText(row, region.col + descCol, detail, active ? this.activeStyle : DETAIL_STYLE);
       }
     }
   }

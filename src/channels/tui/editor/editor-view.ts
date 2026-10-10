@@ -3,8 +3,9 @@
  *
  * 渲染职责（07 §4.1 引擎节件 6；V-0 注③ 全宽框退役——codex 对齐）：
  * - `› ` 提示符 2 列 + 续行两空格缩进（与 transcript user 块同语言同字符），
- *   框线零占位；聚焦 › accent / 非聚焦 secondary（焦点指示新载体——两态
- *   色值承旧过渡，V-3 落码批定值）；
+ *   框线零占位；› 恒 bold 默认前景 / 失焦·禁用档 dim（R-6 翻档——accent/
+ *   secondary 两态色退役该位）；空稿占位符 dim（› 后同列，有稿即覆盖——
+ *   底铬功能输入行显式 null 退役）；
  * - 底色染色块（userMessageBg）：探测背景在场时整 region 铺底再覆写前缀/
  *   正文；缺席零背景带诚实回退——› 前缀独挑边界；
  * - 呈现最小高 3 + 上下空行垫各 1（2026-10-08 TUI 对标 Codex 五件批 A+B：
@@ -16,7 +17,7 @@
  * - 聚焦时本帧光标声明（宽字素首列——显示列算术保证不落半字）。
  */
 import type { CellBuffer, Region, Renderable } from '../../engine/index.js';
-import { graphemeWidth, splitGraphemes, stringWidth } from '../../engine/index.js';
+import { ellipsize, graphemeWidth, splitGraphemes, stringWidth } from '../../engine/index.js';
 import { prefixDisplayWidth } from './visual-lines.js';
 import type { EditorModel } from './editor-model.js';
 import { EDITOR_PAD_ROWS, MIN_PRESENTED_LINES, presentedLineCount } from './height-cap.js';
@@ -33,6 +34,12 @@ const PREFIX_WIDTH = 2;
  * 位；与 user 块折行宽 −3 同口径〔前缀 2 + 右缘 1〕）
  */
 const RIGHT_PAD = 1;
+
+/**
+ * 空稿占位文案（R-6——Codex 样式复刻批新增面：空稿时 › 后同列 dim 弱提示；
+ * 文案遵 §4.4 白话律——动词起句短词，不写「请输入…」敬语形）
+ */
+const EMPTY_PLACEHOLDER_TEXT = '输入消息…';
 
 /** 最大可视行数缺省（backend 构造期注入帽公式同值 max(5, rows*0.3)——pi 同形；装配层启动快照注入已撤〔第六轮批〕） */
 const DEFAULT_MAX_VISIBLE_LINES = 8;
@@ -54,10 +61,18 @@ export class EditorView implements Renderable {
   private padRows: number;
   /** 上次量高的裸内容视觉行数（contentRows() 夹帽导出的底数——分配梯经 contentRows() 间接取帽内值、renderFixed 从不直读本字段〔sweep23-件1 口径，挖 24 勘正原「梯输入」断言〕） */
   private lastContentRows = 0;
-  /** › 提示符聚焦态样式（accent——V-0 注③ 焦点指示新载体；setTheme 随底色重建合成形） */
-  private promptFocused: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
-  /** › 提示符非聚焦态样式（secondary 降档——承旧边框两态色过渡；setTheme 重建） */
-  private promptUnfocused: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.secondary });
+  /**
+   * › 提示符聚焦态样式（恒 bold 默认前景——2026-10-10 Codex 样式复刻批 R-6：
+   * accent 着色退役该位，bold 即边界感；底色在场时携 bg 合成形 setTheme 重建）
+   */
+  private promptFocused: Readonly<CellStyle> = Object.freeze({ bold: true });
+  /** › 提示符失焦/禁用档样式（dim 降档——secondary 退役该位；setTheme 重建） */
+  private promptUnfocused: Readonly<CellStyle> = Object.freeze({ dim: true });
+  /**
+   * 空稿占位符样式（dim——2026-10-10 Codex 样式复刻批 R-6 新增面：空稿时
+   * › 后同列弱提示「输入消息…」，有稿即被正文覆盖；底色在场时携 bg 合成）
+   */
+  private placeholderStyle: Readonly<CellStyle> = Object.freeze({ dim: true });
   /**
    * 底色染色块铺底样式（userMessageBg）：探测背景在场时整 region 铺底空格
    * 携底色（V-0 注③）；缺席为 null——零背景带诚实回退，› 前缀独挑边界。
@@ -67,6 +82,13 @@ export class EditorView implements Renderable {
   /** 正文样式（底色在场时正文格携 bg 覆写铺底格；缺席 undefined——透明写） */
   private contentStyle: Readonly<CellStyle> | undefined =
     DEFAULT_THEME.userMessageBg === undefined ? undefined : Object.freeze({ bg: DEFAULT_THEME.userMessageBg });
+  /**
+   * 空稿占位文案（R-6 呈现策略参数化族）：缺省 = 消息 composer 占位文
+   * 「输入消息…」；null = 显式退役——底铬功能输入行（viewer 搜索/导出参数
+   * 行——功能框非消息 composer，composer 占位文不辖该位）。
+   */
+  private placeholderText: string | null;
+
   /** 滚动指示 overlay 样式（dim；底色在场时携 bg 维持带连续——覆盖写不凿洞） */
   private indicatorStyle: Readonly<CellStyle> = DIM_STYLE;
   /** 预编辑段样式（下划线——组字挂起提示；底色在场时携 bg 合成） */
@@ -74,14 +96,22 @@ export class EditorView implements Renderable {
 
   constructor(
     private readonly model: EditorModel,
-    options: { maxVisibleLines?: number; minPresentedLines?: number; padRows?: number } = {},
+    options: {
+      maxVisibleLines?: number;
+      minPresentedLines?: number;
+      padRows?: number;
+      placeholder?: string | null;
+    } = {},
   ) {
     this.maxVisibleLines = Math.max(1, options.maxVisibleLines ?? DEFAULT_MAX_VISIBLE_LINES);
     // 呈现策略参数化（五件批 A+B）：缺省 = 规范值（主 composer——最小高 3 +
     // 垫 2）；底铬瞬时输入行（viewer 导出/搜索行——单行形设计锁）显式
-    // { minPresentedLines: 1, padRows: 0 } 回归旧几何——A+B 辖主 composer 不辖底铬
+    // { minPresentedLines: 1, padRows: 0 } 回归旧几何——A+B 辖主 composer 不辖底铬。
+    // 空稿占位符（R-6 参数化续位）：同族第三参——缺省 = composer 占位文，
+    // 底铬功能输入行显式 null 退役（与单行档成对）
     this.minPresentedLines = Math.max(1, options.minPresentedLines ?? MIN_PRESENTED_LINES);
     this.padRows = Math.max(0, options.padRows ?? EDITOR_PAD_ROWS);
+    this.placeholderText = options.placeholder === undefined ? EMPTY_PLACEHOLDER_TEXT : options.placeholder;
   }
 
   /** 帽随几何重设（批 10k 遗漏修——同值早退不重置迟滞带账） */
@@ -96,8 +126,9 @@ export class EditorView implements Renderable {
     const bg = theme.userMessageBg;
     this.bandStyle = bg === undefined ? null : Object.freeze({ bg });
     this.contentStyle = bg === undefined ? undefined : Object.freeze({ bg });
-    this.promptFocused = Object.freeze(bg === undefined ? { fg: theme.accent } : { fg: theme.accent, bg });
-    this.promptUnfocused = Object.freeze(bg === undefined ? { fg: theme.secondary } : { fg: theme.secondary, bg });
+    this.promptFocused = Object.freeze(bg === undefined ? { bold: true } : { bold: true, bg });
+    this.promptUnfocused = Object.freeze(bg === undefined ? { dim: true } : { dim: true, bg });
+    this.placeholderStyle = Object.freeze(bg === undefined ? { dim: true } : { dim: true, bg });
     this.indicatorStyle = Object.freeze(bg === undefined ? { dim: true } : { dim: true, bg });
     this.preeditStyle = Object.freeze(bg === undefined ? { underline: true } : { underline: true, bg });
   }
@@ -197,6 +228,15 @@ export class EditorView implements Renderable {
       // user 块前缀、picker 光标符同字符，codex composer 形）
       if (vi === this.scrollOffset) {
         buffer.setCell(row, region.col, CURSOR_MARK, this.focused ? this.promptFocused : this.promptUnfocused);
+        // 空稿占位符（Codex 复刻 R-6 新增面）：空稿（唯一空行）且未组字时 › 后
+        // 同列弱提示 dim 占位文案——与正文同位（无额外缩进），有稿即被正文覆盖。
+        // 组字在场不显（预编辑已是内容前兆，双写会交叠光标段）；窄区按内容
+        // 宽 … 收口（极窄终端诚实截断——溢写越界格吸收不可取）；null = 底铬
+        // 功能输入行显式退役（composer 占位文不辖该位）
+        if (this.placeholderText !== null && preedit === null && lines.length === 1 && lines[0] === '') {
+          const placeholder = ellipsize(this.placeholderText, region.width - PREFIX_WIDTH);
+          buffer.writeText(row, region.col + PREFIX_WIDTH, placeholder, this.placeholderStyle);
+        }
       }
       const line = lines[seg.line] ?? '';
       const plain = line.slice(seg.startCol, seg.startCol + seg.length);

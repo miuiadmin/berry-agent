@@ -185,6 +185,9 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
       // 呈现策略辖主 composer 不辖底铬——单行形设计锁，量高恒 1 回归旧几何）
       minPresentedLines: 1,
       padRows: 0,
+      // 空稿占位符退役（R-6 参数化续位）：搜索框是功能输入框非消息 composer
+      //——composer 占位文「输入消息…」不辖该位，空查询提示符独占
+      placeholder: null,
       onChange: () => this.recomputeMatches(),
       keymap: this.keymap, // 同册注入（缺席 = 缺省册单测语义）
     });

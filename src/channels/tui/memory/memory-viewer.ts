@@ -309,6 +309,9 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
       maxVisibleLines: 1,
       minPresentedLines: 1,
       padRows: 0,
+      // 空稿占位符退役（R-6 参数化续位）：导出参数行是功能输入框非消息
+      // composer——composer 占位文「输入消息…」不辖该位
+      placeholder: null,
       keymap: this.keymap,
     });
     this.exportEditor.setFocused(false);
