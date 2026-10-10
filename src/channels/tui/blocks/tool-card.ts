@@ -593,8 +593,13 @@ function previewWindow(lines: readonly StyledLine[], toggleHint: string, columns
 /** exec 输出窗首行转折前缀（④——`  └ `：2 空格 + 转折符 + 空格；与 4 空格续行槽同 4 列对齐） */
 const EXEC_WINDOW_PREFIX = '  └ ';
 
-/** exec 输出窗槽宽（④——`  └ ` 首行与 4 空格续行/省略行槽同宽；窗行折宽 columns − 4 让位） */
-const EXEC_WINDOW_SLOT_WIDTH = 4;
+/**
+ * exec 输出窗槽宽（④——`  └ ` 首行与 4 空格续行/省略行槽同宽；窗行折宽
+ * columns − 4 让位）。挖掘 29 轮件 3 单源化：前缀长派生（前缀两空格+转折符
+ * +空格 = 4 码位恒与显示列同值）——前缀变槽宽随动，三源（exec 窗前缀/槽宽
+ * /diff 段头）归一。
+ */
+const EXEC_WINDOW_SLOT_WIDTH = EXEC_WINDOW_PREFIX.length;
 
 /**
  * exec 输出窗（④——Codex 样式复刻批）：bash 卡族卡体专用形（装配位
@@ -782,10 +787,10 @@ function renderDiffHeaderLine(sections: readonly PatchSection[], columns: number
   return capStyledLine({ plain, runs }, columns);
 }
 
-/** 多文件段头行：`  └ ` dim + 路径裸 + 计数红绿（delete 段无计数括号） */
+/** 多文件段头行：`  └ ` dim + 路径裸 + 计数红绿（delete 段无计数括号）；前缀引 exec 窗常量单源（挖掘 29 轮件 3） */
 function renderDiffSectionHeaderLine(section: PatchSection, columns: number, theme: ResolvedTheme): StyledLine {
-  let plain = `  └ ${sanitizeLineText(section.path)}`;
-  const runs: StyleRun[] = [{ start: 0, end: 4, style: DIM_STYLE }]; // '  └ '
+  let plain = `${EXEC_WINDOW_PREFIX}${sanitizeLineText(section.path)}`;
+  const runs: StyleRun[] = [{ start: 0, end: EXEC_WINDOW_PREFIX.length, style: DIM_STYLE }]; // '  └ ' dim 前缀
   if (section.kind !== 'delete') {
     const counts = diffCountRuns(sectionAdded(section), sectionRemoved(section), theme);
     const base = plain.length + 1;
