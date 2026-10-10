@@ -4,7 +4,8 @@
  * 两档：缺省**折叠单行标签**（省 scrollback，批 10i 落码定值）；展开态 =
  * 标签行 + markdown 体全量（体渲染走既有 doc 管线后**整面改妆**——全部游程
  * fg=thinkingText + italic，斜体与专用色双位齐 R1 条款；bold 位保留——标题
- * 粗体在单色面仍有层级信息）。
+ * 粗体在单色面仍有层级信息）。R-4（Codex 样式复刻批）：思考行扩 dim 增补位
+ * ——标签与体行 dim+italic 同构（斜体与 thinkingText 键维持、键不退役）。
  *
  * 标签三档（V-0 注④计量人读律——`✻ 思考 N 字` 字符计量退役）：流式档
  * `思考中…（ctrl+t 展开）`（进行中无计量——字数不再逐帧变）；定稿档
@@ -48,13 +49,13 @@ export function thinkingLabelText(view: ThinkingView, action: '展开' | '收起
 }
 
 /**
- * 思考块 → 带样式行集。折叠 = 单标签行（整行 italic + thinkingText 色）；
- * 展开 = 标签行 + 改妆 doc 体行。空 text 零行（守卫位——调用面不落空块，
- * 防御性双保险）。
+ * 思考块 → 带样式行集。折叠 = 单标签行（整行 dim+italic + thinkingText 色
+ * ——R-4 dim 增补位）；展开 = 标签行 + 改妆 doc 体行。空 text 零行（守卫位
+ * ——调用面不落空块，防御性双保险）。
  */
 export function renderThinkingStyledLines(view: ThinkingView, columns: number, doc?: Renderable | null): StyledLine[] {
   if (view.text === '') return [];
-  const thinkStyle: CellStyle = { fg: view.theme.thinkingText, italic: true };
+  const thinkStyle: CellStyle = { fg: view.theme.thinkingText, italic: true, dim: true }; // dim = R-4 增补位（体行改妆 spread 承载）
   const label = thinkingLabelText(view, view.expanded ? '收起' : '展开');
   const labelLine: StyledLine = {
     plain: label,

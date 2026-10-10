@@ -1,11 +1,11 @@
 /**
  * 思考块渲染测试（批 10i R1——纯函数直锁；V-2 笔2 注④翻形）。
  *
- * 覆盖：折叠单行标签形（斜体 + thinkingText 色）、三档标签文案（流式
- * `思考中…` / 定稿 `思考 · 4s` / repaint 无钟账 `思考`——计量人读律：字符数
- * 计量退役）、展开档 = 标签行 + 改妆体行（全游程 fg=thinkingText + italic、
- * bold 保留）、空文零行、槽/定稿同函数两渲染同行集（换装跳行不漂移的定位
- * 前提）。
+ * 覆盖：折叠单行标签形（dim+斜体 + thinkingText 色——R-4 增补位）、三档
+ * 标签文案（流式 `思考中…` / 定稿 `思考 · 4s` / repaint 无钟账 `思考`——
+ * 计量人读律：字符数计量退役）、展开档 = 标签行 + 改妆体行（全游程
+ * fg=thinkingText + italic + dim、bold 保留）、空文零行、槽/定稿同函数两
+ * 渲染同行集（换装跳行不漂移的定位前提）。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_THEME } from '../theme/index.js';
@@ -23,16 +23,17 @@ const view = (text: string, expanded: boolean, phase: ThinkingView['phase'], dur
 });
 
 describe('思考块渲染两档', () => {
-  it('折叠档 = 单行标签（整行斜体 + thinkingText 色、含键名提示）', () => {
+  it('折叠档 = 单行标签（整行 dim+斜体 + thinkingText 色、含键名提示）', () => {
     const lines = renderThinkingStyledLines(view('思考中……', false, 'settled', 4000), 60);
     expect(lines).toHaveLength(1);
     expect(lines[0]!.plain).toBe(`思考 · 4s（ctrl+t 展开）`);
     expect(lines[0]!.runs).toEqual([
-      { start: 0, end: lines[0]!.plain.length, style: { fg: DEFAULT_THEME.thinkingText, italic: true } },
+      // R-4 dim 增补位（codex dim+italic 同构——斜体与 thinkingText 键维持）
+      { start: 0, end: lines[0]!.plain.length, style: { fg: DEFAULT_THEME.thinkingText, italic: true, dim: true } },
     ]);
   });
 
-  it('展开档 = 标签（收起提示）+ 体行改妆（全游程 italic+thinkingText、bold 保留）', () => {
+  it('展开档 = 标签（收起提示）+ 体行改妆（全游程 dim+italic+thinkingText、bold 保留）', () => {
     const lines = renderThinkingStyledLines(view('# 标\n\n正文', true, 'settled', 4000), 60);
     expect(lines.length).toBeGreaterThan(2); // 标签 + 标题 + 空行 + 正文
     expect(lines[0]!.plain).toContain('收起');
@@ -40,6 +41,7 @@ describe('思考块渲染两档', () => {
     for (const line of body) {
       for (const run of line.runs) {
         expect(run.style.italic).toBe(true); // 改妆位全量
+        expect(run.style.dim).toBe(true); // R-4 增补位同入改妆（spread 承载）
         expect(run.style.fg).toBe(DEFAULT_THEME.thinkingText);
       }
     }

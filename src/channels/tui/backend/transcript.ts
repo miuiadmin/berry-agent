@@ -232,16 +232,19 @@ function withPad(lines: readonly StyledLine[], leadingGap: boolean): StyledLine[
  * columns−2 折行后首行 `• `、续行两空格缩进（user 块 › 同构）；游程整段
  * 右移 2 列；空行保空行（前缀不携——主屏空行直写形字节不变）。定稿 markdown
  * 块与流式槽两路同轴消费（冻结跳行前提：live 槽与定稿块逐行同形）。
+ * R-4（07 §4.3 ③）：首行 `• ` 前缀 dim 游程（bullet 槽符位弱化、正文照常
+ * ——codex 同构；续行缩进两空格无墨迹不携游程）。
  */
 function bulletSlotLine(line: StyledLine, rowIndex: number): StyledLine {
   if (line.plain === '') return { plain: '', runs: [] };
+  const shifted = line.runs.map((run) => ({
+    start: run.start + BULLET_PREFIX_WIDTH,
+    end: run.end + BULLET_PREFIX_WIDTH,
+    style: run.style,
+  }));
   return {
     plain: (rowIndex === 0 ? '• ' : '  ') + line.plain,
-    runs: line.runs.map((run) => ({
-      start: run.start + BULLET_PREFIX_WIDTH,
-      end: run.end + BULLET_PREFIX_WIDTH,
-      style: run.style,
-    })),
+    runs: rowIndex === 0 ? [{ start: 0, end: BULLET_PREFIX_WIDTH, style: DIM_STYLE }, ...shifted] : shifted,
   };
 }
 

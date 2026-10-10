@@ -220,8 +220,8 @@ describe('LiveTranscript 聚焦归约', () => {
     expect(slot.epoch).toBe(1); // 槽同一性保位（非重开）
     expect(slot.text).toBe('看 `npm` 命令');
     // 降档后渲染 = 纯文本折行（零 ANSI 网格管线）；注⑩ bullet 槽——降档腿与
-    // doc 腿同轴（首行 • 续行两空格——热路径与定稿渲染恒一致）
-    expect(renderBlockLines(slot, 40, false)).toEqual(['• 看 `npm` 命令']); // R-1 豁免位
+    // doc 腿同轴（首行 • 续行两空格——热路径与定稿渲染恒一致；R-4 前缀 dim）
+    expect(renderBlockLines(slot, 40, false)).toEqual(['\x1b[2m• \x1b[0m看 `npm` 命令']); // R-1 豁免位
   });
 
   it('setStreamingPlain 无槽零效果（防御）', () => {
@@ -650,7 +650,7 @@ describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共�
   it('markdown 块：经 CellGrid 渲染（R-3 H1 # 前缀 + bold+underline 单游程）+ bullet 槽前缀（注⑩）', () => {
     const lines = renderBlockLines({ kind: 'markdown', doc: MarkdownDoc.of('# 标题') }, 20, false); // R-1 豁免位
     expect(lines.length).toBeGreaterThan(0);
-    expect(lines[0]).toBe('• \x1b[1;4m# 标题\x1b[0m'); // 首行 • 前缀 + R-3 H1 整行单游程
+    expect(lines[0]).toBe('\x1b[2m• \x1b[0m\x1b[1;4m# 标题\x1b[0m'); // 首行 • 前缀 dim（R-4）+ R-3 H1 整行单游程
     expect(lines.length).toBe(1); // 下划线行退役——单行收口
   });
 
@@ -669,9 +669,10 @@ describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共�
 
   it('streaming 块降档形：空文本零行、有文本按宽折行 + bullet 前缀（doc = null 纯文本直推不走网格）', () => {
     expect(renderBlockLines(slotOf(1, '', null), 20, false)).toEqual([]); // R-1 豁免位——空槽零行（垫维另锁：制度位空槽 = 单垫行瞬态）
-    // 注⑩ bullet 槽：降档腿同轴 columns−2 折行 + `• `/`  ` 前缀（宽 4 → 内容宽 2）
+    // 注⑩ bullet 槽：降档腿同轴 columns−2 折行 + `• `/`  ` 前缀（宽 4 → 内容宽 2；
+    // 首行 • dim 续行裸——R-4 前缀 dim）
     const lines = renderBlockLines(slotOf(1, 'abcdefgh', null), 4, false);
-    expect(lines).toEqual(['• ab', '  cd', '  ef', '  gh']);
+    expect(lines).toEqual(['\x1b[2m• \x1b[0mab', '  cd', '  ef', '  gh']);
   });
 
   it('streaming 块直推档：doc 经网格管线、与定稿 markdown 块同行集（同管线律零第二渲染器）', () => {
@@ -740,9 +741,11 @@ describe('renderBlockStyledLines 带样式行（零第二渲染器——与主�
     const doc = MarkdownDoc.of('# 标题\n\n正文');
     const styled = renderBlockStyledLines({ kind: 'markdown', doc }, 20, false); // R-1 豁免位
     expect(styled.length).toBeGreaterThanOrEqual(3);
-    // H1 行：bullet 槽前缀 + bold+underline 段覆 # 前缀与正文（R-3 同 base 整段）
+    // H1 行：bullet 槽前缀（R-4 dim——符位弱化、正文照常）+ bold+underline 段覆
+    // # 前缀与正文（R-3 同 base 整段）
     const h1 = styled[0]!;
     expect(h1.plain).toBe('• # 标题');
+    expect(h1.runs[0]).toEqual({ start: 0, end: 2, style: { dim: true } }); // bullet 槽前缀 dim（R-4）
     const boldRun = h1.runs.find((r) => r.style.bold === true);
     expect(boldRun).toBeDefined();
     expect(h1.plain.slice(boldRun!.start, boldRun!.end)).toBe('# 标题');

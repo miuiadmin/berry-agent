@@ -133,11 +133,12 @@ describe('TuiBackend 直播呈现', () => {
   });
 
   it('流式帧字节帽超帽降档纯文本（批 10h R1 perf 护栏——streamFrameByteCap 注入面使触发路可测）', () => {
-    // 小帽注入（3 单位）：单字帧不超帽（'• 甲' 3 > 3 假——注⑩ bullet 槽计入
-    // 帧长）；带 markdown 帧字节远超 3
+    // 小帽注入（16 单位）：单字帧不超帽（R-4 前缀 dim 后 `\x1b[2m• \x1b[0m甲`
+    // = 11 字位——注⑩ bullet 槽含前缀 SGR 一并计入帧长）；带 markdown 帧
+    // 字节远超 16（首行 11 + H1 行 16 = 27）
     // ——超帽帧本帧仍 markdown 直推（帧已落账不回改），present 后降档（弃 doc），
     // 次帧起流式正文纯文本直推
-    const { io, backend } = makeBackend({ streamFrameByteCap: 3 });
+    const { io, backend } = makeBackend({ streamFrameByteCap: 16 });
     emit(backend, { type: 'message_start', role: 'assistant' });
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') }); // 1 字节不超帽
     io.bytes = '';
