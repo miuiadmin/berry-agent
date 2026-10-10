@@ -26,6 +26,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CellGrid,
+  graphemeWidth,
   splitGraphemes,
   stringWidth,
   truncateToWidth,
@@ -86,14 +87,24 @@ function expectGridInvariants(grid: Grid): void {
   }
 }
 
-/** 折行产出宽帽断言（整字律例外单源：单字素自身超帽时整字独行） */
+/** 折行产出宽帽断言（例外形单源执法——见各例外注） */
 function expectWidthCapped(text: string, cols: number): void {
   const w = stringWidth(text);
   if (w > cols) {
-    // 例外形：行恰一个字素且宽 ≤ 2（1 列遇双宽字素——不产半字）
     const graphemes = splitGraphemes(text);
-    expect(graphemes, `行超帽且非单字素："${text}"（${w} > ${cols}）`).toHaveLength(1);
-    expect(w).toBeLessThanOrEqual(2);
+    // 例外一：整字独行（行恰一个字素且宽 ≤ 2——1 列遇双宽字素不产半字）
+    if (graphemes.length === 1) {
+      expect(w).toBeLessThanOrEqual(2);
+      return;
+    }
+    // 例外二（R-3 前缀形块）：窄前缀串 + 单个双宽字素尾（'# 标' 形——heading/
+    //   list 前缀不拆律下 body 整字独行拼首行，末字走末列双宽续格截断设计形
+    //   ——与整字独行同族：首格在位、数据不丢，总宽恰 cols+1）
+    if (graphemeWidth(graphemes.at(-1)!) === 2 && graphemes.slice(0, -1).every((g) => graphemeWidth(g) === 1)) {
+      expect(w).toBeLessThanOrEqual(cols + 1);
+      return;
+    }
+    expect(graphemes, `行超帽且非例外形："${text}"（${w} > ${cols}）`).toHaveLength(1);
   }
 }
 

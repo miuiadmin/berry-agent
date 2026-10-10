@@ -148,70 +148,61 @@ describe('blockRows 表格渲染（V-3 注⑨④ codex 双线制）', () => {
   });
 });
 
-describe('blockRows 标题梯度（界面美化役批 §⑥——弃全宽横幅形）', () => {
-  it('H1 = bold + 文本宽下划线（宽随标题文字非全宽）', () => {
+describe('blockRows 标题梯度（R-3 观感翻档——# 前缀保留 + 六级属性位）', () => {
+  it('H1 = 字面 # 前缀 + bold+underline（─ 下划线行退役）', () => {
     const rows = blockRows(first('# 标题文本'), 20, DEFAULT_THEME);
-    expect(texts(rows)).toEqual(['标题文本', '────────']);
-    expect(rows[0]!.every((cell) => cell.style?.bold === true)).toBe(true);
-    expect(rows[1]!.every((cell) => cell.style?.dim === true)).toBe(true);
+    expect(texts(rows)).toEqual(['# 标题文本']); // 单视觉行——下划线行退役
+    expect(rows[0]!.every((cell) => cell.style?.bold === true)).toBe(true); // 前缀与正文同属性
+    expect(rows[0]!.every((cell) => cell.style?.underline === true)).toBe(true);
   });
 
-  it('H2 = 纯 bold 无下划线', () => {
+  it('H2 = ## 前缀 + 纯 bold 无 underline', () => {
     const rows = blockRows(first('## 标题二'), 20, DEFAULT_THEME);
-    expect(texts(rows)).toEqual(['标题二']);
+    expect(texts(rows)).toEqual(['## 标题二']);
     expect(rows[0]![0]!.style?.bold).toBe(true);
+    expect(rows[0]![0]!.style?.underline).toBeUndefined();
   });
 
-  it('H3/H4 = bold + 行首 dim 深度前缀（▍ 缩梯）', () => {
+  it('H3 = ### 前缀 + bold+italic（▍ 缩梯退役）；H4-6 = italic 无 bold', () => {
     const rows3 = blockRows(first('### 三级'), 20, DEFAULT_THEME);
-    expect(texts(rows3)).toEqual(['▍ 三级']);
-    expect(rows3[0]![0]!.style?.dim).toBe(true); // 前缀 dim
-    expect(rows3[0]![2]!.style?.bold).toBe(true); // 正文 bold
+    expect(texts(rows3)).toEqual(['### 三级']);
+    expect(rows3[0]![0]!.style?.bold).toBe(true);
+    expect(rows3[0]![0]!.style?.italic).toBe(true);
     const rows4 = blockRows(first('#### 四级'), 20, DEFAULT_THEME);
-    expect(texts(rows4)).toEqual(['▍▍ 四级']);
-    expect(rows4[0]![0]!.style?.dim).toBe(true);
-    expect(rows4[0]![3]!.style?.bold).toBe(true);
-  });
-
-  it('H5/H6 = 平文（无 bold）', () => {
-    const rows5 = blockRows(first('##### 五级'), 20, DEFAULT_THEME);
-    expect(texts(rows5)).toEqual(['五级']);
-    expect(rows5[0]![0]!.style).toBeUndefined();
+    expect(texts(rows4)).toEqual(['#### 四级']);
+    expect(rows4[0]![0]!.style?.italic).toBe(true);
+    expect(rows4[0]![0]!.style?.bold).toBeUndefined();
     const rows6 = blockRows(first('###### 六级'), 20, DEFAULT_THEME);
-    expect(texts(rows6)).toEqual(['六级']);
-    expect(rows6[0]![0]!.style).toBeUndefined();
+    expect(texts(rows6)).toEqual(['###### 六级']);
+    expect(rows6[0]![0]!.style?.italic).toBe(true); // H4-6 同档
   });
 });
 
 describe('blockRows 代码块高亮', () => {
-  it('闭栏 + 已知语言：五类 token 着高亮键族（keyword/number 各验一）+ 沟线 dim + 收尾语言标签', () => {
+  it('闭栏 + 已知语言：五类 token 着高亮键族（keyword/number 各验一）——裸文本形（R-3 无沟线无收尾行）', () => {
     const rows = blockRows(first('```ts\nconst x = 1;\n```'), 40, DEFAULT_THEME);
-    expect(texts(rows)).toEqual(['│ const x = 1;', '└─ ts']); // 收尾行 = 语言标签位
+    expect(texts(rows)).toEqual(['const x = 1;']); // 单行收口——│ 与 └─ ts 双退役
     const flat = rows[0]!;
     expect(flat.find((c) => c.grapheme === 'c')?.style?.fg).toBe(DEFAULT_THEME.codeKeyword); // const 段首字
     expect(flat.find((c) => c.grapheme === '1')?.style?.fg).toBe(DEFAULT_THEME.codeNumber);
     expect(flat.find((c) => c.grapheme === 'x')?.style?.fg).toBeUndefined(); // plain 不着色
-    // 沟线 dim（界面美化役批 §⑥——结构线弱存在感）
-    expect(rows[0]![0]!.style?.dim).toBe(true);
-    expect(rows[1]!.every((cell) => cell.style?.dim === true)).toBe(true);
   });
 
-  it('开栏期退单色（未闭不高亮——防样式回翻闪烁）+ 无收尾行（半闭合期修剪律）', () => {
+  it('开栏期退单色（未闭不高亮——防样式回翻闪烁；无收尾行）', () => {
     const rows = blockRows(first('```ts\nconst x = 1;'), 40, DEFAULT_THEME);
-    expect(texts(rows)).toEqual(['│ const x = 1;']); // 开栏不加收尾——闭栏帧才落标签
+    expect(texts(rows)).toEqual(['const x = 1;']); // 开栏不加收尾——闭栏帧才高亮
     for (const cell of rows[0]!) expect(cell.style?.fg).toBeUndefined();
-    expect(rows[0]![0]!.style?.dim).toBe(true); // 沟线 dim 同律
   });
 
-  it('未知语言退单色（诚实不发明半高亮）+ 语言标签照显', () => {
+  it('未知语言退单色（诚实不发明半高亮）', () => {
     const rows = blockRows(first('```txt\nconst x = 1;\n```'), 40, DEFAULT_THEME);
-    expect(texts(rows)).toEqual(['│ const x = 1;', '└─ txt']);
+    expect(texts(rows)).toEqual(['const x = 1;']);
     for (const cell of rows[0]!) expect(cell.style?.fg).toBeUndefined();
   });
 
-  it('注释整行着色 + 多行代码 │ 前缀贯通', () => {
+  it('注释整行着色 + 多行代码逐行单视觉行', () => {
     const rows = blockRows(first('```ts\n// 注\nx\n```'), 40, DEFAULT_THEME);
-    expect(texts(rows)).toEqual(['│ // 注', '│ x', '└─ ts']);
+    expect(texts(rows)).toEqual(['// 注', 'x']);
     expect(rows[0]!.find((c) => c.grapheme === '/')?.style?.fg).toBe(DEFAULT_THEME.codeComment);
   });
 
@@ -223,16 +214,16 @@ describe('blockRows 代码块高亮', () => {
 
 /* ---------------- 渲染热路径 D4：尾代码块增量承接 ---------------- */
 
-describe('blockRows 代码块增量承接（渲染热路径 D4——尾块 open 期逐帧重折承接）', () => {
-  it('增长承接：前缀行折叠结果引用复用（修前红锚——每帧全量重折产新数组）', () => {
-    // 流式开栏尾块逐帧增长：帧一三行 → 帧二追加一行。承接后前三行折叠结果
-    // 是同对象引用（引用复用 = 未重折），仅新增行重折入列
+describe('blockRows 代码块增量承接（渲染热路径 D4——尾块 open 期逐帧重算呈现承接）', () => {
+  it('增长承接：前缀行呈现结果引用复用（修前红锚——每帧全量重算产新数组）', () => {
+    // 流式开栏尾块逐帧增长：帧一三行 → 帧二追加一行。承接后前三行呈现结果
+    // 是同对象引用（引用复用 = 未重算），仅新增行重算入列
     const rows1 = blockRows(first('```ts\nconst a = 1;\nconst b = 2;'), 40, DEFAULT_THEME);
     const rows2 = blockRows(first('```ts\nconst a = 1;\nconst b = 2;\nconst c = 3;'), 40, DEFAULT_THEME);
     expect(rows2[0]).toBe(rows1[0]); // 前缀行引用复用——非重算新数组
     expect(rows2[1]).toBe(rows1[1]);
     expect(rows2).toHaveLength(3);
-    expect(texts(rows2)[2]).toBe('│ const c = 3;'); // 新增行重折内容正确
+    expect(texts(rows2)[2]).toBe('const c = 3;'); // 新增行重算内容正确
   });
 
   it('承接跨帧连续增长链：多帧逐行追加全链引用复用', () => {
@@ -243,13 +234,13 @@ describe('blockRows 代码块增量承接（渲染热路径 D4——尾块 open 
       if (n > 1) {
         for (let i = 0; i < n - 1; i++) expect(rows[i]).toBe(prev[i]); // 前缀全复用
       }
-      expect(texts(rows)[n - 1]).toBe(`│ line ${n - 1}`);
+      expect(texts(rows)[n - 1]).toBe(`line ${n - 1}`);
       prev = rows;
     }
   });
 
   it('闭栏翻档帧：闭栏后输出与无承接直算逐格一致（开栏承接账不污染闭栏高亮）', () => {
-    // 先铺开栏承接账（两行），再闭栏——闭栏帧整体高亮重排须全量重折
+    // 先铺开栏承接账（两行），再闭栏——闭栏帧整体高亮重排须全量重算
     blockRows(first('```ts\nconst x = 1;\nlet y = 2;'), 40, DEFAULT_THEME);
     const closedAfterGrowth = blockRows(first('```ts\nconst x = 1;\nlet y = 2;\n```'), 40, DEFAULT_THEME);
     const closedFresh = blockRows(first('```ts\nconst x = 1;\nlet y = 2;\n```'), 40, DEFAULT_THEME);
@@ -258,36 +249,36 @@ describe('blockRows 代码块增量承接（渲染热路径 D4——尾块 open 
 
   it('闭栏后再开新栏：开栏单色输出不染闭栏高亮（闭栏帧不读不写承接账）', () => {
     // 闭栏（同宽同语言）后紧接新开栏尾块——闭栏帧走整体高亮重排、不触碰
-    // 承接账，新开栏输出仍是单色折叠形、与直算一致
+    // 承接账，新开栏输出仍是单色裸文本形、与直算一致
     blockRows(first('```ts\nconst x = 1;\n```'), 40, DEFAULT_THEME);
     const reopened = blockRows(first('```ts\nconst x = 1;\nmore'), 40, DEFAULT_THEME);
     const fresh = blockRows(first('```ts\nconst x = 1;\nmore'), 40, DEFAULT_THEME);
     expect(reopened).toEqual(fresh);
-    expect(texts(reopened)).toEqual(['│ const x = 1;', '│ more']);
+    expect(texts(reopened)).toEqual(['const x = 1;', 'more']);
   });
 
-  it('中行改写（非追加形）：自分歧行起重折——输出与全量重折一致', () => {
+  it('中行改写（非追加形）：自分歧行起重算——输出与全量重算一致', () => {
     blockRows(first('```ts\naaa\nbbb\nccc'), 40, DEFAULT_THEME);
     const edited = blockRows(first('```ts\naaa\nXXX\nccc\nddd'), 40, DEFAULT_THEME);
     const fresh = blockRows(first('```ts\naaa\nXXX\nccc\nddd'), 40, DEFAULT_THEME);
-    expect(edited).toEqual(fresh); // 坏输入不丢字——分歧行后全重折
+    expect(edited).toEqual(fresh); // 坏输入不丢字——分歧行后全重算
   });
 
-  it('换宽帧：全量重折（承接账按宽失配不错位命中）', () => {
+  it('换宽帧：全量重算（承接账按宽失配不错位命中）', () => {
     blockRows(first('```ts\nconst value = 1;'), 40, DEFAULT_THEME);
     const narrow = blockRows(first('```ts\nconst value = 1;\nmore'), 20, DEFAULT_THEME);
     const fresh = blockRows(first('```ts\nconst value = 1;\nmore'), 20, DEFAULT_THEME);
     expect(narrow).toEqual(fresh);
-    // 窄宽折行算术 sanity：bodyWidth 18——'const value = 1;'（16 列）单行 + 'more' 单行
-    expect(texts(narrow)).toEqual(['│ const value = 1;', '│ more']);
+    // 窄宽不折行律 sanity：bodyWidth 20 全宽——'const value = 1;'（16 列）单行 + 'more' 单行
+    expect(texts(narrow)).toEqual(['const value = 1;', 'more']);
   });
 
-  it('空行与超长折行混合语料：承接后输出与全量重折一致（对拍）', () => {
+  it('空行与超长截断混合语料：承接后输出与全量重算一致（对拍）', () => {
     const g1 = '```txt\nfirst\n\n' + 'x'.repeat(50);
     const g2 = '```txt\nfirst\n\n' + 'x'.repeat(50) + '\nsecond\n\nth' + '中'.repeat(30);
     blockRows(first(g1), 30, DEFAULT_THEME);
     const carried = blockRows(first(g2), 30, DEFAULT_THEME);
     const fresh = blockRows(first(g2), 30, DEFAULT_THEME);
-    expect(carried).toEqual(fresh); // 空行折行 + CJK 折行 + 超长折行承接后零漂移
+    expect(carried).toEqual(fresh); // 空行 + 超长截断（R-3 不折行）+ CJK 承接后零漂移
   });
 });

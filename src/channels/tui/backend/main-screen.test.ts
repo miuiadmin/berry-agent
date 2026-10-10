@@ -98,13 +98,13 @@ describe('MainScreen 启动与基础编舞', () => {
     expect(io.bytes).toContain('\r\x1b[2m ↳ 命中 3 处\x1b[0m\n');
   });
 
-  it('markdown 块经 CellGrid 渲染（标题 bold + 尾线）', () => {
+  it('markdown 块经 CellGrid 渲染（R-3：# 前缀保留 + H1 bold+underline 游程贯通）', () => {
     const { io, screen } = makeScreen();
     screen.start();
     io.bytes = '';
     screen.present([{ kind: 'markdown', doc: MarkdownDoc.of('# 标题') }]);
-    expect(io.bytes).toContain('\x1b[1m标题\x1b[0m'); // 标题行 bold 游程贯通
-    expect(io.bytes).toContain('─'); // H1 尾线
+    expect(io.bytes).toContain('\x1b[1;4m# 标题\x1b[0m'); // 前缀与正文同属性单游程
+    expect(io.bytes).not.toContain('──'); // H1 下划线行退役（R-3 属性位承载）
   });
 });
 
@@ -284,7 +284,7 @@ const headingText = (count: number): string => {
   if (count > 10) heads.push(`### 十${NUMS[count - 11] ?? '一'}`);
   return heads.join('\n\n') + '\n'; // 尾随换行——尾块终态判据
 };
-const sg = (n: string): string => `\x1b[1m${n}\x1b[0m`; // 标题行 bold 包裹形
+const sg = (n: string): string => `### ${n}\x1b[0m`; // H3 标题行收口形（R-3 整行单游程——# 前缀与正文同 bold+italic；'一'/'十一' 前缀定界不互撞）
 
 describe('MainScreen 超视口冻结提交', () => {
   const docSlot = (text: string, doc: StreamingMarkdown): TranscriptBlock => ({

@@ -5,8 +5,9 @@
  * 块模型 = 滚动帽单位（呈现面件 1：一个 Markdown 块一子行——blockCount
  * 即帽额度计数）。v1 支持面（CommonMark 子集，边界注释在案）：
  * 标题 #..######、段落（段内软换行折叠为空格——标准语义）、无序/有序
- * 列表（嵌套缩进 2 空格一层；tight/loose 逐邻近似——松散位驱动渲染空距，
- * 见 list-item.loose 注）、围栏代码块（```/~~~）、引用（>，连续行
+ * 列表（嵌套缩进 4 空格一层——R-3 渲染每层 4 列缩进同构；tight/loose
+ * 逐邻近似记录源文形态——R-3 起呈现层不消费，见 list-item.loose 注）、
+ * 围栏代码块（```/~~~）、引用（>，连续行
  * 归块）、水平线（三连 - 或 * 或 _）、GFM 表格（批 10h——表头 + 定界行
  * + 数据行，单元格行内解析，转义竖线 `\|` 不支撑）。缩进四空格代码块、
  * 脚注不支撑（未列形按段落回退——坏输入不丢字）。
@@ -26,9 +27,10 @@ export type MarkdownBlock =
       readonly indent: number;
       /**
        * 松散项标记（CommonMark tight/loose 近似——界面美化役批）：前源行非
-       * 列表项行（空行或异型内容行）→ 松散（渲染时项前维持空行）；前源行
-       * 是列表项行（源文相邻）→ 紧凑（缺省不设位——渲染时项间零空距）。
-       * 首项恒松散（文档首行无前邻——空距位不被消费，标记值无效应）。
+       * 列表项行（空行或异型内容行）→ 松散；前源行是列表项行（源文相邻）
+       * → 紧凑（缺省不设位）。R-3 起呈现层**不消费**（块间空距改前项渲染
+       * 行数判据——多行项补空行、与源文 tight/loose 无关）；字段保留 = 源文
+       * 形态数据面记录 + blockEquals 承载（位差仍一票否决——缓存承接防错位）。
        */
       readonly loose?: true;
       readonly spans: InlineSpan[];
@@ -186,7 +188,7 @@ export function parseMarkdown(text: string): MarkdownBlock[] {
         type: 'list-item',
         ordered: /\d/.test(list[2]!),
         marker: /\d/.test(list[2]!) ? list[2]! : '•',
-        indent: Math.floor(list[1]!.length / 2),
+        indent: Math.floor(list[1]!.length / 4), // R-3：嵌套 4 空格一层（渲染每层 4 列缩进同构）
         loose: tight ? undefined : true,
         spans: parseInline(list[3]!),
       });
@@ -219,16 +221,20 @@ export function parseMarkdown(text: string): MarkdownBlock[] {
 }
 
 /**
- * 块间空距单源（界面美化役批 §⑥ 紧凑列表律）：相邻两块均为列表项且后项
- * 紧凑（源文相邻——前源行是列表项行）→ 0（零空距）；其余块对 → 1（空行）。
+ * 块间空距单源（R-3 紧凑列表律收窄）：相邻两块均为列表项且**前项单视觉行**
+ * （prevRowCount ≤ 1）→ 0（零空距）；其余块对（含多行列表项 → 后项，补 1
+ * 空行——与源文 tight/loose 无关，呈现层统一）→ 1（空行）。
  *
  * 消费位四处必须同律（行数算术错位即冻结面漂移）：markdown.ts layout()/
  * prefixRows() 的装配空行插入、streaming.ts measure()/stableLineCount() 的
- * 计数空行累加——四路共消费本函数，「前缀已有行才补空行」语义由各调用位
- * 自守（零行块不改判据）。
+ * 计数空行累加——四路共消费本函数且传前项渲染行数，「前缀已有行才补空行」
+ * 语义由各调用位自守（零行块不改判据）。
  */
-export function blockGap(prev: MarkdownBlock, next: MarkdownBlock): 0 | 1 {
-  return prev.type === 'list-item' && next.type === 'list-item' && next.loose !== true ? 0 : 1;
+export function blockGap(prev: MarkdownBlock, next: MarkdownBlock, prevRowCount = 1): 0 | 1 {
+  if (prev.type === 'list-item' && next.type === 'list-item') {
+    return prevRowCount > 1 ? 1 : 0;
+  }
+  return 1;
 }
 
 /** 行内段结构相等（blockEquals 的 span 位支路） */

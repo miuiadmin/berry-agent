@@ -647,12 +647,11 @@ describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共�
     expect(toolResult[0]).toBe('\x1b[2m ↳ 命中\x1b[0m');
   });
 
-  it('markdown 块：经 CellGrid 渲染（H1 bold 行）+ bullet 槽前缀（注⑩——首行 • 续行缩进）', () => {
+  it('markdown 块：经 CellGrid 渲染（R-3 H1 # 前缀 + bold+underline 单游程）+ bullet 槽前缀（注⑩）', () => {
     const lines = renderBlockLines({ kind: 'markdown', doc: MarkdownDoc.of('# 标题') }, 20, false); // R-1 豁免位
     expect(lines.length).toBeGreaterThan(0);
-    expect(lines[0]).toBe('• \x1b[1m标题\x1b[0m'); // 首行 • 前缀 + H1 bold
-    expect(lines[1]!.startsWith('  ')).toBe(true); // H1 下划线续行两空格缩进（同槽）
-    expect(lines[1]).toContain('────'); // 下划线随文字宽
+    expect(lines[0]).toBe('• \x1b[1;4m# 标题\x1b[0m'); // 首行 • 前缀 + R-3 H1 整行单游程
+    expect(lines.length).toBe(1); // 下划线行退役——单行收口
   });
 
   it('markdown 块 bullet 槽形（注⑩——• 列点前缀位）：非空行前缀两形 + 空行保空行 + 行宽帽', () => {
@@ -737,16 +736,17 @@ describe('renderBlockStyledLines 带样式行（零第二渲染器——与主�
     expect(card.brief).not.toMatch(/\t/); // 键列简述已消毒（修前 '(pa\th)' 原样携带）
   });
 
-  it('markdown 块：样式段提取（H1 bold 段在、无样式段不在）+ 空行保空行', () => {
+  it('markdown 块：样式段提取（R-3 H1 整行单游程——bold 段覆 # 前缀与正文）+ 空行保空行', () => {
     const doc = MarkdownDoc.of('# 标题\n\n正文');
     const styled = renderBlockStyledLines({ kind: 'markdown', doc }, 20, false); // R-1 豁免位
     expect(styled.length).toBeGreaterThanOrEqual(3);
-    // H1 行：bold 段恰覆「标题」二字的 plain 子串（前后缀裸文本）
+    // H1 行：bullet 槽前缀 + bold+underline 段覆 # 前缀与正文（R-3 同 base 整段）
     const h1 = styled[0]!;
-    expect(h1.plain).toContain('标题');
+    expect(h1.plain).toBe('• # 标题');
     const boldRun = h1.runs.find((r) => r.style.bold === true);
     expect(boldRun).toBeDefined();
-    expect(h1.plain.slice(boldRun!.start, boldRun!.end)).toBe('标题');
+    expect(h1.plain.slice(boldRun!.start, boldRun!.end)).toBe('# 标题');
+    expect(boldRun!.style.underline).toBe(true); // H1 属性梯度（R-3）
     // markdown 无内容行保空行（主屏空行直写形字节不变——回看器同形）
     expect(styled.some((line) => line.plain === '' && line.runs.length === 0)).toBe(true);
   });

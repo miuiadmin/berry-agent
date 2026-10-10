@@ -65,8 +65,9 @@ export class StreamingMarkdown implements Renderable {
     const blocks = this.doc.blocks;
     let total = 0;
     for (let i = 0; i < counts.length; i++) {
-      // 块间空距（blockGap 单源——紧凑列表零空距；前缀已有行才补）
-      if (total > 0 && blockGap(blocks[i - 1]!, blocks[i]!) === 1) total += 1;
+      // 块间空距（blockGap 单源——紧凑列表零空距；前缀已有行才补；第三参
+      // 传前项行数使多行列表项判据同律）
+      if (total > 0 && blockGap(blocks[i - 1]!, blocks[i]!, counts[i - 1]!) === 1) total += 1;
       total += counts[i]!;
     }
     return total;
@@ -96,7 +97,8 @@ export class StreamingMarkdown implements Renderable {
     const counts = this.ensureBlockCounts(width);
     let total = 0;
     for (let i = 0; i < stableBlocks; i++) {
-      if (total > 0 && blockGap(blocks[i - 1]!, blocks[i]!) === 1) total += 1;
+      // 块间空距（同 measure——第三参传前项行数，多行列表项判据同律）
+      if (total > 0 && blockGap(blocks[i - 1]!, blocks[i]!, counts[i - 1]!) === 1) total += 1;
       total += counts[i]!;
     }
     return total;

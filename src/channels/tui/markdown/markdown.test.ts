@@ -116,8 +116,9 @@ describe('parseMarkdown 块解析', () => {
     ]);
   });
 
-  it('无序列表（marker • + 缩进层级 + tight/loose 逐邻标记）', () => {
-    const blocks = parseMarkdown('- 甲\n  - 乙（嵌套）\n- 丙');
+  it('无序列表（marker • + 缩进层级 /4 + tight/loose 逐邻标记）', () => {
+    // R-3：嵌套 4 空格一层（渲染每层 4 列缩进同构——修前 /2）
+    const blocks = parseMarkdown('- 甲\n    - 乙（嵌套）\n- 丙');
     expect(blocks).toEqual([
       { type: 'list-item', ordered: false, marker: '•', indent: 0, loose: true, spans: [{ text: '甲' }] },
       { type: 'list-item', ordered: false, marker: '•', indent: 1, spans: [{ text: '乙（嵌套）' }] },
@@ -253,17 +254,16 @@ describe('MarkdownDoc 渲染', () => {
     expect(doc.blockCount).toBe(3);
   });
 
-  it('标题渲染梯度：H1 bold + 文本宽下划线（弃全宽横幅）/ H3 行首深度前缀', () => {
-    const doc = MarkdownDoc.of('# 大标题\n\n### 小标题');
+  // 标题/引用/hr 旧形锁（下划线行/▍ 缩梯/┆/╌ 全宽）随 R-3 观感翻档退役——
+  // 新形由「R-3 标题」「R-3 引用块」「R-3 hr」锚承载（# 前缀 + 六级属性/
+  // > + quoteText/固定三 em-dash）。
+
+  it('代码块原样呈现：**bold** 不解析（裸文本形——R-3 无沟线无收尾行）', () => {
+    const doc = MarkdownDoc.of('```\n**raw**\n```');
     const grid = renderDoc(doc, 20);
-    expect(grid.getCell(0, 0)?.style.bold).toBe(true);
-    // H1 下划线 = 文本宽（'大标题' 3 字 6 列）——非全宽横幅形
-    expect(readRow(grid, 1, 20)).toBe('──────');
-    // H3 = 行首 dim 深度前缀 ▍ + bold 正文
-    expect(readRow(grid, 3, 20)).toBe('▍ 小标题');
-    expect(grid.getCell(3, 0)?.style.dim).toBe(true);
-    expect(grid.getCell(3, 2)?.style.bold).toBe(true);
-    expect(doc.measure(20)).toBe(4); // H1 2 行 + 空行 + H3 1 行
+    expect(readRow(grid, 0, 20)).toBe('**raw**'); // col 0 即代码（│ 退役）
+    expect(grid.getCell(0, 2)?.style.bold).toBeUndefined(); // ** 不作强调解析
+    expect(grid.rows).toBe(1); // 无收尾行（└─ 语言标签位退役）
   });
 
   it('行内代码着 codeInline 键 + 前后 dim 反引号定界（界面美化役批 §⑥——单色场景可辨）', () => {
@@ -285,54 +285,88 @@ describe('MarkdownDoc 渲染', () => {
     expect(grid.getCell(0, 3)?.style.underline).toBe(true); // '见' 宽 2 + 空格 → label 首字 col 3
   });
 
-  it('引用块：┆ 前缀 + 整块 dim', () => {
-    const doc = MarkdownDoc.of('> 引用行');
-    const grid = renderDoc(doc, 20);
-    expect(readRow(grid, 0, 20)).toBe('┆ 引用行');
-    expect(grid.getCell(0, 2)?.style.dim).toBe(true);
+  // 引用块旧形锁（┆ 前缀 + 整块 dim）随 R-3 退役——新形由「R-3 引用块」锚
+  // 承载（> 前缀 + quoteText 行级基础色）。
+
+  /* ---------------- R-3 观感翻档（codex markdown 同构——⑨ 全项） ---------------- */
+
+  it('R-3 标题：字面 # 前缀保留呈现 + 六级属性梯度（H1 bold+underline / H2 bold / H3 bold+italic / H4-6 italic）', () => {
+    const grid = renderDoc(MarkdownDoc.of('# 一级\n\n## 二级\n\n### 三级\n\n#### 四级'), 30);
+    // H1（行 0）：# 前缀与正文同 bold+underline（属性位——─ 下划线行退役）
+    expect(readRow(grid, 0, 30)).toBe('# 一级');
+    expect(grid.getCell(0, 0)?.style.bold).toBe(true);
+    expect(grid.getCell(0, 0)?.style.underline).toBe(true);
+    expect(grid.getCell(0, 2)?.style.underline).toBe(true); // 正文同属性（base 传播）
+    // H2（行 2）：纯 bold 无 underline
+    expect(readRow(grid, 2, 30)).toBe('## 二级');
+    expect(grid.getCell(2, 0)?.style.bold).toBe(true);
+    expect(grid.getCell(2, 0)?.style.underline).toBeUndefined();
+    // H3（行 4）：bold + italic、▍ 缩梯前缀退役（行首即 #）
+    expect(readRow(grid, 4, 30)).toBe('### 三级');
+    expect(grid.getCell(4, 0)?.style.bold).toBe(true);
+    expect(grid.getCell(4, 0)?.style.italic).toBe(true);
+    // H4（行 6）：italic 无 bold（H4-6 同档）
+    expect(readRow(grid, 6, 30)).toBe('#### 四级');
+    expect(grid.getCell(6, 0)?.style.italic).toBe(true);
+    expect(grid.getCell(6, 0)?.style.bold).toBeUndefined();
   });
 
-  it('代码块：│ 前缀 + 原样呈现（**bold** 不解析）+ 闭栏收尾行（语言标签位）', () => {
-    const doc = MarkdownDoc.of('```\n**raw**\n```');
-    const grid = renderDoc(doc, 20);
-    expect(readRow(grid, 0, 20)).toBe('│ **raw**');
-    expect(grid.getCell(0, 2)?.style.bold).toBeUndefined();
-    // 沟线 dim（界面美化役批 §⑥）+ 无语言收尾行 └─
+  it('R-3 代码块：裸文本形（│ 沟线与语言标签收尾双退役）+ 超宽不折行截断（每源行单视觉行）', () => {
+    const grid = renderDoc(MarkdownDoc.of('```js\nconst a = 1;\n```'), 30);
+    expect(readRow(grid, 0, 30)).toBe('const a = 1;'); // 无 │ 前缀（col 0 即代码）
+    expect(grid.getCell(0, 0)?.style.dim).toBeUndefined(); // 沟线 dim 退役
+    expect(grid.rows).toBe(1); // 无收尾行——恰 1 行
+    // 超宽不折行截断（省略号收口——ellipsize 律同族）
+    const narrow = renderDoc(MarkdownDoc.of('```\nabcdefghij\n```'), 8);
+    expect(readRow(narrow, 0, 8)).toBe('abcdefg…');
+    expect(narrow.rows).toBe(1); // 折行退役：10 宽源行在帽 8 下仍单行
+  });
+
+  it('R-3 hr：固定三 em-dash（不随宽伸展——全宽虚线形退役；dim 维持）', () => {
+    const grid = renderDoc(MarkdownDoc.of('---'), 30);
+    expect(readRow(grid, 0, 30)).toBe('———');
     expect(grid.getCell(0, 0)?.style.dim).toBe(true);
-    expect(readRow(grid, 1, 20)).toBe('└─');
   });
 
-  it('列表：• 前缀 + 嵌套缩进 + 续行对齐前缀宽', () => {
-    const doc = MarkdownDoc.of('- 长列表项内容折行续挂对齐前缀列的位置测试样例文本');
-    const grid = renderDoc(doc, 14);
-    expect(readRow(grid, 0, 14)).toBe('• 长列表项内容'); // 前缀 '• ' 2 格 + body 12 列 = 6 字
-    expect(readRow(grid, 1, 14)).toBe('  折行续挂对齐'); // 续行缩进 = 前缀宽 2 + body 12 列同样 6 字
+  it('R-3 引用块：> 前缀 + 整行 quoteText 行级基础色（行内样式叠加非整行覆盖）', () => {
+    const grid = renderDoc(MarkdownDoc.of('> 引用 `x` 行'), 30);
+    expect(readRow(grid, 0, 30)).toBe('> 引用 `x` 行');
+    expect(grid.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.quoteText); // > 前缀同染（┆ + dim 退役）
+    expect(grid.getCell(0, 2)?.style.fg).toBe(DEFAULT_THEME.quoteText); // 正文行级基础色
+    // 行内 code 叠加：code 段 fg 覆盖基础色为 codeInline（叠加律——'引用'
+    // 双宽占 col 2-5、空格 6、定界反引号 7，'x' 在 col 8）
+    expect(grid.getCell(0, 8)?.style.fg).toBe(DEFAULT_THEME.codeInline);
   });
 
-  it('紧凑列表（界面美化役批 §⑥）：源文相邻项零空距、空行隔项维持空行', () => {
-    const doc = MarkdownDoc.of('- 甲\n- 乙\n\n- 丙');
-    const grid = renderDoc(doc, 20);
-    // 甲乙相邻 → 零空距（紧凑）；乙丙源文空行隔开 → 维持空行（松散）
-    expect(readRow(grid, 0, 20)).toBe('• 甲');
-    expect(readRow(grid, 1, 20)).toBe('• 乙');
-    expect(readRow(grid, 2, 20)).toBe('');
-    expect(readRow(grid, 3, 20)).toBe('• 丙');
-    expect(doc.measure(20)).toBe(4); // 3 项 3 行 + 1 空行（修前 5 行——双倍行距销）
+  it('R-3 列表：每层 4 列缩进 + 无序全深度统一 `- `（BULLET_LADDER 轮换退役）', () => {
+    const grid = renderDoc(MarkdownDoc.of('- 一层\n    - 嵌套\n- 回层'), 30);
+    expect(readRow(grid, 0, 30)).toBe('- 一层');
+    expect(readRow(grid, 1, 30)).toBe('    - 嵌套'); // 4 列缩进（修前 2 空格源文即一层 + ◦）
+    expect(readRow(grid, 2, 30)).toBe('- 回层');
   });
 
-  it('嵌套列表符号深度梯度：•/◦/- 轮换（第 3 层回卷靠缩进补辨）', () => {
-    const doc = MarkdownDoc.of('- 一层\n  - 二层\n    - 三层');
-    const grid = renderDoc(doc, 20);
-    expect(readRow(grid, 0, 20)).toBe('• 一层');
-    expect(readRow(grid, 1, 20)).toBe('  ◦ 二层');
-    expect(readRow(grid, 2, 20)).toBe('    - 三层');
+  it('R-3 有序列表：marker 数字右对齐两位 + link 键色', () => {
+    const grid = renderDoc(MarkdownDoc.of('1. 甲\n10. 丙'), 30);
+    expect(readRow(grid, 0, 30)).toBe(' 1. 甲'); // 单位数字 padStart 右对齐
+    expect(readRow(grid, 1, 30)).toBe('10. 丙'); // 两位数字自然对齐（正文列恒 col 3）
+    expect(grid.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.link); // pad 空格随 marker 整串同染（空格前景不可见——单游程）
+    expect(grid.getCell(0, 1)?.style.fg).toBe(DEFAULT_THEME.link); // 数字位 link 键
+    expect(grid.getCell(1, 1)?.style.fg).toBe(DEFAULT_THEME.link);
+    expect(grid.getCell(0, 4)?.style.fg).toBeUndefined(); // 正文不着色
   });
 
-  it('hr 虚线形（与 H1 实线下划线异形——主题分隔词汇）', () => {
-    const doc = MarkdownDoc.of('---');
-    const grid = renderDoc(doc, 10);
-    expect(readRow(grid, 0, 10)).toBe('╌╌╌╌╌╌╌╌╌╌');
-    expect(grid.getCell(0, 0)?.style.dim).toBe(true);
+  it('R-3 紧凑列表律收窄：多行项与下一项之间补 1 空行（源文紧凑亦补）、相邻单行项维持紧凑', () => {
+    // 源文紧凑（项间无空行）但首项折成 2 视觉行 → 项间补空行（呈现层统一——与 tight/loose 无关）
+    const grid = renderDoc(MarkdownDoc.of('- 首项内容很长需要\n- 次项'), 10);
+    expect(readRow(grid, 0, 10)).toBe('- 首项内容'); // 前缀 2 + body 8 = 4 字
+    expect(readRow(grid, 1, 10)).toBe('  很长需要'); // 续行对齐前缀宽 2
+    expect(readRow(grid, 2, 10)).toBe(''); // 多行项后补 1 空行
+    expect(readRow(grid, 3, 10)).toBe('- 次项');
+    // 相邻单行项维持紧凑零空行（loose 松散位消费退役——源文空行隔项也紧凑）
+    const singleLine = renderDoc(MarkdownDoc.of('- 甲\n\n- 乙'), 20);
+    expect(readRow(singleLine, 0, 20)).toBe('- 甲');
+    expect(readRow(singleLine, 1, 20)).toBe('- 乙'); // 源文空行隔开也零空距（收窄）
+    expect(singleLine.rows).toBe(2);
   });
 
   it('块间空行分隔（n 块 n-1 空行）+ measure 含间距', () => {
@@ -460,7 +494,7 @@ describe('MarkdownDoc.fromBlocks 增量装配（流式件帧路径）', () => {
     doc.measure(40);
     doc.measure(30); // 换宽——重布局
     const grid = renderDoc(doc, 30);
-    expect(readRow(grid, 0, 30)).toBe('标题');
+    expect(readRow(grid, 0, 30)).toBe('# 标题'); // R-3：字面 # 前缀保留呈现
     expect(grid.getCell(0, 0)?.style.bold).toBe(true);
   });
 });
@@ -486,7 +520,7 @@ describe('prevDoc 链剪除（增量缓存基只保上一代）', () => {
       expect(gen3Rows[i]).toBe(gen2Rows[i]);
       contentChecked++;
     }
-    expect(contentChecked).toBeGreaterThanOrEqual(4); // 标题 2 行 + 两段各 1（非空断言防伪绿）
+    expect(contentChecked).toBeGreaterThanOrEqual(3); // 标题 1 行 + 两段各 1（R-3 无下划线行——非空断言防伪绿）
     // 三代步进终态与一步直构同管线（剪链前后行为等价的主证面）
     const g1 = renderDoc(gen3, 40);
     const g2 = renderDoc(MarkdownDoc.of(text3), 40);

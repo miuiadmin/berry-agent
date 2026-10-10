@@ -86,10 +86,13 @@ export class MarkdownDoc implements Renderable {
     this.openWidth(width); // 帧路径缓存键先开（稳定块布局一次即存）
     const clamped = Math.min(blockCount, this.parsed.length);
     const rows: StyledGrapheme[][] = [];
+    let prevRowCount = 0; // 前项渲染行数（blockGap 第三参——多行列表项补空行判据）
     for (let i = 0; i < clamped; i++) {
       // 块间空距（blockGap 单源——紧凑列表零空距；前缀已有行才补）
-      if (rows.length > 0 && blockGap(this.parsed[i - 1]!, this.parsed[i]!) === 1) rows.push([]);
-      rows.push(...this.blockLayout(i, width));
+      if (rows.length > 0 && blockGap(this.parsed[i - 1]!, this.parsed[i]!, prevRowCount) === 1) rows.push([]);
+      const laid = this.blockLayout(i, width);
+      rows.push(...laid);
+      prevRowCount = laid.length;
     }
     return rows;
   }
@@ -147,10 +150,13 @@ export class MarkdownDoc implements Renderable {
     if (this.cacheWidth === width && this.cacheAssembled !== null) return this.cacheAssembled;
     this.openWidth(width);
     const rows: StyledGrapheme[][] = [];
+    let prevRowCount = 0; // 前项渲染行数（blockGap 第三参——多行列表项补空行判据）
     for (let i = 0; i < this.parsed.length; i++) {
       // 块间空距（blockGap 单源——紧凑列表零空距；前缀已有行才补）
-      if (rows.length > 0 && blockGap(this.parsed[i - 1]!, this.parsed[i]!) === 1) rows.push([]);
-      rows.push(...this.blockLayout(i, width));
+      if (rows.length > 0 && blockGap(this.parsed[i - 1]!, this.parsed[i]!, prevRowCount) === 1) rows.push([]);
+      const laid = this.blockLayout(i, width);
+      rows.push(...laid);
+      prevRowCount = laid.length;
     }
     this.cacheAssembled = rows;
     return rows;

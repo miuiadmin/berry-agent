@@ -58,10 +58,10 @@ describe('StreamingMarkdown 流式直推', () => {
       '# 标\n\n> 引用一\n> 引用二\n> 引用三\n',
       '# 标\n\n> 引用一\n> 引用二\n> 引用三\n\n段落收\n',
     ];
-    // f1/f2：尾块引用无尾随换行不稳（稳定面止于标题 2 行）；f3：尾随换行 +
-    //   单行终态块全稳；f4：尾块段落恒不稳（稳定面止于引用块）
-    const stableWants = [2, 2, 6, 6];
-    const measureWants = [4, 5, 6, 8]; // 标题 2 行 + 块间空行 + 引用逐行 + （f4 空行 + 段落 1 行）
+    // f1/f2：尾块引用无尾随换行不稳（稳定面止于标题 1 行——R-3 无下划线行）；
+    //   f3：尾随换行 + 单行终态块全稳；f4：尾块段落恒不稳（稳定面止于引用块）
+    const stableWants = [1, 1, 5, 5];
+    const measureWants = [3, 4, 5, 7]; // 标题 1 行 + 块间空行 + 引用逐行 + （f4 空行 + 段落 1 行）
     const stepwise = new StreamingMarkdown();
     frames.forEach((frame, i) => {
       stepwise.update(frame);
@@ -194,18 +194,18 @@ describe('StreamingMarkdown 计数算术（渲染热路径 D2——计数腿不�
     }
   });
 
-  it('紧凑列表冻结算术（界面美化役批 §⑥）：相邻项零空距、空行隔项维持空行', () => {
+  it('紧凑列表冻结算术（R-3 收窄）：相邻单行项零空距（源文空行隔项亦紧凑）', () => {
     const s = new StreamingMarkdown();
     s.update('# 标\n\n- 甲\n- 乙\n');
-    // 块：H1（文本宽下划线 2 行）+ 甲 + 乙——甲乙相邻零空距 → 2 + 1 + 1 + 1 = 5 行
-    expect(s.measure(40)).toBe(5);
-    expect(s.stableLineCount(40)).toBe(5); // 尾随换行 + 单行终态块 → 全稳
+    // 块：H1（1 行——R-3 属性位无下划线行）+ 甲 + 乙——甲乙相邻零空距 → 1 + 1 + 1 + 1 = 4 行
+    expect(s.measure(40)).toBe(4);
+    expect(s.stableLineCount(40)).toBe(4); // 尾随换行 + 单行终态块 → 全稳
     const rows = s.rowsFor(40).map((row) => row.map((cell) => cell.grapheme).join(''));
-    expect(rows).toEqual(['标', '──', '', '• 甲', '• 乙']); // 甲乙之间无空行
-    // 松散形：源文空行隔项 → 空行维持
+    expect(rows).toEqual(['# 标', '', '- 甲', '- 乙']); // 甲乙之间无空行
+    // 源文空行隔项也紧凑（R-3 收窄——松散位消费退役，单行项恒零空距）
     const loose = new StreamingMarkdown();
     loose.update('- 甲\n\n- 乙\n');
-    expect(loose.rowsFor(40).map((row) => row.map((cell) => cell.grapheme).join(''))).toEqual(['• 甲', '', '• 乙']);
+    expect(loose.rowsFor(40).map((row) => row.map((cell) => cell.grapheme).join(''))).toEqual(['- 甲', '- 乙']);
   });
 
   it('硬钉值：修前绝对值面（零行块空行算术 / 开栏零稳面 / 段落排除）', () => {
@@ -215,8 +215,8 @@ describe('StreamingMarkdown 计数算术（渲染热路径 D2——计数腿不�
     expect(s1.measure(40)).toBe(2);
     const s2 = new StreamingMarkdown();
     s2.update('# 标\n\n段落一');
-    expect(s2.stableLineCount(40)).toBe(2); // 尾块段落不稳——稳定面止于标题块（H1 = 标题行 + 尾线 2 行）
-    expect(s2.measure(40)).toBe(4); // 标题 2 行 + 空行 + 段落 1 行
+    expect(s2.stableLineCount(40)).toBe(1); // 尾块段落不稳——稳定面止于标题块（R-3：H1 单行）
+    expect(s2.measure(40)).toBe(3); // 标题 1 行 + 空行 + 段落 1 行
     const s3 = new StreamingMarkdown();
     s3.update('```\nline1\nline2');
     expect(s3.stableLineCount(40)).toBe(0); // 开栏尾块恒不稳——单块文档稳面恰空

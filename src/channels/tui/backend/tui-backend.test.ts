@@ -129,7 +129,7 @@ describe('TuiBackend 直播呈现', () => {
     io.bytes = '';
     emit(backend, { type: 'message_end', message: assistantMsg('# 定稿标题') });
     expect(io.bytes).toContain('定稿标题'); // 定稿换装在场
-    expect(io.bytes).toContain('\x1b[1m定稿标题\x1b[0m'); // markdown 渲染（H1 bold）
+    expect(io.bytes).toContain('\x1b[1;4m# 定稿标题\x1b[0m'); // markdown 渲染（R-3：# 前缀保留 + H1 bold+underline 单游程）
   });
 
   it('流式帧字节帽超帽降档纯文本（批 10h R1 perf 护栏——streamFrameByteCap 注入面使触发路可测）', () => {
@@ -142,21 +142,20 @@ describe('TuiBackend 直播呈现', () => {
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') }); // 1 字节不超帽
     io.bytes = '';
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题') });
-    expect(io.bytes).toContain('\x1b[1m标题'); // 超帽帧本帧仍 markdown（H1 bold——降档不回改已落帧）
+    expect(io.bytes).toContain('\x1b[1;4m# 标题'); // 超帽帧本帧仍 markdown（R-3 H1 属性游程——降档不回改已落帧）
     io.bytes = '';
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题\n乙') });
-    expect(io.bytes).toContain('# 标题'); // 降档纯文本：标题标记 '#' 原文在场（markdown 档会剥 # 走 bold）
-    expect(io.bytes).not.toContain('\x1b[1m'); // 零 bold——流式 markdown 直推档已降
+    expect(io.bytes).toContain('# 标题'); // 降档纯文本直推（R-3 markdown 档 # 前缀也保留——原文在场不再独证，直推证据仍真）
+    expect(io.bytes).not.toContain('\x1b[1;4m'); // 零属性游程——流式 markdown 直推档已降（R-3 分辨形）
     // 对称面（缺省帽 256KB 生产定值不降档）：同序列次帧仍 markdown 直推——
-    // '#' 剥除 + H1 bold 在场（与降档帧互为分辨形，缺省行为不变即锁）
+    // H1 属性游程在场（R-3：# 前缀保留 + bold+underline；与降档帧零游程互为分辨形）
     const ctl = makeBackend();
     emit(ctl.backend, { type: 'message_start', role: 'assistant' });
     emit(ctl.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') });
     ctl.io.bytes = '';
     emit(ctl.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题') });
     emit(ctl.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题\n乙') });
-    expect(ctl.io.bytes).not.toContain('# 标题'); // '#' 被剥（H1 无标记原文）
-    expect(ctl.io.bytes).toContain('\x1b[1m标题'); // markdown 直推档（H1 bold）
+    expect(ctl.io.bytes).toContain('\x1b[1;4m# 标题'); // markdown 直推档（H1 属性游程在场）
   });
 
   it('流式帧字节锁·块型族（B4——H1 例之外的闭栏代码块/表格/CJK 三形；固定注入文本非 AI 生成物）', () => {
@@ -168,8 +167,8 @@ describe('TuiBackend 直播呈现', () => {
     const ruleSgr = buildSgr({ fg: darkTheme.tableRule });
 
     // 形一：闭栏代码块流式帧含高亮 SGR（闭栏才高亮——流式防闪烁律；keyword
-    // 与 number 两语义键段 + 代码栏 '│ ' 前缀同帧在场；markdown 批闭栏收口形
-    // 随迁——前缀独立 dim 段 [2m│ [0m，闭合脚注 └─ ts 同帧）
+    // 与 number 两语义键段同帧在场；R-3 裸文本形——│ 沟线 dim 段与 └─ 收尾
+    // 行双退役，col 0 即代码）
     const code = makeBackend();
     emit(code.backend, { type: 'message_start', role: 'assistant' });
     emit(code.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') });
@@ -179,9 +178,8 @@ describe('TuiBackend 直播呈现', () => {
       role: 'assistant',
       partial: assistantMsg('甲\n```ts\nconst x = 1;\n```'),
     });
-    expect(code.io.bytes).toContain(
-      `${buildSgr({ dim: true })}│ ${SGR_RESET}${kwSgr}const${SGR_RESET} x = ${numSgr}1${SGR_RESET};`,
-    );
+    expect(code.io.bytes).toContain(`${kwSgr}const${SGR_RESET} x = ${numSgr}1${SGR_RESET};`);
+    expect(code.io.bytes).not.toContain('│'); // 沟线退役锁
 
     // 形二：GFM 表格流式帧含双线定界（V-3 注⑨④——表头 ━ 重线整段线色键；
     // 全框形退役：├ ┼ 交点符零在场）
