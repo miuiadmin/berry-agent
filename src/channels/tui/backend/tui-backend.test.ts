@@ -892,6 +892,33 @@ describe('TuiBackend 提交路由', () => {
     expect(calls.quit).toBe(0); // 不退出
   });
 
+  // 挖掘 29 轮件 4：应答车占位文与 composer 缺省分立（enter 是收窗非提交——
+  // 「输入消息…」在应答窗误导为新消息）；UiInputOptions.placeholder 契约死位
+  // 激活（声明未消费——透传至应答车占位）。
+  it('input-ask 应答车占位文切换（修前红：应答窗空稿仍示 composer 缺省「输入消息…」误导）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const p = backend.input('下方问？');
+    pump();
+    expect(io.bytes).toContain('? 下方问？'); // 提示行在场（防空洞断言）
+    expect(io.bytes).not.toContain('输入消息'); // 修前红位：应答车空稿示 composer 缺省占位
+    expect(io.bytes).toContain('输入回复'); // 应答专用占位（R-6 占位文族第四位——值位白话律）
+    io.emitInput('答\r');
+    pump();
+    await expect(p).resolves.toBe('答');
+    expect(io.bytes).toContain('输入消息'); // 收场回 composer 缺省（空稿态占位复现）
+  });
+
+  it('input-ask placeholder 选项透传（UiInputOptions.placeholder 契约死位激活——修前红：opts 声明未消费）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const p = backend.input('下方问？', { placeholder: '自定义占位' });
+    pump();
+    expect(io.bytes).toContain('? 下方问？'); // 提示行在场（防空洞断言）
+    expect(io.bytes).toContain('自定义占位'); // 修前红位：opts.placeholder 全链未消费
+    io.emitInput('答\r');
+    pump();
+    await expect(p).resolves.toBe('答');
+  });
+
   it('onQuit 柄缺席 → 诚实拒提示（不虚报律——不退出不兜底）', () => {
     const { io, calls, pump } = makeInteractive({ onQuit: undefined });
     io.emitInput('/exit\r');

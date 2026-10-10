@@ -490,8 +490,15 @@ type PendingOp =
     };
 
 /** input-ask 在飞体（提示行呈现 + 提交应答路） */
+/** input-ask 应答车缺省占位文（挖掘 29 轮件 4——R-6 占位文族第四位：应答窗
+ *  enter 是收窗非提交，composer 缺省「输入消息…」在该窗误导为新消息；值位
+ *  白话律（07 §4.4 查四——「应答」工程语不入用户面）） */
+const INPUT_ASK_PLACEHOLDER_TEXT = '输入回复…';
+
 interface InputAsk {
   readonly message: string;
+  /** 应答车占位文（UiInputOptions.placeholder 透传——挖掘 29 轮件 4 契约死位激活；缺席 = 应答缺省「输入应答…」） */
+  readonly placeholder?: string;
   readonly resolve: (text: string) => void;
 }
 
@@ -2594,7 +2601,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         resolve('');
         return;
       }
-      const ask: InputAsk = { message, resolve };
+      const ask: InputAsk = { message, placeholder: opts?.placeholder, resolve };
       // abort 分派按收场时态判（排队→激活两态同一监听——入队后才 abort 的
       // 排队问仍走激活态撤销面，不因注册时态漏接）
       opts?.signal?.addEventListener(
@@ -2633,16 +2640,20 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private activateInputAsk(ask: InputAsk): void {
     this.inputAsk = ask;
     this.editor.setText(''); // 应答起始清框（草稿让位——提交路模型自清）
+    // 应答车占位文换装（挖掘 29 轮件 4）：enter 是收窗非提交——composer 缺省
+    // 「输入消息…」在应答窗误导；opts.placeholder 透传优先、缺席用应答缺省
+    this.editor.setPlaceholder(ask.placeholder ?? INPUT_ASK_PLACEHOLDER_TEXT);
     this.autocompleteCompleter.cancel(); // 应答期弹层抑制：撤窗 + 在途作废
     this.popup.applyResult(null); // 在层即刻收层
     this.clearJobsCursor(); // jobs 光标让位（挖掘 26 轮 [5]——应答窗 enter 属应答车道，劫持面随激活拆除）
     this.touchFixed();
   }
 
-  /** 出队接续（应答/取消收场后队首晋升——FIFO 串行链不断） */
+  /** 出队接续（应答/取消收场后队首晋升——FIFO 串行链不断；空队退役占位文回 composer 缺省） */
   private continueInputQueue(): void {
     const next = this.inputQueue.shift();
     if (next !== undefined) this.activateInputAsk(next);
+    else this.editor.setPlaceholder(undefined); // 应答车退役——占位文回 composer 缺省（队列接续时 activate 再换装）
   }
 
   /**

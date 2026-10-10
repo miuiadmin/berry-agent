@@ -121,6 +121,15 @@ export class EditorView implements Renderable {
     this.maxVisibleLines = next;
   }
 
+  /**
+   * 空稿占位文运行时切换（挖掘 29 轮件 4——应答车换装柄）：undefined = 回
+   * composer 缺省（ask 收场退役）；null = 退役；string = 定值（ask 激活注入
+   * 「输入应答…」/opts.placeholder 透传）。语义与构造期第三参同族。
+   */
+  setPlaceholder(text: string | null | undefined): void {
+    this.placeholderText = text === undefined ? EMPTY_PLACEHOLDER_TEXT : text;
+  }
+
   /** 主题换装（OSC 11 probe 裁定后 backend 注入——派生样式整体重建含底色合成形） */
   setTheme(theme: ResolvedTheme): void {
     const bg = theme.userMessageBg;

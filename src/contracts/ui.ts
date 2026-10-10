@@ -46,6 +46,11 @@ export interface UiSelectChoice {
 
 /** input 原语选项 */
 export interface UiInputOptions extends UiAskOptions {
+  /**
+   * 应答车占位文（挖掘 29 轮件 4 消费面激活——TUI input-ask 编辑器空稿占位：
+   * 透传优先；缺席 = 通道缺省应答占位文。07 §4.3 input 条款「编辑器转应答车」
+   * 呈现面的参数位）。
+   */
   readonly placeholder?: string;
 }
 

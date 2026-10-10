@@ -126,6 +126,14 @@ export class Editor implements Renderable {
     this.view.setFocused(focused);
   }
 
+  /**
+   * 空稿占位文运行时切换（挖掘 29 轮件 4——backend 应答车换装消费）：语义与
+   * 构造期 placeholder 第三参同族（undefined 回缺省 / null 退役 / string 定值）。
+   */
+  setPlaceholder(text: string | null | undefined): void {
+    this.view.setPlaceholder(text);
+  }
+
   getText(): string {
     return this.model.getText();
   }
