@@ -4540,6 +4540,68 @@ describe('主屏空态引导（07 §4.1 空转写态注 2026-10-05——零块�
   });
 });
 
+/* 头卡几何注：18 行屏转录区 12 行——头卡 5（框 4 + 首行 1……实为顶框+首行+
+ * model+directory+底框 5 行）+ 引导 5 + 余量；共存/退场/抑制三面在足容几何
+ * 下锁语义（渲染形细节归 transcript.test 头卡 describe） */
+describe('会话头卡（Codex 样式复刻批 R-7——07 §4.1 2026-10-10 durable 首块）', () => {
+  const HEADER = { version: '0.1.1', model: 'zhipu/glm-4.7', directory: '/Users/w/demo' };
+  const HEADER_ROWS = 18;
+
+  it('注入即首帧头卡（╭ 圆角框 + >_ 首行 + model/directory 行）；注入缺席旧形零头卡', () => {
+    const io = new MemoryTerminalIO(COLS, HEADER_ROWS);
+    const backend = new TuiBackend(io, { sessionId: SESSION, sessionHeader: HEADER });
+    backend.start();
+    expect(io.bytes).toContain('╭'); // 圆角框线（「框语言退役」的显式例外——单块自定界）
+    // 首行三段各属 SGR 游程（>_ dim/名 bold/版本 dim）——跨段纯文本被转义码
+    // 切割，锚取段内连续子串（段形细节归 transcript.test styled 层锁）
+    expect(io.bytes).toContain('>_ ');
+    expect(io.bytes).toContain('berry-agent');
+    expect(io.bytes).toContain('(v0.1.1)');
+    expect(io.bytes).toContain('model: zhipu/glm-4.7');
+    expect(io.bytes).toContain('directory: /Users/w/demo');
+    // 缺席旧形（确定性测试基线零扰动——footer 门控同律）
+    const bare = new MemoryTerminalIO(COLS, HEADER_ROWS);
+    new TuiBackend(bare, { sessionId: SESSION }).start();
+    expect(bare.bytes).not.toContain('>_ '); // 引导 logo 字形行不含 >_ 前缀——判据纯头卡
+  });
+
+  it('头卡与空态引导并存 + 首对话块到达退场（修前红：零块判据旧形 snapshot.length===0 头卡在场恒 false——引导饿死永不显示）', () => {
+    const io = new MemoryTerminalIO(COLS, HEADER_ROWS);
+    const backend = new TuiBackend(io, { sessionId: SESSION, sessionHeader: HEADER });
+    backend.start();
+    expect(io.bytes).toContain('>_ '); // 头卡在场（durable 首块 top:0——段内子串判据）
+    expect(io.bytes).toContain('输入消息开始对话——? 查看快捷键'); // 修前红位：头卡在场引导饿死
+    io.reset();
+    emit(backend, { type: 'message_end', message: { role: 'user', content: '你好', timestamp: 1 } });
+    expect(io.bytes).toContain('你好'); // 首对话块落在头卡之下（块间空行制——头卡与首块间垫行）
+    io.reset();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).not.toContain('输入消息开始对话'); // 退场不闪回（对话块非零门控 + D 段并账清引导尾行）
+  });
+
+  it('头卡不误复位等回声抑制（修前红：旧判据 snapshot.length>0 头卡在场恒真——提交后首个信封即刻解锁闪引导）', () => {
+    const submitted: string[] = [];
+    const io = new MemoryTerminalIO(COLS, HEADER_ROWS);
+    const backend = new TuiBackend(io, {
+      sessionId: SESSION,
+      sessionHeader: HEADER,
+      onSubmit: (_sid, text) => submitted.push(text),
+    });
+    backend.start();
+    io.emitInput('字');
+    io.emitInput('\r'); // 提交清稿——等回声窗置位（用户块回声 write-behind 未落）
+    expect(submitted).toEqual(['字']); // 防空洞断言——置位前提确达
+    io.reset();
+    // 事件信封先于回声窗收口（agent_start/end 皆不落对话块）：修前旧判据在
+    // agent_start 即刻误复位抑制——agent_end 闲态引导闪现；修后头卡不计对话
+    // 块、抑制维持至真用户块回声落地
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).not.toContain('输入消息开始对话'); // 修前红位
+  });
+});
+
 describe('TuiBackend footer 扩容段（三反馈批B→V-4 注⑪ 翻档——档位段 + 累计段；忙态速度段退役 → 本轮段）', () => {
   it('缺席缩位：tiers 子段 null / 累计零耗不虚报', () => {
     const { io } = makeBackend({

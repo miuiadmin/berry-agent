@@ -1700,6 +1700,18 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         }
         localCommands.find((command) => command.name === branch)?.run();
       },
+      // 会话头卡（07 §4.3 R-7——07 §4.1 2026-10-10 Codex 样式复刻批）：构造期
+      // 一次定格三值（值随会话装配快照、repaint 投影同源重建不换头）。
+      // version 与 openStatus 值源同律（缺席兜底 '0.0.0'——BERRY_AGENT_PACKAGE
+      // 桌装形外直跑无版本可读）；model = 初始模型全形（stack.model——运行期
+      // 换模不回写头卡：头卡是会话出生快照非活值面板）；directory =
+      // session.workspaceRoot（canonical 归一形、进程内恒定不随切焦漂移——
+      // 与输入史域键同源；完整路径非 basename 短名——/status 副屏同源值域）
+      sessionHeader: {
+        version: options.version ?? '0.0.0',
+        model: stack.model,
+        directory: session.workspaceRoot,
+      },
       ...(options.version !== undefined ? { version: options.version } : {}),
       // 生产定时器注入（保活/帧帽真定时——缺省同步直出仅测试语义）
       schedule: (fn, ms) => setTimeout(fn, ms),

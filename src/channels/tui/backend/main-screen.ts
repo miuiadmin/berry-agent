@@ -49,7 +49,13 @@ import {
   SGR_RESET,
   cup,
 } from './ansi-rows.js';
-import { renderBlockLines, renderSlotTailLines, stableSlotLineCount, type TranscriptBlock } from './transcript.js';
+import {
+  dialogueBlockCount,
+  renderBlockLines,
+  renderSlotTailLines,
+  stableSlotLineCount,
+  type TranscriptBlock,
+} from './transcript.js';
 
 /** 主屏选项 */
 export interface MainScreenOptions {
@@ -161,7 +167,10 @@ export class MainScreen {
     //（稳态每帧 present 空转防线），只归位固定区。签名失配（状态翻转/几何
     // 变化）落正常编舞重画
     const guide = this.emptyGuide;
-    const guideDue = guide !== null && slot === null && durableCount === 0 && blocksOffset === 0;
+    // R-7 零块判据收窄：头卡在场不算对话块（guideDue 用对话块计数——头卡在
+    // 场零对话仍示引导；durableCount/newAbsolute 对账两处维持块位账不随迁：
+    // 头卡计入块位（writtenAbsolute 首写位 = 头卡块 0——混用两账即对账错位）
+    const guideDue = guide !== null && slot === null && dialogueBlockCount(blocks) === 0 && blocksOffset === 0;
     if (
       guideDue &&
       this.guideRows === guide.length &&

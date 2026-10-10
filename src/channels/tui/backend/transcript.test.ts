@@ -16,6 +16,7 @@ import { StreamingMarkdown } from '../markdown/streaming.js';
 import { DIM_STYLE } from '../markdown/layout.js';
 import { renderThinkingStyledLines } from '../blocks/thinking.js';
 import {
+  dialogueBlockCount,
   LiveTranscript,
   renderBlockLines,
   renderBlockStyledLines,
@@ -1674,5 +1675,111 @@ describe('块间空行制度（Codex 样式复刻批 R-1——07 §4.1 直播路
       expect(tail.lines).toEqual(full);
       expect(tail.total).toBe(full.length);
     }
+  });
+});
+
+describe('会话头卡（Codex 样式复刻批 R-7——07 §4.1 2026-10-10 durable 首块）', () => {
+  /** 头卡块速构（三值全在场基形；覆写键零散传） */
+  const headerBlock = (over: { version?: string; model?: string; directory?: string } = {}): TranscriptBlock => ({
+    kind: 'session-header',
+    version: over.version ?? '0.1.1',
+    model: over.model ?? 'zhipu/glm-4.7',
+    directory: over.directory ?? '/Users/w/demo',
+  });
+
+  it('渲染形 80 列：inner 帽 56 咬合 + 圆角框线 dim + 首行三段游程（>_ dim/名 bold/版本 dim）', () => {
+    const styled = renderBlockStyledLines(headerBlock(), 80, false); // 首块豁免位——top:0 无垫
+    expect(styled).toHaveLength(5); // 顶框 + 首行 + model + directory + 底框
+    const bar = '─'.repeat(56);
+    // 顶/底框：整行单 dim 游程
+    expect(styled[0]).toEqual({ plain: `╭${bar}╮`, runs: [{ start: 0, end: 58, style: DIM_STYLE }] });
+    expect(styled[4]).toEqual({ plain: `╰${bar}╯`, runs: [{ start: 0, end: 58, style: DIM_STYLE }] });
+    // 首行：│ + >_ berry-agent (v0.1.1)（宽 23：3+11+9）+ 垫 33 + │；三段内容游程
+    // nameStart = 1+3 = 4、名段 [4,15)、版本段 [15,24)
+    expect(styled[1]!.plain).toBe(`│>_ berry-agent (v0.1.1)${' '.repeat(33)}│`);
+    expect(styled[1]!.runs).toEqual([
+      { start: 0, end: 1, style: DIM_STYLE },
+      { start: 1, end: 4, style: DIM_STYLE },
+      { start: 4, end: 15, style: { bold: true } },
+      { start: 15, end: 24, style: DIM_STYLE },
+      { start: 57, end: 58, style: DIM_STYLE },
+    ]);
+    // model/directory 行：内容零游程（默认前景）+ 左右框符 dim
+    expect(styled[2]!.plain.startsWith('│model: zhipu/glm-4.7')).toBe(true);
+    expect(styled[2]!.runs).toEqual([
+      { start: 0, end: 1, style: DIM_STYLE },
+      { start: 57, end: 58, style: DIM_STYLE },
+    ]);
+    expect(styled[3]!.plain.startsWith('│directory: /Users/w/demo')).toBe(true);
+  });
+
+  it('窄终端随收：40 列 inner=36（columns−4）；CJK 宽算术——stringWidth(plain) 恒 inner+2（垫空显示宽账）', () => {
+    const styled = renderBlockStyledLines(headerBlock({ directory: '/w/中文目录' }), 40, false);
+    expect(styled).toHaveLength(5);
+    const top = styled[0]!;
+    expect(top.plain).toBe(`╭${'─'.repeat(36)}╮`); // inner 36 = min(40−4, 56)
+    // directory 行：内容宽 = 'directory: /w/中文目录'（12 + 8 = 20 显示宽），
+    // 垫空 16 → │ 落码位 37（码位 length = 38 ≠ 显示宽 38——CJK 垫空按显示宽算术）
+    const dirLine = styled[3]!;
+    expect(stringWidth(dirLine.plain)).toBe(38); // inner + 2
+    expect(dirLine.plain.endsWith('│')).toBe(true);
+    expect(dirLine.plain.startsWith('│directory: /w/中文目录')).toBe(true);
+    // 右框符游程端点是码位账：[plain.length−1, plain.length)
+    expect(dirLine.runs[dirLine.runs.length - 1]).toEqual({
+      start: dirLine.plain.length - 1,
+      end: dirLine.plain.length,
+      style: DIM_STYLE,
+    });
+  });
+
+  it('超长 directory ellipsize 收口 + 空值诚实缺席（空版本裸名/空 model 行不显）', () => {
+    // 80 列 inner 56：超长目录截断（'directory: ' 11 + 目录 100 → ellipsize 至 56）
+    const long = renderBlockStyledLines(headerBlock({ directory: '/'.repeat(100) }), 80, false);
+    const dirLine = long[3]!;
+    expect(dirLine.plain).toBe(`│directory: ${'/'.repeat(44)}…│`); // 11 + 44 + 1 = 56
+    // 空串三缺席位：空版本（裸名无缀）+ 空 model（行不显）+ 空 directory（行不显）
+    const sparse = renderBlockStyledLines(headerBlock({ version: '', model: '', directory: '' }), 80, false);
+    expect(sparse).toHaveLength(3); // 顶框 + 首行 + 底框
+    expect(sparse[1]!.plain).toBe(`│>_ berry-agent${' '.repeat(42)}│`); // 头宽 14 + 垫 42 = 56
+    expect(sparse[1]!.runs).toEqual([
+      { start: 0, end: 1, style: DIM_STYLE },
+      { start: 1, end: 4, style: DIM_STYLE },
+      { start: 4, end: 15, style: { bold: true } },
+      { start: 57, end: 58, style: DIM_STYLE },
+    ]);
+  });
+
+  it('极窄终端（inner ≤ 0）零行诚实缺席', () => {
+    expect(renderBlockStyledLines(headerBlock(), 4, false)).toEqual([]); // columns−4 = 0
+  });
+
+  it('构造注入：header 在场即 durable 首块；缺席 = 无头卡旧形（viewer 复用/测试基线零扰动）', () => {
+    const withHeader = new LiveTranscript({ header: { version: '1.0.0', model: 'm-1', directory: '/w' } });
+    expect(withHeader.snapshot).toHaveLength(1);
+    expect(withHeader.snapshot[0]!.kind).toBe('session-header');
+    expect(dialogueBlockCount(withHeader.snapshot)).toBe(0); // 头卡不计对话块
+    expect(withHeader.blockCount).toBe(1); // 块位账计入（帽观测面不排除）
+    expect(new LiveTranscript().snapshot).toHaveLength(0); // 缺席旧形
+  });
+
+  it('loadProjection 前插同源：投影重建头卡仍首位 + 帽裁同队让位（头卡无特权位）', () => {
+    const t = new LiveTranscript({ header: { version: '1.0.0', model: 'm-1', directory: '/w' }, blockCap: 3 });
+    t.loadProjection([userMsg('你好'), assistantMsg('在的')]);
+    expect(t.blockCount).toBe(3); // 头卡 + user + assistant = 3 ≤ 帽 3
+    expect(t.snapshot[0]!.kind).toBe('session-header'); // 前插首位——repaint 不换头
+    expect(dialogueBlockCount(t.snapshot)).toBe(2);
+    // 超帽裁前缀：头卡与旧对话块同队让位（slice 卸前缀——头卡块 0 先出列）
+    t.loadProjection([userMsg('a'), assistantMsg('b'), userMsg('c')]);
+    expect(t.blockCount).toBe(3); // 帽 3 钳位
+    expect(t.snapshot[0]!.kind).not.toBe('session-header'); // 头卡已让位（诚实裁块非特权）
+  });
+
+  it('dialogueBlockCount：空集 0 / 纯头卡 0 / 头卡+2 对话块 2 / 无头卡 2（零块判据单源）', () => {
+    expect(dialogueBlockCount([])).toBe(0);
+    expect(dialogueBlockCount([headerBlock()])).toBe(0);
+    const user1: TranscriptBlock = { kind: 'user', text: '一', theme: DEFAULT_THEME };
+    const user2: TranscriptBlock = { kind: 'user', text: '二', theme: DEFAULT_THEME };
+    expect(dialogueBlockCount([headerBlock(), user1, user2])).toBe(2);
+    expect(dialogueBlockCount([user1, user2])).toBe(2);
   });
 });

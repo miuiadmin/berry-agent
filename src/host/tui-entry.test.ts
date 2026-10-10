@@ -1767,7 +1767,11 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     // 运行时在册——孤儿/注入 id 两桶皆不入（#3：settings 已删仍在册、或注入
     // 非内置 id 的渠道不得以官方渠道身份呈现）
     await until(() => io.output.includes('选择模型渠道'));
-    expect(io.output).not.toContain('faux-entry'); // 修前红：faux-only rig 下官方桶含注入项
+    // R-7 注：头卡 model 行如实显初始模型（faux-only rig 起屏帧即含
+    // 'model: faux-entry/m1'——会话装配快照非渠道选单面）；断言语境收窄
+    // 向导选单帧（标题之后字节段）——修前红位语义不变（官方桶含注入项时
+    // 选单条目落标题后切片内即红）
+    expect(io.output.slice(io.output.indexOf('选择模型渠道'))).not.toContain('faux-entry');
     expect(io.output).toContain('+ 新建自定义渠道'); // v1「手录自定义 provider」腿退役
     // esc 中止（选择步取消）→ outro 已退出收场 + 主屏照常（ctrl+d 可退）
     io.send('\x1b');

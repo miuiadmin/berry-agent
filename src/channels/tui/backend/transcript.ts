@@ -46,6 +46,7 @@ import {
   EMPTY_STYLE,
   ellipsize,
   graphemeWidth,
+  stringWidth,
   styleEquals,
   wrapText,
   type CellStyle,
@@ -187,6 +188,23 @@ export type TranscriptBlock =
       readonly count?: number;
     }
   | {
+      /**
+       * 会话头卡（07 §4.1 2026-10-10 Codex 样式复刻批 R-7——durable 首块）：
+       * 转录区首块的单块自定界卡（codex session header 同构）。值随会话装配
+       * 快照、构造期一次定格（repaint 投影 loadProjection 同源前插重建）。
+       * 「框语言退役」（V-0 注③）的**显式例外**——头卡是单块自定界非面板
+       * chrome，╭╮╰╯ 圆角框即其全部装饰；top:0 无前分隔空行（块间空行制
+       * 首块豁免位——main-screen B 段 leadingGap=false 同判据）。
+       */
+      readonly kind: 'session-header';
+      /** 宿主版本（空串 = 无版本缀裸名形） */
+      readonly version: string;
+      /** 初始模型全形（空串 = model 行诚实缺席） */
+      readonly model: string;
+      /** 工作目录全路径（空串 = directory 行诚实缺席） */
+      readonly directory: string;
+    }
+  | {
       readonly kind: 'streaming';
       /** 槽代次（每条 assistant message_start 递增——冻结账同一性判据） */
       readonly epoch: number;
@@ -231,6 +249,95 @@ const BLANK_LINE: StyledLine = { plain: '', runs: [] };
  */
 function withPad(lines: readonly StyledLine[], leadingGap: boolean): StyledLine[] {
   return leadingGap ? [BLANK_LINE, ...lines] : [...lines];
+}
+
+/** bold 样式（会话头卡名段——engine 无 bold 单源，本件局部定） */
+const BOLD_STYLE: Readonly<CellStyle> = Object.freeze({ bold: true });
+
+/** 会话头卡内宽帽（R-7：内宽 = min(columns−4, 56)——窄终端随收、宽终端封顶 56） */
+const SESSION_HEADER_INNER_CAP = 56;
+
+/** 头卡名段（R-7 首行 `>_ berry-agent (v{version})`——名恒 berry-agent 零参数化） */
+const SESSION_HEADER_NAME = 'berry-agent';
+
+/**
+ * 头卡内容行装箱（R-7）：内容宽感知垫空至内宽（CJK 显示宽算术——StyleRun
+ * 端点是码位下标、垫空是显示宽算术，两账分立见 ansi-rows StyleRun 注），
+ * 左右 │ 框符恒落 inner+2 列位；框符 dim、内容游程由调用方给（升序不交叠
+ * 由构造保证——段间空隙 = 裸文本）。
+ */
+function sessionHeaderBoxedLine(content: string, runs: readonly StyleRun[], inner: number): StyledLine {
+  const pad = ' '.repeat(Math.max(0, inner - stringWidth(content)));
+  const plain = `│${content}${pad}│`;
+  return {
+    plain,
+    runs: [
+      { start: 0, end: 1, style: DIM_STYLE },
+      ...runs,
+      { start: plain.length - 1, end: plain.length, style: DIM_STYLE },
+    ],
+  };
+}
+
+/**
+ * 会话头卡行集（07 §4.1 R-7——durable 首块渲染本体）：╭╮╰╯ 圆角框线 dim
+ * （「框语言退役」的显式例外——单块自定界非面板 chrome）；内容首行
+ * `>_ berry-agent (v{version})`（`>_ ` dim、名 bold、版本 dim——空版本 =
+ * 无版本缀裸名形）+ `model: <模型>` / `directory: <工作目录>` 行（值空串
+ * 该行诚实缺席；超宽 ellipsize 收口）；极窄终端（inner ≤ 0）零行诚实缺席。
+ */
+function renderSessionHeaderLines(
+  block: Extract<TranscriptBlock, { kind: 'session-header' }>,
+  columns: number,
+): StyledLine[] {
+  const inner = Math.min(Math.max(columns - 4, 0), SESSION_HEADER_INNER_CAP);
+  if (inner <= 0) return []; // 极窄终端诚实缺席——框字符都容不下
+  const bar = '─'.repeat(inner);
+  const frameLine = (edgeL: string, edgeR: string): StyledLine => ({
+    plain: `${edgeL}${bar}${edgeR}`,
+    runs: [{ start: 0, end: inner + 2, style: DIM_STYLE }],
+  });
+  const lines: StyledLine[] = [frameLine('╭', '╮')];
+  // 首行：>_ dim + 名 bold + (v…) dim；极窄放不下全形时整行 dim 退化（游程
+  // 三段并一——宽度优先于样式档）
+  const prefix = '>_ ';
+  const ver = block.version === '' ? '' : ` (v${block.version})`;
+  const head = `${prefix}${SESSION_HEADER_NAME}${ver}`;
+  if (stringWidth(head) <= inner) {
+    const nameStart = 1 + prefix.length;
+    lines.push(
+      sessionHeaderBoxedLine(
+        head,
+        [
+          { start: 1, end: nameStart, style: DIM_STYLE },
+          { start: nameStart, end: nameStart + SESSION_HEADER_NAME.length, style: BOLD_STYLE },
+          ...(ver === ''
+            ? []
+            : [{ start: nameStart + SESSION_HEADER_NAME.length, end: 1 + head.length, style: DIM_STYLE }]),
+        ],
+        inner,
+      ),
+    );
+  } else {
+    const clamped = ellipsize(head, inner);
+    lines.push(sessionHeaderBoxedLine(clamped, [{ start: 1, end: 1 + clamped.length, style: DIM_STYLE }], inner));
+  }
+  // model / directory 行（值空串该行缺席——诚实缺席非空标签）
+  if (block.model !== '') lines.push(sessionHeaderBoxedLine(ellipsize(`model: ${block.model}`, inner), [], inner));
+  if (block.directory !== '')
+    lines.push(sessionHeaderBoxedLine(ellipsize(`directory: ${block.directory}`, inner), [], inner));
+  lines.push(frameLine('╰', '╯'));
+  return lines;
+}
+
+/**
+ * 对话块计数（07 §4.1 R-7——头卡排除）：空态引导在场门控与等回声复位的
+ * 零块判据真源（spec：零块判据随批收窄为非头卡块计数——头卡构造期即在账，
+ * 不排除则空会话引导永不显示 / awaitingEcho 即时误复位）。写位对账
+ * （writtenAbsolute）不消费本函数——头卡是已写块、计入块位账。
+ */
+export function dialogueBlockCount(blocks: readonly TranscriptBlock[]): number {
+  return blocks.reduce((count, block) => (block.kind === 'session-header' ? count : count + 1), 0);
 }
 
 /**
@@ -415,6 +522,11 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
       // （contracts/ccr-marker——B2 webui 对端迁移批起 TUI/webui 双消费，本位
       // 原两形模板串收敛单源）+ 块前垫（R-1 制度行）
       return withPad([dimStyledLine(compactionSeparatorLine(block.count))], leadingGap);
+    case 'session-header':
+      // 会话头卡（R-7 durable 首块）：圆角框自定界——首块豁免位由调用侧
+      // leadingGap=false 施加（main-screen B 段 !(i===0 && blocksOffset===0)
+      // 同判据——头卡即首块 top:0 无垫）
+      return withPad(renderSessionHeaderLines(block, columns), leadingGap);
     case 'streaming': {
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
       // markdown 直推档走网格管线（bullet 槽同轴——与定稿 markdown 块逐行同形）；
@@ -839,6 +951,29 @@ export interface LiveTranscriptOptions {
    * 测试注入可控钟；缺省墙钟。
    */
   readonly now?: () => number;
+  /**
+   * 会话头卡数据（07 §4.1 2026-10-10 Codex 样式复刻批 R-7）：在场 = 构造期
+   * 即注入 durable 首块（值一次定格）+ loadProjection 投影重建同源前插；
+   * 缺席 = 无头卡旧形（件 8 回看器复用本件零头卡——头卡是主屏转录区概念；
+   * 确定性测试基线零扰动——footer 门控同律）。
+   */
+  readonly header?: SessionHeaderData;
+}
+
+/**
+ * 会话头卡数据（R-7——会话装配快照构造期定格三值）：version 宿主版本、
+ * model 初始模型全形、directory 工作目录全路径（空串 = 对应行/版本缀诚实
+ * 缺席）。
+ */
+export interface SessionHeaderData {
+  readonly version: string;
+  readonly model: string;
+  readonly directory: string;
+}
+
+/** 头卡块铸造（构造注入与投影前插同源——值经 SessionHeaderData 定格快照） */
+function sessionHeaderBlockOf(data: SessionHeaderData): TranscriptBlock {
+  return { kind: 'session-header', version: data.version, model: data.model, directory: data.directory };
 }
 
 /** 缺省键名回退表（册单源派生——直构档〔测试/回看器〕无 Keymap 时的取键面） */
@@ -964,12 +1099,17 @@ export class LiveTranscript {
   private thinkingExpanded = false;
   /** 工具卡会话级展开态（批 10i——缺省折叠尾 5 行预览） */
   private toolCardsExpanded = false;
+  /** 头卡定格快照（R-7——null = 无头卡旧形：viewer 复用/确定性测试基线） */
+  private readonly headerData: SessionHeaderData | null;
 
   constructor(options: LiveTranscriptOptions = {}) {
     this.blockCap = options.blockCap ?? TRANSCRIPT_BLOCK_CAP;
     this.theme = options.theme ?? DEFAULT_THEME;
     this.keyText = options.keyText ?? ((actionId) => DEFAULT_KEY_TEXT.get(actionId) ?? '');
     this.now = options.now ?? (() => Date.now());
+    this.headerData = options.header ?? null;
+    // 头卡即构造注入 durable 首块（值一次定格——后续 repaint 投影同源前插）
+    this.blocks = this.headerData === null ? [] : [sessionHeaderBlockOf(this.headerData)];
   }
 
   /** 主题换装（probe 应答/显式档切换——后续新建 doc 生效，已建 doc 不回改） */
@@ -1094,6 +1234,9 @@ export class LiveTranscript {
     for (const [toolCallId, call] of this.pendingCalls) {
       rebuilt.push({ kind: 'tool-call', name: call.name, brief: call.brief, toolCallId });
     }
+    // 头卡前插（R-7）：投影重建与构造注入同源定格值——repaint 重拉不换头
+    // （帽裁 slice 卸前缀时头卡与旧对话块同队让位——头卡是块账在册非特权位）
+    if (this.headerData !== null) rebuilt.unshift(sessionHeaderBlockOf(this.headerData));
     this.blocks = rebuilt;
     this.slotOpen = false; // 投影是 durable 快照——无在飞槽
     this.trimToCap();

@@ -93,7 +93,7 @@ import {
   type TerminalIO,
 } from '../../engine/index.js';
 import { MainScreen } from './main-screen.js';
-import { LiveTranscript, shortIdOf, type TranscriptBlock } from './transcript.js';
+import { dialogueBlockCount, LiveTranscript, shortIdOf, type TranscriptBlock } from './transcript.js';
 import { OscDisplay, buildOsc52Copy } from './osc.js';
 import { allocateFixedBudget, EDITOR_MIN_HEIGHT, fixedBudgetRows } from './fixed-budget.js';
 import { StatusLine } from '../status/status-line.js';
@@ -359,6 +359,18 @@ export interface TuiBackendOptions {
    * 小帽注入使 FIFO 裁旧可证；缺省行为不变）。
    */
   readonly landedTransientCap?: number;
+  /**
+   * 会话头卡数据（07 §4.3 R-7——07 §4.1 2026-10-10 Codex 样式复刻批）：
+   * 注入在场 = transcript 构造即带 durable 头卡块（值一次定格——version/
+   * model/directory 会话装配快照；空串 = 对应行诚实缺席）。注入缺席 =
+   * 无头卡旧形（footer 门控同律：既有测试基线零扰动，生产 tui-entry
+   * 恒传）。
+   */
+  readonly sessionHeader?: {
+    readonly version: string;
+    readonly model: string;
+    readonly directory: string;
+  };
 }
 
 /** 主屏形进屏模式串：粘贴开 + kitty 推栈（disambiguate 最小位）+ 探测哨兵（无光标藏无 1049——与 Engine 全屏形分立） */
@@ -1013,8 +1025,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.refreshFooterGit();
       this.refreshFooter();
     }
-    // 直播行集（批 10h/10i）：主题随构造定着——流式 markdown 直推档与定稿块同源
-    this.transcript = new LiveTranscript({ theme: this.theme, keyText: (id) => this.keymap.keyText(id) });
+    // 直播行集（批 10h/10i）：主题随构造定着——流式 markdown 直推档与定稿块同源；
+    // 头卡随 sessionHeader 注入（R-7——缺席 = 无头卡旧形，构造期即定格首块）
+    this.transcript =
+      options.sessionHeader === undefined
+        ? new LiveTranscript({ theme: this.theme, keyText: (id) => this.keymap.keyText(id) })
+        : new LiveTranscript({
+            theme: this.theme,
+            keyText: (id) => this.keymap.keyText(id),
+            header: options.sessionHeader,
+          });
     // 编辑器高度帽单点解析（批 10k 遗漏修）：显式注入帽（测试语义）恒尊注入
     // 值；缺席 = 帽公式单源按构造期几何解析（resize 随动见 handleResize）
     this.fixedEditorCap = options.maxVisibleLines ?? null;
@@ -2319,9 +2339,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * ——appendTransient 自身以旧 guideRows 并账清尾，零额外帧）。
    */
   private syncEmptyGuide(): void {
+    // R-7 零块判据收窄：头卡不计对话块——头卡在场零对话仍示引导（与空态引导
+    // 并存条款）；trimmed 计数维持块位账（头卡在场零对话恒无裁块——判据不交叉）
     const on =
       this.editor.model.isEmpty() &&
-      this.transcript.snapshot.length === 0 &&
+      dialogueBlockCount(this.transcript.snapshot) === 0 &&
       this.transcript.trimmedBlockCount === 0 &&
       !this.awaitingEcho &&
       !this.progressBusy &&
@@ -2347,9 +2369,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.screen.setEmptyGuide(null);
   }
 
-  /** 等回声复位（块集非零 = 用户块回声已落——onEnvelope/onRepaint 两锚共用） */
+  /**
+   * 等回声复位（对话块非零 = 用户块回声已落——onEnvelope/onRepaint 两锚共用；
+   * R-7 头卡不计对话块：头卡在场不得误判「块已落」即刻复位——等回声抑制位
+   * 须待真用户块回声落地才收）
+   */
   private settleAwaitingEcho(): void {
-    if (this.awaitingEcho && this.transcript.snapshot.length > 0) this.awaitingEcho = false;
+    if (this.awaitingEcho && dialogueBlockCount(this.transcript.snapshot) > 0) this.awaitingEcho = false;
   }
 
   /**
