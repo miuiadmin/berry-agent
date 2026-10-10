@@ -1310,10 +1310,12 @@ describe('LiveTranscript exec 折叠组（直播路——agent_end 窗口收口�
     expect(group.group).toMatchObject({ count: 3 });
     expect(group.group?.commands.map((c) => c.command)).toEqual(['echo a', 'echo b', 'echo c']);
     const lines = renderBlockStyledLines(group, 60);
-    // 卡间上空行垫（五件批 C 件 R4）前置——首行空垫、卡头后移一位
+    // 卡间上空行垫（五件批 C 件 R4）前置——首行空垫、收敛行后移一位；⑤ 全成
+    // 组折叠态收敛单行（` • Ran N commands · hint 展开`——无终态符号位、逐条
+    // 摘要行退役归展开态）
     expect(lines[0]!.plain).toBe('');
-    expect(lines[1]!.plain).toBe(' ✓ • Ran 3 commands');
-    expect(lines.slice(2).map((l) => l.plain)).toEqual(['$ echo a', '$ echo b', '$ echo c']);
+    expect(lines[1]!.plain).toBe(' • Ran 3 commands · ctrl+o 展开');
+    expect(lines).toHaveLength(2);
   });
 
   it('N<3 逐条补落保序（R4 逐卡形不变——exec 单卡不携组数据）', () => {

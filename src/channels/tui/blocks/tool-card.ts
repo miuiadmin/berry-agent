@@ -12,6 +12,11 @@
  * ctrl+o 会话级展开（全量行、正常亮度）。exec 卡族卡体首行状态行（批③）：
  * 退出码数值 + ` · {时长}` dim——两档恒在。
  *
+ * ⑤（R-5 件 B）：组卡折叠态收敛单行 ` • Ran N commands · hint 展开`（• =
+ * 最差态语义色、Ran bold、hint dim、无终态符号位）——失败/未完成组不收敛
+ * 恒逐条展开（失败可见性优先）；组卡折叠预览帽路退役（折叠即单行、展开即
+ * 全量）；终态符号族 ✓/✗ 恒加 bold（⏹ 维持次文档——statusSymbolStyle 单源）。
+ *
  * ④⑦（Codex 样式复刻批 R-5 件 A）：exec 卡头命令续行翻 `  │ ` 独立窄槽
  * （dim 档——续行折宽 columns−4 不对齐命令起始列、超帽省略行同获槽）；bash
  * 卡族卡体翻 exec 输出窗（`  └ ` 转折首行 + 4 空格槽续行 + **整窗 dim 两档
@@ -127,6 +132,15 @@ export interface ToolCardView {
 
 /** 终态符号（卡头首段——状态分档可辨形；注⑩：失败位 ✗ 形〔✖ 退役〕） */
 const STATUS_SYMBOL: Readonly<Record<ToolCardStatus, string>> = { success: '✓', error: '✗', aborted: '⏹' };
+
+/**
+ * 终态符号段样式（⑤——终态符号族 ✓/✗ 恒加 bold；⏹ 中止维持次文档不加）。
+ * 三消费位单源：exec 单卡头 / 通用卡头 / 组卡展开头（收敛行无终态符号位
+ * 不消费）。
+ */
+function statusSymbolStyle(status: ToolCardStatus, fg: ColorValue): CellStyle {
+  return status === 'aborted' ? { fg } : { fg, bold: true };
+}
 
 /**
  * 输出护栏注记行识别（V-2 笔2 注④双轨分层）：pipeline 固定链尾步对超帽
@@ -264,7 +278,7 @@ function renderGenericHeaderLine(card: ToolCardView, columns: number, statusColo
   const name = sanitizeLineText(toolFaceZh(card.name));
   const brief = sanitizeLineText(card.brief);
   const header = ` ${STATUS_SYMBOL[card.status]} ${name}${brief}`;
-  const runs: StyleRun[] = [{ start: 0, end: 2, style: { fg: statusColor } }]; // 符号段（含首空格）
+  const runs: StyleRun[] = [{ start: 0, end: 2, style: statusSymbolStyle(card.status, statusColor) }]; // 符号段（含首空格）
   if (brief !== '') runs.push({ start: 3 + name.length, end: header.length, style: DIM_STYLE }); // 简述段（名段平前景无游程——' ✓ ' 前缀 3 + 名长，名末字符不被 dim 淹没）
   // 卡头屏宽帽（F6）：plain 整字截断 + 游程同步钳制（符号段/简述段跨界收尾）
   return capStyledLine({ plain: header, runs }, columns);
@@ -309,7 +323,7 @@ function renderExecHeaderLines(card: ToolCardView, columns: number, statusColor:
   // 首行（既有形维持）：符号段语义色 + 动词 Ran bold + `$` 位符 dim + 命令高亮
   const firstPlain = ` ${STATUS_SYMBOL[card.status]} Ran $ ${first}`;
   const firstRuns: StyleRun[] = [
-    { start: 0, end: 2, style: { fg: statusColor } }, // 符号段（含首空格——失败红系/中止次文维持）
+    { start: 0, end: 2, style: statusSymbolStyle(card.status, statusColor) }, // 符号段（含首空格——失败红系/中止次文维持）
     { start: 3, end: 6, style: { bold: true } }, // 动词段 Ran bold（成功/失败同词）
     { start: 7, end: 8, style: DIM_STYLE }, // `$` 命令位符 dim（注⑩——位符弱存在感，命令文本主体亮度）
   ];
@@ -380,18 +394,27 @@ function worstGroupStatus(group: ToolCardGroupData): ToolCardStatus {
 }
 
 /**
- * exec 折叠组卡渲染（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条——组级形）：
- * 卡头 = 组级最差态符号（三态组级聚合——worstGroupStatus 现算）+
- * `• Ran {N} commands`（• 列点/折叠组前缀〔注⑩ 符号册〕+ Ran 动词 bold
- * 〔exec 单卡先例〕）；卡体 = 各命令一行摘要（`$ ` 前缀 dim + 命令文本截断
- * 〔ellipsize `…` 单源——界面美化役注① 全域律〕+ 退出码位〔失败腿非零码
- * ` (N)` 后缀 error 色；成功零码不显——UX 批④ 信息零值不占屏同律〕）；
- * 卡体帽 200 行同律；折叠/展开复用 ctrl+o 会话级既有机制（组卡即卡零新
- * 展开机制——折叠 = 头 2 + 省略行 + 尾 2 整面 dim，展开 = 全量）。纯函数：
- * 同 (组数据, columns) 恒同行集（repaint 投影重建同管线零漂移）。
+ * exec 折叠组卡渲染（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条——组级形；
+ * ⑤ 收敛翻档）：折叠态 × 全成功组 → **收敛单行** ` • Ran {N} commands ·
+ * {hint} 展开`（• = 组内最差态语义色〔非新键〕含首空格段、Ran 动词段
+ * bold 〔exec 单卡先例〕、` · hint 展开` 段 dim；**无终态符号位**——「组级
+ * 最差态符号」半句随 ⑤ 翻档）；**失败/未完成组不收敛**（worst ∈ error/
+ * aborted——失败可见性优先，恒逐条展开形）；展开态逐条形维持（头 = 终态
+ * 符号 + `• Ran {N} commands`）。逐条行 = 各命令一行摘要（`$ ` 前缀 dim +
+ * 命令文本截断〔ellipsize `…` 单源——界面美化役注① 全域律〕+ 退出码位
+ * 〔失败腿非零码 ` (N)` 后缀 error 色；成功零码不显——UX 批④ 信息零值不
+ * 占屏同律〕）；卡体帽 200 行同律；折叠/展开走 ctrl+o 会话级既有律（组卡
+ * 即卡零新展开机制——折叠预览帽路在组卡随 ⑤ 退役：折叠即单行、展开即
+ * 全量）。纯函数：同 (组数据, columns) 恒同行集（repaint 投影重建同管线
+ * 零漂移）。
  */
 function renderGroupCardStyledLines(card: ToolCardView, group: ToolCardGroupData, columns: number): StyledLine[] {
   const status = worstGroupStatus(group);
+  // ⑤ 收敛判据：折叠档 × 全成功组——失败/未完成（error/aborted）组不收敛
+  //（失败可见性优先——命令列表恒可见），走下方展开形
+  if (!card.expanded && status === 'success') {
+    return [collapsedGroupLine(group, columns, card.toggleHint, card.theme.success)];
+  }
   const statusColor =
     status === 'success' ? card.theme.success : status === 'error' ? card.theme.error : card.theme.secondary;
   const headerPlain = ` ${STATUS_SYMBOL[status]} • Ran ${group.count} commands`;
@@ -399,15 +422,36 @@ function renderGroupCardStyledLines(card: ToolCardView, group: ToolCardGroupData
     {
       plain: headerPlain,
       runs: [
-        { start: 0, end: 2, style: { fg: statusColor } }, // 符号段（含首空格——语义色）
+        { start: 0, end: 2, style: statusSymbolStyle(status, statusColor) }, // 符号段（含首空格——语义色，✓/✗ 恒 bold）
         { start: 5, end: 8, style: { bold: true } }, // Ran 动词段（exec 单卡先例——成功/失败同词）
       ],
     },
     columns,
   );
-  const body = groupCommandLines(group.commands, columns, card.theme);
-  const shown = card.expanded ? body : previewWindow(body, card.toggleHint, columns).map(addDim);
-  return [header, ...shown];
+  return [header, ...groupCommandLines(group.commands, columns, card.theme)];
+}
+
+/**
+ * 组卡折叠收敛单行（⑤）：` • Ran {N} commands · {hint} 展开`——• 段（含首
+ * 空格——组内最差态语义色，非终态符号族不 bold）+ Ran 动词段 bold + ` ·
+ * hint 展开` 段 dim（hint 空回退 'ctrl+o'——previewWindow 同律）。行恒受
+ * 屏宽帽（卡头族 F6 律）。
+ */
+function collapsedGroupLine(group: ToolCardGroupData, columns: number, toggleHint: string, fg: ColorValue): StyledLine {
+  const head = ` • Ran ${group.count} commands`;
+  const hint = toggleHint !== '' ? toggleHint : 'ctrl+o';
+  const tail = ` · ${hint} 展开`;
+  return capStyledLine(
+    {
+      plain: head + tail,
+      runs: [
+        { start: 0, end: 2, style: { fg } },
+        { start: 3, end: 6, style: { bold: true } },
+        { start: head.length, end: head.length + tail.length, style: DIM_STYLE },
+      ],
+    },
+    columns,
+  );
 }
 
 /**
