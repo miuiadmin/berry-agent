@@ -1027,6 +1027,26 @@ describe('TuiBackend 补全弹层（三源路由）', () => {
     await expect(p).resolves.toBe(true);
   });
 
+  // 挖掘 29 轮件 5：渲染门（budget.popup > 0——极矮屏梯末位牺牲零画出）与
+  // 键路门（popup.visible——数据位真即吃键）判据分立——幽灵层吃键。修后键
+  // 路门与渲染门同源（本帧实占位缓存），牺牲位键透传编辑器。
+  it('极矮屏弹层梯牺牲不吃键（修前红：enter 被不可见弹层吃——选建议吞提交）', () => {
+    const { io, clock, calls, pump } = makeInteractive(
+      {
+        autocomplete: {
+          commands: (query) => (query === 'he' ? [{ label: '/help', detail: '帮助', replacement: '/help ' }] : []),
+        },
+      },
+      3, // 3 行屏：预算 2 = 编辑器收缩 1 + 状态行 1——弹层梯末位牺牲（渲染缺席）
+    );
+    io.emitInput('/he');
+    completePump(clock); // 防抖窗到——弹层数据面开
+    expect(io.bytes).not.toContain('帮助'); // 防空洞断言：弹层渲染缺席（几何牺牲确达）
+    io.emitInput('\r');
+    pump();
+    expect(calls.submitted).toEqual([['s1', '/he']]); // 修前红位：enter 被幽灵弹层吃（选建议——submitted 恒空）
+  });
+
   it('ask 浮层开层撤防抖窗：连打后开层的在途查询不落层（askApproval——修前窗内 fire 落层红）', async () => {
     // rows 加高：审批面板（5 行）+ 弹层（1）+ 编辑器（3）+ 状态行（1）在 10 行
     // 窗会触发牺牲梯隐弹层——量高并陈需 14 行窗（预算 13）才呈修前坏形

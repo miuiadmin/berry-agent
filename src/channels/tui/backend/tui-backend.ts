@@ -615,6 +615,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly taskLine: TaskStatusLine;
   private readonly editor: Editor;
   private readonly popup: AutocompletePopup;
+  /**
+   * 弹层本帧实占行数（渲染门缓存——挖掘 29 轮件 5）：键路门吃键判据与
+   * renderFixed 渲染门（budget.popup > 0）同源——极矮屏梯末位牺牲（渲染
+   * 缺席）时键透传编辑器，幽灵层不吃键。初值 0（首帧前不吃键——弹层
+   * 首现必经渲染帧，窄窗行为退化面为零键透传非误吃）。
+   */
+  private popupFrameRows = 0;
   /** 三源合一补全器（token 路由 + union 收口——R6 批 10j 调度器查询位） */
   private readonly autocompleteProvider: CombinedAutocompleteProvider;
   /** 补全防抖调度器（R6 批 10j：尾沿 20ms / AbortSignal / 错序丢弃三律） */
@@ -2916,7 +2923,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.touchFixed(); // 面板态变更（光标/勾选/翻页）——固定区重建
       return;
     }
-    if (this.popup.visible && this.popup.handleEvent(ev)) {
+    // 弹层键路门（挖掘 29 轮件 5——与渲染门同源）：popupFrameRows 是上帧
+    // budget.popup 的缓存——极矮屏梯牺牲位（渲染缺席）不吃键，透传编辑器
+    if (this.popupFrameRows > 0 && this.popup.visible && this.popup.handleEvent(ev)) {
       this.touchFixed(); // 弹层高亮/隐层——固定区重建
       return;
     }
@@ -4056,7 +4065,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
     // 段五.四：补全弹层（R-6 弹出位翻档——自段二〔编辑器上方〕迁编辑器下方：
     // 可见才占位非模态浮层；截断隐 = 零高度〔fixed-budget 梯末位——牺牲序
-    // 不变〕；弹层在场时 footer/状态行不随让位〔popup 只是段序成员非让位源〕）
+    // 不变〕；弹层在场时 footer/状态行不随让位〔popup 只是段序成员非让位源〕）。
+    // 占位账同步键路门缓存（挖掘 29 轮件 5——两门单源：牺牲位键不吃）
+    this.popupFrameRows = budget.popup;
     if (budget.popup > 0) {
       this.popup.render(grid, { row, col: 0, width: columns, height: budget.popup });
       row += budget.popup;
