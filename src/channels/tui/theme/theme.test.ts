@@ -7,7 +7,7 @@
  * 组合含 tmux 内层形）；OSC 11 应答四位宽归一与诚实拒形；明暗裁定判例。
  */
 import { describe, expect, it } from 'vitest';
-import { ansiColor, colorRgb, rgbTo256 } from '../../engine/index.js';
+import { ansiColor, color256, colorRgb, rgbTo256 } from '../../engine/index.js';
 import {
   builtinPalette,
   DARK_PALETTE,
@@ -71,30 +71,64 @@ describe('resolveTheme（构造期一次降采 + 冻结）', () => {
   it('16 档非高亮塌缩键修正（七役扫描批——ExactColor 覆写扩面）', () => {
     // 修前塌缩形（dark 板最近邻）：link #58a6ff / codeInline #7ee787 → 7 亮灰
     // （与 thinkingText #94a3b8→7 三键合流）、tableRule #30363d → 0 黑（暗底
-    // 零对比不可见）——07 §4.1 七役扫描批补笔：覆写面扩至非高亮同域塌缩键
+    // 零对比不可见）——07 §4.1 七役扫描批补笔：覆写面扩至非高亮同域塌缩键。
+    // R-3 行内色翻档：link/codeInline 由绿/蓝系迁 cyan 系（codex 行内同构）
+    // ——16 档覆写位随迁 6（七役批注①「codeInline→2 复绿」半句随批勘正）
     const d = resolveTheme(DARK_PALETTE, '16');
-    expect(d.codeInline).toEqual(ansiColor(2)); // 复绿——承批 10g 前 CODE_COLOR=ANSI 2 中性定值
+    expect(d.codeInline).toEqual(ansiColor(14)); // 亮青对位（最近邻落点 + 与 accent 6 互离——纪律锁）
     expect(d.tableRule).toEqual(ansiColor(8)); // 暗灰——暗底可见（≠ 0 黑）
-    expect(d.link).toEqual(ansiColor(12)); // 亮蓝——与亮灰前景互离（≠ 7）
+    expect(d.link).toEqual(ansiColor(14)); // cyan + underline 属性位辨链接（codex 同构）
     // thinkingText 维持最近邻：italic 属性位已可辨，不占覆写位（规范笔定裁）
     expect(d.thinkingText).toEqual(ansiColor(7));
-    // light 板对位（同键两板同色相族 + 互离 + 可见）：link 最近邻落 6 青——
-    // 亮底对比不足（10g accent 同由 6 改 4 的判据同源），覆写 4 蓝（亮底经典
-    // 强调位）；tableRule 最近邻恰落 7 亮灰（亮底表格线弱存在感正合真彩源
-    // #d0d7de 意图）、codeInline 恰落 2 与 dark 覆写位同绿族——两键保留最近邻
+    // light 板对位：link/codeInline 迁 cyan 系（#1b7c83 深青——亮底可见；16 档
+    // 覆写 6）；tableRule 最近邻恰落 7 亮灰（亮底表格线弱存在感正合真彩源
+    // #d0d7de 意图）保留最近邻
     const l = resolveTheme(LIGHT_PALETTE, '16');
-    expect(l.link).toEqual(ansiColor(4));
+    expect(l.link).toEqual(ansiColor(6));
     expect(l.tableRule).toEqual(ansiColor(7));
-    expect(l.codeInline).toEqual(ansiColor(2));
+    expect(l.codeInline).toEqual(ansiColor(6));
+  });
+
+  it('R-3 键面扩员：quoteText 三档 + diffAddedBg/diffRemovedBg 三档（ExactBgColor 形）', () => {
+    // quoteText（引用块行级基础色——green 档，codex blockquote green 同构）
+    const d = resolveTheme(DARK_PALETTE, 'truecolor');
+    expect(d.quoteText).toEqual(colorRgb('#3fb950'));
+    const l = resolveTheme(LIGHT_PALETTE, 'truecolor');
+    expect(l.quoteText).toEqual(colorRgb('#1a7f37'));
+    for (const board of [DARK_PALETTE, LIGHT_PALETTE]) {
+      expect(resolveTheme(board, '16').quoteText).toEqual(ansiColor(2)); // 16 档绿对位
+    }
+    // 256 档最近邻各板各值（饱和度感知量化：dark #3fb950→71 / light #1a7f37→29
+    //——两板值域不同落点必分立断言，循环同值断言会永红）
+    expect(resolveTheme(DARK_PALETTE, '256').quoteText).toEqual(rgbTo256({ r: 0x3f, g: 0xb9, b: 0x50 }));
+    expect(resolveTheme(LIGHT_PALETTE, '256').quoteText).toEqual(rgbTo256({ r: 0x1a, g: 0x7f, b: 0x37 }));
+    // diff bg 双键（codex diff 静态定值——非探测混合族）：truecolor 直出、
+    // 256 档 22/52 覆写、16 档 undefined（回退纯前景律——低档位宁可无带不错色）
+    const dTc = resolveTheme(DARK_PALETTE, 'truecolor');
+    expect(dTc.diffAddedBg).toEqual(colorRgb('#213a2b'));
+    expect(dTc.diffRemovedBg).toEqual(colorRgb('#4a221d'));
+    const lTc = resolveTheme(LIGHT_PALETTE, 'truecolor');
+    expect(lTc.diffAddedBg).toEqual(colorRgb('#dafbe1'));
+    expect(lTc.diffRemovedBg).toEqual(colorRgb('#ffebe9'));
+    for (const board of [DARK_PALETTE, LIGHT_PALETTE]) {
+      const v256 = resolveTheme(board, '256');
+      expect(v256.diffAddedBg).toEqual(color256(22)); // Color256 直通（覆写位非最近邻）
+      expect(v256.diffRemovedBg).toEqual(color256(52));
+      const v16 = resolveTheme(board, '16');
+      expect(v16.diffAddedBg).toBeUndefined();
+      expect(v16.diffRemovedBg).toBeUndefined();
+    }
   });
 
   it('值域两律全键遍历：256 档 RGB 源键落 16-255、16 档落 0-15', () => {
     // RGB 源键 = 除 accent（AnsiColor 直通）、text（undefined）与动态混合键
-    //（userMessageBg / weakRule / toolCardBg——探测缺席恒 undefined，回退腿另册单测）外全集
-    const DYNAMIC_KEYS = ['userMessageBg', 'weakRule', 'toolCardBg'] as const;
+    //（userMessageBg / weakRule / toolCardBg——探测缺席恒 undefined，回退腿另册单测）
+    //及 diff bg 双键（ExactBgColor 形——16 档合法 undefined 键缺席，R-3 批）
+    //外全集
+    const ABSENT_16_KEYS = ['userMessageBg', 'weakRule', 'toolCardBg', 'diffAddedBg', 'diffRemovedBg'] as const;
     const rgbKeys = SEMANTIC_KEYS.filter(
-      (k) => k !== 'accent' && k !== 'text' && !(DYNAMIC_KEYS as readonly string[]).includes(k),
-    ) as Exclude<SemanticKey, 'accent' | 'text' | (typeof DYNAMIC_KEYS)[number]>[];
+      (k) => k !== 'accent' && k !== 'text' && !(ABSENT_16_KEYS as readonly string[]).includes(k),
+    ) as Exclude<SemanticKey, 'accent' | 'text' | (typeof ABSENT_16_KEYS)[number]>[];
     for (const key of rgbKeys) {
       const v256 = resolveTheme(DARK_PALETTE, '256')[key];
       const v16 = resolveTheme(DARK_PALETTE, '16')[key];
@@ -119,8 +153,8 @@ describe('resolveTheme（构造期一次降采 + 冻结）', () => {
 });
 
 describe('语义键面（SEMANTIC_KEYS 单源表）', () => {
-  it('表恒 19 键且 ResolvedTheme 全键位定值（完整性契约——编译器不核此处）', () => {
-    expect(SEMANTIC_KEYS.length).toBe(19); // 11 核心键批 10g + 高亮键族五键批 10h + userMessageBg 界面美化役 R2 扩键 + weakRule V-3 注⑨ + toolCardBg 五件批 C 件
+  it('表恒 22 键且 ResolvedTheme 全键位定值（完整性契约——编译器不核此处）', () => {
+    expect(SEMANTIC_KEYS.length).toBe(22); // 11 核心键批 10g + 高亮键族五键批 10h + userMessageBg 界面美化役 R2 扩键 + weakRule V-3 注⑨ + toolCardBg 五件批 C 件 + R-3 批三键（quoteText/diffAddedBg/diffRemovedBg）
     const t = resolveTheme(DARK_PALETTE, 'truecolor');
     for (const key of SEMANTIC_KEYS) {
       // text / 三动态混合键（userMessageBg / weakRule / toolCardBg）合法 undefined；余键恒有值——缺值即编程错 fail-loud 于消费

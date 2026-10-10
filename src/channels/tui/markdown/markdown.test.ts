@@ -271,9 +271,9 @@ describe('MarkdownDoc 渲染', () => {
     const grid = renderDoc(doc, 40);
     // '看' 宽 2 占 col 0-1、空格 col 2、前定界反引号 col 3、code 首字 col 4
     expect(grid.getCell(0, 3)?.grapheme).toBe('`');
-    expect(grid.getCell(0, 3)?.style.dim).toBe(true); // 定界形 dim（缺省主题 #7ee787 → 绿 2 的单色回退边界）
+    expect(grid.getCell(0, 3)?.style.dim).toBe(true); // 定界形 dim（缺省主题 #39c5cf → 亮青 14 的单色回退边界——R-3 cyan 翻档随迁）
     const codeCell = grid.getCell(0, 4);
-    expect(codeCell?.style.fg).toBe(ansiColor(2)); // 覆写位 2（修前最近邻塌缩 7 亮灰）
+    expect(codeCell?.style.fg).toBe(ansiColor(14)); // 覆写位 14 亮青（R-3 cyan 翻档——最近邻落点且与 accent 6 互离）
     expect(codeCell?.grapheme).toBe('n');
     expect(grid.getCell(0, 0)?.style.fg).toBeUndefined(); // 普通文本不着色
   });
@@ -375,7 +375,7 @@ describe('MarkdownDoc 渲染', () => {
     const doc = MarkdownDoc.of('a `中文码`');
     const grid = renderDoc(doc, 20);
     expect(readRow(grid, 0, 20)).toBe('a `中文码`');
-    expect(grid.getCell(0, 3)?.style.fg).toBe(ansiColor(2)); // 起点按格位不按码位（codeInline 覆写位 2）
+    expect(grid.getCell(0, 3)?.style.fg).toBe(ansiColor(14)); // 起点按格位不按码位（codeInline 覆写位 14——R-3 随迁）
     expect(grid.getCell(0, 3)?.grapheme).toBe('中');
   });
 

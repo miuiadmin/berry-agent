@@ -6,8 +6,8 @@
  * 后仍可辨（256 cube 量化级距 > 阈值）、16 色最近邻落点集中（accent 例外
  * ——终端色板位直通，见 semantic 件注）。
  */
-import { ansiColor, colorRgb, rgbChannels } from '../../engine/index.js';
-import type { ExactColor, SemanticPalette } from './semantic.js';
+import { ansiColor, color256, colorRgb, rgbChannels } from '../../engine/index.js';
+import type { ExactBgColor, ExactColor, SemanticPalette } from './semantic.js';
 
 /**
  * 解析输入板形（resolveTheme / applyPalette 换装消费——/themes 批泛化）：
@@ -37,15 +37,24 @@ function rgb(hex: string) {
 /**
  * 精确对位简写（批 10k 遗漏修 + 七役扫描批扩面）：rgb 主值 + 16 档覆写位。
  * 最近邻降采在低饱和蓝灰域系统性塌缩——高亮五键族（dark 板 4/5 键合流
- * ANSI 7）与非高亮同域塌缩键（七役扫描批：dark 板 link/codeInline → 7、
- * tableRule → 0 黑零对比）照收。覆写值按「同键两板同色相族 + 互离 + 可见」
- * 人工定值：高亮五键 dark 9/6/8/12/13、light 1/4/8/12/5；非高亮三键
- * dark codeInline→2（复绿承批 10g 前 CODE_COLOR=ANSI 2）/tableRule→8（暗灰
- * 暗底可见）/link→12（亮蓝与前景互离）、light link→4（最近邻落 6 青亮底
- * 对比不足——10g accent 同由 6 改 4 的判据同源）。
+ * ANSI 7）与非高亮同域塌缩键（七役扫描批：dark 板 tableRule → 0 黑零对比）
+ * 照收。覆写值按「同键两板同色相族 + 互离 + 可见」人工定值：高亮五键
+ * dark 9/6/8/12/13、light 1/4/8/12/5；非高亮键 dark tableRule→8（暗灰
+ * 暗底可见）；R-3 行内色翻档——link/codeInline 由绿/蓝系迁 cyan 系（codex
+ * 行内同构，16 档覆写位随迁 6；七役批注「codeInline→2 复绿」半句随批勘正）。
  */
 function exact(hex: string, ansi16: number): ExactColor {
   return { rgb: rgbChannels(colorRgb(hex)), ansi16: ansiColor(ansi16) };
+}
+
+/**
+ * 背景精确对位简写（R-3 批——diff bg 双键专用）：truecolor rgb 直出 +
+ * 256 档 color256 直通覆写（22 绿暗底 / 52 红暗底——codex diff 静态定值，
+ * 非最近邻降采）。16 档由 resolve 件 toDepthValue 专腿回退 undefined
+ *（纯前景律——ExactBgColor 形语义位，不进本简写参数面）。
+ */
+function bgExact(hex: string, color256Idx: number): ExactBgColor {
+  return { rgb: rgbChannels(colorRgb(hex)), color256: color256(color256Idx) };
 }
 
 /**
@@ -64,12 +73,21 @@ export const DARK_PALETTE: BuiltinPalette = {
     error: rgb('#f85149'),
     diffAdded: rgb('#3fb950'),
     diffRemoved: rgb('#f85149'),
-    // 非高亮塌缩键三键 16 档覆写（七役扫描批 A1——最近邻塌缩：link/codeInline
-    // 合流 7 亮灰、tableRule 落 0 黑暗底零对比）；thinkingText 维持最近邻
+    // 引用块行级基础色（R-3 批）：green 档与 success 同源值、16 档覆写 2 暗绿
+    //（最近邻 #3fb950 偏亮落 10——引用块行级大面积用暗绿档更克制）
+    quoteText: exact('#3fb950', 2),
+    // diff 行级全宽 bg 色带（R-3 批）：codex diff 静态定值——truecolor 直出 /
+    // 256 档覆写 22·52 / 16 档 undefined 回退纯前景（resolve 件专腿）
+    diffAddedBg: bgExact('#213a2b', 22),
+    diffRemovedBg: bgExact('#4a221d', 52),
+    // 非高亮塌缩键 16 档覆写（七役扫描批 A1——最近邻塌缩：tableRule 落 0 黑
+    // 暗底零对比）；link/codeInline R-3 批迁 cyan 系（codex 行内同构——真彩源
+    // #39c5cf、16 档覆写 14 亮青：恰为最近邻落点且与 accent 6 互离——「accent
+    // 色不入场」纪律在 16 档 dark 板的防线）；thinkingText 维持最近邻
     // （#94a3b8→7 亮灰：italic 属性位已可辨，不占覆写位——规范笔定裁）
-    link: exact('#58a6ff', 12),
+    link: exact('#39c5cf', 14),
     tableRule: exact('#30363d', 8),
-    codeInline: exact('#7ee787', 2),
+    codeInline: exact('#39c5cf', 14),
     // 高亮键族（GitHub dark 语法色系——keyword 红 / string 浅蓝 / comment 灰
     // / number 蓝青 / function 紫；五键 256 降采落点互离、16 档走精确对位覆写
     // 互离——最近邻在低饱和蓝灰域塌缩，见 exact 简写注）
@@ -108,13 +126,18 @@ export const LIGHT_PALETTE: BuiltinPalette = {
     error: rgb('#cf222e'),
     diffAdded: rgb('#1a7f37'),
     diffRemoved: rgb('#cf222e'),
-    // 非高亮塌缩键对位（七役扫描批 A1）：link 最近邻落 6 青——亮底对比不足，
-    // 覆写 4 蓝（亮底经典强调位，与 dark 12 亮蓝同蓝族两板互离）；tableRule
-    // 最近邻恰落 7 亮灰（亮底表格线弱存在感正合真彩源 #d0d7de 意图）、
-    // codeInline 恰落 2（与 dark 覆写位 2 同绿族）——两键最近邻已正，保留
-    link: exact('#0969da', 4),
+    // 引用块行级基础色（R-3 批）：green 档与 success 同源值、16 档覆写 2 暗绿
+    quoteText: exact('#1a7f37', 2),
+    // diff 行级全宽 bg 色带（R-3 批）：亮板 codex 定值——256 档覆写与 dark 板
+    // 同 22·52（色带档位语义一致，明暗差由 truecolor 主值承载）
+    diffAddedBg: bgExact('#dafbe1', 22),
+    diffRemovedBg: bgExact('#ffebe9', 52),
+    // 非高亮塌缩键对位（七役扫描批 A1 + R-3 翻档）：link/codeInline 迁 cyan 系
+    //（真彩源 #1b7c83 深青——亮底可见、16 档覆写 6）；tableRule 最近邻恰落 7
+    // 亮灰（亮底表格线弱存在感正合真彩源 #d0d7de 意图）保留最近邻
+    link: exact('#1b7c83', 6),
     tableRule: rgb('#d0d7de'),
-    codeInline: rgb('#116329'),
+    codeInline: exact('#1b7c83', 6),
     // 高亮键族（GitHub light 语法色系——与 dark 对位同键同语义；16 档走精确
     // 对位覆写 1/4/8/12/5——同色相族对板互离，见 exact 简写注）
     codeKeyword: exact('#cf222e', 1),

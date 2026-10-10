@@ -17,7 +17,14 @@
  * - `thinkingText` 思考块文字（10i 消费）
  * - `success` / `error` 工具卡终态 ✓ / ✗（10i 消费）
  * - `diffAdded` / `diffRemoved` 词级 diff 增 / 删（10i 消费）
- * - `link` 链接（markdown 行内链接——10h 消费）
+ * - `quoteText` 引用块行级基础色（R-3 批——markdown blockquote 整行 green
+ *   档基础色，行内样式叠加非整行覆盖；codex blockquote green 同构）
+ * - `diffAddedBg` / `diffRemovedBg` diff 行级全宽 bg 色带（R-3 批——codex
+ *   diff 静态定值键，非 OSC 11 探测混合族）：源值恒 `ExactBgColor` 形——
+ *   truecolor rgb 直出 / 256 档 color256 覆写（22 / 52，非最近邻）/ 16 档
+ *   undefined 回退纯前景（低档位宁可无带不错色）
+ * - `link` 链接（markdown 行内链接——10h 消费；R-3 批迁 cyan 系 + underline
+ *   属性位辨链接）
  * - `tableRule` 表格线（GFM 表格框线——10h 消费）
  * - `codeInline` 行内代码（原 ANSI 2 绿中性定值的语义键承接位）
  * - `codeKeyword` / `codeString` / `codeComment` / `codeNumber` / `codeFunction`
@@ -66,6 +73,9 @@ export const SEMANTIC_KEYS = [
   'error',
   'diffAdded',
   'diffRemoved',
+  'quoteText',
+  'diffAddedBg',
+  'diffRemovedBg',
   'link',
   'tableRule',
   'codeInline',
@@ -94,6 +104,18 @@ export interface ExactColor {
 }
 
 /**
+ * 背景精确对位形（R-3 批——diff bg 双键专用载体）：`rgb` truecolor 直出、
+ * `color256` 256 档**直通覆写位**（非最近邻——diff 色带落点人工定值）、16 档
+ * **合法 undefined**（回退纯前景律——diff 增删前景色 16 档本就在册，低档位
+ * 宁可无带不错色）。与 ExactColor 分立的判据：后者 ansi16 必填（前景塌缩
+ * 修正形——16 档必有对位），本形 16 档缺席是设计语义而非回退。
+ */
+export interface ExactBgColor {
+  readonly rgb: RgbChannels;
+  readonly color256: Color256;
+}
+
+/**
  * 语义色板（键 → 源色值）。源值五形：
  * - `RgbChannels` 自带色值——随终端色域档降采（truecolor 直出 / 256→16 降采）；
  * - `AnsiColor` 终端色板位（0-15）——**全档直通不降采**（尊重终端用户自定义
@@ -103,10 +125,12 @@ export interface ExactColor {
  *   文件「色值收 truecolor RGB 与 256 索引两形」条款；运行时与 AnsiColor 同
  *   为 number，按值域 0-15 / 16-255 分档——engine color 件 isAnsi16 律）；
  * - `ExactColor` 精确对位——rgb 主值两档照常、16 档覆写位（塌缩修正形）；
+ * - `ExactBgColor` 背景精确对位（R-3 批——diff bg 双键专用）——truecolor rgb
+ *   直出 / 256 color256 直通 / 16 档 undefined 回退；
  * - `undefined` 终端缺省（`text` 专用——正文恒随终端前景配置）。
  */
 export type SemanticPalette = Readonly<
-  Record<SemanticKey, RgbChannels | AnsiColor | Color256 | ExactColor | undefined>
+  Record<SemanticKey, RgbChannels | AnsiColor | Color256 | ExactColor | ExactBgColor | undefined>
 >;
 
 /**

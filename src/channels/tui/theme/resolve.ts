@@ -16,7 +16,13 @@ import {
   type RgbChannels,
 } from '../../engine/index.js';
 import { DARK_PALETTE, type ThemeBoard } from './palette.js';
-import { SEMANTIC_KEYS, type ExactColor, type SemanticKey, type SemanticPalette } from './semantic.js';
+import {
+  SEMANTIC_KEYS,
+  type ExactBgColor,
+  type ExactColor,
+  type SemanticKey,
+  type SemanticPalette,
+} from './semantic.js';
 
 /** 终端色域三档（探测归 detect 件——truecolor / 256 / 16） */
 export type ColorDepth = 'truecolor' | '256' | '16';
@@ -39,6 +45,19 @@ export interface ResolvedTheme {
   readonly error: ColorValue;
   readonly diffAdded: ColorValue;
   readonly diffRemoved: ColorValue;
+  /**
+   * 引用块行级基础色（R-3 批——markdown blockquote 整行 green 档；行内样式
+   * 叠加非整行覆盖——消费位 block-rows quote 支路）。
+   */
+  readonly quoteText: ColorValue;
+  /**
+   * diff 行级全宽 bg 色带双键（R-3 批——codex diff 静态定值非探测族）：
+   * ExactBgColor 形降深——truecolor rgb 直出 / 256 档 color256 覆写 / 16 档
+   * undefined 回退纯前景（低档位宁可无带不错色；词级 diffAdded/diffRemoved
+   * 前景恒在，色带缺席不损语义）。
+   */
+  readonly diffAddedBg: ColorValue | undefined;
+  readonly diffRemovedBg: ColorValue | undefined;
   readonly link: ColorValue;
   readonly tableRule: ColorValue;
   readonly codeInline: ColorValue;
@@ -93,10 +112,11 @@ function color256ToRgb(index: Color256): RgbChannels {
 /**
  * 单键源值降采：undefined / AnsiColor（0-15）直通；Color256（16-255）
  * truecolor/256 档直通、16 档展开回真彩走 rgbTo16 单源最近邻；ExactColor
- * 16 档走覆写位；RgbChannels 按档降采。
+ * 16 档走覆写位；ExactBgColor 16 档回退 undefined（R-3 批——diff bg 纯前景
+ * 律）；RgbChannels 按档降采。
  */
 function toDepthValue(
-  value: RgbChannels | AnsiColor | Color256 | ExactColor | undefined,
+  value: RgbChannels | AnsiColor | Color256 | ExactColor | ExactBgColor | undefined,
   depth: ColorDepth,
 ): ColorValue | undefined {
   if (value === undefined) return undefined;
@@ -110,6 +130,12 @@ function toDepthValue(
     // 精确对位形：rgb 主值两档照常（truecolor 直出 / 256 最近邻）、16 档覆写
     if (depth === '16') return value.ansi16;
     return depth === '256' ? rgbTo256(value.rgb) : colorRgbOf(value.rgb.r, value.rgb.g, value.rgb.b);
+  }
+  if ('color256' in value) {
+    // 背景精确对位形（R-3 批）：truecolor rgb 直出 / 256 color256 直通（覆写
+    // 位非最近邻）/ 16 档 undefined 回退纯前景（低档位宁可无带不错色）
+    if (depth === '16') return undefined;
+    return depth === '256' ? value.color256 : colorRgbOf(value.rgb.r, value.rgb.g, value.rgb.b);
   }
   switch (depth) {
     case 'truecolor':
@@ -189,6 +215,7 @@ function textRgbOf(value: SemanticPalette['text']): RgbChannels | undefined {
     return value <= 15 ? undefined : color256ToRgb(value as Color256);
   }
   if ('ansi16' in value) return value.rgb; // 精确对位形——rgb 主值即混合基
+  if ('color256' in value) return value.rgb; // 背景精确对位形（R-3 批 union 扩员）——同取 rgb 主值
   return value;
 }
 

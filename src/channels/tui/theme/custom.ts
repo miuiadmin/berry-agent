@@ -4,11 +4,14 @@
  *
  * 文件形：`数据目录/themes/<名>.json`（BERRY_AGENT_DATA_DIR 随动——数据目录
  * 由装配传入）；文件名即主题名（`.json` 后缀剥除）。键值面 = R2 语义键面
- * （表单源 = SEMANTIC_KEYS——现 19 键：R2 扩键注后 17 + `weakRule` /
- * `toolCardBg` 两键）的**部分覆盖**——
+ * （表单源 = SEMANTIC_KEYS——现 22 键：R2 扩键注后 17 + `weakRule` /
+ * `toolCardBg` 两键 + R-3 批 `quoteText` / `diffAddedBg` / `diffRemovedBg`
+ * 三键）的**部分覆盖**——
  * 缺键回退基板同位键（基板按 OSC 11 探测明暗选、与文件
  * 选择正交——「自定义名直指文件零探测」只属文件选择面；回退合成在消费位
- * 展开，本件只产覆盖表）。
+ * 展开，本件只产覆盖表）。diff bg 双键内置板的 ExactBgColor 形是 palette
+ * 内部形——文件面照收 hex / number 三形（RgbChannels 形 256 档走最近邻
+ * 降采、16 档照常 rgbTo16，不承「16 档 undefined」内部语义）。
  *
  * 色值四形（「色值收 truecolor RGB 与 256 索引两形、16 色形保留——语义键
  * 值域同宽」）：

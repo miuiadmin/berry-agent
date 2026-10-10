@@ -237,7 +237,7 @@ describe('LiveTranscript 聚焦归约', () => {
     const doc = (t.snapshot[0] as { kind: 'markdown'; doc: MarkdownDoc }).doc;
     const styled = renderBlockStyledLines({ kind: 'markdown', doc }, 40, false); // R-1 豁免位
     const codeRun = styled[0]!.runs.find((r) => r.style.fg !== undefined);
-    expect(codeRun?.style.fg).toBe(ansiColor(2)); // light 板 #116329 @16 → 绿 2（dark 板为亮灰 7——双板可辨）
+    expect(codeRun?.style.fg).toBe(ansiColor(6)); // light 板 #1b7c83 @16 → 青 6（dark 板为亮青 14——双板可辨；R-3 cyan 翻档随迁）
   });
 
   it('user / toolResult 的 message_end 追加对应块', () => {
