@@ -88,10 +88,25 @@ export function runRecapSegments(input: RunRecapInput): string[] {
 }
 
 /**
- * run 收尾行整行（`── 段 · 段 ──` 段头段尾横线）：色壳不归本件——tui 侧
- * SGR 弱线色包壳在调用侧（appendTransientLine 纯文本路的 ANSI 感知收口），
- * webui 侧无色直用。段集空时返回空段头（调用侧双零判据已拦，此形仅防御）。
+ * 文案标签门阈值（⑧ 两级门制——run 时长 > 60s 才显文案段；≤60s 无标签纯线
+ * 全宽 dim 行。门只辖文案段显隐、行呈现门 = 作业判据〔双零整行缺席〕恒与时长
+ * 无关——两门分立在调用侧）。耗时缺席（null 中途附着）门不可判 → 文案段照常
+ * （诚实缺席不升级为纯线——部分观察加注形可见性保位）。
+ */
+const RUN_RECAP_TEXT_GATE_MS = 60_000;
+
+/**
+ * run 收尾行整行（`── 段 · 段 ──` 段头段尾横线）：色壳与全宽补齐不归本件——
+ * tui 侧 SGR 弱线色包壳 + 列宽 ─ 补齐在调用侧（appendTransientLine 纯文本路
+ * 的 ANSI 感知收口），webui 侧无色直用（DOM 居中/hairline 呈现层）。段集空
+ * 时返回空段头（调用侧双零判据已拦，此形仅防御）。
+ *
+ * 文案标签门（⑧——挖掘 29 轮批 B 规范立法兑现）：durationMs 在场且 ≤60s →
+ * 返回空串（无标签纯线——调用侧按载体落全宽线形：TUI ─×columns / webui
+ * hairline）；>60s 或缺席照常文案。段集构造 runRecapSegments 不受门辖
+ * （门只辖整行文案显隐）。
  */
 export function runRecapLine(input: RunRecapInput): string {
+  if (input.durationMs !== null && input.durationMs <= RUN_RECAP_TEXT_GATE_MS) return '';
   return `── ${joinSegments(...runRecapSegments(input))} ──`;
 }

@@ -148,6 +148,18 @@ describe('Transcript run 收尾行（界面美化役批⑪）', () => {
     // 收尾行是瞬时追加位非消息——不呈 run_close 角色标签
     expect(screen.queryByText('run_close')).toBeNull();
   });
+
+  it('纯线形（⑧ 文案标签门 ≤60s）：空文案呈全宽 hairline 分隔线（修前红：空 <p> 零视觉——行呈现门照常兑现）', () => {
+    const { container } = render(
+      <Transcript
+        messages={[msg({ key: 'm-close', role: RUN_CLOSE_ROLE, text: '' })]}
+        status={null}
+        bottomRef={createRef<HTMLDivElement>()}
+      />,
+    );
+    // 纯线 = DOM 原生 hairline（h-px 全宽——「全宽补齐」的 webui 载体形）
+    expect(container.querySelector('div.h-px.bg-edge')).toBeTruthy();
+  });
 });
 
 describe('Transcript 压缩分隔行（B2 webui 对端迁移——source=compaction user 块替换呈现）', () => {

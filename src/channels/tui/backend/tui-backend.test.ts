@@ -5752,21 +5752,32 @@ describe('TuiBackend turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
     t += 30_000;
     io.bytes = '';
-    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 30_000 });
-    // weakRule = round(fg×0.2 + bg×0.8) 逐通道 = (56,61,67) = #383d43——修前红：旧形恒 DIM 直拼
-    expect(io.bytes).toContain(`${buildSgr({ fg: colorRgb('#383d43') })}── 用时 30s · 工具 1 次 ──${SGR_RESET}`);
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 90_000 }); // 90s = 文案标签门外语（⑧ >60s 文案照常）
+    // weakRule = round(fg×0.2 + bg×0.8) 逐通道 = (56,61,67) = #383d43——修前红：旧形恒 DIM 直拼；
+    // 尾锚随全宽补齐形改前缀式（文案尾与 SGR_RESET 间有右缘 ─ 补齐段——色壳断言经前缀保真）
+    expect(io.bytes).toContain(`${buildSgr({ fg: colorRgb('#383d43') })}── 用时 1m 30s · 工具 1 次 ──`);
     expect(io.bytes).not.toContain(`${buildSgr({ dim: true })}── 用时`);
   });
 
-  it('时长门废：<60s 短 run 也呈耗时段（V-0 注⑥——不设 ≤60s 门）', () => {
+  it('文案标签门（⑧ 两级门制）：>60s 文案形全宽补齐（右缘 ─ 补至列宽）；≤60s 纯线全宽（修前红：旧形恒文案无门无补齐）', () => {
     let t = 0;
     const { io, backend } = makeBackend({ now: () => t });
     emit(backend, { type: 'agent_start' });
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
-    t += 30_000;
+    t += 59_000;
     io.bytes = '';
-    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 30_000 });
-    expect(io.bytes).toContain('── 用时 30s · 工具 1 次 ──'); // 修前红：旧形 <60s 省时段只呈时刻
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 59_000 });
+    // ≤60s：无标签纯线——全宽 ─（80 列）零文案段（修前红：'── 用时 59s · 工具 1 次 ──' 在场）
+    expect(io.bytes).toContain('─'.repeat(COLS));
+    expect(io.bytes).not.toContain('用时');
+    // >60s：文案形全宽补齐——文案 + 右缘 ─ 补至 80 列（修前红：无补齐裸壳）
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't2', name: 'read', arguments: {} });
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 62_000 });
+    const recapText = '── 用时 1m 02s · 工具 1 次 ──';
+    expect(io.bytes).toContain(recapText + '─'.repeat(COLS - stringWidth(recapText)));
+    expect(stripAnsi(io.bytes)).not.toContain('─'.repeat(COLS + 1)); // 恰全宽不越列
   });
 
   it('重试段随行：retry_wait_start 计数 + 续入不清（整 run 口径）→ 「工具 2 次 · 重试 1」', () => {
@@ -5797,8 +5808,8 @@ describe('TuiBackend turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻
     emit(backend, { type: 'agent_start' }); // 续入——纯对话腿收尾
     t += 30_000;
     io.bytes = '';
-    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 30_000 });
-    expect(io.bytes).toContain('── 用时 30s · 重试 1 ──'); // 修前红：旧形纯对话轮判据只看工具——重试独场整行缺席
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 75_000 }); // 75s = 文案标签门外语（⑧ >60s 文案照常）
+    expect(io.bytes).toContain('── 用时 1m 15s · 重试 1 ──'); // 修前红：旧形纯对话轮判据只看工具——重试独场整行缺席
     expect(io.bytes).not.toContain('工具'); // 工具段缺席（零计数省段）
   });
 
@@ -5853,13 +5864,13 @@ describe('TuiBackend turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻
     emit(backend, { type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: t + 60_000 });
     t += 45_000;
     io.bytes = '';
-    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 45_000 });
-    // 修前红：'── 用时 45s · 工具 1 次 · 重试 1 ──'（整 run 口径词面冒充）
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 95_000 }); // 95s = 文案标签门外语（⑧ >60s 文案照常——门吞则加注形永不可见）
+    // 修前红：'── 用时 1m 35s · 工具 1 次 · 重试 1 ──'（整 run 口径词面冒充）
     expect(io.bytes).toContain('工具 1 次（自本次接入起算）');
     expect(io.bytes).toContain('重试 1（自本次接入起算）');
-    expect(io.bytes).not.toContain('── 用时 45s · 工具 1 次 · 重试 1 ──'); // 修前红锚位（无注整段词面）
+    expect(io.bytes).not.toContain('── 用时 1m 35s · 工具 1 次 · 重试 1 ──'); // 修前红锚位（无注整段词面）
     // 耗时段不加注维持（durationMs 载荷在场即服务端整 run 真值——口径分立）
-    expect(io.bytes).toContain('用时 45s ·');
+    expect(io.bytes).toContain('用时 1m 35s ·');
   });
 
   it('中途附着+retry 续入仍加注：续入不重开观察窗（runStartedAt 维持 null）——判据由首支独立保证；旗位跨续入存活系防御冗余的回归锁', () => {
@@ -5872,7 +5883,7 @@ describe('TuiBackend turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻
     emit(backend, { type: 'agent_start' }); // 续入（run 级账不清——runStartedAt 维持 null 观察窗，旗同律存活）
     t += 45_000;
     io.bytes = '';
-    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 45_000 });
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 95_000 }); // 95s = 文案标签门外语（⑧ >60s——门吞则加注形永不可见）
     // 加注真源 = runStartedAt === null 判据支（TUI 续入不重开观察窗——webui
     // frames 侧异构）；runCountsPartial 旗位在 TUI 结构性冗余（见字段诚实化
     // 注），本测兼作旗位跨续入存活的回归锁（若清位逻辑误扩到续入支，此锁红）
@@ -5890,8 +5901,8 @@ describe('TuiBackend turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻
     emit(backend, { type: 'agent_start' }); // 全新 run（resetUsage——旗随计数连清）
     emit(backend, { type: 'tool_execution_start', toolCallId: 't2', name: 'read', arguments: {} });
     t += 30_000;
-    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 30_000 });
-    expect(io.bytes).toContain('── 用时 30s · 工具 1 次 ──'); // 完整观察整 run 口径
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 90_000 }); // 90s = 文案标签门外语（⑧ >60s 文案照常）
+    expect(io.bytes).toContain('── 用时 1m 30s · 工具 1 次 ──'); // 完整观察整 run 口径
     expect(io.bytes).not.toContain('自本次接入起算'); // 旗若不清即泄入（回归锁锚位）
   });
 });

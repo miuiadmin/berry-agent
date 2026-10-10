@@ -489,7 +489,7 @@ describe('frames run 收尾行（界面美化役批⑪ + V-0 注⑥对端翻形�
     expect(close.text).toBe('── 用时 1m 30s · 工具 1 次 ──');
   });
 
-  it('时长门废：<60s 短 run 也呈耗时段（不设 ≤60s 门——V-0 注⑥）', () => {
+  it('文案标签门（⑧ 两级门制——修前红：旧形 <60s 恒文案）：<60s 纯线空串；>60s 文案照常', () => {
     let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
     state = applyEnvelope(
       state,
@@ -497,7 +497,15 @@ describe('frames run 收尾行（界面美化役批⑪ + V-0 注⑥对端翻形�
     );
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }), T0 + 30_000);
     expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]?.text).toBe('── 用时 30s · 工具 1 次 ──'); // 修前红：旧形 <60s 省时段
+    expect(state.messages[0]?.text).toBe(''); // ≤60s：文案段缺席——纯线空串（Transcript 渲染 hairline）
+    // >60s（62s 门外语）：文案照常（观察窗回退位）
+    let long = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    long = applyEnvelope(
+      long,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+    );
+    long = applyEnvelope(long, display({ type: 'agent_end', status: 'completed' }), T0 + 62_000);
+    expect(long.messages[long.messages.length - 1]?.text).toBe('── 用时 1m 02s · 工具 1 次 ──');
   });
 
   it('纯对话轮（工具 ∧ 重试双零）成功收尾行整行缺席', () => {
@@ -519,10 +527,11 @@ describe('frames run 收尾行（界面美化役批⑪ + V-0 注⑥对端翻形�
     state = applyEnvelope(state, display({ type: 'retry_wait_end', outcome: 'resumed' }), T0 + 30_000);
     state = applyEnvelope(state, display({ type: 'agent_start' }), T0 + 30_000); // 续入——run 级账不清
     expect(state.runRetryCount).toBe(1); // 修前红：重开窗清账
-    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed', durationMs: 45_000 }), T0 + 45_000);
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed', durationMs: 95_000 }), T0 + 45_000);
     const close = state.messages[state.messages.length - 1]!;
     expect(close.role).toBe(RUN_CLOSE_ROLE);
-    expect(close.text).toBe('── 用时 45s · 重试 1 ──'); // 重试独场：工具段缺席（修前红：纯对话轮判据整行缺席）
+    // 95s = 文案标签门外语（>60s 文案照常——门内形另测）
+    expect(close.text).toBe('── 用时 1m 35s · 重试 1 ──'); // 重试独场：工具段缺席（修前红：纯对话轮判据整行缺席）
   });
 
   it('取消形不受纯对话轮判据约束：零工具 abort 也呈「⏹ 对话已取消——HH:MM」', () => {
@@ -577,13 +586,14 @@ describe('frames run 收尾行（界面美化役批⑪ + V-0 注⑥对端翻形�
     state = applyEnvelope(state, display({ type: 'retry_wait_end', outcome: 'resumed' }), T0);
     state = applyEnvelope(state, display({ type: 'agent_start' }), T0); // 续入——重开观察窗、旗不清
     expect(state.runStartedAt).toBe(T0); // 观察窗确已重开（修前判据由此破）
-    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed', durationMs: 45_000 }), T0 + 45_000);
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed', durationMs: 95_000 }), T0 + 95_000);
     const close = state.messages[state.messages.length - 1]!;
     expect(close.role).toBe(RUN_CLOSE_ROLE);
-    // 修前红：'── 用时 45s · 工具 1 次 ──'（不加注——部分观察冒充整 run 口径）
-    expect(close.text).toBe('── 用时 45s · 工具 1 次（自本次接入起算） ──');
+    // 修前红：'── 用时 1m 35s · 工具 1 次 ──'（不加注——部分观察冒充整 run 口径）；
+    // 95s = 文案标签门外语（>60s 文案照常——门内形另测）
+    expect(close.text).toBe('── 用时 1m 35s · 工具 1 次（自本次接入起算） ──');
     // 耗时段不加注维持（durationMs 载荷在场即服务端整 run 真值——口径分立）
-    expect(close.text).toContain('用时 45s ·');
+    expect(close.text).toContain('用时 1m 35s ·');
   });
 
   it('瞬时追加位：loadedMessages 投影重置即清（不落投影、回放不可见）', () => {
@@ -702,10 +712,11 @@ describe('frames 失败持有档与终态清行（E1/E2——TUI tui-backend 持
     state = applyEnvelope(state, display({ type: 'retry_wait_end', outcome: 'resumed' }), T0 + 30_000);
     state = applyEnvelope(state, display({ type: 'agent_start' }), T0 + 30_000); // 续入——run 级账不清
     expect(state.runToolCount).toBe(1); // 修前红：0（failed agent_end 已清）
-    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed', durationMs: 60_000 }), T0 + 90_000);
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed', durationMs: 75_000 }), T0 + 90_000);
     const close = state.messages[state.messages.length - 1]!;
     expect(close.role).toBe(RUN_CLOSE_ROLE);
-    expect(close.text).toBe('── 用时 1m 00s · 工具 1 次 · 重试 1 ──'); // 修前红：'── 用时 1m 00s · 重试 1 ──'（工具段缺席）
+    // 75s = 文案标签门外语（>60s 文案照常——门内形另测）；恰 60_000 门界另测
+    expect(close.text).toBe('── 用时 1m 15s · 工具 1 次 · 重试 1 ──'); // 修前红：'── 用时 1m 15s · 重试 1 ──'（工具段缺席）
   });
 
   it('fresh agent_start 清状态行：终态文案不跨 run 残留（对齐 TUI resetUsage 末句清行腿；修前红：⏹ 驻留新 run）', () => {

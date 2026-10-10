@@ -3773,11 +3773,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻形——codex 记账线）：
-   * 不占正文滚动帽、repaint 不重建、重放不可见的瞬时追加行。成功形
-   * `── 用时 1m 12s · 工具 3 次 · 重试 1 ──`（**段缺席形**：工具计数零省
-   * 「工具」段、重试计数零省「重试」段、双零即纯对话轮**整行缺席**——不设
-   * 时长门；切焦中途附着无起点 → 耗时段诚实缺席、行仍落）；取消形
+   * turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻形——codex 记账线；⑧ 两级
+   * 门制 + 全宽补齐形——挖掘 29 轮批 B 规范立法兑现）：不占正文滚动帽、
+   * repaint 不重建、重放不可见的瞬时追加行。成功形 `── 用时 1m 12s · 工具
+   * 3 次 · 重试 1 ──` **全宽 dim 补齐**（文案形右缘 ─ 补至列宽；段缺席形：
+   * 工具计数零省「工具」段、重试计数零省「重试」段、双零即纯对话轮**整行
+   * 缺席**——行呈现门 = 作业判据与时长无关；**文案标签门 >60s**（contracts
+   * runRecapLine 单源——≤60s 返空串，本侧落全宽 ─ 纯线）；切焦中途附着无
+   * 起点 → 耗时段诚实缺席、行仍落（门不可判文案照常）；取消形
    * `⏹ 对话已取消——14:32`（取消回执非记账行——时刻段保留形维持；时刻源 =
    * 本 run 种子 user 消息时戳，中途附着无种子回退 runEndedAt）；failed 终态
    * 无收尾行（错误块本体呈现——调用面分档）。elapsed = durationMs（驱动
@@ -3799,20 +3802,25 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.appendTransientLine(`${DIM_SGR}⏹ 对话已取消——${formatClockHM(clockAt)}${SGR_RESET}`, { persist: true });
       return;
     }
-    if (this.runToolCount === 0 && this.runRetryCount === 0) return; // 纯对话轮：整行缺席（双零判据）
+    if (this.runToolCount === 0 && this.runRetryCount === 0) return; // 纯对话轮：整行缺席（双零判据——行呈现门）
     const elapsedMs =
       durationMs ??
       (this.runStartedAt !== null && this.runEndedAt !== null ? this.runEndedAt - this.runStartedAt : null);
     // 段集/整行构造走 contracts runRecapLine 单源（三段序/段缺席形/重试段
-    // 无「次」字等段形知识归单源头注；双零整行缺席判据留调用侧上一行）；
-    // 部分观察判据 = runStartedAt === null || runCountsPartial（TUI 侧第二支
-    // 结构性冗余——见字段诚实化注；词面归 contracts 单源）
-    const line = runRecapLine({
+    // 无「次」字等段形知识 + 文案标签门归单源头注；双零整行缺席判据留调用侧
+    // 上一行）；部分观察判据 = runStartedAt === null || runCountsPartial（TUI
+    // 侧第二支结构性冗余——见字段诚实化注；词面归 contracts 单源）
+    const recap = runRecapLine({
       durationMs: elapsedMs,
       toolCount: this.runToolCount,
       retryCount: this.runRetryCount,
       partialObserved: this.runStartedAt === null || this.runCountsPartial,
     });
+    // 全宽补齐（⑧）：门内纯线 = 全宽 ─；文案形 = 右缘 ─ 补至列宽（CJK 显示
+    // 宽算术——stringWidth；恰全宽经 appendTransientCapped 的 ANSI 感知收口
+    // 不截不折）
+    const columns = this.io.size().columns;
+    const line = recap === '' ? '─'.repeat(columns) : recap + '─'.repeat(Math.max(0, columns - stringWidth(recap)));
     // 弱线色优先（V-3 注⑨②）：weakRule 在场整行混合现算弱线色、键缺席回退 DIM
     const weakSgr = this.theme.weakRule !== undefined ? buildSgr({ fg: this.theme.weakRule }) : DIM_SGR;
     this.appendTransientLine(`${weakSgr}${line}${SGR_RESET}`);

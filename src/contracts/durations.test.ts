@@ -89,3 +89,21 @@ describe('runRecapLine 收尾行整行', () => {
     expect(runRecapLine({ durationMs: null, toolCount: 0, retryCount: 0 })).toBe('──  ──');
   });
 });
+
+describe('runRecapLine 文案标签门（⑧ 两级门制——挖掘 29 轮批 B 规范立法兑现）', () => {
+  it('>60s 显文案段（62s 门外语照常）；恰 60s 属 ≤60s 档纯线', () => {
+    expect(runRecapLine({ durationMs: 62_000, toolCount: 1, retryCount: 0 })).toBe('── 用时 1m 02s · 工具 1 次 ──');
+    // 恰 60s = ≤60s（>60s 严格大于）——纯线空串
+    expect(runRecapLine({ durationMs: 60_000, toolCount: 1, retryCount: 0 })).toBe('');
+  });
+
+  it('≤60s 无标签纯线（59s → 空串——修前红：旧形恒返文案）', () => {
+    expect(runRecapLine({ durationMs: 59_000, toolCount: 3, retryCount: 2 })).toBe('');
+  });
+
+  it('耗时缺席（null）门不可判 → 文案段照常（诚实缺席不升级纯线——部分观察加注形可见性保位）', () => {
+    expect(runRecapLine({ durationMs: null, toolCount: 1, retryCount: 0, partialObserved: true })).toBe(
+      '── 工具 1 次（自本次接入起算） ──',
+    );
+  });
+});

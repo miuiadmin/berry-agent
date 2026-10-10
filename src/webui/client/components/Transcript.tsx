@@ -60,8 +60,10 @@ function AttachmentImage({
 /** 单条消息（assistant → Markdown / 其余 → 纯文本；流式尾巴呼吸态样式） */
 const MessageView = memo(function MessageView({ message }: { message: ViewMessage }): ReactElement {
   // run 收尾行：居中弱化的分隔线形（瞬时追加位——无角色标签、无 markdown、
-  // 无缩进让位，整行即内容）
+  // 无缩进让位，整行即内容）。⑧ 两级门制纯线形（≤60s 文案标签门内空文案）：
+  // DOM 原生 hairline 兑现「全宽补齐」的 webui 载体形（TUI 侧字符补齐对端）
   if (message.role === RUN_CLOSE_ROLE) {
+    if (message.text === '') return <div aria-hidden className="h-px w-full bg-edge" />;
     return <p className="whitespace-pre-wrap text-center text-2xs text-ink-faint">{message.text}</p>;
   }
   // 压缩摘要载体（source='compaction' 的 user 消息——B2 webui 对端迁移）：

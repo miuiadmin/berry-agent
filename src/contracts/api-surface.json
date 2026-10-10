@@ -1226,7 +1226,7 @@
       "module": "berry-agent",
       "tier": "stable",
       "since": "1.0",
-      "desc": "run 收尾行整行（`── 段 · 段 ──` 段头段尾横线）：色壳不归本件——tui 侧 SGR 弱线色包壳在调用侧（appendTransientLine 纯文本路的 ANSI 感知收口）， webui 侧无色直用",
+      "desc": "run 收尾行整行（`── 段 · 段 ──` 段头段尾横线）：色壳与全宽补齐不归本件—— tui 侧 SGR 弱线色包壳 + 列宽 ─ 补齐在调用侧（appendTransientLine 纯文本路的 ANSI 感知收口），webui 侧无色直用（DOM 居中/hairline 呈现层）",
       "kind": "function",
       "sig": "837667328e704703"
     },

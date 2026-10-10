@@ -277,8 +277,8 @@ describe('WebUiRoot主面活体环', () => {
     await waitFor(() => {
       expect(screen.queryByText(/^── .+ ──$/)).toBeNull();
     });
-    // 工具 run completed：成功收尾行在场（服务端 durationMs 缺席回退客户端
-    // 观察窗——jsdom 同步发射窗毫秒级 → 「0s」整秒档；V-0 注⑥：不设时长门）
+    // 工具 run completed：成功收尾行在场（durationMs 载荷 62s = 文案标签门
+    // 外语——⑧ 两级门制 >60s 文案照常；门内观察窗回退形 frames 侧另测）
     es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_start' } });
     es.emit({
       kind: 'display',
@@ -286,8 +286,12 @@ describe('WebUiRoot主面活体环', () => {
       payload: { type: 'tool_execution_start', toolCallId: 't-close', name: 'bash' },
     });
     es.emit({ kind: 'session', sessionId: 's-1', payload: { type: 'tool_execution_end', toolCallId: 't-close' } });
-    es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_end', status: 'completed' } });
-    await screen.findByText('── 用时 0s · 工具 1 次 ──');
+    es.emit({
+      kind: 'display',
+      sessionId: 's-1',
+      payload: { type: 'agent_end', status: 'completed', durationMs: 62_000 },
+    });
+    await screen.findByText('── 用时 1m 02s · 工具 1 次 ──');
     // 取消形：取消收尾行在场（取消不设纯对话轮缺席——用户主动行为恒有回响）
     es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_start' } });
     es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_end', status: 'aborted' } });
