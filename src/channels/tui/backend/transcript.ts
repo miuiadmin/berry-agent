@@ -311,6 +311,19 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
         if (plain.length > 2) runs.push({ start: 2, end: plain.length, style: Object.freeze({ bg }) });
         return { plain, runs };
       });
+      // R-2 全宽带（fillBg 行级尾腿）：bg 在场 → 三明治空行与正文行各携
+      // fillBg（行尾残区铺满至屏宽——外素内染：块前垫是制度行不染）；
+      // slashEcho / 无 bg 形维持素行（尾腿缺席零变）
+      if (bg !== undefined) {
+        return withPad(
+          [
+            { plain: '', runs: [], fillBg: bg },
+            ...styled.map((line): StyledLine => ({ ...line, fillBg: bg })),
+            { plain: '', runs: [], fillBg: bg },
+          ],
+          leadingGap,
+        );
+      }
       return withPad([{ plain: '', runs: [] }, ...styled, { plain: '', runs: [] }], leadingGap);
     }
     case 'thinking':

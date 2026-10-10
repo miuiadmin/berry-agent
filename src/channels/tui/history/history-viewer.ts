@@ -548,5 +548,15 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
         style,
       );
     }
+    // R-2 全宽带尾腿（viewer 载体——与 ANSI 载体 EL·BCE 同效）：fillBg 在场
+    // → 本切片文本末列到 region 右缘逐格补底（' ' + bg）。切片文本恰满宽时
+    // 零宽空转；选区/高亮 inverse 只锚文本区——补底区无字素不参与反色。
+    if (styled.fillBg !== undefined) {
+      const fillFrom = prefixDisplayWidth(styled.plain, end) - baseCols;
+      const width = region.width - fillFrom;
+      if (width > 0) {
+        buffer.writeText(region.row + displayRow, region.col + fillFrom, ' '.repeat(width), { bg: styled.fillBg });
+      }
+    }
   }
 }

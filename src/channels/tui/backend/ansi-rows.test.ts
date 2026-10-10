@@ -20,6 +20,40 @@ describe('styledLineToAnsi 消毒兜底（控制字不落屏）', () => {
   });
 });
 
+describe('styledLineToAnsi fillBg 全宽带尾腿（R-2——EL·BCE 行尾铺满）', () => {
+  const bg = ansiColor(4);
+
+  it('fillBg 在场：行尾 bg 着色态发 EL（BCE 擦除铺满至屏宽）+ 归零', () => {
+    // 前段非 bg → 归零后再设 bg 发 EL；末尾统一归零不染后续写出
+    const line: StyledLine = { plain: 'ab', runs: [{ start: 0, end: 1, style: { bold: true } }], fillBg: bg };
+    expect(styledLineToAnsi(line)).toBe(`${buildSgr({ bold: true })}a\x1b[0mb${buildSgr({ bg })}\x1b[K\x1b[0m`);
+  });
+
+  it('尾段已持同 bg：直接 EL 零冗余再设（user 块正文行常态形）', () => {
+    const line: StyledLine = { plain: 'ab', runs: [{ start: 0, end: 2, style: { bg } }], fillBg: bg };
+    expect(styledLineToAnsi(line)).toBe(`${buildSgr({ bg })}ab\x1b[K\x1b[0m`);
+  });
+
+  it('runs 空 + fillBg：纯带形（bg SGR + EL + 归零——三明治空行染底不走 runs 空早退）', () => {
+    expect(styledLineToAnsi({ plain: '', runs: [], fillBg: bg })).toBe(`${buildSgr({ bg })}\x1b[K\x1b[0m`);
+    // 裸文本 + 尾带：文本归零写出后 bg EL
+    expect(styledLineToAnsi({ plain: 'ab', runs: [], fillBg: bg })).toBe(`ab${buildSgr({ bg })}\x1b[K\x1b[0m`);
+  });
+
+  it('fillBg 缺席：行为零变（回归锁——不带尾腿的行字节面不动）', () => {
+    expect(styledLineToAnsi({ plain: 'ab', runs: [{ start: 0, end: 2, style: { bg } }] })).toBe(
+      `${buildSgr({ bg })}ab\x1b[0m`,
+    );
+    expect(styledLineToAnsi({ plain: '', runs: [] })).toBe('');
+  });
+
+  it('capStyledLine 超帽截断透传 fillBg（未超帽同引用快路天然保留）', () => {
+    const line: StyledLine = { plain: 'n'.repeat(100), runs: [], fillBg: bg };
+    expect(capStyledLine(line, 30).fillBg).toBe(bg);
+    expect(capStyledLine({ plain: 'ab', runs: [], fillBg: bg }, 80).fillBg).toBe(bg);
+  });
+});
+
 describe('clampRuns 游程钳制（升格单源——宽帽族共用）', () => {
   it('越界段丢弃、跨界段收尾到 limit、界内段原样', () => {
     const runs = [

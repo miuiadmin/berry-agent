@@ -55,6 +55,15 @@ export interface StyleRun {
 export interface StyledLine {
   readonly plain: string;
   readonly runs: readonly StyleRun[];
+  /**
+   * R-2 全宽带行级尾腿（Codex 样式复刻）：行尾残区（正文末列 → 屏宽）铺满
+   * 该 bg。行级属性而非游程越界——越 plain.length 的段会破 clampRuns /
+   * capStyledLine「end ≤ plain 长」不变量，且截断路须显式透传本字段。
+   * 双载体各自解释（零第二渲染器）：ANSI 形 = bg 着色态发 EL（BCE——
+   * back color erase，终端以当前背景色擦除至行尾）；viewer 形 = 文本末列
+   * 到 region 右缘逐格补底。缺席 = 无尾腿（素行行为零变）。
+   */
+  readonly fillBg?: ColorValue;
 }
 
 /** 缺省样式判据：styleEquals 对 EMPTY_STYLE 单源（CellStyle 增字段自动同步——
@@ -195,7 +204,9 @@ export function gridRowToStyled(grid: CellGrid, row: number): StyledLine | null 
  */
 export function styledLineToAnsi(line: StyledLine): string {
   const { plain, runs } = line;
-  if (runs.length === 0) return sanitizeDisplayText(plain);
+  // runs 空早退仅限素行——fillBg 在场的空行（三明治包夹）须走主路发纯带
+  //（bg SGR + EL + 归零），不得短路丢弃尾腿
+  if (runs.length === 0 && line.fillBg === undefined) return sanitizeDisplayText(plain);
   let out = '';
   let currentSgr = '';
   let pos = 0;
@@ -223,6 +234,17 @@ export function styledLineToAnsi(line: StyledLine): string {
       currentSgr = '';
     }
     out += sanitizeDisplayText(plain.slice(pos));
+  }
+  // R-2 全宽带尾腿：fillBg 在场 → 以 bg 着色态发 EL（BCE——终端以当前背景
+  // 色擦除至行尾，行尾残区铺满 bg）。尾段已持同 bg（user 块正文行常态形）
+  // 直随 EL 零冗余再设；否则归零后再设。EL 后统一走行尾归零不染后续写出。
+  if (line.fillBg !== undefined) {
+    const fillSgr = buildSgr({ bg: line.fillBg });
+    if (fillSgr !== currentSgr) {
+      out += (currentSgr !== '' ? SGR_RESET : '') + fillSgr;
+      currentSgr = fillSgr;
+    }
+    out += EL_TO_EOL;
   }
   if (currentSgr !== '') out += SGR_RESET;
   return out;
@@ -260,12 +282,13 @@ export function capStyledLine(line: StyledLine, columns: number): StyledLine {
   if (plain === line.plain) return line; // 未超帽——同引用快路
   const cut = truncateToWidth(line.plain, columns - 1); // 留 1 格给省略号
   const runs = clampRuns(line.runs, cut.length);
-  // 尾段恰收在截断点 → 延伸一格吞省略号（随段既有着色）；否则裸省略号
+  // 尾段恰收在截断点 → 延伸一格吞省略号（随段既有着色）；否则裸省略号。
+  // fillBg 尾腿透传（R-2——截断行带仍染到右缘，字段缺失即素行降级）
   const last = runs[runs.length - 1];
   if (last !== undefined && last.end === cut.length) {
     runs[runs.length - 1] = { ...last, end: cut.length + 1 };
   }
-  return { plain: cut + '…', runs };
+  return { plain: cut + '…', runs, fillBg: line.fillBg };
 }
 
 /**

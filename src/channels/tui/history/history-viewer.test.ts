@@ -12,7 +12,7 @@ import { CellGrid, type CellBuffer, type InputEvent, type MouseEvent } from '../
 import { HistoryViewer } from './history-viewer.js';
 import { Keymap } from '../keys/registry.js';
 import type { AgentMessage } from '../../../contracts/index.js';
-import { sessionColor } from '../theme/index.js';
+import { sessionColor, LIGHT_PALETTE, resolveTheme } from '../theme/index.js';
 
 /* ---------------- 工厂与便捷 ---------------- */
 
@@ -140,6 +140,40 @@ describe('回看器行集构建（同一渲染管线——零第二渲染器）'
     const row = readRow(grid, 2, COLS); // R-1 块前垫后 H1 落屏行 2
     const cell = grid.getCell(2, row.indexOf('标'));
     expect(cell?.style.bold).toBe(true);
+  });
+
+  it('R-2 全宽带（viewer 载体）：userMessageBg 在场 → user 行染底到右缘（fillBg 补底腿）；无主题形零染', () => {
+    // 探测形主题（缺省板 userMessageBg undefined——零染回退形）
+    const probed = resolveTheme(LIGHT_PALETTE, 'truecolor', { r: 32, g: 32, b: 32 });
+    const viewer = new HistoryViewer({
+      sessionId: SESSION,
+      messages: [userMsg('帮我看下')],
+      columns: COLS,
+      theme: probed,
+      onExit: () => {},
+    });
+    const grid = new CellGrid(COLS, ROWS);
+    viewer.render(grid, { row: 0, col: 0, width: COLS, height: ROWS });
+    const bg = probed.userMessageBg;
+    // 行 2 三明治前置空行：整行染（col 0 到右缘——空行补底腿）
+    expect(grid.getCell(2, 0)?.style.bg).toBe(bg);
+    expect(grid.getCell(2, COLS - 1)?.style.bg).toBe(bg);
+    // 行 3 正文行：前缀段在染（游程面）、正文末列后残区补底到右缘（尾腿）
+    //（'帮我看下' 5 全宽字 = 10 列 + 前缀 2 = 文本末列 11 → 列 12 起为补底区）
+    expect(grid.getCell(3, 0)?.style.bg).toBe(bg);
+    expect(grid.getCell(3, 11)?.style.bg).toBe(bg);
+    expect(grid.getCell(3, 12)?.style.bg).toBe(bg);
+    expect(grid.getCell(3, COLS - 1)?.style.bg).toBe(bg);
+    // 行 4 三明治尾空行整行染；行 1 R-1 块前垫 = 外素行不染（外素内染）
+    expect(grid.getCell(4, 0)?.style.bg).toBe(bg);
+    expect(grid.getCell(4, COLS - 1)?.style.bg).toBe(bg);
+    expect(grid.getCell(1, 0)).toBeNull(); // 未写格（getCell 未写位返回 null）
+    // 无主题（缺省板）形：零染——补底腿缺席、文本格无 bg
+    const plain = rig([userMsg('帮我看下')]);
+    const plainGrid = plain.render();
+    expect(plainGrid.getCell(3, 12)).toBeNull();
+    expect(plainGrid.getCell(3, 0)?.style.bg).toBeUndefined();
+    expect(plainGrid.getCell(2, 0)).toBeNull();
   });
 
   it('快照档 v1：构造后静态——外数组再变更不进副屏（回看期新事件不进副屏）', () => {

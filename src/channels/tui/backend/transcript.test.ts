@@ -25,7 +25,7 @@ import {
   TRANSCRIPT_BLOCK_CAP,
   type TranscriptBlock,
 } from './transcript.js';
-import { styledLineToAnsi } from './ansi-rows.js';
+import { buildSgr, styledLineToAnsi } from './ansi-rows.js';
 
 /** 直构槽块（测试速构——思考面缺席位 = 零思考槽形，批 10i 字段族全数到场） */
 const slotOf = (epoch: number, text: string, doc: StreamingMarkdown | null): TranscriptBlock => ({
@@ -598,13 +598,28 @@ describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共�
       { start: 0, end: 2, style: { bold: true, dim: true, bg: probed.userMessageBg } },
       { start: 2, end: '帮我看下'.length + 2, style: { bg: probed.userMessageBg } },
     ]);
+    // R-2 全宽带（fillBg 行级尾腿）：三明治两空行与正文行各携 fillBg——外素内染
+    //（块前垫是制度行不染；豁免位此处剥垫，染面 = 三明治 + 正文行集本身）
+    expect(styled[0]).toEqual({ plain: '', runs: [], fillBg: probed.userMessageBg });
+    expect(styled[1]!.fillBg).toBe(probed.userMessageBg);
+    expect(styled[2]).toEqual({ plain: '', runs: [], fillBg: probed.userMessageBg });
+    // R-2 ANSI 形：空行纯带（bg + EL + 归零）；正文行尾段同 bg → 直随 EL（BCE
+    // 铺满至屏宽）后归零
+    const ansi = renderBlockLines({ kind: 'user', text: '帮我看下', theme: probed }, 20, false);
+    expect(ansi[0]).toBe(`${buildSgr({ bg: probed.userMessageBg! })}\x1b[K\x1b[0m`);
+    expect(ansi[1]).toBe(
+      `${buildSgr({ bold: true, dim: true, bg: probed.userMessageBg! })}› \x1b[0m` +
+        `${buildSgr({ bg: probed.userMessageBg! })}帮我看下\x1b[K\x1b[0m`,
+    );
+    expect(ansi[2]).toBe(`${buildSgr({ bg: probed.userMessageBg! })}\x1b[K\x1b[0m`);
     // 16 档降采 → 无背景（resolveTheme depth='16' 不铸键）
     expect(resolveTheme(LIGHT_PALETTE, '16', { r: 32, g: 32, b: 32 }).userMessageBg).toBeUndefined();
-    // 缺省板（无 terminalBg）→ 无背景回退
+    // 缺省板（无 terminalBg）→ 无背景回退 + fillBg 尾腿缺席（素行零变）
     expect(DEFAULT_THEME.userMessageBg).toBeUndefined();
-    expect(
-      renderBlockStyledLines({ kind: 'user', text: '帮我看下', theme: DEFAULT_THEME }, 20, false)[1]!.runs,
-    ).toEqual([{ start: 0, end: 2, style: { bold: true, dim: true } }]);
+    const plainStyled = renderBlockStyledLines({ kind: 'user', text: '帮我看下', theme: DEFAULT_THEME }, 20, false);
+    expect(plainStyled[1]!.runs).toEqual([{ start: 0, end: 2, style: { bold: true, dim: true } }]);
+    expect(plainStyled[0]).toEqual({ plain: '', runs: [] });
+    expect(plainStyled[1]!.fillBg).toBeUndefined();
   });
 
   it('tool-card 块卡间上空行垫（TUI 对标 Codex 五件批 C 件 R4）：渲染层块前空行、块账不动', () => {
