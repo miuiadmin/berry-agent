@@ -9,7 +9,9 @@
  *   空态行——2026-10-04 空态反馈批，键面见 handleEvent 空态注）；候选窗口
  *   8 行帽（弹层族一致律——2026-10-10 Codex 样式复刻批 10→8）+ 高亮跟随滚动；
  * - 观感（2026-10-10 Codex 样式复刻批）：选中行 = 整行所有 span accent bold
- *   （弃 inverse 反色与 › 光标前缀符——未选中行 2 空格缩进维持）；空态行
+ *   （弃 inverse 反色与 › 光标前缀符——未选中行 2 空格缩进维持）；未选中行
+ *   命中字符 per-char bold（挖掘 29 轮批 C 件 a 挂账兑现——(label, query)
+ *   fuzzy 单源现算游程；空 query/无命中/截断形诚实零 bold）；空态行
  *   dim + italic（accent 空态档退役）；desc 列对齐制——起列 = 全集条目
  *   max(label 显示宽) + 2（全集基准滚动不挪列；右对齐制退役）、段右界帽
  *   ≤ 区域宽 70%、desc 段 dim（选中行整行 accent bold 覆盖 dim）；
@@ -32,6 +34,7 @@ import { ellipsize, stringWidth } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { EditorModel } from '../editor/editor-model.js';
 import type { AutocompleteResult } from './provider.js';
+import { subsequenceMatchRanges } from './fuzzy.js';
 import { tokenAtCursor } from './token.js';
 
 /** 弹层可见条目帽（弹层族一致律 8 行——超出窗口滚动跟随高亮） */
@@ -48,6 +51,9 @@ const EMPTY_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true, italic: true
 
 /** desc 段常态样式（dim——选中行整行 accent bold 覆盖位由 render 分派） */
 const DETAIL_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+
+/** 命中字符样式（挖掘 29 轮批 C 件 a——未选中行 per-char bold，不着色：accent 属选中行整行档） */
+const HIT_STYLE: Readonly<CellStyle> = Object.freeze({ bold: true });
 
 /** 弹层件：结果落位面 + 模型代换原语调用（provider 归 backend 调度器持有） */
 export class AutocompletePopup implements Renderable {
@@ -132,12 +138,53 @@ export class AutocompletePopup implements Renderable {
       const item = items[i]!;
       const active = i === this.activeIndex;
       // label 帽 = 行宽 − 缩进（… 收口）；选中行整行 accent bold（含 desc 段）
-      const label = ellipsize(`${ROW_INDENT}${item.label}`, region.width);
-      buffer.writeText(row, region.col, label, active ? this.activeStyle : undefined);
+      const full = `${ROW_INDENT}${item.label}`;
+      if (active) {
+        buffer.writeText(row, region.col, ellipsize(full, region.width), this.activeStyle);
+      } else {
+        this.writeLabelWithHits(buffer, row, region.col, item.label, full, region.width);
+      }
       if (descAvail > 0 && item.detail !== undefined && item.detail !== '') {
         const detail = ellipsize(item.detail, descAvail);
         buffer.writeText(row, region.col + descCol, detail, active ? this.activeStyle : DETAIL_STYLE);
       }
+    }
+  }
+
+  /**
+   * 未选中行 label 落格（挖掘 29 轮批 C 件 a——命中字符 per-char bold）：
+   * (label, query) 经 fuzzy 单源现算命中游程（subsequenceMatchRanges），
+   * 命中段 bold / 其余默认前景逐段写（列位 = stringWidth 前缀显示宽）。
+   * 降级整行默认前景三形：空 query、无命中（源以非 label 键过滤——id 形）、
+   * label 截断形（… 收口——命中位越 … 即失真，半亮误导诚实降级）。
+   */
+  private writeLabelWithHits(
+    buffer: CellBuffer,
+    row: number,
+    col: number,
+    label: string,
+    full: string,
+    width: number,
+  ): void {
+    const query = this.result?.query ?? '';
+    // 截断判定先于命中现算（截断形命中位失真——整行降级）
+    const positions = stringWidth(full) > width || query === '' ? null : subsequenceMatchRanges(label, query);
+    if (positions === null) {
+      buffer.writeText(row, col, ellipsize(full, width));
+      return;
+    }
+    buffer.writeText(row, col, ROW_INDENT); // 缩进默认前景（命中游程只辖 label 段）
+    const hit = new Set(positions);
+    let cursor = col + ROW_INDENT.length;
+    let start = 0;
+    while (start < label.length) {
+      const bold = hit.has(start);
+      let endAt = start + 1;
+      while (endAt < label.length && hit.has(endAt) === bold) endAt++;
+      const segment = label.slice(start, endAt);
+      buffer.writeText(row, cursor, segment, bold ? HIT_STYLE : undefined);
+      cursor += stringWidth(segment); // 列位按显示宽推进（CJK/emoji 宽字素对齐）
+      start = endAt;
     }
   }
 

@@ -31,6 +31,14 @@ export interface AutocompleteItem {
 /** 取补全结果（token 代换区间 = 光标所在逻辑行的 [start,end)） */
 export interface AutocompleteResult {
   readonly items: readonly AutocompleteItem[];
+  /**
+   * 过滤查询原文（挖掘 29 轮批 C 件 a——弹层命中字符 bold 供数）：collect
+   * 收口注入（三路由各自的去前缀 query——命令名去 /、mention 去 @、参数
+   * token 原文）。弹层由 (label, query) 经 fuzzy 单源现算命中游程——无需
+   * per-item ranges（命中位与过滤恒一致；源以非 label 键过滤时现算无命中
+   * 即诚实不 bold）。
+   */
+  readonly query: string;
   /** 行内 UTF-16 起点（token 首） */
   readonly replaceStart: number;
   /** 行内 UTF-16 终点（= 光标位——只代换光标前段） */

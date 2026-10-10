@@ -44,6 +44,7 @@ class ManualClock {
 /** 定长结果（观测用） */
 const resultOf = (label: string): AutocompleteResult => ({
   items: [{ label, replacement: label }] satisfies AutocompleteItem[],
+  query: '', // 命中 bold 供数位（批 C 件 a）——异步件观测不涉渲染，空 query 零加亮档
   replaceStart: 0,
   replaceEnd: 1,
 });

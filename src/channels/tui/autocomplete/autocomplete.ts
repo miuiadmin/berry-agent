@@ -66,7 +66,8 @@ export class CombinedAutocompleteProvider {
 
     // 路由一：@ 前缀（任意位置——命令参数段内也可 mention 文件）
     if (token.text.startsWith('@')) {
-      return this.collect(this.sources.mentions?.(token.text.slice(1), effectiveSignal), token.start, token.end);
+      const query = token.text.slice(1);
+      return this.collect(this.sources.mentions?.(query, effectiveSignal), query, token.start, token.end);
     }
 
     // 命令段判据只在首逻辑行（多行输入的斜杠命令 = 首行起手式）
@@ -76,7 +77,8 @@ export class CombinedAutocompleteProvider {
     if (token.start === first.start) {
       // 路由二：光标就在首 token 内且 / 前缀——命令名段
       if (!token.text.startsWith('/')) return null; // 首 token 非命令——普通文本不补
-      return this.collect(this.sources.commands?.(token.text.slice(1), effectiveSignal), token.start, token.end);
+      const query = token.text.slice(1);
+      return this.collect(this.sources.commands?.(query, effectiveSignal), query, token.start, token.end);
     }
     // 路由三：首 token 是已终结命令（/xxx）——光标 token 属参数段
     const firstText = line.slice(first.start, first.end);
@@ -88,6 +90,7 @@ export class CombinedAutocompleteProvider {
       .filter((part) => part !== '');
     return this.collect(
       this.sources.commandArguments?.(firstText.slice(1), token.text, priorArgs, effectiveSignal),
+      token.text,
       token.start,
       token.end,
     );
@@ -100,12 +103,19 @@ export class CombinedAutocompleteProvider {
    * - 源在场而条目空 → { items: [], … } 透传：有词位而无匹配——弹层弹
    *   「无匹配」空态行（f9995d9 measure/render 空态分支的生产供血位——
    *   修前此处归一 null 使该分支结构性不可达）。
+   * query 收口注入（批 C 件 a）：三路由各自的去前缀 query 随 result 单源
+   * 透出（弹层命中 bold 供数——(label, query) 现算）。
    */
-  private collect(items: AutocompleteItems | undefined, replaceStart: number, replaceEnd: number): AutocompleteOutcome {
+  private collect(
+    items: AutocompleteItems | undefined,
+    query: string,
+    replaceStart: number,
+    replaceEnd: number,
+  ): AutocompleteOutcome {
     if (items === undefined) return null;
     if (isThenable(items)) {
-      return items.then((list) => ({ items: list, replaceStart, replaceEnd }));
+      return items.then((list) => ({ items: list, query, replaceStart, replaceEnd }));
     }
-    return { items, replaceStart, replaceEnd };
+    return { items, query, replaceStart, replaceEnd };
   }
 }

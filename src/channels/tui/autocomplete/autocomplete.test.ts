@@ -107,6 +107,7 @@ describe('CombinedAutocompleteProvider 三源路由', () => {
     expect(result?.items[0]?.replacement).toBe('/model');
     expect(result?.replaceStart).toBe(0);
     expect(result?.replaceEnd).toBe(3);
+    expect(result?.query).toBe('mo'); // 修前红（批 C 件 a）：result 无 query 位——弹层命中 bold 无供数
   });
 
   it('命令名已终结后的 token → 参数源（带命令名）', () => {
@@ -121,6 +122,7 @@ describe('CombinedAutocompleteProvider 三源路由', () => {
     expect(calls).toEqual([['model', 'sn']]);
     expect(result?.replaceStart).toBe(7);
     expect(result?.replaceEnd).toBe(9);
+    expect(result?.query).toBe('sn'); // 参数路由 query = token 原文（批 C 件 a）
   });
 
   it('priorArgs 第三参：命令名与光标 token 之间的已定参数序（深位判据）', () => {
@@ -148,6 +150,7 @@ describe('CombinedAutocompleteProvider 三源路由', () => {
     const result = await outcome;
     expect(result?.items[0]?.replacement).toBe('/x-q');
     expect(result?.replaceStart).toBe(0);
+    expect(result?.query).toBe('q'); // 异步腿 collect 同收口（批 C 件 a——then 收口同形）
     // 异步空条目 → 空态透传同形（修前红：异步腿与同步腿同归一 null——
     // 「无匹配」生产链两腿皆不可达）
     const empty = new CombinedAutocompleteProvider({ commands: () => Promise.resolve([]) });
@@ -167,6 +170,7 @@ describe('CombinedAutocompleteProvider 三源路由', () => {
     const result = syncOf(provider.getCompletions({ lines: ['see @par'], cursorLine: 0, cursorCol: 8 }));
     expect(queries).toEqual(['par']);
     expect(result?.items[0]?.replacement).toBe('@/docs/');
+    expect(result?.query).toBe('par'); // mention 路由 query 去 @（批 C 件 a）
   });
 
   it('@ 优先于参数段（命令参数内也可 mention）', () => {
@@ -386,7 +390,7 @@ describe('AutocompletePopup', () => {
     model.setText('/resume e2ehist');
     const popup = new AutocompletePopup(model);
     // live-completions 位判三铸造形：label 短形、replacement 全 id 尾空格
-    popup.applyResult({ items: [item('e2ehist', 'e2ehist ', '测试会话')], replaceStart: 8, replaceEnd: 15 });
+    popup.applyResult({ items: [item('e2ehist', 'e2ehist ', '测试会话')], query: '', replaceStart: 8, replaceEnd: 15 });
     expect(popup.visible).toBe(true);
     expect(popup.handleEvent(key('enter'))).toBe(false); // 穿透——修前 'e2ehist' !== 'e2ehist ' 判非全量 → applySelection 吞键
     expect(model.getText()).toBe('/resume e2ehist'); // 无代换发生（修前追加不可见尾空格）
@@ -396,7 +400,7 @@ describe('AutocompletePopup', () => {
     const model = new EditorModel();
     model.setText('/resume e2ehist');
     const popup = new AutocompletePopup(model);
-    popup.applyResult({ items: [item('e2ehist', 'e2ehist ', '测试会话')], replaceStart: 8, replaceEnd: 15 });
+    popup.applyResult({ items: [item('e2ehist', 'e2ehist ', '测试会话')], query: '', replaceStart: 8, replaceEnd: 15 });
     expect(popup.handleEvent(key('tab'))).toBe(true);
     expect(model.getText()).toBe('/resume e2ehist '); // 尾空格补齐（应用后直进下一 token 位）
   });

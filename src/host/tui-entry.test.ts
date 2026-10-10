@@ -1761,7 +1761,8 @@ describe('/calls 命令补全投影（07 B3 批 2——通道核命令表自动�
     await until(() => io.output.includes('工作区写 · ')); // footer 就绪门（起屏完成）
     const before = io.output.length;
     io.send('/ca');
-    await until(() => io.output.slice(before).includes('/calls'));
+    // 命中字符 per-char bold（批 C 件 a）后非选中行 label 被 SGR 游程切割——剥后字面连续
+    await until(() => stripAnsi(io.output.slice(before)).includes('/calls'));
     io.send('\x15'); // ctrl+u 清框
     io.send('\x04');
     expect(await entry).toBe(0);
@@ -1817,7 +1818,9 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     await until(() => io.output.includes('工作区写 · ')); // footer 就绪门（起屏完成）
     const before = io.output.length;
     io.send('/se');
-    await until(() => io.output.slice(before).includes('/setup'));
+    // 命中字符 per-char bold（批 C 件 a）后非选中行 label 被 SGR 游程切割——
+    // stripAnsi 剥后字面连续（:400 stripAnsi 既有族同法）
+    await until(() => stripAnsi(io.output.slice(before)).includes('/setup'));
     io.send('\x15'); // ctrl+u 清框（escape 独立字节有序列等待窗——与后续并 alt 形，弃用）
     io.send('\x04');
     expect(await entry).toBe(0);

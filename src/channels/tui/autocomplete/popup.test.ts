@@ -46,7 +46,7 @@ describe('AutocompletePopup escape 关层通知（组 2）', () => {
     popup.onDismiss = () => {
       dismissed += 1;
     };
-    popup.applyResult({ items: [{ label: '/help', replacement: '/help' }], replaceStart: 0, replaceEnd: 2 });
+    popup.applyResult({ items: [{ label: '/help', replacement: '/help' }], query: '', replaceStart: 0, replaceEnd: 2 });
     expect(popup.handleEvent(key('escape'))).toBe(true); // 消费关本轮
     expect(popup.visible).toBe(false);
     expect(dismissed).toBe(1); // 修前红：escape 路无任何关层通知——backend 撤窗无从接线
@@ -63,7 +63,7 @@ describe('AutocompletePopup escape 关层通知（组 2）', () => {
     popup.onDismiss = () => {
       dismissed += 1;
     };
-    popup.applyResult({ items: [{ label: '/help', replacement: '/help' }], replaceStart: 0, replaceEnd: 2 });
+    popup.applyResult({ items: [{ label: '/help', replacement: '/help' }], query: '', replaceStart: 0, replaceEnd: 2 });
     expect(popup.handleEvent(key('enter'))).toBe(true); // 应用代换即隐
     expect(popup.visible).toBe(false);
     expect(model.getText()).toBe('/help');
@@ -77,6 +77,7 @@ describe('AutocompletePopup 行预算排版（组 2 起；R-6 翻档锚）', () 
     const popup = new AutocompletePopup(model);
     popup.applyResult({
       items: [{ label: 'x'.repeat(70), replacement: 'x', detail: 'd'.repeat(60) }],
+      query: '',
       replaceStart: 0,
       replaceEnd: 1,
     });
@@ -92,6 +93,7 @@ describe('AutocompletePopup 行预算排版（组 2 起；R-6 翻档锚）', () 
     const popup = new AutocompletePopup(model);
     popup.applyResult({
       items: [{ label: 'y'.repeat(40), replacement: 'y' }],
+      query: '',
       replaceStart: 0,
       replaceEnd: 1,
     });
@@ -107,6 +109,7 @@ describe('AutocompletePopup 行预算排版（组 2 起；R-6 翻档锚）', () 
     const popup = new AutocompletePopup(model);
     popup.applyResult({
       items: [{ label: 'cmd', replacement: 'cmd', detail: 'info' }],
+      query: '',
       replaceStart: 0,
       replaceEnd: 1,
     });
@@ -125,6 +128,7 @@ describe('AutocompletePopup 选中行 accent bold（R-6 翻档——光标符/in
         { label: '/help', replacement: '/help' },
         { label: '/hint', replacement: '/hint' },
       ],
+      query: '',
       replaceStart: 0,
       replaceEnd: 1,
     });
@@ -144,7 +148,7 @@ describe('AutocompletePopup 选中行 accent bold（R-6 翻档——光标符/in
   it('setTheme 换装后选中行前景随迁（activeStyle 重建）', () => {
     const model = new EditorModel();
     const popup = new AutocompletePopup(model);
-    popup.applyResult({ items: [{ label: '/help', replacement: '/help' }], replaceStart: 0, replaceEnd: 1 });
+    popup.applyResult({ items: [{ label: '/help', replacement: '/help' }], query: '', replaceStart: 0, replaceEnd: 1 });
     const light = resolveTheme(builtinPalette('light'), DEFAULT_THEME.depth);
     popup.setTheme(light);
     const grid = new CellGrid(20, 1);
@@ -159,6 +163,7 @@ describe('AutocompletePopup 弹层观感四点（Codex 样式复刻批 R-6 修�
     const popup = new AutocompletePopup(model);
     popup.applyResult({
       items: Array.from({ length: 12 }, (_, i) => ({ label: `cmd${i}`, replacement: `cmd${i}` })),
+      query: '',
       replaceStart: 0,
       replaceEnd: 1,
     });
@@ -168,7 +173,7 @@ describe('AutocompletePopup 弹层观感四点（Codex 样式复刻批 R-6 修�
   it('空态行 dim + italic（修前红：accent 空态档——fg=accent 无 dim/italic）', () => {
     const model = new EditorModel();
     const popup = new AutocompletePopup(model);
-    popup.applyResult({ items: [], replaceStart: 0, replaceEnd: 2 });
+    popup.applyResult({ items: [], query: '', replaceStart: 0, replaceEnd: 2 });
     const grid = new CellGrid(10, 1);
     popup.render(grid, { row: 0, col: 0, width: 10, height: 1 });
     const style = grid.getCell(0, 0)?.style;
@@ -185,6 +190,7 @@ describe('AutocompletePopup 弹层观感四点（Codex 样式复刻批 R-6 修�
         { label: 'cmd', replacement: 'cmd', detail: 'info' },
         { label: 'x', replacement: 'x', detail: 'y' },
       ],
+      query: '',
       replaceStart: 0,
       replaceEnd: 1,
     });
@@ -204,6 +210,7 @@ describe('AutocompletePopup 弹层观感四点（Codex 样式复刻批 R-6 修�
     const popup = new AutocompletePopup(model);
     popup.applyResult({
       items: [{ label: 'ab', replacement: 'ab', detail: 'd'.repeat(10) }],
+      query: '',
       replaceStart: 0,
       replaceEnd: 1,
     });
@@ -219,6 +226,7 @@ describe('AutocompletePopup 弹层观感四点（Codex 样式复刻批 R-6 修�
     const popup = new AutocompletePopup(model);
     popup.applyResult({
       items: Array.from({ length: 12 }, (_, i) => ({ label: `cmd${i}`, replacement: `cmd${i}`, detail: 'd' })),
+      query: '',
       replaceStart: 0,
       replaceEnd: 1,
     });
@@ -232,6 +240,100 @@ describe('AutocompletePopup 弹层观感四点（Codex 样式复刻批 R-6 修�
   });
 });
 
+describe('AutocompletePopup 命中字符 bold（挖掘 29 轮批 C 件 a——挂账兑现）', () => {
+  it('未选中行 per-char 命中 bold：query 命中格 bold、未中格默认前景（修前红：整行单样式零命中分档）', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    // '/plg-x' 位序：/(col2) p(3) l(4) g(5) -(6) x(7)——'plg' 命中 p/l/g（非邻接位）
+    popup.applyResult({
+      items: [
+        { label: '/plugins', replacement: '/plugins' },
+        { label: '/plg-x', replacement: '/plg-x' },
+      ],
+      query: 'plg',
+      replaceStart: 0,
+      replaceEnd: 4,
+    });
+    const grid = new CellGrid(20, 2);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 2 });
+    // 未选中行（row 1 = item 1）：'/'(col2) 默认、p(3)/l(4)/g(5) 命中 bold、'-'(6) 默认
+    expect(grid.getCell(1, 2)?.style?.bold).toBeUndefined(); // 未中格 /
+    expect(grid.getCell(1, 3)?.style?.bold).toBe(true); // 命中格 p
+    expect(grid.getCell(1, 4)?.style?.bold).toBe(true); // 命中格 l
+    expect(grid.getCell(1, 5)?.style?.bold).toBe(true); // 命中格 g
+    expect(grid.getCell(1, 6)?.style?.bold).toBeUndefined(); // 未中格 -
+    // 命中格无 fg（bold 不着色——accent 属选中行整行档）
+    expect(grid.getCell(1, 3)?.style?.fg).toBeUndefined();
+  });
+
+  it('选中行整行 accent bold 覆盖命中 bold（bold 叠 bold 不分档）；缩进 2 空格恒默认前景', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [{ label: '/plugins', replacement: '/plugins' }],
+      query: 'plg',
+      replaceStart: 0,
+      replaceEnd: 4,
+    });
+    const grid = new CellGrid(20, 1);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 1 });
+    // 选中行：整行所有 span accent bold（缩进空格同辖——「整行」义；含未命中格）
+    expect(grid.getCell(0, 2)?.style?.fg).toBe(DEFAULT_THEME.accent);
+    expect(grid.getCell(0, 2)?.style?.bold).toBe(true);
+    expect(grid.getCell(0, 3)?.style?.fg).toBe(DEFAULT_THEME.accent); // 命中格同为整行档（bold 叠 bold 不分档）
+  });
+
+  it('空 query 与无命中形零 bold（源以非 label 键过滤〔id 形〕诚实不加亮）', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [
+        { label: '/help', replacement: '/help' },
+        { label: '/model', replacement: '/model' },
+      ],
+      query: '',
+      replaceStart: 0,
+      replaceEnd: 1,
+    });
+    const grid = new CellGrid(20, 2);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 2 });
+    expect(grid.getCell(1, 2)?.style?.bold).toBeUndefined(); // 空 query 零 bold
+    // 无命中形：query 与 label 无子序列关系（现算无命中即诚实不加亮）
+    popup.applyResult({
+      items: [
+        { label: '完全不同', replacement: 'x' },
+        { label: '/model', replacement: '/model' },
+      ],
+      query: 'zzz',
+      replaceStart: 0,
+      replaceEnd: 3,
+    });
+    const grid2 = new CellGrid(20, 2);
+    popup.render(grid2, { row: 0, col: 0, width: 20, height: 2 });
+    expect(grid2.getCell(1, 2)?.style?.bold).toBeUndefined(); // 无命中零 bold
+  });
+
+  it('label 截断形（… 收口）诚实降级整行默认前景（命中位越界不半亮）', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [
+        { label: 'x'.repeat(70), replacement: 'x' },
+        { label: 'y'.repeat(70), replacement: 'y' },
+      ],
+      query: 'xy',
+      replaceStart: 0,
+      replaceEnd: 2,
+    });
+    const grid = new CellGrid(30, 2);
+    popup.render(grid, { row: 0, col: 0, width: 30, height: 2 });
+    // 未选中行（row 1）截断 → 零 bold（… 收口形命中位失真——诚实降级）
+    for (let col = 2; col < 30; col++) {
+      expect(grid.getCell(1, col)?.style?.bold).toBeUndefined();
+    }
+  });
+});
+
 describe('AutocompletePopup 空条目诚实反馈（空结果诚实行律）', () => {
   // 注（2026-10-04 空态反馈批）：本 describe 两件是直喂 applyResult 的单元面
   // 锁（measure/render 空分支形为）——生产链锁（provider 空条目透传 → 弹层
@@ -241,14 +343,14 @@ describe('AutocompletePopup 空条目诚实反馈（空结果诚实行律）', (
     const model = new EditorModel();
     const popup = new AutocompletePopup(model);
     expect(popup.measure(80)).toBe(0); // 不在场零高（浮层不占布局——旧锚不漂）
-    popup.applyResult({ items: [], replaceStart: 0, replaceEnd: 2 }); // 空结果（打错前缀）
+    popup.applyResult({ items: [], query: '', replaceStart: 0, replaceEnd: 2 }); // 空结果（打错前缀）
     expect(popup.measure(80)).toBe(1); // 修前红位：0——「无匹配」行被预算链结构性抹除
   });
 
   it('空条目 render 行为锁：铺底 + 「无匹配」串在位（空态行也是信息——model-picker「（无匹配…）」行同律）', () => {
     const model = new EditorModel();
     const popup = new AutocompletePopup(model);
-    popup.applyResult({ items: [], replaceStart: 0, replaceEnd: 2 });
+    popup.applyResult({ items: [], query: '', replaceStart: 0, replaceEnd: 2 });
     const grid = new CellGrid(10, 1);
     popup.render(grid, { row: 0, col: 0, width: 10, height: 1 });
     expect(readRow(grid, 0, 10)).toContain('无匹配'); // 空分支呈现（修前结构不可达）
@@ -258,7 +360,7 @@ describe('AutocompletePopup 空条目诚实反馈（空结果诚实行律）', (
     const model = new EditorModel();
     model.setText('/zz'); // 光标落尾——token 区间 [0,3) 与 result 对拍新鲜（排除陈旧守卫相位）
     const popup = new AutocompletePopup(model);
-    popup.applyResult({ items: [], replaceStart: 0, replaceEnd: 3 });
+    popup.applyResult({ items: [], query: '', replaceStart: 0, replaceEnd: 3 });
     expect(popup.handleEvent(key('enter'))).toBe(false); // 修前红位：吞键 true——回车必须透传编辑器走提交
     expect(popup.handleEvent(key('tab'))).toBe(false); // 空态无可选可应用——tab 回编辑器键面（编辑器未绑 tab 归终局）
     expect(model.getText()).toBe('/zz'); // 无代换发生
@@ -273,7 +375,7 @@ describe('AutocompletePopup 空条目诚实反馈（空结果诚实行律）', (
     popup.onDismiss = () => {
       dismissed += 1;
     };
-    popup.applyResult({ items: [], replaceStart: 0, replaceEnd: 3 });
+    popup.applyResult({ items: [], query: '', replaceStart: 0, replaceEnd: 3 });
     expect(popup.handleEvent(key('up'))).toBe(false); // 修前红位：moveActive 空转吞箭头 true——堵编辑器历史回溯
     expect(popup.handleEvent(key('down'))).toBe(false);
     expect(popup.visible).toBe(true); // 穿透不关层

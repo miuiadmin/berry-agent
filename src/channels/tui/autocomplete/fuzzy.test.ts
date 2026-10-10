@@ -1,8 +1,9 @@
 /**
  * fuzzy 过滤单测（07 §4.1 R6 批 10j）：子序列判据 + 前缀置顶排序律纯函数直锁。
+ * 挖掘 29 轮批 C 件 a 扩：subsequenceMatchRanges 命中游程（弹层 per-char bold 供数）。
  */
 import { describe, expect, it } from 'vitest';
-import { fuzzyFilter, fuzzyMatchKind, isSubsequence } from './fuzzy.js';
+import { fuzzyFilter, fuzzyMatchKind, isSubsequence, subsequenceMatchRanges } from './fuzzy.js';
 
 describe('isSubsequence 子序列判据', () => {
   it('按序出现即命中（大小写不敏感）', () => {
@@ -53,5 +54,42 @@ describe('fuzzyFilter 双组排序律', () => {
     // 's' 前缀 sessions + 子序列 plugins? p-l-u-g-i-n-s 含 s（尾）→ subseq；memory 无 s
     const out = fuzzyFilter(specs, (s) => s.name, 's');
     expect(out.map((s) => s.name)).toEqual(['sessions', 'plugins']);
+  });
+});
+
+describe('subsequenceMatchRanges 命中游程（挖掘 29 轮批 C 件 a——弹层命中字符 bold 供数）', () => {
+  it('greedy 左射位序：命中字符在 candidate 的 UTF-16 位序数组', () => {
+    // 'plg' 对 'plugins'：p(0) l(1) g(3)——非邻接位（per-char bold 的真面目）
+    expect(subsequenceMatchRanges('plugins', 'plg')).toEqual([0, 1, 3]);
+    // 前缀命中 = 邻接前缀位（'pl' → 0,1）
+    expect(subsequenceMatchRanges('plugins', 'pl')).toEqual([0, 1]);
+    // 尾字命中（'help' 对 'help' 全命中 / 'p' 单字）
+    expect(subsequenceMatchRanges('help', 'help')).toEqual([0, 1, 2, 3]);
+  });
+
+  it('大小写不敏感（命中位按 candidate 原文位报）', () => {
+    expect(subsequenceMatchRanges('Plugins', 'plg')).toEqual([0, 1, 3]);
+    expect(subsequenceMatchRanges('plugins', 'PLG')).toEqual([0, 1, 3]);
+  });
+
+  it('不中 → null；空查询 → null（无命中可 bold——弹层零加亮档）', () => {
+    expect(subsequenceMatchRanges('plugins', 'glp')).toBeNull(); // 序错
+    expect(subsequenceMatchRanges('plugins', 'px')).toBeNull(); // 缺字
+    expect(subsequenceMatchRanges('anything', '')).toBeNull(); // 空查询（isSubsequence 恒真但无命中位——呈现面诚实零 bold）
+  });
+
+  it('与 isSubsequence 判据单源一致（布尔面 = 游程面非空；空查询两义分立除外——过滤恒真/呈现无位）', () => {
+    // 委托实现锁：两函数同判据——布尔面退化即游程面 null。空查询不入循环：
+    // isSubsequence 恒真（全量过滤义）而游程面 null（无位可亮呈现义）——两义
+    // 分立在位（各自专测在册）
+    for (const [candidate, needle] of [
+      ['plugins', 'plg'],
+      ['plugins', 'glp'],
+      ['Plugins', 'PLG'],
+      ['approval', 'avl'],
+      ['berry-agent', 'ba'],
+    ] as const) {
+      expect(subsequenceMatchRanges(candidate, needle) !== null).toBe(isSubsequence(candidate, needle));
+    }
   });
 });
