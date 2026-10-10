@@ -8,7 +8,10 @@
  * - 宽容解码（update 载荷契约面 `unknown`——03 §2.3 自由载荷，呈现侧零
  *   契约收紧）：string 直显 / AgentToolResult 形〔content 块数组〕取文本块
  *   倒扫末条非空行 / 其余视为文本缺席退化为 ` • 名 …`；
- * - 帽 4 行 + 溢出行「+ N 更多」；宿主行内容省略形收口（界面美化役
+ * - 帽 4 行 + 溢出行「+ N 更多」；**行首行号列**（挖掘 29 轮批 C 件 b——
+ *   Codex tools 行号列兑现）：工具序 0 基 dim 右对齐槽（位数自适应 = 末序
+ *   位数；插件行集续行空槽对齐——edit diff 行号槽同律；溢出行无号空槽）；
+ *   宿主行内容省略形收口（界面美化役
  *   2026-10-01 ①——超宽 … 记号；插件行集段序维持段级预算——结构化段非
  *   纯文本，与 tool-card 卡体同律不另拼记号）；
  * - 与件 3 分职互补：状态行示「执行哪个工具」、本件行示「输出到哪了」；
@@ -87,9 +90,14 @@ interface ProgressRow {
   lines: readonly RendererLine[] | null;
 }
 
-/** 展开后的可视行（宿主形单行 / 插件行集逐行——帽与溢出按视觉行计） */
+/**
+ * 展开后的可视行（宿主形单行 / 插件行集逐行——帽与溢出按视觉行计）。
+ * 行号列（挂账 c 兑现——Codex tools 行号列）：ordinal = 源工具在 rows 的
+ * 0 基序；first = 该视觉行是否行集/宿主行的首行（首行落号、续行空槽对齐）。
+ */
 type VisualRow =
-  { readonly kind: 'host'; readonly text: string } | { readonly kind: 'plugin'; readonly line: RendererLine };
+  | { readonly kind: 'host'; readonly text: string; readonly ordinal: number }
+  | { readonly kind: 'plugin'; readonly line: RendererLine; readonly ordinal: number; readonly first: boolean };
 
 /** 工具进度面板：正在流 partial 的工具各占一行（清板即零行） */
 export class ToolProgressPanel implements Renderable {
@@ -147,17 +155,17 @@ export class ToolProgressPanel implements Renderable {
     return Math.min(total, MAX_ROWS) + (total > MAX_ROWS ? 1 : 0);
   }
 
-  /** 行集展开为可视行序列（宿主形 = ` • 名 · 末行` 单行；插件行集 = 多行段序） */
+  /** 行集展开为可视行序列（宿主形 = ` • 名 · 末行` 单行；插件行集 = 多行段序——均携源工具序） */
   private visualRows(): VisualRow[] {
     const visual: VisualRow[] = [];
-    for (const row of this.rows) {
+    this.rows.forEach((row, ordinal) => {
       if (row.lines !== null) {
-        for (const line of row.lines) visual.push({ kind: 'plugin', line });
-        continue;
+        row.lines.forEach((line, i) => visual.push({ kind: 'plugin', line, ordinal, first: i === 0 }));
+        return;
       }
       const tail = row.text !== null ? ` · ${row.text}` : ' …';
-      visual.push({ kind: 'host', text: ` • ${toolFaceZh(row.name)}${tail}` }); // 名段用户面动词（V-0 注⑤——行呈现位转写，账存原始名）；注⑩：在飞工具行 = 列点位 •
-    }
+      visual.push({ kind: 'host', text: ` • ${toolFaceZh(row.name)}${tail}`, ordinal }); // 名段用户面动词（V-0 注⑤——行呈现位转写，账存原始名）；注⑩：在飞工具行 = 列点位 •
+    });
     return visual;
   }
 
@@ -180,19 +188,30 @@ export class ToolProgressPanel implements Renderable {
     }
   }
 
-  /** 落位：可视行逐行写（段序按 tone 语义键着色、越宽截断）；溢出行收尾 */
+  /** 落位：可视行逐行写（行号列 + 段序按 tone 语义键着色、越宽截断）；溢出行收尾 */
   render(buffer: CellBuffer, region: Region): void {
     // 段内夹取（挂账解挂批 C②——固定区段优先级截断）：分配段高可低于
     // measure 原值（低段「缩」形）——可见行数按段高容量收，不越段写；
     // 溢出行仅在有富余行时收尾
     const capacity = Math.min(MAX_ROWS, region.height);
     const visual = this.visualRows();
+    // 行号列（挂账 c 兑现）：工具序 0 基 dim 右对齐槽——位数自适应 = 当前
+    // 末序位数（rows.length-1）；面板元行（溢出行）无号空槽对齐
+    const slotWidth = this.rows.length > 0 ? String(this.rows.length - 1).length : 0;
+    const contentCol = region.col + slotWidth + (slotWidth > 0 ? 1 : 0); // 槽后 1 空格让位
+    const contentWidth = region.width - (contentCol - region.col);
     const shown = visual.slice(0, capacity);
     shown.forEach((row, i) => {
       const line = region.row + i;
+      // 序槽：宿主行/插件行集首行落号、行集续行空槽（edit diff 行号槽同律）
+      if (slotWidth > 0) {
+        const label =
+          row.kind === 'host' || row.first ? String(row.ordinal).padStart(slotWidth) : ' '.repeat(slotWidth);
+        buffer.writeText(line, region.col, label, { dim: true });
+      }
       if (row.kind === 'host') {
         // 宿主行省略形收口（界面美化役①——超宽 … 可辨「输出到哪了」被切）
-        buffer.writeText(line, region.col, ellipsize(row.text, region.width));
+        buffer.writeText(line, contentCol, ellipsize(row.text, contentWidth));
         return;
       }
       // 插件行：段序逐段写（tone → 当下主题语义键直取；text/缺省无前景）。
@@ -202,9 +221,9 @@ export class ToolProgressPanel implements Renderable {
       // 连排、col += stringWidth 超推致下一段起笔位留幽灵空列、ESC 序列的
       // 可打印载荷照写落屏。与 tool-card pluginLineToStyled 同输入面同律
       // （sanitizeLineText 单源：LF→空格 / tab→2 空格 / CR·ESC 序列剥除）。
-      let col = region.col;
+      let col = contentCol;
       for (const seg of row.line) {
-        const budget = region.col + region.width - col;
+        const budget = contentCol + contentWidth - col;
         if (budget <= 0) break; // 行宽帽收口
         const text = truncateToWidth(sanitizeLineText(seg.text), budget);
         if (text !== '') {
@@ -216,8 +235,10 @@ export class ToolProgressPanel implements Renderable {
     });
     const overflow = visual.length - shown.length;
     if (overflow > 0 && shown.length < region.height) {
-      // 溢出行 ellipsize 收口（宿主行同律——窄窗裸直写硬截断无省略号）
-      buffer.writeText(region.row + shown.length, region.col, ellipsize(`+ ${overflow} 更多`, region.width), {
+      // 溢出行 ellipsize 收口（宿主行同律——窄窗裸直写硬截断无省略号）；
+      // 无号空槽对齐（面板元行非工具行）
+      if (slotWidth > 0) buffer.writeText(region.row + shown.length, region.col, ' '.repeat(slotWidth));
+      buffer.writeText(region.row + shown.length, contentCol, ellipsize(`+ ${overflow} 更多`, contentWidth), {
         dim: true,
       });
     }

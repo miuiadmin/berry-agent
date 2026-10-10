@@ -74,7 +74,28 @@ describe('ToolProgressPanel 行生命周期', () => {
     expect(panel.measure(WIDTH)).toBe(0);
     panel.applyUpdate('t1', '扫描中');
     expect(panel.measure(WIDTH)).toBe(1);
-    expect(readRow(renderPanel(panel), 0)).toBe(' • 搜索文本 · 扫描中');
+    expect(readRow(renderPanel(panel), 0)).toBe('0  • 搜索文本 · 扫描中');
+  });
+
+  it('行首行号列（挂账 c 兑现——Codex tools 行号列）：工具序 0 基 dim 右对齐槽、内容列右移 1 空格（修前红：无行号列直接 • 起笔）', () => {
+    const panel = new ToolProgressPanel();
+    panel.begin('t1', 'grep');
+    panel.applyUpdate('t1', '扫描中');
+    const grid = renderPanel(panel);
+    expect(readRow(grid, 0)).toBe('0  • 搜索文本 · 扫描中');
+    expect(grid.getCell(0, 0)?.style?.dim).toBe(true); // 序槽 dim（弱存在感——diff 行号槽同律）
+    expect(grid.getCell(0, 2)?.style?.dim).toBeUndefined(); // 内容列默认前景
+  });
+
+  it('行号列多工具递增 + 插件行集续行空槽对齐 + 溢出行无号空槽', () => {
+    const panel = new ToolProgressPanel();
+    for (const name of ['a', 'b', 'c']) {
+      panel.begin(`t-${name}`, name);
+      panel.applyUpdate(`t-${name}`, `${name} 跑着`);
+    }
+    const grid = renderPanel(panel);
+    expect(readRow(grid, 0)).toBe('0  • a · a 跑着');
+    expect(readRow(grid, 2)).toBe('2  • c · c 跑着');
   });
 
   it('后续 update 原位换行（尾行文本更新）', () => {
@@ -82,14 +103,14 @@ describe('ToolProgressPanel 行生命周期', () => {
     panel.begin('t1', 'grep');
     panel.applyUpdate('t1', '第一段');
     panel.applyUpdate('t1', '第二段');
-    expect(readRow(renderPanel(panel), 0)).toBe(' • 搜索文本 · 第二段');
+    expect(readRow(renderPanel(panel), 0)).toBe('0  • 搜索文本 · 第二段');
   });
 
   it('文本缺席退化形：` • 名 …`', () => {
     const panel = new ToolProgressPanel();
     panel.begin('t1', 'search');
     panel.applyUpdate('t1', { progress: 0.5 }); // 非解码形
-    expect(readRow(renderPanel(panel), 0)).toBe(' • search …');
+    expect(readRow(renderPanel(panel), 0)).toBe('0  • search …');
   });
 
   it('end 即摘行；迟到 update 无档退 toolCallId 名（防御路径）', () => {
@@ -99,7 +120,7 @@ describe('ToolProgressPanel 行生命周期', () => {
     panel.end('t1');
     expect(panel.measure(WIDTH)).toBe(0);
     panel.applyUpdate('t1', '迟到进度'); // 档已随 end 摘——名退 id
-    expect(readRow(renderPanel(panel), 0)).toBe(' • t1 · 迟到进度');
+    expect(readRow(renderPanel(panel), 0)).toBe('0  • t1 · 迟到进度');
   });
 
   it('clear 清板（行与建档同清——瞬时面律）', () => {
@@ -109,7 +130,7 @@ describe('ToolProgressPanel 行生命周期', () => {
     panel.clear();
     expect(panel.measure(WIDTH)).toBe(0);
     panel.applyUpdate('t1', '清板后'); // 无档退 id 名——建档确已清
-    expect(readRow(renderPanel(panel), 0)).toBe(' • t1 · 清板后');
+    expect(readRow(renderPanel(panel), 0)).toBe('0  • t1 · 清板后');
   });
 
   it('多工具并行各占一行（建档序）；帽 4 行 + 溢出行', () => {
@@ -120,9 +141,9 @@ describe('ToolProgressPanel 行生命周期', () => {
     }
     expect(panel.measure(WIDTH)).toBe(5); // 4 行 + 溢出行
     const grid = renderPanel(panel);
-    expect(readRow(grid, 0)).toBe(' • a · a 跑着');
-    expect(readRow(grid, 3)).toBe(' • d · d 跑着');
-    expect(readRow(grid, 4)).toBe('+ 1 更多');
+    expect(readRow(grid, 0)).toBe('0  • a · a 跑着');
+    expect(readRow(grid, 3)).toBe('3  • d · d 跑着');
+    expect(readRow(grid, 4)).toBe('  + 1 更多');
   });
 
   it('宿主行窄宽省略形收口（界面美化役①——超宽 … 记号；修前红：硬切无记号）', () => {
@@ -134,7 +155,7 @@ describe('ToolProgressPanel 行生命周期', () => {
     panel.render(grid, { row: 0, col: 0, width, height: grid.rows });
     // 前缀 ' • 搜索文本 · ' 14 列（V-0 注⑤动词位）+ 9 x（23 列整字帽）+ '…' = 24 列恰满
     //（修前红锚：14 x 硬切到帽、尾部无 …）
-    expect(readRow(grid, 0, width)).toBe(' • 搜索文本 · ' + 'x'.repeat(9) + '…');
+    expect(readRow(grid, 0, width)).toBe('0  • 搜索文本 · ' + 'x'.repeat(7) + '…');
   });
 });
 
@@ -161,7 +182,7 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     panel.begin('t1', 'plug_scan', { depth: 3 });
     panel.applyUpdate('t1', '进度文本'); // 行集替换——update 文本不进呈现面
     expect(panel.measure(WIDTH)).toBe(1);
-    expect(readRow(renderPanel(panel), 0)).toBe('扫描 42%'); // 非 ` • plug_scan · 进度文本`
+    expect(readRow(renderPanel(panel), 0)).toBe('0 扫描 42%'); // 非 ` • plug_scan · 进度文本`
     // 在飞期快照 = start 面事实（toolCallId/toolName/arguments——无 update 载荷）
     expect(received).toEqual([{ toolCallId: 't1', toolName: 'plug_scan', arguments: { depth: 3 } }]);
   });
@@ -181,8 +202,9 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     panel.begin('t1', 'plug_tone', {});
     panel.applyUpdate('t1', 'x');
     const grid = renderPanel(panel);
-    expect(grid.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.error);
-    expect(grid.getCell(0, 2)?.style.fg).toBe(DEFAULT_THEME.secondary);
+    // 行号列让位：插件段 col 2 起笔（col 0 = 序槽 '0'）——红 col 2 / 灰 col 3
+    expect(grid.getCell(0, 2)?.style.fg).toBe(DEFAULT_THEME.error);
+    expect(grid.getCell(0, 4)?.style.fg).toBe(DEFAULT_THEME.secondary); // 红宽字占 col2-3、灰 col4
   });
 
   it('回落恒在律三形：抛错 / 空行集 / 未注册——恒宿主 ` • 名 · 末行` 形', () => {
@@ -202,9 +224,9 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     panel.begin('t3', 'plug_miss');
     panel.applyUpdate('t3', '进度');
     const grid = renderPanel(panel);
-    expect(readRow(grid, 0)).toBe(' • plug_throw · 进度');
-    expect(readRow(grid, 1)).toBe(' • plug_empty · 进度');
-    expect(readRow(grid, 2)).toBe(' • plug_miss · 进度');
+    expect(readRow(grid, 0)).toBe('0  • plug_throw · 进度');
+    expect(readRow(grid, 1)).toBe('1  • plug_empty · 进度');
+    expect(readRow(grid, 2)).toBe('2  • plug_miss · 进度');
   });
 
   it('零 update 的静默工具：renderCall 不触发（有进无面板行——在飞可见性归件 3）', () => {
@@ -236,10 +258,10 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     const panel = new ToolProgressPanel();
     panel.begin('t1', 'plug_live', {});
     panel.applyUpdate('t1', '一');
-    expect(readRow(renderPanel(panel), 0)).toBe('第 1 帧');
+    expect(readRow(renderPanel(panel), 0)).toBe('0 第 1 帧');
     panel.applyUpdate('t1', '二'); // 原位换行——重现调替换行集
     expect(invoked).toBe(2);
-    expect(readRow(renderPanel(panel), 0)).toBe('第 2 帧');
+    expect(readRow(renderPanel(panel), 0)).toBe('0 第 2 帧');
     expect(panel.measure(WIDTH)).toBe(1); // 行集替换非追加
   });
 
@@ -259,17 +281,17 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     panel.applyUpdate('t3', '溢出'); // 第 5 视觉行——帽外
     expect(panel.measure(WIDTH)).toBe(5); // 4 + 溢出行
     const grid = renderPanel(panel);
-    expect(readRow(grid, 0)).toBe('甲行');
-    expect(readRow(grid, 2)).toBe('丙行');
-    expect(readRow(grid, 3)).toBe(' • b · 跑着');
-    expect(readRow(grid, 4)).toBe('+ 1 更多');
+    expect(readRow(grid, 0)).toBe('0 甲行');
+    expect(readRow(grid, 2)).toBe('  丙行');
+    expect(readRow(grid, 3)).toBe('1  • b · 跑着');
+    expect(readRow(grid, 4)).toBe('  + 1 更多');
   });
 
   it('迟到 update 无档退 id 名时查表仍按 id 名（防御路径同回落律）', () => {
     disposers.push(registerToolRenderer('t9', { renderCall: () => [[{ text: '命中' }]] }));
     const panel = new ToolProgressPanel();
     panel.applyUpdate('t9', '迟到'); // 无档——名退 id（与注册表撞名的防御路径）
-    expect(readRow(renderPanel(panel), 0)).toBe('命中');
+    expect(readRow(renderPanel(panel), 0)).toBe('0 命中');
   });
 
   /* ---- S2 宽度账族（2026-09-21 第六役修复组 2）：插件行段文本构造位消毒 ---- */
@@ -285,9 +307,9 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     panel.applyUpdate('t1', 'x');
     const grid = renderPanel(panel);
     // 族标准：LF → 空格位（修前红：LF 被 writeText 吞——C 落 col 2）
-    expect(grid.getCell(0, 2)?.grapheme).toBe(' ');
+    expect(grid.getCell(0, 4)?.grapheme).toBe(' ');
     // 修前红：'ABCD Z'（LF 吞 + stringWidth 计入 LF 致 col 4 幽灵洞）；修后 'AB CDZ'
-    expect(readRow(grid, 0)).toBe('AB CDZ');
+    expect(readRow(grid, 0)).toBe('0 AB CDZ');
   });
 
   it('插件行段 ESC 序列整段剥除（修前红：writeText 只跳控制字节——ESC 后可打印载荷 [31m 落屏伪残留）', () => {
@@ -295,7 +317,7 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     const panel = new ToolProgressPanel();
     panel.begin('t1', 'plug_esc', {});
     panel.applyUpdate('t1', 'x');
-    expect(readRow(renderPanel(panel), 0)).toBe('AB'); // 修前 'A[31mB'
+    expect(readRow(renderPanel(panel), 0)).toBe('0 AB'); // 修前 'A[31mB'
   });
 });
 
@@ -311,7 +333,8 @@ describe('ToolProgressPanel 溢出行窄窗收口', () => {
     const width = 6;
     const grid = new CellGrid(width, panel.measure(width));
     panel.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    // '+ 1 更多' 8 列 → 6 列帽（修前红锚：'+ 1 更' 硬切满 6 列无 …）
-    expect(readRow(grid, 4, width)).toBe('+ 1 …');
+    // 行号列让位后内容帽 4 列：'+ 1 更多' → '+ 1…'（空槽 2 + 4 = 6 列恰满；
+    // 修前红锚：'+ 1 更' 硬切满无 …）
+    expect(readRow(grid, 4, width)).toBe('  + 1…');
   });
 });
