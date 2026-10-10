@@ -392,6 +392,20 @@ describe('runTuiEntry 装配序', () => {
     expect(io.output).toContain('berry-agent'); // 起屏 title 基线（version 注入）
   });
 
+  it('会话头卡装配正锁（挖掘 29 轮 #9——ASM-1 装配缺口族判据：单测直注恒绿+生产零注入——删装配位 sessionHeader 注入四门禁不红，本测是唯一防线）：起屏头卡三值 version/model/directory', async () => {
+    const cwd = rigDir('entry-ws-hdr-');
+    const { entry, io } = await rigEntry(rigDir('entry-hdr-'), cwd);
+    // 头卡 durable 首块起屏即写；头行三段样式（'>_ ' dim / 名 bold / 版本 dim）
+    // SGR 隔断字面匹配——剥除后整行连续（stripAnsi 既有族同法）
+    await until(() => stripAnsi(io.output).includes('>_ berry-agent'));
+    const screen = stripAnsi(io.output);
+    expect(screen).toContain('>_ berry-agent (vtest)'); // version 注入（rigEntry version: 'test'）
+    expect(screen).toContain('model: faux-entry/m1'); // 初始模型全形（stack.model 出生快照——运行期换模不回写）
+    expect(screen).toContain('directory: '); // session.workspaceRoot canonical（超宽 ellipsize 收口——前缀锚）
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
   it('终退排空编舞接线（挖掘 26 轮 [9]——修前红）：closer 内 drainInput 先于 stop（07 §4.1 件5 装配侧显式调用位）', async () => {
     exitSeqCapture.events.length = 0;
     const { entry, io } = await rigEntry(rigDir('entry-drain-'), rigDir('entry-ws-'));
