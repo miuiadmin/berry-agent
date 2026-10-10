@@ -344,6 +344,41 @@ describe('edit diff 档（⑥ 行几何与 bg 双通道——R-5 件 C）', () =
     expect(lines[3]!.plain).toBe('      +const new = 3;');
   });
 
+  it('折叠档 fillBg 保形（挖掘 29 轮件 1 修前红：addDim 重建行对象丢 fillBg——diff 行自持 bg 面被卡面覆写）：整面 dim 并入 + fillBg 尾腿透传 + withCardBg 整行跳过', () => {
+    // 长补丁（体 > CARD_PREVIEW_LINES=5 触发 previewWindow 头 2 + 省略 + 尾 2）
+    const longPatch = [
+      '*** Begin Patch',
+      '*** Update File: a.ts',
+      ' const ctx0 = 0;',
+      '-const del0 = 0;',
+      '+const add0 = 0;',
+      ' const ctx1 = 1;',
+      '-const del1 = 1;',
+      '+const add1 = 1;',
+      '*** End Patch',
+    ].join('\n');
+    const lines = renderToolCardStyledLines(
+      diffCard({ body: longPatch.split('\n'), diffStartLines: [3], expanded: false }),
+      80,
+    );
+    // 折叠窗 = 头 2 体行 + 省略行 + 尾 2 体行（+ 卡头）；头 2 = ctx0 / del0
+    expect(lines).toHaveLength(6);
+    expect(lines[2]!.plain).toBe('    4 -const del0 = 0;'); // 窗首 del 行（防空洞断言——startLine=3：ctx0=3、del0=4）
+    // 修前红位：addDim 丢 fillBg → withCardBg 以卡面 bg 覆写（diff 局部覆盖律破）
+    expect(lines[2]!.fillBg).toBe(themeTc.diffRemovedBg);
+    // 整面 dim 并入（折叠预览档语义保持——fg 段携 dim；'del0' 词级变字段段 13..17）
+    expect(lines[2]!.runs).toContainEqual({
+      start: 13,
+      end: 17,
+      style: { fg: themeTc.diffRemoved, bg: themeTc.diffRemovedBg, dim: true },
+    });
+    // 尾 2 = add1（add 行）同律保形
+    expect(lines[5]!.fillBg).toBe(themeTc.diffAddedBg);
+    // 省略行（marker）无 fillBg——dim 单游程（省略行非 diff 行）
+    expect(lines[3]!.plain).toContain('已省 2 行'); // 体 6 行 − 窗 4（头 2 + 尾 2）= 省略 2
+    expect(lines[3]!.fillBg).toBeUndefined();
+  });
+
   it('多文件：Edited N files + 总计数 + `  └` 段头 + 段间空行；add 段行号自 1', () => {
     const multi = [
       '*** Begin Patch',

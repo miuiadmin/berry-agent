@@ -1043,12 +1043,18 @@ export function sanitizeLineText(text: string, tabWidth = 2): string {
   return sanitizeDisplayText(text, tabWidth).replace(/\n/g, ' ');
 }
 
-/** 折叠预览整面 dim（既有游程样式并入 dim——diff 色保留亮度降档） */
+/** 折叠预览整面 dim（既有游程样式并入 dim——diff 色保留亮度降档；fillBg 尾腿
+ *  透传〔挖掘 29 轮件 1〕：diff 行自持 bg 面不随档位丢失——丢了即被 withCardBg
+ *  以卡面 bg 覆写，局部覆盖律破） */
 function addDim(line: StyledLine): StyledLine {
   if (line.runs.length === 0) {
     return line.plain === ''
       ? line
-      : { plain: line.plain, runs: [{ start: 0, end: line.plain.length, style: DIM_STYLE }] };
+      : { plain: line.plain, runs: [{ start: 0, end: line.plain.length, style: DIM_STYLE }], fillBg: line.fillBg };
   }
-  return { plain: line.plain, runs: line.runs.map((run) => ({ ...run, style: { ...run.style, dim: true } })) };
+  return {
+    plain: line.plain,
+    runs: line.runs.map((run) => ({ ...run, style: { ...run.style, dim: true } })),
+    fillBg: line.fillBg,
+  };
 }
