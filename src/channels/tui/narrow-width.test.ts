@@ -41,6 +41,14 @@ import type { StyledLine } from './backend/ansi-rows.js';
 import { StatusLine } from './status/status-line.js';
 import { EditorModel } from './editor/editor-model.js';
 import { EditorView } from './editor/editor-view.js';
+import {
+  renderBlockStyledLines,
+  renderSlotTailLines,
+  stableSlotLineCount,
+  type TranscriptBlock,
+} from './backend/transcript.js';
+import { MarkdownDoc } from './markdown/markdown.js';
+import { StreamingMarkdown } from './markdown/streaming.js';
 
 /** 极窄宽扫描域（研究档「1-8 列塌缩场景」全扫） */
 const NARROW = [1, 2, 3, 4, 5, 6, 7, 8] as const;
@@ -346,5 +354,61 @@ describe('编辑器极窄宽（composer 提示符 + 单列内容区——V-0 注
     expect(readRow(grid, 1, 8)).toBe('› a'); // ASCII 段恰占单列内容区（› 前缀 2 列后；上垫 1 之下）
     expect(readRow(grid, 2, 8)).toBe('  b');
     expectGridInvariants(grid);
+  });
+});
+
+/* 挖掘 29 轮件 2：bullet 槽内容腿（markdown 定稿 + streaming doc）窄宽扫。
+ * 病灶：内容腿宽 = columns−2，1-2 列时 ≤0——renderDocLines 经 new CellGrid(负宽)
+ * 抛 RangeError（markdown.ts blockRows 有 Math.max(1,width) 内钳先例，本消费侧
+ * 漏钳）。修后单源钳 1（能画就画——1-2 列下逐字整字独行），计量/渲染两腿同宽
+ * 口径（账镜像锁：stableSlotLineCount ≡ renderSlotTailLines.total）。 */
+describe('transcript bullet 槽窄宽收敛（1-8 列——挖掘 29 轮件 2 修前红位）', () => {
+  /** markdown 定稿块（标题 + 正文 + 列表——多块形空距并账） */
+  const mdBlock: TranscriptBlock = {
+    kind: 'markdown',
+    doc: MarkdownDoc.of('# 标题\n\n正文内容 abc\n\n- 列表项一\n- 列表项二', DEFAULT_THEME),
+  };
+
+  /** streaming 槽块（doc 在场——渲染走与定稿同管线的行集直转腿） */
+  function streamSlot(): Extract<TranscriptBlock, { kind: 'streaming' }> {
+    const doc = new StreamingMarkdown(DEFAULT_THEME);
+    doc.update('# 流式标题\n\n流式正文中文与 ASCII 混排');
+    return {
+      kind: 'streaming',
+      epoch: 1,
+      text: doc.text ?? '',
+      doc,
+      thinking: '',
+      thinkingDoc: null,
+      thinkingSettled: false,
+      thinkingExpanded: false,
+      thinkingStartAt: null,
+      thinkingSettledAt: null,
+      theme: DEFAULT_THEME,
+      toggleHint: 'ctrl+t',
+    };
+  }
+
+  it.each(NARROW)(
+    'markdown 定稿块：%i 列——renderBlockStyledLines 不炸 + 行集非空 + 游程界内（修前 1 列抛 RangeError）',
+    (w) => {
+      const lines = renderBlockStyledLines(mdBlock, w);
+      expect(lines.length).toBeGreaterThan(0);
+      for (const line of lines) expectRunsInBounds(line);
+    },
+  );
+
+  it.each(NARROW)('streaming 槽：%i 列——renderBlockStyledLines 不炸 + 全量/尾窗两渲染路行数镜像', (w) => {
+    const slot = streamSlot();
+    expect(() => renderBlockStyledLines(slot, w)).not.toThrow(); // 修前红锚：1 列 CellGrid 负乘积抛
+    // 两渲染路行数镜像：present 消费 renderSlotTailLines（尾窗）、transcript 全量
+    // 渲染消费 renderBlockStyledLines——两路行数分立即换装漂账（同宽口径单源）
+    const full = renderBlockStyledLines(slot, w);
+    const tail = renderSlotTailLines(slot, w, 0);
+    expect(tail.total).toBeGreaterThan(0);
+    expect(tail.lines.length).toBe(tail.total); // 全量尾窗（startRow=0）行数 = 自账
+    expect(full.length).toBe(tail.total); // 两路镜像（leadingGap 同 true）
+    // 计量腿不炸且在界（稳定账 ≤ 全量账——尾块冻结面语义）
+    expect(stableSlotLineCount(slot, w, true)).toBeLessThanOrEqual(tail.total);
   });
 });

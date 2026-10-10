@@ -237,6 +237,16 @@ export function shortIdOf(sessionId: string): string {
 /** bullet 槽前缀宽（注⑩——`• ` 首行与 `  ` 续行同宽 2 列） */
 const BULLET_PREFIX_WIDTH = 2;
 
+/**
+ * bullet 槽内容腿有效宽（挖掘 29 轮件 2单源钳）：columns−2 在极窄（≤2 列）
+ * 为 0/负——renderDocLines 经 new CellGrid(负宽) 抛 RangeError、计量/渲染两腿
+ * 宽口径分立即账漂移。钳 1（markdown 件 blockRows 的 Math.max(1, width) 内钳
+ * 同律——本位是「columns−2」消费侧的单源；能画就画，1-2 列下逐字整字独行）。
+ */
+function bulletDocWidth(columns: number): number {
+  return Math.max(1, columns - BULLET_PREFIX_WIDTH);
+}
+
 /** 素空行单例（块间空行制度 R-1 垫行——plain 空零游程，主屏空行直写形字节不变） */
 const BLANK_LINE: StyledLine = { plain: '', runs: [] };
 
@@ -388,7 +398,7 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
       // bullet 槽（注⑩）：内容按 columns−2 折行 + `• `/`  ` 前缀（agent 消息
       // 列点位——user 块 › 同构的左缘结构）；块前垫 1 素空行（R-1 制度行）
       return withPad(
-        renderDocLines(block.doc, columns - BULLET_PREFIX_WIDTH).map((line, i) => bulletSlotLine(line, i)),
+        renderDocLines(block.doc, bulletDocWidth(columns)).map((line, i) => bulletSlotLine(line, i)),
         leadingGap,
       );
     case 'user': {
@@ -540,12 +550,10 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
         lines.push(...renderThinkingStyledLines(slotThinkingView(block), columns, block.thinkingDoc));
       if (block.thinking !== '' && (block.doc !== null || block.text !== '')) lines.push(BLANK_LINE); // 腿间垫（两腿在场才插——思考未 settled 全槽不冻定律护住前缀稳定性）
       if (block.doc !== null)
-        lines.push(
-          ...renderDocLines(block.doc, columns - BULLET_PREFIX_WIDTH).map((line, i) => bulletSlotLine(line, i)),
-        );
+        lines.push(...renderDocLines(block.doc, bulletDocWidth(columns)).map((line, i) => bulletSlotLine(line, i)));
       else if (block.text !== '')
         lines.push(
-          ...wrapText(block.text, columns - BULLET_PREFIX_WIDTH).map((text, i): StyledLine =>
+          ...wrapText(block.text, bulletDocWidth(columns)).map((text, i): StyledLine =>
             bulletSlotLine({ plain: text, runs: [] }, i),
           ),
         );
@@ -611,9 +619,7 @@ export function stableSlotLineCount(
   // doc 腿计量宽 = 渲染腿同宽（bullet 槽前缀宽 2——renderDocLines/rowsFor 均
   // 按 columns−2 折行；修前全宽计量使折行数与渲染行集漂移，窄形边界文本
   // 冻结账错位）
-  return (
-    gap + thinkingRows + interGap + (slot.doc !== null ? slot.doc.stableLineCount(columns - BULLET_PREFIX_WIDTH) : 0)
-  );
+  return gap + thinkingRows + interGap + (slot.doc !== null ? slot.doc.stableLineCount(bulletDocWidth(columns)) : 0);
 }
 
 /**
@@ -775,18 +781,18 @@ export function renderSlotTailLines(
   const docStart = Math.max(0, startRow - gap - thinkingRows - interGap);
   let docRowCount = 0;
   if (slot.doc !== null) {
-    const rows = slot.doc.rowsFor(columns - BULLET_PREFIX_WIDTH);
+    const rows = slot.doc.rowsFor(bulletDocWidth(columns));
     docRowCount = rows.length;
     for (let r = docStart; r < rows.length; r++) {
       lines.push(
         styledLineToAnsi(
-          capStyledLine(bulletSlotLine(docRowToStyledLine(rows[r]!, columns - BULLET_PREFIX_WIDTH), r), columns),
+          capStyledLine(bulletSlotLine(docRowToStyledLine(rows[r]!, bulletDocWidth(columns)), r), columns),
         ),
       );
     }
   } else if (slot.text !== '') {
     // 降档纯文本腿（零样式直推——bullet 前缀同律；切片同律）
-    const wrapped = wrapText(slot.text, columns - BULLET_PREFIX_WIDTH);
+    const wrapped = wrapText(slot.text, bulletDocWidth(columns));
     docRowCount = wrapped.length;
     for (let i = docStart; i < wrapped.length; i++)
       lines.push(styledLineToAnsi(capStyledLine(bulletSlotLine({ plain: wrapped[i]!, runs: [] }, i), columns)));
