@@ -1126,7 +1126,9 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         required(options.channelsUi, 'channels-ui', 'ctx.ui.notify').notify(message, opts);
       },
       // 档位 2：阻塞三件——判序护栏 → 窗判前置 → 锚解析（显式优先/ALS 回落
-      // /缺席拒/不在册拒）；opts 剥 sessionId 后透传核层形（核层 sessionId 是首参）
+      // /缺席拒/非活体拒〔#14 活集真源批随迁——旧词「不在册拒」系已废黜的
+      // 呈现册判据，与 :644 isSessionLive 实现同源分立即失实〕）；opts 剥
+      // sessionId 后透传核层形（核层 sessionId 是首参）
       confirm(message: string, opts?: { signal?: AbortSignal; sessionId?: string }): Promise<boolean> {
         countAction();
         assertNotInHookDispatch('confirm');

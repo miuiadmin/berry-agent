@@ -170,10 +170,11 @@ export interface ToolCardView {
   /** 插件渲染腿载荷（07 §4.1 钉位注——缺席 = 宿主缺省卡体） */
   readonly renderInput?: ToolCardRenderInput;
   /**
-   * exec 折叠组数据（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条）：在场 = 组卡
-   * 变体（卡头 `• Ran N commands` + 组级最差态符号 + 各命令一行摘要体）；
-   * 缺席 = 单卡三态形（R4 既有律）。组卡是宿主组级聚合面——不铸 renderInput
-   * （插件腿不进组卡）。
+   * 折叠组数据（判别联合 ToolCardGroupData——exec/探索两族，07 §4.1 V-3 注⑩
+   * 符号册 exec 折叠组 + 探索组卡两词条）：在场 = 组卡变体（exec 族卡头
+   * `• Ran N commands` + 组级最差态符号 + 各命令一行摘要体；探索族卡头
+   * `• 已探索 N 项`——两族按 kind 分诊渲染）；缺席 = 单卡三态形（R4 既有律）。
+   * 组卡是宿主组级聚合面——不铸 renderInput（插件腿不进组卡）。
    */
   readonly group?: ToolCardGroupData;
 }
