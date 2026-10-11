@@ -241,7 +241,12 @@ function startEchoServer() {
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
-      if (req.method !== 'POST' || !String(req.url).endsWith('/messages')) {
+      // 路径判定剥 query 串：pi-ai 1.x 经 Anthropic SDK beta 命名空间调用
+      // （client.beta.messages.create）恒打 `/v1/messages?beta=true`——带
+      // query 的 req.url 直判 endsWith('/messages') 必 404（soak 自出生
+      // 三次 scheduled CI 全红 + 本地同形复现的根因；assistant/message
+      // errorMessage「404 status code (no body)」即本路由手笔）
+      if (req.method !== 'POST' || !String(req.url).split('?')[0].endsWith('/messages')) {
         res.writeHead(404).end();
         return;
       }
