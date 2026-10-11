@@ -56,8 +56,11 @@ export interface ChannelsService<TProjection> {
   registerSession(sessionId: string): void;
   unregisterSession(sessionId: string): void;
   /**
-   * 在册判定（ix-2——ctx.ui 锚时效真源）：未 registerSession 或已
-   * unregisterSession = false。阻塞原语受理时检查——陈年锚晚到不悬死。
+   * 呈现管理集成员探针——非会话活性真源（07 §4.3 锚时效活集真源批）：本集
+   * 是 TUI 呈现路由位（聚焦全渲染/非聚焦摘要行判定源），活性判定单源 =
+   * SessionManager.isLive（会话管理器活集）。消费面 = 呈现编排；ctx.ui
+   * 锚时效受理门不得消费本位（serve/webui/SDK 活会话结构性不在册——
+   * registerSession 生产位全 TUI 路径）。
    */
   hasSession(sessionId: string): boolean;
   /** 焦点切换（清屏重画——拉投影经装配注入回调） */

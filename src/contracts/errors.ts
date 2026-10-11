@@ -181,7 +181,7 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     code: 'UI_ASK_SESSION_CLOSED',
     module: 'host',
     description:
-      'ctx.ui 阻塞原语显式锚受理时会话不在通道核在册集拒：未 registerSession 或已 unregisterSession——命令尾链陈年锚晚到不悬死（07 §4.3 档位 2 锚时效）',
+      'ctx.ui 阻塞原语显式锚受理时锚会话非活体拒（活性真源 = 会话管理器活集 SessionManager.isLive：未开/已 retire/已 dispose/已删除或从未存在——通道核在册集是 TUI 呈现路由位非判据）——命令尾链陈年锚晚到不悬死（07 §4.3 档位 2 锚时效活集真源批）',
   },
   {
     code: 'UI_ASK_WINDOW_INVALID',

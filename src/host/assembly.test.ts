@@ -2129,8 +2129,10 @@ describe('/plugins config 表单与 ctx.ui 问询 e2e（ix-4——表单写读�
     });
     if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
     try {
-      // 锚时效前置（ix-2 档位 2：受理时不在通道核在册集拒 UI_ASK_SESSION_CLOSED）
-      assembly.stack.channels.registerSession('sess-e2e');
+      // 锚时效前置（#14 活集真源批：受理门真源 = 会话管理器活集〔manager.create
+      // 即活〕非通道核呈现册——修前假锚 sess-e2e 非活体今必拒，故真建活会话）
+      const opened = assembly.stack.manager.create();
+      assembly.stack.channels.registerSession(opened.sessionId);
       const notified: string[] = [];
       const calls = {
         confirms: [] as string[],
@@ -2141,8 +2143,8 @@ describe('/plugins config 表单与 ctx.ui 问询 e2e（ix-4——表单写读�
         askScriptBackend({ inputs: ['hello'], confirms: [true], selects: ['slow'] }, notified, calls),
       );
       // tui-entry :194 同款调用形：ALS 包裹 + 双参 dispatch（ambient 锚唯一注入位）
-      const dispatched = await runWithSessionAnchor('sess-e2e', () =>
-        assembly.stack.channels.dispatchCommand('/ask-probe ping', 'sess-e2e'),
+      const dispatched = await runWithSessionAnchor(opened.sessionId, () =>
+        assembly.stack.channels.dispatchCommand('/ask-probe ping', opened.sessionId),
       );
       expect(dispatched).toBe(true);
       // 问询真达后端（ctx.ui → 锚解析 → channelsUi 闭包 → UiCore → askQueue → backend 全链）
@@ -2150,7 +2152,7 @@ describe('/plugins config 表单与 ctx.ui 问询 e2e（ix-4——表单写读�
       expect(calls.inputs[0]![0]).toBe('输入一词');
       expect(calls.selects).toEqual([['选档', ['fast', 'slow']]]);
       // 答案回流 + notify 呈现（args.sessionId 透传在同链验证）
-      expect(notified.some((t) => t.endsWith('回执 true/hello/slow（锚 sess-e2e）'))).toBe(true);
+      expect(notified.some((t) => t.endsWith(`回执 true/hello/slow（锚 ${opened.sessionId}）`))).toBe(true);
     } finally {
       await assembly.runtime.shutdown();
     }
@@ -3011,5 +3013,66 @@ describe('crash-loop 守卫装配接线（无人值守深化批——04 §5 supe
     expect(lastCloserPos).toBeGreaterThan(-1);
     const labelPos = src.indexOf("label: 'boot-guard-clean-exit'");
     expect(labelPos).toBeGreaterThan(lastCloserPos); // 尾位注册（注册序串行即 drain 序）
+  });
+});
+
+/* ---------------- 会话活集真源接线 e2e（07 §4.3 锚时效活集真源批——#14） ---------------- */
+
+describe('会话活集真源接线 e2e（07 §4.3 锚时效活集真源批——受理门真源单源让渡会话管理器活集）', () => {
+  it('真值表结构锁 + 摘活集 seam 联动清队：活而不在呈现册恒真（serve/webui 形）；retire → unregisterSession → 在队 ask 保守值收口（修前红：seam 无通道核联动，在队永挂）', async () => {
+    const dir = tmpDir('host-asm-liveset-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const { manager, channels } = assembly.stack;
+      // 真值表腿：create 即活（isLive true）而呈现册不在（hasSession false）
+      // ——serve/webui/SDK 形常态（registerSession 生产位全 TUI 路径；修前
+      // 受理门走呈现册 = 活会话结构性误拒的病灶结构证据）
+      const opened = manager.create();
+      expect(manager.isLive(opened.sessionId)).toBe(true);
+      expect(channels.hasSession(opened.sessionId)).toBe(false);
+
+      // 对称锁：registerSession 后在队 ask，retire 摘活集 → onSessionClosed
+      // seam 联动 unregisterSession → closeSession 清队（余项保守值收场——
+      // 触发面性质式：凡摘活集之路皆经 seam，受理时拒与在队收口两账对称）
+      channels.registerSession(opened.sessionId);
+      const hang = new Promise<never>(() => undefined);
+      channels.addBackend({
+        id: 'fake-pending-ask',
+        capabilities: {
+          notify: true,
+          confirm: true,
+          select: true,
+          input: true,
+          approval: false,
+          setStatus: false,
+          setWidget: false,
+        },
+        hasAudience: () => true,
+        notify: () => undefined,
+        confirm: () => hang,
+        select: () => hang,
+        input: () => hang,
+      } satisfies UiBackend<never>);
+      const ask = channels.confirm(opened.sessionId, '在队问?');
+      expect(channels.pendingAsks(opened.sessionId)).toHaveLength(1);
+      expect(manager.retire(opened.sessionId)).toBe(true);
+      await expect(ask).resolves.toBe(false); // 余项保守值（修前永挂——本断言即红）
+      expect(channels.pendingAsks(opened.sessionId)).toHaveLength(0);
+      expect(channels.hasSession(opened.sessionId)).toBe(false); // 呈现册联动摘除
+      expect(manager.isLive(opened.sessionId)).toBe(false); // 受理门随摘活集对称关死
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('词法锁：isSessionLive 恰一合成点位（assembly channelsUi 注入——活性真源单源防散播，散点即判据分源复发）', () => {
+    const src = readFileSync(new URL('./assembly.ts', import.meta.url), 'utf8');
+    expect((src.match(/isSessionLive/g) ?? []).length).toBe(1);
   });
 });

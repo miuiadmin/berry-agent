@@ -1517,6 +1517,57 @@ describe('webui 档位面桥真身（tiers 注入——/thinking //sandbox webui
       await rt.shutdown();
     }
   });
+
+  it('异会话 setStatus 不互覆 + 开流回放键控随会话：两会话均活而不在呈现册（webui 形常态——#14 锚时效活集真源批）', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-status-isol-') });
+    const { stack } = rigStack(rt);
+    let opened: { port: number; token: string } | undefined;
+    await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      disclose: () => undefined, // 测试态 stderr 静默
+      onOpen: (info) => {
+        opened = info;
+      },
+    });
+    let sseA: { next(timeoutMs?: number): Promise<SseFrame | undefined>; abort(): void } | undefined;
+    let sseB: { next(timeoutMs?: number): Promise<SseFrame | undefined>; abort(): void } | undefined;
+    try {
+      const a = stack.manager.create().sessionId;
+      const b = stack.manager.create().sessionId;
+      // 前置自证：两会话均活而不在呈现册（webui 形常态——manager.create 即
+      // 活；registerSession 生产位全 TUI 路径；setStatus 扇出不查呈现册）
+      expect(stack.manager.isLive(a)).toBe(true);
+      expect(stack.manager.isLive(b)).toBe(true);
+      expect(stack.channels.hasSession(a)).toBe(false);
+      expect(stack.channels.hasSession(b)).toBe(false);
+      sseA = await openSse(opened!.port, a, opened!.token);
+      sseB = await openSse(opened!.port, b, opened!.token);
+      stack.channels.setStatus(a, '状态甲');
+      stack.channels.setStatus(b, '状态乙');
+      // 直播腿：各 SSE 各见己帧（status 帧按会话订阅索引路由——不串流）
+      const fa = await untilFrame(sseA, (f) => f.kind === 'status');
+      expect(fa.payload?.status).toBe('状态甲');
+      const fb = await untilFrame(sseB, (f) => f.kind === 'status');
+      expect(fb.payload?.status).toBe('状态乙');
+      // 回放腿（真断缝）：迟连第三观众对 b 开流——开流快照取 b 的末帧非 a 的
+      //（lastStatusFrame 单槽全局形下此处回放『状态甲』即互覆红；活会话经
+      // sessionStateOf='open' 门放行回放——#14 三腿等值改写的消费端在证）
+      const sseB2 = await openSse(opened!.port, b, opened!.token);
+      try {
+        const replay = await untilFrame(sseB2, (f) => f.kind === 'status');
+        expect(replay.payload?.status).toBe('状态乙');
+      } finally {
+        sseB2.abort();
+      }
+    } finally {
+      sseA?.abort();
+      sseB?.abort();
+      await rt.shutdown();
+    }
+  });
 });
 
 /* ---------------- serve 四桥会话键 canonical 统一（CL-A2） ---------------- */

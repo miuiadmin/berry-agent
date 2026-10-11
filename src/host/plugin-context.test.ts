@@ -1416,8 +1416,16 @@ function makeFullBackend(opts?: { resolveAsks?: boolean; audience?: boolean }): 
   };
 }
 
-/** channelsUi 适配闭包（assembly 注入位同形——notify 首参空位：核层 void 恒扇出） */
-function adaptChannelsUi(svc: ReturnType<typeof createChannels>): ChannelsUiFace {
+/**
+ * channelsUi 适配闭包（assembly 注入位同形——notify 首参空位：核层 void 恒扇出）。
+ * 活性假源：缺省借用呈现册（测试语境呈现集 ⊆ 活集成立——ctx 层只消费
+ * isSessionLive 位不问真身）；live 覆写位承载 serve 形「活而不在册」真值
+ * 表腿（07 §4.3 锚时效活集真源批——生产真源 = SessionManager.isLive）。
+ */
+function adaptChannelsUi(
+  svc: ReturnType<typeof createChannels>,
+  live?: (sessionId: string) => boolean,
+): ChannelsUiFace {
   return {
     notify: (message, opts) => svc.notify('', message, opts),
     confirm: (sid, message, opts) => svc.confirm(sid, message, opts),
@@ -1426,7 +1434,7 @@ function adaptChannelsUi(svc: ReturnType<typeof createChannels>): ChannelsUiFace
     setStatus: (sid, status) => svc.setStatus(sid, status),
     setWidget: (sid, node) => svc.setWidget(sid, node),
     hasAudience: () => svc.hasAudience(),
-    hasSession: (sid) => svc.hasSession(sid),
+    isSessionLive: (sid) => live?.(sid) ?? svc.hasSession(sid),
   };
 }
 
@@ -1485,13 +1493,53 @@ describe('ctx.ui 消费腿（ix-2——07 §4.3 会话锚定档位表）', () =>
     expect(channels.pendingAsks('s1')).toHaveLength(0);
   });
 
-  it('锚时效：会话不在在册集（未注册/已注销）= UI_ASK_SESSION_CLOSED——陈年锚不悬死', () => {
+  it('锚时效：锚会话非活体（未开 / 已摘活集形）= UI_ASK_SESSION_CLOSED——陈年锚不悬死', () => {
     const channels = createChannels();
     const { handle } = assemble({ channels, channelsUi: adaptChannelsUi(channels) });
     expectCode(() => handle.ctx.ui.confirm('x', { sessionId: 'gone' }), 'UI_ASK_SESSION_CLOSED');
     channels.registerSession('s1');
-    channels.unregisterSession('s1'); // 注销后再问（尾链晚到形）
+    channels.unregisterSession('s1'); // 摘活集形（活集替身随呈现册——retire/dispose 同向量）
     expectCode(() => handle.ctx.ui.confirm('x', { sessionId: 's1' }), 'UI_ASK_SESSION_CLOSED');
+  });
+
+  it('修前红①：serve/webui 形活会话过受理门——活而不在呈现册（isSessionLive 真源 ≠ 通道核在册集）', () => {
+    // 修前（判据走通道核在册集）：serve/webui/SDK 形态会话不经 registerSession
+    // （生产位全 TUI 路径）→ 活会话被结构性误拒 UI_ASK_SESSION_CLOSED。
+    // 翻档后：活集单源放行——受理入队（可答性归受理后降级链）。
+    const channels = createChannels();
+    const full = makeFullBackend();
+    channels.addBackend(full.backend);
+    const { handle } = assemble({ channels, channelsUi: adaptChannelsUi(channels, () => true) });
+    // 活而不在册真值表腿：呈现册无此会话而活集有之
+    expect(channels.hasSession('srv-1')).toBe(false);
+    handle.ctx.ui.confirm('继续?（serve 形会话）', { sessionId: 'srv-1' }).catch(() => undefined);
+    expect(channels.pendingAsks('srv-1')).toHaveLength(1); // 过门入队（修前此处抛 UI_ASK_SESSION_CLOSED）
+  });
+
+  it('修前红②：headless 保守值——活锚 × 无应答能力后端走降级链（notify 化 + 保守值 false），非受理门误拒', async () => {
+    // 两轴分立（07 §4.3）：受理门（活集）与可答性（UiBackend 能力位）分立
+    // ——修前 serve 形活会话 confirm 直接误拒，翻档后进降级链：无 confirm/
+    // input 能力后端 → notify 化呈现问句 + 保守值 false 收场（无人可答
+    // fail-closed——不撒「已收口」谎）。
+    const channels = createChannels(); // 零后端（headless 形）
+    const { handle } = assemble({ channels, channelsUi: adaptChannelsUi(channels, () => true) });
+    await expect(handle.ctx.ui.confirm('x?', { sessionId: 'srv-2' })).resolves.toBe(false);
+    await expect(handle.ctx.ui.input('名?', { sessionId: 'srv-2' })).resolves.toBe('');
+  });
+
+  it('修前红③：setStatus 活锚零 warn——活而不在册会话状态行照常路由（修前被 no-op warn 谎报「已收口」）', () => {
+    const channels = createChannels();
+    const full = makeFullBackend();
+    channels.addBackend(full.backend);
+    const warns: string[] = [];
+    const { handle } = assemble({
+      channels,
+      channelsUi: adaptChannelsUi(channels, () => true),
+      uiWarn: (m) => warns.push(m),
+    });
+    handle.ctx.ui.setStatus('busy', { sessionId: 'srv-3' });
+    expect(warns).toHaveLength(0); // 修前：活会话被 no-op warn（呈现册误充活性真源）
+    expect(full.calls.setStatus).toEqual(['busy']); // 照常扇出路由
   });
 
   it('钩子窗禁律：guard 窗内阻塞三件拒 UI_ASK_WINDOW_INVALID——判序窗判前置锚判（显式 sessionId 亦拒）', () => {

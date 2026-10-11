@@ -616,6 +616,37 @@ describe('SessionManager retire', () => {
   });
 });
 
+/* ---------------- isLive（07 §4.3 锚时效活集真源批——三读面谱） ---------------- */
+
+describe('SessionManager isLive（活集真源——ctx.ui 受理门 / SDK 线核先决门单源）', () => {
+  it('三读面谱：create 真 / retire 假 / dispose 假 / 未建 id 假 / durable 行未开假（行在库不掩活体缺席）', async () => {
+    const { manager } = makeManager();
+    const a = manager.create();
+    expect(manager.isLive(a.sessionId)).toBe(true); // 登记即活
+    closedTurn(a.driver.session, '活集谱一轮');
+    await persistence.flush(); // durable 行在场
+    expect(manager.retire(a.sessionId)).toBe(true);
+    expect(manager.isLive(a.sessionId)).toBe(false); // retire 摘活集
+    expect(manager.exists(a.sessionId)).toBe(true); // durable 行仍在库——两账分立（行在库 ≠ 活体）
+    const resumed = manager.open(a.sessionId); // open 复续重造活体（SDK 续接主路径）
+    expect(manager.isLive(a.sessionId)).toBe(true);
+    resumed.driver.dismantle(); // 测试收口（防未处理拒绝防御位）
+    expect(manager.isLive(a.sessionId)).toBe(false); // dismantle 后（在册已停摆——见下条两半分立谱）
+    expect(manager.isLive('never-created')).toBe(false); // 从未存在
+    const b = manager.create();
+    manager.dispose();
+    expect(manager.isLive(b.sessionId)).toBe(false); // dispose 全量摘活集
+  });
+
+  it('两半分立谱：isOpen = 登记即真，isLive 叠加 ¬dismantled 半边（在册终态停摆驱动 isOpen 真 / isLive 假——run 生命周期停摆可先于登记摘除）', () => {
+    const { manager } = makeManager();
+    const a = manager.create();
+    a.driver.dismantle(); // 直调停摆（不摘登记——retire/dispose 之外的终态停摆形）
+    expect(manager.isOpen(a.sessionId)).toBe(true); // 登记面未动
+    expect(manager.isLive(a.sessionId)).toBe(false); // 活性叠加停摆半边——受理门拒
+  });
+});
+
 /* ---------------- listActive 尾键判据（cs-D1——currentSessionId 判据 v1 三语义） ---------------- */
 
 describe('SessionManager listActive 尾键判据（cs-D1——装配根 currentSessionId 判据 v1 三语义：首次入册序 / 幂等复开不移尾 / 删后重开新尾插）', () => {

@@ -622,14 +622,21 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       },
       // 单会话收口观察穿线（发现 ⑯）：manager retire 成功路 → 当前代订阅 feed
       onSessionRetired: (sessionId) => sessionRetireFeed?.(sessionId),
-      // 会话关闭收口接线（六役 CL-C ④——04 §10 closeOwner 段消费位）：owner =
-      // 会话 id 形的围栏由会话终态收口序收口——retire 成功路 + dispose 全量
-      // 拆解路两路逐会话 → closeOwner（与插件卸载 closer 宿主位两路同源）。
+      // 会话关闭收口接线（六役 CL-C ④——04 §10 closeOwner 段消费位 + 07 §4.3
+      // 锚时效活集真源批扩第二消费者）：owner = 会话 id 形的围栏由会话终态
+      // 收口序收口——retire 成功路 + dispose 全量拆解路两路逐会话 →
+      // closeOwner（与插件卸载 closer 宿主位两路同源）；同 seam 联动通道核
+      // unregisterSession（触发面性质式——凡摘活集之路〔retire/dispose/
+      // delete 经 retire 复用〕皆经本 seam 清提问队列余项 + widget 槽，
+      // 幂等；goal 绑定会话不摘活集 = 不触本 seam，受理恒过与「活」自洽）。
       // jobs 在 stack 后建（晚绑定闭包——发射时点恒在装配完成后，调用时点
-      // jobs 必已初始化）；closeOwner 返回 Promise——同步收口序里
-      // fire-and-forget（void 吞并：finalize 同步推进不留孤儿悬空，异步腿
-      // 不阻塞会话收口）
-      onSessionClosed: (sessionId) => void jobs.closeOwner(sessionId),
+      // jobs 必已初始化；stack.channels 同晚绑定）；closeOwner 返回 Promise
+      // ——同步收口序里 fire-and-forget（void 吞并：finalize 同步推进不留
+      // 孤儿悬空，异步腿不阻塞会话收口）
+      onSessionClosed: (sessionId) => {
+        stack.channels.unregisterSession(sessionId);
+        void jobs.closeOwner(sessionId);
+      },
       // 跨树观测门检接线（e2-4——03 §4.6 第五枚 sessions.observe-cross 工具
       // 腿；开门制扩展批 2026-09-09 授予面接线）：模型道门检输入 = doors 段
       // 单独（活体读——受理时点现读现判，撤位即收回；插件道订阅走 plugin-context
@@ -1016,7 +1023,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           hookDispatchGuard,
           // ctx.ui 消费腿通道核窄面（ix-2——07 §4.3 消费腿条款）：ChannelsService
           // 七原语结构适配闭包（notify 首参空位——核层 void 该位恒扇出语义；
-          // hasSession 锚时效真源）。fork 级联共享单真身。
+          // 活集真源注入位——委派 SessionManager.isLive 单源〔07 §4.3
+          // 锚时效活集真源批：通道核在册集是 TUI 呈现路由位、非活性判据——
+          // serve/webui/SDK 活会话结构性不在册〕）。fork 级联共享单真身。
           channelsUi: {
             notify: (message, opts) => stack.channels.notify('', message, opts),
             confirm: (sid, message, opts) => stack.channels.confirm(sid, message, opts),
@@ -1025,7 +1034,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             setStatus: (sid, status) => stack.channels.setStatus(sid, status),
             setWidget: (sid, node) => stack.channels.setWidget(sid, node),
             hasAudience: () => stack.channels.hasAudience(),
-            hasSession: (sid) => stack.channels.hasSession(sid),
+            isSessionLive: (sid) => stack.manager.isLive(sid),
           },
           // ctx.ui 降档 warn 出口（setStatus/setWidget 无锚 no-op 一行的呈现位）
           uiWarn: (message) => logger.warn(message),

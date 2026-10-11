@@ -240,9 +240,14 @@ export function createServeBridge(
       return row === undefined ? undefined : row.lastSeq + 1;
     },
     sessionStateOf: (sessionId: string): SdkSessionState => {
-      const driver = stack.driverOf(sessionId);
-      if (driver !== undefined) return driver.dismantled ? 'closed' : 'open';
-      // 库面在册 = 可续（prompt/订阅经 manager.open 落驱动）
+      // 活体腿委派 manager.isLive 单源化（07 §4.3 锚时效活集真源批）：与
+      // ctx.ui 受理门同门真源（判据单源非判定域同一——两门对「未开库面在册」
+      // 判定恒反：彼拒本放行续接）；closed 档 v1 = 进程内 dismantle 态钉位
+      // 维持（在册已 dismantle 的终态停摆驱动仍报 closed）。
+      if (stack.manager.isLive(sessionId)) return 'open';
+      if (stack.driverOf(sessionId) !== undefined) return 'closed';
+      // 库面在册 = 可续（prompt/订阅经 manager.open 落驱动——未开但行在库
+      // 的可续腿不动；manager.open 复续重造活体是 SDK 续接主路径）
       return runtime.persistence.store.getSessionRow(sessionId) === undefined ? 'missing' : 'open';
     },
     retryProbeOf: (sessionId: string) => stack.driverOf(sessionId)?.retryState ?? null,

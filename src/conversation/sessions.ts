@@ -438,6 +438,19 @@ export class SessionManager {
   }
 
   /**
+   * 会话活体判定（07 §4.3 锚时效活集真源批——ctx.ui 受理门 / SDK 线核先决门
+   * 的单源判据）：驱动登记 ∧ 未 dismantle。非活体形 = 未开 / 已 retire /
+   * 已 dispose / 已删除或从未存在（durable 行在库不掩活体缺席——manager.open
+   * 复续重造活体是 SDK 续接主路径）。与 isOpen 分立：isOpen 是幂等 open 的
+   * 外部可读面（登记即真），本位叠加 dismantle 终态半边（run 生命周期终态
+   * 停摆可先于登记摘除——两半皆判不靠同步段不变式兜底）。
+   */
+  isLive(sessionId: string): boolean {
+    const record = this.records.get(sessionId);
+    return record !== undefined && !record.driver.dismantled;
+  }
+
+  /**
    * 目标会话在场判定（进程内在管 ∪ durable 行——e-4 操控轴幽灵守卫判据位，
    * 03 §2.2 第十一面：三动词共同前置「目标 id 无对应行拒
    * SESSION_TARGET_NOT_FOUND」）。零副作用：不 attach、不合成 closer、

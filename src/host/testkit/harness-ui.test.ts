@@ -7,7 +7,7 @@
  * → PLUGIN_APPLY_FAILED 进 failed 面。本批补假受局面最小注入：
  * - notify 收件入账（harness.ui.notifies() 可断言）；
  * - hasAudience 恒 false（假宿主无真人观众——诚实值）；
- * - hasSession 恒 false（假宿主零在册会话——阻塞三件/单向原语按真判序
+ * - isSessionLive 恒 false（假宿主零活体会话——阻塞三件/单向原语按真判序
  *   诚实拒/降档，不静默全开）。
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';

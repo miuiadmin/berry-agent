@@ -215,8 +215,9 @@ export interface PluginContext {
    * 通道交互面（ix-2——07 §4.3 消费腿条款）：七原语 + 会话锚定档位执法。
    * 阻塞三件判序 = 频率护栏 → 钩子窗禁（窗判前置锚判）→ 受局面 → 锚解析
    * （显式 sessionId 优先 / ambient 命令锚〔ALS〕回落 / 缺席拒
-   * UI_ASK_UNANCHORED / 不在册拒 UI_ASK_SESSION_CLOSED）；单向原语无锚
-   * 降档 no-op warn。notify/hasAudience 无会话位恒可。
+   * UI_ASK_UNANCHORED / 锚会话非活体拒 UI_ASK_SESSION_CLOSED——活性真源
+   * = 会话管理器活集）；单向原语无锚降档 no-op warn。notify/hasAudience
+   * 无会话位恒可。
    */
   readonly ui: PluginUiFace;
   /** 宿主自省面（§8.5——装配根一次物化、fork 级联共享；附本插件 id） */
@@ -228,10 +229,10 @@ export type ProviderInput = Parameters<LlmRuntime['registerProvider']>[0];
 
 /**
  * ctx.ui 消费腿通道核窄面（ix-2——07 §4.3 消费腿条款的受理委派面）。
- * 手写结构相容 ChannelsService 七原语子集 + hasSession（锚时效真源）——
- * 不 import ChannelsService 全型防 DAG 新边（mm 批 memory-viewer 同先例）。
- * notify 不带 sessionId 首参（核层 void 掉该位——恒扇出语义，装配位适配
- * 闭包注空位）。
+ * 手写结构相容 ChannelsService 七原语子集 + isSessionLive（锚时效活集
+ * 真源——装配位委派 SessionManager.isLive）——不 import ChannelsService
+ * 全型防 DAG 新边（mm 批 memory-viewer 同先例）。notify 不带 sessionId
+ * 首参（核层 void 掉该位——恒扇出语义，装配位适配闭包注空位）。
  */
 export interface ChannelsUiFace {
   /** 一次性通知（恒扇出——无会话归属，07 §4.3 档位 1） */
@@ -243,8 +244,13 @@ export interface ChannelsUiFace {
   setWidget(sessionId: string, node: unknown | null): void;
   /** 观众探针（进程级——与核层同形） */
   hasAudience(): boolean;
-  /** 在册判定（锚时效——受理时检查，陈年锚不悬死） */
-  hasSession(sessionId: string): boolean;
+  /**
+   * 会话活体判定（锚时效——受理时检查，陈年锚不悬死）：真源 = 会话管理器
+   * 活集 SessionManager.isLive（07 §4.3 锚时效活集真源批——2026-10-11 翻档：
+   * 原走通道核在册集系 TUI 呈现账误充活性真源，serve/webui/SDK 活会话结构
+   * 性误拒）。非活体形 = 未开 / 已 retire / 已 dispose / 已删除或从未存在。
+   */
+  isSessionLive(sessionId: string): boolean;
 }
 
 /**
@@ -623,7 +629,8 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
    * 阻塞三件锚解析（档位 2）：显式 opts.sessionId 优先 → ambient 命令锚
    * （ALS 语境继承——命令 handler 及其异步尾链零自觉锚定）回落；缺席拒
    * UI_ASK_UNANCHORED（fail-loud——「问了没人答」不得伪装「用户答了否」）；
-   * 锚时效：不在通道核在册集拒 UI_ASK_SESSION_CLOSED（陈年锚晚到不悬死）。
+   * 锚时效：锚会话非活体拒 UI_ASK_SESSION_CLOSED（真源 = 会话管理器活集
+   * isSessionLive——陈年锚晚到不悬死；活集内一律放行，可答性归受理后降级链）。
    */
   const resolveAskAnchor = (verb: string, explicit?: string): { ui: ChannelsUiFace; sessionId: string } => {
     const ui = required(options.channelsUi, 'channels-ui', `ctx.ui.${verb}`);
@@ -634,17 +641,17 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         `ctx.ui ${verb} 无会话锚（插件 ${pluginId}——07 §4.3 档位 2：装载期/无锚后台语境 opts.sessionId 缺失且无 ambient 命令锚；命令 handler 内自动锚、尾链继承）`,
       );
     }
-    if (!ui.hasSession(sessionId)) {
+    if (!ui.isSessionLive(sessionId)) {
       throw new BaseError(
         'UI_ASK_SESSION_CLOSED',
-        `ctx.ui ${verb} 会话锚已收口（插件 ${pluginId}，会话 ${sessionId}——未注册或已注销：命令尾链陈年锚晚到不悬死，与在队收口三则对称分立）`,
+        `ctx.ui ${verb} 目标会话不在运行（插件 ${pluginId}，会话 ${sessionId}——未开启/已结束/已删除或从未存在：命令尾链的旧锚晚到不悬死，与在队收口三则对称分立）`,
       );
     }
     return { ui, sessionId };
   };
 
   /**
-   * 单向原语锚解析（档位 3）：缺席/不在册 = no-op warn 一行（降档不炸装载/
+   * 单向原语锚解析（档位 3）：缺席/非活体 = no-op warn 一行（降档不炸装载/
    * 不炸派发——问不到人可以不问，状态行更新炸装载属过罚失当）；受局面
    * 缺席同律降档（阻塞三件的 required 拒与此分档）。
    */
@@ -658,9 +665,9 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
       return undefined;
     }
     const sessionId = explicit ?? readSessionAnchor();
-    if (sessionId === undefined || !ui.hasSession(sessionId)) {
+    if (sessionId === undefined || !ui.isSessionLive(sessionId)) {
       warnUi(
-        `ctx.ui ${verb} 无有效会话锚（插件 ${pluginId}${sessionId === undefined ? '' : `，会话 ${sessionId} 已收口`}）——no-op（07 §4.3 档位 3：单向原语降档不炸装载）`,
+        `ctx.ui ${verb} 无有效会话锚（插件 ${pluginId}${sessionId === undefined ? '' : `，会话 ${sessionId} 无活体驱动`}）——no-op（07 §4.3 档位 3：单向原语降档不炸装载）`,
       );
       return undefined;
     }

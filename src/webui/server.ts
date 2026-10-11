@@ -289,7 +289,10 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
   const backend: UiBackend<never> = {
     id: 'webui',
     // 三位能力面对应信封三族（notify·status·approval）；confirm/select/input
-    // 缺席（微路由 v1 无应答端点——降级判定归核）；setWidget 是 TUI 呈现概念
+    // 缺席（微路由 v1 无应答端点）——两轴分立（07 §4.3 锚时效批）：受理门
+    // 归 isSessionLive 活集单源（webui createSession 落驱动即活集内——
+    // confirm 过受理门），「有人可答」归本能力位（false → 受理后降级链
+    // notify 化 + 保守值）；setWidget 是 TUI 呈现概念
     capabilities: {
       notify: true,
       confirm: false,
