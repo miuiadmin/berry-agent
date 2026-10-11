@@ -2764,6 +2764,8 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
         timestamp: 1,
       },
     });
+    // grep 属探索族——toolResult 入组窗不即时落卡，agent_end 收口（N=1 逐卡）才上帧
+    emit(tc.backend, { type: 'agent_end', status: 'completed' });
     expect(tc.io.bytes).toContain('\x1b[48;2;20;20;20m'); // 首带传导（20,20,20——dark 混白 8%）
     tc.io.bytes = '';
     tc.io.emitInput('\x1b]11;rgb:0d11/0d11/0d11\x07'); // 同板异值——16bit→8bit 折算 13：round(13 + 8%×242) = 32
@@ -2789,6 +2791,7 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
         timestamp: 2,
       },
     });
+    emit(tc.backend, { type: 'agent_end', status: 'completed' }); // 探索族同律——收口上帧
     expect(tc.io.bytes).toContain('\x1b[48;2;32;32;32m'); // 主红锚：新带传导（删比对腿则陈值 20 在场）
     expect(tc.io.bytes).not.toContain('\x1b[48;2;20;20;20m'); // 陈带退场
     tc.io.bytes = '';
@@ -3072,6 +3075,7 @@ describe('TuiBackend 会话级开关键（批 10i ctrl+t / ctrl+o）', () => {
         timestamp: 1,
       },
     });
+    emit(backend, { type: 'agent_end', status: 'completed' }); // read 入探索窗——收口补落单卡（N=1 < 2）
     expect(io.bytes).toContain('✓'); // 三态卡头（success——符号段与名段间有转义重置不连续）
     expect(io.bytes).toContain('读取文件'); // 名段用户面动词（V-0 注⑤——原 'read'）
     // 折叠预览中段截断（界面美化役批③——头 2 + 省略行 + 尾 2）：帽外中段不在场

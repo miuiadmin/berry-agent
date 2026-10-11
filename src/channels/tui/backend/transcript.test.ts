@@ -394,6 +394,7 @@ describe('LiveTranscript 起跑回执卡体抑制（批 V-1 笔2——background
       message: assistantMsg('', [{ id: 'tc2', name: 'read', arguments: { path: 'a.ts' } }]),
     });
     apply(t, { type: 'message_end', message: toolResultMsg('文件内容', { toolCallId: 'tc2' }) });
+    apply(t, { type: 'agent_end', status: 'completed' }); // read 入探索窗——收口补落单卡（N=1 < 2）
     const cards = t.snapshot.filter((b) => b.kind === 'tool-card') as Array<
       Extract<TranscriptBlock, { kind: 'tool-card' }>
     >;
@@ -734,6 +735,7 @@ describe('renderBlockStyledLines 带样式行（零第二渲染器——与主�
       message: assistantMsg('', [{ id: 'tc1', name: 'grep', arguments: { 'pa\tth': 'x' } }]),
     });
     apply(t2, { type: 'message_end', message: toolResultMsg('ok', { toolCallId: 'tc1' }) });
+    apply(t2, { type: 'agent_end', status: 'completed' }); // grep 入探索窗——收口补落单卡（N=1 < 2）
     const card = t2.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
     expect(card.brief).not.toMatch(/\t/); // 键列简述已消毒（修前 '(pa\th)' 原样携带）
   });
@@ -945,7 +947,7 @@ describe('LiveTranscript 思考流式前缀与定稿换装（批 10i R1）', () 
 /* ---------------- 批 10i：工具卡配对账与孤儿收敛（R4） ---------------- */
 
 describe('LiveTranscript 工具卡配对账（批 10i R4——直播路）', () => {
-  it('配对落卡：toolCall 入账不落行 → toolResult 到达落三态卡（卡名取调用侧非结果侧）', () => {
+  it('配对落卡：toolCall 入账不落行 → toolResult 入探索窗 → agent_end 收口落三态卡（卡名取调用侧非结果侧）', () => {
     const t = new LiveTranscript();
     apply(t, {
       type: 'message_end',
@@ -953,7 +955,10 @@ describe('LiveTranscript 工具卡配对账（批 10i R4——直播路）', () 
     });
     expect(t.snapshot).toEqual([]); // 在飞账不落行（直播路在飞期零正文行）
     apply(t, { type: 'message_end', message: toolResultMsg('命中 3 处', { toolCallId: 'tc1' }) });
-    expect(t.snapshot).toHaveLength(1);
+    // grep 属探索族（07 §4.1 V-3 注⑩ 探索组卡批）——入窗暂存非到达即落
+    expect(t.snapshot).toEqual([]);
+    apply(t, { type: 'agent_end', status: 'completed' });
+    expect(t.snapshot).toHaveLength(1); // N=1 < 2 → 逐条补落 R4 单卡
     expect(t.snapshot[0]).toMatchObject({
       kind: 'tool-card',
       name: 'grep', // 消息面 toolName 是 'read'——卡面取 pendingCalls 调用侧
@@ -969,7 +974,7 @@ describe('LiveTranscript 工具卡配对账（批 10i R4——直播路）', () 
     expect(t.snapshot).toEqual([{ kind: 'tool-result', brief: '野结果' }]);
   });
 
-  it('三态判定：details.aborted 结构化标记 → aborted 优先于 isError', () => {
+  it('三态判定：details.aborted 结构化标记 → aborted 优先于 isError（探索族失败封闭——逐窗逐卡）', () => {
     const t = new LiveTranscript();
     apply(t, { type: 'message_end', message: assistantMsg('', [{ id: 'a', name: 'read', arguments: {} }]) });
     apply(t, { type: 'message_end', message: assistantMsg('', [{ id: 'b', name: 'read', arguments: {} }]) });
@@ -978,11 +983,13 @@ describe('LiveTranscript 工具卡配对账（批 10i R4——直播路）', () 
       type: 'message_end',
       message: toolResultMsg('中断兼错', { toolCallId: 'b', details: { aborted: true }, isError: true }),
     });
+    // a 入窗（失败封闭窗）；b 到达切窗收口 a → N=1 单卡
     expect((t.snapshot[0] as { status: string }).status).toBe('aborted');
-    expect((t.snapshot[1] as { status: string }).status).toBe('aborted'); // aborted 标记优先
     apply(t, { type: 'message_end', message: assistantMsg('', [{ id: 'c', name: 'read', arguments: {} }]) });
     apply(t, { type: 'message_end', message: toolResultMsg('出错了', { toolCallId: 'c', isError: true }) });
-    expect((t.snapshot[2] as { status: string }).status).toBe('error');
+    apply(t, { type: 'agent_end', status: 'completed' });
+    expect((t.snapshot[1] as { status: string }).status).toBe('aborted'); // b 单卡（aborted 标记优先于 isError）
+    expect((t.snapshot[2] as { status: string }).status).toBe('error'); // c 单卡（agent_end 收口 N=1）
   });
 
   it('edit 词级 diff 档：patch 参数体作卡体（diff: true——呈现的是改了什么非结果文本）', () => {
@@ -1056,6 +1063,7 @@ describe('LiveTranscript 工具卡配对账（批 10i R4——直播路）', () 
       type: 'message_end',
       message: toolResultMsg('中断', { toolCallId: 'tc1', details: { aborted: true }, isError: true }),
     });
+    apply(t, { type: 'agent_end', status: 'completed' }); // grep 入探索窗——收口补落单卡（N=1 < 2）
     const card = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
     // 载荷 = 调用侧参数 + 结果消息面（toolName 单源 = 卡名故载荷不含）
     expect(card.renderInput).toEqual({
@@ -1083,6 +1091,7 @@ describe('LiveTranscript 投影孤儿兜底与配对撤销（批 10i R4——rep
     const t = new LiveTranscript();
     t.loadProjection([userMsg('问'), assistantMsg('', [{ id: 'tc1', name: 'grep', arguments: { pattern: 'x' } }])]);
     apply(t, { type: 'message_end', message: toolResultMsg('命中 1 处', { toolCallId: 'tc1' }) });
+    apply(t, { type: 'agent_end', status: 'completed' }); // grep 入探索窗——收口补落单卡（N=1 < 2）
     // ⚙ 已交 scrollback 物理不可回改——留账留屏，卡追加（净 +1：呈现侧 B 段
     // 照常写卡、账屏一致；撤销 splice 是账屏失同步的假象收敛）
     expect(t.snapshot.map((b) => b.kind)).toEqual(['user', 'tool-call', 'tool-card']);
@@ -1126,10 +1135,12 @@ describe('LiveTranscript 展开态开关（批 10i——ctrl+t / ctrl+o 会话�
     const t = new LiveTranscript();
     apply(t, { type: 'message_end', message: assistantMsg('', [{ id: 'tc1', name: 'read', arguments: {} }]) });
     apply(t, { type: 'message_end', message: toolResultMsg('输出', { toolCallId: 'tc1' }) });
+    apply(t, { type: 'agent_end', status: 'completed' }); // read 入探索窗——收口补落单卡（N=1 < 2）
     t.toggleToolCards();
     expect((t.snapshot[0] as { expanded: boolean }).expanded).toBe(true);
     apply(t, { type: 'message_end', message: assistantMsg('', [{ id: 'tc2', name: 'read', arguments: {} }]) });
     apply(t, { type: 'message_end', message: toolResultMsg('输出二', { toolCallId: 'tc2' }) });
+    apply(t, { type: 'agent_end', status: 'completed' });
     expect((t.snapshot[1] as { expanded: boolean }).expanded).toBe(true); // 继承会话级态
     // 思考块不裹挟（两开关独立）
     apply(t, { type: 'message_end', message: assistantMsg('', [], '想法') });
@@ -1356,8 +1367,11 @@ describe('LiveTranscript exec 折叠组（直播路——agent_end 窗口收口�
     const cards = t.snapshot.filter((b) => b.kind === 'tool-card');
     expect(cards).toHaveLength(1);
     const group = cards[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
-    expect(group.group).toMatchObject({ count: 3 });
-    expect(group.group?.commands.map((c) => c.command)).toEqual(['echo a', 'echo b', 'echo c']);
+    expect(group.group).toMatchObject({
+      kind: 'exec',
+      count: 3,
+      commands: [{ command: 'echo a' }, { command: 'echo b' }, { command: 'echo c' }],
+    });
     const lines = renderBlockStyledLines(group, 60);
     // 卡间上空行垫（五件批 C 件 R4）前置——首行空垫、收敛行后移一位；⑤ 全成
     // 组折叠态收敛单行（` • Ran N commands · hint 展开`——无终态符号位、逐条
@@ -1422,11 +1436,14 @@ describe('LiveTranscript exec 折叠组（直播路——agent_end 窗口收口�
     expect(t.snapshot.map((b) => b.kind)).toEqual(['tool-card', 'tool-card', 'user']);
   });
 
-  it('非 exec 工具到达即落律不变（read 卡即时落——不受窗机制影响）', () => {
+  it('探索族入窗翻档：read toolResult 到达不即时落卡（窗内暂存），agent_end 收口 N=1 逐条补落 R4 单卡', () => {
     const t = new LiveTranscript();
     apply(t, { type: 'message_end', message: assistantMsg('', [{ id: 'r1', name: 'read', arguments: {} }]) });
     apply(t, { type: 'message_end', message: toolResultMsg('文件内容', { toolCallId: 'r1' }) });
-    expect(t.snapshot).toHaveLength(1); // 到达即落（无 agent_end 也在场）
+    // 探索组卡批翻档（07 §4.1 V-3 注⑩）：read 入探索窗非到达即落——修前红锚
+    expect(t.snapshot).toHaveLength(0);
+    apply(t, { type: 'agent_end', status: 'completed' });
+    expect(t.snapshot).toHaveLength(1); // N=1 < 2 → 逐条补落
     expect(t.snapshot[0]).toMatchObject({ kind: 'tool-card', name: 'read' });
   });
 });
@@ -1486,6 +1503,240 @@ describe('LiveTranscript exec 折叠组（投影路——user 消息段窗聚合
     const group = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
     expect(group.group).toMatchObject({ count: 3 }); // 孤儿不入 N
     expect((t.snapshot[1] as { name: string }).name).toBe('bash'); // 孤儿 ⚙ 简行照旧族
+  });
+});
+
+/* ---------------- 探索组卡（07 §4.1 V-3 注⑩ 探索组卡批——单窗泛化两族） ---------------- */
+
+describe('LiveTranscript 探索组卡（探索组卡批——单窗泛化直播路）', () => {
+  /** 探索族调用+结果对速构（默认 read——args/错误面可覆写） */
+  const runExplorePair = (
+    t: LiveTranscript,
+    id: string,
+    over: {
+      name?: string;
+      args?: Record<string, unknown>;
+      text?: string;
+      isError?: boolean;
+      details?: unknown;
+    } = {},
+  ): void => {
+    apply(t, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id, name: over.name ?? 'read', arguments: over.args ?? {} }]),
+    });
+    apply(t, {
+      type: 'message_end',
+      message: toolResultMsg(over.text ?? 'ok', {
+        toolCallId: id,
+        isError: over.isError,
+        details: over.details,
+      }),
+    });
+  };
+
+  it('判据谱：read/ls/find/grep 四员入窗（到达 0 卡）——插件名异族即落', () => {
+    const t = new LiveTranscript();
+    runExplorePair(t, 'e1', { name: 'read' });
+    runExplorePair(t, 'e2', { name: 'ls' });
+    runExplorePair(t, 'e3', { name: 'find', args: { pattern: '*.ts' } });
+    runExplorePair(t, 'e4', { name: 'grep', args: { pattern: 'x' } });
+    // 全员入探索窗（同族续窗）——到达即落翻档，在飞零正文行
+    expect(t.snapshot).toHaveLength(0);
+    apply(t, { type: 'message_end', message: assistantMsg('', [{ id: 'x1', name: '自定义插件', arguments: {} }]) });
+    apply(t, { type: 'message_end', message: toolResultMsg('插件产物', { toolCallId: 'x1' }) });
+    // 异族（other）到达即落：先收口探索窗（N=4 ≥ 2 组卡）再落插件卡
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['tool-card', 'tool-card']);
+    const [explore, plugin] = t.snapshot as Array<Extract<TranscriptBlock, { kind: 'tool-card' }>>;
+    expect(explore!.group).toMatchObject({ kind: 'exploring', count: 4 });
+    expect(plugin!.group).toBeUndefined(); // 插件工具不进组（ΔA⇏ΔC——白名单外即落）
+    expect(plugin!.name).toBe('自定义插件');
+  });
+
+  it('N≥2 收口组卡：连续同工具双侧成功归并一 entry（args 保序去重并集——count 归并前）', () => {
+    const t = new LiveTranscript();
+    runExplorePair(t, 'r1', { args: { path: 'a.ts' } });
+    runExplorePair(t, 'r2', { args: { path: 'b.ts' } });
+    expect(t.snapshot).toHaveLength(0); // 窗内暂存
+    apply(t, { type: 'agent_end', status: 'completed' });
+    expect(t.snapshot).toHaveLength(1);
+    const group = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(group.name).toBe('read'); // 组卡块 name = 窗首条目工具名（事实位）
+    expect(group.status).toBe('success');
+    expect(group.group).toEqual({
+      kind: 'exploring',
+      count: 2, // 归并前条目数
+      entries: [{ tool: 'read', args: ['a.ts', 'b.ts'], status: 'success' }], // 归并后一 entry
+    });
+  });
+
+  it('连续 read 去重归并：read a → read b → read a → args 单名录 [a, b]、count=3', () => {
+    const t = new LiveTranscript();
+    runExplorePair(t, 'r1', { args: { path: 'a.ts' } });
+    runExplorePair(t, 'r2', { args: { path: 'b.ts' } });
+    runExplorePair(t, 'r3', { args: { path: 'a.ts' } });
+    apply(t, { type: 'agent_end', status: 'completed' });
+    const group = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(group.group).toMatchObject({ count: 3, entries: [{ tool: 'read', args: ['a.ts', 'b.ts'] }] });
+  });
+
+  it("摘要键序表：ls 缺省 path → ['.']；find/grep [pattern, path?]；非 string 坏形缺席", () => {
+    const t = new LiveTranscript();
+    runExplorePair(t, 'l1', { name: 'ls' }); // 无 path
+    runExplorePair(t, 'g1', { name: 'grep', args: { pattern: 'export', path: 'src/' } });
+    apply(t, { type: 'agent_end', status: 'completed' });
+    const group = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(group.group).toMatchObject({
+      entries: [
+        { tool: 'ls', args: ['.'] }, // 缺省 '.' 显式呈现（诚实形）
+        { tool: 'grep', args: ['export', 'src/'] }, // 键序 pattern 前 path 后
+      ],
+    });
+    // 非 string 坏形守卫：path=42 → 该键诚实缺席（不进摘要零崩；异工具防归并配对凑窗）
+    const t2 = new LiveTranscript();
+    runExplorePair(t2, 'r1', { args: { path: 42 } });
+    runExplorePair(t2, 'l1', { name: 'ls' });
+    apply(t2, { type: 'agent_end', status: 'completed' });
+    expect((t2.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>).group).toMatchObject({
+      entries: [
+        { tool: 'read', args: [] }, // 坏形键缺席 → 空摘要（诚实缺席非伪值）
+        { tool: 'ls', args: ['.'] },
+      ],
+    });
+  });
+
+  it('异族到达先收口后落保序：read×2 → bash 到达 → [探索组卡, bash 单卡]（bash 入 exec 窗）', () => {
+    const t = new LiveTranscript();
+    runExplorePair(t, 'r1', { args: { path: 'a.ts' } });
+    runExplorePair(t, 'r2', { args: { path: 'b.ts' } });
+    runBashPair(t, 'e1', 'echo hi');
+    // bash（exec 族）到达即收口探索窗（N=2 组卡落位）+ bash 入 exec 窗暂存
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['tool-card']);
+    apply(t, { type: 'agent_end', status: 'completed' });
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['tool-card', 'tool-card']);
+    expect(t.snapshot[0]).toMatchObject({ group: { kind: 'exploring', count: 2 } });
+    expect(t.snapshot[1]).toMatchObject({ name: 'bash' });
+    expect((t.snapshot[1] as Extract<TranscriptBlock, { kind: 'tool-card' }>).group).toBeUndefined(); // N=1 逐卡
+  });
+
+  it('修前红锚：bash→read→bash 到达序 = 三窗各 N=1 三逐卡序（异族到达即切窗——修前 read 即时落+exec 窗跨打断合组 N=2）', () => {
+    const t = new LiveTranscript();
+    runBashPair(t, 'e1', 'echo a');
+    runExplorePair(t, 'r1', { args: { path: 'x.ts' } });
+    runBashPair(t, 'e2', 'echo b');
+    // read 到达切 exec 窗（e1 收口 N=1 单卡）+ read 入探索窗；e2 到达切探索窗（r1 单卡）
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['tool-card', 'tool-card']);
+    apply(t, { type: 'agent_end', status: 'completed' });
+    expect(t.snapshot.map((b) => b.kind).every((k) => k === 'tool-card')).toBe(true);
+    expect(t.snapshot.map((b) => (b as Extract<TranscriptBlock, { kind: 'tool-card' }>).name)).toEqual([
+      'bash',
+      'read',
+      'bash',
+    ]); // 块序 = 到达序
+    expect(t.snapshot.every((b) => (b as { group?: unknown }).group === undefined)).toBe(true); // 三窗各 N=1 全逐卡
+  });
+
+  it('失败封闭 + 失败入组：失败条目入组不归并、后续探索开新窗（组头 error + 嵌套诊断行数据源）', () => {
+    const t = new LiveTranscript();
+    runExplorePair(t, 'r1', { args: { path: 'a.ts' } });
+    runExplorePair(t, 'r2', { args: { path: 'bad.toml' }, text: 'ENOENT: no such file', isError: true });
+    // r2 失败入窗（封闭）；r3 到达切窗收口前窗
+    runExplorePair(t, 'r3', { args: { path: 'c.ts' } });
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['tool-card']);
+    const group = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(group.status).toBe('error'); // 组级最差态
+    expect(group.group).toMatchObject({
+      count: 2,
+      entries: [
+        { tool: 'read', args: ['a.ts'], status: 'success' },
+        { tool: 'read', args: ['bad.toml'], status: 'error', errorFirstLine: 'ENOENT: no such file' }, // 失败独立行不归并
+      ],
+    });
+    apply(t, { type: 'agent_end', status: 'completed' });
+    expect(t.snapshot).toHaveLength(2); // 新窗 r3 单卡（N=1 < 2）
+    expect(t.snapshot[1]).toMatchObject({ name: 'read' });
+    expect((t.snapshot[1] as Extract<TranscriptBlock, { kind: 'tool-card' }>).group).toBeUndefined();
+  });
+
+  it('中止同律：⏹ 条目入组独立行、窗封闭', () => {
+    const t = new LiveTranscript();
+    runExplorePair(t, 'r1', { args: { path: 'a.ts' } });
+    runExplorePair(t, 'r2', { args: { path: 'b.ts' }, text: '中断', details: { aborted: true } });
+    runExplorePair(t, 'r3', { args: { path: 'c.ts' } });
+    apply(t, { type: 'agent_end', status: 'completed' });
+    const group = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(group.status).toBe('aborted'); // 中止优先于失败（最差态序）
+    expect(group.group).toMatchObject({
+      entries: [
+        { tool: 'read', args: ['a.ts'], status: 'success' },
+        { tool: 'read', args: ['b.ts'], status: 'aborted' }, // 无 errorFirstLine（仅 error 态铸诊断行）
+      ],
+    });
+  });
+
+  it('user 消息边界收口：先收口落组卡、user 块在后（窗不跨 user 消息——防御位锚）', () => {
+    const t = new LiveTranscript();
+    runExplorePair(t, 'r1', { args: { path: 'a.ts' } });
+    runExplorePair(t, 'r2', { args: { path: 'b.ts' } });
+    apply(t, { type: 'message_end', message: userMsg('打断追问') });
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['tool-card', 'user']);
+  });
+});
+
+describe('LiveTranscript 探索组卡（探索组卡批——投影路窗聚合）', () => {
+  /** 两对 read 语料（同窗 ≥2 形） */
+  const twoReadPairs = [
+    userMsg('问'),
+    assistantMsg('', [{ id: 'r1', name: 'read', arguments: { path: 'a.ts' } }]),
+    toolResultMsg('ok', { toolCallId: 'r1' }),
+    assistantMsg('', [{ id: 'r2', name: 'read', arguments: { path: 'b.ts' } }]),
+    toolResultMsg('ok', { toolCallId: 'r2' }),
+  ];
+
+  it('两路一致律：直播收口组卡 ≡ loadProjection 窗聚合组卡（逐字段）', () => {
+    const live = new LiveTranscript();
+    for (const message of twoReadPairs) apply(live, { type: 'message_end', message });
+    apply(live, { type: 'agent_end', status: 'completed' });
+    const proj = new LiveTranscript();
+    proj.loadProjection(twoReadPairs);
+    expect(proj.snapshot).toEqual(live.snapshot);
+    expect((proj.snapshot[1] as Extract<TranscriptBlock, { kind: 'tool-card' }>).group).toMatchObject({
+      kind: 'exploring',
+      count: 2,
+    });
+  });
+
+  it('投影 user 段切分：两窗各自求值（段即窗——探索族同律）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([
+      userMsg('一问'),
+      assistantMsg('', [{ id: 'r1', name: 'read', arguments: { path: 'a.ts' } }]),
+      toolResultMsg('ok', { toolCallId: 'r1' }),
+      assistantMsg('', [{ id: 'r2', name: 'read', arguments: { path: 'b.ts' } }]),
+      toolResultMsg('ok', { toolCallId: 'r2' }),
+      userMsg('二问'),
+      assistantMsg('', [{ id: 'r3', name: 'read', arguments: { path: 'c.ts' } }]),
+      toolResultMsg('ok', { toolCallId: 'r3' }),
+    ]);
+    // 前窗 N=2 组卡 + 后窗 N=1 逐卡——两窗互不串账
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['user', 'tool-card', 'user', 'tool-card']);
+    expect(t.snapshot[1]).toMatchObject({ group: { kind: 'exploring', count: 2 } });
+    expect(t.snapshot[3]).toMatchObject({ name: 'read' });
+    expect((t.snapshot[3] as Extract<TranscriptBlock, { kind: 'tool-card' }>).group).toBeUndefined();
+  });
+
+  it('投影走查毕收口 + 探索孤儿 ⚙ 兜底：组卡在前孤儿在后（收口序与直播路同序）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([
+      assistantMsg('', [{ id: 'r1', name: 'read', arguments: { path: 'a.ts' } }]),
+      toolResultMsg('ok', { toolCallId: 'r1' }),
+      assistantMsg('', [{ id: 'r2', name: 'read', arguments: { path: 'b.ts' } }]),
+      toolResultMsg('ok', { toolCallId: 'r2' }),
+      assistantMsg('', [{ id: 'r3', name: 'ls', arguments: {} }]), // 孤儿：无 toolResult
+    ]);
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['tool-card', 'tool-call']);
+    expect(t.snapshot[0]).toMatchObject({ group: { count: 2 } }); // 孤儿不入 N
+    expect((t.snapshot[1] as { name: string }).name).toBe('ls'); // 探索孤儿 ⚙ 简行照旧族
   });
 });
 

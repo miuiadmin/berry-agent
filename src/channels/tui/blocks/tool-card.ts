@@ -57,6 +57,7 @@ import {
   graphemeWidth,
   sanitizeDisplayText,
   splitGraphemes,
+  stringWidth,
   truncateToWidth,
   wrapText,
   type CellStyle,
@@ -83,14 +84,46 @@ export interface ToolCardGroupCommand {
 }
 
 /**
+ * 探索组条目（07 §4.1 V-3 注⑩ 探索组卡批词条——窗收口时从 toolCall 参数 +
+ * toolResult 终态铸入）：**归并住铸卡位**——同工具 ∧ 相邻 ∧ 双侧成功的条目
+ * 归并一 entry（args 保序去重——Codex `Read a, b` 同构）、失败/中止条目恒
+ * 独立行（可见性优先）。
+ */
+export interface ExploringGroupEntry {
+  /** 工具名原始值（数据面保原始名——toolFaceZh 分层律；read/ls/find/grep） */
+  readonly tool: string;
+  /** 参数摘要（键序表产物：read `[path]` / ls `[path ?? '.']` / find·grep `[pattern, path?]`；归并行 = 保序去重并集） */
+  readonly args: readonly string[];
+  /** 条目终态（组级最差态聚合 + ✗/⏹ 前置位的数据源） */
+  readonly status: ToolCardStatus;
+  /** 错误首行（error 态嵌套诊断行数据源；缺席 = 无诊断行） */
+  readonly errorFirstLine?: string;
+}
+
+/**
  * exec 折叠组卡数据（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条——tool-card 块
- * 新变体）：count = 窗内**已完成 toolResult 配对**条数 N（卡头 `• Ran N
+ * 组变体之一）：count = 窗内**已完成 toolResult 配对**条数 N（卡头 `• Ran N
  * commands` 消费——孤儿在飞不入 N）；commands = 各命令一行摘要的数据源。
  */
-export interface ToolCardGroupData {
+export interface ToolCardExecGroupData {
+  readonly kind: 'exec';
   readonly count: number;
   readonly commands: readonly ToolCardGroupCommand[];
 }
+
+/**
+ * 探索组卡数据（07 §4.1 V-3 注⑩ 探索组卡批词条——tool-card 块组变体之二）：
+ * count = 窗内已完成配对条目数 N（**归并前**——卡头 `已探索 N 项` 消费）；
+ * entries = 归并后行数据源（渲染位零算法——组数据是摘要终形）。
+ */
+export interface ToolCardExploringGroupData {
+  readonly kind: 'exploring';
+  readonly count: number;
+  readonly entries: readonly ExploringGroupEntry[];
+}
+
+/** 组卡数据判别联合（exec/探索两族——显式判别位，渲染位按 kind 分诊） */
+export type ToolCardGroupData = ToolCardExecGroupData | ToolCardExploringGroupData;
 
 /**
  * 折叠档预览帽（UX 五问题批⑤——帽值语义翻**总帽 5**）：修前语义 = 尾 5 行
@@ -150,8 +183,8 @@ const STATUS_SYMBOL: Readonly<Record<ToolCardStatus, string>> = { success: '✓'
 
 /**
  * 终态符号段样式（⑤——终态符号族 ✓/✗ 恒加 bold；⏹ 中止维持次文档不加）。
- * 三消费位单源：exec 单卡头 / 通用卡头 / 组卡展开头（收敛行无终态符号位
- * 不消费）。
+ * 四消费位单源：exec 单卡头 / 通用卡头 / 组卡展开头 / 探索组卡展开头
+ * （收敛行无终态符号位不消费）。
  */
 function statusSymbolStyle(status: ToolCardStatus, fg: ColorValue): CellStyle {
   return status === 'aborted' ? { fg } : { fg, bold: true };
@@ -428,22 +461,30 @@ function commandRuns(line: string, offset: number, theme: Readonly<ResolvedTheme
 /**
  * 组级最差态聚合（词条三态序：任一 aborted ⏹ > 任一 error ✗ > 全成 ✓——
  * 中止优先于失败）：渲染位从组数据现算（数据单源——与铸卡位同式，块面
- * status 字段是账面冗余位非渲染源）。
+ * status 字段是账面冗余位非渲染源）。exec/探索两族同式（判别联合分诊
+ * 取条目集）。
  */
 function worstGroupStatus(group: ToolCardGroupData): ToolCardStatus {
-  if (group.commands.some((command) => command.status === 'aborted')) return 'aborted';
-  if (group.commands.some((command) => command.status === 'error')) return 'error';
+  const statuses =
+    group.kind === 'exec'
+      ? group.commands.map((command) => command.status)
+      : group.entries.map((entry) => entry.status);
+  if (statuses.some((status) => status === 'aborted')) return 'aborted';
+  if (statuses.some((status) => status === 'error')) return 'error';
   return 'success';
 }
 
 /**
- * exec 折叠组卡渲染（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条——组级形；
+ * 组卡渲染分诊（判别联合——exec/探索两族同壳）：折叠收敛判据两族同律
+ * （折叠档 × 全成功组才收敛；失败/未完成组不收敛——失败可见性优先），
+ * 展开形各自渲染。
+ *
+ * exec 折叠组卡形（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条——组级形；
  * ⑤ 收敛翻档）：折叠态 × 全成功组 → **收敛单行** ` • Ran {N} commands ·
  * {hint} 展开`（• = 组内最差态语义色〔非新键〕含首空格段、Ran 动词段
  * bold 〔exec 单卡先例〕、` · hint 展开` 段 dim；**无终态符号位**——「组级
- * 最差态符号」半句随 ⑤ 翻档）；**失败/未完成组不收敛**（worst ∈ error/
- * aborted——失败可见性优先，恒逐条展开形）；展开态逐条形维持（头 = 终态
- * 符号 + `• Ran {N} commands`）。逐条行 = 各命令一行摘要（`$ ` 前缀 dim +
+ * 最差态符号」半句随 ⑤ 翻档）；展开态逐条形维持（头 = 终态符号 +
+ * `• Ran {N} commands`）。逐条行 = 各命令一行摘要（`$ ` 前缀 dim +
  * 命令文本截断〔ellipsize `…` 单源——界面美化役注① 全域律〕+ 退出码位
  * 〔失败腿非零码 ` (N)` 后缀 error 色；成功零码不显——UX 批④ 信息零值不
  * 占屏同律〕）；卡体帽 200 行同律；折叠/展开走 ctrl+o 会话级既有律（组卡
@@ -452,6 +493,9 @@ function worstGroupStatus(group: ToolCardGroupData): ToolCardStatus {
  * 零漂移）。
  */
 function renderGroupCardStyledLines(card: ToolCardView, group: ToolCardGroupData, columns: number): StyledLine[] {
+  if (group.kind === 'exploring') {
+    return renderExploringGroupCardStyledLines(card, group, columns);
+  }
   const status = worstGroupStatus(group);
   // ⑤ 收敛判据：折叠档 × 全成功组——失败/未完成（error/aborted）组不收敛
   //（失败可见性优先——命令列表恒可见），走下方展开形
@@ -536,6 +580,131 @@ function groupCommandLine(command: ToolCardGroupCommand, columns: number, theme:
     runs.push({ start: plain.length - suffix.length + 1, end: plain.length, style: { fg: theme.error } });
   }
   return capStyledLine({ plain, runs }, columns);
+}
+
+/**
+ * 探索组卡渲染（07 §4.1 V-3 注⑩ 探索组卡批词条——组级形，exec 组卡同壳
+ * 两态）：折叠态 × 全成功组 → 收敛单行 ` • 已探索 {N} 项 · {hint} 展开`
+ * （与 exec 收敛行同构）；失败/未完成组不收敛（失败可见性优先——子行恒
+ * 可见）。展开态：头 ` {终态符号} • 已探索 {N} 项`（符号段语义色 ✓/✗ 恒
+ * bold——exec 组卡展开头同构、`已探索` 动词段 [5,8) bold 平前景〔accent
+ * 是焦点指示专属键、正文不混用律〕）+ 逐条子行（exploringEntryLine）。
+ * 卡面染色由 renderToolCardStyledLines 出口统一施加（组卡分诊位既有）。
+ */
+function renderExploringGroupCardStyledLines(
+  card: ToolCardView,
+  group: ToolCardExploringGroupData,
+  columns: number,
+): StyledLine[] {
+  const status = worstGroupStatus(group);
+  // 收敛判据与 exec 组卡同律：折叠档 × 全成功组——失败/中止组恒展开
+  if (!card.expanded && status === 'success') {
+    return [collapsedExploringGroupLine(group, columns, card.toggleHint, card.theme.success)];
+  }
+  const statusColor =
+    status === 'success' ? card.theme.success : status === 'error' ? card.theme.error : card.theme.secondary;
+  const headerPlain = ` ${STATUS_SYMBOL[status]} • 已探索 ${group.count} 项`;
+  const header = capStyledLine(
+    {
+      plain: headerPlain,
+      runs: [
+        { start: 0, end: 2, style: statusSymbolStyle(status, statusColor) }, // 符号段（含首空格——语义色，✓/✗ 恒 bold）
+        { start: 5, end: 8, style: { bold: true } }, // `已探索` 动词段（exec Ran 同位同律——平前景 bold）
+      ],
+    },
+    columns,
+  );
+  return [header, ...exploringEntryLines(group.entries, columns, card.theme)];
+}
+
+/**
+ * 探索组卡折叠收敛单行：` • 已探索 {N} 项 · {hint} 展开`——• 段（含首空格
+ * ——组内最差态语义色〔全成组才收敛故恒 success 键〕）+ `已探索` 动词段
+ * bold + ` · hint 展开` 段 dim——与 exec 收敛行（collapsedGroupLine）同构。
+ * 行恒受屏宽帽（卡头族 F6 律）。
+ */
+function collapsedExploringGroupLine(
+  group: ToolCardExploringGroupData,
+  columns: number,
+  toggleHint: string,
+  fg: ColorValue,
+): StyledLine {
+  const head = ` • 已探索 ${group.count} 项`;
+  const hint = toggleHint !== '' ? toggleHint : 'ctrl+o';
+  const tail = ` · ${hint} 展开`;
+  return capStyledLine(
+    {
+      plain: head + tail,
+      runs: [
+        { start: 0, end: 2, style: { fg } },
+        { start: 3, end: 6, style: { bold: true } },
+        { start: head.length, end: head.length + tail.length, style: DIM_STYLE },
+      ],
+    },
+    columns,
+  );
+}
+
+/**
+ * 探索组卡体子行集：各条目一至两行（动词行 + error 态嵌套诊断行）+ 卡体帽
+ * 同律（超帽截头保尾 + 截断标记首行——CARD_BODY_MAX_LINES 同语义；帽按
+ * 渲染后行数计——诊断行入账）。
+ */
+function exploringEntryLines(
+  entries: readonly ExploringGroupEntry[],
+  columns: number,
+  theme: Readonly<ResolvedTheme>,
+): StyledLine[] {
+  const lines = entries.flatMap((entry) => exploringEntryLine(entry, columns, theme));
+  if (lines.length <= CARD_BODY_MAX_LINES) return lines;
+  const dropped = lines.length - CARD_BODY_MAX_LINES;
+  const marker = `⋯（前文已省 ${dropped} 行）`;
+  return [
+    { plain: marker, runs: [{ start: 0, end: marker.length, style: DIM_STYLE }] },
+    ...lines.slice(-CARD_BODY_MAX_LINES),
+  ];
+}
+
+/**
+ * 探索条目子行：`  └ {✗/⏹ 前置}{动词} {参数摘要}`——`  └ ` 前缀 dim
+ * （EXEC_WINDOW_PREFIX 第四消费位）、失败/中止符前置（✗ error 键 / ⏹
+ * secondary 键）、动词段 toolFaceZh 转写 bold 平前景、参数摘要 ` · ` 串接
+ * + 超宽 ellipsize + sanitizeLineText 消毒（path/pattern 是模型生成面文本
+ * ——grid 零控制字节律）；空摘要退化裸动词行（非 string 坏形守卫的诚实
+ * 缺席形）。error 态且有错误首行 → 追加嵌套诊断行 `    └ {首行}` 整行
+ * error 色（失败载体可诊断性——Codex 失败子行保全转译）。
+ */
+function exploringEntryLine(entry: ExploringGroupEntry, columns: number, theme: Readonly<ResolvedTheme>): StyledLine[] {
+  const mark = entry.status === 'error' ? '✗ ' : entry.status === 'aborted' ? '⏹ ' : '';
+  const verb = sanitizeLineText(toolFaceZh(entry.tool));
+  const argsText = entry.args.map((arg) => sanitizeLineText(arg)).join(' · ');
+  // args 预算：屏宽 − └ 前缀 4 − 前置符 2 − 动词显示宽 − 连接空格 1（动词以显示宽计——CJK 双列）
+  const budget = Math.max(1, columns - EXEC_WINDOW_SLOT_WIDTH - mark.length - stringWidth(verb) - 1);
+  const body = argsText === '' ? verb : `${verb} ${ellipsize(argsText, budget)}`;
+  const plain = EXEC_WINDOW_PREFIX + mark + body;
+  const runs: StyleRun[] = [{ start: 0, end: EXEC_WINDOW_SLOT_WIDTH, style: DIM_STYLE }]; // `  └ ` 前缀段
+  let cursor = EXEC_WINDOW_SLOT_WIDTH;
+  if (mark !== '') {
+    // 失败/中止前置符段（✗ error 键 / ⏹ secondary 键——含尾随空格）
+    runs.push({
+      start: cursor,
+      end: cursor + mark.length,
+      style: { fg: entry.status === 'error' ? theme.error : theme.secondary },
+    });
+    cursor += mark.length;
+  }
+  runs.push({ start: cursor, end: cursor + verb.length, style: { bold: true } }); // 动词段（平前景 bold）
+  const line = capStyledLine({ plain, runs }, columns);
+  if (entry.status === 'error' && entry.errorFirstLine !== undefined) {
+    // 嵌套诊断行：`    └ ` 六字符前缀 + 错误首行（消毒 + ellipsize），整行 error 色
+    const prefix = '    └ ';
+    const diag = prefix + ellipsize(sanitizeLineText(entry.errorFirstLine), Math.max(1, columns - prefix.length));
+    return [
+      line,
+      capStyledLine({ plain: diag, runs: [{ start: 0, end: diag.length, style: { fg: theme.error } }] }, columns),
+    ];
+  }
+  return [line];
 }
 
 /**

@@ -19,8 +19,10 @@ import {
   CARD_PREVIEW_LINES,
   cardBodyOf,
   renderToolCardStyledLines,
+  type ExploringGroupEntry,
   type ToolCardView,
 } from './tool-card.js';
+import { toolFaceZh } from '../../../contracts/index.js';
 
 const card = (over: Partial<ToolCardView>): ToolCardView => ({
   name: 'read',
@@ -131,6 +133,7 @@ describe('卡面染色带（TUI 对标 Codex 五件批 C 件 R4——toolCardBg 
       card({
         theme: probed,
         group: {
+          kind: 'exec',
           count: 2,
           commands: [
             { command: 'ls', status: 'success' },
@@ -828,6 +831,7 @@ describe('exec 折叠组卡（组级形——卡头 • Ran N commands + 最差�
       brief: '',
       body: [],
       group: {
+        kind: 'exec',
         count: commands.length,
         commands: commands.map((c) => ({ command: c.command, status: c.status ?? 'success', exitCode: c.exitCode })),
       },
@@ -1008,5 +1012,168 @@ describe('exec 卡体状态行（UX 五问题批③——bash 卡族卡体首行
     expect(lines[1]!.plain).toBe('  └ 甲');
     expect(lines[2]!.plain).toBe('    乙'); // 续行 4 空格槽
     expect(lines.slice(1).every((l) => l.runs.every((r) => r.style.dim === true))).toBe(true);
+  });
+});
+
+/* ---------------- 探索组卡（07 §4.1 V-3 注⑩ 探索组卡批——组级形渲染） ---------------- */
+
+describe('探索组卡（组级形——卡头 • 已探索 N 项 + 归并动词子行）', () => {
+  /** 组卡速构（归并后条目 → 组数据；count 缺省 = 条目数） */
+  const exploringCard = (
+    entries: ReadonlyArray<Omit<ExploringGroupEntry, 'status'> & { status?: ExploringGroupEntry['status'] }>,
+    over: Partial<ToolCardView> = {},
+    count?: number,
+  ): ToolCardView =>
+    card({
+      name: 'read',
+      brief: '',
+      body: [],
+      group: {
+        kind: 'exploring',
+        count: count ?? entries.length,
+        entries: entries.map((e) => ({ status: 'success' as const, ...e })),
+      },
+      ...over,
+    });
+
+  it('折叠收敛单行：` • 已探索 N 项 · hint 展开`——• 语义色（不加 bold）+ `已探索` 动词段 bold + hint 段 dim（exec 收敛行同构）', () => {
+    const ok = renderToolCardStyledLines(exploringCard([{ tool: 'read', args: ['a.ts', 'b.ts'] }], {}, 3), 40);
+    expect(ok).toHaveLength(1); // 全成组折叠收敛（「组头+子行」折叠态退役——exec ⑤ 同律）
+    expect(ok[0]!.plain).toBe(' • 已探索 3 项 · ctrl+o 展开');
+    // head = ` • 已探索 3 项`（UTF-16 长 10）→ dim 段起 head.length
+    expect(ok[0]!.runs).toEqual([
+      { start: 0, end: 2, style: { fg: DEFAULT_THEME.success } }, // • 段（含首空格——收敛无终态符号位不加 bold）
+      { start: 3, end: 6, style: { bold: true } }, // `已探索` 动词段（exec Ran 同位同律）
+      { start: 10, end: 22, style: { dim: true } }, // ` · ctrl+o 展开` 段 dim（head.length 10 起）
+    ]);
+  });
+
+  it('展开头三态：` ✓ • 已探索 N 项`（符号段语义色 ✓/✗ 恒 bold）+ `已探索` 动词段 [5,8) bold 平前景（exec Ran 同位）', () => {
+    const ok = renderToolCardStyledLines(
+      exploringCard(
+        [
+          { tool: 'read', args: ['a.ts'] },
+          { tool: 'ls', args: ['.'] },
+        ],
+        { expanded: true },
+      ),
+      40,
+    );
+    expect(ok[0]!.plain).toBe(' ✓ • 已探索 2 项');
+    expect(ok[0]!.runs).toEqual([
+      { start: 0, end: 2, style: { fg: DEFAULT_THEME.success, bold: true } }, // 符号段（含首空格）
+      { start: 5, end: 8, style: { bold: true } }, // `已探索` 动词段——平前景 bold（accent 焦点指示专属键正文不混用律）
+    ]);
+    expect(ok).toHaveLength(3); // 头 + 两子行
+  });
+
+  it('子行动词行：`  └ 读取文件 a · b`——└ 前缀 dim（EXEC_WINDOW_PREFIX 第四消费位）+ 动词段 bold + 摘要 ` · ` 串接', () => {
+    const lines = renderToolCardStyledLines(
+      exploringCard([{ tool: 'read', args: ['a.ts', 'b.ts'] }], { expanded: true }, 2),
+      60,
+    );
+    expect(lines[1]!.plain).toBe('  └ 读取文件 a.ts · b.ts'); // args 原文 ` · ` 串接（无 basename 改写）
+    expect(lines[1]!.runs).toEqual([
+      { start: 0, end: 4, style: { dim: true } }, // `  └ ` 前缀段
+      { start: 4, end: 8, style: { bold: true } }, // 动词段（cursor=4 起步、`读取文件` UTF-16 长 4——平前景 bold）
+    ]);
+    // 多工具子行各归其动词（toolFaceZh 渲染位转写——数据面保原始名）
+    const multi = renderToolCardStyledLines(
+      exploringCard(
+        [
+          { tool: 'read', args: ['a.ts'] },
+          { tool: 'grep', args: ['export', 'src/'] },
+        ],
+        { expanded: true },
+      ),
+      60,
+    );
+    expect(multi[1]!.plain).toBe('  └ 读取文件 a.ts');
+    expect(multi[2]!.plain).toBe('  └ 搜索文本 export · src/');
+  });
+
+  it('失败子行：✗ 前置 error 键 + 嵌套诊断行 `    └ {错误首行}` 整行 error 色（失败载体可诊断性）', () => {
+    const lines = renderToolCardStyledLines(
+      exploringCard(
+        [
+          { tool: 'read', args: ['a.ts'] },
+          { tool: 'read', args: ['bad.toml'], status: 'error', errorFirstLine: 'ENOENT: no such file' },
+        ],
+        { expanded: true },
+      ),
+      60,
+    );
+    // 失败组不收敛（折叠档也展开——可见性优先；这里显式 expanded 同形）
+    expect(lines[0]!.plain).toBe(' ✗ • 已探索 2 项'); // 组级最差态
+    expect(lines[2]!.plain).toBe('  └ ✗ 读取文件 bad.toml');
+    expect(lines[2]!.runs).toEqual([
+      { start: 0, end: 4, style: { dim: true } }, // 前缀段
+      { start: 4, end: 6, style: { fg: DEFAULT_THEME.error } }, // ✗ 前置段（含尾空格——cursor 4 起步长 2）
+      { start: 6, end: 10, style: { bold: true } }, // 动词段（cursor 推移至 6）
+    ]);
+    // 嵌套诊断行：4 空格 + `└ ` 六字符前缀、整行 error 色
+    expect(lines[3]!.plain).toBe('    └ ENOENT: no such file');
+    expect(lines[3]!.runs).toEqual([{ start: 0, end: lines[3]!.plain.length, style: { fg: DEFAULT_THEME.error } }]);
+  });
+
+  it('中止子行：⏹ 前置 secondary 键、无嵌套诊断行（仅 error 态铸）', () => {
+    const lines = renderToolCardStyledLines(
+      exploringCard([{ tool: 'ls', args: ['.'], status: 'aborted' }], { expanded: true }),
+      40,
+    );
+    expect(lines[0]!.plain).toBe(' ⏹ • 已探索 1 项'); // 单中止条目 → 组级最差态 aborted（⏹ 维持次文档不加 bold）
+    expect(lines[0]!.runs[0]).toEqual({ start: 0, end: 2, style: { fg: DEFAULT_THEME.secondary } });
+    expect(lines[1]!.plain).toBe('  └ ⏹ 列目录 .');
+    expect(lines[1]!.runs[1]).toEqual({ start: 4, end: 6, style: { fg: DEFAULT_THEME.secondary } });
+    expect(lines).toHaveLength(2); // 无诊断行
+  });
+
+  it('失败/中止组折叠档不收敛（恒展开——失败可见性优先，exec 组卡批⑤ 同律）', () => {
+    const lines = renderToolCardStyledLines(
+      exploringCard([{ tool: 'read', args: ['x'], status: 'error' }]), // expanded 缺省 false
+      40,
+    );
+    expect(lines).toHaveLength(2); // 不收敛单行——头 + 子行恒在
+    expect(lines[0]!.plain).toBe(' ✗ • 已探索 1 项');
+  });
+
+  it('超宽子行 ellipsize 单源收口：args 段截 `…` 且行显示宽 ≤ 帽（动词段保全）', () => {
+    const lines = renderToolCardStyledLines(
+      exploringCard([{ tool: 'read', args: ['a'.repeat(60)] }], { expanded: true }),
+      20,
+    );
+    // 预算 = 20 − 前缀 4 − 动词显示宽 8 − 空格 1 = 7 → 6 a + …
+    expect(lines[1]!.plain).toBe('  └ 读取文件 ' + 'a'.repeat(6) + '…');
+    expect(stringWidth(lines[1]!.plain)).toBeLessThanOrEqual(20);
+  });
+
+  it('空摘要退化裸动词行（非 string 坏形守卫的诚实缺席形——渲染位零算法）', () => {
+    const lines = renderToolCardStyledLines(exploringCard([{ tool: 'read', args: [] }], { expanded: true }), 40);
+    expect(lines[1]!.plain).toBe('  └ 读取文件');
+    expect(lines[1]!.runs).toEqual([
+      { start: 0, end: 4, style: { dim: true } },
+      { start: 4, end: 8, style: { bold: true } },
+    ]);
+  });
+
+  it('白名单对照锁：探索四员全在 toolFaceZh 映射集（防两册漂移——未译名不得进子行动词位）', () => {
+    for (const name of ['read', 'ls', 'find', 'grep']) {
+      expect(toolFaceZh(name)).not.toBe(name); // 四员全映射（TOOL_FACE_ZH contracts 单源）
+    }
+    expect(toolFaceZh('read')).toBe('读取文件');
+    expect(toolFaceZh('ls')).toBe('列目录');
+    expect(toolFaceZh('find')).toBe('查找文件');
+    expect(toolFaceZh('grep')).toBe('搜索文本');
+  });
+
+  it('卡体帽 200 行同律：超帽子行截头保尾 + 截断标记首行（CARD_BODY_MAX_LINES 同语义——诊断行入账）', () => {
+    const many = Array.from({ length: CARD_BODY_MAX_LINES + 5 }, (_, i) => ({
+      tool: 'read',
+      args: [`f${i}.ts`],
+    }));
+    const lines = renderToolCardStyledLines(exploringCard(many, { expanded: true }), 40);
+    expect(lines).toHaveLength(1 + CARD_BODY_MAX_LINES + 1); // 头 + 帽内子行 + 标记
+    expect(lines[1]!.plain).toBe('⋯（前文已省 5 行）');
+    expect(lines[1]!.runs).toEqual([{ start: 0, end: '⋯（前文已省 5 行）'.length, style: { dim: true } }]);
   });
 });

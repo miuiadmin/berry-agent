@@ -12,12 +12,16 @@
  *   正文行），toolResult 按 toolCallId 配对落三态卡（✓/✗/⏹——中止走
  *   details 结构化标记）；折叠 = 卡头 + 尾 5 行预览（ctrl+o 会话级展开）；
  *   投影走查毕的在飞孤儿兜底 ⚙ 简行、配对到达撤销——两路收敛同形；
- * - **exec 折叠组**（07 §4.1 V-3 注⑩ 符号册词条——R4 到达即落在 exec 族
- *   翻档）：bash 族 toolResult 到达不即时落卡、窗内暂存；窗收口（直播路 =
- *   agent_end / user 消息边界，投影路 = user 消息段切分近似）统一求值——
- *   窗内已完成配对条数 N≥3 落一张组卡（卡头 `• Ran N commands` + 组级最差
- *   态 + 各命令一行 `$ ` 摘要体），N<3 逐条补落 R4 既有卡形；孤儿在飞不
- *   入 N 不入组卡；非 exec 工具到达即落律不变；
+ * - **组窗两族**（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条 + 探索组卡批
+ *   词条——R4 到达即落在 exec/探索两族翻档）：exec（bash）与探索（read/
+ *   ls/find/grep——宿主内建只读族白名单）toolResult 到达不即时落卡、**单
+ *   组窗**内暂存；**异族 toolResult 到达即收口**（窗边界泛化——单窗账，
+ *   呈现序保真；探索族另失败封闭：窗内已见失败/中止后续探索开新窗）；窗
+ *   收口余位（直播路 = agent_end / 真用户消息边界，投影路 = user 消息段
+ *   切分近似）统一求值——exec 族 N≥3 落 `• Ran N commands` 组卡、探索族
+ *   N≥2 落探索组卡（`已探索 N 项` + 归并动词子行——同工具相邻成功归并去
+ *   重），N<阈值逐条补落 R4 既有卡形；孤儿在飞不入 N 不入组卡；其他工
+ *   具到达即落律不变；
  * - **流式三段**（呈现面件 1 批 10h R1 三段化）：流式期 **markdown 直推**
  *   （streaming 槽携 StreamingMarkdown——增量装配 + 稳定面计量；doc = null
  *   为纯文本降档——字节帽超标回退形）、message_end 定稿换装（摘槽 →
@@ -64,6 +68,7 @@ import {
   humanizeGuardedOutput,
   renderToolCardStyledLines,
   sanitizeLineText,
+  type ExploringGroupEntry,
   type ToolCardGroupCommand,
   type ToolCardGroupData,
   type ToolCardRenderInput,
@@ -1005,13 +1010,72 @@ const MAX_PENDING_CALLS = 64;
 export const EXEC_GROUP_THRESHOLD = 3;
 
 /**
+ * 探索组卡阈值（07 §4.1 V-3 注⑩ 探索组卡批词条）：N ≥ 2 落一张探索组卡；
+ * N < 2 逐条补落 R4。与 exec 族阈值 3 分立（探索单卡信息量低——一串路径
+ * 预览瀑布正是组卡要收敛的问题，2 即聚；exec 单卡信息量大，3 维持）。
+ */
+export const EXPLORE_GROUP_THRESHOLD = 2;
+
+/**
  * exec 内建族判据（词条——exec（bash）族）：工具名 === 'bash'（载荷保原始
  * 名，判断位单源；插件若注册同名渲染腿只作用于单卡面——组卡是宿主组级
- * 聚合面不铸 renderInput，结构性无插件腿）。其余工具（read/edit/插件名）
- * 到达即落律不变。
+ * 聚合面不铸 renderInput，结构性无插件腿）。
  */
 function isExecToolCallName(name: string): boolean {
   return name === 'bash';
+}
+
+/**
+ * 探索族内建白名单判据（07 §4.1 V-3 注⑩ 探索组卡批词条）：read/ls/find/
+ * grep 四员只读工具（宿主内建名单源——与 isExecToolCallName 同文件同形；
+ * effect 位不借〔DAG 硬约束——channels 物理不可达 tools 注册面〕、插件
+ * 工具不进组〔ΔA⇏ΔC〕；未入册新工具退化逐卡现状形——良性降级方向）。
+ */
+function isExploratoryToolCallName(name: string): boolean {
+  return name === 'read' || name === 'ls' || name === 'find' || name === 'grep';
+}
+
+/** 组窗族标签（单窗账分诊——exec/探索两入窗族 + other 即落族） */
+type GroupWindowFamily = 'exec' | 'exploring' | 'other';
+
+/** 组窗族判定（单源分诊——appendToolResult 入窗/即落分支与续窗切窗共用） */
+function windowFamilyOf(name: string): GroupWindowFamily {
+  if (isExecToolCallName(name)) return 'exec';
+  if (isExploratoryToolCallName(name)) return 'exploring';
+  return 'other';
+}
+
+/**
+ * 探索条目参数摘要键序表（词条——主语只取 path/pattern 两键族）：read
+ * `[path]` / ls `[path ?? '.']`（缺省 `.` 显式呈现——诚实形）/ find·grep
+ * `[pattern, path?]`；其余可选键不进摘要（argsBrief 白名单键值短显同哲
+ * 学）；非 string 坏形诚实缺席值（不进摘要——子行退化裸动词行零崩）。
+ */
+function exploreArgsOf(name: string, args: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const push = (value: unknown): void => {
+    if (typeof value === 'string' && value !== '') out.push(value);
+  };
+  if (name === 'read') {
+    push(args.path);
+  } else if (name === 'ls') {
+    out.push(typeof args.path === 'string' && args.path !== '' ? args.path : '.');
+  } else {
+    push(args.pattern);
+    push(args.path);
+  }
+  return out;
+}
+
+/**
+ * 探索条目错误首行（嵌套诊断行数据源）：error 态取卡体首个非空行
+ * （cardBodyOf 既有切行）；其余态/无文本 → undefined（缺席 = 无诊断行）。
+ */
+function errorFirstLineOf(message: Extract<AgentMessage, { role: 'toolResult' }>): string | undefined {
+  for (const line of cardBodyOf(textOf(message))) {
+    if (line.trim() !== '') return line;
+  }
+  return undefined;
 }
 
 /** 工具结果三态判定（R4 既有序——aborted 结构化标记 > isError > success） */
@@ -1031,8 +1095,8 @@ function parseExecExitCode(message: Extract<AgentMessage, { role: 'toolResult' }
   return m !== null ? Number(m[1]) : undefined;
 }
 
-/** exec 折叠组窗条目（窗收口求值的数据源——调用面 + 结果消息全存，收口现铸卡） */
-interface ExecWindowEntry {
+/** 组窗条目（窗收口求值的数据源——调用面 + 结果消息全存，收口现铸卡；exec/探索两族共形） */
+interface GroupWindowEntry {
   readonly call: PendingToolCall;
   readonly message: Extract<AgentMessage, { role: 'toolResult' }>;
 }
@@ -1093,12 +1157,13 @@ export class LiveTranscript {
   /** 在飞工具调用账（assistant toolCall 入账 → toolResult 配对出账落卡） */
   private pendingCalls = new Map<string, PendingToolCall>();
   /**
-   * exec 折叠组窗（07 §4.1 V-3 注⑩）：窗内已完成配对的 bash 条目暂存账——
-   * toolResult 到达不即时落卡（R4 到达即落在 exec 族翻档），窗收口
-   * （agent_end/user 边界；投影路 user 段切分）统一求值落卡。直播/投影
-   * 两路共用本账（loadProjection 起步清窗）。
+   * 组窗（07 §4.1 V-3 注⑩ 符号册 exec 折叠组词条 + 探索组卡批词条——单窗
+   * 泛化）：窗内已完成配对的 exec/探索条目暂存账（同窗同族）——toolResult
+   * 到达不即时落卡（R4 到达即落在两族翻档），异族到达先收口（窗边界泛化）
+   * 、窗收口（agent_end/真用户边界；投影路 user 段切分）统一求值落卡。
+   * 直播/投影两路共用本账（loadProjection 起步清窗）。
    */
-  private execWindow: ExecWindowEntry[] = [];
+  private groupWindow: GroupWindowEntry[] = [];
   /** 历史裁块累计（单调递增——trimmedBlockCount 观测面的真身） */
   private trimmedCount = 0;
   /** 思考块会话级展开态（批 10i——缺省折叠省 scrollback） */
@@ -1201,7 +1266,7 @@ export class LiveTranscript {
   loadProjection(messages: readonly AgentMessage[]): void {
     const rebuilt: TranscriptBlock[] = [];
     this.pendingCalls.clear(); // 配对账随投影重建（走查中 assistant 入账、toolResult 出账）
-    this.execWindow = []; // exec 折叠组窗随投影重建（走查中暂存、段切分/走查毕收口）
+    this.groupWindow = []; // 组窗随投影重建（走查中暂存、段切分/走查毕收口）
     for (const message of messages) {
       switch (message.role) {
         case 'user': {
@@ -1213,12 +1278,12 @@ export class LiveTranscript {
           }
           // 机器注入 source 族零呈现（V-0 注① source 过滤位——两路单源判据）
           if (rendersAsUserBlock(message)) {
-            // exec 折叠组窗段切分（07 §4.1 V-3 注⑩——投影路窗边界近似：投影
+            // 组窗段切分（07 §4.1 V-3 注⑩——投影路窗边界近似：投影
             // 序列无 agent_end 信号，user 消息段即窗；判据与直播路 user 收口
             // 同源 rendersAsUserBlock——机器注入不切窗两路对齐。近似缝：直播
             // 路 retry 续跑在 agent_end 收口、投影路同段并窗——重试缝两路分
             // 歧是词条已注记的近似非回归）
-            this.flushExecWindow(rebuilt);
+            this.flushGroupWindow(rebuilt);
             rebuilt.push({ kind: 'user', text: textOf(message), theme: this.theme });
           }
           break;
@@ -1232,9 +1297,9 @@ export class LiveTranscript {
         // 自定义角色：content unknown 宽容跳过（不猜形状——件 1 自定义渲染器优先级语义）
       }
     }
-    // exec 折叠组窗走查毕收口（直播路 agent_end 收口位的投影对位——末段窗
+    // 组窗走查毕收口（直播路 agent_end 收口位的投影对位——末段窗
     // 不滞留；先于孤儿 ⚙ 扫描：组卡位在前、孤儿兜底在后与直播路同序）
-    this.flushExecWindow(rebuilt);
+    this.flushGroupWindow(rebuilt);
     // 在飞孤儿兜底：走查毕未见结果的调用照旧 ⚙ 简行（与直播路在飞期零正文行
     // 收敛同形——投影把「在飞」显形为 ⚙；结果到达配对落卡时 ⚙ 留账留屏）
     for (const [toolCallId, call] of this.pendingCalls) {
@@ -1331,10 +1396,10 @@ export class LiveTranscript {
             this.blocks.push(separator);
           } else if (rendersAsUserBlock(message)) {
             // 机器注入 source 族零呈现（V-0 注①——两路单源判据）
-            // exec 折叠组窗收口（07 §4.1 V-3 注⑩——窗不跨 user 消息）：先收口
+            // 组窗收口（07 §4.1 V-3 注⑩——窗不跨 user 消息）：先收口
             // 落卡、user 块在后（agent_end 之外的防御位收口锚——转写打断形窗
             // 不跨轮滞留；与投影路 user 段切分同边界判据 rendersAsUserBlock）
-            this.flushExecWindow(this.blocks);
+            this.flushGroupWindow(this.blocks);
             this.blocks.push({ kind: 'user', text: textOf(message), theme: this.theme });
           }
         } else if (message.role === 'toolResult') {
@@ -1344,11 +1409,11 @@ export class LiveTranscript {
         break;
       }
       case 'agent_end':
-        // exec 折叠组窗收口主锚（07 §4.1 V-3 注⑩——直播路窗边界）：agent_end
+        // 组窗收口主锚（07 §4.1 V-3 注⑩——直播路窗边界）：agent_end
         // 经 onEnvelope 先 transcript.applyEvent 后渲染触发——收口卡在终帧重绘
-        // 前已落账，backend 零改（正文零渲染射界不破：本位只收口 exec 暂存账
+        // 前已落账，backend 零改（正文零渲染射界不破：本位只收口组窗暂存账
         // 不产正文行）。任一终态（completed/aborted/failed）都收口。
-        this.flushExecWindow(this.blocks);
+        this.flushGroupWindow(this.blocks);
         this.trimToCap();
         break;
       default:
@@ -1411,8 +1476,8 @@ export class LiveTranscript {
   }
 
   /**
-   * 工具结果配对落卡（批 10i R4 + exec 折叠组翻档）：账内在飞 → exec 族
-   * 入窗暂存（到达不落卡——窗收口统一求值）/ 其余到达即落三态卡（换卡时
+   * 工具结果配对落卡（批 10i R4 + 组窗两族翻档）：账内在飞 → exec/探索族
+   * 入窗暂存（到达不落卡——窗收口统一求值）/ 其他族到达即落三态卡（换卡时
    * 撤销投影期同 id 孤儿 ⚙ 行——repaint 后到达的结果两路收敛同形）；账外
    * 兜底 ↳ 简行（未配对结果不伪装成卡）。
    */
@@ -1428,29 +1493,54 @@ export class LiveTranscript {
     // scrollback 物理不可回改，splice 撤账是账屏失同步的假象收敛（屏上 ⚙
     // 残留而块账消失，下次 repaint 前两账错位）。留账留屏 + 卡追加 = 净 +1
     // 块（呈现侧 B 段照常写卡）；再投影自然收敛仅卡（pendingCalls 已出账）
-    // exec 族改窗内暂存（07 §4.1 V-3 注⑩——R4 到达即落对本族翻档）
-    if (isExecToolCallName(call.name)) {
-      this.execWindow.push({ call, message });
+    // 组窗族分诊（07 §4.1 V-3 注⑩ 探索组卡批——单窗泛化）：exec/探索两族
+    // 入窗暂存；其他族到达即落（窗收口先行——异族 toolResult 到达即窗边界）
+    const family = windowFamilyOf(call.name);
+    if (family === 'other') {
+      this.flushGroupWindow(target);
+      target.push(this.buildToolCard(call, message));
       return;
     }
-    target.push(this.buildToolCard(call, message));
+    this.cutGroupWindowIfNeeded(target, family);
+    this.groupWindow.push({ call, message });
   }
 
   /**
-   * exec 折叠组窗收口（07 §4.1 V-3 注⑩ 符号册词条）：窗内条目统一求值落卡
-   * ——N ≥ 阈值落一张组卡（组级最差态聚合 + 各命令一行摘要）、N < 阈值逐条
-   * 补落 R4 既有卡形（保序）；孤儿在飞不在窗内（无 toolResult 不入 N——
-   * 直播路在飞可见性归面板/状态行，投影路走查毕 ⚙ 兜底照旧族）。收口后清窗。
-   * 调用位：直播路 agent_end / user 边界（先收口后落 user 块——窗不跨 user
-   * 消息）；投影路 user 段切分 + 走查毕（孤儿 ⚙ 扫描前——组卡位与直播路
-   * agent_end 收口位对齐）。
+   * 组窗续窗判定（窗边界泛化——词条探索组卡批 + exec 窗「连续段」勘正笔）：
+   * 同窗需同族且（探索族）窗内未见失败/中止——异族到达先收口当前窗（呈现
+   * 序保真：先收口后落本条）、探索族失败封闭（窗内已见失败/中止条目 → 后续
+   * 探索开新窗——失败不被后续成功淹没；exec 族不封闭维持）。空窗无切。
    */
-  private flushExecWindow(target: TranscriptBlock[]): void {
-    if (this.execWindow.length === 0) return;
-    const entries = this.execWindow;
-    this.execWindow = [];
-    if (entries.length >= EXEC_GROUP_THRESHOLD) {
-      target.push(this.buildExecGroupCard(entries));
+  private cutGroupWindowIfNeeded(target: TranscriptBlock[], family: Exclude<GroupWindowFamily, 'other'>): void {
+    if (this.groupWindow.length === 0) return;
+    const current = windowFamilyOf(this.groupWindow[0]!.call.name);
+    if (current !== family) {
+      this.flushGroupWindow(target);
+      return;
+    }
+    if (family === 'exploring' && this.groupWindow.some((entry) => toolResultStatus(entry.message) !== 'success')) {
+      this.flushGroupWindow(target);
+    }
+  }
+
+  /**
+   * 组窗收口（07 §4.1 V-3 注⑩ 符号册词条——两族同壳）：窗内条目统一求值
+   * 落卡——N ≥ 阈值落一张组卡（exec `• Ran N commands` / 探索 `已探索
+   * N 项`——组级最差态聚合；两族阈值分立：exec 3 / 探索 2）、N < 阈值逐条
+   * 补落 R4 既有卡形（保序）；孤儿在飞不在窗内（无 toolResult 不入 N——
+   * 直播路在飞可见性归面板/状态行，投影路走查毕 ⚙ 兜底照旧族）。收口后清
+   * 窗。调用位：直播路 agent_end / user 边界（先收口后落 user 块——窗不跨
+   * user 消息）/ 异族到达（appendToolResult 即落前）；投影路 user 段切分 +
+   * 走查毕（孤儿 ⚙ 扫描前——组卡位与直播路 agent_end 收口位对齐）。
+   */
+  private flushGroupWindow(target: TranscriptBlock[]): void {
+    if (this.groupWindow.length === 0) return;
+    const entries = this.groupWindow;
+    this.groupWindow = [];
+    const family = windowFamilyOf(entries[0]!.call.name);
+    const threshold = family === 'exec' ? EXEC_GROUP_THRESHOLD : EXPLORE_GROUP_THRESHOLD;
+    if (entries.length >= threshold) {
+      target.push(family === 'exec' ? this.buildExecGroupCard(entries) : this.buildExploreGroupCard(entries));
       return;
     }
     // N < 阈值：逐条补落 R4 既有卡形（buildToolCard 现铸——窗期 toggle/theme
@@ -1465,7 +1555,7 @@ export class LiveTranscript {
    * + 三态 + 退出码解析）；组卡不铸 renderInput/durationMs（插件腿与单卡
    * 状态行机制不进组卡——组级聚合面）。
    */
-  private buildExecGroupCard(entries: readonly ExecWindowEntry[]): TranscriptBlock {
+  private buildExecGroupCard(entries: readonly GroupWindowEntry[]): TranscriptBlock {
     const commands: ToolCardGroupCommand[] = entries.map((entry) => ({
       command: typeof entry.call.arguments.command === 'string' ? entry.call.arguments.command : '',
       status: toolResultStatus(entry.message),
@@ -1486,7 +1576,61 @@ export class LiveTranscript {
       expanded: this.toolCardsExpanded,
       theme: this.theme,
       toggleHint: this.keyText('tools.toggle-expand'),
-      group: { count: commands.length, commands },
+      group: { kind: 'exec', count: commands.length, commands },
+    };
+  }
+
+  /**
+   * 探索组卡铸造（07 §4.1 V-3 注⑩ 探索组卡批词条——组级形）：**归并住铸
+   * 卡位**（组数据是摘要终形、渲染位零算法）——同工具 ∧ 相邻 ∧ 双侧成功
+   * 条目归并一 entry（args 保序去重并集——Codex `Read a, b` 同构）、失败/
+   * 中止条目恒独立行（可见性优先——✗/⏹ 前置 + 嵌套诊断行数据源）；count =
+   * **归并前**条目数 N（卡头 `已探索 N 项` 消费）；name = 窗首条目工具名
+   * （事实位不虚造）；status = 组级最差态（与 worstGroupStatus 同式）；组
+   * 卡不铸 renderInput/durationMs（exec 组卡同律）。
+   */
+  private buildExploreGroupCard(entries: readonly GroupWindowEntry[]): TranscriptBlock {
+    // 归并段（mutable 账——收口即弃，末尾整装冻结入组数据）
+    const rows: {
+      tool: string;
+      args: string[];
+      status: ToolCardStatus;
+      errorFirstLine?: string;
+    }[] = [];
+    for (const entry of entries) {
+      const status = toolResultStatus(entry.message);
+      const last = rows[rows.length - 1];
+      // 归并三条件：双侧成功 ∧ 同工具 ∧ 相邻（rows 末行即前一条目归宿）
+      if (status === 'success' && last !== undefined && last.tool === entry.call.name && last.status === 'success') {
+        for (const arg of exploreArgsOf(entry.call.name, entry.call.arguments)) {
+          if (!last.args.includes(arg)) last.args.push(arg);
+        }
+        continue;
+      }
+      rows.push({
+        tool: entry.call.name,
+        args: exploreArgsOf(entry.call.name, entry.call.arguments),
+        status,
+        ...(status === 'error' ? { errorFirstLine: errorFirstLineOf(entry.message) } : {}),
+      });
+    }
+    const groupEntries: ExploringGroupEntry[] = rows.map((row) => ({ ...row, args: [...row.args] }));
+    const status: ToolCardStatus = groupEntries.some((e) => e.status === 'aborted')
+      ? 'aborted'
+      : groupEntries.some((e) => e.status === 'error')
+        ? 'error'
+        : 'success';
+    return {
+      kind: 'tool-card',
+      name: entries[0]!.call.name,
+      brief: '',
+      status,
+      body: [],
+      diff: false,
+      expanded: this.toolCardsExpanded,
+      theme: this.theme,
+      toggleHint: this.keyText('tools.toggle-expand'),
+      group: { kind: 'exploring', count: entries.length, entries: groupEntries },
     };
   }
 
