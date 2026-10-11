@@ -1545,16 +1545,21 @@ describe('webui 档位面桥真身（tiers 注入——/thinking //sandbox webui
       expect(stack.channels.hasSession(b)).toBe(false);
       sseA = await openSse(opened!.port, a, opened!.token);
       sseB = await openSse(opened!.port, b, opened!.token);
-      stack.channels.setStatus(a, '状态甲');
+      // 写入序刻意 b 先 a 后（挖掘 30 轮 ⑤）：单槽退化形最后写者 = 状态甲，
+      // b 的回放若取槽值必见『状态甲』——写入序对调后本断言在单槽形真红
+      //（修前 a 先 b 后：最后写者恰 = 状态乙，回放断言对单槽形也绿 = 假锁）
       stack.channels.setStatus(b, '状态乙');
-      // 直播腿：各 SSE 各见己帧（status 帧按会话订阅索引路由——不串流）
+      stack.channels.setStatus(a, '状态甲');
+      // 直播腿：各 SSE 各见己帧（status 帧按会话订阅索引路由——不串流；
+      // 写入序不影响直播腿）
       const fa = await untilFrame(sseA, (f) => f.kind === 'status');
       expect(fa.payload?.status).toBe('状态甲');
       const fb = await untilFrame(sseB, (f) => f.kind === 'status');
       expect(fb.payload?.status).toBe('状态乙');
-      // 回放腿（真断缝）：迟连第三观众对 b 开流——开流快照取 b 的末帧非 a 的
-      //（lastStatusFrame 单槽全局形下此处回放『状态甲』即互覆红；活会话经
-      // sessionStateOf='open' 门放行回放——#14 三腿等值改写的消费端在证）
+      // 回放腿（真断缝）：迟连第三观众对 b 开流——开流快照取 b 自己的末帧
+      //（键控 Map 形：b → 状态乙；单槽退化形：槽内最后写者『状态甲』——
+      // 断言红即互覆检出；活会话经 sessionStateOf='open' 门放行回放——
+      // #14 三腿等值改写的消费端在证）
       const sseB2 = await openSse(opened!.port, b, opened!.token);
       try {
         const replay = await untilFrame(sseB2, (f) => f.kind === 'status');

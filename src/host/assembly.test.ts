@@ -7,7 +7,7 @@
  * （意外异常 crashed:true + crash.log 按 memory 位跳过——诊断形 dataDir
  * 在场仍跳过）。真盘真库（临时目录）+ 真装载管线（core 件 in-process）。
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -3071,8 +3071,87 @@ describe('会话活集真源接线 e2e（07 §4.3 锚时效活集真源批——
     }
   });
 
-  it('词法锁：isSessionLive 恰一合成点位（assembly channelsUi 注入——活性真源单源防散播，散点即判据分源复发）', () => {
-    const src = readFileSync(new URL('./assembly.ts', import.meta.url), 'utf8');
-    expect((src.match(/isSessionLive/g) ?? []).length).toBe(1);
+  it('词法锁：isSessionLive 生产合成点位全仓恰一（挖掘 30 轮 ①——射程从单文件扩全仓：锁文案「防散播」须配 src/ 全域射程，散点到任何文件都该红）', () => {
+    // 扫 src/ 全域生产位：排除 *.test.ts（测试假源自铸合法）与 testkit/
+    // （假宿主假面合法位）；锁「对象字面量键形 isSessionLive:」——接口成员
+    // 声明形 isSessionLive(...) 自然不匹配；plugin-context.ts 的消费位
+    // （ui.isSessionLive( 调用形）亦不匹配。第二合成点（含经 plugin-boot
+    // channelsUi 可选缝自带面）无论落在哪个生产文件必红。
+    const srcRoot = new URL('../', import.meta.url);
+    const files = readdirSync(srcRoot, {
+      recursive: true,
+      encoding: 'utf8',
+    }).filter((p) => p.endsWith('.ts') && !p.endsWith('.test.ts') && !p.includes('testkit'));
+    const hitFiles: string[] = [];
+    for (const rel of files) {
+      const n = (readFileSync(new URL(rel, srcRoot), 'utf8').match(/isSessionLive\s*:/g) ?? []).length;
+      if (n > 0) hitFiles.push(`${rel} ×${n}`);
+    }
+    expect(hitFiles.join('; ')).toBe('host/assembly.ts ×1');
+  });
+
+  it('装配级行为锁：活而不在册会话经真受理门过门入队（挖掘 30 轮 ④——注入体换回呈现册形〔键名保留 body 换 hasSession〕本测红：confirm 拒 UI_ASK_SESSION_CLOSED 而非入队挂起）', async () => {
+    const dir = tmpDir('host-asm-liveset-act-');
+    // probe 插件捕获真 ctx.ui（全装配合成链上的消费面——受理门真身在此；
+    // ix-4 :2109 同款捕获形，但零命令注册：显式 sessionId 直问不走 ALS）
+    let probe: PluginContext | undefined;
+    const probePlugin: CorePluginReference = {
+      name: 'liveset-probe',
+      apply: async (ctx) => {
+        probe = ctx as PluginContext;
+        return undefined;
+      },
+    };
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      corePlugins: [probePlugin],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const { manager, channels } = assembly.stack;
+      // 活而不在册（serve/webui 形常态）：修前红源——呈现册形受理门对此拒
+      const opened = manager.create();
+      expect(channels.hasSession(opened.sessionId)).toBe(false);
+      // capable 后端入队形（confirm 挂起不答——入队事实可断言）
+      const hang = new Promise<never>(() => undefined);
+      channels.addBackend({
+        id: 'hang-confirm',
+        capabilities: {
+          notify: true,
+          confirm: true,
+          select: false,
+          input: false,
+          approval: false,
+          setStatus: false,
+          setWidget: false,
+        },
+        hasAudience: () => true,
+        notify: () => undefined,
+        confirm: () => hang,
+      } satisfies UiBackend<never>);
+      const ask = probe!.ui.confirm('过门?', { sessionId: opened.sessionId });
+      // 微任务两拍：拒形（同步 throw）与保守值形（零观众立即 false）都在此
+      // 拍内落定——入队挂起形才是受理门放行的真身
+      let settled = false;
+      void ask.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      await new Promise((r) => setTimeout(r, 30));
+      expect(settled).toBe(false); // 修前红：呈现册形此拍内已拒（settled true）
+      expect(channels.pendingAsks(opened.sessionId)).toHaveLength(1); // 过门入队
+      // 收场：retire 摘活集 → seam 清队保守值（resolves false——不留挂起尾）
+      expect(manager.retire(opened.sessionId)).toBe(true);
+      await expect(ask).resolves.toBe(false);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
   });
 });
