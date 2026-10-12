@@ -33,16 +33,16 @@ describe('resolveKeybindings 缺省与覆盖校验', () => {
   });
 
   it('合法覆盖生效（动作键位整替）', () => {
-    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+g' });
+    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+q' });
     expect(r.rejections).toEqual([]);
-    expect(r.keysByAction.get('thinking.toggle')).toEqual(['ctrl+g']);
+    expect(r.keysByAction.get('thinking.toggle')).toEqual(['ctrl+q']);
   });
 
   it('四形拒载之一：未知动作点名拒（其余照常）', () => {
-    const r = resolveKeybindings({ 'no.such-action': 'ctrl+z', 'thinking.toggle': 'ctrl+g' });
+    const r = resolveKeybindings({ 'no.such-action': 'ctrl+z', 'thinking.toggle': 'ctrl+q' });
     expect(r.rejections).toHaveLength(1);
     expect(r.rejections[0]).toMatchObject({ kind: 'unknown-action', actionId: 'no.such-action' });
-    expect(r.keysByAction.get('thinking.toggle')).toEqual(['ctrl+g']); // 无辜条目不受连坐
+    expect(r.keysByAction.get('thinking.toggle')).toEqual(['ctrl+q']); // 无辜条目不受连坐
   });
 
   it('四形拒载之二：不可覆盖动作（全局键生命线）', () => {
@@ -69,7 +69,7 @@ describe('resolveKeybindings 缺省与覆盖校验', () => {
   });
 
   it('双覆盖互相撞键 → 两条全拒（回退缺省、点名对家）', () => {
-    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+g', 'tools.toggle-expand': 'ctrl+g' });
+    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+q', 'tools.toggle-expand': 'ctrl+q' });
     expect(r.rejections).toHaveLength(2);
     expect(r.rejections.every((x) => x.kind === 'conflict')).toBe(true);
     expect(r.keysByAction.get('thinking.toggle')).toEqual(['ctrl+t']);
@@ -77,7 +77,7 @@ describe('resolveKeybindings 缺省与覆盖校验', () => {
   });
 
   it('把动作挪离缺省键不构成冲突（原键位让空）', () => {
-    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+g' });
+    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+q' });
     expect(r.rejections).toEqual([]);
     // ctrl+t 上不再有任何动作（thinking.toggle 已迁走）——倒排无越集
     const holders = ACTION_CATALOG.filter((def) => def.keys.includes('ctrl+t'));
@@ -87,10 +87,10 @@ describe('resolveKeybindings 缺省与覆盖校验', () => {
 
 describe('Keymap 消费面', () => {
   it('actionMatches 按当前键集命中（覆盖后随动）', () => {
-    const map = new Keymap({ 'thinking.toggle': 'ctrl+g' });
-    expect(map.actionMatches(key('t', { ctrl: true }), 'thinking.toggle')).toBe(false); // 旧键已迁
-    expect(map.actionMatches(key('g', { ctrl: true }), 'thinking.toggle')).toBe(true);
-    expect(map.actionMatches(key('g', { ctrl: true, meta: true }), 'thinking.toggle')).toBe(false); // meta 不入门
+    const map = new Keymap({ 'thinking.toggle': 'ctrl+q' });
+    expect(map.actionMatches(key('t', { ctrl: true }), 'thinking.toggle')).toBe(false); // 旧键已迁（样例键自 ctrl+g 迁 ctrl+q——ctrl+g 自挖掘 31 轮 [9] 起册占 external-edit）
+    expect(map.actionMatches(key('q', { ctrl: true }), 'thinking.toggle')).toBe(true);
+    expect(map.actionMatches(key('q', { ctrl: true, meta: true }), 'thinking.toggle')).toBe(false); // meta 不入门
   });
 
   it('keyText 首键名单源（显示面消费；覆盖后随动）', () => {
@@ -98,8 +98,8 @@ describe('Keymap 消费面', () => {
     expect(map.keyText('thinking.toggle')).toBe('ctrl+t');
     expect(map.keyText('tools.toggle-expand')).toBe('ctrl+o');
     expect(map.keyText('no.such')).toBe(''); // 未知动作诚实空串
-    const remapped = new Keymap({ 'thinking.toggle': 'ctrl+g' });
-    expect(remapped.keyText('thinking.toggle')).toBe('ctrl+g');
+    const remapped = new Keymap({ 'thinking.toggle': 'ctrl+q' });
+    expect(remapped.keyText('thinking.toggle')).toBe('ctrl+q');
   });
 
   it('中断键集双键（界面美化役批 2——escape + ctrl+c 均命中；escape 居首 = 显示单源）', () => {
@@ -127,9 +127,9 @@ describe('Keymap.actions 投影（批 10k——/help 键位册消费源）', () 
   });
 
   it('覆盖生效形随动（keys = 解析后键集非缺省）', () => {
-    const views = new Keymap({ 'thinking.toggle': 'ctrl+g' }).actions;
+    const views = new Keymap({ 'thinking.toggle': 'ctrl+q' }).actions;
     const toggle = views.find((v) => v.id === 'thinking.toggle')!;
-    expect(toggle.keys).toEqual(['ctrl+g']);
+    expect(toggle.keys).toEqual(['ctrl+q']);
   });
 
   it('拒载覆盖回退缺省键集（投影只见生效形）', () => {
@@ -170,8 +170,8 @@ describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字�
 });
 
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
-  it('册数 33：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影两席（B4 同批）', () => {
-    expect(ACTION_CATALOG).toHaveLength(33);
+  it('册数 34：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影两席（B4 同批）+ 外部编辑器（挖掘 31 轮 [9]）', () => {
+    expect(ACTION_CATALOG).toHaveLength(34);
     const followUp = ACTION_CATALOG.find((d) => d.id === 'editor.queue-followup');
     expect(followUp).toMatchObject({ scope: 'editor', keys: ['alt+enter'], overridable: true });
     const modelCycle = ACTION_CATALOG.find((d) => d.id === 'global.model-cycle');
@@ -184,6 +184,9 @@ describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模�
     // 非「打断永可达」安全位族，ctrl+p 同构循环族）
     const modeCycle = ACTION_CATALOG.find((d) => d.id === 'global.mode-cycle');
     expect(modeCycle).toMatchObject({ scope: 'global', keys: ['shift+tab'], overridable: true });
+    // 外部编辑器（挖掘 31 轮 [9]——codex ctrl+g 对标位；可覆盖位）
+    const externalEdit = ACTION_CATALOG.find((d) => d.id === 'editor.external-edit');
+    expect(externalEdit).toMatchObject({ scope: 'editor', keys: ['ctrl+g'], overridable: true });
   });
 
   it('alt+enter 命中候跑动作（与 editor.submit 键序分立——enter 不误触）', () => {

@@ -114,6 +114,9 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
     overridable: true,
   },
   { id: 'editor.new-line', scope: 'editor', label: '换行', keys: ['shift+enter', 'ctrl+j'], overridable: true },
+  // 外部编辑器（挖掘 31 轮 [9]——codex external_editor 对标：ctrl+g 挂起主屏
+  // 交出子进程，草稿播种临时 .md、退出读回整替；规范 07 §5 词条）
+  { id: 'editor.external-edit', scope: 'editor', label: '用外部编辑器编辑草稿', keys: ['ctrl+g'], overridable: true },
   { id: 'editor.undo', scope: 'editor', label: '撤销', keys: ['ctrl+-', 'ctrl+_'], overridable: true },
   { id: 'editor.move-left', scope: 'editor', label: '光标左移', keys: ['left', 'ctrl+b'], overridable: true },
   { id: 'editor.move-right', scope: 'editor', label: '光标右移', keys: ['right', 'ctrl+f'], overridable: true },

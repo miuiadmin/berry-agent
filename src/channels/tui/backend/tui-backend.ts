@@ -127,6 +127,7 @@ import { keyEventToBinding, Keymap, type ActionView, type KeybindingRejection } 
 import { LEADER_WINDOW_MS, resolveLeaderIntent, type LeaderBranch, type LeaderIntent } from '../keys/leader.js';
 import { Editor, type EditorSubmitOptions } from '../editor/editor.js';
 import { editorHeightCap } from '../editor/height-cap.js';
+import { runExternalEditor, type ExternalEditorOutcome } from '../editor/external-editor.js';
 import { OverlayStack, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
 import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
 import { HistoryViewer } from '../history/history-viewer.js';
@@ -251,6 +252,15 @@ export interface TuiBackendOptions {
    * 空数组同义 = 面板退场（队列清空即退场条款的供数形）。
    */
   readonly queueFor?: (sessionId: string) => readonly string[] | null | undefined;
+  /**
+   * 外部编辑器执行器（挖掘 31 轮 [9]——ctrl+g 挂起交出形，codex
+   * external_editor 对标）：seed = 当前草稿全文，返结局三态（edited /
+   * missing-editor / failed）由 backend 分诊（edited 走 editor.setText 整替、
+   * 余两态就地 notify 呈报）。缺席 = 生产缺省闭包
+   * runExternalEditor(seed, process.env)（**调时取 env 现值**非 import 时
+   * 绑定）；测试装配注入受控桩（MemoryTerminalIO 测试面零真进程纪律）。
+   */
+  readonly externalEditor?: (seed: string) => Promise<ExternalEditorOutcome>;
   /**
    * 持久化史透传（B1——07 §4.1 呈现面件 2 定形注⑦种写双路）：seed = 启动
    * 种子（host 装配根构造期一次 recentTexts〔启动锚根〕满灌——编辑器内存
@@ -676,6 +686,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly onQuit: (() => void) | undefined;
   private readonly onModelCycle: (() => void) | undefined;
   private readonly onModeCycle: (() => void) | undefined;
+  /** 外部编辑器执行器（挖掘 31 轮 [9]——构造缺省闭包 runExternalEditor：调时取 process.env 现值） */
+  private readonly externalEditor: (seed: string) => Promise<ExternalEditorOutcome>;
   /** 闲态教学键柄（V-3 注⑦④——`?` text 路分诊消费；缺席不劫键） */
   private readonly onHelpShortcut: (() => void) | undefined;
   /** leader 前缀键分支柄（B4——层⓪ 待续分诊消费；缺席族不激活） */
@@ -715,6 +727,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /* ---- 主屏挂起态（批 10f-4——AltScreenPrimary 交出面） ---- */
   /** 挂起位（suspendMain 置位：渲染请求安全 no-op 闸 + 输入已卸订） */
   private suspendedMain = false;
+  /**
+   * 外编编舞在飞位（挖掘 31 轮 [9]）：ctrl+g 异步挂起期同键再按零响应
+   * （防重入——resumeMain 复起前第二击会叠挂起编舞）；编舞收口 finally
+   * 复位（执行器 reject 一切归 failed 分诊不破闸）。
+   */
+  private externalEditorInFlight = false;
   /** 停屏期到达的瞬时行缓冲（notify / 件 9 摘要行 / 撤销说明行——复起补显射界，2026-09-07 勘正笔） */
   private suspendedTransients: string[] = [];
   /**
@@ -1035,6 +1053,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.onQuit = options.onQuit;
     this.onModelCycle = options.onModelCycle;
     this.onModeCycle = options.onModeCycle;
+    // 缺省闭包调时读 process.env（用户中途 export 新编辑器即时生效——import 时绑定会钉死启动快照）
+    this.externalEditor = options.externalEditor ?? ((seed) => runExternalEditor(seed, process.env));
     this.onHelpShortcut = options.onHelpShortcut;
     this.onLeaderBranch = options.onLeaderBranch;
     this.dispatchCommand = options.dispatchCommand;
@@ -1447,6 +1467,46 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.replayTransients(transients);
     this.renderFixed();
     if (this.scheduleFn !== null) this.armTick(); // 任务行转轮复摆
+  }
+
+  /**
+   * 开外部编辑器（挖掘 31 轮 [9]——ctrl+g 挂起交出形）：主屏挂起 → raw 复
+   * 先验（交终端给子进程——suspendMain 换防恒 raw 律的明示例外射程，cooked
+   * 态编辑器自理回显）→ 执行器（seed = 草稿全文）→ resumeMain 复起（全帧
+   * 重画 + 瞬时行补吐）→ 三态分诊：edited 走 editor.setText 整替（单源路：
+   * undo 单步可撤 + onChange 记账 + 空稿引导对账自然走通）；missing-editor /
+   * failed 就地 notify 呈报（草稿未被动过——原稿只读播种临时文件，编辑器
+   * 现货整场零触）。在飞位贯穿编舞防重入；执行器 reject 归 failed 不破闸
+   * （finally 复位）。
+   */
+  private async openExternalEditor(): Promise<void> {
+    this.externalEditorInFlight = true;
+    const seed = this.editor.getText();
+    try {
+      this.suspendMain();
+      // 交终端给子进程：raw 复先验态（挂起交出形——07 交出面换防例外注射程）
+      this.io.setRawMode(this.priorRaw);
+      let outcome: ExternalEditorOutcome;
+      try {
+        outcome = await this.externalEditor(seed);
+      } catch (err) {
+        // 执行器异常（真 spawn 抛错等）归 failed 分诊——编舞仍对称收口
+        outcome = { status: 'failed', message: err instanceof Error ? err.message : String(err) };
+      }
+      this.resumeMain();
+      if (outcome.status === 'edited') {
+        this.editor.setText(outcome.text); // 整替单源路（jumpPending 连清在 setText 内）
+        this.syncEmptyGuide(); // 空稿引导对账（外编清空草稿 → 引导复现）
+      } else if (outcome.status === 'missing-editor') {
+        this.notify(
+          `未打开外部编辑器：还没设置 $VISUAL 或 $EDITOR——设置后重按 ${displayKeyName(this.keymap.keyText('editor.external-edit'))}`,
+        );
+      } else {
+        this.notify(`外部编辑器异常：${outcome.message}。草稿未改动——可重试`, { level: 'warn' });
+      }
+    } finally {
+      this.externalEditorInFlight = false;
+    }
   }
 
   /* ---------------- 副屏装配面（批 10f-4 特性腿——件 8 /history；mm 批 /memory 并席） ---------------- */
@@ -3024,6 +3084,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       // selectSandbox 写面——两入口一动作）；路由层只判键分发
       if (this.onModeCycle !== undefined && this.keymap.actionMatches(ev, 'global.mode-cycle')) {
         this.onModeCycle();
+        return;
+      }
+      // 外部编辑器（挖掘 31 轮 [9]——ctrl+g 挂起交出形）：input-ask 应答窗
+      // 不触发（应答期编辑器作应答车——稿位属应答车道，ctrl+g 让位）；在飞
+      // 位防重入（异步编舞期同键再按零响应）；编舞与三态分诊在
+      // openExternalEditor（suspendMain + raw 复先验交子进程 + resumeMain）
+      if (
+        this.inputAsk === null &&
+        !this.externalEditorInFlight &&
+        this.keymap.actionMatches(ev, 'editor.external-edit')
+      ) {
+        void this.openExternalEditor();
         return;
       }
       // 后台任务段光标翻页态（界面美化役批6——UX 批6 B 件）：alt+↑/↓ 段内

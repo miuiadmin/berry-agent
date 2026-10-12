@@ -77,7 +77,14 @@ function makeBackend(options: Partial<TuiBackendOptions> = {}): {
   backend: TuiBackend;
 } {
   const io = new MemoryTerminalIO(COLS, ROWS);
-  const backend = new TuiBackend(io, options);
+  const backend = new TuiBackend(io, {
+    // 外编受控桩（挖掘 31 轮 [9]）：生产缺省闭包会真 spawn 子进程——
+    // MemoryTerminalIO 测试面零真进程纪律。不涉外编的测永不触发（不按
+    // ctrl+g）；误触发时 missing-editor 桩 notify 一行可诊断。外编专测
+    // 显式注入覆盖此桩
+    externalEditor: async () => ({ status: 'missing-editor' as const }),
+    ...options,
+  });
   backend.start();
   return { io, backend };
 }
@@ -619,6 +626,8 @@ function makeInteractive(options: Partial<TuiBackendOptions> = {}, rows: number 
   const clock = new ManualClock();
   const calls: RigCalls = { submitted: [], interrupted: [], quit: 0, dispatched: [] };
   const backend = new TuiBackend(io, {
+    // 外编受控桩（同 makeBackend——零真进程纪律；外编专测显式注入覆盖）
+    externalEditor: async () => ({ status: 'missing-editor' as const }),
     schedule: clock.schedule,
     cancelSchedule: clock.cancel,
     now: clock.now,
@@ -3131,7 +3140,9 @@ describe('TuiBackend 会话级开关键（批 10i ctrl+t / ctrl+o）', () => {
 describe('TuiBackend 键位覆盖面（R5 批 10k——keybindings 注入 + 拒载观测）', () => {
   it('注入：好条目生效不受连坐 + 坏条目经 keybindingRejections 透出（装配位呈报）', () => {
     const { backend } = makeBackend({
-      keybindings: { 'thinking.toggle': 'ctrl+g', 'no.such-action': 'ctrl+z' },
+      // 样例键 ctrl+q（自 ctrl+g 迁——ctrl+g 自挖掘 31 轮 [9] 起册占 external-edit，
+      // 挪 thinking.toggle 上去会与缺省册撞出第二条 conflict 拒载）
+      keybindings: { 'thinking.toggle': 'ctrl+q', 'no.such-action': 'ctrl+z' },
     });
     expect(backend.keybindingRejections).toHaveLength(1); // 只拒坏条目
     expect(backend.keybindingRejections[0]).toMatchObject({
@@ -6350,5 +6361,134 @@ describe('TuiBackend 持久化史透传（B1——07 §4.1 呈现面件 2 定形
     io.emitInput('\x1b[A'); // ↑ 无史——不进浏览态不炸
     pump();
     expect(calls.submitted).toHaveLength(1);
+  });
+});
+
+describe('TuiBackend 外部编辑器（挖掘 31 轮 [9]——ctrl+g 挂起交出形）', () => {
+  /** 微任务排干（异步编舞两段 await 后分诊落地——宏任务一轮保全部微任务清空） */
+  const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('ctrl+g 编舞全链：挂起 + raw 复先验交出 + seed 播种 + edited 整替回屏', async () => {
+    const seeds: string[] = [];
+    const { io, pump } = makeInteractive({
+      externalEditor: async (seed) => {
+        seeds.push(seed);
+        return { status: 'edited', text: '外编改写稿' };
+      },
+    });
+    io.emitInput('原稿');
+    pump();
+    io.bytes = '';
+    io.emitInput('\x07'); // ctrl+g（C0：0x07 = g-0x60）
+    await flush();
+    pump();
+    // 播种 = 草稿全文（读时点在挂起前——editor.getText 快照）
+    expect(seeds).toEqual(['原稿']);
+    // 挂起交出形过程态铁证：rawModeHistory 尾二 = [false(交出复先验), true(复起重设)]
+    expect(io.rawModeHistory.slice(-2)).toEqual([false, true]);
+    // 出屏/进屏模式串对（主屏 inline 形出屏串——kitty 弹栈 + 粘贴关/开，
+    // 与 start/stop 对称；suspendMain LEAVE_MAIN / resumeMain ENTER_MAIN 单源）
+    expect(io.bytes).toContain('\x1b[<u');
+    expect(io.bytes).toContain('\x1b[?2004l');
+    expect(io.bytes).toContain('\x1b[?2004h');
+    // 整替回屏：新稿在编辑器呈现（setText 单源路——onChange 记账 + 帧落地）
+    expect(io.bytes).toContain('外编改写稿');
+  });
+
+  it('edited 整替走 setText 单源路：undo 一步回原稿', async () => {
+    const { io, pump } = makeInteractive({
+      externalEditor: async () => ({ status: 'edited', text: '外编改写稿' }),
+    });
+    io.emitInput('原稿');
+    pump();
+    io.emitInput('\x07');
+    await flush();
+    pump();
+    expect(io.bytes).toContain('外编改写稿');
+    io.bytes = '';
+    io.emitInput('\x1f'); // ctrl+-（0x1f）——undo 册键首形（readline 迁移键族）
+    pump();
+    // 整替是可撤销编辑（setText 单源路语义）非旁路覆盖——一步回原稿
+    expect(io.bytes).toContain('原稿');
+    expect(io.bytes).not.toContain('外编改写稿');
+  });
+
+  it('input-ask 应答窗不触发（ctrl+g 让位应答车道——执行器零调用）', async () => {
+    const seeds: string[] = [];
+    const { io, backend, pump } = makeInteractive({
+      externalEditor: async (seed) => {
+        seeds.push(seed);
+        return { status: 'edited', text: '不应到达' };
+      },
+    });
+    const p = backend.input('下方问？');
+    pump();
+    io.emitInput('\x07'); // 应答期 ctrl+g——门判 inputAsk === null 拦下
+    await flush();
+    pump();
+    expect(seeds).toEqual([]); // 执行器零调用（应答车道不劫稿）
+    expect(io.bytes).not.toContain('不应到达');
+    io.emitInput('答\r'); // 应答照常收场（ctrl+g 零扰动应答车）
+    pump();
+    await expect(p).resolves.toBe('答');
+  });
+
+  it('missing-editor 三态呈报：白话指路文案在场、草稿原样', async () => {
+    const { io, pump } = makeInteractive({
+      externalEditor: async () => ({ status: 'missing-editor' }),
+    });
+    io.emitInput('原稿');
+    pump();
+    io.bytes = '';
+    io.emitInput('\x07');
+    await flush();
+    pump();
+    expect(io.bytes).toContain('未打开外部编辑器'); // 三态分诊白话文案
+    expect(io.bytes).toContain('$VISUAL');
+    expect(io.bytes).toContain('Ctrl+G'); // 键位册首键单源显示（displayKeyName 规范化）
+    expect(io.bytes).toContain('原稿'); // 草稿未被动过
+  });
+
+  it('failed 三态呈报：异常消息 + 草稿未改动回执', async () => {
+    const { io, pump } = makeInteractive({
+      externalEditor: async () => ({ status: 'failed', message: 'spawn boom' }),
+    });
+    io.emitInput('原稿');
+    pump();
+    io.bytes = '';
+    io.emitInput('\x07');
+    await flush();
+    pump();
+    expect(io.bytes).toContain('外部编辑器异常：spawn boom');
+    expect(io.bytes).toContain('草稿未改动——可重试');
+    expect(io.bytes).toContain('原稿');
+  });
+
+  it('编舞期同键零重入（挂起期输入已卸订 + 在飞位双保险）；收口复位可再触发', async () => {
+    let release: (() => void) | null = null;
+    const seeds: string[] = [];
+    const { io, pump } = makeInteractive({
+      externalEditor: (seed) => {
+        seeds.push(seed);
+        return new Promise((resolve) => {
+          release = () => resolve({ status: 'edited' as const, text: '第一轮' });
+        });
+      },
+    });
+    io.emitInput('原稿');
+    pump();
+    io.emitInput('\x07');
+    await flush();
+    io.emitInput('\x07'); // 编舞在飞（执行器未决）同键再按——零重入
+    await flush();
+    expect(seeds).toEqual(['原稿']); // 恰一次（挂起期输入卸订 + 在飞位双保险）
+    release!();
+    await flush();
+    pump();
+    expect(io.bytes).toContain('第一轮');
+    io.bytes = '';
+    io.emitInput('\x07'); // 收口复位（finally 闸复位）——可再触发
+    await flush();
+    expect(seeds).toEqual(['原稿', '第一轮']); // 第二轮播种 = 上轮整替后稿
   });
 });
