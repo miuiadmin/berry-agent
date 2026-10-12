@@ -17,7 +17,7 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
-import { CURSOR_MARK, headStyleOf, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { activeRowStyleOf, CURSOR_MARK, headStyleOf, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
 
@@ -89,6 +89,8 @@ export class SkillsViewer implements OverlayContent {
   private exited = false;
   /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
   private readonly headStyle: Readonly<CellStyle>;
+  /** 在选行整行样式（R-9——accent bold；右段辅助段随光标行覆写） */
+  private readonly activeRowStyle: Readonly<CellStyle>;
 
   constructor(options: SkillsViewerOptions) {
     this.entries = options.entries;
@@ -98,6 +100,7 @@ export class SkillsViewer implements OverlayContent {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
+    this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /** 量高：头行 + 清单全量 + 底行提示（副屏 root 不经布局路——render 按实际 region 窗口化） */
@@ -159,8 +162,10 @@ export class SkillsViewer implements OverlayContent {
     // 右段预算律单源：层名（插件 id 无界）先按预算 … 截断再右对齐（窄窗不再
     // 负起列劈毁技能名）
     const fit = fitRowSegments(left, right, width);
-    buffer.writeText(row, col, fit.left);
-    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
+    // 在选行整行 accent bold（R-9——codex 全 spans 律：右段辅助段随光标行覆写）
+    const active = index === this.cursor ? this.activeRowStyle : undefined;
+    buffer.writeText(row, col, fit.left, active);
+    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, active ?? HINT_STYLE);
   }
 
   /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 选定/取消 → 移动键 */

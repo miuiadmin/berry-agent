@@ -44,7 +44,8 @@ import type {
   WizardTextRequest,
 } from '../../wizard-prompter.js';
 import { DIM_STYLE } from '../../engine/index.js';
-import { CURSOR_MARK, HEAD_MARKS } from './panel-chrome.js';
+import { activeRowStyleOf, CURSOR_MARK, HEAD_MARKS } from './panel-chrome.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 提示行样式（dim——注⑩：engine DIM_STYLE 单源） */
 const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
@@ -99,6 +100,11 @@ export interface SetupWizardPanelOptions {
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
+  /**
+   * 主题（R-9——select/multiselect 相在选行 accent bold 注入位）：测试装配
+   * 缺省 DEFAULT_THEME；主会话装配位已接线（tui-backend theme: this.theme）。
+   */
+  readonly theme?: ResolvedTheme;
 }
 
 /** key 事件窄化 */
@@ -138,6 +144,8 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
   private selectOffset = 0;
   /** 退出闭锁（竞发防御位——退出后一切 prompter 法即时回值） */
   private exited = false;
+  /** 在选行整行样式（R-9——accent bold；select/multiselect 相条目行） */
+  private readonly activeRowStyle: Readonly<CellStyle>;
 
   constructor(options: SetupWizardPanelOptions) {
     this.sessionId = options.sessionId;
@@ -145,6 +153,7 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /* ---------------- WizardPrompter 面（流程件消费） ---------------- */
@@ -272,6 +281,8 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
           line,
           region.col,
           ellipsize(`${index === phase.cursor ? `${CURSOR_MARK} ` : '  '}${item.label}`, region.width),
+          // 在选行整行 accent bold（R-9）；desc 次行 dim 不随覆写（辅助行非光标行）
+          index === phase.cursor ? this.activeRowStyle : undefined,
         );
         line++;
         // desc 次行（v2——dim 渠道元信息；视口溢出不硬挤；窄窗 … 收口）
@@ -301,6 +312,8 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
           line,
           region.col,
           ellipsize(`${index === phase.cursor ? `${CURSOR_MARK} ` : '  '}${mark} ${item.label}`, region.width),
+          // 在选行整行 accent bold（R-9）；desc 次行 dim 不随覆写（辅助行非光标行）
+          index === phase.cursor ? this.activeRowStyle : undefined,
         );
         line++;
         if (item.desc !== undefined && line < end) {

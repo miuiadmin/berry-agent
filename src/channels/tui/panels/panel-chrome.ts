@@ -76,6 +76,17 @@ export function headStyleOf(theme: ResolvedTheme): Readonly<CellStyle> {
 }
 
 /**
+ * 在选行整行样式（2026-10-12 Codex 样式复刻批 R-9——07 §4.1 全域观感注③
+ * 光标符统一律 R-9 扩档）：全屏 picker/viewer 族光标行整行 accent bold，›
+ * 光标符保留（光标导航位与选中强调两账分立——弹层位 R-6 弃符、全屏族保符）；
+ * 语义色段（diff ±N 计数/词级着色/色样带）不参与覆写——语义色优先于装饰律。
+ * select-confirm R-6 弹层位同律（其自铸 activeStyle 由本单源收编换引）。
+ */
+export function activeRowStyleOf(theme: ResolvedTheme): Readonly<CellStyle> {
+  return Object.freeze({ fg: theme.accent, bold: true });
+}
+
+/**
  * 分段头判词（ScrollView 行样式档 predicate——美学注④分段头弱律 + V-3 注⑨
  * 取色链）：`── … ──` 分段线与 `· …` 域标签（键位册域分组形）两形命中；命中
  * 行整行弱线色呈现（weakRule 在场）或 dim 回退（键缺席）。

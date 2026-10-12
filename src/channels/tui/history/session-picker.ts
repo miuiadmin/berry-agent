@@ -27,7 +27,8 @@ import type { UiSessionDeleteResult, UiSessionSummary } from '../../../contracts
 import { hintLine } from '../keys/hint.js';
 import { foldErrorText } from '../../service.js';
 import { DIM_STYLE } from '../../engine/index.js';
-import { CURSOR_MARK, HEAD_MARKS } from '../panels/panel-chrome.js';
+import { CURSOR_MARK, HEAD_MARKS, activeRowStyleOf } from '../panels/panel-chrome.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 切换器装配选项 */
 export interface SessionPickerOptions {
@@ -53,6 +54,11 @@ export interface SessionPickerOptions {
    * requestRepaint）。同步键路（视图切换/取消）由引擎事件后重画承载。
    */
   readonly requestRepaint?: () => void;
+  /**
+   * 主题（R-9——在选行 accent bold 注入位）：测试装配缺省 DEFAULT_THEME；
+   * 主会话装配位已接线（tui-backend theme: this.theme）。
+   */
+  readonly theme?: ResolvedTheme;
 }
 
 /** 提示行样式（dim——注⑩：engine DIM_STYLE 单源） */
@@ -112,6 +118,8 @@ export class SessionPicker implements OverlayContent {
   private viewportHeight = 1;
   /** 退出闭锁（选定与取消两路共闭——竞发防御位） */
   private exited = false;
+  /** 在选行整行样式（R-9——accent bold；右段辅助段随光标行覆写） */
+  private readonly activeRowStyle: Readonly<CellStyle>;
 
   constructor(options: SessionPickerOptions) {
     this.sessions = [...options.sessions]; // 可变副本（就地滤行——不回写调用方数组）
@@ -122,6 +130,7 @@ export class SessionPicker implements OverlayContent {
     this.onQuit = options.onQuit;
     this.onDelete = options.onDelete;
     this.requestRepaint = options.requestRepaint;
+    this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /** 量高：清单形 = 头行 + 清单全量 + 底行提示（副屏 root 不经布局路——render 按实际 region 窗口化）；确认视图定高（头 + 警示 + 状态行预留 + 底行） */
@@ -224,8 +233,10 @@ export class SessionPicker implements OverlayContent {
     // 右段预算律单源：时间/短 id 先按预算 … 截断再右对齐（窄窗不再负起列
     // 劈毁标题——两段各自整字截断不撕宽字符）
     const fit = fitRowSegments(left, right, width);
-    buffer.writeText(row, col, fit.left);
-    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
+    // 在选行整行 accent bold（R-9——codex 全 spans 律：右段辅助段随光标行覆写）
+    const active = index === this.cursor ? this.activeRowStyle : undefined;
+    buffer.writeText(row, col, fit.left, active);
+    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, active ?? HINT_STYLE);
   }
 
   /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 确认视图（enter 确认 / esc·q 取消）→ 删除键 → 选定/取消 → 移动键 */

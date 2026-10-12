@@ -1485,6 +1485,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onQuit: this.onQuit,
         ...(onDelete !== undefined ? { onDelete } : {}),
         requestRepaint: () => this.altHost.requestRepaint(),
+        theme: this.theme,
       }),
     );
     if (handle === null) return false;
@@ -1942,6 +1943,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       onExit: () => this.closeAlt(),
       onInterrupt: this.onInterrupt,
       onQuit: this.onQuit,
+      theme: this.theme,
     });
     const handle = this.altHost.open(panel);
     if (handle === null) return null;

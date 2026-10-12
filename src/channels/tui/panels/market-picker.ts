@@ -27,7 +27,7 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
-import { CURSOR_MARK, headStyleOf, HEAD_MARKS, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { activeRowStyleOf, CURSOR_MARK, headStyleOf, HEAD_MARKS, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
 
@@ -149,6 +149,8 @@ export class MarketPicker implements OverlayContent {
   private exited = false;
   /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
   private readonly headStyle: Readonly<CellStyle>;
+  /** 在选行整行样式（R-9——accent bold；右段辅助段随光标行覆写） */
+  private readonly activeRowStyle: Readonly<CellStyle>;
 
   constructor(options: MarketPickerOptions) {
     this.model = options.model;
@@ -160,6 +162,7 @@ export class MarketPicker implements OverlayContent {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
+    this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /**
@@ -264,8 +267,10 @@ export class MarketPicker implements OverlayContent {
     // 截断右段再对齐；两段各自整字截断（… 截断形——不撕宽字符）。
     const rightFull = `${entry.description !== undefined ? `${entry.description} · ` : ''}${entry.version}`;
     const fit = fitRowSegments(left, rightFull, width);
-    buffer.writeText(row, col, fit.left);
-    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
+    // 在选行整行 accent bold（R-9——codex 全 spans 律：右段辅助段随光标行覆写）
+    const active = index === this.cursor ? this.activeRowStyle : undefined;
+    buffer.writeText(row, col, fit.left, active);
+    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, active ?? HINT_STYLE);
   }
 
   /**

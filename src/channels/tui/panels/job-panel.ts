@@ -24,7 +24,7 @@ import type { JobEntry, JobKind } from '../../../contracts/index.js';
 import { formatElapsedCompact } from '../../../contracts/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js'; // 溢出行暗淡样式单源（注⑩收编）
-import { CURSOR_MARK } from './panel-chrome.js';
+import { activeRowStyleOf, CURSOR_MARK } from './panel-chrome.js';
 
 /** 帽内行数（溢出行另计——07 §4.1 界面美化役批定值 5） */
 const MAX_ROWS = 5;
@@ -52,8 +52,8 @@ export class JobPanel implements Renderable {
    * 有作用对象必屏上在）。首渲染前按帽（与旧形兼容）。
    */
   private visibleCapacity = MAX_ROWS;
-  /** 在选行 accent 样式（theme 注入位——缺省 DEFAULT_THEME） */
-  private selectedStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
+  /** 在选行整行样式（theme 注入位——缺省 DEFAULT_THEME；R-9 换引单源升 bold） */
+  private selectedStyle: Readonly<CellStyle> = activeRowStyleOf(DEFAULT_THEME);
 
   constructor(options: { readonly now: () => number }) {
     this.now = options.now;
@@ -61,7 +61,7 @@ export class JobPanel implements Renderable {
 
   /** 主题换装（backend injectTheme 单源路——accent 派生样式重建） */
   setTheme(theme: ResolvedTheme): void {
-    this.selectedStyle = Object.freeze({ fg: theme.accent });
+    this.selectedStyle = activeRowStyleOf(theme);
   }
 
   /**

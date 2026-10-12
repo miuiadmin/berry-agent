@@ -24,7 +24,7 @@ import type { CellStyle } from '../../engine/index.js';
 import { ellipsize } from '../../engine/index.js';
 import { hintLine } from '../keys/hint.js';
 import { fitRowSegments } from '../row-segments.js';
-import { moreHint } from '../panels/panel-chrome.js';
+import { activeRowStyleOf, moreHint } from '../panels/panel-chrome.js';
 import { DIM_STYLE } from '../../engine/index.js';
 
 /** 保守取消值（select——空串与撤销面同语义） */
@@ -104,8 +104,9 @@ export class SelectPanel implements Renderable, ViewportCapAware {
   /** 标题样式（accent 派生——构造期主题定值，一次性面板无换装面） */
   private readonly titleStyle: Readonly<CellStyle>;
   /**
-   * 选中行样式（整行 accent bold——2026-10-10 Codex 样式复刻批 R-6：弃
-   * inverse 反色与 › 光标前缀符，accent bold 即选中态；构造期主题定值）
+   * 选中行样式（整行 accent bold——R-6 弃 inverse 反色与 › 光标前缀符；
+   * R-9 收编 panel-chrome activeRowStyleOf 单源——全屏族与弹层族同源）。
+   * 构造期主题定值，一次性面板无换装面。
    */
   private readonly activeStyle: Readonly<CellStyle>;
   /**
@@ -127,7 +128,7 @@ export class SelectPanel implements Renderable, ViewportCapAware {
     this.title = options.title;
     this.options = options.options;
     this.titleStyle = Object.freeze({ fg: theme.accent });
-    this.activeStyle = Object.freeze({ fg: theme.accent, bold: true });
+    this.activeStyle = activeRowStyleOf(theme);
     this.surfaceStyle = theme.userMessageBg === undefined ? null : Object.freeze({ bg: theme.userMessageBg });
     this.surfaceRows = this.surfaceStyle === null ? 0 : SURFACE_INSET_V * 2;
     this.onQuit = options.onQuit;

@@ -30,7 +30,7 @@ import { diffWords, parsePatchLines, type DiffSeg, type PatchLine } from '../blo
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { DIM_STYLE } from '../../engine/index.js';
-import { CURSOR_MARK as PANEL_CHROME_CURSOR_MARK, HEAD_MARKS } from './panel-chrome.js';
+import { activeRowStyleOf, CURSOR_MARK as PANEL_CHROME_CURSOR_MARK, HEAD_MARKS } from './panel-chrome.js';
 
 /**
  * 投影工具调用最小面（foldSessionDiff 消费子集）：arguments = **原始未解析
@@ -442,7 +442,9 @@ export class DiffViewer implements OverlayContent {
     const rightStart = col + width - rightWidth;
     const maxLeft = (showRight ? rightStart : col + width) - col - 1;
     const fitLeft = ellipsize(left, maxLeft); // 省略形单源（width 件）
-    buffer.writeText(row, col, fitLeft);
+    // 在选行整行 accent bold（R-9）——左段组头行；右段 ±N/-M 语义色不参与
+    // 覆写（语义色优先于装饰律——diff 计数着色保持）
+    buffer.writeText(row, col, fitLeft, index === this.cursor ? activeRowStyleOf(this.theme) : undefined);
     if (showRight) {
       let c = rightStart;
       buffer.writeText(row, c, addedText, { fg: this.theme.diffAdded });

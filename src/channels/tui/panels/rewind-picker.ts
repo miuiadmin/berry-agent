@@ -23,7 +23,7 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import type { UiRewindActions, UiRewindEntry, UiRewindPreview } from '../../../contracts/index.js';
 import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
-import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { activeRowStyleOf, CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
 import { foldErrorText } from '../../service.js';
@@ -115,6 +115,8 @@ export class RewindPicker implements OverlayContent {
   private exited = false;
   /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
   private readonly headStyle: Readonly<CellStyle>;
+  /** 在选行整行样式（R-9——accent bold；单行形无右段） */
+  private readonly activeRowStyle: Readonly<CellStyle>;
 
   constructor(options: RewindPickerOptions) {
     this.entries = options.entries;
@@ -125,6 +127,7 @@ export class RewindPicker implements OverlayContent {
     this.onQuit = options.onQuit;
     this.requestRepaint = options.requestRepaint;
     this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
+    this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /** 过滤后条目集（query 空 = 全量；清单序保持） */
@@ -199,7 +202,13 @@ export class RewindPicker implements OverlayContent {
           if (index >= items.length) break;
           const entry = items[index]!;
           const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
-          buffer.writeText(displayRow, region.col, fitLine(`${prefix}${entry.line}`, region.width));
+          // 在选行整行 accent bold（R-9——单行形 writeText 第三参）
+          buffer.writeText(
+            displayRow,
+            region.col,
+            fitLine(`${prefix}${entry.line}`, region.width),
+            index === this.cursor ? this.activeRowStyle : undefined,
+          );
           displayRow++;
         }
         if (indicatorsOn) {

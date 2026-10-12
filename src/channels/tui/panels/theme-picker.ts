@@ -17,7 +17,7 @@ import type { CellBuffer, CellStyle, ColorValue, InputEvent, Region } from '../.
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
-import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { activeRowStyleOf, CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { builtinPalette, DEFAULT_THEME, resolveTheme, type ResolvedTheme } from '../theme/index.js';
 import { overlayBoard } from '../theme/custom.js';
 import type { PartialSemanticPalette } from '../theme/semantic.js';
@@ -129,6 +129,8 @@ export class ThemePicker implements OverlayContent {
   private exited = false;
   /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
   private readonly headStyle: Readonly<CellStyle>;
+  /** 在选行整行样式（R-9——accent bold；右段辅助段随光标行覆写） */
+  private readonly activeRowStyle: Readonly<CellStyle>;
 
   constructor(options: ThemePickerOptions) {
     this.entries = options.entries;
@@ -139,6 +141,7 @@ export class ThemePicker implements OverlayContent {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
+    this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /** 量高：头行 + 条目全量 + 底行提示（副屏 root 不经布局路——render 按实际 region 窗口化） */
@@ -230,8 +233,11 @@ export class ThemePicker implements OverlayContent {
     const budget = reserveSwatch ? width - swatch!.length - 1 : width;
     // 右段预算律单源：右段先按预算 … 截断再右对齐（窄窗不再负起列劈毁档名）
     const fit = fitRowSegments(left, right, budget);
-    buffer.writeText(row, col, fit.left);
-    if (fit.rightWidth > 0) buffer.writeText(row, col + budget - fit.rightWidth, fit.right, HINT_STYLE);
+    // 在选行整行 accent bold（R-9——codex 全 spans 律：右段辅助段随光标行覆写）；
+    // 行尾色样段语义色不参与覆写（语义色优先于装饰律——setCell 独立写位不动）
+    const active = index === this.cursor ? this.activeRowStyle : undefined;
+    buffer.writeText(row, col, fit.left, active);
+    if (fit.rightWidth > 0) buffer.writeText(row, col + budget - fit.rightWidth, fit.right, active ?? HINT_STYLE);
     // 色样段：右缘贴齐逐块着色（accent/success/error/secondary 语义四段）
     if (reserveSwatch) {
       for (let i = 0; i < swatch!.length; i++) {

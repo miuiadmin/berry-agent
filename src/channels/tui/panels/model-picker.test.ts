@@ -8,6 +8,7 @@ import type { InputEvent, KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid } from '../../engine/index.js';
 import { ModelPicker } from './model-picker.js';
 import type { ModelPickerOptions } from './model-picker.js';
+import { DEFAULT_THEME } from '../theme/index.js';
 
 /** key 事件夹具 */
 const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
@@ -107,6 +108,24 @@ describe('ModelPicker 呈现', () => {
     expect(readRow(grid2, 2, 72)).not.toContain('●');
     expect(readRow(grid2, 5, 72)).toContain('●');
     expect(readRow(grid2, 5, 72).startsWith('›')).toBe(false);
+  });
+
+  it('在选行整行 accent bold（R-9——codex 全 spans 律：右段辅助段随光标行覆写；› 光标符保留两账分立）', () => {
+    const { picker } = makePicker();
+    const grid = paint(picker);
+    // 光标行（行 2 = 首条目）：左段整行 accent bold（› 符位同覆写——保符不保旧样式）
+    expect(grid.getCell(2, 0)?.style?.fg).toBe(DEFAULT_THEME.accent);
+    expect(grid.getCell(2, 0)?.style?.bold).toBe(true);
+    // 右段辅助段（右对齐 model 裸名）随光标行覆写——codex 全 spans 律
+    const rightCol = 72 - 'claude-sonnet'.length;
+    expect(grid.getCell(2, rightCol)?.style?.fg).toBe(DEFAULT_THEME.accent);
+    expect(grid.getCell(2, rightCol)?.style?.bold).toBe(true);
+    // 非光标条目行（行 3）：左段无样式、右段 dim（HINT_STYLE = {dim:true}）
+    expect(grid.getCell(3, 0)?.style?.fg).toBeUndefined();
+    expect(grid.getCell(3, 0)?.style?.bold).toBeUndefined();
+    const rightCol3 = 72 - 'claude-opus'.length;
+    expect(grid.getCell(3, rightCol3)?.style?.fg).toBeUndefined();
+    expect(grid.getCell(3, rightCol3)?.style?.dim).toBe(true);
   });
 
   it('窄窗非条目行 … 收口（wf_3c8b00b8 组δ X-5）：头行/组头行/底行 raw writeText 硬截断封堵（修前红）', () => {

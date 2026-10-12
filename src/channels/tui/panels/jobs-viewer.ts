@@ -22,7 +22,7 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { ellipsize } from '../../engine/index.js';
 import type { JobEntry, JobStatus } from '../../../contracts/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
-import { CURSOR_MARK, VIEWER_HEAD_MARK, headStyleOf } from './panel-chrome.js';
+import { activeRowStyleOf, CURSOR_MARK, VIEWER_HEAD_MARK, headStyleOf } from './panel-chrome.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { shortIdOf } from '../backend/transcript.js';
@@ -186,11 +186,12 @@ export class JobsViewer implements OverlayContent {
           }
           const selected = this.entryPositions[this.cursor] === index;
           const line = `${selected ? CURSOR_MARK : ' '} ${row.text}`;
+          // 在选行整行 accent bold（R-9——headStyleOf 换引 activeRowStyleOf 升档）
           buffer.writeText(
             region.row + 1 + i,
             region.col,
             ellipsize(line, region.width),
-            selected ? headStyleOf(this.theme) : this.entryStyle(row.entry),
+            selected ? activeRowStyleOf(this.theme) : this.entryStyle(row.entry),
           );
         }
       }

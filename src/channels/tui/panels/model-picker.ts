@@ -17,7 +17,7 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
-import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { activeRowStyleOf, CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
 
@@ -96,6 +96,8 @@ export class ModelPicker implements OverlayContent {
   private exited = false;
   /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
   private readonly panelHeadStyle: Readonly<CellStyle>;
+  /** 在选行整行样式（R-9——accent bold；右段辅助段随光标行覆写） */
+  private readonly activeRowStyle: Readonly<CellStyle>;
 
   constructor(options: ModelPickerOptions) {
     this.entries = options.entries;
@@ -106,6 +108,7 @@ export class ModelPicker implements OverlayContent {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.panelHeadStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
+    this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /** 过滤后条目集（query 空 = 全量；装配序保持） */
@@ -245,8 +248,11 @@ export class ModelPicker implements OverlayContent {
     const mark = this.current !== undefined && entry.spec === this.current ? `${CURRENT_MARK} ` : '  ';
     const left = `${prefix}${mark}${entry.spec}`;
     const fit = fitRowSegments(left, entry.model, width);
-    buffer.writeText(row, col, fit.left);
-    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
+    // 在选行整行 accent bold（R-9——codex 全 spans 律：右段辅助段随光标行覆写）
+    // 在选行整行 accent bold（R-9——codex 全 spans 律：右段辅助段随光标行覆写）
+    const active = isCursor ? this.activeRowStyle : undefined;
+    buffer.writeText(row, col, fit.left, active);
+    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, active ?? HINT_STYLE);
   }
 
   /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 移动/选定/取消 → 打字过滤 */
