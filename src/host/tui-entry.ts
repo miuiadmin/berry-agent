@@ -41,14 +41,17 @@ import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
 import { gitHeadCompactLabel, readGitHead } from '../channels/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import {
+  APPROVAL_SETTLED_EVENT,
   foldSessionSandboxMode,
   foldSessionThinkingLevel,
   foldSessionUsage,
   foldTodoTable,
+  isUserApprovalDecision,
   setSessionMode,
   setSessionThinkingLevel,
   THINKING_LEVELS,
 } from '../conversation/index.js';
+import type { ApprovalSettledNotice } from '../conversation/index.js';
 import { sanitizeEntryForReadout, shortIdOf, type MemoryDao } from '../memory/index.js';
 import { formatSkillInvocation, type SkillsRegistry } from '../skills/index.js';
 import type { Provider } from '../llm/index.js';
@@ -1594,6 +1597,15 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 与注入缺席同义）。busy 判据不在接线层——面板帧首拉取在队快照即真源
       //（steer 顶注件与候跑件同池全量呈现）。
       queueFor: (sessionId) => stack.driverOf(sessionId)?.peekWaiting() ?? null,
+      // 审批决策折面数据源（挖掘 31 轮 [1]——onRepaint/openHistory 重建路）：
+      // 谓词单源两路共用（直播腿订阅位同一 isUserApprovalDecision——过滤只此
+      // 一处下筛，backend 收到的已是呈现子集）；窄形映射剥 fold 专属位
+      //（approvalId/source——呈现载荷零携带）。
+      approvalDecisionsOf: (sessionId) =>
+        stack
+          .approvalDecisionsOf(sessionId)
+          .filter(isUserApprovalDecision)
+          .map(({ seq, decision, summary }) => ({ seq, decision, summary })),
       // 持久化分项目输入历史（B1——07 §4.1 呈现面件 2 定形注③种写双路）：
       // 域键 = 启动锚工作区根（session.workspaceRoot——resume/--session 续接
       // 会话根与 openStartupSession 缺省 cwd 归一两路均已 canonical 归一形；
@@ -1763,6 +1775,22 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         if (entry.kind === 'subagent' && entry.owner === stack.channels.focusedId) {
           backend.appendJobSettledLine(entry);
         }
+      });
+    }
+
+    // —— approval/settled 决策行直播腿订阅（挖掘 31 轮 [1]——07 §4.1 审批
+    // 决策落史行词条）：焦点会话 + 人批决议（isUserApprovalDecision 谓词单源
+    // ——两路〔直播追加/回看注入〕共用，过滤只此一处下筛）→ 块账路追加
+    // （dialogueBlockCount 计入、repaint 投影重建自愈）。非焦点会话决议零
+    // 直播呈现（切焦回看路自 fold 重建）；cancel/unavailable 与非人决策档
+    // 不落行（谓词闭集）。总线词装配根预注册 + wiring 双保险两笔同批在册
+    //（isRegistered 恒真——防御位同 job_settled 律）。
+    if (dispatch.isRegistered(APPROVAL_SETTLED_EVENT)) {
+      dispatch.on(APPROVAL_SETTLED_EVENT, (data) => {
+        const notice = data as ApprovalSettledNotice;
+        if (notice.sessionId !== stack.channels.focusedId) return;
+        if (!isUserApprovalDecision(notice)) return;
+        backend.appendApprovalDecisionLine({ decision: notice.decision, summary: notice.summary });
       });
     }
 

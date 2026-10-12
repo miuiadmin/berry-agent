@@ -210,6 +210,21 @@ export type TranscriptBlock =
       readonly directory: string;
     }
   | {
+      /**
+       * 审批决策行块（挖掘 31 轮 [1]——07 §4.1 审批决策落史行词条）：人批
+       * 决议（approve/always/reject × source=user）的 durable 落史呈现——
+       * 非消息源 durable 块族（与头卡同属直播路渲染单源的第二豁免类：不经
+       * message 事件——直播腿总线追加、重建腿 fold 按 seq 归位）。一行制：
+       * 首游程 ✓/✗ 词面（语义色）+ 次游程 ` · ` 配对摘要（dim、折空一行化）。
+       */
+      readonly kind: 'approval-decision';
+      /** 决议档（呈现子集三值——谓词滤除在消费侧单源 isUserApprovalDecision） */
+      readonly decision: 'approve' | 'always' | 'reject';
+      /** asked 配对摘要（一行化后直存；空串 = 单腿形裸词面） */
+      readonly summary: string;
+      readonly theme: ResolvedTheme;
+    }
+  | {
       readonly kind: 'streaming';
       /** 槽代次（每条 assistant message_start 递增——冻结账同一性判据） */
       readonly epoch: number;
@@ -232,9 +247,43 @@ export type TranscriptBlock =
       readonly toggleHint: string;
     };
 
+/**
+ * 审批决策行注入窄形（挖掘 31 轮 [1]）：投影/回看路的决策载荷（seq 归位
+ * 锚 + 呈现子集三值 + 配对摘要）——直播腿追加（appendApprovalDecision）与
+ * 重建腿归位（loadProjection decisions 参）两消费位同形；theme 由
+ * LiveTranscript 自持（消费位不传）。文件内导出窄形——contracts 零改。
+ */
+export interface ApprovalDecisionLineInput {
+  /** 归位锚（decided 事件 durable seq——其后首条消息之前呈现；直播腿缺席不用） */
+  readonly seq: number;
+  readonly decision: 'approve' | 'always' | 'reject';
+  readonly summary: string;
+}
+
 /** 会话短 id（呈现层自截——散列映射色板键同源） */
 export function shortIdOf(sessionId: string): string {
   return sessionId.slice(0, 8);
+}
+
+/**
+ * 审批决策行构造（挖掘 31 轮 [1]——词面单源）：首游程三档词（✓ 已批准 /
+ * ✓ 已总是批准 success / ✗ 已拒绝 error）+ 次游程 ` · `+一行化摘要（dim；
+ * `\s*[\n\r]+\s*` 折空——块是一行制非多行）。超宽不预截——出口帽
+ * capStyledLine 整字截断（简行族同律）。
+ */
+function approvalDecisionLine(block: Extract<TranscriptBlock, { kind: 'approval-decision' }>): StyledLine {
+  const head = block.decision === 'reject' ? '✗ 已拒绝' : block.decision === 'always' ? '✓ 已总是批准' : '✓ 已批准';
+  const fg: ColorValue = block.decision === 'reject' ? block.theme.error : block.theme.success;
+  const summary = block.summary.replace(/\s*[\n\r]+\s*/g, ''); // 一行化（折空换行含围空白）
+  if (summary === '') return { plain: head, runs: [{ start: 0, end: head.length, style: Object.freeze({ fg }) }] };
+  const plain = `${head} · ${summary}`;
+  return {
+    plain,
+    runs: [
+      { start: 0, end: head.length, style: Object.freeze({ fg }) },
+      { start: head.length, end: plain.length, style: DIM_STYLE },
+    ],
+  };
 }
 
 /** dim 样式（简行块的整行样式——SGR 2；注⑩：engine 正典单源） */
@@ -542,6 +591,10 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
       // leadingGap=false 施加（main-screen B 段 !(i===0 && blocksOffset===0)
       // 同判据——头卡即首块 top:0 无垫）
       return withPad(renderSessionHeaderLines(block, columns), leadingGap);
+    case 'approval-decision':
+      // 审批决策行（挖掘 31 轮 [1]）：单行制（无折行族——超宽走出口帽
+      // capStyledLine 整字截断）+ 块前垫（R-1 制度行）
+      return withPad([approvalDecisionLine(block)], leadingGap);
     case 'streaming': {
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
       // markdown 直推档走网格管线（bullet 槽同轴——与定稿 markdown 块逐行同形）；
@@ -1262,12 +1315,58 @@ export class LiveTranscript {
     this.applyFocused(env.event);
   }
 
-  /** 投影重建（repaint 路——清账按投影重拉帽内段；直播/repaint 行集同构） */
-  loadProjection(messages: readonly AgentMessage[]): void {
+  /**
+   * 直播腿审批决策行追加（挖掘 31 轮 [1]——approval/settled 总线消费位）：
+   * **块账在册**（计入 dialogueBlockCount、占 blockCap 帽）非瞬时行路
+   * （appendTransientLine/appendJobSettledLine 那一路）——repaint 自投影
+   * 重建自愈（fold 按 seq 归位同构）；调用位过滤已由消费侧谓词完成
+   * （isUserApprovalDecision——本面不重复滤）。
+   */
+  appendApprovalDecision(entry: {
+    decision: 'approve' | 'always' | 'reject';
+    summary: string;
+    theme: ResolvedTheme;
+  }): void {
+    this.blocks.push({
+      kind: 'approval-decision',
+      decision: entry.decision,
+      summary: entry.summary,
+      theme: entry.theme,
+    });
+    this.trimToCap();
+  }
+
+  /**
+   * 投影重建（repaint 路——清账按投影重拉帽内段；直播/repaint 行集同构）。
+   * decisions（挖掘 31 轮 [1]——审批决策行重建腿）：按 seq 归位——逐消息
+   * 前 flush 队首 seq < 该消息 seq 的决策块（与直播路 emit 时点追加同构：
+   * 组窗卡延迟落位两路同形——决策块先入、窗卡后收口不误序）；循环尾
+   * flush 先于组窗收口（直播路 agent_end 收口前的 emit 序对齐）。消息全
+   * 零 seq（模型 timeline 种子形——projectionOf 路无锚）= 尾 flush 降级
+   * （诚实不丢，锚定形两路同构不涉）。
+   */
+  loadProjection(
+    messages: readonly (AgentMessage & { readonly seq?: number })[],
+    decisions?: readonly ApprovalDecisionLineInput[],
+  ): void {
     const rebuilt: TranscriptBlock[] = [];
     this.pendingCalls.clear(); // 配对账随投影重建（走查中 assistant 入账、toolResult 出账）
     this.groupWindow = []; // 组窗随投影重建（走查中暂存、段切分/走查毕收口）
+    // 决策归位队列（升序——durable seq 单调，排序是导入/合成乱序形的防御位）
+    const decisionQueue = [...(decisions ?? [])].sort((a, b) => a.seq - b.seq);
+    const flushDecisionsBefore = (limit: number): void => {
+      while (decisionQueue.length > 0 && decisionQueue[0]!.seq < limit) {
+        const entry = decisionQueue.shift()!;
+        rebuilt.push({
+          kind: 'approval-decision',
+          decision: entry.decision,
+          summary: entry.summary,
+          theme: this.theme,
+        });
+      }
+    };
     for (const message of messages) {
+      if (message.seq !== undefined) flushDecisionsBefore(message.seq);
       switch (message.role) {
         case 'user': {
           // 压缩摘要载体 → 分隔块（B2 批 2——判据先于 user 块路：载体零直呈）
@@ -1296,6 +1395,12 @@ export class LiveTranscript {
           break;
         // 自定义角色：content unknown 宽容跳过（不猜形状——件 1 自定义渲染器优先级语义）
       }
+    }
+    // 决策尾 flush（挖掘 31 轮 [1]）：晚于全部消息的决策块——先于组窗收口
+    //（直播路 emit 在 agent_end 收口前，两路同构）；零 seq 消息的降级尾
+    // flush 同在此收口（诚实不丢）
+    for (const entry of decisionQueue) {
+      rebuilt.push({ kind: 'approval-decision', decision: entry.decision, summary: entry.summary, theme: this.theme });
     }
     // 组窗走查毕收口（直播路 agent_end 收口位的投影对位——末段窗
     // 不滞留；先于孤儿 ⚙ 扫描：组卡位在前、孤儿兜底在后与直播路同序）

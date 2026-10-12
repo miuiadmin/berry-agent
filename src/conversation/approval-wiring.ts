@@ -24,17 +24,40 @@
  * fail-loud）——dispatch 与服务同生命周期（per-session dispatch），dispose
  * 只摘 answerer 不撤销词汇注册。
  */
-import type { ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
+import type { ApprovalAskAnswer, ApprovalAskRequest, SessionEvent } from '../contracts/index.js';
 import type { EventDispatch } from '../context/index.js';
 import type { SessionLog } from '../session/index.js';
+import { occludedSeqs } from '../session/index.js';
 import { APPROVAL_ANSWER_EVENT, bridgeApprovalSignal, createApprovalService } from '../safety/index.js';
 import type {
   ToolPolicyDraft,
   ApprovalAnswerEnvelope,
+  ApprovalDecisionValue,
   ApprovalPolicyMode,
   ApprovalRequest,
   ApprovalService,
+  DecisionSource,
 } from '../safety/index.js';
+
+/**
+ * 审批决议活体总线词（挖掘 31 轮 [1]——07 §4.1 审批决策落史行词条）：decided
+ * durable 落账后广播，消费位 = TUI 直播腿决策行追加（job_settled 同族——活体
+ * 通知词汇非 durable 词行；durable 对仍 asked/decided 两词零变）。emit 全部
+ * decided 不滤——谓词滤除（isUserApprovalDecision）在消费侧单源。
+ */
+export const APPROVAL_SETTLED_EVENT = 'approval/settled';
+
+/**
+ * 决议广播载荷：durable decided 载荷 + 会话归属键 + 配对 summary（asked 腿
+ * 簿记取——单腿形 asked 未落则空串诚实）。
+ */
+export interface ApprovalSettledNotice {
+  readonly sessionId: string;
+  readonly approvalId: string;
+  readonly decision: ApprovalDecisionValue;
+  readonly source: DecisionSource;
+  readonly summary: string;
+}
 
 /** 会话审批装配选项（host 装配根 / 驱动测试面注入） */
 export interface SessionApprovalOptions {
@@ -76,14 +99,39 @@ export function wireSessionApproval(opts: SessionApprovalOptions): SessionApprov
   /** 挂起 ask 簿记（本会话 answerer 在身的问询——settlePending 收口对象） */
   const pending = new Set<PendingAsk>();
 
+  // 决议总线词双保险注册（挖掘 31 轮 [1]）：独立装配（不经 assembly 预注册）
+  // 的测试形/嵌入形也活体可订阅——撞名 fail-loud 兜底（EventDispatch 同词
+  // 二次注册抛 EVENT_DUPLICATE，isRegistered 先查避免）
+  if (!opts.dispatch.isRegistered(APPROVAL_SETTLED_EVENT)) {
+    opts.dispatch.registerEventNames([APPROVAL_SETTLED_EVENT]);
+  }
+
+  /** asked 腿 summary 簿记（per-approvalId——decided 配对后 consume 即清，两问两答不串账） */
+  const askedSummaries = new Map<string, string>();
+
   const service = createApprovalService(opts.dispatch, {
     ownership: { sessionId: opts.sessionId },
     ...(opts.policy !== undefined ? { policy: opts.policy } : {}),
     ...(opts.persistToolPolicy !== undefined ? { persistToolPolicy: opts.persistToolPolicy } : {}),
-    // 审批对 durable 落账（05 §1.1 词行 data 形与 sink 载荷一一对应）
+    // 审批对 durable 落账（05 §1.1 词行 data 形与 sink 载荷一一对应）+ 决议
+    // 活体广播（挖掘 31 轮 [1]——append 先于 emit：durable 是真源，直播腿与
+    // 折面（foldApprovalDecisions）两路同构的前提）
     sink: {
-      asked: (payload) => opts.session.append('approval/asked', payload),
-      decided: (payload) => opts.session.append('approval/decided', payload),
+      asked: (payload) => {
+        opts.session.append('approval/asked', payload);
+        askedSummaries.set(payload.approvalId, payload.summary);
+      },
+      decided: (payload) => {
+        opts.session.append('approval/decided', payload);
+        const summary = askedSummaries.get(payload.approvalId) ?? '';
+        askedSummaries.delete(payload.approvalId); // consume 即清
+        // 通知型监听器同步起跑（emit 同步进腿）——不 await 不阻塞审批主路
+        void opts.dispatch.emit(APPROVAL_SETTLED_EVENT, {
+          sessionId: opts.sessionId,
+          ...payload,
+          summary,
+        } satisfies ApprovalSettledNotice);
+      },
     },
   });
 
@@ -150,4 +198,70 @@ function toAskRequest(req: ApprovalRequest): ApprovalAskRequest {
       ? { suggestedEntry: `${req.suggestedEntry.tool} ${req.suggestedEntry.pattern}` }
       : {}),
   };
+}
+
+/* ---------------- 审批决策折面（挖掘 31 轮 [1]——投影/回看路数据源） ---------------- */
+
+/** 折面记录：decided 事件 seq（决策行按 seq 归位锚）+ durable 载荷 + 配对 summary */
+export interface FoldedApprovalDecision {
+  /** 归位锚 = decided 事件的 durable seq（其后首条消息之前呈现） */
+  readonly seq: number;
+  readonly approvalId: string;
+  readonly decision: ApprovalDecisionValue;
+  readonly source: DecisionSource;
+  /** asked 配对摘要（单腿形/遮蔽 asked → 空串诚实） */
+  readonly summary: string;
+}
+
+/**
+ * durable 审批对折面（纯函数——投影/回看路数据源）：单遍扫描 asked 建
+ * per-approvalId 摘要簿记、decided 成记录（summary 现场配对 consume——与
+ * 直播腿 sink 簿记同构）。落 surfaceOp 遮蔽区间（压缩——occludedSeqs 单源）
+ * 的 asked/decided 事件跳过：决策行随消息遮蔽同语义消失（重建窗口外）。
+ */
+export function foldApprovalDecisions(events: readonly SessionEvent[]): readonly FoldedApprovalDecision[] {
+  const occluded = occludedSeqs(events);
+  const askedSummaries = new Map<string, string>();
+  const out: FoldedApprovalDecision[] = [];
+  for (const event of events) {
+    if (occluded.has(event.seq)) continue; // 遮蔽窗口内——重建面缺席
+    if (event.type === 'approval/asked') {
+      const data = event.data as { approvalId: string; summary?: string };
+      askedSummaries.set(data.approvalId, data.summary ?? '');
+    } else if (event.type === 'approval/decided') {
+      const data = event.data as { approvalId: string; decision: ApprovalDecisionValue; source: DecisionSource };
+      out.push({
+        seq: event.seq,
+        approvalId: data.approvalId,
+        decision: data.decision,
+        source: data.source,
+        summary: askedSummaries.get(data.approvalId) ?? '',
+      });
+      askedSummaries.delete(data.approvalId); // consume 即清（同 approvalId 复用时摘要不串账）
+    }
+  }
+  return out;
+}
+
+/**
+ * 呈现面子集谓词（单源——直播腿与回看注入位两路共用）：人批的三决议档
+ * （approve/always/reject）落行；cancel（打断非拒绝）/unavailable（通道没了）
+ * /sticky/subset/timeout/policy-never（非人决策）不落——粘性/子集命中根本
+ * 无审批对产生（天然无对象非滤除），本谓词只辖有对时的 source 档。
+ */
+/**
+ * 呈现面子集谓词（单源——直播腿与回看注入位两路共用）：人批的三决议档
+ * （approve/always/reject）落行；cancel（打断非拒绝）/unavailable（通道没了）
+ * /sticky/subset/timeout/policy-never（非人决策）不落——粘性/子集命中根本
+ * 无审批对产生（天然无对象非滤除），本谓词只辖有对时的 source 档。
+ * 泛型窄化（`T & {decision: 子集}`）：消费位 filter 后 decision 随窄——
+ * 呈现载荷类型（ApprovalDecisionLineInput 三值）零再断言。
+ */
+export function isUserApprovalDecision<T extends { decision: ApprovalDecisionValue; source: DecisionSource }>(
+  input: T,
+): input is T & { decision: 'approve' | 'always' | 'reject' } {
+  return (
+    (input.decision === 'approve' || input.decision === 'always' || input.decision === 'reject') &&
+    input.source === 'user'
+  );
 }

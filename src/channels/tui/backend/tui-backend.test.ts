@@ -6578,3 +6578,32 @@ describe('TuiBackend 历史回搜守卫（挖掘 31 轮 [3]——七闸接线面
     expect(stripAnsi(io.bytes)).toContain('回搜：?（未找到）'); // 入 query 而非开 /help
   });
 });
+
+/* ---------------- 审批决策落史行（挖掘 31 轮 [1]）——直播追加公开面 ---------------- */
+
+describe('TuiBackend appendApprovalDecisionLine（挖掘 31 轮 [1]——块账追加即入帧）', () => {
+  it('决策行落帧：✗ 已拒绝 · <summary>（块账路——同步直出即入帧）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, {
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: '答' }],
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+        stopReason: 'stop',
+        timestamp: 1,
+      },
+    });
+    backend.appendApprovalDecisionLine({ decision: 'reject', summary: 'git push' });
+    // SGR 游程切割谱：✗ 段语义色 + summary 段 dim——字面锚 stripAnsi 后断
+    expect(stripAnsi(io.bytes)).toContain('✗ 已拒绝 · git push');
+  });
+
+  it('三档词面：approve ✓ / always ✓ / reject ✗（回看重建与直播同词汇单源）', () => {
+    const { io, backend } = makeBackend();
+    backend.appendApprovalDecisionLine({ decision: 'approve', summary: 'npm test' });
+    backend.appendApprovalDecisionLine({ decision: 'always', summary: 'npm run' });
+    expect(stripAnsi(io.bytes)).toContain('✓ 已批准 · npm test');
+    expect(stripAnsi(io.bytes)).toContain('✓ 已总是批准 · npm run');
+  });
+});

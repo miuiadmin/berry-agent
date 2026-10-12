@@ -2034,3 +2034,107 @@ describe('会话头卡（Codex 样式复刻批 R-7——07 §4.1 2026-10-10 dura
     expect(dialogueBlockCount([user1, user2])).toBe(2);
   });
 });
+
+/* ---------------- 审批决策落史行（挖掘 31 轮 [1]）——块渲染 + 投影归位 + 直播腿 ---------------- */
+
+describe('LiveTranscript 审批决策块（挖掘 31 轮 [1]——approval-decision）', () => {
+  /** 决策块速构（渲染面直锁） */
+  const decisionBlock = (decision: 'approve' | 'always' | 'reject', summary: string): TranscriptBlock => ({
+    kind: 'approval-decision',
+    decision,
+    summary,
+    theme: DEFAULT_THEME,
+  });
+
+  it('词面三档 + 游程色：approve/always 首游程 success、reject 首游程 error、次游程 summary 恒 dim', () => {
+    // 修前红：union 无此 kind——switch 穷尽性红（esbuild 只剥类型，运行红落渲染缺席）
+    const approve = renderBlockStyledLines(decisionBlock('approve', 'rm -rf /tmp/x'), 100, false);
+    expect(approve).toHaveLength(1);
+    expect(approve[0]!.plain).toBe('✓ 已批准 · rm -rf /tmp/x');
+    expect(approve[0]!.runs[0]!.style.fg).toEqual(DEFAULT_THEME.success); // 首游程（✓ 已批准）语义色
+    expect(approve[0]!.runs[approve[0]!.runs.length - 1]!.style.dim).toBe(true); // 次游程（summary）dim
+    const always = renderBlockStyledLines(decisionBlock('always', 'git push'), 100, false);
+    expect(always[0]!.plain).toBe('✓ 已总是批准 · git push');
+    expect(always[0]!.runs[0]!.style.fg).toEqual(DEFAULT_THEME.success);
+    const reject = renderBlockStyledLines(decisionBlock('reject', 'git push'), 100, false);
+    expect(reject[0]!.plain).toBe('✗ 已拒绝 · git push');
+    expect(reject[0]!.runs[0]!.style.fg).toEqual(DEFAULT_THEME.error);
+  });
+
+  it('多行 summary 一行化（折空换行）+ 超宽整字截断（capStyledLine 出口帽）', () => {
+    const multi = renderBlockStyledLines(decisionBlock('approve', '第一行\n\n  第二行\r\n第三行'), 100, false);
+    expect(multi).toHaveLength(1); // 一行化——非多行块
+    expect(multi[0]!.plain).toBe('✓ 已批准 · 第一行第二行第三行');
+    // 超宽：80 列截断（plain 长度受帽、无半字——宽感知整字截断）
+    const wide = renderBlockStyledLines(decisionBlock('approve', `bash ${'x'.repeat(90)}`), 80, false);
+    expect(wide).toHaveLength(1);
+    expect(stringWidth(wide[0]!.plain)).toBeLessThanOrEqual(80);
+    expect(wide[0]!.plain.startsWith('✓ 已批准 · bash x')).toBe(true);
+  });
+
+  it('loadProjection 行位 seq 锚：决策按 seq 归位到其后首条消息之前（词法序不丢位）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection(
+      [
+        { ...userMsg('问'), seq: 0 },
+        { ...assistantMsg('答'), seq: 2 },
+      ] as never,
+      [{ seq: 1, decision: 'approve', summary: 'rm' }],
+    );
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['user', 'approval-decision', 'markdown']);
+  });
+
+  it('尾 flush 两形：决策 seq 晚于全部消息 → 尾块；消息零 seq → 降级尾 flush 不丢', () => {
+    const late = new LiveTranscript();
+    late.loadProjection([{ ...userMsg('问'), seq: 0 }] as never, [{ seq: 5, decision: 'reject', summary: 'git push' }]);
+    expect(late.snapshot.map((b) => b.kind)).toEqual(['user', 'approval-decision']); // 尾块
+    const noSeq = new LiveTranscript();
+    // 消息全零 seq（模型 timeline 种子形）——决策无法定锚 → 尾 flush 降级（诚实不丢）
+    noSeq.loadProjection([userMsg('问'), assistantMsg('答')], [{ seq: 1, decision: 'approve', summary: 'x' }]);
+    expect(noSeq.snapshot.map((b) => b.kind)).toEqual(['user', 'markdown', 'approval-decision']);
+  });
+
+  it('直播腿：appendApprovalDecision 入块账（dialogueBlockCount 计入）+ blockCap 同队让位', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_end', message: assistantMsg('答') });
+    const before = dialogueBlockCount(t.snapshot);
+    t.appendApprovalDecision({ decision: 'approve', summary: 'bash npm test', theme: DEFAULT_THEME });
+    expect(dialogueBlockCount(t.snapshot)).toBe(before + 1); // 块账在册——非瞬时行
+    expect(t.snapshot[t.snapshot.length - 1]).toMatchObject({ kind: 'approval-decision', decision: 'approve' });
+    // 帽卸载同队：blockCap 2 下追加第 3 对话块 → 前缀出列（决策块无特权位）
+    const capped = new LiveTranscript({ blockCap: 2 });
+    capped.appendApprovalDecision({ decision: 'approve', summary: '一', theme: DEFAULT_THEME });
+    capped.appendApprovalDecision({ decision: 'reject', summary: '二', theme: DEFAULT_THEME });
+    capped.appendApprovalDecision({ decision: 'approve', summary: '三', theme: DEFAULT_THEME });
+    expect(capped.blockCount).toBe(2);
+    expect(capped.snapshot.map((b) => (b.kind === 'approval-decision' ? b.decision : b.kind))).toEqual([
+      'reject',
+      'approve',
+    ]); // 首决策块让位、末决策块在场
+  });
+
+  it('直播/重建同构：同一 durable 序下直播终态块序 === 投影重建块序（两路单源律）', () => {
+    // 直播腿：消息事件流 + 总线追加（追加时点在两消息之间——与 decided seq 序同构）
+    const live = new LiveTranscript();
+    apply(live, { type: 'message_end', message: assistantMsg('第一答') });
+    live.appendApprovalDecision({ decision: 'approve', summary: 'bash npm test', theme: DEFAULT_THEME });
+    apply(live, { type: 'message_end', message: assistantMsg('第二答') });
+    // 重建腿：投影消息携 seq + 决策按 seq 归位
+    const rebuilt = new LiveTranscript();
+    rebuilt.loadProjection(
+      [
+        { ...assistantMsg('第一答'), seq: 0 },
+        { ...assistantMsg('第二答'), seq: 2 },
+      ] as never,
+      [{ seq: 1, decision: 'approve', summary: 'bash npm test' }],
+    );
+    const kindsOf = (blocks: readonly TranscriptBlock[]): string[] => blocks.map((b) => b.kind);
+    expect(kindsOf(live.snapshot)).toEqual(kindsOf(rebuilt.snapshot)); // 块序同构
+    const liveDecision = live.snapshot.find((b) => b.kind === 'approval-decision');
+    const rebuiltDecision = rebuilt.snapshot.find((b) => b.kind === 'approval-decision');
+    expect(rebuiltDecision).toMatchObject({
+      decision: (liveDecision as { decision: string }).decision,
+      summary: (liveDecision as { summary: string }).summary,
+    });
+  });
+});

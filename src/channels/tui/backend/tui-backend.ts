@@ -95,7 +95,13 @@ import {
   type TerminalIO,
 } from '../../engine/index.js';
 import { MainScreen } from './main-screen.js';
-import { dialogueBlockCount, LiveTranscript, shortIdOf, type TranscriptBlock } from './transcript.js';
+import {
+  dialogueBlockCount,
+  LiveTranscript,
+  shortIdOf,
+  type ApprovalDecisionLineInput,
+  type TranscriptBlock,
+} from './transcript.js';
 import { OscDisplay, buildOsc52Copy } from './osc.js';
 import { allocateFixedBudget, EDITOR_MIN_HEIGHT, fixedBudgetRows } from './fixed-budget.js';
 import { StatusLine } from '../status/status-line.js';
@@ -252,6 +258,14 @@ export interface TuiBackendOptions {
    * 空数组同义 = 面板退场（队列清空即退场条款的供数形）。
    */
   readonly queueFor?: (sessionId: string) => readonly string[] | null | undefined;
+  /**
+   * 审批决策折面数据源（挖掘 31 轮 [1]——回看/投影重建路决策行）：聚焦会话
+   * durable 审批对 fold 投影（载体 = backend 闭包注入——UiBackend 公开面
+   * openHistory 签名零改）；呈现谓词滤除（isUserApprovalDecision）在装配
+   * 注入位单源执行，backend 收到的已是呈现子集。注入缺席 = 重建路零决策
+   * 行（直播腿总线追加不受影响）零变化。
+   */
+  readonly approvalDecisionsOf?: (sessionId: string) => readonly ApprovalDecisionLineInput[];
   /**
    * 外部编辑器执行器（挖掘 31 轮 [9]——ctrl+g 挂起交出形，codex
    * external_editor 对标）：seed = 当前草稿全文，返结局三态（edited /
@@ -818,6 +832,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 零变化（与 jobsSource 同判位形）；在场时帧首拉取聚焦会话在队预览串。
    */
   private readonly queueFor: ((sessionId: string) => readonly string[] | null | undefined) | undefined;
+  /** 审批决策折面数据源（挖掘 31 轮 [1]——onRepaint/openHistory 重建路共用） */
+  private readonly approvalDecisionsSource: ((sessionId: string) => readonly ApprovalDecisionLineInput[]) | undefined;
   /** 排队面板最新在队预览串（帧首拉取缓存——renderFixed 单次读源） */
   private queuePreviews: readonly string[] = [];
   /** 当前 turn 的 assistant 消息用量暂存（turn_end 累加——件 6 等价性条款） */
@@ -1201,6 +1217,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.jobsSource = options.jobs;
     // 排队常驻面板（2026-10-05 ZCode TUI 对标批）：queueFor 注入缺席 = 段缺席零变化
     this.queueFor = options.queueFor;
+    // 审批决策折面数据源（挖掘 31 轮 [1]）：缺席 = 重建路零决策行（直播腿不受影响）
+    this.approvalDecisionsSource = options.approvalDecisionsOf;
     this.jobPanel = new JobPanel({ now: () => this.now() });
     this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
     this.stack.onChange = () => this.touchFixed();
@@ -1525,6 +1543,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       new HistoryViewer({
         sessionId,
         messages,
+        // 审批决策行随回看重建（挖掘 31 轮 [1]——openHistory 签名零改：数据
+        // 经 backend 闭包数据源注入，缺席零变化）
+        decisions: this.approvalDecisionsSource?.(sessionId),
         columns: this.io.size().columns,
         theme: this.theme, // 会话主题快照（批 10i——回看器行集与主屏同板，含思考块/工具卡烙印）
         onExit: () => this.closeAlt(),
@@ -2186,6 +2207,21 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * 直播腿审批决策行追加（挖掘 31 轮 [1]——approval/settled 总线消费位）：
+   * **块账路**非瞬时行（appendJobSettledLine 那一路）——入 transcript 块集
+   * 计 dialogueBlockCount、占 blockCap 帽，repaint 投影重建自愈（fold 按
+   * seq 归位同构）。调用判据（焦点滤 + isUserApprovalDecision 谓词滤）归
+   * tui-entry 订阅位。
+   */
+  appendApprovalDecisionLine(input: { decision: 'approve' | 'always' | 'reject'; summary: string }): void {
+    this.transcript.appendApprovalDecision({ ...input, theme: this.theme });
+    // 块账入 present 链（onEnvelope 同形三步——apply/present/render；present
+    // 携块集快照驱动主屏增量对账，缺此步新块不入帧）
+    this.enqueuePresent();
+    this.requestRender();
+  }
+
+  /**
    * 瞬时说明行入正文流（notify 与 ask 撤销说明行共用路——07 §4.3「曾在屏
    * 者由通道上撤销说明行」）：槽判定按**到达时刻**真相分流（2026-09-22 修复）
    * ——槽在场直推 slotTransients 让位（关槽帧排空，到达序保持），无槽入
@@ -2571,8 +2607,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const focusSwitched = sessionId !== this.sessionId;
     this.sessionId = sessionId;
     this.refreshTodo(); // 件 4：todo 源锚新焦（refreshTodo 三时点之外的本位）
-    // 模型半场照常（repaint 是新真相——挂起期也不丢投影：复起全帧重画携带）
-    this.transcript.loadProjection(projection);
+    // 模型半场照常（repaint 是新真相——挂起期也不丢投影：复起全帧重画携带）；
+    // 审批决策行随投影重建（挖掘 31 轮 [1]——数据源装配注入闭包，缺席零变化）
+    this.transcript.loadProjection(projection, this.approvalDecisionsSource?.(sessionId));
     // 等回声复位分治（切焦 vs 同焦 refresh——2026-10-06 切焦清账修）：切焦即
     // 新观察窗——旧焦提交流的抑制位无条件清账（新焦零块空会话时条件 settle
     // 恒不触发，引导被旧焦瞬态抑制到「编辑器再键入」才解锁）；同焦 refresh

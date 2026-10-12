@@ -11,9 +11,14 @@ import { EventDispatch } from '../context/index.js';
 import { SessionLog } from '../session/index.js';
 import { APPROVAL_ANSWER_EVENT } from '../safety/index.js';
 import type { ApprovalAnswerEnvelope } from '../safety/index.js';
-import type { ApprovalAskRequest } from '../contracts/index.js';
-import { wireSessionApproval } from './approval-wiring.js';
-import type { SessionApprovalOptions } from './approval-wiring.js';
+import type { ApprovalAskRequest, SessionEvent } from '../contracts/index.js';
+import {
+  wireSessionApproval,
+  APPROVAL_SETTLED_EVENT,
+  foldApprovalDecisions,
+  isUserApprovalDecision,
+} from './approval-wiring.js';
+import type { SessionApprovalOptions, ApprovalSettledNotice } from './approval-wiring.js';
 
 /* ---------------- 测试构造件 ---------------- */
 
@@ -259,5 +264,127 @@ describe('wireSessionApproval 收口', () => {
     const result = await wiring.approval.ask({ summary: '写' });
     expect(result).toEqual({ outcome: 'unavailable', source: 'timeout' });
     expect(dataOf(session, 'approval/decided')[0]).toMatchObject({ decision: 'unavailable' });
+  });
+});
+
+/* ---------------- 审批决策落史行（挖掘 31 轮 [1]）——总线词 + 折面 ---------------- */
+
+describe('APPROVAL_SETTLED_EVENT 总线词（挖掘 31 轮 [1]——直播腿数据源）', () => {
+  it('构造期词已注册 + decided 腿 append 先于 emit + 载荷 {sessionId, approvalId, decision, source, summary 配对}', async () => {
+    // 修前红：词未注册——.on 即抛 EVENT_NOT_REGISTERED（emit/on 落未注册词
+    // fail-loud 会断 ask 路，双保险注册必须先行）
+    const session = new SessionLog({ sessionId: 's-ap' });
+    const order: string[] = [];
+    const origAppend = session.append.bind(session);
+    session.append = (type: string, data: unknown) => {
+      order.push(type);
+      return origAppend(type, data);
+    };
+    const dispatch = new EventDispatch();
+    const wiring = wireSessionApproval({ sessionId: 's-ap', dispatch, session, askApproval: answer('approve') });
+    const notices: ApprovalSettledNotice[] = [];
+    dispatch.on(APPROVAL_SETTLED_EVENT, (n) => {
+      order.push('emit:approval/settled');
+      notices.push(n as ApprovalSettledNotice);
+    });
+    await wiring.approval.ask({ summary: 'rm -rf /tmp/x' });
+    // 时序锁：emit 殿后（durable append 真源先行——重放/直播两路同构前提）
+    expect(order[order.length - 1]).toBe('emit:approval/settled');
+    expect(order.filter((v) => v === 'approval/decided')).toHaveLength(1);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      sessionId: 's-ap',
+      decision: 'approve',
+      source: 'user',
+      summary: 'rm -rf /tmp/x',
+    });
+    expect((notices[0] as { approvalId: string }).approvalId).toBe(
+      (dataOf(session, 'approval/asked')[0] as { approvalId: string }).approvalId,
+    );
+  });
+
+  it('簿记 per-approvalId 配对不串（两问两对各配对 summary——consume 即清）', async () => {
+    const { dispatch, wiring } = makeWiring({ askApproval: answer('reject') });
+    const notices: ApprovalSettledNotice[] = [];
+    dispatch.on(APPROVAL_SETTLED_EVENT, (n) => notices.push(n as ApprovalSettledNotice));
+    await wiring.approval.ask({ summary: 'git push' });
+    await wiring.approval.ask({ summary: 'rm -rf /' });
+    expect(notices.map((n) => n.summary)).toEqual(['git push', 'rm -rf /']); // 各配对各 summary 零串账
+    expect(notices.every((n) => n.decision === 'reject' && n.source === 'user')).toBe(true);
+  });
+
+  it('单腿形（policy-never）仍 emit——summary 空串诚实（谓词滤除在消费侧非总线侧）', async () => {
+    const { session, dispatch, wiring } = makeWiring({ policy: 'never', askApproval: answer('approve') });
+    const notices: ApprovalSettledNotice[] = [];
+    dispatch.on(APPROVAL_SETTLED_EVENT, (n) => notices.push(n as ApprovalSettledNotice));
+    await wiring.approval.ask({ summary: '写' });
+    expect(dataOf(session, 'approval/asked')).toHaveLength(0); // 单腿零 asked——簿记天然无源
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ decision: 'reject', source: 'policy-never', summary: '' });
+  });
+});
+
+describe('foldApprovalDecisions 折面（挖掘 31 轮 [1]——投影/回看路数据源）', () => {
+  it('真 wiring 日志折面：asked+decided 配对 → {seq=decided 事件 seq, decision, source, summary}', async () => {
+    const { session, wiring } = makeWiring({ askApproval: answer('always'), persistToolPolicy: () => undefined });
+    await wiring.approval.ask({
+      summary: 'bash git push',
+      stickyKey: { target: 'bash git push', tier: 'danger' },
+      suggestedEntry: { tool: 'bash', pattern: 'git push' },
+    });
+    const decidedSeq = session.events().find((event) => event.type === 'approval/decided')!.seq;
+    // 修前红：foldApprovalDecisions 未导出——运行红（esbuild 只剥类型不查名）
+    const folded = foldApprovalDecisions(session.events());
+    expect(folded).toHaveLength(1);
+    expect(folded[0]).toMatchObject({
+      seq: decidedSeq,
+      decision: 'always',
+      source: 'user',
+      summary: 'bash git push',
+    });
+  });
+
+  it('遮蔽腿：asked 或 decided 落 surfaceOp 区间 → 记录缺席（压缩遮蔽随消息遮蔽同语义）', () => {
+    // 合成事件数组（fold 是纯函数——事件形字面即可，无需真日志）
+    const asked = (seq: number, id: string): SessionEvent => ({
+      type: 'approval/asked',
+      seq,
+      time: 1,
+      data: { approvalId: id, summary: `命令 ${id}` },
+    });
+    const decided = (seq: number, id: string, decision = 'approve'): SessionEvent => ({
+      type: 'approval/decided',
+      seq,
+      time: 1,
+      data: { approvalId: id, decision, source: 'user' },
+    });
+    const occluder = (seq: number, start: number, end: number): SessionEvent => ({
+      type: 'compaction',
+      seq,
+      time: 1,
+      data: {},
+      surfaceOp: { op: 'replace', start, end },
+    });
+    // 对被整段遮蔽 → 缺席
+    expect(foldApprovalDecisions([asked(0, 'a'), decided(1, 'a'), occluder(2, 0, 1)])).toEqual([]);
+    // decided 被遮蔽（asked 在场）→ 缺席
+    expect(foldApprovalDecisions([asked(0, 'a'), decided(1, 'a'), occluder(2, 1, 1)])).toEqual([]);
+    // 第二对在场不被第一对遮蔽误伤（区间精确）
+    const events = [asked(0, 'a'), decided(1, 'a'), asked(2, 'b'), decided(3, 'b'), occluder(4, 0, 1)];
+    const folded = foldApprovalDecisions(events);
+    expect(folded).toHaveLength(1);
+    expect(folded[0]).toMatchObject({ seq: 3, approvalId: 'b', summary: '命令 b' });
+  });
+
+  it('isUserApprovalDecision 真值表：恰 user × {approve, always, reject} 为 true（五 source × 五 decision）', () => {
+    const sources = ['user', 'sticky', 'subset', 'timeout', 'policy-never'] as const;
+    const decisions = ['approve', 'reject', 'cancel', 'unavailable', 'always'] as const;
+    for (const source of sources) {
+      for (const decision of decisions) {
+        const expected =
+          source === 'user' && (decision === 'approve' || decision === 'always' || decision === 'reject');
+        expect(isUserApprovalDecision({ decision, source })).toBe(expected);
+      }
+    }
   });
 });

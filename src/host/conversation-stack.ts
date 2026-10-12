@@ -63,6 +63,7 @@ import {
   CONTROL_CROSS_CAPABILITY,
   DEFAULT_RETRY_POLICY,
   ensureTodoRole,
+  foldApprovalDecisions,
   foldCallLedger,
   foldSessionSandboxMode,
   foldSessionThinkingLevel,
@@ -75,6 +76,7 @@ import type {
   ControlCaller,
   ControlUsedRecord,
   DriverFactory,
+  FoldedApprovalDecision,
   RunSettledReceipt,
   SubmitOptions,
   SubmitResult,
@@ -461,6 +463,13 @@ export interface ConversationStack {
    * ——seq 不进模型上下文）。
    */
   projectionWithSeqOf(sessionId: string): Promise<readonly (AgentMessage & { readonly seq: number })[]>;
+  /**
+   * 审批决策折面读面（挖掘 31 轮 [1]——回看/投影重建路决策行数据源）：
+   * durable 审批对 fold（foldApprovalDecisions 单源——遮蔽区间外全量，含
+   * 非人决策档）；双事实源纪律同 usage/calls（驱动活体优先、未开回库装载）。
+   * 呈现谓词滤除（isUserApprovalDecision）在消费侧单源执行。
+   */
+  approvalDecisionsOf(sessionId: string): readonly FoldedApprovalDecision[];
   driverOf(sessionId: string): ConversationDriver | undefined;
   /**
    * 工具面换代代投（pi-3 件 B——03 §2.8 换装时点通告通道）：/reload reapply
@@ -1067,10 +1076,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       warn,
     });
 
-  // ④ channels 通道核（投影源在⑤驱动登记之后才被调用——闭包前向引用安全）
-  const channels = createChannels<AgentMessage>({
-    fetchProjection: (sessionId) => Promise.resolve(projectionOf(sessionId)),
-    history: (sessionId) => Promise.resolve(projectionOf(sessionId)),
+  // ④ channels 通道核（投影源在⑤驱动登记之后才被调用——闭包前向引用安全）。
+  // 泛型钉带 seq 形（挖掘 31 轮 [1]——审批决策行按 seq 归位需消息锚）：两注入
+  // 切 projectionWithSeqOf（副本增位——Message 契约形零改动，宽形向下兼容
+  // 窄消费位；模型 timeline 种子不经 channels 仍走 projectionOf 零 seq）
+  const channels = createChannels<AgentMessage & { readonly seq: number }>({
+    fetchProjection: (sessionId) => projectionWithSeqOf(sessionId),
+    history: (sessionId) => projectionWithSeqOf(sessionId),
     // /memory 注册位（06 §7——mm 批）：库座在位即注册（persistence 在场 ⇒
     // memory 件将装载；件缺席形由命令 handler 的 notify 降级提示诚实兜底）
     memory: true,
@@ -1666,6 +1678,16 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     }));
   }
 
+  /**
+   * 审批决策折面读面（挖掘 31 轮 [1]——接口 doc 见 ConversationStack 同名位）：
+   * 双事实源解析同 usage/calls 一字不差（驱动活体优先、未开回库装载），fold
+   * 单源在 conversation 模块（遮蔽语义/簿记 consume 与直播腿同构）。
+   */
+  function approvalDecisionsOf(sessionId: string): readonly FoldedApprovalDecision[] {
+    const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
+    return foldApprovalDecisions(log.events());
+  }
+
   // —— ob-3 连通微探针（07 ob-3 改裁注机制形）：真供血路 StreamFn 1-token
   // 探针——专用工厂（maxTokens=1 + 连接级帽）+ 显式 apiKey 位（向导新录
   // key 直供血，不经绑定行回读——录入前即可验证）。15s 请求级双帽由
@@ -1880,6 +1902,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     projectionOf,
     // 卡② 腿①：GET 读面带 seq 投影（副本增位——共享输出零改动）
     projectionWithSeqOf,
+    // 挖掘 31 轮 [1]：审批决策折面读面（回看/投影重建路决策行数据源）
+    approvalDecisionsOf,
     driverOf: (sessionId) => manager.driverOf(sessionId),
     // 工具面换代代投（pi-3 件 B）：世代号自增——各驱动下一请求组装位消费
     notifyToolFaceChange() {

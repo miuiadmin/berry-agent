@@ -39,6 +39,7 @@ import { hintLine } from '../keys/hint.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { fitLine } from '../row-segments.js';
 import { LiveTranscript, renderBlockStyledLines, shortIdOf } from '../backend/transcript.js';
+import type { ApprovalDecisionLineInput } from '../backend/transcript.js';
 import type { StyledLine } from '../backend/ansi-rows.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { AgentMessage } from '../../../contracts/index.js';
@@ -52,6 +53,12 @@ export interface HistoryViewerOptions {
   readonly sessionId: string;
   /** 全量 durable 正文投影（history() 注入拉取的快照——构造后静态，快照档 v1） */
   readonly messages: readonly AgentMessage[];
+  /**
+   * 审批决策行载荷（挖掘 31 轮 [1]——回看重建路决策行）：在场时随
+   * loadProjection 按 seq 归位；缺席 = 既有零决策行形（兼容锁——旧装配/测试
+   * 零扰动）。
+   */
+  readonly decisions?: readonly ApprovalDecisionLineInput[];
   /** 行集构建折宽锚（开屏时终端列宽——渲染期 ScrollView 按实际 region 宽重折） */
   readonly columns: number;
   /** markdown 主题（批 10i——行集构建档与主屏同板；缺席 DEFAULT_THEME 旧形） */
@@ -166,9 +173,10 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     this.onCopy = options.onCopy;
     // 会话键位册自持（守卫判据与子编辑器同实例——缺席自建缺省册，单测语义）
     this.keymap = options.keymap ?? new Keymap();
-    // 全量档行集：投影 → LiveTranscript（Infinity 帽恒不截）→ 带样式行（管线单源）
+    // 全量档行集：投影 → LiveTranscript（Infinity 帽恒不截）→ 带样式行（管线单源）；
+    // 审批决策行随投影按 seq 归位（挖掘 31 轮 [1]——decisions 缺席零变化）
     const transcript = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY, theme: options.theme });
-    transcript.loadProjection(options.messages);
+    transcript.loadProjection(options.messages, options.decisions);
     const styled: StyledLine[] = [];
     for (const block of transcript.snapshot) {
       styled.push(...renderBlockStyledLines(block, options.columns));

@@ -96,6 +96,10 @@ export { foldSessionSandboxMode, setSessionMode } from './session-mode.js';
 // 审批三件 + open 域装配（11e：fresh 作用域审批 wiring + fs/检索/bash/todo 组装面）
 export type { SessionApprovalOptions, SessionApprovalWiring } from './approval-wiring.js';
 export { wireSessionApproval } from './approval-wiring.js';
+// 审批决策折面（挖掘 31 轮 [1]——07 §4.1 审批决策落史行词条）：决议活体
+// 总线词（直播腿数据源）+ durable 折面（投影/回看路数据源）+ 呈现谓词单源
+export type { ApprovalSettledNotice, FoldedApprovalDecision } from './approval-wiring.js';
+export { APPROVAL_SETTLED_EVENT, foldApprovalDecisions, isUserApprovalDecision } from './approval-wiring.js';
 export type { OpenToolsOptions, OpenToolsAssembly } from './open-tools.js';
 export { assembleOpenTools } from './open-tools.js';
 // ctx.agent 服务面 + 多会话编排（11f：onRunSettled 终态订阅 / SessionManager）

@@ -63,7 +63,7 @@ import { createConversationStack } from './conversation-stack.js';
 import { createHostAuthRefreshSeam } from './auth-refresh-seam.js';
 import type { RefreshChainHandle } from '../credentials/index.js';
 import type { CredentialChangedPayload, CredentialsCommandStore } from '../credentials/index.js';
-import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
+import { SESSION_LIFECYCLE_EVENT, APPROVAL_SETTLED_EVENT } from '../conversation/index.js';
 import type { AgentService, ControlCaller } from '../conversation/index.js';
 import { AGENT_SERVICE_NAME } from '../conversation/index.js';
 // 工具渲染器注册表受理真源（收官批③——ctx.ui.registerRenderer 委派位；与
@@ -993,6 +993,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 自举幂等跳过已注册词，独立装配形双源不撞）
     if (!dispatch.isRegistered(SESSION_LIFECYCLE_EVENT)) {
       dispatch.registerEventNames([SESSION_LIFECYCLE_EVENT]);
+    }
+
+    // —— approval/settled 活体词预注册（挖掘 31 轮 [1]——审批决策落史行直播
+    // 腿）：TUI 订阅位（tui-entry）先于首会话 wiring 构造——与 wiring 双保险
+    // 同批落（单落任一侧：tui-entry 先订阅即抛 EVENT_NOT_REGISTERED 杀 TUI /
+    // 独立装配 emit 抛；同词二次注册撞 EVENT_DUPLICATE，isRegistered 先查）
+    if (!dispatch.isRegistered(APPROVAL_SETTLED_EVENT)) {
+      dispatch.registerEventNames([APPROVAL_SETTLED_EVENT]);
     }
 
     // —— 插件装载：启用清单损坏 fail-loud 属启动失败档（用户可自修配置错——
