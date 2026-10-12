@@ -6201,22 +6201,57 @@ describe('TuiBackend 后台任务段 + /jobs 副屏（界面美化役批6——U
   });
 });
 
-describe('TuiBackend 排队常驻面板（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向接线排队常驻面板翻档注）', () => {
-  it('入列可见：帧首拉取「已排队 N：首条预览 +M」折叠计数形（N≥2）', () => {
+describe('TuiBackend 排队常驻面板（2026-10-05 ZCode TUI 对标批 + 2026-10-12 排队逐条清单批——07 §4.1 装配向接线翻档注）', () => {
+  it('入列可见：首行「已排队 N：首条预览」+ 次条起逐条 ↳ 行（帽 3 内全列）', () => {
     const { io } = makeBackend({ sessionId: SESSION, queueFor: () => ['修复登录跳转', '补测试'] });
-    expect(io.bytes).toContain('已排队 2：修复登录跳转 +1'); // N≥2 折叠计数形（+M = N-1）
+    expect(io.bytes).toContain('已排队 2：修复登录跳转'); // 首行 N=2（次条可见——零折叠尾巴）
+    expect(stripAnsi(io.bytes)).not.toContain('修复登录跳转 +'); // 旧单行 +M 折叠形退役
+    expect(io.bytes).toContain('↳ 补测试'); // 次条独占一行（dim ↳ 形）
   });
 
-  it('单件形无折叠段（N=1——首条预览后零「+M」尾巴不虚报）', () => {
+  it('单件形：仅首行无 ↳ 行（N=1 零折叠零折行不虚报）', () => {
     const { io } = makeBackend({ sessionId: SESSION, queueFor: () => ['修复登录跳转'] });
     expect(io.bytes).toContain('已排队 1：修复登录跳转');
     expect(stripAnsi(io.bytes)).not.toContain('修复登录跳转 +'); // 单件零折叠段
+    expect(io.bytes).not.toContain('↳'); // 无次条行
+  });
+
+  it('超帽折行：N=4 可见 3 条（首 + 两 ↳）+ 尾行「+ 1 条更多」', () => {
+    const { io } = makeBackend({
+      sessionId: SESSION,
+      queueFor: () => ['修复登录跳转', '补测试', '更新文档', '跑全量'],
+    });
+    expect(io.bytes).toContain('已排队 4：修复登录跳转');
+    expect(io.bytes).toContain('↳ 补测试');
+    expect(io.bytes).toContain('↳ 更新文档');
+    expect(io.bytes).not.toContain('↳ 跑全量'); // 帽外条不可见
+    expect(io.bytes).toContain('+ 1 条更多'); // 超帽折叠尾行（M = N-3）
+  });
+
+  it('余量不足部分呈现：4 行屏恰 1 行退化旧单行形（折叠尾巴回缀首行）', () => {
+    const io = new MemoryTerminalIO(COLS, 4);
+    const backend = new TuiBackend(io, {
+      sessionId: SESSION,
+      queueFor: () => ['修复登录跳转', '补测试', '更新文档'],
+    });
+    backend.start();
+    expect(io.bytes).toContain('›'); // 编辑器下限保底在场
+    expect(io.bytes).toContain('已排队 3：修复登录跳转 +2'); // 隐藏数回缀首行（M = N-1）
+    expect(io.bytes).not.toContain('↳'); // 无次条行（余量 1 只容首行）
+  });
+
+  it('多行不挤编辑器：N=3 清单 3 行与编辑器共存（常规屏恒满高）', () => {
+    const { io } = makeBackend({ sessionId: SESSION, queueFor: () => ['修复登录跳转', '补测试', '更新文档'] });
+    expect(io.bytes).toContain('已排队 3：修复登录跳转');
+    expect(io.bytes).toContain('↳ 补测试');
+    expect(io.bytes).toContain('↳ 更新文档');
+    expect(io.bytes).toContain('›'); // 编辑器本体仍在场（清单扩行不侵必保段）
   });
 
   it('消费移除 / 清空退场：帧锚重拉——计数收敛、队列归零即段退场（零高度）', () => {
     const queue: string[] = ['修复登录跳转', '补测试'];
     const { io, backend } = makeBackend({ sessionId: SESSION, queueFor: () => queue });
-    expect(io.bytes).toContain('已排队 2：修复登录跳转 +1');
+    expect(io.bytes).toContain('已排队 2：修复登录跳转');
     queue.splice(0, 1); // 消费一件（次条晋升首条——计数收敛）
     io.bytes = '';
     emit(backend, { type: 'agent_start' }); // run 边界帧锚（入列/消费即时刷新路——touchFixed → 帧首重拉）

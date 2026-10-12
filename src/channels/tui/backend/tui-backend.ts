@@ -419,6 +419,8 @@ const DRAIN_MAX_MS = 1000;
 const DRAIN_IDLE_MS = 50;
 /** footer 教学提示闲态文案（V-3 注⑦④——`?` 键投影与 footer 提示同文单源） */
 const FOOTER_HINT_TEXT = '? 快捷键';
+/** 排队清单可见预览条数帽（首条计入——挖掘 31 轮 [7]：逐条清单形；超帽折叠尾行） */
+const QUEUE_PREVIEW_LIMIT = 3;
 /**
  * footer 教学提示忙态文案（07 §4.1 教学位扩双态注 2026-10-05）：忙态空稿
  * （应答进行中输入仍可用）——Enter 追加本轮 / Alt+Enter 排队后继 run 的
@@ -4067,6 +4069,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 排队段在场性（2026-10-05 ZCode TUI 对标批）：数据源注入在场且队列非空
     // 才占行（队列清空即退场 = 零高度零文案——段缺席不虚报）
     const queuePresent = this.queueFor !== undefined && this.queuePreviews.length > 0;
+    // 排队清单想占行数（挖掘 31 轮 [7]——逐条清单形）：帽内条数 + 超帽折行
+    // 1（上限 = 帽 3 + 1 = 4）；预留与实高同步——overlay 视口帽扣减同用此值
+    const queueWantedRows = queuePresent
+      ? Math.min(this.queuePreviews.length, QUEUE_PREVIEW_LIMIT) +
+        (this.queuePreviews.length > QUEUE_PREVIEW_LIMIT ? 1 : 0)
+      : 0;
     // overlay 视口帽（fx2-B）：一次性问答面板选项数超可用预算时开滚动窗——
     // 固定区总高恒 ≤ 截断预算（绝不让固定区超高触发 MainScreen 陈货守卫
     // 整段不写——修前 24 行屏 21 选项 = 面板 22 + 编辑器 3 + 状态 1 = 26 >
@@ -4074,12 +4082,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 状态行 statusWanted - ask 行 - 编辑器必保下限（编辑器恒保底对话本体；
     // todo/tool/popup/jobs 属更低优先级段、分配梯先牺牲——按梯降底值保守
     // 计算保证梯降到底 total 恰 ≤ 预算〔任务行/排队行缺席时预留归零——极小
-    // 终端保守 1 行可容忍〕）
+    // 终端保守 1 行可容忍——挖掘 31 轮 [7] 起预留随想占行数（≤4 封顶，深队列
+    // 帽最多再收 3 行 = 设计内退化）〕）
     const overlayCap = Math.max(
       0,
       fixedBudgetRows(this.io.size().rows) -
         (taskPresent ? 1 : 0) -
-        (queuePresent ? 1 : 0) -
+        queueWantedRows -
         statusWanted -
         askRows -
         editorFloor,
@@ -4090,18 +4099,24 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       taskPresent && overlaySum + askRows + editorFloor + 1 + statusWanted <= fixedBudgetRows(this.io.size().rows)
         ? 1
         : 0;
-    // 排队段占行裁决（2026-10-05 ZCode TUI 对标批）：分配梯不改面（梯键集无
-    // queue 槽——任务行同形外挂腿）。队列非空即 1 行（已排队 N 计数 + 首条
-    // 预览——单行契约不量高）；任务行优先（忙态指示高于排队预览——taskRows
-    // 判定不回看排队行，两外挂腿同竞争时排队段先让位）；最小必保段（overlay
-    // 实高 + ask 行 + 编辑器下限 + 任务行 + 排队行 + 状态行）超截断预算时排
-    // 队段整段隐（极小终端让位——「先缩后隐」梯末位语义）
-    const queueRows =
-      queuePresent &&
-      overlaySum + askRows + editorFloor + (taskRows > 0 ? 1 : 0) + 1 + statusWanted <=
-        fixedBudgetRows(this.io.size().rows)
-        ? 1
-        : 0;
+    // 排队段占行裁决（2026-10-05 ZCode TUI 对标批 + 挖掘 31 轮 [7] 逐条清单
+    // 翻档）：分配梯不改面（梯键集无 queue 槽——任务行同形外挂腿）。想占 =
+    // 帽内条数 + 超帽折行（上限 4），jobs 段同形钳幅（Math.min(想占, 预算
+    // 余量)）——预留同步后常规态恒得满高，钳幅是窄带（overlay 触底小屏）
+    // **部分呈现**：恰 1 行时退化为原单行形（首条 + ` +M` 折叠尾巴回缀首行
+    // ——M = 隐藏数），多行不足全高时可见条数收窄、折叠数回缀首行；任务行
+    // 优先（忙态指示高于排队预览——taskRows 判定不回看排队行）；最小必保段
+    // 超截断预算时排队段整段隐（极小终端让位——「先缩后隐」梯末位语义）
+    const queueRows = queuePresent
+      ? Math.max(
+          0,
+          Math.min(
+            queueWantedRows,
+            fixedBudgetRows(this.io.size().rows) -
+              (overlaySum + askRows + editorFloor + (taskRows > 0 ? 1 : 0) + statusWanted),
+          ),
+        )
+      : 0;
     // 后台任务段占行裁决（界面美化役批6——UX 批6 A 件 + V-4 注⑪① 迁最底
     // 行）：分配梯不改面（梯键集无 jobs 槽——任务行同形外挂腿）。想占行数
     // = 面板量高原值（帽 5 + 溢出行）；最小必保段（overlay 实高 + ask 行 +
@@ -4157,21 +4172,31 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       row += 1;
     }
 
-    // 段四：排队常驻面板（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向
-    // 接线排队常驻面板翻档注）：已排队 N 计数 + 首条预览（ellipsize 收口防
-    // 越列硬截断——应答段 ask 行同形）；N≥2 加 +M 折叠计数形（+M = N-1，单
-    // 件形零折叠尾巴）；dim 档（待命性质 = 次要信息——ask 行同档）。入列/
-    // 消费增删即时刷新、队列清空即退场（帧首拉取 + 占行裁决见上）；极
-    // 小终端整段隐（先缩后隐梯末位）。
+    // 段四：排队常驻面板（2026-10-05 ZCode TUI 对标批 + 挖掘 31 轮 [7] 逐条
+    // 清单批——07 §4.1 装配向接线排队逐条清单翻档注）：首行 `已排队 N：<首
+    // 条预览>`、次条起每条独占一行 `  ↳ <预览>`（可见帽 3——首条计入）；
+    // 超帽尾行 `  + M 条更多`（M = N-3）；dim 档（待命性质 = 次要信息）+
+    // ellipsize 单源（含 ↳ 前缀整行收口——窄屏预览收窄不越列）。**部分呈现
+    // 退化**：余量不足全高时可见条数收窄、隐藏数（首条外不可见数）回缀首行
+    // ` +M`（恰 1 行时与旧单行形逐字同）；入列/消费增删即时刷新、队列清空
+    // 即退场（帧首拉取 + 占行裁决见上）；极小终端整段隐（先缩后隐梯末位）。
     if (queueRows > 0) {
-      const folded = this.queuePreviews.length > 1 ? ` +${this.queuePreviews.length - 1}` : '';
-      grid.writeText(
-        row,
-        0,
-        ellipsize(`已排队 ${this.queuePreviews.length}：${this.queuePreviews[0] ?? ''}${folded}`, columns),
-        { dim: true },
-      );
-      row += 1;
+      const n = this.queuePreviews.length;
+      const full = queueRows === queueWantedRows; // 满高判定（钳幅形 = 部分呈现）
+      // 可见次条数：满高取帽内余额、部分呈现按实得行数收窄
+      const itemRows = full ? Math.min(n - 1, QUEUE_PREVIEW_LIMIT - 1) : Math.min(n - 1, queueRows - 1);
+      const hidden = n - 1 - itemRows; // 首条外不可见数（部分形回缀首行、满高形折行尾注）
+      const headFold = !full && hidden > 0 ? ` +${hidden}` : ''; // 退化单行形折叠尾巴（回缀首行）
+      grid.writeText(row, 0, ellipsize(`已排队 ${n}：${this.queuePreviews[0] ?? ''}${headFold}`, columns), {
+        dim: true,
+      });
+      for (let i = 1; i <= itemRows; i++) {
+        grid.writeText(row + i, 0, ellipsize(`  ↳ ${this.queuePreviews[i]}`, columns), { dim: true });
+      }
+      if (full && hidden > 0) {
+        grid.writeText(row + 1 + itemRows, 0, `  + ${hidden} 条更多`, { dim: true }); // 超帽折叠尾行
+      }
+      row += queueRows;
     }
 
     // 段五：编辑器（overlay 占焦期非聚焦——› 提示符降档 secondary 态 +
