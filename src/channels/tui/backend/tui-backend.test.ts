@@ -5729,6 +5729,86 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
   });
 });
 
+describe('TuiBackend 任务行耗时暂停（挖掘 31 轮 [8]——审批/应答浮层期不计耗时）', () => {
+  it('askApproval 开窗期读数冻结：等待 45s 后仍 2s，落定续走暂停段不回补', async () => {
+    const { io, backend, clock, pump } = makeInteractive();
+    emit(backend, { type: 'agent_start' });
+    clock.advance(2000); // t=2s：忙态帧携 2s
+    const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    pump(); // 开窗帧落地
+    clock.advance(45_000); // 审批等待 45s——暂停窗内帧照落但读数冻结
+    expect(stripAnsi(io.bytes)).toContain('(2s · 按 ESC 取消对话)');
+    expect(stripAnsi(io.bytes)).not.toContain('(47s');
+    io.emitInput('\r'); // 批准（首项 approve）
+    pump();
+    await expect(p).resolves.toBe('approve');
+    io.bytes = '';
+    clock.advance(3000); // 落定续走：帧泵按到期时刻渲染、读数从冻结值渐进——
+    // 取全部秒读数断区间（>2s 离开冻结值；<46s 即 45s 暂停段不回补）
+    const secs1 = [...stripAnsi(io.bytes).matchAll(/\((\d+)s ·/g)].map((m) => Number(m[1]));
+    expect(Math.max(...secs1)).toBeGreaterThan(2);
+    expect(Math.max(...secs1)).toBeLessThan(46);
+  });
+
+  it('abort 收口同律：信号中止窗内冻结，取消后续走', async () => {
+    const { io, backend, clock, pump } = makeInteractive();
+    emit(backend, { type: 'agent_start' });
+    clock.advance(1000);
+    const ac = new AbortController();
+    const p = backend.askApproval(
+      's1',
+      { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' },
+      { signal: ac.signal },
+    );
+    pump();
+    clock.advance(20_000);
+    expect(stripAnsi(io.bytes)).toContain('(1s · 按 ESC 取消对话)'); // 冻结 1s
+    expect(stripAnsi(io.bytes)).not.toContain('(21s');
+    ac.abort();
+    await expect(p).resolves.toBe('cancel');
+    io.bytes = '';
+    clock.advance(2000); // 取消续走：读数离开冻结值 1s、20s 暂停段不回补
+    const secs2 = [...stripAnsi(io.bytes).matchAll(/\((\d+)s ·/g)].map((m) => Number(m[1]));
+    expect(Math.max(...secs2)).toBeGreaterThan(1);
+    expect(Math.max(...secs2)).toBeLessThan(20);
+  });
+
+  it('input 应答车同族：自由文本应答窗冻结（射界③——阻塞四件全收）', async () => {
+    const { io, backend, clock, pump } = makeInteractive();
+    emit(backend, { type: 'agent_start' });
+    clock.advance(1000);
+    const p = backend.input('补充一点', { placeholder: '补充说明…' });
+    pump();
+    clock.advance(30_000);
+    expect(stripAnsi(io.bytes)).toContain('(1s · 按 ESC 取消对话)');
+    expect(stripAnsi(io.bytes)).not.toContain('(31s');
+    io.emitInput('答\r');
+    pump();
+    await expect(p).resolves.toBe('答');
+    io.bytes = '';
+    clock.advance(2000); // 应答收口续走：读数离开冻结值 1s、30s 暂停段不回补
+    const secs3 = [...stripAnsi(io.bytes).matchAll(/\((\d+)s ·/g)].map((m) => Number(m[1]));
+    expect(Math.max(...secs3)).toBeGreaterThan(1);
+    expect(Math.max(...secs3)).toBeLessThan(30);
+  });
+
+  it('run 落于暂停窗内收口：终点折段不抛 + 收尾行用时走 durationMs 真源', async () => {
+    const { io, backend, clock, pump } = makeInteractive();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} }); // 有工具——收尾行在场（纯对话轮整行缺席律）
+    clock.advance(1000);
+    void backend.input('补充一点');
+    pump();
+    clock.advance(5000); // 窗内 5s 暂停
+    io.bytes = '';
+    // durationMs 65s >60s——文案标签门开（runRecapLine 单源：≤60s 无标签纯线）
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 65_000 });
+    pump();
+    // 收尾行用时走事件载荷 durationMs（1m 05s）——不受暂停账影响（射界②口径分立）
+    expect(stripAnsi(io.bytes)).toContain('── 用时 1m 05s');
+  });
+});
+
 describe('TuiBackend 重试续入整 run 口径（界面美化役批 4——B：续入不清 run 级账）', () => {
   it('failed → 退避 → resumed 续入：用量与起点连续累计（修前红：agent_start 无差别清账 → 只显续入段）', () => {
     let t = 0;

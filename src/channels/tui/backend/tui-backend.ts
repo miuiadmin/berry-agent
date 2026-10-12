@@ -813,6 +813,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private runStartedAt: number | null = null;
   /** 当前 run 终点时戳（agent_end 落——分母冻结，终态后 speedView 保持终值不随墙钟漂移；resetUsage 清） */
   private runEndedAt: number | null = null;
+  /** 阻塞浮层/应答窗占用深度（挖掘 31 轮 [8]——审批等待计时暂停）：overlay 族
+   * 与应答车两族独立单槽，并存时深度化不覆锚；0 = 计时走表 */
+  private askPauseDepth = 0;
+  /** 暂停锚（深度 0→1 时刻落——null = 计时走表；run 终态折段清锚、fresh
+   * agent_start 重锚） */
+  private elapsedPauseAt: number | null = null;
+  /** 本 run 累计暂停墙钟（供数分母扣除项——resetUsage 单源清；开窗深度与锚
+   * 保留：窗在场跨切焦/run 界存活） */
+  private elapsedPausedMs = 0;
   /**
    * 本轮流式起点时戳（message_start 落——行1 速度槽流中相位分母〔注⑪⑥c
    * 「一机制喂两槽」速度腿：本轮估值 token ÷ 本轮流式已历时〕）；下一
@@ -1145,7 +1154,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 速度段退役（注⑪⑦——速度面归行1 笔3 speedView 消费）。状态变更即触
     // 固定区重画。（须早于 injectTheme——主题注入位消费 taskLine.setTheme）
     this.taskLine = new TaskStatusLine({
-      elapsedMs: () => (this.runStartedAt === null ? null : (this.runEndedAt ?? this.now()) - this.runStartedAt),
+      // 浮层等待期不计（挖掘 31 轮 [8]——审批等待计时暂停批）：终点取值序
+      // runEndedAt（终态冻结）→ elapsedPauseAt（浮层暂停锚）→ 墙钟；分母扣
+      // 累计暂停墙钟 elapsedPausedMs
+      elapsedMs: () => {
+        if (this.runStartedAt === null) return null;
+        const end = this.runEndedAt ?? this.elapsedPauseAt ?? this.now();
+        return end - this.runStartedAt - this.elapsedPausedMs;
+      },
       turnTokensText: () => {
         const tokens = this.turnEstimator.estimate();
         return tokens > 0 ? `本轮 ${formatCount(tokens)}` : '';
@@ -2660,6 +2676,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           if (this.inputAsk === ask) {
             // 激活态 abort：撤销说明行 + 残稿清框（07 §4.3 撤销面）
             this.inputAsk = null;
+            this.resumeElapsedClock(); // 应答窗关——耗时恢复走表（挖掘 31 轮 [8]；比对位=单汇点盖四值收口）
             this.appendTransientLine('⏹ 已取消提问', { persist: true });
             this.editor.setText('');
             this.autocompleteCompleter.cancel();
@@ -2689,6 +2706,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 队首问激活（首问直入与队列出队接续共用——清框 + 弹层抑制 + 请帧） */
   private activateInputAsk(ask: InputAsk): void {
     this.inputAsk = ask;
+    this.pauseElapsedClock(); // 应答车开窗——耗时暂停（挖掘 31 轮 [8]：浮层等待期不计）
     this.editor.setText(''); // 应答起始清框（草稿让位——提交路模型自清）
     // 应答车占位文换装（挖掘 29 轮件 4）：enter 是收窗非提交——composer 缺省
     // 「输入消息…」在应答窗误导；opts.placeholder 透传优先、缺席用应答缺省
@@ -3114,6 +3132,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const ask = this.inputAsk;
     if (ask !== null) {
       this.inputAsk = null;
+      this.resumeElapsedClock(); // 应答窗关——耗时恢复走表（挖掘 31 轮 [8]；同拍 FIFO 接续若开新窗则同拍再暂停，零段折叠无害）
       ask.resolve(text);
       this.autocompleteCompleter.cancel(); // 应答收场：撤窗 + 在途作废（下轮 ask 重开）
       this.popup.applyResult(null); // 应答期抑制的补全层即刻收层
@@ -3316,6 +3335,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private activateAskLayer(waiter: AskLayerWaiter): void {
     this.askLayerOwner = waiter;
+    this.pauseElapsedClock(); // 模态浮层开层——耗时暂停（挖掘 31 轮 [8]：浮层等待期不计）
     // 模态浮层开层即收补全弹层（与 input() 路「应答期弹层抑制」同形——组 2
     // 修死显残留）：overlay 占焦后弹层键面不可达（模态独占），不收层则建议
     // 列表死显在浮层段下、且 20ms 窗内已武装的在途查询迟到还会刷新死显列表
@@ -3329,6 +3349,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // 槽释放（持槽者比对——幂等）：释放即接续等待队列（后继顶上）
         if (this.askLayerOwner === waiter) {
           this.askLayerOwner = null;
+          this.resumeElapsedClock(); // 浮层落定关层——耗时恢复走表（挖掘 31 轮 [8]；比对位=单汇点盖 approve/deny/abort 四值收口）
           this.continueAskLayerQueue();
         }
       },
@@ -3625,6 +3646,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           const seedAt = this.pendingSeedAt;
           this.resetUsage(); // 件 6：归零清行（上一 run 尾注不跨 run；速度时戳连清）
           this.runStartedAt = this.now(); // 批C：run 起点时戳（注入钟——速度段分母起点）
+          // 暂停锚重钉（挖掘 31 轮 [8]）：跨 run 边界浮层窗仍开（切焦/迟到事件
+          // 形）时锚随 run 起点重锚——新 run 计时从零走表、开窗段归新 run 扣除
+          if (this.askPauseDepth > 0) this.elapsedPauseAt = this.now();
           // 种子时戳晋升（界面美化役批 5）：种子 message_end 先于 agent_start
           // 到达、resetUsage 已清 runSeedAt——暂存位在此转正（无种子置 null：
           // 搁浅件续跑/中途重放形回退 runEndedAt 诚实呈现）
@@ -3656,7 +3680,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // 先行静默突变，goIdle() 的 onChange 才触发首帧——届时工具面板已空、
         // todo 已新，中间帧不重绘陈旧行（任务行离场使行位上移、陈旧面板行会
         // 以新行位重画——序倒即假残影）
-        this.runEndedAt = this.now(); // 批C：终点时戳冻结分母（终态后 speedView 保持终值不随墙钟漂移）
+        this.markRunEnded(); // 批C：终点时戳冻结分母（终态后 speedView 保持终值不随墙钟漂移；挖掘 31 轮 [8] 起折入在途暂停段）
         this.toolPanel.clear(); // 件 5：瞬时面清板（静默先行——见上变更序注）
         this.refreshTodo(); // 件 4：刷新三时点之三
         // 行1 速度段呈现抑制先置（注⑪②——aborted 终态同 failed 律〔批C 诚实缺席律
@@ -3704,7 +3728,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           // 「输入框上方 + footer 尾」双位收敛为单位）；失败直呈律（V-0 注②）
           // 携因由任务行态④单源承载——pendingFailReason 缺席兜底裸形
           // （诚实缺席非陈因）；failed 无收尾行（错误块与任务行已足，不叠装饰行）
-          this.runEndedAt = this.now();
+          this.markRunEnded(); // 挖掘 31 轮 [8]：终点落账共用（failed 形窗内浮层在途段同样折入）
           this.speedSuppressed = true; // 行1 速度段呈现抑制（注⑪②——失败终态同 aborted 律）
           this.taskLine.enterError(this.pendingFailReason ?? undefined);
           this.pendingFailReason = null; // 消费即清（终态后账不复用）
@@ -3803,6 +3827,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.turnEstimator.reset(); // V-4 注⑪⑦：本轮账连清（新 run/切焦清账——中途附着本轮诚实缺席）
     this.runStartedAt = null; // 批C：清账连清起点（repaint/切焦中途附着即无起点——速度段诚实缺席）
     this.runEndedAt = null;
+    this.elapsedPausedMs = 0; // 累计暂停墙钟连清（挖掘 31 轮 [8]）——开窗深度与锚
+    // 保留：窗在场跨切焦存活（切焦不清他人窗），fresh agent_start 侧重锚
     this.turnStreamStartedAt = null; // 流中相位分母连清（注⑪⑥c——中途附着本轮无起点，与估值器 reset 同刻）
     this.runToolCount = 0;
     this.runRetryCount = 0;
@@ -3884,6 +3910,43 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (elapsedMs < 1000) return null;
     if (this.usageTotal.totalTokens <= 0) return null;
     return (this.usageTotal.totalTokens * 1000) / elapsedMs;
+  }
+
+  /**
+   * 暂停耗时计时（挖掘 31 轮 [8]——审批等待计时暂停批）：深度 +1——overlay
+   * 族与应答车两族独立单槽，并存时深度化（0→1 才落锚——嵌套不覆锚，避免
+   * 内层先关把外层仍在途的暂停段折断漏计）。
+   */
+  private pauseElapsedClock(): void {
+    if (this.askPauseDepth === 0) this.elapsedPauseAt = this.now();
+    this.askPauseDepth += 1;
+  }
+
+  /**
+   * 恢复耗时计时（挖掘 31 轮 [8]）：深度 -1，归零且锚在场才折入累计暂停墙钟
+   * （now-锚 取 max(0,·) 防倒钟）；未归零保持暂停（外层窗仍开）。任一落定
+   * 路径（approve/deny/abort/应答收口）都过此单汇点——比对位持有者防迟到
+   * 路径误收他人槽。
+   */
+  private resumeElapsedClock(): void {
+    if (this.askPauseDepth === 0) return;
+    this.askPauseDepth -= 1;
+    if (this.askPauseDepth === 0 && this.elapsedPauseAt !== null) {
+      this.elapsedPausedMs += Math.max(0, this.now() - this.elapsedPauseAt);
+      this.elapsedPauseAt = null;
+    }
+  }
+
+  /**
+   * run 终点落账（挖掘 31 轮 [8] 起 agent_end/retry_wait_end 共用）：终态时戳
+   * 冻结 + 在途暂停段折入累计（run 落窗内收口——终态后再无浮层占用语义）。
+   */
+  private markRunEnded(): void {
+    if (this.elapsedPauseAt !== null) {
+      this.elapsedPausedMs += Math.max(0, this.now() - this.elapsedPauseAt);
+      this.elapsedPauseAt = null;
+    }
+    this.runEndedAt = this.now();
   }
 
   /** turn_end 累加（暂存的 assistant 用量并入 run 级账本；cost 在场累货币额） */
