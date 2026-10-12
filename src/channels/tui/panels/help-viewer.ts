@@ -19,9 +19,8 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import type { ActionScope, ActionView } from '../keys/registry.js';
 import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
-import { headStyleOf, VIEWER_HEAD_MARK, weakLineStyle } from './panel-chrome.js';
+import { VIEWER_HEAD_MARK, headStyleOf, renderViewerHintBar, weakLineStyle } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
-import { DIM_STYLE } from '../../engine/index.js';
 
 /** 命令册条目（装配位合流注入——通道核命令表 + TUI 本地命令族 + TUI 本地退出词） */
 export interface HelpCommandEntry {
@@ -56,7 +55,6 @@ const SCOPE_LABELS: Readonly<Record<ActionScope, string>> = Object.freeze({
 });
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 底行键面提示 */
 const HINT_TEXT = hintLine('q/esc 返回', '↑↓/pgup/pgdn/home/end 滚动');
 
@@ -116,7 +114,8 @@ export class HelpViewer extends ScrollView implements OverlayContent {
       super.render(buffer, { row: region.row + 1, col: region.col, width: region.width, height: viewHeight });
     }
     // 界面美化役美学注⑤：底行提示 fitLine 收口补漏（窄屏不溢出）
-    buffer.writeText(region.row + region.height - 1, region.col, fitLine(HINT_TEXT, region.width), HINT_STYLE);
+    // 底行：键面提示 + 滚动位置读数（挖掘 31 轮 [5]——右缘 NN%，未溢出/窄窗/超帽提示态缺席）
+    renderViewerHintBar(buffer, region, HINT_TEXT, this.scrollPercent());
   }
 
   /**

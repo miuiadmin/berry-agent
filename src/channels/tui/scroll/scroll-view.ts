@@ -158,6 +158,22 @@ export class ScrollView implements Renderable {
     return this.follow;
   }
 
+  /**
+   * 滚动位置读数（挖掘 31 轮 [5]——codex pager 底铬读数形）：呈现口径
+   * maxOffset 上的百分比（0-100 整数）；未溢出返 null（无滚动即无位置可读
+   * ——读数只在可滚面出现）。maxOffset 两遍折叠同 clampNow 呈现口径律
+   * （挖掘 26 轮 [1]——溢出档让列折宽，全宽口径在 CJK 恰满宽行时低一档）。
+   * 契约：render 之后读（渲染期几何实测回写后——消费位全在 super.render
+   * 之后的底铬渲染段，天然满足）。
+   */
+  scrollPercent(): number | null {
+    let map = this.visualMap(this.lastWidth, false);
+    if (map.length > this.viewportHeight) map = this.visualMap(this.lastWidth, true);
+    const maxOffset = Math.max(0, map.length - this.viewportHeight);
+    if (maxOffset === 0) return null;
+    return Math.round((Math.min(this.offset, maxOffset) / maxOffset) * 100);
+  }
+
   /* ---------------- 渲染协商 ---------------- */
 
   /** 量高：视觉行数夹 maxHeight（缺省全量——副屏 root 场景不经本路） */

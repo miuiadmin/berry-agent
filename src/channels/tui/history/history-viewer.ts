@@ -44,7 +44,7 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import type { AgentMessage } from '../../../contracts/index.js';
 import { sessionColor, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
-import { HEAD_MARKS } from '../panels/panel-chrome.js';
+import { HEAD_MARKS, renderViewerHintBar } from '../panels/panel-chrome.js';
 
 /** 回看器装配选项 */
 export interface HistoryViewerOptions {
@@ -249,14 +249,14 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
         height: chromeBottom,
       });
     } else {
-      // 底行：超帽提示优先（常显至选区清除），否则常态键面提示——fitLine
-      // 收口（viewer 族单源：提示行 ≈69 列窄窗裸直写即硬截断无省略号的
-      // 漏网面）
-      buffer.writeText(
-        region.row + region.height - 1,
-        region.col,
-        fitLine(this.selectionNotice ?? HINT_TEXT, region.width),
-        HINT_STYLE,
+      // 底行：超帽提示优先（常显至选区清除），否则常态键面提示 + 滚动位置
+      // 读数（挖掘 31 轮 [5]——仅常态态在场：超帽提示是行动信息不收口让位；
+      // 搜索在场走 searchEditor 分支〔底铬=输入行〕读数结构性缺席）
+      renderViewerHintBar(
+        buffer,
+        region,
+        this.selectionNotice ?? HINT_TEXT,
+        this.selectionNotice === null ? this.scrollPercent() : null,
       );
     }
   }

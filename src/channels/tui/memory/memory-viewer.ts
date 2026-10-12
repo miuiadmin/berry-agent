@@ -66,7 +66,7 @@ import { SELECTION_CAP_BYTES, SELECTION_CAP_NOTICE } from '../history/history-vi
 import type { OverlayContent } from '../overlay/overlay.js';
 import { tokenize } from '../../commands.js';
 import { fitLine } from '../row-segments.js';
-import { headStyleOf, VIEWER_HEAD_MARK } from '../panels/panel-chrome.js';
+import { headStyleOf, renderViewerHintBar, VIEWER_HEAD_MARK } from '../panels/panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 // 提示行/分区头/投影行 dim——engine DIM_STYLE 单源直用（注⑩收编）
 import { DIM_STYLE } from '../../engine/index.js';
@@ -375,9 +375,11 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
           ? // 确认态问句 + 键位段（键位拼装走 hintLine 单源——与常态行同律）
             `忘掉 [m:${shortIdOf(this.confirmTarget.id)}]？${hintLine('enter/y 确认', 'esc/n 取消')}`
           : (this.notice ?? hintText(this.cursorEntry()?.section ?? null));
-    // 底铬各行 fitLine … 收口（界面美化役美学注⑤——确认态问句/超帽提示
-    // 长文窄窗截断有提示）
-    buffer.writeText(region.row + region.height - 1, region.col, fitLine(bottom, region.width), DIM_STYLE);
+    // 底铬各行 … 收口（界面美化役美学注⑤ + 挖掘 31 轮 [5] renderViewerHintBar
+    // 单源）：滚动位置读数仅第四档常态在场（前三档——超帽/确认/一次性提示
+    // 皆行动信息，读数不挤其左段预算）
+    const base = this.selectionNotice === null && this.confirmTarget === null && this.notice === null;
+    renderViewerHintBar(buffer, region, bottom, base ? this.scrollPercent() : null);
   }
 
   /**

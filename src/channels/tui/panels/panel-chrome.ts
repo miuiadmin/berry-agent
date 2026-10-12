@@ -22,6 +22,7 @@
 import { TOOL_RUN_MARK } from '../../../contracts/index.js';
 import type { CellStyle } from '../../engine/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
+import { fitRowSegments } from '../row-segments.js';
 import type { ResolvedTheme } from '../theme/index.js';
 
 /**
@@ -121,4 +122,32 @@ export function weakLineStyle(theme: ResolvedTheme): (line: string) => Readonly<
 export function sectionHeadLineStyle(theme: ResolvedTheme): (line: string) => Readonly<CellStyle> | undefined {
   const weak = weakLineStyle(theme);
   return (line) => (isWarningLine(line) ? WEAK_FALLBACK_STYLE : weak(line));
+}
+
+/** 读数窄窗退场地板（挖掘 31 轮 [5]）：行宽低于此值读数让位——键面提示独占 */
+const SCROLL_PERCENT_FLOOR_WIDTH = 24;
+
+/**
+ * viewer 底行渲染单源（挖掘 31 轮 [5]——codex pager 底铬读数 berry 化）：
+ * 键面提示段（fitRowSegments 左段 … 收口）+ 溢出时右对齐 dim 滚动位置读数
+ * `NN%`（同行右对齐省一行——不取 codex 独立 dim ─ 分隔线形：底行键面提示
+ * 铬已在场〔07 §4.4 律三载体〕，第二条装饰线只挤视口）。排版走
+ * fitRowSegments 单源（右段预算 + 左段帽——负起列结构性封堵继承）；窄于
+ * 地板读数退场（提示行是不可省铬）。与 picker「↑/↓ N 更多」分职：彼 =
+ * 离散条目清单隐藏计数（还有多少未见——行动信息）；此 = 连续滚动视口
+ * 位置快读锚点（现在看到哪）。两形语域分立不互替不混用（溢出指示统一律
+ * 批注记——非静默第二指示形）。
+ */
+export function renderViewerHintBar(
+  buffer: import('../../engine/index.js').CellBuffer,
+  region: import('../../engine/index.js').Region,
+  text: string,
+  scrollPercent: number | null,
+): void {
+  const right = scrollPercent !== null && region.width >= SCROLL_PERCENT_FLOOR_WIDTH ? `${scrollPercent}%` : undefined;
+  const fit = fitRowSegments(text, right, region.width);
+  buffer.writeText(region.row + region.height - 1, region.col, fit.left, DIM_STYLE);
+  if (fit.rightWidth > 0) {
+    buffer.writeText(region.row + region.height - 1, region.col + region.width - fit.rightWidth, fit.right, DIM_STYLE);
+  }
 }

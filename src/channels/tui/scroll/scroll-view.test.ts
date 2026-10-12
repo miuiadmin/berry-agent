@@ -427,3 +427,41 @@ describe('ScrollView 行样式档（lineStyle——predicate 命中行整行着�
     expect(grid.getCell(0, 0)?.style?.dim).toBeUndefined();
   });
 });
+
+describe('ScrollView 滚动位置读数（挖掘 31 轮 [5]——viewer 底行 NN% 数据源）', () => {
+  it('未溢出返 null（无滚动即无位置可读）', () => {
+    const view = new ScrollView();
+    view.setLines(['a', 'b']);
+    const grid = new CellGrid(10, 4);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 4 });
+    expect(view.scrollPercent()).toBeNull();
+  });
+
+  it('溢出比例：贴尾 100 / 顶 0 / 中位 50', () => {
+    const view = new ScrollView();
+    view.setLines(linesOf(30));
+    const grid = new CellGrid(10, 10);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 10 }); // 贴尾（尾随）
+    expect(view.scrollPercent()).toBe(100);
+    view.handleEvent(key('home'));
+    view.render(grid, { row: 0, col: 0, width: 10, height: 10 });
+    expect(view.scrollPercent()).toBe(0);
+    view.scrollTo(10); // maxOffset=20 中位
+    view.render(grid, { row: 0, col: 0, width: 10, height: 10 });
+    expect(view.scrollPercent()).toBe(50);
+  });
+
+  it('呈现口径两遍折叠（修前红：全宽一遍口径 H0 算出 75≠50）', () => {
+    // 挖掘 26 轮 [1] foldLines 夹具：H0=7/H1=9、maxOffset0=4/maxOffset1=6
+    //（10×3 视口）——offset 3 在呈现口径（H1）= 3/6=50%；全宽口径（H0）
+    // 误算 3/4=75%。契约序：先 render（几何回写 + 贴尾）再显式 scrollTo
+    //（render 前调 scrollTo 走缺省几何——夹到底并复随，非本测语义）
+    const view = new ScrollView();
+    view.setLines(['a'.repeat(20), 'a'.repeat(20), 'b', 'c', 'd']);
+    const grid = new CellGrid(10, 3);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 3 }); // 贴尾 offset=6（呈现口径）
+    view.scrollTo(3); // 显式破随（几何已真——clampNow 呈现口径 3 带内保留）
+    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
+    expect(view.scrollPercent()).toBe(50);
+  });
+});

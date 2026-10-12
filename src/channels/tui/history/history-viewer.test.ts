@@ -666,3 +666,36 @@ describe('回看器窄窗宽度收口', () => {
     expect(readRow(grid, 0, 4)).not.toContain('/');
   });
 });
+
+describe('底行滚动位置读数（挖掘 31 轮 [5]——NN% 右缘 + 窄窗地板退场）', () => {
+  /** 窄窗 rig（头行窄窗族 narrowRig 系他 describe 块内函数不达——同形自建） */
+  function narrowRigLocal(cols: number, rows = 8) {
+    const viewer = new HistoryViewer({
+      sessionId: SESSION,
+      messages: manyUsers(30),
+      columns: cols,
+      onExit: () => {},
+    });
+    const render = (): CellGrid => {
+      const grid = new CellGrid(cols, rows);
+      viewer.render(grid, { row: 0, col: 0, width: cols, height: rows });
+      return grid;
+    };
+    return { viewer, render };
+  }
+
+  it('溢出档贴尾 100% / 顶 0%（与键面提示同行右对齐双段形）', () => {
+    const { viewer, render } = rig(manyUsers(30));
+    const grid = render(); // 贴尾（尾随）
+    expect(readRow(grid, ROWS - 1, COLS)).toMatch(/100%$/);
+    expect(readRow(grid, ROWS - 1, COLS)).toContain('q/esc 返回');
+    viewer.handleEvent(key('home'));
+    expect(readRow(render(), ROWS - 1, COLS)).toMatch(/0%$/);
+  });
+
+  it('窄窗地板退场：行宽 10 < 地板 24——读数缺席提示独占', () => {
+    const { render } = narrowRigLocal(10);
+    const grid = render();
+    expect(readRow(grid, 7, 10)).not.toContain('%');
+  });
+});

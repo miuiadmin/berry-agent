@@ -20,9 +20,8 @@ import { ScrollView } from '../scroll/scroll-view.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
-import { headStyleOf, sectionHeadLineStyle, VIEWER_HEAD_MARK } from './panel-chrome.js';
+import { VIEWER_HEAD_MARK, headStyleOf, renderViewerHintBar, sectionHeadLineStyle } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
-import { DIM_STYLE } from '../../engine/index.js';
 
 /** 调试面板数据快照（装配位现取注入——面板收纯数据行，不触任何边外面） */
 export interface DebugPanelData {
@@ -57,7 +56,6 @@ export interface DebugViewerOptions {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 底行键面提示 */
 const HINT_TEXT = hintLine('q/esc 返回', '↑↓/pgup/pgdn/home/end 滚动');
 
@@ -127,7 +125,8 @@ export class DebugViewer extends ScrollView implements OverlayContent {
     if (viewHeight > 0) {
       super.render(buffer, { row: region.row + 1, col: region.col, width: region.width, height: viewHeight });
     }
-    buffer.writeText(region.row + region.height - 1, region.col, fitLine(HINT_TEXT, region.width), HINT_STYLE);
+    // 底行：键面提示 + 滚动位置读数（挖掘 31 轮 [5]——右缘 NN%，未溢出/窄窗/超帽提示态缺席）
+    renderViewerHintBar(buffer, region, HINT_TEXT, this.scrollPercent());
   }
 
   /** 事件分发（副屏内容终局消费——键面同 HelpViewer） */

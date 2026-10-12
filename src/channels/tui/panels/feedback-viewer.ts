@@ -23,10 +23,9 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
-import { headStyleOf, VIEWER_HEAD_MARK, weakLineStyle } from './panel-chrome.js';
+import { VIEWER_HEAD_MARK, headStyleOf, renderViewerHintBar, weakLineStyle } from './panel-chrome.js';
 import { maskDaemonLogLines } from './debug-viewer.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
-import { DIM_STYLE } from '../../engine/index.js';
 // 错误折面单源（tui-backend.ts 同形相对导入——BaseError 码直呈/Error 免前缀噪音）
 import { foldErrorText } from '../../service.js';
 
@@ -135,7 +134,6 @@ export interface FeedbackScreenSources {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 底行键面提示（e = 导出诊断包——本件独有动作键） */
 const HINT_TEXT = hintLine('q/esc 返回', 'e 导出诊断包', '↑↓/pgup/pgdn/home/end 滚动');
 
@@ -391,7 +389,8 @@ export class FeedbackViewer extends ScrollView implements OverlayContent {
     if (viewHeight > 0) {
       super.render(buffer, { row: region.row + 1, col: region.col, width: region.width, height: viewHeight });
     }
-    buffer.writeText(region.row + region.height - 1, region.col, fitLine(HINT_TEXT, region.width), HINT_STYLE);
+    // 底行：键面提示 + 滚动位置读数（挖掘 31 轮 [5]——右缘 NN%，未溢出/窄窗/超帽提示态缺席）
+    renderViewerHintBar(buffer, region, HINT_TEXT, this.scrollPercent());
   }
 
   /** 事件分发（副屏内容终局消费——键面三件套同律 + e 导出动作键） */

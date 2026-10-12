@@ -171,3 +171,37 @@ describe('HelpViewer 副屏件', () => {
     expect(viewer.handleEvent(k('enter'))).toBe(true);
   });
 });
+
+describe('HelpViewer 底行滚动位置读数（挖掘 31 轮 [5]）', () => {
+  /** 读回一行（副屏件 describe 内 readRow 系局部函数不达——同形自建） */
+  function readRowLocal(grid: CellGrid, row: number, width: number): string {
+    let out = '';
+    for (let col = 0; col < width; col++) out += grid.getCell(row, col)?.grapheme ?? ' ';
+    return out.trimEnd();
+  }
+
+  /** 30 条动作册溢出形装置（CellGrid 定高 8——视口 6 行装不下行集） */
+  const manyActions = Array.from({ length: 30 }, (_, i): ActionView => ({
+    id: `a${i}`,
+    scope: 'editor',
+    label: `动作${i}`,
+    keys: [`ctrl+${i}`],
+    overridable: true,
+  }));
+
+  it('溢出档底行 0% 与键面提示共存（宽 60——左段 + 右段不收口）', () => {
+    const viewer = new HelpViewer({ commands: [], actions: manyActions, sessionId: 's', onExit: () => {} });
+    const grid = new CellGrid(60, 8);
+    viewer.render(grid, { row: 0, col: 0, width: 60, height: 8 });
+    const bottom = readRowLocal(grid, 7, 60);
+    expect(bottom).toContain('q/esc 返回');
+    expect(bottom).toMatch(/0%$/);
+  });
+
+  it('窄窗地板退场：宽 20 < 地板 24——读数缺席', () => {
+    const viewer = new HelpViewer({ commands: [], actions: manyActions, sessionId: 's', onExit: () => {} });
+    const grid = new CellGrid(20, 8);
+    viewer.render(grid, { row: 0, col: 0, width: 20, height: 8 });
+    expect(readRowLocal(grid, 7, 20)).not.toContain('%');
+  });
+});

@@ -23,7 +23,7 @@ import { hintLine } from '../keys/hint.js';
 import { formatElapsedCompact, joinSegments } from '../../../contracts/index.js';
 import { formatTokensCompact } from './usage-viewer.js';
 import { fitLine } from '../row-segments.js';
-import { headStyleOf, VIEWER_HEAD_MARK, weakLineStyle } from './panel-chrome.js';
+import { VIEWER_HEAD_MARK, headStyleOf, renderViewerHintBar, weakLineStyle } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
 
@@ -80,7 +80,6 @@ const CAUSE_WIDTH = 48;
 /** 模型短名段宽帽（同上——超宽模型名省略截断） */
 const MODEL_WIDTH = 24;
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -171,7 +170,8 @@ export class CallsViewer extends ScrollView implements OverlayContent {
     if (viewHeight > 0) {
       super.render(buffer, { row: region.row + 1, col: region.col, width: region.width, height: viewHeight });
     }
-    buffer.writeText(region.row + region.height - 1, region.col, fitLine(HINT_TEXT, region.width), HINT_STYLE);
+    // 底行：键面提示 + 滚动位置读数（挖掘 31 轮 [5]——右缘 NN%，未溢出/窄窗/超帽提示态缺席）
+    renderViewerHintBar(buffer, region, HINT_TEXT, this.scrollPercent());
   }
 
   /** 事件分发（副屏内容终局消费——键面同 usage-viewer） */
