@@ -1084,3 +1084,96 @@ describe('EditorModel visualLines memo', () => {
     expect(observed).toEqual(buildVisualLineMap(['中'], 80));
   });
 });
+
+describe('EditorModel 历史回搜态机（挖掘 31 轮 [3]——ctrl+r 增量搜索）', () => {
+  /** 播种装置：史新→旧 = three/two/one（unshift 前插——addToHistory 末次最新） */
+  function seeded(): EditorModel {
+    const m = new EditorModel();
+    m.addToHistory('one');
+    m.addToHistory('two');
+    m.addToHistory('three');
+    return m;
+  }
+
+  it('三态迁移：idle → match → none → match（query 翻转重算）', () => {
+    const m = seeded();
+    expect(m.isSearchingHistory()).toBe(false);
+    m.beginHistorySearch();
+    expect(m.getHistorySearch()).toMatchObject({ query: '', status: 'idle' });
+    m.updateSearchQuery('on');
+    expect(m.getHistorySearch()).toMatchObject({ query: 'on', status: 'match' });
+    m.updateSearchQuery('onx'); // 无命中
+    expect(m.getHistorySearch()).toMatchObject({ query: 'onx', status: 'none' });
+    expect(m.getText()).toBe(''); // none 态还原草稿（装置空稿）
+    m.updateSearchQuery('on');
+    expect(m.getHistorySearch()).toMatchObject({ query: 'on', status: 'match' }); // 改回重算
+    expect(m.getText()).toBe('one'); // 预览再入稿
+  });
+
+  it('去重首见：全文 Set 去重、保留最新位（非连续重复史）', () => {
+    const m = new EditorModel();
+    m.addToHistory('one');
+    m.addToHistory('two');
+    m.addToHistory('one'); // 非连续重复（连续去重闸不挡）
+    m.beginHistorySearch();
+    m.updateSearchQuery('on');
+    // matches 恰一条（下标 0 = 最新 one）；步进两端 no-op
+    expect(m.getHistorySearch()?.status).toBe('match');
+    expect(m.getText()).toBe('one');
+    m.searchStep(1);
+    m.searchStep(-1);
+    expect(m.getText()).toBe('one');
+  });
+
+  it('accept 后 undo 回搜前稿：beginHistorySearch 的 pushUndo 一步可回', () => {
+    const m = seeded();
+    m.insertText('abc'); // 回搜前工作稿
+    m.beginHistorySearch();
+    m.updateSearchQuery('two');
+    expect(m.getText()).toBe('two'); // 预览
+    m.acceptHistorySearch();
+    expect(m.isSearchingHistory()).toBe(false);
+    expect(m.getText()).toBe('two'); // 预览转正
+    m.undo();
+    expect(m.getText()).toBe('abc'); // 撤回回搜前工作稿
+  });
+
+  it('cancel 还原草稿快照（开搜时点的稿件）', () => {
+    const m = seeded();
+    m.insertText('底稿');
+    m.beginHistorySearch();
+    m.updateSearchQuery('three'); // 预览占据
+    m.cancelHistorySearch();
+    expect(m.isSearchingHistory()).toBe(false);
+    expect(m.getText()).toBe('底稿');
+  });
+
+  it('setText 程序旁路收搜：搜索态连清、草稿不还原（程序面语义优先）', () => {
+    const m = seeded();
+    m.insertText('底稿');
+    m.beginHistorySearch();
+    m.updateSearchQuery('two');
+    m.setText('程序稿');
+    expect(m.isSearchingHistory()).toBe(false);
+    expect(m.getText()).toBe('程序稿'); // 不还原 '底稿'——程序设值胜出
+  });
+
+  it('空 query / 空命中集步进 no-op 稳定（不炸不越界）', () => {
+    const m = new EditorModel(); // 空史
+    m.beginHistorySearch();
+    m.searchStep(-1); // 空 query 守卫直返
+    m.searchStep(1);
+    expect(m.getHistorySearch()?.status).toBe('idle');
+    m.updateSearchQuery('zz'); // 空史无命中
+    m.searchStep(-1); // matches 空守卫直返
+    expect(m.getHistorySearch()?.status).toBe('none');
+  });
+
+  it('seedHistory 种子史入命中集（持久化史同源可搜）', () => {
+    const m = new EditorModel();
+    m.seedHistory(['alpha', 'beta']);
+    m.beginHistorySearch();
+    m.updateSearchQuery('be');
+    expect(m.getText()).toBe('beta');
+  });
+});

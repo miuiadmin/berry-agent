@@ -166,6 +166,23 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
   { id: 'editor.yank-pop', scope: 'editor', label: '环游标步进替换', keys: ['alt+y'], overridable: true },
   { id: 'editor.history-prev', scope: 'editor', label: '上一条历史', keys: ['up'], overridable: true },
   { id: 'editor.history-next', scope: 'editor', label: '下一条历史', keys: ['down'], overridable: true },
+  // 历史回搜两席（挖掘 31 轮 [3]——codex history_search 对标）：ctrl+r 开搜
+  // 兼向旧步进双义（codex 同形）、ctrl+s 向新步进；↑/↓ 搜索态内经既有
+  // history-prev/next 册位兼作步进（不另立册目）
+  {
+    id: 'editor.history-search',
+    scope: 'editor',
+    label: '回搜历史（上一条命中）',
+    keys: ['ctrl+r'],
+    overridable: true,
+  },
+  {
+    id: 'editor.history-search-next',
+    scope: 'editor',
+    label: '回搜历史（下一条命中）',
+    keys: ['ctrl+s'],
+    overridable: true,
+  },
 ];
 
 /** 具名键全集（键串文法的非单字符键位——键名与 InputDecoder 输出形同源小写） */

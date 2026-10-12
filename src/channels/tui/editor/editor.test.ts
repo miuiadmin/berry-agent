@@ -442,3 +442,158 @@ describe('Editor 持久化史两键（B1——07 §4.1 呈现面件 2 定形注�
     expect(mirrored).toEqual(['other', 'seeded-top']);
   });
 });
+
+describe('Editor 历史回搜（ctrl+r——挖掘 31 轮 [3]）', () => {
+  /** 播种史装置：three 条新→旧（one/two/three 提交入册） */
+  function editorWithHistory(): Editor {
+    const editor = new Editor();
+    editor.handleEvent(text('one'));
+    editor.handleEvent(key('enter'));
+    editor.handleEvent(text('two'));
+    editor.handleEvent(key('enter'));
+    editor.handleEvent(text('three'));
+    editor.handleEvent(key('enter'));
+    return editor;
+  }
+
+  it('修前红锚：ctrl+r 开搜被消费（键位册未收录修前终局丢弃返 false）', () => {
+    const editor = editorWithHistory();
+    // 修前：ctrl+r 无绑定走完 handleKey 全部 hit → false（未绑定键终局丢弃）
+    expect(editor.handleEvent(key('r', { ctrl: true }))).toBe(true);
+  });
+
+  it('修前红锚：搜索态 text 入 query（命中预览入稿——修前 text 直接入稿）', () => {
+    const editor = editorWithHistory();
+    editor.handleEvent(key('r', { ctrl: true })); // 开搜
+    editor.handleEvent(text('on'));
+    // 修前：无搜索门——'on' 直接入稿得 'on'；搜索态：'on' 入 query、命中史
+    // 'one' 整条预览入稿（预览形）——两态判别器恰在此
+    expect(editor.getText()).toBe('one');
+  });
+
+  it('开搜进场：搜索态在场 + 空行量高承诺 +1（编辑器组件透传 view 量高）', () => {
+    const editor = editorWithHistory();
+    expect(editor.isSearchingHistory()).toBe(false);
+    expect(editor.handleEvent(key('r', { ctrl: true }))).toBe(true);
+    expect(editor.isSearchingHistory()).toBe(true);
+    // 空稿量高：最小高 3 + 上下垫 2 + 搜索行 1 = 6（contentRows 口径不含搜索行）
+    expect(editor.measure(40)).toBe(6);
+  });
+
+  it('命中预览：query 子串命中整条入稿（大小写不敏感）+ 光标归位形', () => {
+    const editor = editorWithHistory();
+    editor.handleEvent(key('r', { ctrl: true }));
+    editor.handleEvent(text('T')); // 大写查询小写史命中（toLowerCase 对拍）
+    expect(editor.getText()).toBe('three'); // 新→旧首见（three 含 t 先于 two）
+  });
+
+  it('无命中还原：none 态稿面还原草稿（打点稿非空形）', () => {
+    const editor = editorWithHistory();
+    editor.handleEvent(text('打点草稿'));
+    editor.handleEvent(key('r', { ctrl: true }));
+    editor.handleEvent(text('zz')); // 无命中——还原草稿（打点稿回显）
+    expect(editor.getText()).toBe('打点草稿');
+    expect(editor.isSearchingHistory()).toBe(true); // 搜索态仍在（可改 query 再搜）
+  });
+
+  it('步进双向：ctrl+s 向新 / ctrl+r 与 ↑↓ 册位步进 + 边界 no-op', () => {
+    const editor = editorWithHistory();
+    editor.handleEvent(key('r', { ctrl: true }));
+    editor.handleEvent(text('t')); // matches=[three,two] cursor=0（three）
+    expect(editor.getText()).toBe('three');
+    expect(editor.handleEvent(key('s', { ctrl: true }))).toBe(true); // ctrl+s 向新
+    expect(editor.getText()).toBe('two');
+    expect(editor.handleEvent(key('down'))).toBe(true); // ↓ 册位同向新
+    expect(editor.getText()).toBe('two'); // 边界：最新端再向新 no-op
+    editor.handleEvent(key('r', { ctrl: true })); // 搜索态 ctrl+r 向旧
+    expect(editor.getText()).toBe('three');
+    expect(editor.handleEvent(key('up'))).toBe(true); // ↑ 册位同向旧
+    expect(editor.getText()).toBe('three'); // 边界：最旧端再向旧 no-op
+  });
+
+  it('enter 采编退场：预览转工作稿 + 搜索态收场', () => {
+    const editor = editorWithHistory();
+    editor.handleEvent(key('r', { ctrl: true }));
+    editor.handleEvent(text('tw'));
+    expect(editor.getText()).toBe('two');
+    expect(editor.handleEvent(key('enter'))).toBe(true);
+    expect(editor.isSearchingHistory()).toBe(false);
+    expect(editor.getText()).toBe('two'); // 预览转正不丢
+  });
+
+  it('esc 还原草稿退场', () => {
+    const editor = editorWithHistory();
+    editor.handleEvent(text('留稿'));
+    editor.handleEvent(key('r', { ctrl: true }));
+    editor.handleEvent(text('one')); // 命中预览 'one' 入稿
+    expect(editor.getText()).toBe('one');
+    expect(editor.handleEvent(key('escape'))).toBe(true);
+    expect(editor.isSearchingHistory()).toBe(false);
+    expect(editor.getText()).toBe('留稿'); // 草稿快照还原
+  });
+
+  it('backspace 字素退格：query 尾字素退（重算命中）', () => {
+    const editor = editorWithHistory();
+    editor.handleEvent(key('r', { ctrl: true }));
+    editor.handleEvent(text('tw'));
+    expect(editor.getText()).toBe('two');
+    expect(editor.handleEvent(key('backspace'))).toBe(true);
+    expect(editor.getText()).toBe('three'); // query 't' 重算——最新命中 three
+  });
+
+  it('ctrl+u 清空 query：idle 态 + 还原草稿', () => {
+    const editor = editorWithHistory();
+    editor.handleEvent(text('底稿'));
+    editor.handleEvent(key('r', { ctrl: true }));
+    editor.handleEvent(text('one'));
+    editor.handleEvent(key('u', { ctrl: true })); // delete-to-line-start 清 query
+    expect(editor.getText()).toBe('底稿'); // 空 query → idle + 还原草稿
+    expect(editor.isSearchingHistory()).toBe(true); // 搜索态仍在
+  });
+
+  it('去重唯一命中：非连续重复史条 Set 按全文去重（首见=最新位保留）', () => {
+    const editor = new Editor();
+    editor.handleEvent(text('one'));
+    editor.handleEvent(key('enter'));
+    editor.handleEvent(text('two'));
+    editor.handleEvent(key('enter'));
+    editor.handleEvent(text('one')); // 非连续重复（连续去重闸不挡——真实重发形）
+    editor.handleEvent(key('enter'));
+    editor.handleEvent(key('r', { ctrl: true }));
+    editor.handleEvent(text('on'));
+    expect(editor.getText()).toBe('one');
+    // 去重后唯一命中——步进两端 no-op 稳定不炸
+    expect(editor.handleEvent(key('s', { ctrl: true }))).toBe(true);
+    expect(editor.getText()).toBe('one');
+  });
+
+  it('historySeed 可搜：构造期种子史同样入回搜命中集', () => {
+    const editor = new Editor({ historySeed: ['alpha', 'beta'] });
+    editor.handleEvent(key('r', { ctrl: true }));
+    editor.handleEvent(text('al'));
+    expect(editor.getText()).toBe('alpha');
+    expect(editor.handleEvent(key('enter'))).toBe(true); // 采编
+    expect(editor.getText()).toBe('alpha');
+  });
+
+  it('release 相归上层 + 其余键消费丢弃（alt+enter 不采编）', () => {
+    const editor = editorWithHistory();
+    editor.handleEvent(key('r', { ctrl: true }));
+    editor.handleEvent(text('one'));
+    expect(editor.handleEvent(key('r', { ctrl: true, phase: 'release' }))).toBe(false); // 释放相透传
+    expect(editor.handleEvent(key('enter', { alt: true }))).toBe(true); // 候跑键序分立——不命中采编
+    expect(editor.isSearchingHistory()).toBe(true); // 搜索态仍在（alt+enter 消费丢弃）
+    expect(editor.handleEvent(key('enter'))).toBe(true); // 恰 enter 才采编
+    expect(editor.isSearchingHistory()).toBe(false);
+  });
+
+  it('paste 消费丢弃：大段粘贴不进 query 不进稿', () => {
+    const editor = editorWithHistory();
+    editor.handleEvent(key('r', { ctrl: true }));
+    editor.handleEvent(text('tw'));
+    editor.handleEvent({ kind: 'paste', text: '大段粘贴内容' });
+    expect(editor.getText()).toBe('two'); // 稿面不动（预览保持）
+    editor.handleEvent(key('enter'));
+    expect(editor.getText()).toBe('two'); // 采编后仍无粘贴痕迹
+  });
+});

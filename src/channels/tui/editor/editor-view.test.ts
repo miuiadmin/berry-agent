@@ -446,3 +446,47 @@ describe('EditorView 焦点提示符随换装（V-0 注③——框退役后焦�
     expect(plain.getCell(0, 0)?.style.fg).toBeUndefined();
   });
 });
+
+describe('EditorView 回搜行（挖掘 31 轮 [3]——搜索态顶行 +1）', () => {
+  it('量高 +1 / 收场复位：搜索态空稿 6（3+2+1）、cancel 回 5', () => {
+    const { view, model } = viewOf('');
+    expect(view.measure(20)).toBe(5); // 非搜索态基线
+    model.beginHistorySearch();
+    expect(view.measure(20)).toBe(6); // +搜索行
+    model.cancelHistorySearch();
+    expect(view.measure(20)).toBe(5); // 收场复位
+  });
+
+  it('顶行字面：「回搜：」前缀 + query 正文色 + 正文预览整体下移一行', () => {
+    const { view, model } = viewOf('');
+    model.addToHistory('beta');
+    model.beginHistorySearch();
+    model.updateSearchQuery('be');
+    const grid = new CellGrid(12, 8);
+    view.render(grid, { row: 0, col: 0, width: 12, height: 6 });
+    expect(readRow(grid, 0, 12)).toBe('回搜：be'); // 顶行搜索行
+    expect(grid.getCell(0, 0)?.style?.dim).toBe(true); // 前缀 dim
+    expect(grid.getCell(0, 6)?.style?.dim).toBeUndefined(); // query 正文色（列 6 起——「回搜：」全角三字宽 6）
+    expect(readRow(grid, 1, 12)).toBe(''); // 上垫行（搜索行与正文之间）
+    expect(readRow(grid, 2, 12)).toBe('› beta'); // 正文预览下移（搜索行 + 上垫共 2 行偏移）
+  });
+
+  it('none 态缀：query 后「（未找到）」dim 缀；idle/match 态缺席', () => {
+    const { view, model } = viewOf('');
+    model.beginHistorySearch();
+    model.updateSearchQuery('zz'); // 无命中
+    const grid = new CellGrid(22, 8);
+    view.render(grid, { row: 0, col: 0, width: 22, height: 6 });
+    // 「回搜：」6 + 'zz' 2 + 「（未找到）」10 = 18 列（全角宽算术）
+    expect(readRow(grid, 0, 22)).toBe('回搜：zz（未找到）');
+    expect(grid.getCell(0, 8)?.style?.dim).toBe(true); // 缀同 dim（列 8 起）
+  });
+
+  it('非搜索态零扰动：常态渲染不出现搜索行（显式对照锁）', () => {
+    const { view } = viewOf('ab');
+    const grid = new CellGrid(10, 5);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
+    expect(readRow(grid, 0, 10)).toBe('› ab'); // 正文仍在首行
+    expect(readRow(grid, 1, 10)).not.toContain('回搜'); // 无搜索行字面
+  });
+});

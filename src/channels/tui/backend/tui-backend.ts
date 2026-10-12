@@ -1163,6 +1163,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       onResult: (result) => {
         if (this.inputAsk !== null) return; // 应答接管窗——迟到在途结果不落层
         if (this.stack.size > 0) return; // 模态浮层占焦窗——迟到在途结果不落层（死显残留防线）
+        if (this.editor.isSearchingHistory()) return; // 回搜态（挖掘 31 轮 [3]）——稿件被预览占据、锚失效，迟到结果不落层
         this.popup.applyResult(result);
         this.touchFixed();
       },
@@ -2872,11 +2873,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 教学窗六闸（`?` 教学键与 leader arm 共用门判——B4「复用门判函数勿复制」）：
+   * 教学窗七闸（`?` 教学键与 leader arm 共用门判——B4「复用门判函数勿复制」）：
    * 空稿 + 闲态 + overlay 不在场 + 弹层不在场 + 无 input-ask 应答窗 + 非 jump
-   * 待靶期。任一不满足 = 键透传编辑器（终局丢弃——零打扰；待靶期透传则键作
-   * 跳靶字符入编辑器消费——挖掘 27 轮 [4]：劫持开帮助面板会使待靶态跨开/关
-   * 残留，关面板后首字素被吞作跳靶）。
+   * 待靶期 + 非回搜态（挖掘 31 轮 [3]——搜索期 `?` 应入 query 作搜索词，劫去
+   * 开帮助面板会把搜索态跨开/关残留）。任一不满足 = 键透传编辑器（终局丢弃
+   * ——零打扰；待靶期透传则键作跳靶字符入编辑器消费——挖掘 27 轮 [4]：劫持
+   * 开帮助面板会使待靶态跨开/关残留，关面板后首字素被吞作跳靶）。
    */
   private teachingGatesOpen(): boolean {
     return (
@@ -2885,16 +2887,24 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       !this.progressBusy &&
       this.stack.size === 0 &&
       !this.popup.visible &&
-      !this.editor.hasPendingJump()
+      !this.editor.hasPendingJump() &&
+      !this.editor.isSearchingHistory()
     );
   }
 
   /**
-   * leader 分支门四闸（B4——arm 门减闲态）：忙期不设闸——arm 后忙态起、窗内
-   * 分支照开（忙期查 /jobs 任务清单正是高频用法）。
+   * leader 分支门五闸（B4——arm 门减闲态）：忙期不设闸——arm 后忙态起、窗内
+   * 分支照开（忙期查 /jobs 任务清单正是高频用法）。回搜态闸（挖掘 31 轮 [3]）
+   * ：搜索期 ctrl+x 后续字母应入 query（编辑器搜索态消费丢弃）而非误开分支。
    */
   private leaderBranchGatesOpen(): boolean {
-    return this.inputAsk === null && this.editor.model.isEmpty() && this.stack.size === 0 && !this.popup.visible;
+    return (
+      this.inputAsk === null &&
+      this.editor.model.isEmpty() &&
+      this.stack.size === 0 &&
+      !this.popup.visible &&
+      !this.editor.isSearchingHistory()
+    );
   }
 
   /**
@@ -3003,6 +3013,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         } else if (isEscape && this.clearJobsCursor()) {
           // 后台任务段光标态在场——escape 收光标即消费（清后态）；
           // 不在场时 clearJobsCursor 返 false 落入后续分诊零扰动
+        } else if (isEscape && this.editor.isSearchingHistory()) {
+          // 回搜态让路（挖掘 31 轮 [3]）：escape 收搜还原草稿——搜索模态
+          // 收场优先于打断与丢弃（含忙态——忙期回搜备稿是正态，收场非中断）
         } else if (!isEscape || this.taskLine.isBusy) {
           this.onInterrupt?.(this.sessionId);
           return;
@@ -3137,7 +3150,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // '/' 起草稿走命令族（exit/本地/通道命令——无用户块回声）不置位：命令
     // 清稿后引导复现是正确终态；未注册 '/' 词兜底进消息（03 §2.2 驱动侧语
     // 义）形接受一次瞬现（回声到达即收——罕见形注记）。应答窗（inputAsk）
-    // 的 enter 是收窗非提交，不入本预置
+    // 的 enter 是收窗非提交，不入本预置；回搜态（挖掘 31 轮 [3]）enter 是采编
+    // 预览非提交（无清稿无回声——预置会成永锁残留），亦不入
     if (
       ev.kind === 'key' &&
       ev.phase === 'press' &&
@@ -3146,12 +3160,22 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       !ev.shift &&
       !ev.meta &&
       this.inputAsk === null &&
+      !this.editor.isSearchingHistory() &&
       !this.editor.model.isEmpty() &&
       !(this.editor.model.getLines()[0] ?? '').startsWith('/')
     ) {
       this.awaitingEcho = true;
     }
-    if (this.editor.handleEvent(ev)) this.touchFixed(); // 稿件变更对账走 handleEditorChange 单源锚
+    // 开搜转移检测（挖掘 31 轮 [3]）：层④调用前后搜态对照——开搜瞬间撤补全
+    // 防抖窗与弹层（弹层锚在草稿前缀，搜索态稿件被预览占据锚即失效）
+    const wasSearching = this.editor.isSearchingHistory();
+    if (this.editor.handleEvent(ev)) {
+      if (!wasSearching && this.editor.isSearchingHistory()) {
+        this.autocompleteCompleter.cancel();
+        this.popup.applyResult(null);
+      }
+      this.touchFixed();
+    } // 稿件变更对账走 handleEditorChange 单源锚
   }
 
   /**
@@ -3304,7 +3328,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /** 编辑器内容变更：补全层重发查询（尾沿防抖——R6 批 10j）+ 固定区脏位 */
   private handleEditorChange(): void {
-    if (this.inputAsk === null) this.autocompleteCompleter.request();
+    // 补全门（挖掘 31 轮 [3]）：回搜态的 change 是预览/还原翻转（applySearchPreview
+    // 换稿、cancel 还原草稿）非用户编辑——不重发补全（弹层已随开搜撤，锚也失效）
+    if (this.inputAsk === null && !this.editor.isSearchingHistory()) this.autocompleteCompleter.request();
     // 门控对账先于触脏（2026-10-04 B2 序修正）：翻转自带 rebuildFooter+touchFixed
     // ——若 touchFixed 在前，同步直出档会先落一帧旧 hint 态再落新态（应答窗
     // 开窗帧混入假键位残影）；注入调度档两请求虽合并无害，序仍以对账先行定形

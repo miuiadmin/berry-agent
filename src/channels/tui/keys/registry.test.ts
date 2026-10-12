@@ -170,8 +170,8 @@ describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字�
 });
 
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
-  it('册数 34：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影两席（B4 同批）+ 外部编辑器（挖掘 31 轮 [9]）', () => {
-    expect(ACTION_CATALOG).toHaveLength(34);
+  it('册数 36：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影两席（B4 同批）+ 外部编辑器（挖掘 31 轮 [9]）+ 历史回搜两席（挖掘 31 轮 [3]）', () => {
+    expect(ACTION_CATALOG).toHaveLength(36);
     const followUp = ACTION_CATALOG.find((d) => d.id === 'editor.queue-followup');
     expect(followUp).toMatchObject({ scope: 'editor', keys: ['alt+enter'], overridable: true });
     const modelCycle = ACTION_CATALOG.find((d) => d.id === 'global.model-cycle');
@@ -187,6 +187,11 @@ describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模�
     // 外部编辑器（挖掘 31 轮 [9]——codex ctrl+g 对标位；可覆盖位）
     const externalEdit = ACTION_CATALOG.find((d) => d.id === 'editor.external-edit');
     expect(externalEdit).toMatchObject({ scope: 'editor', keys: ['ctrl+g'], overridable: true });
+    // 历史回搜两席（挖掘 31 轮 [3]——ctrl+r 开搜兼向旧步进 / ctrl+s 向新步进；可覆盖位）
+    const searchPrev = ACTION_CATALOG.find((d) => d.id === 'editor.history-search');
+    expect(searchPrev).toMatchObject({ scope: 'editor', keys: ['ctrl+r'], overridable: true });
+    const searchNext = ACTION_CATALOG.find((d) => d.id === 'editor.history-search-next');
+    expect(searchNext).toMatchObject({ scope: 'editor', keys: ['ctrl+s'], overridable: true });
   });
 
   it('alt+enter 命中候跑动作（与 editor.submit 键序分立——enter 不误触）', () => {

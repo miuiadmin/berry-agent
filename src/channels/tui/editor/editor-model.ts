@@ -942,9 +942,130 @@ export class EditorModel {
   }
 
   /** 退出浏览态（任何编辑动作先行——draft 弃） */
+  /**
+   * 退出历史浏览态（程序设值旁路统一挂点——setText/submit/删除原语等经
+   * 各自入口先调；只清账不还原：程序面语义优先）。
+   */
   exitHistoryBrowsing(): void {
     this.historyIndex = -1;
     this.historyDraft = null;
+    this.search = null; // 回搜态连清（挖掘 31 轮 [3]——草稿不还原，程序面语义优先）
+  }
+
+  /* ---- 历史回搜（挖掘 31 轮 [3]——ctrl+r 增量搜索态机，纯状态零渲染依赖） ---- */
+
+  /**
+   * 回搜会话（null = 非搜索态）：matches = history 下标数组新→旧序；draft =
+   * 开搜时草稿快照（esc 还原 / 未找到还原源）；status 三态 = 命中 match /
+   * 未找到 none / 空 query 闲置 idle（持久史构造期满灌——无 codex Pending/
+   * Unavailable 异步态）。
+   */
+  private search: {
+    query: string;
+    matches: number[];
+    cursor: number;
+    status: 'idle' | 'match' | 'none';
+    draft: EditorState;
+  } | null = null;
+
+  /** 是否在历史回搜态（编辑器事件门判消费——搜索态吃尽一切事件） */
+  isSearchingHistory(): boolean {
+    return this.search !== null;
+  }
+
+  /** 回搜只读投影（视图搜索行渲染消费；null = 非搜索态） */
+  getHistorySearch(): { query: string; status: 'idle' | 'match' | 'none' } | null {
+    return this.search === null ? null : { query: this.search.query, status: this.search.status };
+  }
+
+  /** 开搜（ctrl+r）：pushUndo（采编后 undo 一步可回搜前稿）+ 草稿快照（esc 还原源） */
+  beginHistorySearch(): void {
+    this.pushUndo();
+    this.search = { query: '', matches: [], cursor: -1, status: 'idle', draft: structuredClone(this.state) };
+  }
+
+  /**
+   * 步进（ctrl+r/↑ 向旧 -1、ctrl+s/↓ 向新 +1）：query 空或零命中 no-op；
+   * 边界 no-op 保当前（越界不回卷——codex 同律）。
+   */
+  searchStep(direction: -1 | 1): void {
+    if (this.search === null || this.search.query === '' || this.search.matches.length === 0) return;
+    const next = this.search.cursor + direction;
+    if (next < 0 || next >= this.search.matches.length) return;
+    this.search.cursor = next;
+    this.search.status = 'match';
+    this.applySearchPreview(this.search.matches[next]!, direction);
+  }
+
+  /**
+   * query 更新（text 追加/退格/ctrl+u 清空路）：空 → idle + 还原草稿；非空 →
+   * 重算命中集（大小写不敏感子串 + 按全文去重首见保留 = 最新）游标归 0 重启；
+   * 零命中 → none + 还原草稿（codex NotFound 同律）。
+   */
+  updateSearchQuery(query: string): void {
+    if (this.search === null) return;
+    this.search.query = query;
+    if (query === '') {
+      this.search.status = 'idle';
+      this.search.matches = [];
+      this.search.cursor = -1;
+      this.state = structuredClone(this.search.draft);
+      this.notify();
+      return;
+    }
+    const needle = query.toLowerCase();
+    const seen = new Set<string>();
+    const matches: number[] = [];
+    for (let i = 0; i < this.history.length; i++) {
+      const entry = this.history[i]!;
+      if (!entry.toLowerCase().includes(needle)) continue;
+      if (seen.has(entry)) continue; // 同文重复史条唯一命中（首见 = 最新）
+      seen.add(entry);
+      matches.push(i);
+    }
+    this.search.matches = matches;
+    if (matches.length === 0) {
+      this.search.status = 'none';
+      this.search.cursor = -1;
+      this.state = structuredClone(this.search.draft);
+      this.notify();
+      return;
+    }
+    this.search.status = 'match';
+    this.search.cursor = 0;
+    this.applySearchPreview(matches[0]!, -1);
+  }
+
+  /** 采编（enter——恰 match 态动作）：预览转工作稿；historyIndex 不动（浏览续接连贯） */
+  acceptHistorySearch(): void {
+    if (this.search === null || this.search.status !== 'match') return;
+    this.search = null;
+  }
+
+  /** 取消（esc）：还原搜索前草稿 */
+  cancelHistorySearch(): void {
+    if (this.search === null) return;
+    const draft = this.search.draft;
+    this.search = null;
+    this.state = structuredClone(draft);
+    this.notify();
+  }
+
+  /**
+   * 预览应用（updateSearchQuery / searchStep 共用——镜像 navigateHistory
+   * 主体）：整体换行集替换、标记登记清空（登记↔行集一致律）、向旧光标归
+   * 首 / 向新归末行尾。
+   */
+  private applySearchPreview(historyIndex: number, direction: -1 | 1): void {
+    const text = this.history[historyIndex] ?? '';
+    const lines = text.split('\n');
+    this.state.lines = lines.length === 0 ? [''] : lines;
+    this.state.markers = new Map();
+    const goingOld = direction === -1;
+    this.state.cursorLine = goingOld ? 0 : this.state.lines.length - 1;
+    const target = this.state.lines[this.state.cursorLine] ?? '';
+    this.setCursorCol(goingOld ? 0 : target.length);
+    this.notify();
   }
 
   /** 是否在历史浏览态（↑ 触发判据之一） */

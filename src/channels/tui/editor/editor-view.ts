@@ -93,6 +93,11 @@ export class EditorView implements Renderable {
   private indicatorStyle: Readonly<CellStyle> = DIM_STYLE;
   /** 预编辑段样式（下划线——组字挂起提示；底色在场时携 bg 合成） */
   private preeditStyle: Readonly<CellStyle> = Object.freeze({ underline: true });
+  /**
+   * 回搜行样式（挖掘 31 轮 [3]）：「回搜：」前缀与「（未找到）」缀 dim 弱
+   * 提示（query 本体正文色）；底色在场时携 bg 合成（与占位符同族）
+   */
+  private searchPromptStyle: Readonly<CellStyle> = Object.freeze({ dim: true });
 
   constructor(
     private readonly model: EditorModel,
@@ -140,6 +145,7 @@ export class EditorView implements Renderable {
     this.placeholderStyle = Object.freeze(bg === undefined ? { dim: true } : { dim: true, bg });
     this.indicatorStyle = Object.freeze(bg === undefined ? { dim: true } : { dim: true, bg });
     this.preeditStyle = Object.freeze(bg === undefined ? { underline: true } : { underline: true, bg });
+    this.searchPromptStyle = Object.freeze(bg === undefined ? { dim: true } : { dim: true, bg });
   }
 
   /** 聚焦态切换（事件路由裁决后由组件调用） */
@@ -153,6 +159,8 @@ export class EditorView implements Renderable {
    * 五件批 A+B——呈现行数最小高 3 钳底〔内容不足 3 铺空行至 3〕、上下空行
    * 垫各 1 共 +2〔帽外叠加——与上方任务状态行/下方面板族的视觉呼吸垫〕；
    * 量高即分配承诺——不超卖）。
+   * 回搜态 +1（挖掘 31 轮 [3]）：搜索行另起 contentRows 口径之外（分配梯
+   * 只辖正文——contentRows 不含搜索行，量高承诺由本处 +1 兑现）。
    */
   measure(width: number): number {
     this.model.setLayoutWidth(innerWidth(width));
@@ -160,7 +168,8 @@ export class EditorView implements Renderable {
     this.lastContentRows = count;
     const shown = presentedLineCount(count, this.maxVisibleLines, this.lastShownLines, this.minPresentedLines);
     this.lastShownLines = shown;
-    return shown + this.padRows;
+    const searchRows = this.model.getHistorySearch() !== null ? 1 : 0;
+    return shown + this.padRows + searchRows;
   }
 
   /**
@@ -174,11 +183,15 @@ export class EditorView implements Renderable {
     return Math.min(this.lastContentRows, this.maxVisibleLines);
   }
 
-  /** 落位渲染：铺底染色块 → 空行垫分档 → 提示符/视口行 → 滚动指示 overlay → 光标声明 */
+  /** 落位渲染：铺底染色块 → 回搜行（搜索态） → 空行垫分档 → 提示符/视口行 → 滚动指示 overlay → 光标声明 */
   render(buffer: CellBuffer, region: Region): void {
     const innerW = innerWidth(region.width);
     this.model.setLayoutWidth(innerW);
     if (region.height <= 0 || innerW <= 0) return; // 内容格都容不下——防御位（w ≤ 2）
+
+    // 回搜行占位（挖掘 31 轮 [3]）：搜索态顶行另起一行，正文整体下移
+    const search = this.model.getHistorySearch();
+    const searchPad = search === null ? 0 : 1;
 
     const map = this.model.visualLines();
     const cursorVL = this.model.currentVisualLine(map);
@@ -189,18 +202,22 @@ export class EditorView implements Renderable {
     // 上下空行垫分档（五件批 A+B——「垫随高度一并让路」）：高足全垫（决议高
     // + 垫行数）；高差 1 单上垫（上侧优先——与上方任务状态行的呼吸位更关键）；
     // 高 ≤ 决议高垫全让、内容区收窄（深截断形内部滚动——牺牲梯收缩至内容高
-    // 的渲染侧对偶）。底铬单行档 padRows 0——分档退化恒零垫
-    const pads = Math.max(0, Math.min(this.padRows, region.height - wanted));
+    // 的渲染侧对偶）。底铬单行档 padRows 0——分档退化恒零垫。回搜行先扣
+    // （搜索行是状态行非垫——让位序在垫之前）
+    const pads = Math.max(0, Math.min(this.padRows, region.height - searchPad - wanted));
     const topPad = pads >= 1 ? 1 : 0;
     const bottomPad = pads >= 2 ? 1 : 0;
-    const innerH = region.height - topPad - bottomPad; // 内容区视口高
+    const innerH = region.height - searchPad - topPad - bottomPad; // 内容区视口高
     // 视口夹取自愈：光标恒可视（滚出上方提顶 / 滚出下方沉底）
     this.scrollOffset = clampScroll(this.scrollOffset, cursorVL, innerH, map.length);
 
     this.drawBand(buffer, region);
-    this.drawContent(buffer, region, map, innerH, cursorVL, topPad);
-    this.drawIndicators(buffer, region, map.length, innerH, topPad);
-    this.drawCursor(buffer, region, map, cursorVL, topPad);
+    if (search !== null) this.drawSearchRow(buffer, region, search);
+    // 内容行位总偏移 = 回搜行 + 上垫（搜索行在垫之上——状态行贴 region 顶）
+    const rowOff = searchPad + topPad;
+    this.drawContent(buffer, region, map, innerH, cursorVL, rowOff);
+    this.drawIndicators(buffer, region, map.length, innerH, rowOff);
+    this.drawCursor(buffer, region, map, cursorVL, rowOff);
   }
 
   /* ---------------- 底色染色块（V-0 注③） ---------------- */
@@ -214,6 +231,28 @@ export class EditorView implements Renderable {
     }
   }
 
+  /* ---------------- 回搜行（挖掘 31 轮 [3]——搜索态顶行） ---------------- */
+
+  /**
+   * 搜索行顶行呈现：「回搜：」dim 前缀 + query 本体正文色 + none 态
+   * 「（未找到）」dim 缀，三段各按右界整字截断收口（writeTextClamped——
+   * 组字三段同律；超长 query 把缀挤出视口是诚实截断，codex 同线性形）。
+   * 光标声明维持正文预览位（不挪搜索行——query 无独立光标面，正文预览
+   * 即采编目标）。
+   */
+  private drawSearchRow(
+    buffer: CellBuffer,
+    region: Region,
+    search: { query: string; status: 'idle' | 'match' | 'none' },
+  ): void {
+    const rightEdge = region.col + region.width;
+    const next = writeTextClamped(buffer, region.row, region.col, '回搜：', rightEdge, this.searchPromptStyle);
+    const afterQuery = writeTextClamped(buffer, region.row, next, search.query, rightEdge, this.contentStyle);
+    if (search.status === 'none') {
+      writeTextClamped(buffer, region.row, afterQuery, '（未找到）', rightEdge, this.searchPromptStyle);
+    }
+  }
+
   /* ---------------- 正文（提示符 + 视口内视觉行） ---------------- */
 
   private drawContent(
@@ -222,7 +261,7 @@ export class EditorView implements Renderable {
     map: ReturnType<EditorModel['visualLines']>,
     innerH: number,
     cursorVL: number,
-    topPad: number,
+    rowOff: number,
   ): void {
     const lines = this.model.getLines();
     const preedit = this.model.pendingPreedit;
@@ -230,8 +269,9 @@ export class EditorView implements Renderable {
     const end = Math.min(map.length, this.scrollOffset + innerH);
     for (let vi = this.scrollOffset; vi < end; vi++) {
       const seg = map[vi]!;
-      // 行位 = region 顶 + 上垫 + 视口内偏移（五件批 A+B——上垫在场时内容整体下移 1）
-      const row = region.row + topPad + (vi - this.scrollOffset);
+      // 行位 = region 顶 + 内容行总偏移（回搜行 + 上垫）+ 视口内偏移（五件批
+      // A+B——上垫在场时内容整体下移 1；挖掘 31 轮 [3]——回搜行再加 1）
+      const row = region.row + rowOff + (vi - this.scrollOffset);
       // 视口首行缀 › 提示符（两态色）；续行两空格缩进由铺底/透明空格承载。
       // 前缀符 = panel-chrome CURSOR_MARK 单源（V-3 注⑩ ›——与 transcript
       // user 块前缀、picker 光标符同字符，codex composer 形）
@@ -274,12 +314,12 @@ export class EditorView implements Renderable {
 
   /* ---------------- 滚动指示 overlay（框退役——写首/末内容行右端） ---------------- */
 
-  private drawIndicators(buffer: CellBuffer, region: Region, totalLines: number, innerH: number, topPad: number): void {
+  private drawIndicators(buffer: CellBuffer, region: Region, totalLines: number, innerH: number, rowOff: number): void {
     const above = this.scrollOffset;
     const below = totalLines - this.scrollOffset - innerH;
-    // 首/末**内容行**右端（上垫在场时首内容行 = region 顶 + 1——垫行不写指示）
-    if (above > 0) this.writeIndicator(buffer, region.row + topPad, region, above, '↑');
-    if (below > 0) this.writeIndicator(buffer, region.row + topPad + innerH - 1, region, below, '↓');
+    // 首/末**内容行**右端（偏移含回搜行——垫行/搜索行不写指示）
+    if (above > 0) this.writeIndicator(buffer, region.row + rowOff, region, above, '↑');
+    if (below > 0) this.writeIndicator(buffer, region.row + rowOff + innerH - 1, region, below, '↓');
   }
 
   /**
@@ -314,9 +354,11 @@ export class EditorView implements Renderable {
     region: Region,
     map: ReturnType<EditorModel['visualLines']>,
     cursorVL: number,
-    topPad: number,
+    rowOff: number,
   ): void {
     if (!this.focused) return; // 非聚焦不声明——不抢其他交互件的本帧声明
+    // 回搜态光标声明维持正文预览位（挖掘 31 轮 [3]——搜索行无独立光标面，
+    // 正文预览即采编目标；偏移随行位族整体下移）
     const seg = map[cursorVL]!;
     const cursor = this.model.getCursor();
     const line = this.model.getLines()[seg.line] ?? '';
@@ -331,7 +373,7 @@ export class EditorView implements Renderable {
       const preeditCols = prefixDisplayWidth(preedit, preedit.length);
       col = Math.min(col + preeditCols, region.col + region.width - 1);
     }
-    buffer.setCursor(region.row + topPad + (cursorVL - this.scrollOffset), col);
+    buffer.setCursor(region.row + rowOff + (cursorVL - this.scrollOffset), col);
   }
 }
 

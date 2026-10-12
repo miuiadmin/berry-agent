@@ -6492,3 +6492,70 @@ describe('TuiBackend 外部编辑器（挖掘 31 轮 [9]——ctrl+g 挂起交�
     expect(seeds).toEqual(['原稿', '第一轮']); // 第二轮播种 = 上轮整替后稿
   });
 });
+
+describe('TuiBackend 历史回搜守卫（挖掘 31 轮 [3]——七闸接线面）', () => {
+  /** 自含 rig（autocompleteRig 系他 describe 块内函数不达——同形自建） */
+  function searchRig() {
+    const commandCalls: string[] = [];
+    const rig = makeInteractive({
+      history: { seed: ['hello world', 'hibernate'], onRecord: () => {} },
+      autocomplete: {
+        // 双源皆记调用（补全请求门的零请求断言真源）
+        commands: (query) => {
+          commandCalls.push(query);
+          return query === 'he' ? [{ label: '/help', detail: '帮助', replacement: '/help ' }] : [];
+        },
+        commandArguments: () => [],
+      },
+    });
+    return { ...rig, commandCalls };
+  }
+
+  it('开搜撤补全弹层：草稿弹层在场 → ctrl+r 开搜即刻收层（锚失效防线）', () => {
+    const { io, clock } = searchRig();
+    io.emitInput('/he');
+    clock.advance(AUTOCOMPLETE_DEBOUNCE_MS + 1); // 防抖窗到——弹层在场
+    expect(io.bytes).toContain('帮助');
+    io.bytes = '';
+    io.emitInput('\x12'); // ctrl+r 开搜（草稿 '/he' 非空——无空稿闸）
+    clock.advance(1);
+    expect(io.bytes).toContain('回搜'); // 搜索行顶行在场
+    expect(io.bytes).not.toContain('帮助'); // 弹层随开搜撤（锚在草稿前缀——预览占据后失效）
+  });
+
+  it('escape 收搜还原：onInterrupt 零调用（让路腿——收场非中断）', () => {
+    const { io, clock, calls } = searchRig();
+    io.emitInput('\x12'); // ctrl+r 开搜
+    clock.advance(1);
+    io.emitInput('he'); // query（命中预览入稿）
+    clock.advance(1);
+    expect(io.bytes).toContain('回搜');
+    io.bytes = '';
+    io.emitInput('\x1b'); // escape——层①让路腿透传编辑器收搜
+    escapePump(clock);
+    expect(calls.interrupted).toEqual([]); // 零打断（收场非中断意图）
+    expect(io.bytes).not.toContain('回搜'); // 搜索行退场
+  });
+
+  it('回搜期键入零补全请求：预览/还原翻转非用户编辑（handleEditorChange 门）', () => {
+    const { io, clock, commandCalls } = searchRig();
+    io.emitInput('\x12'); // ctrl+r 开搜
+    clock.advance(1);
+    io.emitInput('he'); // 搜索态 text 入 query——预览翻转触发 change
+    clock.advance(AUTOCOMPLETE_DEBOUNCE_MS + 1); // 推过防抖窗
+    expect(commandCalls).toEqual([]); // 零补全请求（change 门挡 request）
+    expect(io.bytes).not.toContain('/help'); // 无弹层
+    expect(io.bytes).toContain('回搜'); // 搜索态在场旁证
+  });
+
+  it('回搜期 `?` 入 query 不开帮助（teachingGatesOpen 第七闸）', () => {
+    const { io, clock } = searchRig();
+    io.emitInput('\x12'); // ctrl+r 开搜（空稿闲态——七闸前六闸全开）
+    clock.advance(1);
+    io.emitInput('?'); // 教学键字符——搜索态应作普通搜索词
+    clock.advance(1);
+    // SGR 游程切割谱：搜索行三段异样式（前缀 dim/query 正文/缀 dim）字节流被
+    // 转义序列切开——字面锚须 stripAnsi 后取（'?' 无命中史 → none 态缀在场）
+    expect(stripAnsi(io.bytes)).toContain('回搜：?（未找到）'); // 入 query 而非开 /help
+  });
+});

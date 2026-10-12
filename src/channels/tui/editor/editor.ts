@@ -155,6 +155,15 @@ export class Editor implements Renderable {
     return this.jumpPending !== null;
   }
 
+  /**
+   * 历史回搜态在场查询（挖掘 31 轮 [3]）：backend 七守卫门判（escape 让路 /
+   * 教学键 / leader arm / 补全抑制等）需感知搜索期——搜索态事件被编辑器
+   * 吃尽、稿件被预览占据，上层分诊须让位（hasPendingJump 同形语义化查询面）。
+   */
+  isSearchingHistory(): boolean {
+    return this.model.isSearchingHistory();
+  }
+
   /* ---------------- 渲染委托（两段协商直通视图） ---------------- */
 
   measure(width: number): number {
@@ -174,6 +183,9 @@ export class Editor implements Renderable {
 
   /** 四路分发：返回是否消费（false = 归上层，如 ctrl+c 的 abort 路） */
   handleEvent(event: InputEvent): boolean {
+    // 历史回搜模态（挖掘 31 轮 [3]）：搜索态吃尽一切事件（codex history_search
+    // 同序——分诊先于 jump 待靶态：开搜时 jumpPending 已清，两模态不并存）
+    if (this.model.isSearchingHistory()) return this.handleSearchEvent(event);
     switch (event.kind) {
       case 'key':
         return this.handleKey(event);
@@ -374,7 +386,75 @@ export class Editor implements Renderable {
       }
       return true;
     }
+    // 开搜（挖掘 31 轮 [3]——ctrl+r 双义：非搜索态开搜 / 搜索态向旧步进由
+    // handleSearchEvent 分诊，此处恒为「从常态开搜」）
+    if (hit('editor.history-search')) {
+      this.jumpPending = null;
+      this.model.beginHistorySearch();
+      return true;
+    }
     return false; // 未绑定键归上层（escape / f 键 / tab…）
+  }
+
+  /**
+   * 回搜态事件分诊（挖掘 31 轮 [3]——搜索态吃尽一切事件，codex history_search
+   * 同序）。步进键双绑定：ctrl+r/↑ 向旧、ctrl+s/↓ 向新（↑/↓ 复用既有
+   * history-prev/next 册位——搜索态内不翻阅直接步进命中）；enter 采编恰
+   * editor.submit 键（alt+enter 候跑腿不命中——键序分立）；escape 收搜还原
+   * 草稿；退格 / ctrl+u 编辑 query（字素退格不劈组合字素）；ctrl+c 生命线
+   * 透传（backend 层① 先拦——此处防御位，直调测试面同守）；paste 消费丢弃
+   * （query 是短词输入面——大段粘贴不进 query 不进稿）；mouse 归上层。
+   */
+  private handleSearchEvent(event: InputEvent): boolean {
+    if (event.kind === 'mouse') return false;
+    if (event.kind === 'key') {
+      if (event.phase === 'release') return false; // 释放相归上层
+      const km = this.keymap;
+      const hit = (actionId: string): boolean => km.actionMatches(event, actionId);
+      if (event.ctrl && !event.alt && !event.shift && !event.meta && event.key === 'c') {
+        return false; // ctrl+c 生命线透传（层① 先拦——防御位）
+      }
+      if (hit('editor.history-search') || hit('editor.history-prev')) {
+        this.model.searchStep(-1); // 向旧步进（开搜态下 ctrl+r 兼步进双义）
+        return true;
+      }
+      if (hit('editor.history-search-next') || hit('editor.history-next')) {
+        this.model.searchStep(1); // 向新步进
+        return true;
+      }
+      if (event.key === 'escape' && !event.ctrl && !event.alt && !event.meta) {
+        this.model.cancelHistorySearch(); // 收搜还原草稿
+        return true;
+      }
+      if (hit('editor.submit')) {
+        this.model.acceptHistorySearch(); // 采编（恰 enter——alt+enter 不命中）
+        return true;
+      }
+      if (hit('editor.delete-backward')) {
+        const query = this.model.getHistorySearch()?.query ?? '';
+        this.model.updateSearchQuery(splitGraphemes(query).slice(0, -1).join('')); // 字素退格
+        return true;
+      }
+      if (hit('editor.delete-to-line-start')) {
+        this.model.updateSearchQuery(''); // ctrl+u 清 query（还原草稿）
+        return true;
+      }
+      return true; // 其余键消费丢弃（codex `_ =>` 同形）
+    }
+    if (event.kind === 'text') {
+      const query = this.model.getHistorySearch()?.query ?? '';
+      this.model.updateSearchQuery(query + event.text);
+      return true;
+    }
+    if (event.kind === 'ime') {
+      // committed 追加 query；预编辑段消费不动作（query 无预编辑呈现面）
+      if (event.committed) {
+        const query = this.model.getHistorySearch()?.query ?? '';
+        this.model.updateSearchQuery(query + event.text);
+      }
+      return true;
+    }
+    return true; // paste 消费丢弃（query 短词输入面）
   }
 
   /**
