@@ -1618,10 +1618,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   openUsage(sessionId: string, summary: UiUsageSummary): boolean {
     if (this.altHandle !== null) return false;
+    // 上下文余量快照（挖掘 31 轮 [6]）：开屏单源现算——contextUsedNow 与 footer
+    // 三件套同链（settled + 流中估值）；未落账 null = 行集维持既有 10 行。
+    // 快照档静态律（HelpViewer 同族）——面板开屏后不活跟新值
+    const contextUsed = this.contextUsedNow();
     const handle = this.altHost.open(
       new UsageViewer({
         sessionId,
         summary,
+        context: contextUsed === null ? null : { used: contextUsed, max: this.contextMaxTokens },
         theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
@@ -2385,12 +2390,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 门控——流式窗内开、真值收口关，防 turn 间双计）。
    */
   private contextSlotText(): string {
-    const settled = this.contextUsedTokens;
-    if (settled === null) return '';
-    const used = settled + (this.contextStreamLive ? this.turnEstimator.estimate() : 0);
+    const used = this.contextUsedNow();
+    if (used === null) return '';
     const max = this.contextMaxTokens;
     if (max === null || max <= 0) return `上下文 ${formatTokensCompact(used)}`;
     return `上下文 ${formatTokensCompact(used)} / ${formatTokensCompact(max)} · ${Math.floor((used / max) * 100)}%`;
+  }
+
+  /**
+   * 上下文已用单源（挖掘 31 轮 [6] 上提——footer 槽与 /usage 余量条形行共
+   * 消费）：settled 真值缺席返 null；在场 = settled + 流中估值
+   * （contextStreamLive 门控——流式窗内开、真值收口关，防 turn 间双计）。
+   * 算式自 contextSlotText 逐字搬移（既有 footer 字面锚护体）。
+   */
+  private contextUsedNow(): number | null {
+    const settled = this.contextUsedTokens;
+    if (settled === null) return null;
+    return settled + (this.contextStreamLive ? this.turnEstimator.estimate() : 0);
   }
 
   /**

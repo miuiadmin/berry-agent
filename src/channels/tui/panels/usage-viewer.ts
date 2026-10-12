@@ -20,10 +20,29 @@ import { fitLine } from '../row-segments.js';
 import { VIEWER_HEAD_MARK, headStyleOf, renderViewerHintBar } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
+/**
+ * 上下文余量快照（挖掘 31 轮 [6]——条形行数据源）：used = 已用 token（settled
+ * 真值 + 流中估值——装配位单源算式）；max = 帽（null/≤0 = 供数端未报帽——
+ * 裸呈紧凑值不画条形）。扩参不动 UiUsageSummary 契约面（累计分表与余量行
+ * 分账：累计 = 会话全 run 聚合、余量 = 当前上下文窗——两口径不同源）。
+ */
+export interface UsageContextSnapshot {
+  /** 已用 token（开屏快照档——面板静态不活跟） */
+  readonly used: number;
+  /** 帽（null = 未报帽；≤0 同缺席处理——非正值无百分比义） */
+  readonly max: number | null;
+}
+
 /** 用量面板装配选项 */
 export interface UsageViewerOptions {
   readonly sessionId: string;
   readonly summary: UiUsageSummary;
+  /**
+   * 上下文余量快照（挖掘 31 轮 [6]）：在场时行集殿后追加余量条形行；缺席
+   * （undefined/null）= 行集维持既有 10 行（诚实缺席——首轮前 context_usage
+   * 未落账同律）。
+   */
+  readonly context?: UsageContextSnapshot | null;
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
@@ -32,6 +51,25 @@ export interface UsageViewerOptions {
    * 缺省 DEFAULT_THEME；主会话装配位已接线（tui-backend theme: this.theme）。
    */
   readonly theme?: ResolvedTheme;
+}
+
+/** 余量条形定宽段数（承 codex 配额条形机制——rate_limits 定宽 20 段） */
+const REMAINING_BAR_SEGMENTS = 20;
+/** 余量条形满段符 */
+const REMAINING_BAR_FILLED = '█';
+/** 余量条形空段符 */
+const REMAINING_BAR_EMPTY = '░';
+
+/**
+ * 余量条形串（挖掘 31 轮 [6]）：按**剩余率**取整画段——`[████░░░░]` 满段数
+ * = round(剩余率 × 20)。取向铁律：剩余率非已用率（传已用率整条倒读——
+ * 剩多满少恰反转）；互补律：条形段取整与百分比 floor 同源互补，两读数恒
+ * 同向不矛盾（剩 N% 口径 = 100 - floor(已用率 × 100)）。
+ */
+function renderRemainingBar(used: number, max: number): string {
+  const ratio = Math.max(0, 1 - used / max);
+  const filled = Math.min(REMAINING_BAR_SEGMENTS, Math.round(ratio * REMAINING_BAR_SEGMENTS));
+  return `[${REMAINING_BAR_FILLED.repeat(filled)}${REMAINING_BAR_EMPTY.repeat(REMAINING_BAR_SEGMENTS - filled)}]`;
 }
 
 /** 提示行样式（dim） */
@@ -114,7 +152,7 @@ export class UsageViewer extends ScrollView implements OverlayContent {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
-    this.setLines(buildUsageLines(options.summary));
+    this.setLines(buildUsageLines(options.summary, options.context ?? null));
     this.scrollToTop(); // 开屏锚顶（ScrollView 缺省贴尾为回看器语义——口径注记是首行）
   }
 
@@ -177,15 +215,18 @@ export class UsageViewer extends ScrollView implements OverlayContent {
 
 /**
  * 用量行集构造（纯函数——测试直锁消费）：口径注记 → 轮次 → token 四分表
- * + 合计 → 货币行（无 cost 上报如实呈现）。
+ * + 合计 → 货币行（无 cost 上报如实呈现）→ 上下文余量条形行（挖掘 31 轮
+ * [6]——context 在场时追加式殿后：既有 0..9 行零迁移）。max>0 形 =
+ * `[bar] 剩 N% · used / max`（紧凑值单源 formatTokensCompact——与 footer
+ * 三件套同词汇）；缺席双态（context null / max 缺报）裸呈紧凑值不画条形。
  */
-export function buildUsageLines(summary: UiUsageSummary): string[] {
+export function buildUsageLines(summary: UiUsageSummary, context: UsageContextSnapshot | null = null): string[] {
   const labelCol = 8; // 标签列宽（最长标签「缓存读/缓存写」宽 6 + 2）
   // 标签补齐按显示宽（批 10k 遗漏修——padEnd 码元计量下 CJK 双宽标签错位
   // 1 格：缓存读/写行值列比轮次行右凸 1 列）；值列恒右起同列
   const row = (label: string, value: string): string =>
     label + ' '.repeat(Math.max(0, labelCol - stringWidth(label))) + value;
-  return [
+  const lines = [
     '本会话累计（含未显示的重试——重试同样消耗 token）',
     '',
     row('轮次', `${summary.turns}`),
@@ -199,4 +240,19 @@ export function buildUsageLines(summary: UiUsageSummary): string[] {
       ? row('费用', '无上报')
       : row('费用', `${summary.cost.toFixed(4)} ${summary.currency ?? ''}`.trimEnd()),
   ];
+  if (context !== null) {
+    lines.push(
+      '',
+      row(
+        '上下文',
+        context.max !== null && context.max > 0
+          ? `${renderRemainingBar(context.used, context.max)} 剩 ${Math.max(
+              0,
+              100 - Math.floor((context.used / context.max) * 100),
+            )}% · ${formatTokensCompact(context.used)} / ${formatTokensCompact(context.max)}`
+          : formatTokensCompact(context.used),
+      ),
+    );
+  }
+  return lines;
 }

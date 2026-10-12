@@ -130,3 +130,43 @@ describe('formatTokensPerSecond 三档（TUI 对标 Codex 五件批 E 件——k
     expect(formatTokensPerSecond(12.5)).toBe('12.5');
   });
 });
+
+/* ---------------- 上下文余量条形行（挖掘 31 轮 [6]——codex 配额条形对标） ---------------- */
+
+describe('buildUsageLines 上下文余量条形行（挖掘 31 轮 [6]）', () => {
+  /** 标签段期望串（label 系首 describe 块内函数不达——同形自建） */
+  const label = (text: string): string => text + ' '.repeat(Math.max(0, 8 - stringWidth(text)));
+
+  it('追加位：既有 0..9 行零迁移 + 空行 + 条形行殿后（修前红：无第二参行集 10 行）', () => {
+    const lines = buildUsageLines(summary(), { used: 400_000, max: 1_000_000 });
+    expect(lines).toHaveLength(12); // 修前红：10
+    expect(lines[9]).toBe(`${label('费用')}1.5000 USD`); // 既有费用行原位不动
+    expect(lines[10]).toBe('');
+    expect(lines[11]).toBe(`${label('上下文')}[████████████░░░░░░░░] 剩 60% · 400 K / 1 M`);
+  });
+
+  it('按剩余率取向取整（防倒读——传已用率会倒条）：600 K 帽 1 M → 8 满段 + 剩 40%', () => {
+    const line = buildUsageLines(summary(), { used: 600_000, max: 1_000_000 })[11]!;
+    expect(line).toContain('[████████░░░░░░░░░░░░]');
+    expect(line).toContain('剩 40%');
+  });
+
+  it('边界两态：used 0 满条 剩 100% / 越帽 1.2 M 全空条 剩 0%（互补律恒和 100）', () => {
+    expect(buildUsageLines(summary(), { used: 0, max: 1_000_000 })[11]).toBe(
+      `${label('上下文')}[████████████████████] 剩 100% · 0 / 1 M`,
+    );
+    expect(buildUsageLines(summary(), { used: 1_200_000, max: 1_000_000 })[11]).toBe(
+      `${label('上下文')}[░░░░░░░░░░░░░░░░░░░░] 剩 0% · 1.2 M / 1 M`,
+    );
+  });
+
+  it('缺席律：max null/≤0 裸呈紧凑值（无帽无条形）；context 缺席 = 行集维持 10 行', () => {
+    expect(buildUsageLines(summary(), { used: 12_000, max: null })[11]).toBe(`${label('上下文')}12 K`);
+    expect(buildUsageLines(summary(), { used: 12_000, max: 0 })[11]).toBe(`${label('上下文')}12 K`);
+    expect(buildUsageLines(summary())).toHaveLength(10);
+  });
+
+  it('互补律与 footer 百分比同取整向：384 K 帽 1 M → 剩 62%（floor 38 互补）', () => {
+    expect(buildUsageLines(summary(), { used: 384_000, max: 1_000_000 })[11]).toContain('剩 62%');
+  });
+});

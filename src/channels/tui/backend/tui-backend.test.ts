@@ -3231,6 +3231,25 @@ describe('TuiBackend /sessions · /usage · /help 副屏装配（R7 批 10k）',
     expect(io.bytes).toContain('0.5000 USD'); // 费用行
   });
 
+  it('openUsage 上下文余量条形行：context_usage 真值在场 → 开屏快照带条形（挖掘 31 轮 [6]——静态档不活跟）', () => {
+    // 行集 12 行 + 头/底 2 超缺省 10 行终端视口——高终端（24 行）使条形行入
+    // 首帧（openDebug 组同形）；缺省终端截断形由既有编舞测锁（费用行同截）
+    const io = new MemoryTerminalIO(COLS, 24);
+    const backend = new TuiBackend(io, { sessionId: SESSION });
+    backend.start();
+    emit(backend, { type: 'context_usage', usedTokens: 400_000, maxTokens: 1_000_000 }); // settled 落账（非流中——无估值窗）
+    io.reset();
+    expect(backend.openUsage('sess-dddddddddd', SUMMARY)).toBe(true);
+    expect(io.bytes).toContain('[████████████░░░░░░░░] 剩 60% · 400 K / 1 M'); // 修前红：条形行缺席
+  });
+
+  it('openUsage 上下文缺席 = 无条形行（诚实缺席双态之二——足迹面零条形符号）', () => {
+    const { io, backend } = rig();
+    expect(backend.openUsage('sess-dddddddddd', SUMMARY)).toBe(true);
+    expect(io.bytes).not.toContain('█');
+    expect(io.bytes).not.toContain('剩 ');
+  });
+
   // B3 批 2：台账载荷（结构兼容真源形——conversation 侧 foldCallLedger 产物
   // 同形直传零映射；两条 = 主路 stop + 单发路带归因/耗时）
   const CALL_ENTRIES: readonly UiCallLedgerEntry[] = [
