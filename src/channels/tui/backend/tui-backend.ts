@@ -87,6 +87,7 @@ import {
   InputDecoder,
   ProcessTerminalIO,
   ellipsize,
+  sanitizeDisplayText,
   stringWidth,
   truncateToWidth,
   wrapText,
@@ -570,6 +571,45 @@ function tailBlockKind(partial: AgentMessage): 'thinking' | 'text' | null {
   if (last.type === 'thinking') return 'thinking';
   if (last.type === 'text') return 'text';
   return null;
+}
+
+/**
+ * 思考活状态头提取（挖掘 31 轮 [2]——codex extract_first_bold 律移植）：首个
+ * `**粗体**` 段内文（trim 非空）；无粗体/无闭合/空内文均返 null（不硬造——
+ * 无闭合待后续增量，闭合到达即出头；空粗体内文同缺席）。
+ */
+function firstBoldHeader(text: string): string | null {
+  const open = text.indexOf('**');
+  if (open < 0) return null;
+  const start = open + 2;
+  const close = text.indexOf('**', start);
+  if (close < 0) return null;
+  const inner = text.slice(start, close).trim();
+  return inner === '' ? null : inner;
+}
+
+/**
+ * 末思考块活头（partial 累计快照——倒扫 content 取末 thinking 块）：末块换段
+ * 即天然清头从新段重提（块界清头重建律——与 tailBlockKind 同依赖 stream.ts
+ * 就地替换律）；redacted/无 thinking 块形自然走 null 兜底。
+ */
+function thinkingTailHeader(partial: AgentMessage): string | null {
+  const content = partial.content;
+  if (!Array.isArray(content)) return null;
+  for (let i = content.length - 1; i >= 0; i--) {
+    const block = content[i]!;
+    if (block.type === 'thinking') return firstBoldHeader(block.thinking);
+  }
+  return null;
+}
+
+/**
+ * 活头呈现消毒：engine sanitize 单源（ESC 序列/C0 剥除——tool-card 同源）+
+ * 空白折叠单空格（任务行单行几何律——段内换行不落行；codex trim-only 的必要
+ * 偏离）。超宽由文案段 ellipsize 既有帽收口（零新机制）。
+ */
+function singleLineHeader(text: string): string {
+  return sanitizeDisplayText(text).replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -3693,6 +3733,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           const tail = tailBlockKind(event.partial);
           if (tail === 'thinking') {
             if (this.taskLine.taskState !== 'thinking') this.taskLine.enterThinking();
+            // 活状态头（挖掘 31 轮 [2]）：末思考块首个粗体段替位「思考中」——无
+            // 粗体保持兜底词面不硬造；末块换段即清头从新段重提（块界律）
+            const header = thinkingTailHeader(event.partial);
+            this.taskLine.setThinkingHeader(header === null ? null : singleLineHeader(header));
           } else if (tail === 'text') {
             if (this.taskLine.taskState !== 'generating') this.taskLine.enterGenerating();
           }

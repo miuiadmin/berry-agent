@@ -5613,6 +5613,74 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
     expect(io.bytes).toContain('正在对话中'); // 流式窗关归态①
   });
 
+  it('态② 思考活状态头（挖掘 31 轮 [2]）：末思考块首个粗体段替位「思考中」——缺席兜底/换段清头/单行消毒', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    // 无粗体 → 兜底词面「思考中」（不硬造）
+    io.bytes = '';
+    emit(backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: mixedSnapshot(['先想想再说'], []),
+    });
+    expect(io.bytes).toContain('思考中');
+    expect(io.bytes).not.toContain('先想想再说'); // 无粗体正文不上状态行
+    // 粗体闭合到达 → 活头替位（extract_first_bold 律——首个 **bold** 段内文）
+    io.bytes = '';
+    emit(backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: mixedSnapshot(['**解析用户意图**\n需要核对配置'], []),
+    });
+    expect(io.bytes).toContain('解析用户意图');
+    expect(io.bytes).not.toContain('需要核对配置'); // 粗体段外内文不上状态行
+    // 粗体未闭合 → 待后续增量（缺席兜底维持，不硬造半截）
+    io.bytes = '';
+    emit(backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: mixedSnapshot(['**解析用户意图**\n需要核对配置\n**开了没闭'], []),
+    });
+    expect(io.bytes).toContain('解析用户意图'); // 首个闭合段维持（后续增量不清已锁头）
+    // text 尾块到达 → 生成中 + 活头退场
+    io.bytes = '';
+    emit(backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: mixedSnapshot(['**解析用户意图**'], ['你好']),
+    });
+    expect(io.bytes).toContain('生成中');
+    expect(io.bytes).not.toContain('解析用户意图');
+    // thinking 重入新段（interleaved 形——text 后再 thinking，mixedSnapshot 序表达不了须内联）→ 换段清头重建（块界律——旧头不残留）
+    io.bytes = '';
+    emit(backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: '**解析用户意图**' },
+          { type: 'text', text: '你好' },
+          { type: 'thinking', thinking: '再想想别的' },
+        ],
+        usage,
+        stopReason: 'stop',
+        timestamp: 1,
+      },
+    });
+    expect(io.bytes).toContain('思考中');
+    expect(io.bytes).not.toContain('解析用户意图');
+    // 段内换行折叠单空格（任务行单行几何律——消毒单源 sanitizeDisplayText + 空白折叠）
+    io.bytes = '';
+    emit(backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: mixedSnapshot(['**甲\n乙**'], []),
+    });
+    expect(io.bytes).toContain('甲 乙');
+  });
+
   it('本轮 N 边跑边涨 + 真值校正（估值器 ⑥c 供数——message_update 差分累计 / message_end onSettled）', () => {
     const { io, backend } = makeBackend();
     emit(backend, { type: 'agent_start' });

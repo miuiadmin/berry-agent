@@ -6,7 +6,8 @@
  * 四态编舞（驱动事件面 = backend applyFocusedEvent，本件零事件知识）：
  * - ① working 正在对话中：转轮 + 工具段 `⚙ 名 …` 优先（无工具显「正在对话中」）；
  * - ② 细分双态（注⑪⑦——streaming 拆分，message_update 尾块分诊零新事件型）：
- *   thinking 思考中（message_start 起跑缺省 + thinking 尾块维持）/
+ *   thinking 思考中（message_start 起跑缺省 + thinking 尾块维持；活头在场替位
+ *   ——末思考块首个粗体段、缺席兜底现词面，挖掘 31 轮 [2]）/
  *   generating 生成中（text 尾块词面迁移一次）；message_end 归态①；
  * - ③ retrying 重试中：转轮不停 + 「重试中 第 n/N 次 · Ns 后」整段 dim——
  *   倒计时消费端本地钟渲染（04 §2 绝对时刻律：事件只携 nextAt 绝对时刻）；
@@ -53,6 +54,9 @@ export class TaskStatusLine implements Renderable {
   private state: TaskLineState = 'idle';
   /** 实时工具名（态① 优先段；null = 无工具） */
   private toolName: string | null = null;
+  /** 态② 思考活状态头（message_update 末思考块首个粗体段——backend 派生注入；
+   * null = 缺席兜底「思考中」——挖掘 31 轮 [2] 词面律） */
+  private thinkingHeader: string | null = null;
   /** 重试窗参数（态③——nextAt 绝对时刻，倒计时渲染期现算） */
   private retryAttempt = 0;
   private retryMaxAttempts = 0;
@@ -104,19 +108,23 @@ export class TaskStatusLine implements Renderable {
   enterWorking(): void {
     this.state = 'working';
     this.toolName = null;
+    this.thinkingHeader = null; // 活头连清（工具段相位无活头——态迁移连清律）
     this.onChange?.();
   }
 
   /** 态② 思考中（注⑪⑦ 细分双态之一——message_start 起跑缺省 / thinking 尾块
-   * 维持；assistant 流式窗口开，message_end 归态①） */
+   * 维持；assistant 流式窗口开，message_end 归态①）。活头重置（新段起步语义
+   * ——块界清头重建的组件半边，backend 下一 delta 重提） */
   enterThinking(): void {
     this.state = 'thinking';
+    this.thinkingHeader = null;
     this.onChange?.();
   }
 
   /** 态② 生成中（注⑪⑦ 细分双态之二——text 尾块词面迁移一次；message_end 归态①） */
   enterGenerating(): void {
     this.state = 'generating';
+    this.thinkingHeader = null; // 活头退场（text 相位只辖 thinking 词面——挖掘 31 轮 [2]）
     this.onChange?.();
   }
 
@@ -135,6 +143,7 @@ export class TaskStatusLine implements Renderable {
   enterError(reason?: string): void {
     this.state = 'error';
     this.toolName = null;
+    this.thinkingHeader = null; // 活头连清（终态词面独立——不残留流中活头）
     this.errorReason = reason !== undefined && reason !== '' ? reason : null;
     this.onChange?.();
   }
@@ -143,12 +152,23 @@ export class TaskStatusLine implements Renderable {
   goIdle(): void {
     this.state = 'idle';
     this.toolName = null;
+    this.thinkingHeader = null; // 活头连清（repaint 清账既有律——流中窗内下一 delta 重建）
     this.onChange?.();
   }
 
   /** 实时工具名（tool_execution_start → name；null 清——态① 优先段） */
   setTool(name: string | null): void {
     this.toolName = name;
+    this.onChange?.();
+  }
+
+  /** 思考活状态头（message_update 末思考块首个粗体段——挖掘 31 轮 [2]；setTool
+   * 同族注入面：backend 消毒后供入，null/空串归一缺席——同值零通知（同词零重绘
+   * 律——流中逐 delta 重提、恒头一零重绘）） */
+  setThinkingHeader(text: string | null): void {
+    const next = text !== null && text !== '' ? text : null;
+    if (this.thinkingHeader === next) return;
+    this.thinkingHeader = next;
     this.onChange?.();
   }
 
@@ -197,7 +217,7 @@ export class TaskStatusLine implements Renderable {
     }
     const base =
       this.state === 'thinking'
-        ? '思考中'
+        ? (this.thinkingHeader ?? '思考中') // 活头在场替位、缺席兜底现词面（挖掘 31 轮 [2]——不硬造）
         : this.state === 'generating'
           ? '生成中'
           : this.toolName !== null

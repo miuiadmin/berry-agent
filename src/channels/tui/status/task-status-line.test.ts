@@ -140,6 +140,49 @@ describe('TaskStatusLine', () => {
     expect(readRow(renderLine(line), 0, 60)).not.toContain('获取响应中'); // 旧词退役
   });
 
+  it('态② 思考活状态头（挖掘 31 轮 [2]）：活头替位/缺席兜底/态迁移连清/同值零通知', () => {
+    const p = makeProviders();
+    const line = new TaskStatusLine(p);
+    let notified = 0;
+    line.onChange = () => {
+      notified += 1;
+    };
+    line.enterWorking();
+    line.enterThinking();
+    p.setElapsed(2_000);
+    p.setTurnTokens('本轮 120');
+    p.setHint('按 ESC 取消对话');
+    // 活头在场替「思考中」（backend 已消毒单行化——组件零呈现知识）
+    line.setThinkingHeader('解析用户意图');
+    expect(readRow(renderLine(line), 0, 60)).toBe('⠋ 解析用户意图 · 本轮 120 (2s · 按 ESC 取消对话)');
+    // 空串与 null 同缺席（setter 归一）——回兜底词面
+    line.setThinkingHeader('');
+    expect(readRow(renderLine(line), 0, 60)).toBe('⠋ 思考中 · 本轮 120 (2s · 按 ESC 取消对话)');
+    line.setThinkingHeader('旧头');
+    // 态迁移连清：enterGenerating 归位「生成中」+ 活头清（text 相位活头退场）
+    line.enterGenerating();
+    expect(readRow(renderLine(line), 0, 60)).toBe('⠋ 生成中 · 本轮 120 (2s · 按 ESC 取消对话)');
+    expect(readRow(renderLine(line), 0, 60)).not.toContain('旧头');
+    // thinking 重入（enterThinking 重置——新段起步语义）→ 旧头不残留走兜底
+    line.enterThinking();
+    expect(readRow(renderLine(line), 0, 60)).toBe('⠋ 思考中 · 本轮 120 (2s · 按 ESC 取消对话)');
+    // enterWorking / enterError / goIdle 连清（工具段与终态不残留活头）
+    line.setThinkingHeader('驻留头');
+    line.enterWorking();
+    line.setThinkingHeader('驻留头');
+    line.enterError('超时');
+    expect(readRow(renderLine(line), 0, 60)).not.toContain('驻留头');
+    line.goIdle();
+    // 同值零通知（同词零重绘律——流中逐 delta 重提、恒头一零重绘）
+    const before = notified;
+    line.enterThinking();
+    const afterEnter = notified;
+    line.setThinkingHeader('同一个头');
+    line.setThinkingHeader('同一个头');
+    expect(notified).toBe(afterEnter + 1); // 第二次同值零通知
+    expect(afterEnter).toBe(before + 1); // enterThinking 自身一次通知
+  });
+
   it('态③ 重试中：dim 整段 + 倒计时本地钟现算（绝对时刻律）+ 转轮不停不闪 ✗', () => {
     const p = makeProviders();
     const line = new TaskStatusLine(p);
