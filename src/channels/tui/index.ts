@@ -32,6 +32,9 @@ export type { AutocompleteItem } from './autocomplete/provider.js';
 export { editorHeightCap } from './editor/height-cap.js';
 // fuzzy 子序列过滤（R6 批 10j——命令名 / @ 文件段两源装配消费）
 export { fuzzyFilter } from './autocomplete/fuzzy.js';
+// token 紧凑值形单源（V-4 注⑪② 真源 usage-viewer；R-10 退出收尾摘要
+// host 消费位——「随真实件外消费扩」先例）
+export { formatTokensCompact } from './panels/usage-viewer.js';
 // 市场选装面板模型三类型（03 §9.6 mp-5——openMarketplace 签名面：host 侧
 // 编舞 face（marketplace-tui-face）持模型/动作面构造注入；面板件本体仍件内
 // 消费不出面——本面只出类型三名）

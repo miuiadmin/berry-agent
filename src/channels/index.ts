@@ -45,6 +45,9 @@ export type { TerminalIO } from './engine/index.js';
 // 供数面 hooks 的呈现侧落点）
 export { BootAnimation } from './tui/index.js';
 export type { BootAnimationOptions } from './tui/index.js';
+// token 紧凑值形单源转发（R-10 退出收尾摘要 tui-entry 消费——真源 tui
+// usage-viewer，注释见导出位）
+export { formatTokensCompact } from './tui/index.js';
 // 启动引导面板件（07 §4.1 呈现面件 11——onboarding ob-2；tui-entry 装配位
 // boot 后凭证态检测消费：runOnboardingPanel 主循环 + normalizeOnboardingKey
 // 产线单键读归一单源）

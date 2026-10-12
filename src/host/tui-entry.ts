@@ -28,6 +28,7 @@ import {
   BootAnimation,
   FileMentionSource,
   foldErrorText,
+  formatTokensCompact,
   fuzzyFilter,
   listCustomThemeNames,
   loadCustomThemeColors,
@@ -401,6 +402,12 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
   options.onStack?.(stack);
 
   let exitCode = 0;
+  // —— R-10 退出收尾摘要提升位（session 声明在 try 块内——catch/finally 腿
+  // 经本两变量桥接）：exitCrashSid = session 已建即记（catch 腿 stderr 会话行
+  // 判据——组装期失败未建恰缺席）；exitSummary = quitDone 后聚焦会话用量快照
+  //（shutdown 前取——driver 事件面 shutdown 后不可靠）
+  let exitCrashSid: string | undefined;
+  let exitSummary: { sid: string; usage: ReturnType<typeof foldSessionUsage> } | undefined;
   try {
     // —— scheduler 挂钟起钟（批 20c——长驻形编舞）：件在场即起（重启补推进
     // + 排首轮轮询），停钟挂 closer（engine 真身定时器非 unref——不挂停钟
@@ -476,6 +483,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     } else {
       session = stack.openStartupSession(options.cwd ?? process.cwd());
     }
+    // R-10：session 已建即记（catch 腿 stderr 会话行判据——resume 两分支同汇）
+    exitCrashSid = session.sessionId;
 
     // io 已于装配前构造（批D 启动动画直写窗——cooked 窗先于 raw 窗复用同件）
     let quitResolve: () => void = () => {};
@@ -1929,16 +1938,43 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     }
 
     await quitDone; // 主循环——输入事件驱动，直至 ctrl+d 空框退出
+
+    // —— R-10 退出收尾快照（shutdown 前取——driver 事件面 shutdown 后不可
+    // 靠）：聚焦会话（空悬回退启动会话——/status 供数同源形）；driver 缺席
+    //（焦点未开驱动窗）= 无用量快照，finally 腿缺席不推两行
+    const summarySid = stack.channels.focusedId ?? session.sessionId;
+    const summaryDriver = stack.driverOf(summarySid);
+    if (summaryDriver !== undefined) {
+      exitSummary = { sid: summarySid, usage: foldSessionUsage(summaryDriver.session.events()) };
+    }
   } catch (err) {
     runtime.writeCrashLog(err); // 崩溃取证先行（memory 形跳过——件内语义）
     // 错误折面单源（BaseError 码直呈——stderr 诊断面同 notify 面同源）
     process.stderr.write(`TUI 运行失败：${foldErrorText(err)}\n`);
+    // R-10 catch 腿会话行（session 已建才推——组装期失败未建恰缺席；引导
+    // crash.log 取证面——codex fatal 腿 Session ID 行同义）
+    if (exitCrashSid !== undefined) {
+      process.stderr.write(`会话：${shortIdOf(exitCrashSid)}（异常详情 crash.log）\n`);
+    }
     exitCode = 1;
   } finally {
     await runtime.shutdown(); // 幂等六步：abort → closer（backend.stop 出屏）→ flush → …
     // 落盘失败折非零退出码（05 §6.3#6「flush 失败 = 退出非零码」；十六役补扫
     // N3——③ flush / ⑥ close 吞错续行后由此位如实上报，不再零码假绿）
     if (exitCode === 0 && runtime.shutdownFlushFailure?.() !== undefined) exitCode = 1;
+    // —— R-10 退出收尾摘要（出屏后 stdout 直写——副屏已收终端回主屏缓冲；
+    // 只属优雅退出路〔exitCode 0〕——异常腿走 stderr 错误面不推摘要）：双零
+    // 缺席守卫（turns ∧ totalTokens 双零 = 空壳会话）两行皆不推（零轮会话
+    // 续接无意义不导流——诚实缺席）；费用段无上报缺席（/usage 费用行同形）
+    if (exitCode === 0 && exitSummary !== undefined && exitSummary.usage.totalTokens > 0) {
+      const u = exitSummary.usage;
+      const costSeg = u.currency !== null ? ` · ${u.cost.toFixed(4)} ${u.currency}` : '';
+      process.stdout.write(
+        `用量：${formatTokensCompact(u.input)} 入 · ${formatTokensCompact(u.output)} 出 · ${formatTokensCompact(u.cacheRead)} 缓存读 · ${u.turns} 轮${costSeg}\n`,
+      );
+      // 续接行 cyan 高亮（退出后无主题面——固定色码不引 TUI 主题键）
+      process.stdout.write(`\x1b[36m继续会话：berry run --session ${exitSummary.sid}\x1b[0m\n`);
+    }
   }
   return exitCode;
 }

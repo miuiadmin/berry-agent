@@ -431,6 +431,44 @@ describe('runTuiEntry 装配序', () => {
     await expect(entry).resolves.toBe(1);
   });
 
+  it('退出收尾摘要（R-10）：非零用量退出推用量行+续接行 cyan；空壳会话双零缺席零摘要', async () => {
+    // 腿1：一轮对话（faux withUsageEstimate 估算非零）→ ctrl+d → stdout 两行
+    //（出屏后直写——spy 只拦 process.stdout 直写位，io 面走 FakeTerminalIO
+    // 不经 process.stdout 互不污染）
+    const t1 = await rigEntry(rigDir('entry-r10a-data-'), rigDir('entry-r10a-ws-'));
+    t1.io.send('hi\r');
+    await until(() => t1.io.output.includes('ok')); // 应答上屏（用量已非零）
+    const chunks1: string[] = [];
+    const spy1 = vi.spyOn(process.stdout, 'write').mockImplementation(((c: string | Uint8Array) => {
+      chunks1.push(String(c));
+      return true;
+    }) as typeof process.stdout.write);
+    t1.io.send('\x04');
+    expect(await t1.entry).toBe(0);
+    spy1.mockRestore();
+    const out1 = chunks1.join('');
+    // 用量行紧凑值形（formatTokensCompact 单源：<1K 纯数字 / K / M 档）
+    expect(out1).toMatch(/用量：\d+( K| M)? 入 · \d+( K| M)? 出 · \d+( K| M)? 缓存读 · \d+ 轮/);
+    // 续接行官形词面 + cyan SGR（退出后无主题面——固定色码不引主题键）
+    expect(out1).toContain('继续会话：berry run --session ');
+    expect(out1).toContain('\x1b[36m');
+
+    // 腿2：空壳会话（零轮零用量）→ 双零缺席守卫——两行皆不推（零轮会话
+    // 续接无意义不导流）
+    const t2 = await rigEntry(rigDir('entry-r10b-data-'), rigDir('entry-r10b-ws-'));
+    const chunks2: string[] = [];
+    const spy2 = vi.spyOn(process.stdout, 'write').mockImplementation(((c: string | Uint8Array) => {
+      chunks2.push(String(c));
+      return true;
+    }) as typeof process.stdout.write);
+    t2.io.send('\x04');
+    expect(await t2.entry).toBe(0);
+    spy2.mockRestore();
+    const out2 = chunks2.join('');
+    expect(out2).not.toContain('用量：');
+    expect(out2).not.toContain('继续会话：');
+  });
+
   it('提交流转全链：输入字节 → 编辑器 → 提交 → 驱动 → faux 模型 → 应答上屏', async () => {
     const { entry, io, faux } = await rigEntry(rigDir('entry-data-'), rigDir('entry-ws-'));
     io.send('你好\r'); // 键入 + Enter 提交
