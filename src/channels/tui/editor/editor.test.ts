@@ -496,19 +496,23 @@ describe('Editor 历史回搜（ctrl+r——挖掘 31 轮 [3]）', () => {
     expect(editor.isSearchingHistory()).toBe(true); // 搜索态仍在（可改 query 再搜）
   });
 
-  it('步进双向：ctrl+s 向新 / ctrl+r 与 ↑↓ 册位步进 + 边界 no-op', () => {
+  it('步进双向：ctrl+r 向旧 / ctrl+s 与 ↑↓ 册位步进 + 边界 no-op（挖掘 32 轮修——公式镜像 navigateHistory 的 -direction）', () => {
     const editor = editorWithHistory();
     editor.handleEvent(key('r', { ctrl: true }));
-    editor.handleEvent(text('t')); // matches=[three,two] cursor=0（three）
+    editor.handleEvent(text('t')); // matches=[three,two] cursor=0（three 最新命中——开搜即最新位）
     expect(editor.getText()).toBe('three');
-    expect(editor.handleEvent(key('s', { ctrl: true }))).toBe(true); // ctrl+s 向新
+    expect(editor.handleEvent(key('s', { ctrl: true }))).toBe(true); // ctrl+s 向新——最新端 no-op
+    expect(editor.getText()).toBe('three');
+    expect(editor.handleEvent(key('down'))).toBe(true); // ↓ 册位同向新——最新端仍 no-op
+    expect(editor.getText()).toBe('three');
+    editor.handleEvent(key('r', { ctrl: true })); // 搜索态 ctrl+r 向旧：three→two
     expect(editor.getText()).toBe('two');
-    expect(editor.handleEvent(key('down'))).toBe(true); // ↓ 册位同向新
-    expect(editor.getText()).toBe('two'); // 边界：最新端再向新 no-op
-    editor.handleEvent(key('r', { ctrl: true })); // 搜索态 ctrl+r 向旧
+    expect(editor.model.getCursor().col).toBe(0); // 向旧落位形：光标归行首
+    expect(editor.handleEvent(key('up'))).toBe(true); // ↑ 册位同向旧——最旧端 no-op
+    expect(editor.getText()).toBe('two');
+    expect(editor.handleEvent(key('s', { ctrl: true }))).toBe(true); // ctrl+s 向新：two→three
     expect(editor.getText()).toBe('three');
-    expect(editor.handleEvent(key('up'))).toBe(true); // ↑ 册位同向旧
-    expect(editor.getText()).toBe('three'); // 边界：最旧端再向旧 no-op
+    expect(editor.model.getCursor().col).toBe(5); // 向新落位形：光标归行尾（'three'.length）
   });
 
   it('enter 采编退场：预览转工作稿 + 搜索态收场', () => {

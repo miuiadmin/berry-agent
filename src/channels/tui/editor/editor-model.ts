@@ -986,11 +986,14 @@ export class EditorModel {
 
   /**
    * 步进（ctrl+r/↑ 向旧 -1、ctrl+s/↓ 向新 +1）：query 空或零命中 no-op；
-   * 边界 no-op 保当前（越界不回卷——codex 同律）。
+   * 边界 no-op 保当前（越界不回卷——codex 同律）。cursor 走向 = matches
+   * 下标 **减** direction（镜像 navigateHistory 的 `- direction` 公式——
+   * matches 升序 = 新→旧，向旧即走向更低下标位；挖掘 32 轮修：前 `+`
+   * 形从最新位起步即越界死键且两键互换语义倒置）。
    */
   searchStep(direction: -1 | 1): void {
     if (this.search === null || this.search.query === '' || this.search.matches.length === 0) return;
-    const next = this.search.cursor + direction;
+    const next = this.search.cursor - direction;
     if (next < 0 || next >= this.search.matches.length) return;
     this.search.cursor = next;
     this.search.status = 'match';
