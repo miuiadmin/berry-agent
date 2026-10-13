@@ -414,6 +414,15 @@ export class RewindPicker implements OverlayContent {
       }
       return true; // 未消费键终局吞（模态独占）
     }
+    if (event.kind === 'paste') {
+      // 粘贴轨（引擎 2004 常开——真终端粘贴走 paste kind 而非 text chunk；
+      // 挖掘 34 轮接线：修前 paste 落终局吞，贴全 id/时刻/触发词过滤在所有
+      // 现代 bracketed paste 终端死路）：list 视图全串入词（剥换行——单行
+      // 过滤词无换行语义，向导单行件同律）；preview 视图无过滤面终局吞
+      // （粘贴 'q' 不得误读为返回键——打字不污染，text 轨同判）
+      if (this.view === 'list') this.appendQuery(event.text.replace(/[\r\n]+/g, ''));
+      return true;
+    }
     if (event.kind === 'text') {
       const text = (event as InputEvent & { kind: 'text'; text: string }).text;
       // preview 视图：text 轨与 key 轨同律——q 视同返回列表（kitty 终端打 q

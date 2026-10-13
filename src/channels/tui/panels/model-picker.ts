@@ -335,6 +335,14 @@ export class ModelPicker implements OverlayContent {
       }
       return true; // 未消费键终局吞（模态独占）
     }
+    if (event.kind === 'paste') {
+      // 粘贴轨（引擎 2004 常开——真终端粘贴走 paste kind 而非 text chunk；
+      // 挖掘 34 轮接线：修前 paste 落终局吞使过滤面在 bracketed paste 终端
+      // 收不到粘贴词——rewind-picker 同族修）：全串入词（剥换行——单行过滤
+      // 词无换行语义，向导单行件同律）
+      this.appendQuery(event.text.replace(/[\r\n]+/g, ''));
+      return true;
+    }
     if (event.kind === 'text') {
       const text = (event as InputEvent & { kind: 'text'; text: string }).text;
       // kitty text 轨：单字符走 q 捷键盘查（件族同律）；多字符 chunk 全串

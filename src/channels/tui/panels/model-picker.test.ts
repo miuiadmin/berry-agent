@@ -217,6 +217,22 @@ describe('ModelPicker 打字过滤', () => {
     grid = paint(picker);
     expect(readRow(grid, grid.rows - 1, 72)).toContain('过滤：anth_');
   });
+
+  it('粘贴入词（paste 轨接线——修前 kind:paste 落终局吞；rewind-picker 同族修；挖掘 34 轮）', () => {
+    const { picker } = makePicker();
+    picker.handleEvent({ kind: 'paste', text: 'anth' } as InputEvent);
+    const grid = paint(picker);
+    expect(readRow(grid, 0, 72)).toBe('◆ 切换模型 · 2 个（过滤中）'); // 修前红：paste 被吞 → 全量 4 个
+    expect(readRow(grid, grid.rows - 1, 72)).toContain('过滤：anth_');
+  });
+
+  it('粘贴剥换行（单行过滤词无换行语义——与向导单行件同律）', () => {
+    const { picker } = makePicker();
+    picker.handleEvent({ kind: 'paste', text: 'anth\n' } as InputEvent);
+    const grid = paint(picker);
+    expect(readRow(grid, 0, 72)).toBe('◆ 切换模型 · 2 个（过滤中）');
+    expect(readRow(grid, grid.rows - 1, 72)).toContain('过滤：anth_'); // 换行不入词
+  });
 });
 
 describe('ModelPicker 选定与退出', () => {

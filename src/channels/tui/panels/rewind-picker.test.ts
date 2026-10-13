@@ -27,6 +27,9 @@ const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
 /** text 事件夹具（kitty 打字轨） */
 const t = (text: string): InputEvent => ({ kind: 'text', text }) as InputEvent;
 
+/** paste 事件夹具（引擎 2004 常开——真终端粘贴走 paste kind 而非 text） */
+const paste = (text: string): InputEvent => ({ kind: 'paste', text }) as InputEvent;
+
 /** mouse 滚轮事件夹具 */
 const wheel = (dir: 'wheel-up' | 'wheel-down'): MouseEvent => ({
   kind: 'mouse',
@@ -147,6 +150,28 @@ describe('RewindPicker 打字过滤', () => {
     picker.handleEvent(t('m-first00002'));
     const grid = paint(picker);
     expect(readRow(grid, 0, 72)).toContain('1 个');
+  });
+
+  it('粘贴入词（paste 轨接线——修前 kind:paste 落终局吞，贴全 id 搜索在真终端死路；挖掘 34 轮）', () => {
+    const { picker } = makePicker();
+    picker.handleEvent(paste('m-first00002'));
+    const grid = paint(picker);
+    expect(readRow(grid, 0, 72)).toContain('1 个'); // 修前红：paste 被吞仍 '3 个'
+    expect(readRow(grid, 1, 72)).toContain('m-first0…');
+  });
+
+  it('粘贴剥换行（单行过滤词无换行语义——与向导单行件同律）', () => {
+    const { picker } = makePicker();
+    picker.handleEvent(paste('m-first00002\r\n'));
+    const grid = paint(picker);
+    expect(readRow(grid, 0, 72)).toContain('1 个');
+  });
+
+  it('preview 视图粘贴终局吞（无过滤面——打字不得污染过滤词）', () => {
+    const { picker } = makePicker();
+    picker.handleEvent(k('enter')); // 进 preview
+    picker.handleEvent(paste('q'));
+    expect(picker['view']).toBe('preview'); // 未被误读为 q 返回键
   });
 });
 
