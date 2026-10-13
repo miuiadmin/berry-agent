@@ -74,15 +74,25 @@ export function renderThinkingStyledLines(view: ThinkingView, columns: number, d
   return [labelLine, ...body];
 }
 
-/** 体行改妆：全部游程换思考样式（start/end 几何保留——纯样式替换） */
+/**
+ * 体行改妆：整面覆盖重建——既有游程换思考样式（start/end 几何保留、bold
+ * 层级保留），**游程间隙补思考样式段**（挖掘 34 轮：markdown 行内样式段
+ * 〔bold/code/链接〕只为非默认样式格产游程，段两侧裸文本间隙无游程——
+ * 修前改妆后间隙走 SGR_RESET 默认前景/正体/非 dim，与同块体行割裂；零
+ * 游程裸行的整行补妆为间隙补妆的退化形，同函数两形归一）。
+ */
 function restyleThinking(line: StyledLine, style: CellStyle): StyledLine {
-  const runs: StyleRun[] = line.runs.map((run) => ({
-    start: run.start,
-    end: run.end,
-    style: { ...style, bold: run.style.bold }, // bold 层级保留——单色面仍有语义
-  }));
-  if (runs.length === 0 && line.plain !== '') {
-    runs.push({ start: 0, end: line.plain.length, style }); // 无游程裸行补整行妆
+  const runs: StyleRun[] = [];
+  let pos = 0;
+  for (const run of line.runs) {
+    if (run.start > pos) {
+      runs.push({ start: pos, end: run.start, style }); // 前间隙裸文本补妆
+    }
+    runs.push({ start: run.start, end: run.end, style: { ...style, bold: run.style.bold } }); // bold 层级保留——单色面仍有语义
+    pos = Math.max(pos, run.end); // 防御：乱序/重叠游程不回退
+  }
+  if (pos < line.plain.length) {
+    runs.push({ start: pos, end: line.plain.length, style }); // 尾间隙补妆
   }
   return { plain: line.plain, runs };
 }

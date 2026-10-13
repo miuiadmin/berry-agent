@@ -50,6 +50,26 @@ describe('思考块渲染两档', () => {
     expect(heading?.runs.some((r) => r.style.bold === true)).toBe(true);
   });
 
+  it('混排行整面改妆——行内样式段两侧裸文本间隙同入思考妆（挖掘 34 轮；修前红：间隙零游程走 SGR_RESET 默认前景/正体/非 dim，与同块体行割裂——违「整面改妆」契约与 R-4 同构条款）', () => {
+    const lines = renderThinkingStyledLines(view('前文 **重点** 后文', true, 'settled', 4000), 60);
+    const body = lines.slice(1).filter((l) => l.plain.includes('前文'));
+    expect(body).toHaveLength(1);
+    const line = body[0]!;
+    // 覆盖并集 = [0, plain.length)——修前红：仅 bold 段有游程，两侧裸文本间隙 uncovered
+    const covered = new Set<number>();
+    for (const run of line.runs) {
+      expect(run.style.italic).toBe(true); // 既有游程改妆位不变
+      expect(run.style.dim).toBe(true);
+      expect(run.style.fg).toBe(DEFAULT_THEME.thinkingText);
+      for (let i = run.start; i < run.end; i++) covered.add(i);
+    }
+    for (let i = 0; i < line.plain.length; i++) {
+      expect(covered.has(i)).toBe(true);
+    }
+    // markdown 语义保留：**重点** 段 bold 位仍在
+    expect(line.runs.some((r) => r.style.bold === true)).toBe(true);
+  });
+
   it('空文零行（守卫位）', () => {
     expect(renderThinkingStyledLines(view('', false, 'settled', 4000), 60)).toEqual([]);
   });
