@@ -72,7 +72,6 @@ function renderRemainingBar(used: number, max: number): string {
   return `[${REMAINING_BAR_FILLED.repeat(filled)}${REMAINING_BAR_EMPTY.repeat(REMAINING_BAR_SEGMENTS - filled)}]`;
 }
 
-/** 提示行样式（dim） */
 /** 底行键面提示 */
 const HINT_TEXT = hintLine('q/esc 返回', '↑↓/pgup/pgdn/home/end 滚动');
 

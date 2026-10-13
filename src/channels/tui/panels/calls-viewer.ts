@@ -79,7 +79,6 @@ const HINT_TEXT = hintLine('q/esc 返回', '↑↓/pgup/pgdn/home/end 滚动');
 const CAUSE_WIDTH = 48;
 /** 模型短名段宽帽（同上——超宽模型名省略截断） */
 const MODEL_WIDTH = 24;
-/** 提示行样式（dim） */
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {

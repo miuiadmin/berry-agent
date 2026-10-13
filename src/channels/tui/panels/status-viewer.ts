@@ -92,7 +92,6 @@ export interface StatusViewerOptions {
   readonly theme?: ResolvedTheme;
 }
 
-/** 提示行样式（dim） */
 /** 底行键面提示 */
 const HINT_TEXT = hintLine('q/esc 返回', '↑↓/pgup/pgdn/home/end 滚动');
 

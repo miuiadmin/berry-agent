@@ -133,7 +133,6 @@ export interface FeedbackScreenSources {
   readonly writeFile: (content: string) => string;
 }
 
-/** 提示行样式（dim） */
 /** 底行键面提示（e = 导出诊断包——本件独有动作键） */
 const HINT_TEXT = hintLine('q/esc 返回', 'e 导出诊断包', '↑↓/pgup/pgdn/home/end 滚动');
 

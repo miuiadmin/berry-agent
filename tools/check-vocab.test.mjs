@@ -222,4 +222,15 @@ describe('check-vocab 守护炮自测（spawn 全闸形态）', () => {
     expect(status).toBe(0);
     expect(out).toContain('check-vocab 绿');
   });
+
+  // 挖掘 31 轮 [1] 审批决策落史行词条——三档新用户面词随批入批准词面（07
+  // §4.1 词条测试面明列义务；词面真源 transcript.ts approvalDecisionLine）
+  it('查四批准词锁：审批决策三档词「已批准/已总是批准/已拒绝」→ 绿（[1] 新用户面词入册）', () => {
+    const root = fixture('userface-approved-approval-decision', {
+      'src/channels/tui/backend/transcript.ts': "export const words = ['✓ 已批准', '✓ 已总是批准', '✗ 已拒绝'];\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(0);
+    expect(out).toContain('check-vocab 绿');
+  });
 });

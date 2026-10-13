@@ -248,12 +248,6 @@ export function foldApprovalDecisions(events: readonly SessionEvent[]): readonly
  * （approve/always/reject）落行；cancel（打断非拒绝）/unavailable（通道没了）
  * /sticky/subset/timeout/policy-never（非人决策）不落——粘性/子集命中根本
  * 无审批对产生（天然无对象非滤除），本谓词只辖有对时的 source 档。
- */
-/**
- * 呈现面子集谓词（单源——直播腿与回看注入位两路共用）：人批的三决议档
- * （approve/always/reject）落行；cancel（打断非拒绝）/unavailable（通道没了）
- * /sticky/subset/timeout/policy-never（非人决策）不落——粘性/子集命中根本
- * 无审批对产生（天然无对象非滤除），本谓词只辖有对时的 source 档。
  * 泛型窄化（`T & {decision: 子集}`）：消费位 filter 后 decision 随窄——
  * 呈现载荷类型（ApprovalDecisionLineInput 三值）零再断言。
  */
