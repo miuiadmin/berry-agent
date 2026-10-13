@@ -3155,12 +3155,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         return;
       }
       // 外部编辑器（挖掘 31 轮 [9]——ctrl+g 挂起交出形）：input-ask 应答窗
-      // 不触发（应答期编辑器作应答车——稿位属应答车道，ctrl+g 让位）；在飞
-      // 位防重入（异步编舞期同键再按零响应）；编舞与三态分诊在
-      // openExternalEditor（suspendMain + raw 复先验交子进程 + resumeMain）
+      // 不触发（应答期编辑器作应答车——稿位属应答车道，ctrl+g 让位）；回搜
+      // 态让位（挖掘 32 轮修——稿位被预览占据非用户草稿，劫稿会把历史预览
+      // 当种子外流且读回整替静默丢开搜前草稿；[3] 守卫族补位：搜索态事件
+      // 被编辑器吃尽、上层分诊须让位）；在飞位防重入（异步编舞期同键再按
+      // 零响应）；编舞与三态分诊在 openExternalEditor（suspendMain + raw
+      // 复先验交子进程 + resumeMain）
       if (
         this.inputAsk === null &&
         !this.externalEditorInFlight &&
+        !this.editor.isSearchingHistory() &&
         this.keymap.actionMatches(ev, 'editor.external-edit')
       ) {
         void this.openExternalEditor();
@@ -3180,7 +3184,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.touchFixed();
           return;
         }
-        if (!ev.alt && !ev.ctrl && !ev.shift && !ev.meta && ev.key === 'enter' && this.jobPanel.cursorActive) {
+        if (
+          !ev.alt &&
+          !ev.ctrl &&
+          !ev.shift &&
+          !ev.meta &&
+          ev.key === 'enter' &&
+          this.jobPanel.cursorActive &&
+          !this.editor.isSearchingHistory() // 回搜期 enter 归编辑器采编（挖掘 32 轮——搜索态让位守卫族）
+        ) {
           const selectedId = this.jobPanel.selectedId;
           const opened = selectedId !== null && this.openJobs(selectedId);
           if (!opened) this.clearJobsCursor();

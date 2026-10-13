@@ -6600,6 +6600,31 @@ describe('TuiBackend 历史回搜守卫（挖掘 31 轮 [3]——七闸接线面
     // 转义序列切开——字面锚须 stripAnsi 后取（'?' 无命中史 → none 态缀在场）
     expect(stripAnsi(io.bytes)).toContain('回搜：?（未找到）'); // 入 query 而非开 /help
   });
+
+  it('回搜态 ctrl+g 让位搜索模态：执行器零调用（稿位被预览占据，外编不劫稿——挖掘 32 轮修）', async () => {
+    const seeds: string[] = [];
+    const { io, clock } = makeInteractive({
+      history: { seed: ['hello world'], onRecord: () => {} },
+      externalEditor: async (seed) => {
+        seeds.push(seed);
+        return { status: 'edited', text: '不应到达' };
+      },
+    });
+    io.emitInput('\x12'); // ctrl+r 开搜
+    clock.advance(1);
+    io.emitInput('he'); // query 命中——稿面被预览占据（非用户草稿）
+    clock.advance(1);
+    io.emitInput('\x07'); // ctrl+g——搜索态让位（事件归编辑器终局消费丢弃）
+    await new Promise((resolve) => setTimeout(resolve, 0)); // 编舞微任务排干
+    clock.advance(1);
+    expect(seeds).toEqual([]); // 执行器零调用（预览不当种子外流）
+    expect(io.bytes).not.toContain('不应到达');
+    // esc 收搜还原——草稿路径零扰动（外编让位后搜索模态照常收场）
+    io.bytes = ''; // 清帧——只断言收场后的增量字节
+    io.emitInput('\x1b');
+    escapePump(clock);
+    expect(io.bytes).not.toContain('回搜');
+  });
 });
 
 /* ---------------- 审批决策落史行（挖掘 31 轮 [1]）——直播追加公开面 ---------------- */
