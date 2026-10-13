@@ -53,6 +53,29 @@ describe('diffWords 词级 LCS', () => {
     const segs = diffWords('一字不差', '一字不差');
     expect(segs.filter((s) => s.kind !== 'same')).toEqual([]);
   });
+
+  it('词元规模帽：DP 表 O(n·m) 超帽降级整行红绿（挖掘 34 轮；修前红：超长 CJK 逐字素行每帧现算 4M+ 格 DP——渲染冻结/OOM）', () => {
+    // 2000×2000 词元积 = 4e6 > 帽 1e6：降级整行 del+add（串接还原律仍恒成立）
+    const a = '甲'.repeat(2000);
+    const b = '甲'.repeat(1999) + '乙';
+    const segs = diffWords(a, b);
+    expect(segs.map((s) => s.kind)).toEqual(['del', 'add']); // 修前红：LCS 产出含 same 段的多段形
+    expect(joinKind(segs, ['same', 'del'])).toBe(a); // 串接还原律在降级形仍成立
+    expect(joinKind(segs, ['same', 'add'])).toBe(b);
+  });
+
+  it('规模帽全同形降级 straight same（超帽相同串不误标全删全增）', () => {
+    const s = '同'.repeat(1500);
+    const segs = diffWords(s, s);
+    expect(segs.filter((x) => x.kind !== 'same')).toEqual([]);
+  });
+
+  it('帽内侧正常词级（999×999 词元积 ≈ 1e6 内——词级细节不误伤）', () => {
+    const a = '锚'.repeat(999);
+    const b = '锚'.repeat(998) + '变';
+    const segs = diffWords(a, b);
+    expect(segs.some((s) => s.kind === 'same')).toBe(true); // 词级细节保留
+  });
 });
 
 describe('parsePatchLines patch 判形', () => {

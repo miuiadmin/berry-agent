@@ -29,15 +29,33 @@ function tokenize(text: string): string[] {
   return text.match(TOKEN_RE) ?? [];
 }
 
+/** 词元规模帽：DP 表 (n+1)×(m+1) O(n·m)——超帽降级整行红绿（见 diffWords 帽注释） */
+const MAX_TOKEN_CELLS = 1_000_000; // 1000×1000 词元界（~10ms 级上界）
+
 /**
  * 两串词级 LCS diff（O(n·m) DP——行内长度量级；空串形：a 空全 add、b 空
  * 全 del）。产出段按序弥合同类相邻（渲染面每行至多三段游程族）。
+ *
+ * **词元规模帽**（挖掘 34 轮）：调用方对行长无钳制（patch 参数原文逐字
+ * 存储只钳行数），TOKEN_RE 把 CJK 每字素切独立词元——超长行（数千字压缩
+ * JSON 中文串/长中文段落）词元数万级，整表数亿格分配致渲染帧冻结/OOM，
+ * 且消费面纯函数每帧现调无 memo。两行词元积超帽（定值 10^6）降级整行
+ * del+add（孤立删/增同形——呈现「整行删了加了」诚实，词级高亮让位，
+ * 串接还原律恒成立）；全同形降级 straight same（超帽相同串不误标全删
+ * 全增）。
  */
 export function diffWords(a: string, b: string): readonly DiffSeg[] {
   const at = tokenize(a);
   const bt = tokenize(b);
   const n = at.length;
   const m = bt.length;
+  if (n * m > MAX_TOKEN_CELLS) {
+    if (a === b) return [{ kind: 'same', text: a }];
+    const segs: DiffSeg[] = [];
+    if (a !== '') segs.push({ kind: 'del', text: a });
+    if (b !== '') segs.push({ kind: 'add', text: b });
+    return segs;
+  }
   // DP 表：(n+1)×(m+1) LCS 长度（行内词元数十量级——整表无虞）
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--) {
