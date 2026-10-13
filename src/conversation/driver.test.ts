@@ -25,6 +25,7 @@ import type {
 import { isStandardMessage } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import { SessionLog } from '../session/index.js';
+import { PendingMessageQueue } from '../agent/index.js';
 import type { AgentEvent } from '../agent/index.js';
 import type { SessionEvent } from '../contracts/index.js';
 import { createSandboxDisclosureSource, renderEnvironmentDisclosure } from '../host/disclosure.js';
@@ -829,6 +830,38 @@ describe('ConversationDriver 待发队列通道', () => {
     expect(driver.peekWaiting()).toEqual(['首行 次行 [图片]']);
     release();
     await first;
+  });
+
+  it('busy 期队满 drop-oldest 驱逐报备：warn 携被丢件预览非静默（挖掘 33 轮 [C-1]——修前三入列腿弃置回执零痕迹）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const warns: string[] = [];
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一答' }] }),
+        assistant({ content: [{ type: 'text', text: '二答' }] }), // 丙顶注后的第二 turn 终值
+      ],
+      gates: [gate],
+      warn: (m) => warns.push(m),
+      queue: new PendingMessageQueue({ capacity: 2 }),
+    });
+    const first = driver.submit('一问'); // busy 窗（首流挂起）
+    driver.submit('甲'); // 入列 1
+    driver.submit('乙'); // 入列 2（满）
+    driver.submit('丙'); // 驱逐队首「甲」——报备位唯一消费点
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('待发队列已满');
+    expect(warns[0]).toContain('「甲」'); // 被丢件预览（queuedPreviewOf 单源）
+    // 队列终态：丙在队（甲被逐）——收场后 user/message 落账可见谁存活
+    release();
+    await first;
+    const userTexts = (driver.session.events() ?? [])
+      .filter((e) => e.type === 'user/message')
+      .map((e) => (e.data as { content?: unknown }).content);
+    expect(userTexts).toContain('丙');
+    expect(userTexts).not.toContain('甲'); // 甲被驱逐——durable 零落账（诚实丢）
   });
 });
 

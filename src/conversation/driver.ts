@@ -109,8 +109,8 @@ export class ConversationDriver {
   private readonly baseConfig: Omit<AgentLoopConfig, 'signal'>;
   /** 当前入口的 active config（transformContext 取请求时点 model——换装后取新值） */
   private activeConfig: AgentLoopConfig | undefined;
-  /** 待发队列（三通道暂存——busy steer 顶注 / idle followUp 起跑同池，通道由消费点定） */
-  private readonly queue = new PendingMessageQueue();
+  /** 待发队列（三通道暂存——busy steer 顶注 / idle followUp 起跑同池，通道由消费点定；注入缝见 options.queue 注） */
+  private readonly queue: PendingMessageQueue;
   /** 在飞 runTurns（busy 判据 + submit 搭车面） */
   private currentRun: Promise<RunResult> | undefined;
   /**
@@ -238,6 +238,7 @@ export class ConversationDriver {
     // 与供应商现值引用判等，同引用 = 面未变零动作
     this.lastFaceRef = options.tools;
     this.warnFace = options.warn ?? ((message) => console.error(message));
+    this.queue = options.queue ?? new PendingMessageQueue();
     this.context = {
       ...(options.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
       ...(this.fullTools !== undefined ? { tools: [...this.fullTools] } : {}),
@@ -306,6 +307,24 @@ export class ConversationDriver {
   }
 
   /**
+   * steer 入列单源（挖掘 33 轮 [C-1]——回执消费）：drop-oldest 溢出驱逐必须
+   * 走 warnFace 报备——被丢件尚无 durable 落账（busy 腿只入内存队列不写
+   * timeline），零报备即静默丢消息（goal 唤醒/子代理结算通知/用户 steer 同
+   * 池皆可成为被丢件）。与 deliverControl 回执翻译、persistSeedsAsInjected
+   * 丢弃报备同律（queue 件「丢弃即回执可见不静默堆积」契约的 driver 侧
+   * 兑现——修前三入列腿〔候跑/busy/kick② 转列〕弃置 EnqueueReceipt，驱逐
+   * 零痕迹）。
+   */
+  private enqueueSteer(message: AgentMessage, options?: { backgroundWake?: boolean; queueFollowUp?: boolean }): void {
+    const receipt = this.queue.enqueue(message, 'steer', options);
+    if (receipt.dropped !== undefined) {
+      this.warnFace(
+        `待发队列已满（drop-oldest）：驱逐最旧排队件「${queuedPreviewOf(receipt.dropped.message)}」——被丢件无 durable 落账，如系关键输入请重发`,
+      );
+    }
+  }
+
+  /**
    * 三通道路由单源（submit 与子代理审批挂起通知共用——04 §4）：
    *  - dismantled 停摆 → **inject**：只落 durable user/message 不唤醒（随下次
    *    启动 timeline 重播种带入——队列内存态崩即丢，durable 落账是唯一诚实承载）；
@@ -340,7 +359,7 @@ export class ConversationDriver {
       // run 的 steer 取件集跳过）+ 回执搭 run 终态后的候跑种子批（非在飞
       // run 本体——与 enter 的 steer 搭车回执分叉可观测）
       if (queueFollowUp) {
-        this.queue.enqueue(message, 'steer', {
+        this.enqueueSteer(message, {
           ...(backgroundWake !== undefined ? { backgroundWake } : {}),
           queueFollowUp: true,
         });
@@ -348,7 +367,7 @@ export class ConversationDriver {
         return settledRun.then((result) => this.seedQueuedFollowUps(result));
       }
       // busy：入列（steer 顶注——唤醒位随条目透传，消费位合批/预算执法）+ 搭车
-      this.queue.enqueue(message, 'steer', backgroundWake !== undefined ? { backgroundWake } : undefined);
+      this.enqueueSteer(message, backgroundWake !== undefined ? { backgroundWake } : undefined);
       return this.currentRun;
     }
     // idle：搁浅件消费（超帽唤醒件在 consumeBatch 内拒收过滤）+ 新输入
@@ -907,9 +926,8 @@ export class ConversationDriver {
         //   带入——与 steer 正常搁浅同形）。
         if (this.currentRun !== undefined) {
           for (const seed of seeds) {
-            this.queue.enqueue(
+            this.enqueueSteer(
               seed,
-              'steer',
               wakeTriggered ? { backgroundWake: true } : undefined, // 批次级折叠位统一透传（唤醒预算宁多记不漏记）
             );
           }

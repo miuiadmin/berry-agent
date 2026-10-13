@@ -10,7 +10,7 @@
  * channels / host——一切跨边依赖经 host 装配根闭包注入回调面（04 §11
  * environmentDisclosure 先例同族），缺席语义在各字段位定义保守行为。
  */
-import type { AgentEventSink, AgentLoopConfig } from '../agent/index.js';
+import type { AgentEventSink, AgentLoopConfig, PendingMessageQueue } from '../agent/index.js';
 import type { EventDispatch, Scope } from '../context/index.js';
 import type { SessionLog } from '../session/index.js';
 import type {
@@ -320,6 +320,14 @@ export interface ConversationDriverOptions {
    * （护栏不静默）；装配根接 logger。
    */
   readonly warn?: (message: string) => void;
+
+  /**
+   * 待发队列注入缝（挖掘 33 轮 [C-1] 报备锁配套）：缺省全参缺省形
+   * （capacity 100 / drop-oldest）。测试面注入小容量实例触发 drop-oldest
+   * 溢出——锁 routeMessage/kick 三入列腿对 EnqueueReceipt 的消费（驱逐走
+   * warnFace 报备，不静默）。生产装配不注入（行为零变）。
+   */
+  readonly queue?: PendingMessageQueue;
 
   /**
    * 活体事件外部汇（04 §2 onEvent 的转发腿）：驱动把活体 AgentEvent 双腿
