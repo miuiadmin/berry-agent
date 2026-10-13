@@ -2950,3 +2950,96 @@ describe('ConversationDriver mid-convo 工具面通告（pi-3 件 B）', () => {
     expect(seen[0]!.toolFaceChange).toBeUndefined();
   });
 });
+
+describe('达帽燃尽归因分档（挖掘 33 轮 [P3]——最后生效续入腿单源）', () => {
+  /** transient 分桶器（#transient 标记判桶——auto-retry describe 同形） */
+  const transientBucket = (message: AssistantMessage): ErrorBucket =>
+    message.errorMessage?.includes('#transient') ? 'transient' : 'non-retryable';
+
+  it('宿主腿燃尽+终错异桶：落 transient/host 不误归钩子（修前兜底腿落 hook/hook——宿主账面误归）', async () => {
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'net down #transient' }), // 宿主 transient 腿续入
+        assistant({ stopReason: 'error', errorMessage: 'quota exhausted' }), // 终错翻 non-retryable 桶
+      ],
+      classifyError: transientBucket,
+      retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 },
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    const exhausted = dataOf(driver, 'llm/retry').find((d) => (d as { phase: string }).phase === 'exhausted');
+    // 归因分档〔d〕：transient 分账归宿主语境——decidedBy host + reason 缺省
+    // 省略形（appendExhausted F8 定形：'transient' 是缺省 reason 不落字段——
+    // 修前红实录该形落 reason 'hook' + decidedBy 'hook' 双误归）
+    expect(exhausted).toMatchObject({ attempt: 1, maxAttempts: 1, phase: 'exhausted', decidedBy: 'host' });
+    expect((exhausted as { reason?: string }).reason).toBeUndefined();
+  });
+
+  it('钩子腿→刷新腿续入→再 401 燃尽：落 auth-refresh/host 不被 transient 账面遮蔽（条 8 M3 兑现——修前兜底腿落 hook/hook）', async () => {
+    // 钩子只在首错（网络错）表态 retry；其后 401 形不表态——轮到刷新腿
+    const dispatch = new EventDispatch();
+    dispatch.registerEventNames([AGENT_REQUEST_ERROR_EVENT]);
+    let hookCalls = 0;
+    dispatch.onWaterfall<AgentRequestErrorInput>(AGENT_REQUEST_ERROR_EVENT, (payload, next) => {
+      hookCalls += 1;
+      return hookCalls === 1 ? next({ ...payload, decision: 'retry' }) : next(payload);
+    });
+    const refreshCalls: string[] = [];
+    const seam: AuthRefreshSeam = {
+      authFamily: (_message, errorCode) => errorCode === 'LLM_AUTH_INVALID',
+      refreshNow: async (provider: string) => {
+        refreshCalls.push(provider);
+        return { status: 'refreshed' };
+      },
+      notify: () => undefined,
+    };
+    const authFail = (): AssistantMessage =>
+      assistant({
+        stopReason: 'error',
+        errorMessage: 'Request failed with status 401 Unauthorized',
+        errorCode: 'LLM_AUTH_INVALID',
+        provider: 'live',
+        model: 'm',
+      });
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'net down #transient' }), // 错1：钩子 retry 腿
+        authFail(), // 错2：钩子不表态 → 刷新腿 refreshed 续入
+        authFail(), // 错3：1/1 已耗 → 燃尽（修前落 hook/hook——transient 账面遮蔽）
+      ],
+      classifyError: transientBucket,
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      authRefresh: seam,
+      dispatch,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    expect(refreshCalls).toEqual(['live']); // 刷新恰一次（1/1 分账）
+    const exhausted = dataOf(driver, 'llm/retry').find((d) => (d as { phase: string }).phase === 'exhausted');
+    // 归因分档〔b〕：最后生效续入腿是刷新腿——reason auth-refresh + decidedBy host
+    expect(exhausted).toMatchObject({
+      attempt: 1,
+      maxAttempts: 3,
+      phase: 'exhausted',
+      reason: 'auth-refresh',
+      decidedBy: 'host',
+    });
+  });
+
+  it('compacted 续入后终错异桶：overflow 分账兜底落 exhausted（修前零落账——F6 防零落账精神覆盖）', async () => {
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'context length exceeded' }), // 溢出 → compacted 续入
+        assistant({ stopReason: 'error', errorMessage: 'hard non-retryable failure' }), // 续入后终败异桶
+      ],
+      classifyError: (message) => (message.errorMessage?.includes('context length') ? 'overflow' : 'non-retryable'),
+      compactForOverflow: async () => 'compacted',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    const exhausted = dataOf(driver, 'llm/retry').find((d) => (d as { phase: string }).phase === 'exhausted');
+    // 归因分档〔e〕：有重试账面必有 exhausted 落账——overflow 分账兜底
+    expect(exhausted).toMatchObject({ attempt: 1, phase: 'exhausted', reason: 'overflow' });
+  });
+});

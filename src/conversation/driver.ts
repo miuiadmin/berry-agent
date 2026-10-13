@@ -1082,6 +1082,11 @@ export class ConversationDriver {
     // transient 名额、不被 transient 占；跨 runTurns 重获（计数生命周期 =
     // 本调用——token 可再被撤销，且刷新侧三振账持续收敛）
     let authRefreshAttempt = 0;
+    // 最后生效续入腿归因（04 §3.3 条 7 F6 落码批归因定形——挖掘 33 轮 [P3]）：
+    // 达帽块 exhausted 落账按此分档——粗形「bucket 谓词 + transientAttempt
+    // 兜底落 hook/hook」有两误（宿主腿燃尽终错异桶误归钩子 / 刷新腿燃尽被
+    // transient 账面遮蔽落不出 auth-refresh）。四态各腿成功续入时置位。
+    let lastContinuation: 'transient-host' | 'transient-hook' | 'overflow' | 'auth-refresh' | undefined;
     /** 终态结算值（finally 面的消费位——onRunSettled 订阅回调载荷） */
     let settled: RunResult | undefined;
     // runTurns 起点墙钟（agent_end durationMs 供源——重试续入不重置，run 累计口径）
@@ -1128,6 +1133,8 @@ export class ConversationDriver {
                 delayMs,
                 hookRetry ? 'hook' : 'host',
               );
+              // 归因置位（F6 落码批）：本腿续入成功语境——宿主腿/钩子腿分档
+              lastContinuation = hookRetry ? 'transient-hook' : 'transient-host';
               // 钩子换档（裁决六）：非空串 model 生效——重试起新流即新模型
               // （error settle 是流终态，「在飞 run 不中途换」不破）；非法模型名
               // 由下一流 fail-loud 自证、attempt 帽兜底——错误自证非静默回落
@@ -1175,6 +1182,8 @@ export class ConversationDriver {
               this.occludeFailedTail('overflow', overflowAttempt, retry.maxRetries, delayMs);
               const outcome = await this.options.compactForOverflow(this.session);
               if (outcome === 'compacted') {
+                // 归因置位（F6 落码批）：溢出 compacted 续入语境
+                lastContinuation = 'overflow';
                 this.context.messages = this.reseededTimeline();
                 // 续入发孤儿 resumed（04 §3.4 尾注——第七轮深扫批）：本腿无退避窗
                 // 零 start 配对，但续入仍须让消费端置 retryContinuation——否则续入
@@ -1220,6 +1229,8 @@ export class ConversationDriver {
                 // 刷新成功：续入重试——与 transient 腿同编舞（裁决七）：
                 // 遮蔽 + 退避单源复用（不开放 backoff 改写）+ 重播种 + 起新流
                 authRefreshAttempt += 1;
+                // 归因置位（F6 落码批）：刷新腿续入语境——M3 燃尽归此档
+                lastContinuation = 'auth-refresh';
                 const delayMs = retryDelay(retry, authRefreshAttempt);
                 this.occludeFailedTail('auth-refresh', authRefreshAttempt, retry.maxRetries, delayMs, 'host');
                 this.context.messages = this.reseededTimeline();
@@ -1266,33 +1277,19 @@ export class ConversationDriver {
               seam.notify({ provider, outcome });
             }
             // —— 达帽 / 不可重试：只在确有重试账面时落 exhausted (quota/auth 零重试零事件)——
-            if (bucket === 'transient' && transientAttempt > 0) {
-              this.appendExhausted(
-                'transient',
-                transientAttempt,
-                retry.maxRetries,
-                'exhausted',
-                assistant.errorMessage,
-                'host',
-              );
-            } else if (bucket === 'overflow' && overflowAttempt > 0) {
+            // 归因单源 = 最后生效续入腿（04 §3.3 条 7 F6 落码批归因定形——挖掘
+            // 33 轮 [P3]）：修前「bucket 谓词 + transientAttempt 兜底一律落
+            // hook/hook」两误——宿主腿燃尽终错异桶误归钩子；刷新腿燃尽被
+            // transient 账面遮蔽（条 8 M3 落不出）。分派序五档：
+            // 〔a〕终错溢出+overflow 有账 → overflow；
+            // 〔b〕最后续入腿 auth-refresh → auth-refresh/host（M3 兑现）；
+            // 〔c〕transient-hook → hook/hook（F6 正身+条 8 M2 落空形统一）；
+            // 〔d〕transient 分账兜底 → transient/host（宿主语境，含原分支一）；
+            // 〔e〕overflow 分账兜底 → overflow（compacted 续入后终错异桶的
+            //      零落账形——「防零 exhausted 落账」精神覆盖）。
+            if (bucket === 'overflow' && overflowAttempt > 0) {
               this.appendExhausted('overflow', overflowAttempt, retry.maxRetries, 'exhausted', assistant.errorMessage);
-            } else if (transientAttempt > 0) {
-              // 钩子救回 non-retryable/quota 桶达帽（裁决七扩形）：燃尽即落
-              // exhausted（reason hook）——防钩子救回路径零落账（durable 红线）
-              this.appendExhausted(
-                'hook',
-                transientAttempt,
-                retry.maxRetries,
-                'exhausted',
-                assistant.errorMessage,
-                'hook',
-              );
-            } else if (authRefreshAttempt > 0) {
-              // 刷新重试后再 401（1/1 已耗）：刷新腿燃尽收口——reason 显式
-              // 'auth-refresh' + attempt 照实 1 + maxAttempts 报 retry.maxRetries
-              // （overflow 腿先例——M3 修笔定形）；decidedBy 'host'（刷新腿恒
-              // 宿主决策，与钩子腿两相落账同构）
+            } else if (lastContinuation === 'auth-refresh') {
               this.appendExhausted(
                 'auth-refresh',
                 authRefreshAttempt,
@@ -1301,6 +1298,31 @@ export class ConversationDriver {
                 assistant.errorMessage,
                 'host',
               );
+            } else if (lastContinuation === 'transient-hook') {
+              // 钩子救回 non-retryable/quota 桶达帽（裁决七扩形）：燃尽即落
+              // exhausted（reason hook）——防钩子救回路径零落账（durable 红线）；
+              // M2 落空形（钩子 retry 表态帽满）最后生效腿同此档统一归因
+              this.appendExhausted(
+                'hook',
+                transientAttempt,
+                retry.maxRetries,
+                'exhausted',
+                assistant.errorMessage,
+                'hook',
+              );
+            } else if (transientAttempt > 0) {
+              // 宿主 transient 分账燃尽（终错桶=transient 原分支一形 + 终错翻
+              // 异桶形）——归宿主语境，不因终错桶翻转变归因
+              this.appendExhausted(
+                'transient',
+                transientAttempt,
+                retry.maxRetries,
+                'exhausted',
+                assistant.errorMessage,
+                'host',
+              );
+            } else if (overflowAttempt > 0) {
+              this.appendExhausted('overflow', overflowAttempt, retry.maxRetries, 'exhausted', assistant.errorMessage);
             }
           }
           // 终态揭示信号（E-1——达帽燃尽/不可重试首败/刷新腿非 refreshed 收口
