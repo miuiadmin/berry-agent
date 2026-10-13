@@ -9,8 +9,32 @@
  */
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { scanViolations, stripComments } from './check-mock-targets.mjs';
+
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
+const CHECK_SCRIPT = join(REPO_ROOT, 'tools/check-mock-targets.mjs');
+/** 夹具总根（独立子目录；收口统一清） */
+const FIXTURE_ROOT = mkdtempSync(join(tmpdir(), 'check-mock-targets-test-'));
+
+/**
+ * 子进程跑检查器（spawn 全闸形态——与 check-vocab.test.mjs runCheck 同先例）。
+ * @param {string} [fixture] 夹具根（给定时注入 CHECK_MOCKS_ROOT 缝；缺省真仓）
+ * @returns {{ status: number, out: string }}
+ */
+function runCheck(fixture) {
+  const r = spawnSync(process.execPath, [CHECK_SCRIPT], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, ...(fixture ? { CHECK_MOCKS_ROOT: fixture } : {}) },
+    encoding: 'utf8',
+  });
+  return { status: r.status ?? -1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+}
 
 /** 正形对照（三真实消费位的代表形——passthrough 单点白名单内不红） */
 const PASS_THROUGH = [
@@ -93,3 +117,27 @@ describe('scanViolations——两查门（目标白名单 + passthrough 形）',
     assert.deepEqual(scanViolations(text), []);
   });
 });
+
+describe('真仓/夹具 spawn 全闸腿（挖掘 33 轮 [C-2]）', () => {
+  // 修前红实录：真仓红 3（白名单 2 目标 vs 实况 5 目标 6 处）自 23d5f04
+  //（2026-09-28）起静默——自举夹具腿全绿与真树红并存，执法件红态在测试面
+  // 完全不可见。本腿把真树状态接进 npm test 面：白名单再漂移（新 vi.mock
+  // 不扩册）即红，不再依赖「手动/夜班自取」的无人通道。
+
+  it('真树零违规：exit 0（白名单随批对齐实况——漂移即红）', () => {
+    const { status, out } = runCheck();
+    assert.equal(status, 0, `真仓 vi.mock 违规（白名单漂移——扩册须注缺席原因）：\n${out}`);
+  });
+
+  it('夹具违规树：exit 1 + stderr 点名（spawn 全闸非纯函数直调——红腿对拍）', () => {
+    const root = join(FIXTURE_ROOT, 'violating');
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src', 'x.test.ts'), "vi.mock('../exec/index.js', () => ({ run: fake }));\n");
+    const { status, out } = runCheck(root);
+    assert.equal(status, 1);
+    assert.ok(out.includes("不在白名单：'../exec/index.js'"));
+  });
+});
+
+// 夹具收口（describe 外 afterAll 形亦可——node:assert 测试内同步清理同效）
+process.on('exit', () => rmSync(FIXTURE_ROOT, { recursive: true, force: true }));

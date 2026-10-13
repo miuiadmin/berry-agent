@@ -2,9 +2,10 @@
 /**
  * mock 目标检查器 v0（研究档 E13——「mock 只停模型层/零行为替身」纪律的机器执法）。
  *
- * 现状健康面（HEAD 盘点）：node 轨测试 vi.mock 仅 3 处且全 passthrough 单点形
- * （node:crypto 钉值 randomBytes + issue barrel 捕获缝 ×2）——但新增行为级
- * vi.mock 无任何机器拦截，纪律只活在 CLAUDE.md 文字。本件把两查升为机器判：
+ * 现状健康面（挖掘 33 轮 [C-2] 复盘点）：node 轨测试 vi.mock 六处五目标全
+ * passthrough 单点形（白名单表内逐处注缺席原因）——新增行为级 vi.mock 由
+ * 自举真仓腿（tools/check-mock-targets.test.mjs——白名单漂移即 npm test 面
+ * 红，2026-10-13 起）+ 本件双查机器拦截：
  *   1. 目标白名单——vi.mock 首参目标须在 MOCK_TARGET_WHITELIST（扩展白名单
  *      须同批注缺席原因——见下方表内注）；
  *   2. passthrough 形加严——工厂体必须含 importOriginal 调用与 ...actual
@@ -14,9 +15,10 @@
  * -client 轨 *.test.tsx 的 api 模块全桩是已立的 SPA 组件测试法（jsdom 环境，
  * app.test.tsx 头注自述），不在「宿主面替身」纪律射程——不扫 .tsx。
  *
- * 独立 script（npm run lint:mocks）——按纪律不并入 lint:topology/四门禁，
- * 手动/夜班自取。配套自举 tools/check-mock-targets.test.mjs（node --test 形，
- * 不入 vitest include——vitest 对 tools 测试是逐件点名制，扩名册须另批）。
+ * 独立 script（npm run lint:mocks）——按纪律不并入 lint:topology/四门禁；
+ * 配套自举 tools/check-mock-targets.test.mjs（vitest node 轨——vitest.config
+ * .ts include 逐件点名在册，查 12 纪律同先例；含真仓零违规腿：白名单漂移
+ * 在 npm test 面即红，防执法件红态静默〔挖掘 33 轮前红态曾静默 15 天〕）。
  *
  * 已知保守近似（承 check-vocab 同向律）：注释剥离器不识别正则字面量——正则
  * 文本内含 // 形会使该行尾进入假注释态（漏报方向，宁漏不误咬）。
@@ -29,14 +31,29 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = process.env.CHECK_MOCKS_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
 
 /**
- * vi.mock 目标白名单（现状恰两目标——三处消费）：
+ * vi.mock 目标白名单（现状五目标——六处消费，均 passthrough 单点形）：
  * - 'node:crypto'：pipeline-spill-eexist.test.ts 单点钉值 randomBytes（铸名可
  *   预知——EEXIST 竞态复现的确定性面，非行为替身）；
- * - '../issue/index.js'：run-issue-verify(.env).test.ts 捕获缝（spread 全真
- *   导出 + 记录后原样转发——零行为替身，捕获装配位生产闭包本体）。
+ * - '../issue/index.js'：run-issue-verify(.env).test.ts 捕获缝 ×2（spread 全真
+ *   导出 + 记录后原样转发——零行为替身，捕获装配位生产闭包本体）；
+ * - './visual-lines.js'：editor-model.test.ts 计数缝（spread 全真导出 +
+ *   buildVisualLineMap 计数后原样转发——perf 锁「同 state 双调底层只建一
+ *   次」；ef390dc 引入缺席未注，挖掘 33 轮补册）；
+ * - '../channels/index.js'：tui-entry.test.ts barrel 捕获缝（issue barrel
+ *   先例同形——spread + CapturingTuiBackend 继承真身捕获 todoFor 注入闭
+ *   包；27e7a33 引入缺席未注，挖掘 33 轮补册）；
+ * - 'node:fs'：secret-box.race.test.ts 单函数谎报注入（existsSync 只对密钥
+ *   文件谎报——败者窗竞态复现的确定性面，其余路径真身直通非整体替身；
+ *   23d5f04 引入缺席未注，挖掘 33 轮补册）。
  * 扩展本表须同批注缺席原因（为何该目标允许文件级 vi.mock）。
  */
-const MOCK_TARGET_WHITELIST = new Set(['node:crypto', '../issue/index.js']);
+const MOCK_TARGET_WHITELIST = new Set([
+  'node:crypto',
+  '../issue/index.js',
+  './visual-lines.js',
+  '../channels/index.js',
+  'node:fs',
+]);
 
 /**
  * 剥注释保行位（字符串感知单趟状态机）：注释字符替换为空白、换行原样保留
