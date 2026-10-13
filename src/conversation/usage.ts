@@ -40,11 +40,23 @@ export const ZERO_SESSION_USAGE: SessionUsageSummary = Object.freeze({
   currency: null,
 });
 
-/** usage 载荷形判（防御位——event.data 是 unknown，数值四键在场才算真载荷） */
+/**
+ * usage 载荷形判（防御位——event.data 是 unknown，契约必键齐才算真载荷）：
+ * 四桶 + totalTokens 五必键全数值（挖掘 33 轮 [P3] 收严——修前只查
+ * input/output/totalTokens 三键，四桶残缺的旧日志/非标准形被当真载荷，
+ * undefined 入账 NaN 污染 cacheRead/cacheWrite 两桶）。cost 等可选键不查
+ *（fold 消费位自带缺席兜底）。
+ */
 function isUsageShape(value: unknown): value is Usage {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
-  return typeof v.input === 'number' && typeof v.output === 'number' && typeof v.totalTokens === 'number';
+  return (
+    typeof v.input === 'number' &&
+    typeof v.output === 'number' &&
+    typeof v.cacheRead === 'number' &&
+    typeof v.cacheWrite === 'number' &&
+    typeof v.totalTokens === 'number'
+  );
 }
 
 /**

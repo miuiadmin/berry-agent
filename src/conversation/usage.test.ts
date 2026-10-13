@@ -104,3 +104,18 @@ describe('foldSessionUsage', () => {
     expect(foldSessionUsage(events)).toEqual(ZERO_SESSION_USAGE);
   });
 });
+
+describe('四桶残缺载荷防御位收严（挖掘 33 轮 [P3]）', () => {
+  it('缺 cacheRead/cacheWrite 的三键形非真载荷：跳过不折叠（修前三键判放行——undefined 入账 NaN 污染两桶）', () => {
+    const events = [
+      assistantUsage({ input: 10, output: 5, totalTokens: 15 }), // 四桶残缺（旧日志/非标准形）
+      assistantUsage(usageOf({ input: 100, output: 50, cacheRead: 7, cacheWrite: 3, totalTokens: 160 })), // 好形
+    ];
+    const folded = foldSessionUsage(events);
+    // 残缺件整体跳过（与缺 usage 防御位同向——不半折叠）
+    expect(folded).toMatchObject({ input: 100, output: 50, cacheRead: 7, cacheWrite: 3, totalTokens: 160 });
+    // 修前红实录：残缺件被当真载荷，cacheRead += undefined → NaN 污染
+    expect(Number.isFinite(folded.cacheRead)).toBe(true);
+    expect(Number.isFinite(folded.cacheWrite)).toBe(true);
+  });
+});
