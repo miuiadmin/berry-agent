@@ -258,7 +258,20 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
   // 须在运行时组装期注入 Persistence.onDurableEvent，作用域/总线先于运行时建；
   // 对话栈与插件装载仍同根同源）——
   const scope = Scope.createRoot();
-  const dispatch = new EventDispatch();
+  // 监听器隔离腿异常上报接 loggerRef 晚绑槽（挖掘 33 轮 [P3]——events.ts
+  // 契约注「host 装配时接 logger」兑现）：emit/serial 的隔离腿异常不再裸走
+  // stderr console.error（绕过 BERRY_AGENT_LOG_LEVEL 过滤与统一落点；TUI
+  // 全屏形下裸 stderr 行与备屏输出交叠）。logger 建前回退 options.warn
+  //（emitBootStage 两段式同法——dispatch 先于 logger 创建的鸡序问题）
+  const dispatch = new EventDispatch({
+    onListenerError: (eventName, err) => {
+      const message = `事件监听器异常（${eventName}，已隔离不反噬派发链）：${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      if (loggerRef !== undefined) loggerRef.warn(message);
+      else options.warn?.(message);
+    },
+  });
   // 钩子派发段 guard（03 §3.4 执法形——cache 经济批 ca-3）：全局单实例深度
   // 计数；两窄面分路注入——enter/exit 随 bootPlugins 透传插件 ctx（钩子派发
   // 两腿开合）、只读面随 conversation-stack 注入 llm 双入口前置查
@@ -736,9 +749,16 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
 
     // —— Job 注册表 + 触发器注册表（C 批 C-3——第十一动词宿主侧真源）：
     // job_settled 总线词先注册（活体事件发射前置——04 §10 内存直推不落库，
-    // 幂等跳过已注册词）→ Job 注册表（trigger kind 自登 + 缺省并行帽 4）→
-    // 服务面 provide（插件 tryGet('jobs') 消费）→ 触发器注册表（starter 真身
-    // 工厂注入——活体开门读取源：/reload 撤位后 fire 复检现判现拒）——
+    // 幂等跳过已注册词；挖掘 33 轮 [P3] 兑现——修前唯一注册路径在 bootPlugins
+    // 41 词表，noPlugins 形该词进程内永不注册，未来 boot 前/noPlugins 形结算
+    // Job 即 emit 抛 EVENT_NOT_REGISTERED 且被 registry 静默吞；与
+    // session/lifecycle、approval/settled 两枚同族词同式）→ Job 注册表
+    //（trigger kind 自登 + 缺省并行帽 4）→ 服务面 provide（插件 tryGet('jobs')
+    // 消费）→ 触发器注册表（starter 真身工厂注入——活体开门读取源：/reload
+    // 撤位后 fire 复检现判现拒）——
+    if (!dispatch.isRegistered('job_settled')) {
+      dispatch.registerEventNames(['job_settled']);
+    }
     const jobs = createJobRegistry({
       parallelLimits: { trigger: TRIGGER_JOB_PARALLEL_LIMIT, issue: ISSUE_PARALLEL_LIMIT_DEFAULT },
       emit: (event) => dispatch.emit('job_settled', event),

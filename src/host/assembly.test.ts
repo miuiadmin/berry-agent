@@ -3155,3 +3155,58 @@ describe('会话活集真源接线 e2e（07 §4.3 锚时效活集真源批——
     }
   });
 });
+
+describe('总线词/监听器异常契约装配兑现（挖掘 33 轮 [P3] 两件）', () => {
+  it('job_settled 预注册：noPlugins 形装配后词在册（修前唯一注册路径在 bootPlugins 41 词表——noPlugins 短路分支永不注册）', async () => {
+    const dir = tmpDir('host-asm-jobs-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    expect(assembly.ok).toBe(true);
+    if (!assembly.ok) return;
+    try {
+      // 修前红实录：noPlugins 形该词进程内永不注册——boot 前/noPlugins 形
+      // 结算 Job 即 emit 未注册词（fail-loud）。与 session/lifecycle、
+      // approval/settled 两枚同族词同式：jobs 创建位前置守卫注册。
+      expect(assembly.dispatch.isRegistered('job_settled')).toBe(true);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('监听器隔离腿异常不裸走 console.error（events.ts「host 装配时接 logger」契约——接线在场两否定锁）', async () => {
+    const dir = tmpDir('host-asm-oe-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    expect(assembly.ok).toBe(true);
+    if (!assembly.ok) return;
+    try {
+      // 注册一个必抛监听器的探针词：emit 的隔离腿异常应走装配位 onListenerError
+      //（loggerRef 晚绑——装配完成后 logger 已建，消息进 logger.warn 的统一
+      // 落点）而非 EventDispatch 缺省实现（裸 console.error——绕过
+      // BERRY_AGENT_LOG_LEVEL 过滤）。两否定即接线锁：不反噬派发链 + 不走
+      // 缺省报备位。spy 只罩 emit 前后窗（装配期 persist 权限修复等无关
+      // console.error 不入射程）。
+      assembly.dispatch.registerEventNames(['probe/listener-error']);
+      assembly.dispatch.on('probe/listener-error', () => {
+        throw new Error('探针监听器炸');
+      });
+      const stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        await expect(assembly.dispatch.emit('probe/listener-error', {})).resolves.toBeUndefined(); // 隔离不反噬
+        expect(stderrSpy).not.toHaveBeenCalled(); // 修前红：缺省实现走 console.error
+      } finally {
+        stderrSpy.mockRestore();
+      }
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
