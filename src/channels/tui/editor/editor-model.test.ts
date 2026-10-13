@@ -454,6 +454,33 @@ describe('EditorModel 输入历史', () => {
     m.navigateHistory(-1);
     expect(m.getCursor()).toEqual({ line: 0, col: 0 });
   });
+
+  it('回搜采编清历史浏览账——陈旧浏览会话的 ↓ 恢复腿不再整替已采编稿（挖掘 34 轮；修前红：浏览态开搜不清账，采编后单行条目 ↓ 触发恢复腿以采前空 draft 抹稿且 undo 链不可回）', () => {
+    const m = new EditorModel(); // 空稿开浏览——陈旧 draft = 空稿快照
+    m.addToHistory('history-entry-old');
+    m.addToHistory('search-target-entry');
+    m.navigateHistory(-1); // 开历史浏览（index 0、draft = 空稿）
+    m.beginHistorySearch(); // 浏览态开搜——修前：开搜口是浏览会话唯一漏清位
+    m.updateSearchQuery('search-target'); // 命中预览（单行条目）
+    m.acceptHistorySearch(); // 采编：预览转工作稿
+    expect(m.getText()).toBe('search-target-entry');
+    expect(m.isBrowsingHistory()).toBe(false); // 修前红：true（陈旧浏览会话残留）
+    m.navigateHistory(1); // ↓（同一导航习惯续按）——修后非浏览态 no-op
+    expect(m.getText()).toBe('search-target-entry'); // 修前红：''（陈旧 draft 整替抹稿）
+  });
+
+  it('回搜取消（esc）浏览续接保留——还原搜索前草稿后 ↑ 续接旧浏览位', () => {
+    const m = new EditorModel();
+    m.addToHistory('h-old');
+    m.addToHistory('h-new');
+    m.navigateHistory(-1); // 浏览 index 0（h-new）
+    m.beginHistorySearch();
+    m.updateSearchQuery('old');
+    m.cancelHistorySearch(); // esc：还原开搜时草稿（= h-new 浏览预览态）
+    expect(m.getText()).toBe('h-new');
+    m.navigateHistory(-1); // ↑ 续接浏览（index 1 = h-old）
+    expect(m.getText()).toBe('h-old');
+  });
 });
 
 describe('EditorModel 持久化史钩（B1——07 §4.1 呈现面件 2 定形注）', () => {

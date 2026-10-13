@@ -1049,10 +1049,16 @@ export class EditorModel {
     this.applySearchPreview(matches[0]!, -1);
   }
 
-  /** 采编（enter——恰 match 态动作）：预览转工作稿；historyIndex 不动（浏览续接连贯） */
+  /**
+   * 采编（enter——恰 match 态动作）：预览转工作稿 + 清历史浏览账（挖掘
+   * 34 轮：修前 historyIndex 不动——陈旧浏览会话残留使采编后 ↓ 走恢复腿
+   * 以采前 draft 整替已采编稿〔undo 链不可回〕、↑ 续接错位锚；程序设值
+   * 旁路统一挂点同律。esc 取消路不动——还原草稿 = 浏览预览态，续接语义
+   * 保留）。
+   */
   acceptHistorySearch(): void {
     if (this.search === null || this.search.status !== 'match') return;
-    this.search = null;
+    this.exitHistoryBrowsing(); // 清 search + 浏览账（只清账不还原——程序面语义优先）
   }
 
   /** 取消（esc）：还原搜索前草稿 */
