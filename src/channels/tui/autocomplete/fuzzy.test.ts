@@ -72,6 +72,15 @@ describe('subsequenceMatchRanges 命中游程（挖掘 29 轮批 C 件 a——�
     expect(subsequenceMatchRanges('plugins', 'PLG')).toEqual([0, 1, 3]);
   });
 
+  it('长度变化小写映射位序回射（İ U+0130 toLowerCase 膨胀长 1→2——挖掘 34 轮；修前红：位序算自 lowercased 串，İ 后命中位整体 +1 错位致弹层 per-char bold 失亮/错亮）', () => {
+    expect(subsequenceMatchRanges('İx', 'x')).toEqual([1]); // 修前红：[2]（label 长 2——越界永不命中零 bold）
+    expect(subsequenceMatchRanges('aİb', 'b')).toEqual([2]); // 修前红：[3]（越界失亮）
+    expect(subsequenceMatchRanges('İab', 'ab')).toEqual([1, 2]); // 修前红：[2,3]（错亮 'b' 而非 'a'）
+    // 过滤命中与呈现位一致性（过滤判据同走命中面）
+    expect(fuzzyMatchKind('İstanbul.md', 'ist')).toBe('subseq');
+    expect(subsequenceMatchRanges('İstanbul.md', 'ist')).toEqual([0, 1, 2]); // 呈现位同步正确
+  });
+
   it('不中 → null；空查询 → null（无命中可 bold——弹层零加亮档）', () => {
     expect(subsequenceMatchRanges('plugins', 'glp')).toBeNull(); // 序错
     expect(subsequenceMatchRanges('plugins', 'px')).toBeNull(); // 缺字

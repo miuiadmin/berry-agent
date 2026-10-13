@@ -22,17 +22,33 @@ export function isSubsequence(candidate: string, needle: string): boolean {
  * 左射位序、大小写不敏感，返回 needle 各字符在 candidate 的命中 UTF-16
  * 位序数组（非邻接位——per-char bold 的真面目）；不中或空 needle → null
  * （空查询无命中位可亮——呈现面诚实零 bold 档）。
+ *
+ * 小写化走**逐码点**并携带 origin 回射表（挖掘 34 轮）：İ（U+0130）小写
+ * 膨胀长 1→2——整串 toLowerCase 后命中位与原文位错开，直接报 lower 位致
+ * 弹层 per-char bold 失亮/错亮；逐码点小写拼 hay 串并记 lower 各位 →
+ * 原文位的回射表，命中位经 origin 回射原文位再报。代理对码点整宽参与
+ * （两 UTF-16 位同映原位）。
  */
 export function subsequenceMatchRanges(candidate: string, needle: string): readonly number[] | null {
   if (needle === '') return null;
-  const hay = candidate.toLowerCase();
+  let hay = '';
+  const origin: number[] = []; // hay 各 UTF-16 位 → candidate 原文位（膨胀码点多位同映一位）
+  let pos = 0;
+  while (pos < candidate.length) {
+    const cp = candidate.codePointAt(pos)!;
+    const width = cp > 0xffff ? 2 : 1; // 代理对整宽（emoji 等——小写恒自身）
+    const piece = candidate.slice(pos, pos + width).toLowerCase();
+    for (let k = 0; k < piece.length; k++) origin.push(pos);
+    hay += piece;
+    pos += width;
+  }
   const seek = needle.toLowerCase();
   const positions: number[] = [];
   let from = 0;
   for (const ch of seek) {
     const idx = hay.indexOf(ch, from);
     if (idx === -1) return null;
-    positions.push(idx);
+    positions.push(origin[idx]!); // 回射原文位——bold 消费面按 candidate 原文定位
     from = idx + ch.length; // 命中位按码点整长推进（代理对 needle 不劈半）
   }
   return positions;
