@@ -179,12 +179,17 @@ export class ToolProgressPanel implements Renderable {
     if (hook === undefined) return null; // 未命中 / renderCall 钩子缺席
     try {
       const lines = hook({ toolCallId, toolName: name, arguments: args });
-      // 空行集回落 + 坏形返回（非数组/行非数组）同回落档——渲染路径零崩
+      // 空行集回落 + 坏形返回（非数组/行非数组/段非对象/段文本非字符串）同
+      // 回落档——渲染路径零崩（07 §4.1 回落恒在律坏形档；挖掘 34 轮补齐：
+      // 修前只查数组两层层级，段坏形穿透至渲染帧 sanitizeLineText(undefined)
+      // 抛 TypeError 沿 root.render 无守卫链杀进程——对齐 tool-card 卡体位同档）
       if (!Array.isArray(lines) || lines.length === 0) return null;
-      if (!lines.every((line) => Array.isArray(line))) return null;
+      if (!lines.every((line) => Array.isArray(line) && line.every((seg) => typeof (seg as {text?: unknown})?.text === 'string'))) {
+        return null;
+      }
       return lines;
     } catch {
-      return null; // 抛错回落（段取值坏形由渲染面 stringWidth 宽度吸收）
+      return null; // 抛错回落（钩子自身异常——段坏形已在校验位拦截）
     }
   }
 

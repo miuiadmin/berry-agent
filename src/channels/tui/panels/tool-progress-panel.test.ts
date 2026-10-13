@@ -229,6 +229,28 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     expect(readRow(grid, 2)).toBe('2  • plug_miss · 进度');
   });
 
+  it('回落恒在律段坏形两形：字符串当段 / 段缺 text——恒宿主形（修前穿透校验致渲染帧 TypeError 沿无守卫链杀进程——挖掘 34 轮）', () => {
+    // JS 插件动态拼行集零宿主侧类型拦截——受理不拒面（jiti 运行时装载）
+    disposers.push(
+      registerToolRenderer('plug_segstr', {
+        renderCall: () => [['文本当段']] as unknown as never,
+      }),
+    );
+    disposers.push(
+      registerToolRenderer('plug_missText', {
+        renderCall: () => [[{ tone: 'error' }]] as unknown as never,
+      }),
+    );
+    const panel = new ToolProgressPanel();
+    panel.begin('t1', 'plug_segstr', {});
+    panel.applyUpdate('t1', '进度');
+    panel.begin('t2', 'plug_missText', {});
+    panel.applyUpdate('t2', '进度');
+    const grid = renderPanel(panel); // 修前红：render 内 sanitizeLineText(undefined) 抛 TypeError
+    expect(readRow(grid, 0)).toBe('0  • plug_segstr · 进度');
+    expect(readRow(grid, 1)).toBe('1  • plug_missText · 进度');
+  });
+
   it('零 update 的静默工具：renderCall 不触发（有进无面板行——在飞可见性归件 3）', () => {
     let invoked = 0;
     disposers.push(
