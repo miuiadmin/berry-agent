@@ -325,6 +325,22 @@ describe('text 相（key 录入——全明文翻裁 2026-09-28）', () => {
     await expect(pb).resolves.toBe('sk-ask-b');
   });
 
+  it('粘贴控制字节消毒（挖掘 34 轮——修前红：只剥 \\r\\n，ESC 序列/BEL 等 C0 原样入 buffer：回显伪残留（cell 零控制字节律跳 ESC、载荷照落屏——所见≠所录）+ 落库值不可见污染）', async () => {
+    // 剪贴残留形：从含 SGR 残留的终端日志复制 key——ESC[31m 载荷 + BEL
+    const a = makePanel();
+    const pa = a.panel.text(TEXT_REQ);
+    a.panel.handleEvent({ kind: 'paste', text: 'sk-\u001b[31mkey\u0007tail' });
+    a.panel.handleEvent(k('enter'));
+    await expect(pa).resolves.toBe('sk-keytail'); // 修前红：'sk-\u001b[31mkey\u0007tail'（原始控制字节入值）
+
+    // tab 语义展开（sanitizeDisplayText 全域档——2 空格，不可见制表变可见空格）
+    const b = makePanel();
+    const pb = b.panel.text(TEXT_REQ);
+    b.panel.handleEvent({ kind: 'paste', text: 'sk-a\tb' });
+    b.panel.handleEvent(k('enter'));
+    await expect(pb).resolves.toBe('sk-a  b');
+  });
+
   it('ime 轨提交相收字（修前红：kind ime 落不到 text/paste 分支被终局吞——组字期输入全丢）+ 预编辑增量零动作不双写', async () => {
     // 编辑器轨道消费先例 editor.ts:122 case 'ime'：committed=true 才落正文。
     // 本面板同律：提交相声同 text 处理；预编辑增量（committed=false）零动作

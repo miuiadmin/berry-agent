@@ -33,7 +33,7 @@
  * - 程序化重画经注入 requestRepaint（面板自持态变更自请——host 侧无从而知）。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { ellipsize } from '../../engine/index.js';
+import { ellipsize, sanitizeDisplayText } from '../../engine/index.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import type {
@@ -441,9 +441,14 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       // （committed=false）零动作——面板无预编辑呈现面，增量入 buffer 会在
       // 提交相双写（组字期所见≠所录，修前整轨缺席即组字期输入被吞）
       if (event.kind === 'ime' && !event.committed) return true;
-      // paste 剥所有换行（#22——单行字段无换行语义：内嵌换行入 buffer 会致
-      // 回显（引擎跳控制字节拼连通顺）所见≠所录、存值经 trim 幸存坏 key）
-      const text = event.kind === 'paste' ? event.text.replace(/[\r\n]+/g, '') : event.text;
+      // paste 消毒（#22 换行族 + 挖掘 34 轮控制字节族）：单行字段无控制字节
+      // 语义——先经 sanitizeDisplayText 单源剥 ESC 序列/C0/DEL（tab 语义展开
+      // 空格），再剥换行（单行字段内嵌换行不进 buffer）。修前只剥 \r\n：
+      // 剪贴残留控制字节原样入 buffer——cell 零控制字节律跳 ESC 而可打印
+      // 载荷照落屏（回显所见≠所录），且原始字节随 buffer 落库污染配置值
+      // （API key 鉴权失败难排查）。text/ime 轨为引擎解码后干净键文不须此道
+      const text =
+        event.kind === 'paste' ? sanitizeDisplayText(event.text).replace(/\n/g, '') : event.text;
       if (text !== '') this.handleTextRun(text);
       return true;
     }
