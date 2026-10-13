@@ -6510,6 +6510,29 @@ describe('TuiBackend 外部编辑器（挖掘 31 轮 [9]——ctrl+g 挂起交�
     await flush();
     expect(seeds).toEqual(['原稿', '第一轮']); // 第二轮播种 = 上轮整替后稿
   });
+
+  it('标记态外编 seed 走展开投影：粘贴原文入种非占位行；原样读回提交不丢原文（挖掘 32 轮修）', async () => {
+    const seeds: string[] = [];
+    const { io, calls, pump } = makeInteractive({
+      externalEditor: async (seed) => {
+        seeds.push(seed);
+        return { status: 'edited', text: seed }; // 原样读回（用户未改动形——数据面最险位）
+      },
+    });
+    // 25 行粘贴（bracketed paste 注入）→ 标记化：稿面独占占位行、原文入 markers 登记表
+    const body = Array.from({ length: 25 }, (_, i) => `行${i + 1}`).join('\n');
+    io.emitInput(`\x1b[200~${body}\x1b[201~`);
+    pump();
+    io.emitInput('\x07'); // ctrl+g
+    await flush();
+    pump();
+    // 修前红位：旧 seed = editor.getText() 不展开——外编只见占位串
+    expect(seeds).toEqual([body]);
+    // 读回整替（内容已展开为正文，setText 清 marker 登记零损失）→ 提交原文非占位串
+    io.emitInput('\r');
+    pump();
+    expect(calls.submitted[0]?.[1]).toBe(body);
+  });
 });
 
 describe('TuiBackend 历史回搜守卫（挖掘 31 轮 [3]——七闸接线面）', () => {

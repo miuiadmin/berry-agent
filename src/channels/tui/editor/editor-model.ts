@@ -95,6 +95,22 @@ export class EditorModel {
     return this.state.lines.join('\n');
   }
 
+  /**
+   * 展开投影（只读——不动状态）：标记行展开回登记原文、无登记防御保留
+   * 原行、普通行原样。程序面出稿用（外编播种等——getText 不展开，标记态
+   * 出框会把 `[paste #N +L lines]` 占位串当正文送出且读回清登记后原文
+   * 不可恢复；submit 展开同段单源于此——挖掘 32 轮）。
+   */
+  getExpandedText(): string {
+    return this.state.lines
+      .map((line) => {
+        const parsed = parsePasteMarker(line);
+        if (parsed === null) return line;
+        return this.state.markers.get(parsed.id) ?? line;
+      })
+      .join('\n');
+  }
+
   getLines(): string[] {
     return [...this.state.lines];
   }
@@ -175,13 +191,7 @@ export class EditorModel {
    * （防御位——正常流标记恒有登记）。
    */
   submit(): string {
-    const expanded = this.state.lines
-      .map((line) => {
-        const parsed = parsePasteMarker(line);
-        if (parsed === null) return line;
-        return this.state.markers.get(parsed.id) ?? line;
-      })
-      .join('\n');
+    const expanded = this.getExpandedText(); // 标记展开单源（见 getExpandedText 注）
     this.state = { lines: [''], cursorLine: 0, cursorCol: 0, markers: new Map() };
     this.undoStack.clear();
     this.lastAction = null;

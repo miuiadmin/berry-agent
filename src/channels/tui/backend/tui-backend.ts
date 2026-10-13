@@ -1491,7 +1491,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /**
    * 开外部编辑器（挖掘 31 轮 [9]——ctrl+g 挂起交出形）：主屏挂起 → raw 复
    * 先验（交终端给子进程——suspendMain 换防恒 raw 律的明示例外射程，cooked
-   * 态编辑器自理回显）→ 执行器（seed = 草稿全文）→ resumeMain 复起（全帧
+   * 态编辑器自理回显）→ 执行器（seed = 展开投影——标记行展开回原文）→ resumeMain 复起（全帧
    * 重画 + 瞬时行补吐）→ 三态分诊：edited 走 editor.setText 整替（单源路：
    * undo 单步可撤 + onChange 记账 + 空稿引导对账自然走通）；missing-editor /
    * failed 就地 notify 呈报（草稿未被动过——原稿只读播种临时文件，编辑器
@@ -1500,7 +1500,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private async openExternalEditor(): Promise<void> {
     this.externalEditorInFlight = true;
-    const seed = this.editor.getText();
+    // 种子走展开投影（非 getText）：标记态粘贴原文随种入编——占位串出框
+    // 且读回 setText 清登记后 submit 查不到登记，原文丢失（挖掘 32 轮修）
+    const seed = this.editor.getExpandedText();
     try {
       this.suspendMain();
       // 交终端给子进程：raw 复先验态（挂起交出形——07 交出面换防例外注射程）

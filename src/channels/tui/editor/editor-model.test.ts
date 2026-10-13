@@ -744,6 +744,17 @@ describe('EditorModel 粘贴标记化', () => {
     expect(m.getText()).toBe(''); // 全清
   });
 
+  it('getExpandedText 只读展开投影：标记行展开回原文 + 状态零扰动（外编播种面——挖掘 32 轮）', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste);
+    expect(m.getExpandedText()).toBe(bigPaste); // 标记行 → 登记原文
+    expect(m.getText()).toBe('[paste #1 +21 lines]'); // 框内仍只呈现标记（只读不动状态）
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]']); // 行集与登记均未动
+    // 混合稿面：普通行原样透传（展开只换标记行）
+    m.insertText('尾部'); // 守卫开新行（标记不劈——既有测试同形）
+    expect(m.getExpandedText()).toBe(`${bigPaste}\n尾部`);
+  });
+
   it('标记行上删除键 = 删整标记行（任意位、六原语同律、undo 单步）', () => {
     const m = new EditorModel();
     m.insertPaste(bigPaste);

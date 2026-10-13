@@ -138,6 +138,11 @@ export class Editor implements Renderable {
     return this.model.getText();
   }
 
+  /** 展开投影（只读——标记行展开回登记原文；外编播种等程序面出稿用——挖掘 32 轮） */
+  getExpandedText(): string {
+    return this.model.getExpandedText();
+  }
+
   setText(text: string): void {
     // 整稿替换清待靶态（挖掘 26 轮 [2]）：jump 靶属旧稿——外部清稿/回填路
     //（ctrl+d 清空腿 / inputAsk 激活与 abort 残稿清 / 斜杠命令回填）经本面
