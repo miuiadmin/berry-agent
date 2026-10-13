@@ -209,17 +209,22 @@ export class SessionPicker implements OverlayContent {
       region.col,
       fitLine('含审批记录在内的全部会话史将被删除，且不可恢复。', region.width),
     );
-    // 就地状态行（busy/missing/异常折面——notify 副屏期走停屏缓冲，面板自带
-    // 呈现保确认视图内可见）
-    if (this.confirmStatus !== undefined) {
+    // 矮终端行预算让位律（挖掘 34 轮——与清单视图 viewHeight 下限守卫同构）：
+    // 键面恒写 row+height-1 在 height=2 落 row+1 后写覆写不可逆警示（残段
+    // 撕裂形——破坏性确认失警示仍可 enter）。让位序：警示两行恒在（规范
+    // 明文案不让位）→ height≥3 键面回底行 → height≥4 状态行入位（height=3
+    // 状态行让位——键面在底与清单视图同构）
+    if (region.height >= 4 && this.confirmStatus !== undefined) {
       buffer.writeText(region.row + 2, region.col, fitLine(this.confirmStatus, region.width));
     }
-    buffer.writeText(
-      region.row + region.height - 1,
-      region.col,
-      fitLine(hintLine('enter 确认删除', 'esc/q 取消'), region.width),
-      HINT_STYLE,
-    );
+    if (region.height >= 3) {
+      buffer.writeText(
+        region.row + region.height - 1,
+        region.col,
+        fitLine(hintLine('enter 确认删除', 'esc/q 取消'), region.width),
+        HINT_STYLE,
+      );
+    }
   }
 
   /** 单行落位：左段（光标 + 活跃位 + 标题——适配剩余宽截断）+ 右段（时间 短id）右对齐 */

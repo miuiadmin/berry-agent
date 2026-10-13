@@ -378,6 +378,22 @@ describe('SessionPicker 删除键与确认位（05 §2.5 定形注①——破�
     expect(rig.calls).toEqual([]);
   });
 
+  it('矮终端行预算让位（挖掘 34 轮；修前红：height=2 键面行 row+height-1 后写覆写不可逆警示——破坏性确认失警示仍可 enter）', () => {
+    const rig = deferredDelete();
+    const { picker } = makePicker(sessions, { onDelete: rig.onDelete });
+    picker.handleEvent(k('d'));
+    // height=2：删除对象 + 不可逆警示恒在（规范明文案不让位），键面让位
+    const two = paintAll(picker, 70, 2).split('\n');
+    expect(two[0]).toContain('将删除');
+    expect(two[1]).toContain('不可恢复'); // 修前红：此行为键面「enter 确认删除」
+    expect(two[1]).not.toContain('enter 确认删除');
+    // height=3：警示 + 不可逆 + 键面（状态行让位——键面在底与清单视图同构）
+    const three = paintAll(picker, 70, 3).split('\n');
+    expect(three[0]).toContain('将删除');
+    expect(three[1]).toContain('不可恢复');
+    expect(three[2]).toContain('enter 确认删除');
+  });
+
   it('enter 确认 → onDelete 光标行 + deleted 就地滤行回清单（刷新重拉最小形）+ 异步落位请帧', async () => {
     const rig = deferredDelete();
     const repaint = vi.fn();
