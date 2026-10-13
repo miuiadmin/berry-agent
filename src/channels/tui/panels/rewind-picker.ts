@@ -399,8 +399,11 @@ export class RewindPicker implements OverlayContent {
         return true;
       }
       if (isPlainKey(k, 'backspace')) {
-        // 过滤词删尾（空词零动作）
-        if (this.query !== '') this.query = this.query.slice(0, -1);
+        // 过滤词删尾（空词零动作——浏览位不动：光标/视口保持。修前空词仍
+        // 强拉 cursor=0 + 视口回卷顶，与「空词零动作」契约矛盾——归首另有
+        // home 显式键，挖掘 34 轮）
+        if (this.query === '') return true;
+        this.query = this.query.slice(0, -1);
         this.cursor = 0; // 过滤集重算——光标归首防越界
         this.clampOffset(this.filtered().length);
         return true;

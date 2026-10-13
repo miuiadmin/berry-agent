@@ -135,6 +135,17 @@ describe('RewindPicker 打字过滤', () => {
     expect(readRow(grid, 0, 72)).toContain('3 个');
   });
 
+  it('空过滤词下 backspace 零动作——浏览位不动（修前红：光标强拉回首行视口回卷顶,与行内「空词零动作」契约矛盾；挖掘 34 轮）', () => {
+    const { picker } = makePicker();
+    picker.handleEvent(k('end')); // 光标到末条
+    let grid = paint(picker);
+    expect(readRow(grid, 3, 72).startsWith('›')).toBe(true); // 末条在选
+    picker.handleEvent(k('backspace')); // 空词——零动作
+    grid = paint(picker);
+    expect(readRow(grid, 3, 72).startsWith('›')).toBe(true); // 修前红：› 跳回首条（row 1）
+    expect(readRow(grid, 1, 72).startsWith('›')).toBe(false);
+  });
+
   it('空结果诚实呈现（无匹配行 + 过滤词回显）', () => {
     const { picker } = makePicker();
     picker.handleEvent(t('z'));

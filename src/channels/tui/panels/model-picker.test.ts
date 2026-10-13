@@ -174,6 +174,16 @@ describe('ModelPicker 打字过滤', () => {
     void grid;
   });
 
+  it('空过滤词下 backspace 零动作——浏览位不动（修前红：光标强拉回首行；挖掘 34 轮）', () => {
+    const { picker } = makePicker();
+    picker.handleEvent(k('end')); // 光标到末条目
+    let grid = paint(picker);
+    expect(readRow(grid, grid.rows - 2, 72).startsWith('›')).toBe(true); // 前置锚：end 已到末条目（底行 hint 上一行）
+    picker.handleEvent(k('backspace')); // 空词——零动作
+    grid = paint(picker);
+    expect(readRow(grid, grid.rows - 2, 72).startsWith('›')).toBe(true); // 修前红：› 跳回首组首条目
+  });
+
   it('空结果诚实呈现（无匹配行 + 过滤词回显）', () => {
     const { picker } = makePicker();
     picker.handleEvent(t('z'));
