@@ -184,7 +184,11 @@ export class ToolProgressPanel implements Renderable {
       // 修前只查数组两层层级，段坏形穿透至渲染帧 sanitizeLineText(undefined)
       // 抛 TypeError 沿 root.render 无守卫链杀进程——对齐 tool-card 卡体位同档）
       if (!Array.isArray(lines) || lines.length === 0) return null;
-      if (!lines.every((line) => Array.isArray(line) && line.every((seg) => typeof (seg as {text?: unknown})?.text === 'string'))) {
+      if (
+        !lines.every(
+          (line) => Array.isArray(line) && line.every((seg) => typeof (seg as { text?: unknown })?.text === 'string'),
+        )
+      ) {
         return null;
       }
       return lines;

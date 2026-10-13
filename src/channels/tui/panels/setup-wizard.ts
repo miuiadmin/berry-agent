@@ -447,8 +447,7 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       // 剪贴残留控制字节原样入 buffer——cell 零控制字节律跳 ESC 而可打印
       // 载荷照落屏（回显所见≠所录），且原始字节随 buffer 落库污染配置值
       // （API key 鉴权失败难排查）。text/ime 轨为引擎解码后干净键文不须此道
-      const text =
-        event.kind === 'paste' ? sanitizeDisplayText(event.text).replace(/\n/g, '') : event.text;
+      const text = event.kind === 'paste' ? sanitizeDisplayText(event.text).replace(/\n/g, '') : event.text;
       if (text !== '') this.handleTextRun(text);
       return true;
     }
