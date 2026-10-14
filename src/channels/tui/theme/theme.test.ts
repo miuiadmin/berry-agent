@@ -269,6 +269,30 @@ describe('weakRule 动态混合键（V-3 注⑨——弱存在感线取色链）
   });
 });
 
+describe('shimmer 混色对键（挖掘 35 轮 B0+B3——忙指示扫光真彩档取色链）', () => {
+  /** 自定义板夹具：text 定义（GitHub dark fg #e6edf3）——内置板 text 恒缺席无混合基 */
+  const CUSTOM_FG_BOARD = {
+    id: 'custom-fg',
+    dark: true,
+    colors: { ...DARK_PALETTE.colors, text: { r: 230, g: 237, b: 243 } },
+  };
+  const BG = { r: 13, g: 17, b: 23 }; // GitHub dark bg #0d1117
+
+  it('truecolor + fg 可展 + 探测在场 → {base=主题 fg, highlight=探测 bg} 原值对', () => {
+    expect(resolveTheme(CUSTOM_FG_BOARD, 'truecolor', BG).shimmer).toEqual({
+      base: { r: 230, g: 237, b: 243 },
+      highlight: { r: 13, g: 17, b: 23 },
+    });
+  });
+
+  it('缺席三形全 undefined：非 truecolor 档 / 探测缺席 / fg 混合基缺席（weakRule 同律）', () => {
+    expect(resolveTheme(CUSTOM_FG_BOARD, '256', BG).shimmer).toBeUndefined(); // 阶梯档不走混色
+    expect(resolveTheme(CUSTOM_FG_BOARD, 'truecolor').shimmer).toBeUndefined(); // OSC 11 未应答/失败
+    expect(resolveTheme(DARK_PALETTE, 'truecolor', BG).shimmer).toBeUndefined(); // text=undefined 终端缺省前景
+    expect(DEFAULT_THEME.shimmer).toBeUndefined(); // 缺省主题 = dark@16 双缺席
+  });
+});
+
 describe('builtinPalette（档 → 板）', () => {
   it('显式档映射恒等返回（dark/light 两板）', () => {
     expect(builtinPalette('dark')).toBe(DARK_PALETTE);

@@ -13,6 +13,12 @@ import { MarkdownDoc } from '../markdown/markdown.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
 import { DEFAULT_THEME } from '../theme/index.js';
 
+/** 剥 SGR/定位序列（忙态文案段扫光〔挖掘 35 轮 B0+B3〕逐字素样式切割字面锚——锚族走剥后形） */
+function stripAnsi(out: string): string {
+  // eslint-disable-next-line no-control-regex
+  return out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+}
+
 const COLS = 80;
 const ROWS = 10;
 const FIXED = 2;
@@ -464,7 +470,7 @@ describe('MainScreen 思考前缀冻结', () => {
     screen.present([thinkSlot(headingText(10), doc, '想法', false)]);
     io.bytes = '';
     screen.present([thinkSlot(headingText(10), doc, '想法在继续', false)]); // 流式档标签恒形
-    expect(io.bytes).toContain('思考中'); // 标签行重写（未冻证据——冻结面前缀连续）
+    expect(stripAnsi(io.bytes)).toContain('思考中'); // 标签行重写（未冻证据——冻结面前缀连续）
   });
 
   it('message_end 换装：thinking 块 + markdown 块跳过已冻前缀（含标签行——不重写不重复）', () => {
@@ -503,7 +509,7 @@ describe('MainScreen 思考前缀冻结', () => {
     // 为不稳头行让位重算（收缩到稳定面 0）、让位行回换装重写域整面重画
     io.bytes = '';
     screen.present([thinkSlot(headingText(10), doc, '想法继续', false)]);
-    expect(io.bytes).toContain('思考中'); // 流式档标签重写——交错期可见反馈（修前红：尾写恒自旧冻账起、标签永不被写）
+    expect(stripAnsi(io.bytes)).toContain('思考中'); // 流式档标签重写——交错期可见反馈（修前红：尾写恒自旧冻账起、标签永不被写）
     expect(io.bytes).toContain(sg('一')); // 让位行含 doc 前缀——整面重画（修前红：doc 前缀同样被旧账跳过）
     expect(io.bytes).not.toContain('思考 · 2s'); // 旧定稿档标签不在让位重画帧
     // 帧三再定终值（文本续推使 settled 翻回 true）：冻结面自让位账重建，标签携

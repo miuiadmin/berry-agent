@@ -278,7 +278,7 @@ describe('TuiBackend 状态面', () => {
     expect(io.bytes).not.toContain('✗ 失败');
     expect(io.bytes).not.toContain('✓ 用量');
     emit(backend, { type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: Date.now() + 5_000 });
-    expect(io.bytes).toContain('重试中 第 1/3 次'); // 退避窗在场（态③）
+    expect(stripAnsi(io.bytes)).toContain('重试中 第 1/3 次'); // 退避窗在场（态③）
     expect(io.bytes).not.toContain('✗ 失败'); // 窗内仍不闪 ✗（转轮不停）
     io.bytes = '';
     emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
@@ -342,10 +342,10 @@ describe('TuiBackend 状态面', () => {
     emit(backend, { type: 'agent_start' });
     io.bytes = '';
     emit(backend, { type: 'tool_execution_start', toolCallId: 'tc1', name: 'grep', arguments: {} });
-    expect(io.bytes).toContain('⚙ 搜索文本 …');
+    expect(stripAnsi(io.bytes)).toContain('⚙ 搜索文本 …');
     io.bytes = '';
     emit(backend, { type: 'tool_execution_end', toolCallId: 'tc1', result: {} as never });
-    expect(io.bytes).not.toContain('⚙ 搜索文本');
+    expect(stripAnsi(io.bytes)).not.toContain('⚙ 搜索文本');
   });
 
   it('非聚焦事件不驱动状态面（状态行是聚焦会话的）', () => {
@@ -1836,7 +1836,7 @@ describe('TuiBackend 工具进度面板（件 5）', () => {
     io.bytes = '';
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
     expect(io.bytes).not.toContain('• 搜索文本'); // 建档无行——工具名只进状态行
-    expect(io.bytes).toContain('⚙ 搜索文本 …');
+    expect(stripAnsi(io.bytes)).toContain('⚙ 搜索文本 …');
   });
 });
 
@@ -4721,13 +4721,13 @@ describe('TuiBackend footer 扩容段（三反馈批B→V-4 注⑪ 翻档——�
       footer: { tiers: () => tiers, cwdLabel: () => 'w' },
     });
     backend.start();
-    expect(io.bytes).toContain('思考中');
+    expect(stripAnsi(io.bytes)).toContain('思考中');
     io.reset();
     tiers = { mode: 'YOLO', thinking: '思考高', sandbox: '无沙箱' };
     backend.refreshFooter(); // 公开刷新面（批B——档位切换点即时刷）
     expect(io.bytes).toContain('YOLO · 思考高');
     expect(io.bytes).toContain('无沙箱'); // 行2 沙箱原词同刷
-    expect(io.bytes).not.toContain('思考中');
+    expect(stripAnsi(io.bytes)).not.toContain('思考中');
   });
 
   it('agent_end 刷累计段（run 落账后拉取现值——⑥a 刷新锚）', () => {
@@ -4759,7 +4759,7 @@ describe('TuiBackend footer 扩容段（三反馈批B→V-4 注⑪ 翻档——�
     io.bytes = '';
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
     clock.advance(1); // 泵帧
-    expect(io.bytes).toContain('⚙ 搜索文本 … · 本轮 50'); // 工具段后拼本轮段（' · ' 连接）
+    expect(stripAnsi(io.bytes)).toContain('⚙ 搜索文本 … · 本轮 50'); // 工具段后拼本轮段（' · ' 连接）
     expect(io.bytes).not.toContain('tok/s'); // 速度段退役（注⑪⑦——速度面归行1 笔3）
   });
 });
@@ -5619,12 +5619,12 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
     io.bytes = '';
     emit(backend, { type: 'agent_start' });
     expect(io.bytes).toContain('\x1b[36m⠋'); // 态① accent 转轮（与文本段分立 SGR——不拼串断言）
-    expect(io.bytes).toContain('正在对话中'); // 态① 基础文案
+    expect(stripAnsi(io.bytes)).toContain('正在对话中'); // 态① 基础文案
     expect(io.bytes).toContain('按 ESC 取消对话'); // keyText('global.interrupt') 首键 escape → ESC 显示单源
     expect(io.bytes).toContain('\x1b[1;2r'); // 10 行 - 固定区 7（任务行 1 + 编辑器 5〔上垫 1+呈现 3+下垫 1〕+ 状态行 1——五件批 A+B）- R-1 间隔 1
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
-    expect(io.bytes).not.toContain('正在对话中'); // 闲态零高度缺席（忙态呈现不驻留）
+    expect(stripAnsi(io.bytes)).not.toContain('正在对话中'); // 闲态零高度缺席（忙态呈现不驻留）
     expect(io.bytes).toContain('\x1b[1;3r'); // 固定区回 6 行（任务行退役→编辑器 5+状态 1）——高度变更滚动区重设（10-6-1=R-1 间隔）
   });
 
@@ -5633,7 +5633,7 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
     emit(backend, { type: 'agent_start' });
     io.bytes = '';
     emit(backend, { type: 'message_start', role: 'assistant' });
-    expect(io.bytes).toContain('思考中'); // 起跑缺省思考中（首 update 分诊纠正——零空窗）
+    expect(stripAnsi(io.bytes)).toContain('思考中'); // 起跑缺省思考中（首 update 分诊纠正——零空窗）
     io.bytes = '';
     // thinking 尾块在场 → 思考中（词面维持——同词零重绘）
     emit(backend, {
@@ -5641,7 +5641,7 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
       role: 'assistant',
       partial: mixedSnapshot(['先想想'], []),
     });
-    expect(io.bytes).toContain('思考中');
+    expect(stripAnsi(io.bytes)).toContain('思考中');
     io.bytes = '';
     // text 尾块到达 → 生成中（词面迁移一次）
     emit(backend, {
@@ -5649,10 +5649,10 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
       role: 'assistant',
       partial: mixedSnapshot(['先想想'], ['你好']),
     });
-    expect(io.bytes).toContain('生成中');
+    expect(stripAnsi(io.bytes)).toContain('生成中');
     io.bytes = '';
     emit(backend, { type: 'message_end', message: assistantMsg('答') });
-    expect(io.bytes).toContain('正在对话中'); // 流式窗关归态①
+    expect(stripAnsi(io.bytes)).toContain('正在对话中'); // 流式窗关归态①
   });
 
   it('态② 思考活状态头（挖掘 31 轮 [2]）：末思考块首个粗体段替位「思考中」——缺席兜底/换段清头/单行消毒', () => {
@@ -5666,8 +5666,8 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
       role: 'assistant',
       partial: mixedSnapshot(['先想想再说'], []),
     });
-    expect(io.bytes).toContain('思考中');
-    expect(io.bytes).not.toContain('先想想再说'); // 无粗体正文不上状态行
+    expect(stripAnsi(io.bytes)).toContain('思考中');
+    expect(stripAnsi(io.bytes)).not.toContain('先想想再说'); // 无粗体正文不上状态行
     // 粗体闭合到达 → 活头替位（extract_first_bold 律——首个 **bold** 段内文）
     io.bytes = '';
     emit(backend, {
@@ -5675,8 +5675,8 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
       role: 'assistant',
       partial: mixedSnapshot(['**解析用户意图**\n需要核对配置'], []),
     });
-    expect(io.bytes).toContain('解析用户意图');
-    expect(io.bytes).not.toContain('需要核对配置'); // 粗体段外内文不上状态行
+    expect(stripAnsi(io.bytes)).toContain('解析用户意图');
+    expect(stripAnsi(io.bytes)).not.toContain('需要核对配置'); // 粗体段外内文不上状态行
     // 粗体未闭合 → 待后续增量（缺席兜底维持，不硬造半截）
     io.bytes = '';
     emit(backend, {
@@ -5684,7 +5684,7 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
       role: 'assistant',
       partial: mixedSnapshot(['**解析用户意图**\n需要核对配置\n**开了没闭'], []),
     });
-    expect(io.bytes).toContain('解析用户意图'); // 首个闭合段维持（后续增量不清已锁头）
+    expect(stripAnsi(io.bytes)).toContain('解析用户意图'); // 首个闭合段维持（后续增量不清已锁头）
     // text 尾块到达 → 生成中 + 活头退场
     io.bytes = '';
     emit(backend, {
@@ -5692,8 +5692,8 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
       role: 'assistant',
       partial: mixedSnapshot(['**解析用户意图**'], ['你好']),
     });
-    expect(io.bytes).toContain('生成中');
-    expect(io.bytes).not.toContain('解析用户意图');
+    expect(stripAnsi(io.bytes)).toContain('生成中');
+    expect(stripAnsi(io.bytes)).not.toContain('解析用户意图');
     // thinking 重入新段（interleaved 形——text 后再 thinking，mixedSnapshot 序表达不了须内联）→ 换段清头重建（块界律——旧头不残留）
     io.bytes = '';
     emit(backend, {
@@ -5711,8 +5711,8 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
         timestamp: 1,
       },
     });
-    expect(io.bytes).toContain('思考中');
-    expect(io.bytes).not.toContain('解析用户意图');
+    expect(stripAnsi(io.bytes)).toContain('思考中');
+    expect(stripAnsi(io.bytes)).not.toContain('解析用户意图');
     // 段内换行折叠单空格（任务行单行几何律——消毒单源 sanitizeDisplayText + 空白折叠）
     io.bytes = '';
     emit(backend, {
@@ -5720,7 +5720,7 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
       role: 'assistant',
       partial: mixedSnapshot(['**甲\n乙**'], []),
     });
-    expect(io.bytes).toContain('甲 乙');
+    expect(stripAnsi(io.bytes)).toContain('甲 乙');
   });
 
   it('本轮 N 边跑边涨 + 真值校正（估值器 ⑥c 供数——message_update 差分累计 / message_end onSettled）', () => {
@@ -5729,19 +5729,19 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
     emit(backend, { type: 'message_start', role: 'assistant' });
     io.bytes = '';
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('你') });
-    expect(io.bytes).toContain('本轮 1'); // CJK 1 token/字（首快照全量）
+    expect(stripAnsi(io.bytes)).toContain('本轮 1'); // CJK 1 token/字（首快照全量）
     io.bytes = '';
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('你好世界') });
-    expect(io.bytes).toContain('本轮 4'); // 差分 +3（非重算形）
+    expect(stripAnsi(io.bytes)).toContain('本轮 4'); // 差分 +3（非重算形）
     io.bytes = '';
     // message_end 真值校正：output = 50 顶替估值（单次收敛）
     emit(backend, { type: 'message_end', message: usageMsg(100) });
-    expect(io.bytes).toContain('本轮 50');
+    expect(stripAnsi(io.bytes)).toContain('本轮 50');
     io.bytes = '';
     // 下一 turn 起跑：reset 重建基线（agent_start fresh 清账 + message_start 复位）
     emit(backend, { type: 'message_start', role: 'assistant' });
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('新') });
-    expect(io.bytes).toContain('本轮 1'); // 前轮账已清——差分从零重计
+    expect(stripAnsi(io.bytes)).toContain('本轮 1'); // 前轮账已清——差分从零重计
   });
 
   it('态③ 重试倒计时：retry_wait_start → 「重试中 第 n/N 次 · Ns 后」+ 转轮持续推帧', () => {
@@ -5749,7 +5749,7 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
     emit(backend, { type: 'agent_start' });
     io.bytes = '';
     emit(backend, { type: 'retry_wait_start', attempt: 2, maxAttempts: 3, nextAt: Date.now() + 3_000 });
-    expect(io.bytes).toContain('重试中 第 2/3 次 · 3s 后'); // 绝对时刻 → 本地钟现算倒计时
+    expect(stripAnsi(io.bytes)).toContain('重试中 第 2/3 次 · 3s 后'); // 绝对时刻 → 本地钟现算倒计时
     io.bytes = '';
     backend.tick();
     expect(io.bytes).toContain('⠙'); // 转轮不停（退避窗内忙态闸在开）
@@ -5766,7 +5766,7 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
     io.bytes = '';
     emit(backend, { type: 'agent_start' });
     expect(io.bytes).toContain('⠋'); // ✗ 驻留清场——新 run 回忙态（转轮回场）
-    expect(io.bytes).toContain('正在对话中');
+    expect(stripAnsi(io.bytes)).toContain('正在对话中');
     expect(io.bytes).not.toContain('✗ 失败');
   });
 });

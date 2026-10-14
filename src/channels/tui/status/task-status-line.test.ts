@@ -13,10 +13,10 @@
  * 估值器 ⑥c 供数）。
  */
 import { describe, expect, it } from 'vitest';
-import { CellGrid } from '../../engine/index.js';
-import { DEFAULT_THEME } from '../theme/index.js';
+import { CellGrid, colorRgbOf } from '../../engine/index.js';
+import { DARK_PALETTE, DEFAULT_THEME, resolveTheme } from '../theme/index.js';
 import { formatElapsedCompact } from '../../../contracts/index.js';
-import { TaskStatusLine, type TaskStatusProviders } from './task-status-line.js';
+import { TaskStatusLine, shimmerIntensity, type TaskStatusProviders } from './task-status-line.js';
 
 /** 可变供数器（测试注入面——渲染期现拉语义同生产闭包） */
 function makeProviders(overrides: Partial<TaskStatusProviders> = {}): TaskStatusProviders & {
@@ -79,6 +79,81 @@ describe('formatElapsedCompact（任务行与收尾行共单源）', () => {
     expect(formatElapsedCompact(90_000)).toBe('1m 30s');
     expect(formatElapsedCompact(3_600_000)).toBe('1h 00m 00s');
     expect(formatElapsedCompact(3_723_000)).toBe('1h 02m 03s');
+  });
+});
+
+describe('shimmerIntensity（扫光带纯函数——挖掘 35 轮 B0+B3 单源锁形）', () => {
+  it('余弦带形：带心 1 / 带中点 0.5 / 带缘 0（含界）/ 带外 0', () => {
+    // textCols=10 → span=30；nowMs=1000 → phase 0.5 → pos=15（带心落列位 5）
+    expect(shimmerIntensity(5, 10, 1000)).toBe(1); // dist 0
+    expect(shimmerIntensity(7.5, 10, 1000)).toBe(0.5); // dist 2.5 → cos(π/2)=0
+    expect(shimmerIntensity(10, 10, 1000)).toBe(0); // dist 5（带缘含界归 0）
+    expect(shimmerIntensity(0, 10, 0)).toBe(0); // pos 0 → dist 10 带外
+  });
+
+  it('周期环绕：相隔整周期同相位同强度（2s 周期 mod 复现）', () => {
+    expect(shimmerIntensity(4, 10, 2000)).toBe(shimmerIntensity(4, 10, 0));
+  });
+});
+
+describe('TaskStatusLine 忙态文案段扫光（挖掘 35 轮 B0+B3）', () => {
+  it('非真彩三档阶梯：带外 dim / 带中无样式 / 带心 bold——相位随注入钟推进', () => {
+    const p = makeProviders(); // now=1_000_000（mod 2000 = 0 → 带全外）
+    const line = new TaskStatusLine(p);
+    line.enterWorking();
+    // 相位 0：整段 t=0 → 阶梯 dim 档（codex color_for_level 同形——带外也恒样式）
+    let grid = renderLine(line);
+    expect(grid.getCell(0, 2)?.style.dim).toBe(true);
+    // advance 1000 → phase 0.5 → pos 15：文案「正在对话中」10 列（列位 0/2/4/6/8）
+    // 正(dist5)→t=0 dim / 在(dist3)→t≈0.345 无样式 / 对(dist1)→t≈0.905 bold
+    p.advance(1000);
+    grid = renderLine(line);
+    expect(grid.getCell(0, 2)?.style.dim).toBe(true); // 正
+    expect(grid.getCell(0, 4)?.style.dim).toBeUndefined(); // 在——中档无样式
+    expect(grid.getCell(0, 4)?.style.bold).toBeUndefined();
+    expect(grid.getCell(0, 6)?.style.bold).toBe(true); // 对——带心升 bold
+  });
+
+  it('真彩档混色：base=主题 fg 向探测 bg 混 t×0.9 恒 bold（theme.shimmer 供血）', () => {
+    const p = makeProviders();
+    const line = new TaskStatusLine(p);
+    const theme = resolveTheme(
+      { ...DARK_PALETTE, colors: { ...DARK_PALETTE.colors, text: { r: 216, g: 222, b: 233 } } },
+      'truecolor',
+      { r: 30, g: 30, b: 30 },
+    );
+    expect(theme.shimmer).toEqual({ base: { r: 216, g: 222, b: 233 }, highlight: { r: 30, g: 30, b: 30 } });
+    line.setTheme(theme);
+    line.enterWorking();
+    // 相位 0（t=0 → a=0）：全段 fg=base 恒 bold（codex 真彩档带外恒样式——无 dim 阶梯）
+    let grid = renderLine(line);
+    expect(grid.getCell(0, 2)?.style.bold).toBe(true);
+    expect(grid.getCell(0, 2)?.style.fg).toEqual(colorRgbOf(216, 222, 233));
+    // advance 1200 → phase 0.6 → pos 18：'中'（列位 8，dist 0）t=1 → a=0.9
+    // fg = round(highlight×0.9 + base×0.1)——裁决强度 0.9 的手工算术锁
+    p.advance(1200);
+    grid = renderLine(line);
+    expect(grid.getCell(0, 10)?.style.fg).toEqual(colorRgbOf(49, 49, 50));
+    expect(grid.getCell(0, 10)?.style.bold).toBe(true);
+    // 带外 '正'（列位 0，dist 8）维持 base——真彩档不落 dim 档
+    expect(grid.getCell(0, 2)?.style.fg).toEqual(colorRgbOf(216, 222, 233));
+    expect(grid.getCell(0, 2)?.style.dim).toBeUndefined();
+  });
+
+  it('动效门辖扫光：禁用形文案纯文本（零 dim/bold/fg）；态③ 例外保整段 dim（注⑩ 静态语义）', () => {
+    const p = makeProviders();
+    const line = new TaskStatusLine(p);
+    line.enterWorking();
+    line.setAnimations(false);
+    const grid = renderLine(line);
+    expect(grid.getCell(0, 2)?.style.dim).toBeUndefined();
+    expect(grid.getCell(0, 2)?.style.bold).toBeUndefined();
+    expect(grid.getCell(0, 2)?.style.fg).toBeUndefined();
+    // 态③ 整段 dim 是降存在感静态语义非动效——门辖外保留
+    line.enterRetry(1, 3, p.now() + 3_000);
+    const grid2 = renderLine(line);
+    expect(readRow(grid2, 0, 60)).toContain('重试中');
+    expect(grid2.getCell(0, 2)?.style.dim).toBe(true);
   });
 });
 

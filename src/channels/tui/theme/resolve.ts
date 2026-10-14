@@ -85,6 +85,14 @@ export interface ResolvedTheme {
    * 或 fg+dim 既有形。
    */
   readonly weakRule: ColorValue | undefined;
+  /**
+   * 忙指示扫光混色对（挖掘 35 轮 B0+B3——非语义计算键，同 depth/dark 位：
+   * 板不可覆写、增键不动 SEMANTIC_KEYS）：base = 主题 fg、highlight = 探测
+   * bg。truecolor 档 + fg 可展 + 探测背景在场三条件齐才定值；缺席 = 消费位
+   * （任务行忙态文案段）走非真彩三档阶梯回退（dim/无样式/bold——色域档
+   * 降级非退场）。
+   */
+  readonly shimmer: { readonly base: RgbChannels; readonly highlight: RgbChannels } | undefined;
 }
 
 /**
@@ -260,7 +268,13 @@ export function resolveTheme(board: ThemeBoard, depth: ColorDepth, terminalBg?: 
       if (weakRuleVisible(blend, terminalBg)) colors.weakRule = toDepthValue(blend, depth);
     }
   }
-  return Object.freeze({ depth, dark: board.dark, ...colors }) as ResolvedTheme;
+  // shimmer 混色对腿（挖掘 35 轮 B0+B3——第三个特例单写位）：truecolor 档 +
+  // 主题 fg 可展（textRgbOf 同门）+ 探测背景在场三条件齐才定值。base = 主题
+  // fg、highlight = 探测 bg（codex blend 同向：带内字素向终端底色迁移）
+  const shimmerBase = depth === 'truecolor' ? textRgbOf(board.colors.text) : undefined;
+  const shimmer =
+    shimmerBase !== undefined && terminalBg !== undefined ? { base: shimmerBase, highlight: terminalBg } : undefined;
+  return Object.freeze({ depth, dark: board.dark, ...colors, shimmer }) as ResolvedTheme;
 }
 
 /**

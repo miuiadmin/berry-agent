@@ -20,17 +20,44 @@
  * 拼于括号段前（态①②——流中估值器 ⑥c 供数、message_end 真值收口；态③④
  * 无段）；**速度段退役**（注⑪⑦——taskLine 尾拼与 agent_end 尾注速段双撤，
  * 速度面归行1 笔3 speedView 消费）；ESC 提示取键位册首键单源显示。
+ * 忙态文案段扫光（挖掘 35 轮 B0+B3——codex shimmer 同形）：2s 周期余弦
+ * 扫光带逐字素着色，相位 = 注入钟渲染期现算（绝对时刻律同源——件内零自
+ * 驱时钟维持）；真彩档基色向探测 bg 混 t×0.9 恒 bold、非真彩三档阶梯
+ * （dim/无样式/bold）；受动效门辖（禁用形纯文本——B2 门）。
  * 供数器（elapsed/turnTokens/interruptHint/now）全注入——本件零装配知识，测试
  * 确定性前提（件内零自驱时钟，与 StatusLine 同律）。
  */
-import type { CellBuffer, CellStyle, Region, Renderable } from '../../engine/index.js';
-import { DIM_STYLE, ellipsize, stringWidth } from '../../engine/index.js';
+import type { CellBuffer, CellStyle, Region, Renderable, RgbChannels } from '../../engine/index.js';
+import { DIM_STYLE, colorRgbOf, ellipsize, graphemeWidth, splitGraphemes, stringWidth } from '../../engine/index.js';
 import { formatElapsedCompact, joinSegments } from '../../../contracts/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { HEAD_MARKS } from '../panels/panel-chrome.js';
 
 /** 转轮帧序（braille 十帧——件内自持单源） */
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+
+/** 扫光带参数（挖掘 35 轮 B0+B3——codex shimmer.rs 同形：2s 周期、半带宽
+ * 5 列、两侧 padding 10 列——带自文案左侧入场至右侧离场匀速扫过） */
+const SHIMMER_PERIOD_MS = 2_000;
+const SHIMMER_HALF_WIDTH = 5;
+const SHIMMER_PADDING = 10;
+/** 真彩档混色强度帽（codex 同形 0.9——带心字素也保留 10% 基色，不整字没入底色） */
+const SHIMMER_STRENGTH = 0.9;
+
+/** bold 样式（阶梯档带内 ≥0.6 位——engine 只出 DIM/EMPTY，本件自持单源） */
+const BOLD_STYLE: Readonly<CellStyle> = Object.freeze({ bold: true });
+
+/**
+ * 扫光强度（0..1）：文案段内列位的余弦带——带心 1、带缘 0、带外 0。相位
+ * 基准 = 注入钟（pos 随 nowMs 推进、周期环绕）。纯函数导出（测试单源锁形）。
+ */
+export function shimmerIntensity(col: number, textCols: number, nowMs: number): number {
+  const span = textCols + SHIMMER_PADDING * 2;
+  const pos = ((nowMs % SHIMMER_PERIOD_MS) / SHIMMER_PERIOD_MS) * span;
+  const dist = Math.abs(col + SHIMMER_PADDING - pos);
+  if (dist > SHIMMER_HALF_WIDTH) return 0;
+  return 0.5 * (1 + Math.cos((Math.PI * dist) / SHIMMER_HALF_WIDTH));
+}
 
 /** 任务行态 + 离场态（idle = 零高度缺席；注⑪⑦：streaming 拆 thinking/generating 双态） */
 export type TaskLineState = 'idle' | 'working' | 'thinking' | 'generating' | 'retrying' | 'error';
@@ -68,6 +95,9 @@ export class TaskStatusLine implements Renderable {
   private spinnerStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
   /** 错误终态样式（error 语义键） */
   private errorStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.error });
+  /** 扫光混色对（theme.shimmer 定值——setTheme 重建；undefined = 非真彩档/
+   * 基色不可知，走三档阶梯回退〔挖掘 35 轮 B0+B3〕） */
+  private shimmerBlend: { base: RgbChannels; highlight: RgbChannels } | undefined = DEFAULT_THEME.shimmer;
   /** dim 样式（态③ 文案与括号段——注⑩：engine 正典单源） */
   private readonly dimStyle: Readonly<CellStyle> = DIM_STYLE;
   /** 动效门（挖掘 35 轮 B2+B4——false = 禁用形：转轮退 • dim 静态符 + tick
@@ -79,10 +109,12 @@ export class TaskStatusLine implements Renderable {
     this.providers = providers;
   }
 
-  /** 主题换装（backend injectTheme 单源路——accent/error 派生样式重建） */
+  /** 主题换装（backend injectTheme 单源路——accent/error 派生样式重建 + 扫光
+   * 混色对随行〔色域档/探测面换装即换扫光档〕） */
   setTheme(theme: ResolvedTheme): void {
     this.spinnerStyle = Object.freeze({ fg: theme.accent });
     this.errorStyle = Object.freeze({ fg: theme.error });
+    this.shimmerBlend = theme.shimmer;
   }
 
   /** 动效门控（挖掘 35 轮 B2+B4——backend 构造后早于首 render 注入；真源 =
@@ -219,10 +251,54 @@ export class TaskStatusLine implements Renderable {
     const textBudget = Math.max(0, region.width - 2 - (useParen ? parenWidth : 0));
     const fitted = ellipsize(text, textBudget);
     if (fitted !== '') {
-      // 态③ 整段 dim（转轮不停——仅文案降存在感，不闪「✗ 失败」）
-      buffer.writeText(region.row, region.col + 2, fitted, this.state === 'retrying' ? this.dimStyle : undefined);
+      if (this.animationsEnabled) {
+        // 忙态文案段扫光（挖掘 35 轮 B0+B3——态①②③ 同扫）：逐字素按列位
+        // 强度着色；态③ t=0 阶梯位即 dim（注⑩ 基形天然落在带外档，带过境
+        // 字素短暂升档 = 忙指示语汇统一）
+        this.writeShimmered(buffer, region.row, region.col + 2, fitted);
+      } else {
+        // 门禁用形（B2）：扫光退场纯文本——态③ 例外保整段 dim（注⑩ 是静态
+        // 降存在感语义非动效，门辖外）
+        buffer.writeText(region.row, region.col + 2, fitted, this.state === 'retrying' ? this.dimStyle : undefined);
+      }
     }
     if (useParen) buffer.writeText(region.row, region.col + 2 + stringWidth(fitted), paren, this.dimStyle);
+  }
+
+  /** 忙态文案段扫光落格（B0+B3）：逐字素取列位强度单写一格（宽字素按其
+   * 起始列定位——列域扫光与显示几何同构）；相位渲染期现算（纯渲染零态变） */
+  private writeShimmered(buffer: CellBuffer, row: number, col: number, text: string): void {
+    const nowMs = this.providers.now();
+    const cols = stringWidth(text);
+    let at = col;
+    for (const g of splitGraphemes(text)) {
+      const t = shimmerIntensity(at - col, cols, nowMs);
+      buffer.writeText(row, at, g, this.shimmerStyle(t));
+      at += graphemeWidth(g);
+    }
+  }
+
+  /**
+   * 单字素扫光样式：真彩档 = 基色向高光（探测 bg）混 t×0.9 + 恒 bold（codex
+   * blend 同向同强——带外字素也恒样式）；非真彩 = 三档阶梯（t<0.2 dim /
+   * t<0.6 无样式 / ≥0.6 bold）。
+   */
+  private shimmerStyle(t: number): Readonly<CellStyle> | undefined {
+    if (this.shimmerBlend !== undefined) {
+      const a = t * SHIMMER_STRENGTH;
+      const { base, highlight } = this.shimmerBlend;
+      return Object.freeze({
+        fg: colorRgbOf(
+          Math.round(highlight.r * a + base.r * (1 - a)),
+          Math.round(highlight.g * a + base.g * (1 - a)),
+          Math.round(highlight.b * a + base.b * (1 - a)),
+        ),
+        bold: true,
+      });
+    }
+    if (t < 0.2) return this.dimStyle;
+    if (t < 0.6) return undefined;
+    return BOLD_STYLE;
   }
 
   /** 文案段（态① 工具段优先/② 思考中·生成中细分/③ 重试倒计时；本轮段尾拼 ` · `——态①②） */
