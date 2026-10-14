@@ -102,6 +102,7 @@ import {
   LiveTranscript,
   shortIdOf,
   type ApprovalDecisionLineInput,
+  type AskDecisionLineInput,
   type TodoSnapshotLineInput,
   type TranscriptBlock,
 } from './transcript.js';
@@ -578,8 +579,8 @@ interface AskLayerWaiter {
   readonly content: OverlayContent;
   /** 保守值收口回调（调用方 promise 的保守 resolve） */
   readonly abort: () => void;
-  /** 撤销说明行文案（曾在屏的 abort 收场才写——07 §4.3 撤销面） */
-  readonly cancelLine: string;
+  /** 撤销说明行文案（曾在屏的 abort 收场才写——07 §4.3 撤销面；审批 ask 专属词面，undefined = 阻塞三件形不落瞬时行——挖掘 36 轮 [2] ⏹ 退役） */
+  readonly cancelLine: string | undefined;
   /** 本件已落定（应答/撤销收场）——槽释放扫队的败腿锁判据（07 §4.3） */
   settled: boolean;
   /** 已开层的真句柄（null = 尚在等待位——从未在屏） */
@@ -2344,6 +2345,21 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * 直播腿问答落史行追加（挖掘 36 轮 [2]——ask/settled 总线消费位）：ask
+   * 收场落史经宿主订阅腿回灌（**非后端自主记录**——后端面 confirm/select/
+   * input 无会话语境，跨会话错挂 + 竞速败腿误记两害使记录位定谳归 UiCore
+   * 收场单汇点）；appendApprovalDecisionLine 同形（块账入 present 链）。
+   * live-only 块——onRepaint 重建后诚实消失（transcript 块型律）。调用位
+   * 过滤（聚焦限定）归 tui-entry 订阅位。
+   */
+  appendAskDecisionLine(input: AskDecisionLineInput): void {
+    this.transcript.appendAskDecision(input);
+    // 块账入 present 链（appendApprovalDecisionLine 同律——缺此步新块不入帧）
+    this.enqueuePresent();
+    this.requestRender();
+  }
+
+  /**
    * 瞬时说明行入正文流（notify 与 ask 撤销说明行共用路——07 §4.3「曾在屏
    * 者由通道上撤销说明行」）：槽判定按**到达时刻**真相分流（2026-09-22 修复）
    * ——槽在场直推 slotTransients 让位（关槽帧排空，到达序保持），无槽入
@@ -2860,12 +2876,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /* ---------------- 阻塞四件（浮层面板呈现——07 §4.3） ---------------- */
 
-  /** 是/否确认：ConfirmPanel 浮层（Enter → true / Esc → false；signal abort 保守值 + 关层 + 撤销说明行） */
+  /**
+   * 是/否确认：ConfirmPanel 浮层（Enter → true / Esc → false；signal abort
+   * 保守值 + 关层——撤销呈现归 ask-decision 落史行，挖掘 36 轮 [2] ⏹ 瞬时行
+   * 退役：不传撤销词面即不落瞬时行）
+   */
   confirm(message: string, opts?: UiAskOptions): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       // onQuit 透传（ctrl+d 浮层期退出——副屏件族「先收屏再转 onQuit」同路）
       const panel = new ConfirmPanel({ message, onQuit: this.onQuit });
-      const handle = this.openAskLayer(panel, () => resolve(false), opts?.signal, '⏹ 已取消确认');
+      const handle = this.openAskLayer(panel, () => resolve(false), opts?.signal);
       panel.onFinish = (confirmed) => {
         handle.close();
         resolve(confirmed);
@@ -2873,7 +2893,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     });
   }
 
-  /** 单选：SelectPanel 浮层（Enter → value / Esc → ''；ui-core 校验不在集保守值同收 ''） */
+  /** 单选：SelectPanel 浮层（Enter → value / Esc → ''；ui-core 校验不在集保守值同收 ''——撤销呈现归 ask-decision 落史行同 confirm 律） */
   select(message: string, choices: readonly UiSelectChoice[], opts?: UiAskOptions): Promise<string> {
     return new Promise<string>((resolve) => {
       const panel = new SelectPanel({
@@ -2882,7 +2902,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         theme: this.theme, // 一次性面板构造期定值（当前主题快照）
         onQuit: this.onQuit, // ctrl+d 浮层期退出（confirm/askApproval 三路同接）
       });
-      const handle = this.openAskLayer(panel, () => resolve(''), opts?.signal, '⏹ 已取消选择');
+      const handle = this.openAskLayer(panel, () => resolve(''), opts?.signal);
       panel.onFinish = (value) => {
         handle.close();
         resolve(value);
@@ -2892,14 +2912,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /**
    * 自由文本：input-ask 形——提示行入固定区 + 编辑器转应答车（提交即应答，
-   * 弹层抑制）；signal abort → '' 保守值 + 残稿清框 + 撤销说明行（07 §4.3
-   * 撤销面——提示行曾在固定区在屏，abort 收口正文流落 ⏹ 行）。
+   * 弹层抑制）；signal abort → '' 保守值 + 残稿清框（撤销呈现归 ask-decision
+   * 落史行——挖掘 36 轮 [2] ⏹ 瞬时行退役，07 §4.3 撤销面句翻档为审批 ask
+   * 专属）。
    *
    * 异会话 FIFO 队列化（07 §4.1 路由序条 input() 异会话 FIFO 定形注——十六役
    * 扫 #2；节号勘正 2026-10-04：原引 §4.3 系错引，该定形注真源在 §4.1）：
    * 在飞问未收场时新问入队候接（不抢占队首——修前直覆使先问 promise 永悬）；
    * 应答/取消收场后队首自动晋升接续。排队问 abort = 静默出队保守值 ''（提示
-   * 行从未上屏——不落撤销说明行）。
+   * 行从未上屏——零撤销痕迹：落史路单汇点侧同判「从未问出」零记录）。
    */
   input(message: string, opts?: UiInputOptions): Promise<string> {
     return new Promise<string>((resolve) => {
@@ -2907,7 +2928,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       // 一次性广播——已发毕的 signal 再挂监听永不再触发（Node 实证），激活
       // 即占应答车成僵尸问（无人能收、promise 永悬）。ui-core 侧 ask 入口
       // 已有早退护栏，UiBackend 是公开面——其他装配方直传时由此兜底：零
-      // 呈现直收保守值（从未上屏——不落撤销说明行、不清框）
+      // 呈现直收保守值（从未上屏——零撤销痕迹、不清框）
       if (opts?.signal?.aborted) {
         resolve('');
         return;
@@ -2919,10 +2940,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         'abort',
         () => {
           if (this.inputAsk === ask) {
-            // 激活态 abort：撤销说明行 + 残稿清框（07 §4.3 撤销面）
+            // 激活态 abort：残稿清框 + 保守值收口（撤销呈现归 ask-decision
+            // 落史行——挖掘 36 轮 [2] ⏹ 瞬时行退役，此处不再落瞬时行）
             this.inputAsk = null;
             this.resumeElapsedClock(); // 应答窗关——耗时恢复走表（挖掘 31 轮 [8]；比对位=单汇点盖四值收口）
-            this.appendTransientLine('⏹ 已取消提问', { persist: true });
             this.editor.setText('');
             this.autocompleteCompleter.cancel();
             this.popup.applyResult(null);
@@ -3544,14 +3565,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /* ---------------- 内部：ask 浮层 ---------------- */
 
   /**
-   * 开 ask 浮层：内联回退锚（fx2-D）+ signal abort 保守值收口 + 撤销说明行 +
-   * 重绘请求。confirm / select / askApproval 三路共用本层。
+   * 开 ask 浮层：内联回退锚（fx2-D）+ signal abort 保守值收口 + 撤销说明行
+   * （审批 ask 专属）+ 重绘请求。confirm / select / askApproval 三路共用本层。
    *
-   * 「曾在屏者」判据（07 §4.3 语义纪律撤销面——三路统一处理）：abort 传播到
-   * 后端呈现时层仍未关（在 overlay 栈中）= 曾在屏 → 撤销说明行入正文流；面板
-   * 已 done（onFinish 先关层）后迟到的 abort 是 no-op，不误写。说明行只标撤销
-   * 收场本身——保守值收口（与提问队列收口三则「保守值同撤销面」同源条款：审批
-   * 项收 'cancel'、阻塞件各收保守值）由 promise 回值承载，行文不重复。
+   * 「曾在屏者」判据（07 §4.3 语义纪律撤销面——三路统一处理；2026-10-14 挖掘
+   * 36 轮 [2] 翻档：撤销说明行语义此后**审批 ask 专属**——阻塞三件〔confirm/
+   * select/input〕的撤销呈现改记 ask-decision 落史行，本层 cancelLine 缺席形
+   * 即不落瞬时行）：abort 传播到后端呈现时层仍未关（在 overlay 栈中）= 曾在
+   * 屏 → cancelLine 在场才写撤销说明行入正文流 + 关层；面板已 done（onFinish
+   * 先关层）后迟到的 abort 是 no-op，不误写。说明行只标撤销收场本身——保守
+   * 值收口（与提问队列收口三则「保守值同撤销面」同源条款：审批项收 'cancel'、
+   * 阻塞件各收保守值）由 promise 回值承载，行文不重复。
    *
    * 异会话 overlay 呈现串行化（07 §4.3 提问队列条 2026-10-04 定形注）：TUI
    * overlay 呈现位全局单槽——槽获取守卫在后端呈现层（present() 仍在 start 时
@@ -3564,7 +3588,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     content: OverlayContent,
     abort: () => void,
     signal: AbortSignal | undefined,
-    cancelLine: string,
+    cancelLine?: string,
   ): OverlayHandle {
     // 入参 signal 已中止早检（纵深防御——十六役 N1 同族在 ask 浮层位的兜底）：
     // abort 事件是一次性广播，已发毕的 signal 再挂监听永不再触发——开层即成
@@ -3585,8 +3609,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         if (waiter.settled) return; // 已落定——迟到 abort no-op（面板 done 后不误写）
         waiter.settled = true;
         if (waiter.handle !== null) {
-          // 激活态 abort：层仍在屏才写（07 §4.3 撤销面）
-          if (!waiter.handle.closed) this.appendTransientLine(cancelLine, { persist: true });
+          // 激活态 abort：层仍在屏、cancelLine 在场才写（审批 ask 专属——
+          // 阻塞三件缺席形零瞬时行，撤销呈现归 ask-decision 落史行）
+          if (waiter.cancelLine !== undefined && !waiter.handle.closed)
+            this.appendTransientLine(waiter.cancelLine, { persist: true });
           waiter.handle.close();
         } else {
           // 等待态 abort：静默撤销——出等待队列（从未在屏——不落撤销说明行）

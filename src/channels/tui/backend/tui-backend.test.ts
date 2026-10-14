@@ -1400,17 +1400,18 @@ describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面�
   });
 });
 
-describe('TuiBackend ask 撤销说明行（07 §4.3 撤销面——曾在屏者 ⏹ 行 + 迟到 abort 不误写）', () => {
-  it('confirm：abort → false + 撤销说明行；面板已 done 后迟到 abort 不误写', async () => {
+describe('TuiBackend ask 撤销面（07 §4.3 撤销句翻档——⏹ 行审批 ask 专属〔挖掘 36 轮 [2]〕+ 迟到 abort 不误写）', () => {
+  it('confirm：abort → false + 零撤销瞬时行（⏹ 已取消确认退役——撤销呈现归 ask-decision 落史行）；面板已 done 后迟到 abort 不误写', async () => {
     const { io, backend, pump } = makeInteractive();
-    // 路一：外部 abort 传播到时层仍在屏——说明行入正文流
+    // 路一：外部 abort 传播到时层仍在屏——层关 + 保守值；撤销呈现归落史行
+    //（核侧 UiCore 单汇点——后端直调形零撤销痕迹）
     const ac1 = new AbortController();
     const p1 = backend.confirm('一？', { signal: ac1.signal });
     pump();
     ac1.abort();
     await expect(p1).resolves.toBe(false); // 保守值
     pump();
-    expect(io.bytes).toContain('\r⏹ 已取消确认\n'); // 撤销说明行（瞬时行形态）
+    expect(io.bytes).not.toContain('已取消确认'); // ⏹ 瞬时行退役（挖掘 36 轮 [2]）
 
     // 路二：Enter 应答收场（面板 done）后 abort 迟到——零说明行
     const ac2 = new AbortController();
@@ -1425,7 +1426,7 @@ describe('TuiBackend ask 撤销说明行（07 §4.3 撤销面——曾在屏者 
     expect(io.bytes).not.toContain('⏹'); // 不误写
   });
 
-  it('select：abort → 空串 + 撤销说明行；已选定后迟到 abort 不误写', async () => {
+  it('select：abort → 空串 + 零撤销瞬时行（⏹ 已取消选择退役同律）；已选定后迟到 abort 不误写', async () => {
     const { io, backend, pump } = makeInteractive();
     const choices = [{ value: 'a', label: '甲' }];
     const ac1 = new AbortController();
@@ -1434,7 +1435,7 @@ describe('TuiBackend ask 撤销说明行（07 §4.3 撤销面——曾在屏者 
     ac1.abort();
     await expect(p1).resolves.toBe('');
     pump();
-    expect(io.bytes).toContain('\r⏹ 已取消选择\n');
+    expect(io.bytes).not.toContain('已取消选择'); // ⏹ 瞬时行退役（挖掘 36 轮 [2]）
 
     const ac2 = new AbortController();
     const p2 = backend.select('再选', choices, { signal: ac2.signal });
@@ -1470,7 +1471,7 @@ describe('TuiBackend ask 撤销说明行（07 §4.3 撤销面——曾在屏者 
     expect(io.bytes).not.toContain('⏹');
   });
 
-  it('input：abort → 空串 + 撤销说明行；inputAsk 已换（应答收场）后迟到 abort 不误写', async () => {
+  it('input：abort → 空串 + 零撤销瞬时行（⏹ 已取消提问退役——挖掘 36 轮 [2]）；inputAsk 已换（应答收场）后迟到 abort 不误写', async () => {
     const { io, backend, pump } = makeInteractive();
     const ac1 = new AbortController();
     const p1 = backend.input('名字？', { signal: ac1.signal });
@@ -1482,7 +1483,7 @@ describe('TuiBackend ask 撤销说明行（07 §4.3 撤销面——曾在屏者 
     ac1.abort();
     await expect(p1).resolves.toBe('');
     pump();
-    expect(io.bytes).toContain('\r⏹ 已取消提问\n');
+    expect(io.bytes).not.toContain('已取消提问'); // ⏹ 瞬时行退役——撤销呈现归落史行
     expect(io.bytes).not.toContain('? 名字？'); // 提示行已撤
 
     // inputAsk 已换（新 ask 顶上）后旧 signal abort——不误写、不打扰新 ask
@@ -5611,13 +5612,13 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     ac2.abort(); // 排队问取消——静默出队（提示行从未上屏）
     pump();
     await expect(p2).resolves.toBe(''); // 保守值收口
-    expect(io.bytes).not.toContain('已取消提问'); // 从未上屏——不落撤销说明行
+    expect(io.bytes).not.toContain('已取消提问'); // 从未上屏——零撤销痕迹
     expect(io.bytes).toContain('? 第一问'); // 队首不受扰
     io.bytes = ''; // 清零——后续只认取消帧增量
-    ac1.abort(); // 队首 abort——激活态撤销面 + 第三问晋升接续
+    ac1.abort(); // 队首 abort——激活态收口 + 第三问晋升接续
     pump();
     await expect(p1).resolves.toBe('');
-    expect(io.bytes).toContain('已取消提问'); // 撤销说明行（曾在屏者——07 §4.3 撤销面）
+    expect(io.bytes).not.toContain('已取消提问'); // ⏹ 瞬时行退役（挖掘 36 轮 [2]）——激活态取消零撤销行
     expect(io.bytes).toContain('? 第三问'); // 队首晋升（FIFO 链不断）
     io.emitInput('丁\r');
     pump();
@@ -6830,6 +6831,29 @@ describe('TuiBackend appendApprovalDecisionLine（挖掘 31 轮 [1]——块账�
     backend.appendApprovalDecisionLine({ decision: 'always', summary: 'npm run' });
     expect(stripAnsi(io.bytes)).toContain('✓ 已批准 · npm test');
     expect(stripAnsi(io.bytes)).toContain('✓ 已总是批准 · npm run');
+  });
+});
+
+/* ---------------- 问答落史行（挖掘 36 轮 [2]）——直播追加公开面 ---------------- */
+
+describe('TuiBackend appendAskDecisionLine（挖掘 36 轮 [2]——块账追加即入帧）', () => {
+  it('已回复落帧：↳ 已回复 · <问题> · <答案>（块账路——同步直出即入帧）', () => {
+    // 修前红：appendAskDecisionLine 未存在（TS2339）
+    const { io, backend } = makeBackend();
+    backend.appendAskDecisionLine({ outcome: 'answered', question: '继续吗', answer: '是' });
+    // SGR 游程切割谱同 approval：字面锚 stripAnsi 后断
+    expect(stripAnsi(io.bytes)).toContain('↳ 已回复 · 继续吗 · 是');
+  });
+
+  it('已取消落帧：↳ 已取消 · <问题>（无答案段）+ 消毒链在渲染位（后端透传真值）', () => {
+    const { io, backend } = makeBackend();
+    backend.appendAskDecisionLine({ outcome: 'cancelled', question: '选档' });
+    expect(stripAnsi(io.bytes)).toContain('↳ 已取消 · 选档');
+    // 用户自由输入的 OSC 序列不入屏账（渲染位 sanitizeDisplayText 单源）
+    io.bytes = '';
+    backend.appendAskDecisionLine({ outcome: 'answered', question: '问', answer: 'a\x1b]52;c;aGk=\x07b' });
+    expect(io.bytes.includes('\x1b]52;')).toBe(false);
+    expect(stripAnsi(io.bytes)).toContain('↳ 已回复 · 问 · ab');
   });
 });
 

@@ -25,7 +25,10 @@ export type {
   CommandSpec,
   ChannelsOptions,
   UiClipboardResult,
+  AskSettledNotice,
 } from './types.js';
+// ask 收场总线词（值导出——挖掘 36 轮 [2]：host 订阅腿只走公开面 import）
+export { ASK_SETTLED_EVENT } from './types.js';
 export { CommandRegistry, tokenize } from './commands.js';
 export { AskQueue } from './ask-queue.js';
 export type { AskHooks } from './ask-queue.js';

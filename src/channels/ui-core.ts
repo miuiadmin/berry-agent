@@ -20,6 +20,7 @@ import type {
   ApprovalAskAnswer,
   ApprovalAskRequest,
   AskKind,
+  AskSettledNotice,
   NotifyLevel,
   UiAskOptions,
   UiBackend,
@@ -36,6 +37,12 @@ export class UiCore {
   private readonly askQueue: AskQueue;
   /** 审批 always 的策略表回写注入（07 §4.3 提问队列条款——装配接线） */
   private readonly onApprovalAlways: ((entry: string) => void) | undefined;
+  /**
+   * ask 收场通知注入（挖掘 36 轮 [2]——07 §4.1 问答落史行）：阻塞三件收场
+   * 单点发射（记录位定谳归核——后端面无会话语境，后端层记录跨会话错挂 +
+   * 竞速败腿误记已取消两害结构性不可救）；缺席 = 零通知零行为。
+   */
+  private readonly onAskSettled: ((notice: AskSettledNotice) => void) | undefined;
   /** widget 会话级单槽（07 §4.3——per-session 恰一槽，后写胜前写） */
   private readonly widgets = new Map<string, { node: unknown }>();
 
@@ -43,10 +50,12 @@ export class UiCore {
     backendsGetter: () => readonly UiBackend<never>[],
     askQueue: AskQueue,
     onApprovalAlways?: (entry: string) => void,
+    onAskSettled?: (notice: AskSettledNotice) => void,
   ) {
     this.backendsGetter = backendsGetter;
     this.askQueue = askQueue;
     this.onApprovalAlways = onApprovalAlways;
+    this.onAskSettled = onAskSettled;
   }
 
   private backends(): readonly UiBackend<never>[] {
@@ -125,6 +134,9 @@ export class UiCore {
         this.notify(message);
         return Promise.resolve(false);
       },
+      // 落史记录（挖掘 36 轮 [2]）：问题 = message 单源（降级腿记原问题非降级
+      // 提示文）；confirm 答案映射 是/否
+      { question: message, answerOf: (v) => (v ? '是' : '否') },
     );
   }
 
@@ -153,6 +165,10 @@ export class UiCore {
         this.notify(`${message}\n${choices.map((c) => `- ${c.label} → ${c.value}`).join('\n')}`);
         return Promise.resolve('');
       },
+      // 落史记录（挖掘 36 轮 [2]）：label 优先、缺席回 value（validateChoice
+      // 保守塌缩 ''→answered + label 缺席回 value——空串裸呈由 input 形「（空）」
+      // 语义承担位不同，select 塌缩答案裸呈 '' 仅发生在 choices 空集极端形）
+      { question: message, answerOf: (v) => choices.find((c) => c.value === v)?.label ?? v },
     );
   }
 
@@ -171,6 +187,9 @@ export class UiCore {
         this.notify(message);
         return Promise.resolve('');
       },
+      // 落史记录（挖掘 36 轮 [2]）：input 原文；空输入记「（空）」——占位词面
+      // （查四批准词锁在册——非裸空串，呈现面可辨「答了空」与「没答」）
+      { question: message, answerOf: (v) => (v === '' ? '（空）' : v) },
     );
   }
 
@@ -293,6 +312,8 @@ export class UiCore {
     externalSignal: AbortSignal | undefined,
     conservative: () => T,
     present: AskPresenter<T>,
+    /** 落史记录（挖掘 36 轮 [2]——缺席〔approval/测试形〕不记录零通知）：问题文 + 答案映射（answered 位才消费） */
+    record?: { question: string; answerOf: (value: T) => string },
   ): Promise<T> {
     // 入参 signal 已中止先检（abort 事件只发一次，只挂监听则死路——
     // safety/approval.ts bridgeApprovalSignal 同律）。早退**不入队**：入队即
@@ -327,7 +348,11 @@ export class UiCore {
     // 外部 signal 经本核折入 finish，不直传后端）
     const controller = new AbortController();
 
-    const finish = (value: T): void => {
+    // finish 双态（挖掘 36 轮 [2]）：answered = present 胜出位（含他端竞速
+    // 答走）；cancelled = 保守位（cancel()/外 signal/present 异常伞形）——
+    // 撤销真相只在收场单汇点可辨（后端 abort 位两态不可分），故收场词面
+    // 以此为唯一真源。
+    const finish = (value: T, outcome: 'answered' | 'cancelled'): void => {
       if (done) return;
       done = true;
       controller.abort(); // 败腿撤销传播（已落定后端再收 abort 是无害 no-op）
@@ -336,9 +361,22 @@ export class UiCore {
       //（cancel 语义）。AskQueue 无单件出队面——本件在队内的残位由 start
       // 钩子的 done 早检在晋升时刻零呈现让位（见下）。
       if (started) this.askQueue.settled(sessionId);
+      // ask 收场单点通知（挖掘 36 轮 [2]——07 §4.1 问答落史行记录位定谳）：
+      // started（已出队呈现过）才通知——排队期被外 signal 早退收口 = 从未
+      // 问出，零记录；approval 不产本通知（durable 词对另立挂账）；record
+      // 缺席（测试形直调）零通知。
+      if (started && kind !== 'approval' && record !== undefined) {
+        this.onAskSettled?.({
+          sessionId,
+          kind,
+          question: record.question,
+          outcome,
+          ...(outcome === 'answered' ? { answer: record.answerOf(value) } : {}),
+        });
+      }
     };
 
-    const externalAbort = () => finish(conservative());
+    const externalAbort = () => finish(conservative(), 'cancelled');
     externalSignal?.addEventListener('abort', externalAbort, { once: true });
 
     this.askQueue.enqueue(sessionId, kind, {
@@ -364,13 +402,16 @@ export class UiCore {
         // 审批第四原语天然不受此形：askApproval 的 present 体在 new Promise
         // executor 内调后端，同步 throw 被 executor 折成 rejection 走二参路。
         try {
-          present(controller.signal).then(finish, () => finish(conservative()));
+          present(controller.signal).then(
+            (value) => finish(value, 'answered'), // present 胜出位（含他端竞速答走）
+            () => finish(conservative(), 'cancelled'), // 呈现异常折保守值——伞形归已取消
+          );
         } catch (cause) {
-          finish(conservative());
+          finish(conservative(), 'cancelled');
           throw cause;
         }
       },
-      cancel: () => finish(conservative()),
+      cancel: () => finish(conservative(), 'cancelled'),
     });
 
     return promise;

@@ -85,6 +85,32 @@ export interface CommandSpec {
 export type AskKind = 'confirm' | 'select' | 'input' | 'approval';
 
 /**
+ * ask 收场落史总线词（挖掘 36 轮 [2]——07 §4.1 问答落史行词条；approval/
+ * settled 同构先例）。住本面非 contracts：活体总线词册在 host dispatch
+ * （check-api 快照射程零漂移），host 侧经 channels 公开面 import（DAG 边表
+ * channels→conversation 禁使词单源 import 不可达——词住被消费域）。
+ */
+export const ASK_SETTLED_EVENT = 'ask/settled';
+
+/**
+ * ask 收场通知（UiCore 收场单汇点发射——阻塞三件专属；审批族走
+ * approval/settled 自有面）。后端面 confirm/select/input 无会话语境——
+ * 后端层记录会跨会话错挂 + 竞速败腿误记已取消，两害皆结构性不可救，
+ * 记录位定谳归核单汇点（07 §4.1 词条记录位定谳句）。
+ */
+export interface AskSettledNotice {
+  readonly sessionId: string;
+  /** 原语词（approval 不产本通知——durable 词对另立挂账） */
+  readonly kind: 'confirm' | 'select' | 'input';
+  /** 原问题文（降级腿记原问题非降级提示文——UiCore 入参单源，免问题失真） */
+  readonly question: string;
+  /** 收场态：answered = present 胜出（含他端竞速答走——真相在单汇点可辨）；cancelled = 保守收场（外 signal/队收口/present 异常伞形） */
+  readonly outcome: 'answered' | 'cancelled';
+  /** 答案呈现段（answered 在场）：confirm→是/否；select→label 缺席回 value；input→原文/（空） */
+  readonly answer?: string;
+}
+
+/**
  * 通道核装配选项。投影拉取经注入回调（host 装配侧钉 session 面——channels
  * 不依赖 session 是 02 §4.1 边表的刻意设计，投影类型 TProjection 由装配钉入）。
  */
@@ -188,6 +214,13 @@ export interface ChannelsOptions<TProjection> {
    * （非静默）。快照档语义：dispatch 时现读，无订阅无推送面。
    */
   readonly lastResponse?: (sessionId: string) => Promise<string | null>;
+  /**
+   * ask 收场落史单汇点注入（挖掘 36 轮 [2]——07 §4.1 问答落史行）：装配根经
+   * dispatch 总线词 `ask/settled` 扇出（TUI 直播腿订阅——approval/settled
+   * 同构；晚绑定由总线解：UiCore 建于 createChannels、TUI 后端建于
+   * tui-entry，直连不可达）。缺席注入律：缺席 = 零通知零行为。
+   */
+  readonly askSettledSink?: (notice: AskSettledNotice) => void;
 }
 
 /**

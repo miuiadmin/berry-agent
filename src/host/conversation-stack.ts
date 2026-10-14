@@ -29,7 +29,7 @@ import { join } from 'node:path';
 
 import { canonicalWorkspaceRoot, createLogger, EventDispatch, LogLevelState, Scope } from '../context/index.js';
 import type { Disposer } from '../context/index.js';
-import { createChannels, foldErrorText } from '../channels/index.js';
+import { ASK_SETTLED_EVENT, createChannels, foldErrorText } from '../channels/index.js';
 import type { ChannelsService } from '../channels/index.js';
 import type {
   AgentMessage,
@@ -616,6 +616,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     customProviderIdSet.has(providerId) ? [] : providerApiKeyEnvNames(providerId);
   const scope = options.scope ?? Scope.createRoot();
   const dispatch = options.dispatch ?? new EventDispatch();
+  // —— ask/settled 活体词注册（挖掘 36 轮 [2]——07 §4.1 问答落史行）：UiCore
+  // 收场单汇点发射 → TUI 订阅腿（tui-entry）消费。幂等守卫下双起点安全
+  // （assembly 预注册 / 自建 dispatch——job_settled 先例形）；assembly 侧 belt
+  // 位定谳省略（单点足矣——设计档「可省」明示，本处是唯一注册位）
+  if (!dispatch.isRegistered(ASK_SETTLED_EVENT)) {
+    dispatch.registerEventNames([ASK_SETTLED_EVENT]);
+  }
   const model = options.model ?? resolveDefaultModelSpec(options.env ?? process.env);
   // 模型旋钮基座（07 §4.1 R5 挂账解挂批——ctrl+p 模型循环）：可变持有与
   // const 基线同源单变量族——读面/defaultModel 闭包/驱动装配取值器三消费位
@@ -1220,6 +1227,14 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     lastResponse: async (sessionId) => {
       const messages = await projectionWithSeqOf(sessionId);
       return lastResponseMarkdownOf(messages);
+    },
+    // ask 收场落史单汇点注入（挖掘 36 轮 [2]——07 §4.1 问答落史行）：UiCore
+    // confirm/select/input 收场 → dispatch 总线词 ask/settled 广播（approval/
+    // settled 同构——装配序晚绑定由总线解：UiCore 建于 createChannels、TUI
+    // 后端建于 tui-entry，直连不可达）。webui/serve 路无订阅者零行为变
+    //（emit 对零监听词是安全 no-op）。
+    askSettledSink: (notice) => {
+      void dispatch.emit(ASK_SETTLED_EVENT, notice);
     },
   });
 

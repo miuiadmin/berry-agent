@@ -37,8 +37,8 @@ import {
   runOnboardingPanel,
   TuiBackend,
 } from '../channels/index.js';
-import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
-import { gitHeadCompactLabel, readGitHead } from '../channels/index.js';
+import type { AskSettledNotice, AutocompleteItem, TerminalIO } from '../channels/index.js';
+import { ASK_SETTLED_EVENT, gitHeadCompactLabel, readGitHead } from '../channels/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import {
   APPROVAL_SETTLED_EVENT,
@@ -1846,6 +1846,21 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         if (notice.sessionId !== stack.channels.focusedId) return;
         if (!isUserApprovalDecision(notice)) return;
         backend.appendApprovalDecisionLine({ decision: notice.decision, summary: notice.summary });
+      });
+    }
+
+    // —— ask/settled 问答落史行直播腿订阅（挖掘 36 轮 [2]——07 §4.1 问答落史行
+    // 词条）：阻塞三件（confirm/select/input）收场 → UiCore 收场单汇点通知经
+    // 总线广播 → 本腿聚焦过滤后块账路追加（appendAskDecisionLine——live-only
+    // 块：无 seq 归位锚、onRepaint 投影重建后诚实消失 = 语义）。非聚焦会话
+    // 收场零本屏呈现（与审批腿同构的聚焦过滤；⏳ 提示行标记问题在队是另一面
+    // ——openAskLayer 等待位既有呈现）；词注册在 conversation-stack 幂等单点
+    //（isRegistered 恒真——防御位同 job_settled 律）。
+    if (dispatch.isRegistered(ASK_SETTLED_EVENT)) {
+      dispatch.on(ASK_SETTLED_EVENT, (data) => {
+        const notice = data as AskSettledNotice;
+        if (notice.sessionId !== stack.channels.focusedId) return; // 聚焦限定
+        backend.appendAskDecisionLine({ outcome: notice.outcome, question: notice.question, answer: notice.answer });
       });
     }
 

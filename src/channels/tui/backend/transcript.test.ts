@@ -2140,6 +2140,78 @@ describe('LiveTranscript 审批决策块（挖掘 31 轮 [1]——approval-decis
   });
 });
 
+/* ---------------- 问答落史行（挖掘 36 轮 [2]）——live-only 块渲染 + 入账 + 重建消失 ---------------- */
+
+describe('LiveTranscript 问答落史行块（挖掘 36 轮 [2]——ask-decision live-only）', () => {
+  /** 落史行块速构（渲染面直锁） */
+  const askBlock = (outcome: 'answered' | 'cancelled', question: string, answer?: string): TranscriptBlock => ({
+    kind: 'ask-decision',
+    outcome,
+    question,
+    ...(answer !== undefined ? { answer } : {}),
+    theme: DEFAULT_THEME,
+  });
+
+  it('词面两态 + 游程色：answered「↳ 已回复 · 问题 · 答案」三游程（accent/dim/accent）、cancelled「↳ 已取消 · 问题」无答案段（secondary/dim）', () => {
+    // 修前红：union 无此 kind——switch 穷尽性红（无 default 的联合穷尽杠杆）
+    const answered = renderBlockStyledLines(askBlock('answered', '继续吗', '是'), 100, false);
+    expect(answered).toHaveLength(1); // 一行制
+    expect(answered[0]!.plain).toBe('↳ 已回复 · 继续吗 · 是');
+    expect(answered[0]!.runs).toHaveLength(3); // 首词 + 问题段 + 答案段
+    expect(answered[0]!.runs[0]).toMatchObject({
+      start: 0,
+      end: '↳ 已回复'.length,
+      style: { fg: DEFAULT_THEME.accent },
+    });
+    expect(answered[0]!.runs[1]!.style.dim).toBe(true); // 问题段 dim（次色）
+    expect(answered[0]!.runs[2]).toMatchObject({ style: { fg: DEFAULT_THEME.accent } }); // 答案段主色
+    const cancelled = renderBlockStyledLines(askBlock('cancelled', '继续吗'), 100, false);
+    expect(cancelled).toHaveLength(1);
+    expect(cancelled[0]!.plain).toBe('↳ 已取消 · 继续吗'); // 无答案段
+    expect(cancelled[0]!.runs).toHaveLength(2);
+    expect(cancelled[0]!.runs[0]).toMatchObject({ style: { fg: DEFAULT_THEME.secondary } }); // 弱化事实非成败
+    expect(cancelled[0]!.runs[1]!.style.dim).toBe(true);
+  });
+
+  it('多行折叠一行 + 控制字节消毒（sanitizeDisplayText——answer 是用户自由输入）+ 超宽出口帽', () => {
+    const multi = renderBlockStyledLines(askBlock('answered', '第一行\n  第二行', '答一\n答二'), 100, false);
+    expect(multi).toHaveLength(1); // 一行化——非多行块
+    expect(multi[0]!.plain).toBe('↳ 已回复 · 第一行第二行 · 答一答二');
+    // 消毒：OSC 52 转义整段剥除（consumeEscapeSequence 吞全段）/ CR 剥除——不入屏账（问题/答案两段同律）
+    const dirty = renderBlockStyledLines(askBlock('answered', 'q\x1b]52;c;aGk=\x07', 'a\rb'), 100, false);
+    expect(dirty[0]!.plain.includes('\x1b')).toBe(false);
+    expect(dirty[0]!.plain).toBe('↳ 已回复 · q · ab');
+    // 超宽：80 列整字截断（出口帽 capStyledLine——宽感知无半字）
+    const wide = renderBlockStyledLines(askBlock('answered', `问${'长'.repeat(90)}`, '答'), 80, false);
+    expect(wide).toHaveLength(1);
+    expect(stringWidth(wide[0]!.plain)).toBeLessThanOrEqual(80);
+    expect(wide[0]!.plain.startsWith('↳ 已回复 · 问长')).toBe(true);
+  });
+
+  it('dialogueBlockCount 计入（排除式计数只除会话头卡——ask-decision 在册）', () => {
+    const block = askBlock('cancelled', '问');
+    expect(dialogueBlockCount([block])).toBe(1);
+  });
+
+  it('直播腿：appendAskDecision 入块账（dialogueBlockCount 计入 + 尾块在场）+ onRepaint 投影重建后诚实消失（live-only 锁）', () => {
+    // 修前红：appendAskDecision 未存在（TS2339）
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_end', message: assistantMsg('答') });
+    const before = dialogueBlockCount(t.snapshot);
+    t.appendAskDecision({ outcome: 'answered', question: '继续吗', answer: '是' });
+    expect(dialogueBlockCount(t.snapshot)).toBe(before + 1); // 块账在册——非瞬时行
+    expect(t.snapshot[t.snapshot.length - 1]).toMatchObject({ kind: 'ask-decision', outcome: 'answered' });
+    // live-only 锁：投影重建（loadProjection 无 ask 源参——durable 投影源零此族）
+    // 后块消失 = 语义（scrollback 是呈现缓存非事实源——防后人误补 durable 的
+    // 回归锁：重建后块账不含 ask-decision 即绿）
+    t.loadProjection([
+      { ...userMsg('问'), seq: 0 },
+      { ...assistantMsg('答'), seq: 1 },
+    ] as never);
+    expect(t.snapshot.some((b) => b.kind === 'ask-decision')).toBe(false);
+  });
+});
+
 /* ---------------- todo 清单落史快照（挖掘 35 轮 B8）——签名闸 + 渲染 + 投影归位 ---------------- */
 
 describe('LiveTranscript todo 快照块（挖掘 35 轮 B8——todo-snapshot）', () => {

@@ -28,7 +28,7 @@ interface AskEntry<T> {
   readonly reject: (reason?: unknown) => void;
 }
 
-/** 全能假后端（能力可覆写；问询记录 + 手动应答；select 非本件消费面省略） */
+/** 全能假后端（能力可覆写；问询记录 + 手动应答；select 随 [2] 批补实装） */
 function fakeBackend(id: string, capsOverride?: Partial<UiCapabilities>) {
   const capabilities: UiCapabilities = {
     notify: true,
@@ -42,6 +42,7 @@ function fakeBackend(id: string, capsOverride?: Partial<UiCapabilities>) {
   };
   const confirmAsks: AskEntry<boolean>[] = [];
   const inputAsks: AskEntry<string>[] = [];
+  const selectAsks: Array<AskEntry<string> & { choices: readonly { label: string; value: string }[] }> = [];
   const approvalAsks: AskEntry<ApprovalAskAnswer>[] = [];
   const statusCalls: { sessionId: string; status: string }[] = [];
   const notified: string[] = [];
@@ -55,6 +56,11 @@ function fakeBackend(id: string, capsOverride?: Partial<UiCapabilities>) {
     confirm: (message, opts) => {
       const d = deferred<boolean>();
       confirmAsks.push({ message, signal: opts?.signal, ...d });
+      return d.promise;
+    },
+    select: (message, choices, opts) => {
+      const d = deferred<string>();
+      selectAsks.push({ message, choices, signal: opts?.signal, ...d });
       return d.promise;
     },
     input: (message, opts) => {
@@ -72,12 +78,17 @@ function fakeBackend(id: string, capsOverride?: Partial<UiCapabilities>) {
     },
     setWidget: () => {},
   };
-  return { backend, confirmAsks, inputAsks, approvalAsks, statusCalls, notified };
+  return { backend, confirmAsks, inputAsks, selectAsks, approvalAsks, statusCalls, notified };
 }
 
 /** 造核：直接持 AskQueue 与后端数组（绕经 channels 组合根的单元视角） */
-function makeCore(backends: UiBackend<never>[], onApprovalAlways?: (entry: string) => void) {
-  return new UiCore(() => backends, new AskQueue(), onApprovalAlways);
+function makeCore(
+  backends: UiBackend<never>[],
+  onApprovalAlways?: (entry: string) => void,
+  onAskSettled?: (notice: import('./types.js').AskSettledNotice) => void,
+) {
+  // 修前红锚（挖掘 36 轮 [2]）：构造器第 4 参未存在（TS2554）
+  return new UiCore(() => backends, new AskQueue(), onApprovalAlways, onAskSettled);
 }
 
 describe('能力双重校验（防后端声明能力而缺实现——防御位）', () => {
@@ -355,6 +366,140 @@ describe('ask 编舞单元边界', () => {
     b2.approvalAsks[0]?.resolve('unavailable'); // 迟到票——no-op
     expect(await p).toBe('approve');
     expect(ui.pending('s1')).toEqual([]); // 落定出队收口——全票 fail-closed 分支未触发
+  });
+});
+
+/* ---------------- ask 收场单汇点通知（挖掘 36 轮 [2]——AskSettledNotice 全形态） ---------------- */
+
+describe('ask 收场单汇点通知（挖掘 36 轮 [2]——07 §4.1 问答落史行的核侧真源）', () => {
+  /** 造核 + 通知收集器（全 it 共用形） */
+  function makeNoticing(backends: UiBackend<never>[]) {
+    const notices: import('./types.js').AskSettledNotice[] = [];
+    const ui = makeCore(backends, undefined, (n) => notices.push(n));
+    return { ui, notices };
+  }
+
+  it('confirm 双值映射 是/否 + cancelled 形 question 在场 answer 缺席', async () => {
+    const b = fakeBackend('tui');
+    const { ui, notices } = makeNoticing([b.backend]);
+    const p1 = ui.confirm('s1', '做吗？');
+    b.confirmAsks[0]?.resolve(true);
+    await p1;
+    const p2 = ui.confirm('s1', '再试？');
+    b.confirmAsks[1]?.resolve(false);
+    await p2;
+    const ac = new AbortController();
+    const p3 = ui.confirm('s1', '取消我', { signal: ac.signal });
+    ac.abort(); // 外 signal 撤销——保守位 cancelled（answer 键缺席非空串）
+    await p3;
+    expect(notices).toEqual([
+      { sessionId: 's1', kind: 'confirm', question: '做吗？', outcome: 'answered', answer: '是' },
+      { sessionId: 's1', kind: 'confirm', question: '再试？', outcome: 'answered', answer: '否' },
+      { sessionId: 's1', kind: 'confirm', question: '取消我', outcome: 'cancelled' },
+    ]);
+  });
+
+  it('select label 优先 + validateChoice 保守塌缩非集答案 → answered 裸空串（「（空）」词专属 input 形）', async () => {
+    const b = fakeBackend('tui');
+    const { ui, notices } = makeNoticing([b.backend]);
+    const p1 = ui.select('s1', '选档', [
+      { label: '高配', value: 'pro' },
+      { label: '标准', value: 'std' },
+    ]);
+    b.selectAsks[0]?.resolve('pro'); // label 优先（value !== label 形下记 label）
+    await p1;
+    const p2 = ui.select('s1', '再选', [{ label: '高配', value: 'pro' }]);
+    b.selectAsks[1]?.resolve('nope'); // 非集答案——validateChoice 塌缩 ''（fail-closed）
+    await p2;
+    expect(notices).toEqual([
+      { sessionId: 's1', kind: 'select', question: '选档', outcome: 'answered', answer: '高配' },
+      { sessionId: 's1', kind: 'select', question: '再选', outcome: 'answered', answer: '' },
+    ]);
+  });
+
+  it('input 原文直记 + 空输入记「（空）」占位词面（呈现面可辨「答了空」与「没答」）', async () => {
+    const b = fakeBackend('tui');
+    const { ui, notices } = makeNoticing([b.backend]);
+    const p1 = ui.input('s1', '名字？');
+    b.inputAsks[0]?.resolve('murong');
+    await p1;
+    const p2 = ui.input('s1', '备注？', { placeholder: '可留空' });
+    b.inputAsks[1]?.resolve('');
+    await p2;
+    expect(notices).toEqual([
+      { sessionId: 's1', kind: 'input', question: '名字？', outcome: 'answered', answer: 'murong' },
+      { sessionId: 's1', kind: 'input', question: '备注？', outcome: 'answered', answer: '（空）' },
+    ]);
+  });
+
+  it('approval 族零本通知（durable 词对走 approval/settled 自有面——另立挂账）', async () => {
+    const b = fakeBackend('tui');
+    const { ui, notices } = makeNoticing([b.backend]);
+    const p = ui.askApproval('s1', { summary: '写文件' });
+    b.approvalAsks[0]?.resolve('approve');
+    expect(await p).toBe('approve');
+    expect(notices).toEqual([]);
+  });
+
+  it('排队期收场零通知（早退不入队 + 排队中 abort 未 start——「从未问出」零记录）', async () => {
+    const b = fakeBackend('tui');
+    const { ui, notices } = makeNoticing([b.backend]);
+    // 早退形：入参 signal 已中止——零呈现零入队零通知
+    const aborted = new AbortController();
+    aborted.abort();
+    await ui.confirm('s1', 'Q', { signal: aborted.signal });
+    expect(notices).toEqual([]);
+    // 排队形：p1 占队首（挂起未答），p2 排队中被外 signal 收场——started=false 零通知
+    const p1 = ui.confirm('s1', '第一问');
+    const ac2 = new AbortController();
+    const p2 = ui.confirm('s1', '第二问', { signal: ac2.signal });
+    ac2.abort();
+    await p2;
+    expect(notices).toEqual([]); // 排队件从未呈现——零记录
+    b.confirmAsks[0]?.resolve(true); // 清场：队首答走（唯一一条通知——answered）
+    await p1;
+    expect(notices).toEqual([
+      { sessionId: 's1', kind: 'confirm', question: '第一问', outcome: 'answered', answer: '是' },
+    ]);
+  });
+
+  it('降级腿记原问题非降级提示文（confirm→input (y/n) 形作答——question 单源 UiCore 入参）', async () => {
+    const b = fakeBackend('lying');
+    (b.backend as unknown as { confirm?: unknown }).confirm = undefined; // 降级触发位
+    const { ui, notices } = makeNoticing([b.backend]);
+    const p = ui.confirm('s1', '做吗？');
+    expect(b.inputAsks[0]?.message).toContain('做吗？ (y/n)'); // 降级提示文只在呈现面
+    b.inputAsks[0]?.resolve('y');
+    expect(await p).toBe(true);
+    expect(notices).toEqual([
+      { sessionId: 's1', kind: 'confirm', question: '做吗？', outcome: 'answered', answer: '是' },
+    ]); // 记录面 question = 原问题（免问题失真）
+  });
+
+  it('竞速败腿单通知 answered（后端 A 先答、B 经 signal 折入撤销——真相在单汇点可辨非已取消）', async () => {
+    const bA = fakeBackend('tui');
+    const bB = fakeBackend('web');
+    const { ui, notices } = makeNoticing([bA.backend, bB.backend]);
+    const p = ui.confirm('s1', '做吗？');
+    expect(bA.confirmAsks).toHaveLength(1); // 双后端并发竞速
+    expect(bB.confirmAsks).toHaveLength(1);
+    bA.confirmAsks[0]?.resolve(true); // A 先答——finish(true, answered) + abort 传播 B
+    expect(await p).toBe(true);
+    expect(notices).toEqual([
+      { sessionId: 's1', kind: 'confirm', question: '做吗？', outcome: 'answered', answer: '是' },
+    ]); // 恰一条、answered（败腿撤销不误记已取消——记录位归核的结构性理由）
+  });
+
+  it('askSettledSink 缺席 = 零通知零行为（缺席注入律——三件收场零异常值照常）', async () => {
+    const b = fakeBackend('tui');
+    const ui = makeCore([b.backend]); // 不传 sink——缺席形
+    const p1 = ui.confirm('s1', '做吗？');
+    b.confirmAsks[0]?.resolve(true);
+    expect(await p1).toBe(true); // 收场值不受影响
+    const ac = new AbortController();
+    const p2 = ui.input('s1', '备注？', { signal: ac.signal });
+    ac.abort();
+    expect(await p2).toBe(''); // 保守值收场不炸
   });
 });
 

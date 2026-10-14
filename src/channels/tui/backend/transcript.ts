@@ -50,6 +50,7 @@ import {
   EMPTY_STYLE,
   ellipsize,
   graphemeWidth,
+  sanitizeDisplayText,
   stringWidth,
   styleEquals,
   wrapText,
@@ -241,6 +242,25 @@ export type TranscriptBlock =
       readonly theme: ResolvedTheme;
     }
   | {
+      /**
+       * 问答落史行块（挖掘 36 轮 [2]——07 §4.1 问答落史行词条）：ctx.ui 阻塞
+       * 三件（confirm/select/input）收场的即时一行落史——ask 收场单汇点
+       * （UiCore）经 dispatch 总线词 ask/settled 回灌的 **live-only 旁支**：
+       * 无 seq 归位锚、不进 durable 投影源（ask 族零 durable 事件——掩码
+       * 策略另立挂账），onRepaint 重建后诚实消失 = 语义（scrollback 是呈现
+       * 缓存非事实源）。一行制：首游程 ↳ 词面（语义色）+ 次游程 ` · `+问题
+       * （dim）+ answered 另附 ` · `+答案（accent）。
+       */
+      readonly kind: 'ask-decision';
+      /** 收场态（单汇点真相——answered 含他端竞速答走；cancelled = 保守收场伞形） */
+      readonly outcome: 'answered' | 'cancelled';
+      /** 原问题文（渲染位消毒+一行化——块内存原文） */
+      readonly question: string;
+      /** 答案呈现段（answered 在场；cancelled 缺席） */
+      readonly answer?: string;
+      readonly theme: ResolvedTheme;
+    }
+  | {
       readonly kind: 'streaming';
       /** 槽代次（每条 assistant message_start 递增——冻结账同一性判据） */
       readonly epoch: number;
@@ -286,6 +306,20 @@ export interface TodoSnapshotLineInput {
   /** 归位锚（todo/write 事件 durable seq） */
   readonly seq: number;
   readonly items: readonly TodoItem[];
+}
+
+/**
+ * 问答落史行注入窄形（挖掘 36 轮 [2]）：ask 收场通知的呈现载荷（收场态 +
+ * 问题 + 答案段）——tui-backend 直注追加（appendAskDecisionLine）单消费位
+ * （live-only 无投影路——区别于 approval/todo 直播/回放双消费位族）。theme
+ * 由 LiveTranscript 自持（消费位不传）。文件内导出窄形——contracts 零改。
+ */
+export interface AskDecisionLineInput {
+  /** 收场态（answered = present 胜出含竞速；cancelled = 保守收场伞形） */
+  readonly outcome: 'answered' | 'cancelled';
+  readonly question: string;
+  /** 答案呈现段（answered 在场；cancelled 缺席） */
+  readonly answer?: string;
 }
 
 /**
@@ -358,6 +392,38 @@ function approvalDecisionLine(block: Extract<TranscriptBlock, { kind: 'approval-
       { start: head.length, end: plain.length, style: DIM_STYLE },
     ],
   };
+}
+
+/**
+ * 问答落史行构造（挖掘 36 轮 [2]——词面单源）：首游程两态词（↳ 已回复 /
+ * ↳ 已取消——accent / secondary；问答非成败判定，不借 success/error 对）+
+ * 次游程 ` · `+问题（dim）+ answered 另附 ` · `+答案（accent——主色强调
+ * 「答了什么」）。段加工链（渲染位单源）：sanitizeDisplayText 消毒（answer
+ * 是用户自由输入——OSC/C0 不入屏账）→ 一行化（approval 同款折空）→ 出口帽
+ * capStyledLine 整字截断（简行族同律——超宽不预截）。空段折叠：问题/答案
+ * 空串段不拼（空问题+无答案 = 裸词面单腿形，approval 同构）。
+ */
+function askDecisionLine(block: Extract<TranscriptBlock, { kind: 'ask-decision' }>): StyledLine {
+  const head = block.outcome === 'answered' ? '↳ 已回复' : '↳ 已取消';
+  const fg: ColorValue = block.outcome === 'answered' ? block.theme.accent : block.theme.secondary;
+  const oneLine = (text: string) => sanitizeDisplayText(text).replace(/\s*[\n\r]+\s*/g, ''); // 消毒+一行化
+  const question = oneLine(block.question);
+  const answer = block.outcome === 'answered' && block.answer !== undefined ? oneLine(block.answer) : undefined;
+  if (question === '' && (answer === undefined || answer === '')) {
+    return { plain: head, runs: [{ start: 0, end: head.length, style: Object.freeze({ fg }) }] };
+  }
+  let plain = head;
+  const runs: StyleRun[] = [{ start: 0, end: head.length, style: Object.freeze({ fg }) }];
+  if (question !== '') {
+    plain += ` · ${question}`;
+    runs.push({ start: head.length, end: plain.length, style: DIM_STYLE });
+  }
+  if (answer !== undefined && answer !== '') {
+    const start = plain.length; // 含前缀 ` · ` 的答案段起点
+    plain += ` · ${answer}`;
+    runs.push({ start, end: plain.length, style: Object.freeze({ fg: block.theme.accent }) });
+  }
+  return { plain, runs };
 }
 
 /** dim 样式（简行块的整行样式——SGR 2；注⑩：engine 正典单源） */
@@ -673,6 +739,11 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
       // todo 快照块（挖掘 35 轮 B8）：多行制（卡头 + 条目行，单行制条目）
       // + 块前垫（R-1 制度行）
       return withPad(renderTodoSnapshotLines(block), leadingGap);
+    case 'ask-decision':
+      // 问答落史行（挖掘 36 轮 [2]）：单行制（无折行族——超宽走出口帽
+      // capStyledLine 整字截断）+ 块前垫（R-1 制度行）；live-only 旁支
+      //（重建后诚实消失——块型注释律）
+      return withPad([askDecisionLine(block)], leadingGap);
     case 'streaming': {
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
       // markdown 直推档走网格管线（bullet 槽同轴——与定稿 markdown 块逐行同形）；
@@ -1410,6 +1481,25 @@ export class LiveTranscript {
       decision: entry.decision,
       summary: entry.summary,
       theme: entry.theme,
+    });
+    this.trimToCap();
+  }
+
+  /**
+   * 直播腿问答落史行追加（挖掘 36 轮 [2]——ask/settled 总线消费位）：
+   * **live-only 旁支**——无 seq 归位锚、不进 durable 投影源，onRepaint 投影
+   * 重建后本块诚实消失（scrollback 是呈现缓存非事实源——规范词条明律，勿
+   * 补 durable 化）。块账在册（计入 dialogueBlockCount、占 blockCap 帽）非
+   * 瞬时行路；消毒+一行化归渲染位单源（askDecisionLine）。调用位过滤已由
+   * tui-entry 订阅腿完成（聚焦限定）。
+   */
+  appendAskDecision(entry: AskDecisionLineInput): void {
+    this.blocks.push({
+      kind: 'ask-decision',
+      outcome: entry.outcome,
+      question: entry.question,
+      ...(entry.answer !== undefined ? { answer: entry.answer } : {}),
+      theme: this.theme,
     });
     this.trimToCap();
   }

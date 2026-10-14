@@ -3611,3 +3611,52 @@ describe('/sessions 尾段预览注入（挖掘 35 轮 B5——装配读面：�
     await rt.shutdown();
   });
 });
+
+/* ---------------- ask/settled 收场总线真装配（挖掘 36 轮 [2]——07 §4.1 问答落史行） ---------------- */
+
+describe('ask/settled 收场总线真装配（挖掘 36 轮 [2]——词注册 + UiCore→dispatch 端到端）', () => {
+  it('词注册在场 + 组合根真注入：channels.confirm 收场 → UiCore 单汇点 → dispatch 广播 → 订阅者收 notice（ASM-1 假绿防线——非单测直注）', async () => {
+    // 修前红：词未注册（isRegistered false——emit 抛 EVENT_NOT_REGISTERED）+
+    // sink 未接线（订阅者零通知）；本锁走组合根真装配链（createChannels 带
+    // sink 闭包），单测直注恒绿的假绿谱在此不可达
+    const { rt } = rigRuntime(true);
+    const { stack } = rigStack(rt);
+    // ① 词注册在场：组合根幂等单点（dispatch 解析位后——assembly belt 位省略定谳）
+    expect(stack.dispatch.isRegistered('ask/settled')).toBe(true);
+    // ② 端到端：confirm 能力后端 + 手动应答位
+    let settle: ((value: boolean) => void) | undefined;
+    const backend: UiBackend<AgentMessage> = {
+      id: 'confirming',
+      capabilities: {
+        notify: true,
+        confirm: true,
+        select: false,
+        input: false,
+        approval: false,
+        setStatus: false,
+        setWidget: false,
+      },
+      hasAudience: () => true,
+      notify: () => {},
+      confirm: () =>
+        new Promise<boolean>((resolve) => {
+          settle = resolve; // 手动应答柄（挂起待答）
+        }),
+      onEnvelope: () => {},
+      onRepaint: () => {},
+    };
+    stack.channels.addBackend(backend);
+    const notices: Array<{ sessionId: string; kind: string; question: string; outcome: string; answer?: string }> = [];
+    stack.dispatch.on('ask/settled', (data) => {
+      notices.push(data as (typeof notices)[number]);
+    });
+    const asked = stack.channels.confirm('s-ask', '做吗？');
+    settle?.(true); // 应答——present 胜出位
+    expect(await asked).toBe(true);
+    await new Promise((r) => setTimeout(r, 0)); // emit async 广播落定
+    expect(notices).toEqual([
+      { sessionId: 's-ask', kind: 'confirm', question: '做吗？', outcome: 'answered', answer: '是' },
+    ]); // sessionId/kind/question/outcome 齐 + answer 映射对（confirm→是）
+    await rt.shutdown();
+  });
+});
