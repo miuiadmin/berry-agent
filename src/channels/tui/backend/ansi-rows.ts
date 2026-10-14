@@ -31,6 +31,8 @@ import {
   type CellStyle,
   type ColorValue,
 } from '../../engine/index.js';
+import type { StyledGrapheme } from '../markdown/layout.js';
+import { webHref } from '../markdown/inline.js';
 
 /** ESC 前缀 */
 const ESC = '\x1b';
@@ -44,6 +46,12 @@ export interface StyleRun {
   readonly start: number;
   readonly end: number;
   readonly style: CellStyle;
+  /**
+   * 链接目标（挖掘 36 轮〔5〕OSC-8 段级元数据）：styledLineToAnsi 发射位译
+   * OSC-8 包裹；缺席 = 裸段。合并合法性判据 = styleEquals && 端点连续 &&
+   * href 相等（构造位执法——两相邻同样式异 href 链段不得并段丢边界）。
+   */
+  readonly href?: string;
 }
 
 /**
@@ -97,6 +105,21 @@ export function cuu(n: number): string {
 export function cud(n: number): string {
   return n > 0 ? `${ESC}[${n}B` : '';
 }
+
+/**
+ * OSC-8 开序列（挖掘 36 轮〔5〕）：`\x1b]8;;<destination>\x1b\\`——**ST 终界**
+ * 非 BEL（主屏 writeLine 控制字节兜底剥 BEL（\x07 在剥除域）保 ESC——BEL 形
+ * 序列到屏即断链，ST 形两字节双双存活；07 篇主屏消毒律条款的物理定谳）。
+ * destination 经 webHref 复验（单源判据——非 web scheme / 控制字载荷）不过
+ * 返 ''=当无链（发射位静默退裸文本）。
+ */
+export function osc8Open(destination: string): string {
+  const href = webHref(destination);
+  return href === undefined ? '' : `${ESC}]8;;${href}${ESC}\\`;
+}
+
+/** OSC-8 闭序列（空目标形——与开序列同 ST 终界） */
+export const OSC8_CLOSE = `${ESC}]8;;${ESC}\\`;
 
 /** 样式 → SGR（与 diff 件 buildSgr 同语义：属性位 + 三档前景背景全量形——色段单源 = engine color 件；简行块直拼消费） */
 export function buildSgr(style: {
@@ -194,9 +217,82 @@ export function gridRowToStyled(grid: CellGrid, row: number): StyledLine | null 
 }
 
 /**
+ * doc 装配行（StyledGrapheme[]）→ 带样式行（行集直转——挖掘 36 轮批〔5〕
+ * 自 transcript.ts 升格单源导出）：忠实镜像「doc.render 落格 CellGrid +
+ * gridRowToStyled 读回」的净效果，免去整面网格分配/落格/读回——逐行语义等价
+ * 要点（与 cell.ts / 本件两处的单源语义逐条对齐）：
+ * - 落格净效果：tab 展开两空格（携段样式）、其余 C0/DEL 跳过不占宽（行集
+ *   在 layout 件已源头消毒——本位防御镜像）、零宽字素 setCell 丢弃、越列
+ *   写静默吸收（col ≥ columns 截停；宽字素末列基格仍写——续格越界丢弃）；
+ * - 读回净效果（gridRowToStyled 同律）：行尾缺省空格修剪（写入的缺省空格
+ *   与未写格同判——尾部默认空格不入 plain）、缺省样式段不产段（gap 即裸
+ *   文本）、相邻同样式且端点连续的段合并、无内容行返空行。
+ *
+ * 消费方（三路同轴——transcript renderDocLines / thinking 展开体 / 尾窗
+ * renderSlotTailLines，行集直转批后统一经本函数；置于本件与 gridRowToStyled
+ * 同件成对：两者互为等价镜像，语义漂移以对方为参照即时暴露；且避免
+ * transcript ↔ thinking 互 import 环——本件两消费方皆已既有导入）。
+ */
+export function docRowToStyledLine(row: readonly StyledGrapheme[], columns: number): StyledLine {
+  // 虚拟落格（dense 形——写入连续无洞：零宽/控制跳过不推进列位）；href 随
+  // 字素入格（Cell 无此位——正是行集直转替代 CellGrid 往返的动因）
+  const cells: { grapheme: string; style: Readonly<CellStyle> | undefined; href?: string }[] = [];
+  let col = 0;
+  for (const cell of row) {
+    const code = cell.grapheme.charCodeAt(0);
+    if (code === 0x09) {
+      // tab 展开两空格（writeText 同律——两格各自独立越界判定）
+      if (col < columns) cells.push({ grapheme: ' ', style: cell.style, href: cell.href });
+      if (col + 1 < columns) cells.push({ grapheme: ' ', style: cell.style, href: cell.href });
+      col += 2;
+      continue;
+    }
+    if (code < 0x20 || code === 0x7f) continue; // 控制字素落格跳过不占宽（防御镜像——行集已消毒）
+    const w = graphemeWidth(cell.grapheme);
+    if (w === 0) continue; // 零宽字素 setCell 丢弃（防御镜像——splitGraphemes 已合流）
+    if (col >= columns) break; // 越列写静默吸收（整字独行超帽形与网格兜底同律）
+    cells.push({ grapheme: cell.grapheme, style: cell.style, href: cell.href });
+    col += w;
+  }
+  // 行尾缺省空格修剪（cellEquals 归一基准：' ' + EMPTY_STYLE + width 1）
+  let last = cells.length - 1;
+  while (last >= 0) {
+    const tailCell = cells[last]!;
+    if (tailCell.grapheme !== ' ') break;
+    if (tailCell.style !== undefined && !styleEquals(tailCell.style, EMPTY_STYLE)) break;
+    last--;
+  }
+  if (last < 0) return { plain: '', runs: [] }; // 无内容行（gridRowToStyled null 同构——调用面保空行）
+  let plain = '';
+  const runs: StyleRun[] = [];
+  for (let i = 0; i <= last; i++) {
+    const cell = cells[i]!;
+    const start = plain.length;
+    plain += cell.grapheme;
+    // 缺省样式且无链不产段（gap 即裸文本）；href 在场即产段——裸 URL 后注段
+    // 无观感样式（仅元数据律），缺省跳过会丢链，故 style=EMPTY_STYLE 产段
+    //（序列化零 SGR 字节——观感零变）
+    if (cell.href === undefined && (cell.style === undefined || styleEquals(cell.style, EMPTY_STYLE))) continue;
+    const style = cell.style === undefined ? EMPTY_STYLE : cell.style;
+    // 相邻可并段合并（styleEquals + 端点连续 + href 相等——异 href 不并防丢链界）
+    const prev = runs[runs.length - 1];
+    if (prev !== undefined && styleEquals(prev.style, style) && prev.end === start && prev.href === cell.href) {
+      runs[runs.length - 1] = { start: prev.start, end: start + cell.grapheme.length, style, href: cell.href };
+    } else {
+      runs.push({ start, end: start + cell.grapheme.length, style, href: cell.href });
+    }
+  }
+  return { plain, runs };
+}
+
+/**
  * 带样式行 → ANSI 串（主屏直写形——与 gridRowToAnsi 同语义的行序列化：
  * 样式变化点复位再设、同样式零冗余、行尾归零不染后续写出）。
  * renderBlockLines 经本函数从带样式行导出 ANSI 形——两形零第二渲染器。
+ *
+ * OSC-8 链态机（挖掘 36 轮〔5〕）：run.href 携链 → osc8Open（ST 终界）前导
+ * 包裹、href 变化/空隙/行尾先 OSC8_CLOSE——发射位单源（gridRowToAnsi 无链
+ * 形与素行字节面零变）。
  *
  * 消毒兜底（2026-09-20 TUI 修复组 1 批 F2）：发射位逐切片经
  * sanitizeDisplayText（tab 展开 2 空格 / CR 与 ESC 残留序列剥除）——游程
@@ -211,35 +307,58 @@ export function styledLineToAnsi(line: StyledLine): string {
   if (runs.length === 0 && line.fillBg === undefined) return sanitizeDisplayText(plain);
   let out = '';
   let currentSgr = '';
+  // 链态机（挖掘 36 轮〔5〕OSC-8）：currentHref = 当前开链的已消毒目标
+  //（undefined = 链外态）。闭合序律：href 变化/段前空隙/段尾空隙/行尾/fillBg
+  // 尾腿前——一律先 OSC8_CLOSE（链不吞裸段、不吞 EL、不染后续写出）。
+  let currentHref: string | undefined;
+  const closeLink = (): void => {
+    if (currentHref !== undefined) {
+      out += OSC8_CLOSE;
+      currentHref = undefined;
+    }
+  };
   let pos = 0;
   for (const run of runs) {
     if (run.start > pos) {
-      // 段前空隙：在身样式先归零再写裸文本（切片发射位消毒）
+      // 段前空隙：先闭链再归零写裸文本（切片发射位消毒）——链不吞裸段
+      closeLink();
       if (currentSgr !== '') {
         out += SGR_RESET;
         currentSgr = '';
       }
       out += sanitizeDisplayText(plain.slice(pos, run.start));
     }
+    // 链目标发射位复验（webHref 单源——构造位已消毒，本位末道防线）：
+    // 非法形当无链（裸段照写）；合法形与当前开链同目标零冗余重开
+    const href = run.href === undefined ? undefined : webHref(run.href);
+    if (href === undefined) closeLink();
     const sgr = buildSgr(run.style);
     if (sgr !== currentSgr) {
       out += (currentSgr !== '' ? SGR_RESET : '') + sgr;
       currentSgr = sgr;
     }
+    if (href !== undefined && href !== currentHref) {
+      closeLink(); // 异链切换：先闭旧链再开新链（同色 SGR 不复位——链切换独立于色切换）
+      out += osc8Open(href); // 已过 webHref——直构形
+      currentHref = href;
+    }
     out += sanitizeDisplayText(plain.slice(run.start, run.end));
     pos = run.end;
   }
   if (pos < plain.length) {
-    // 段尾空隙：归零后写裸文本（切片发射位消毒）
+    // 段尾空隙：先闭链再归零写裸文本（切片发射位消毒）
+    closeLink();
     if (currentSgr !== '') {
       out += SGR_RESET;
       currentSgr = '';
     }
     out += sanitizeDisplayText(plain.slice(pos));
   }
+  closeLink(); // 行尾闭合（先于终局归零/尾腿——链不染后续写出）
   // R-2 全宽带尾腿：fillBg 在场 → 以 bg 着色态发 EL（BCE——终端以当前背景
   // 色擦除至行尾，行尾残区铺满 bg）。尾段已持同 bg（user 块正文行常态形）
   // 直随 EL 零冗余再设；否则归零后再设。EL 后统一走行尾归零不染后续写出。
+  //（链已在上一行闭合——尾腿在链外）
   if (line.fillBg !== undefined) {
     const fillSgr = buildSgr({ bg: line.fillBg });
     if (fillSgr !== currentSgr) {

@@ -763,3 +763,32 @@ describe('空态引导守卫扣 durable 末（挖掘 29 轮件 6——R-7 头卡
     expect(io.bytes).toContain('引导一'); // 全高容得下（8 行 ≥ 5 行）——照常在场
   });
 });
+
+describe('主屏直写链接全链（挖掘 36 轮〔5〕OSC-8——组合根真装配锁）', () => {
+  it('markdown 链接块直写：OSC-8 ST 终界在场存活 + 全输出零 BEL【修前红：现行零 OSC-8 发射】', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    io.bytes = '';
+    screen.present([{ kind: 'markdown', doc: MarkdownDoc.of('见 [文档](https://example.com/page)') }]);
+    // ST 终界形开链在场（writeLine ESC 保留律——\x1b\\ 两字节双双存活）
+    expect(io.bytes).toContain('\x1b]8;;https://example.com/page\x1b\\');
+    expect(io.bytes).toContain('\x1b]8;;\x1b\\'); // 闭链在场
+    expect(io.bytes).not.toContain('\x07'); // BEL 零在场——ST 终界定谳的物理依据钉死（writeLine 剥除域）
+  });
+
+  it('裸 URL 文本行同发（markdown 裸段后注元数据同链化——仅元数据零观感变）【修前红】', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    io.bytes = '';
+    screen.present([{ kind: 'markdown', doc: MarkdownDoc.of('见 https://example.com/a. 后续') }]);
+    expect(io.bytes).toContain('\x1b]8;;https://example.com/a\x1b\\'); // 尾随 '.' 剥离后目标
+  });
+
+  it('非 web scheme 零链发射（mailto 链接不产 OSC-8——诚实不链；回归锁）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    io.bytes = '';
+    screen.present([{ kind: 'markdown', doc: MarkdownDoc.of('[邮件](mailto:a@b.c)') }]);
+    expect(io.bytes).not.toMatch(/\x1b\]8;/); // 零开链零闭链（label underline 照常）
+  });
+});

@@ -16,14 +16,14 @@
  *
  * 纯函数：同一 (text, expanded, phase, durationMs, columns, theme, hint, doc)
  * 恒同行集——流式槽前缀行与定稿 thinking 块**同一函数两用**（换装跳行不漂移
- * 的定位前提，见 main-screen 冻结账注）；doc 参数为预构 markdown renderable
- * （流式槽传 StreamingMarkdown 增量件、定稿块持 MarkdownDoc——缺席则内部
- * 即时构档）。
+ * 的定位前提，见 main-screen 冻结账注）；doc 参数为预构行集源（RowsSource
+ * ——挖掘 36 轮〔5〕，流式槽传 StreamingMarkdown 增量件、定稿块持
+ * MarkdownDoc——缺席则内部即时构档）。
  */
-import { CellGrid, type CellStyle, type Renderable } from '../../engine/index.js';
-import { MarkdownDoc } from '../markdown/markdown.js';
+import { type CellStyle } from '../../engine/index.js';
+import { MarkdownDoc, type RowsSource } from '../markdown/markdown.js';
 import type { ResolvedTheme } from '../theme/index.js';
-import { gridRowToStyled, type StyleRun, type StyledLine } from '../backend/ansi-rows.js';
+import { docRowToStyledLine, type StyleRun, type StyledLine } from '../backend/ansi-rows.js';
 import { formatElapsedCompact } from '../../../contracts/index.js';
 
 /** 思考块渲染视图面（块数据与本件渲染的窄接口——流式槽/定稿块共用） */
@@ -53,7 +53,7 @@ export function thinkingLabelText(view: ThinkingView, action: '展开' | '收起
  * ——R-4 dim 增补位）；展开 = 标签行 + 改妆 doc 体行。空 text 零行（守卫位
  * ——调用面不落空块，防御性双保险）。
  */
-export function renderThinkingStyledLines(view: ThinkingView, columns: number, doc?: Renderable | null): StyledLine[] {
+export function renderThinkingStyledLines(view: ThinkingView, columns: number, doc?: RowsSource | null): StyledLine[] {
   if (view.text === '') return [];
   const thinkStyle: CellStyle = { fg: view.theme.thinkingText, italic: true, dim: true }; // dim = R-4 增补位（体行改妆 spread 承载）
   const label = thinkingLabelText(view, view.expanded ? '收起' : '展开');
@@ -62,14 +62,19 @@ export function renderThinkingStyledLines(view: ThinkingView, columns: number, d
     runs: [{ start: 0, end: label.length, style: thinkStyle }],
   };
   if (!view.expanded) return [labelLine];
-  // 展开档：体行 = doc 管线行集整面改妆（斜体 + thinkingText——bold 保留）
+  // 展开档：体行 = doc 行集直转（挖掘 36 轮〔5〕——rowsFor + docRowToStyledLine
+  // 单源，CellGrid 往返退役：链接 href 随字素贯通，改妆后仍在）后整面改妆
+  //（斜体 + thinkingText——bold 保留）
   const bodyDoc = doc ?? MarkdownDoc.of(view.text, view.theme);
-  const grid = new CellGrid(columns, Math.max(1, bodyDoc.measure(columns)));
-  bodyDoc.render(grid, { row: 0, col: 0, width: columns, height: grid.rows });
+  const rows = bodyDoc.rowsFor(columns);
   const body: StyledLine[] = [];
-  for (let r = 0; r < grid.rows; r++) {
-    const line = gridRowToStyled(grid, r) ?? { plain: '', runs: [] }; // 无内容行保空行（doc 管线同律）
-    body.push(restyleThinking(line, thinkStyle));
+  if (rows.length === 0) {
+    body.push(restyleThinking({ plain: '', runs: [] }, thinkStyle)); // 空体保底行（镜像修前 Math.max(1,…) 量高语义）
+  } else {
+    for (let r = 0; r < rows.length; r++) {
+      // 无内容行保空行（doc 管线同律——docRowToStyledLine 空行形直出）
+      body.push(restyleThinking(docRowToStyledLine(rows[r]!, columns), thinkStyle));
+    }
   }
   return [labelLine, ...body];
 }
@@ -86,9 +91,10 @@ function restyleThinking(line: StyledLine, style: CellStyle): StyledLine {
   let pos = 0;
   for (const run of line.runs) {
     if (run.start > pos) {
-      runs.push({ start: pos, end: run.start, style }); // 前间隙裸文本补妆
+      runs.push({ start: pos, end: run.start, style }); // 前间隙裸文本补妆（间隙无链——href 缺席）
     }
-    runs.push({ start: run.start, end: run.end, style: { ...style, bold: run.style.bold } }); // bold 层级保留——单色面仍有语义
+    // bold 层级保留——单色面仍有语义；href 随段保留（挖掘 36 轮〔5〕——改妆不改链）
+    runs.push({ start: run.start, end: run.end, style: { ...style, bold: run.style.bold }, href: run.href });
     pos = Math.max(pos, run.end); // 防御：乱序/重叠游程不回退
   }
   if (pos < line.plain.length) {

@@ -3,7 +3,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { wrapText } from '../../engine/index.js';
-import { layoutParts, layoutPlain, rowWidth, type StyledGrapheme } from './layout.js';
+import { DEFAULT_THEME } from '../theme/index.js';
+import { layoutParts, layoutPlain, layoutSpans, rowWidth, spansWidth, type StyledGrapheme } from './layout.js';
 
 /** 行集 → 纯串数组（断言辅助——字素行拼接回字符串对拍 wrapText 同律） */
 const joined = (rows: StyledGrapheme[][]): string[] => rows.map((row) => row.map((c) => c.grapheme).join(''));
@@ -123,5 +124,33 @@ describe('TUI 第四役批二同律（回送弹丢空格 / 整字独行 / 三族
     expect(joined(layoutPlain('  ）你', 2))).toEqual(['）', '你']);
     // 与 wrapText 侧守卫同形同律（width 件已锁——此处锁 layout 侧不复发）
     expect(wrapText('a 。', 3)).toEqual(['a。']);
+  });
+});
+
+describe('href 随字素携带（挖掘 36 轮〔5〕OSC-8——链接目标跨折行精确保持）', () => {
+  it('折行跨段 href 保持：长 URL 折多行各字素同 href【修前红：StyledGrapheme 无 href 位】', () => {
+    const url = 'https://example.com/' + 'a'.repeat(30);
+    const rows = layoutParts([{ text: url, style: undefined, href: url }], 10);
+    expect(rows.length).toBeGreaterThanOrEqual(2); // 确已折行（跨段保持才有意义）
+    for (const row of rows) {
+      for (const g of row) expect(g.href).toBe(url); // 字素级同 href（折行不裂链）
+    }
+  });
+
+  it('layoutSpans span→part 传 href：链接 span 字素同 href、相邻 plain 段缺席', () => {
+    const rows = layoutSpans(
+      [{ text: '见 ' }, { text: '文档', underline: true, href: 'https://a.com' }],
+      20,
+      DEFAULT_THEME,
+    );
+    const flat = rows.flat();
+    expect(flat.find((g) => g.grapheme === '文')?.href).toBe('https://a.com');
+    expect(flat.find((g) => g.grapheme === '见')?.href).toBeUndefined(); // 非链段不染
+  });
+
+  it('spansWidth 零涉：href 不入宽算术（有无 href 同宽）', () => {
+    const plain = [{ text: 'https://a.com/x' }];
+    const linked = [{ text: 'https://a.com/x', href: 'https://a.com/x' }];
+    expect(spansWidth(linked)).toBe(spansWidth(plain));
   });
 });

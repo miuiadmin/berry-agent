@@ -37,12 +37,20 @@ import type { InlineSpan } from './inline.js';
 export interface StyledGrapheme {
   readonly grapheme: string;
   readonly style: Readonly<CellStyle> | undefined;
+  /**
+   * 链接目标随字素携带（挖掘 36 轮〔5〕OSC-8）：同 span 字素同 href、折行
+   * 跨段精确保持（berry 自有布局管线——无需 codex remap_wrapped_line 文本
+   * 重配形）；宽算术零涉（不入折行计量）。
+   */
+  readonly href?: string;
 }
 
 /** 直携样式的文本段（layoutParts 入参——代码高亮 token 流同形消费） */
 export interface StylePart {
   readonly text: string;
   readonly style: Readonly<CellStyle> | undefined;
+  /** 链接目标（span→part→字素贯通链——缺席 = 非链段） */
+  readonly href?: string;
 }
 
 /** 引用块基础样式（dim——存在感弱于正文；注⑩：值位 = engine DIM_STYLE 单源 alias） */
@@ -92,7 +100,7 @@ export function layoutParts(parts: readonly StylePart[], width: number): StyledG
           rows.push(current);
           openRow();
         }
-        current.push({ grapheme: g, style: part.style });
+        current.push({ grapheme: g, style: part.style, href: part.href });
         used += w;
         continue;
       }
@@ -139,7 +147,7 @@ export function layoutParts(parts: readonly StylePart[], width: number): StyledG
           used += graphemeWidth(c.grapheme);
         }
       }
-      current.push({ grapheme: g, style: part.style });
+      current.push({ grapheme: g, style: part.style, href: part.href }); // 主位 push（href 随字素——折行跨段保持）
       used += w;
     }
   }
@@ -163,9 +171,14 @@ export function layoutSpans(
   for (const span of spans) {
     const style = spanStyle(span, base, theme);
     if (span.code === true) {
-      parts.push({ text: '`', style: DIM_STYLE }, { text: span.text, style }, { text: '`', style: DIM_STYLE });
+      // code 段 href 随正文 part（定界反引号两 part 不携——链只罩正文不罩定界）
+      parts.push(
+        { text: '`', style: DIM_STYLE },
+        { text: span.text, style, href: span.href },
+        { text: '`', style: DIM_STYLE },
+      );
     } else {
-      parts.push({ text: span.text, style });
+      parts.push({ text: span.text, style, href: span.href });
     }
   }
   return layoutParts(parts, width);

@@ -40,7 +40,9 @@ describe('parseInline 行内解析', () => {
     expect(parseInline('**重要**')).toEqual([{ text: '重要', bold: true }]);
     expect(parseInline('*斜体*')).toEqual([{ text: '斜体', italic: true }]);
     expect(parseInline('`code`')).toEqual([{ text: 'code', code: true }]);
-    expect(parseInline('[文档](https://example.com)')).toEqual([{ text: '文档', underline: true }]);
+    expect(parseInline('[文档](https://example.com)')).toEqual([
+      { text: '文档', underline: true, href: 'https://example.com' }, // 挖掘 36 轮〔5〕OSC-8：链接保 href 元数据
+    ]);
   });
 
   it('** 优先于 *（前缀撞车 bold 赢）', () => {
@@ -94,6 +96,70 @@ describe('parseInline 行内解析', () => {
   it('翼判据：好形零扰动（**bold** / *em* 贴邻非空白仍成 span）', () => {
     expect(parseInline('**b**')).toEqual([{ text: 'b', bold: true }]);
     expect(parseInline('*e*')).toEqual([{ text: 'e', italic: true }]);
+  });
+});
+
+/* ---------------- 链接 href 与裸 URL 标注（挖掘 36 轮〔5〕OSC-8） ---------------- */
+
+describe('parseInline 链接 href + 裸 URL 标注（OSC-8 元数据——呈现零变）', () => {
+  it('mailto 等非 web scheme 拒链：href 缺席 underline 保持（诚实不链）', () => {
+    expect(parseInline('[邮件](mailto:a@b.c)')).toEqual([{ text: '邮件', underline: true }]);
+    expect(parseInline('[本机](file:///tmp/x)')).toEqual([{ text: '本机', underline: true }]);
+  });
+
+  it('链接 URL 控制字节消毒（\\x07/\\x1b 剥除——OSC 载荷注入防御）', () => {
+    expect(parseInline('[标](https://a.com/\x07x)')).toEqual([
+      { text: '标', underline: true, href: 'https://a.com/x' },
+    ]);
+    expect(parseInline('[标](https://a.com/\x1bx)')).toEqual([
+      { text: '标', underline: true, href: 'https://a.com/x' },
+    ]);
+  });
+
+  it('裸 URL 后注：非链文本段内 https?:// 游程切出（尾随 ASCII 标点留 plain）', () => {
+    expect(parseInline('见 https://example.com/a. 后续')).toEqual([
+      { text: '见 ' },
+      { text: 'https://example.com/a', href: 'https://example.com/a' },
+      { text: '. 后续' },
+    ]);
+  });
+
+  it('尾随闭合界符平衡判据：URL 体内未配对 opener 使外层 closer 落 plain', () => {
+    // 'F_(x)' 的 '(' 在 URL 体内有配对 ')'——内层 ')' 属 URL；最外层 ')' 无配对 '(' → 落 plain
+    expect(parseInline('(https://a.com/wiki/F_(x))')).toEqual([
+      { text: '(' },
+      { text: 'https://a.com/wiki/F_(x)', href: 'https://a.com/wiki/F_(x)' },
+      { text: ')' },
+    ]);
+  });
+
+  it('中文尾随标点剥离（，。等 CJK 尾随集）', () => {
+    expect(parseInline('https://a.com，')).toEqual([{ text: 'https://a.com', href: 'https://a.com' }, { text: '，' }]);
+    expect(parseInline('查 https://a.com/b。')).toEqual([
+      { text: '查 ' },
+      { text: 'https://a.com/b', href: 'https://a.com/b' },
+      { text: '。' },
+    ]);
+  });
+
+  it('已链 span 不复注（label 文本即裸 URL 形——href 保链接语义目标不覆写）', () => {
+    expect(parseInline('[https://a.com/x](https://a.com/y)')).toEqual([
+      { text: 'https://a.com/x', underline: true, href: 'https://a.com/y' },
+    ]);
+  });
+
+  it('code 段裸 URL 照注（词法域分立只及代码块——行内 code 保 href 呈现零变）', () => {
+    expect(parseInline('`https://a.com`')).toEqual([{ text: 'https://a.com', code: true, href: 'https://a.com' }]);
+  });
+
+  it('一段多裸 URL：逐个切出保序（游程扫描不重不漏）', () => {
+    expect(parseInline('a https://x.com/1 b https://y.com/2 c')).toEqual([
+      { text: 'a ' },
+      { text: 'https://x.com/1', href: 'https://x.com/1' },
+      { text: ' b ' },
+      { text: 'https://y.com/2', href: 'https://y.com/2' },
+      { text: ' c' },
+    ]);
   });
 });
 
@@ -278,10 +344,10 @@ describe('MarkdownDoc 渲染', () => {
     expect(grid.getCell(0, 0)?.style.fg).toBeUndefined(); // 普通文本不着色
   });
 
-  it('链接 underline 呈现 label（URL 不外显）', () => {
+  it('链接 underline 呈现 label（URL 不入呈现面、OSC-8 元数据保达——挖掘 36 轮〔5〕翻名）', () => {
     const doc = MarkdownDoc.of('见 [文档](https://x.dev) 说明');
     const grid = renderDoc(doc, 40);
-    expect(readRow(grid, 0, 40)).toBe('见 文档 说明');
+    expect(readRow(grid, 0, 40)).toBe('见 文档 说明'); // URL 字面不入呈现面（grid 断言 = 呈现零变回归锁）
     expect(grid.getCell(0, 3)?.style.underline).toBe(true); // '见' 宽 2 + 空格 → label 首字 col 3
   });
 

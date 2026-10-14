@@ -3,8 +3,17 @@
  * 原语——2026-09-20 TUI 修复组 1 批 F2/F4 锁）。
  */
 import { describe, expect, it } from 'vitest';
-import { ansiColor, stringWidth } from '../../engine/index.js';
-import { buildSgr, capAnsiLine, capStyledLine, clampRuns, styledLineToAnsi, type StyledLine } from './ansi-rows.js';
+import { ansiColor, EMPTY_STYLE, stringWidth } from '../../engine/index.js';
+import {
+  buildSgr,
+  capAnsiLine,
+  capStyledLine,
+  clampRuns,
+  OSC8_CLOSE,
+  osc8Open,
+  styledLineToAnsi,
+  type StyledLine,
+} from './ansi-rows.js';
 
 describe('styledLineToAnsi 消毒兜底（控制字不落屏）', () => {
   it('runs 空：CR 剥除 / tab 展开 / ESC 残留剥除（与 sanitizeDisplayText 同源）', () => {
@@ -166,6 +175,101 @@ describe('capAnsiLine ANSI 行显示宽帽（fx2-A——补吐位宽收口原语
     // (e) OSC 不参与 SGR 状态跟踪：着色段内 OSC 透传后截断仍补复位（isSgrReset
     //     / isSgrSequence 均不认 OSC 形——styled 态跨 OSC 存续，行尾归零纪律不漏）
     expect(capAnsiLine(`\x1b[31maa\x1b]0;t\x07${'a'.repeat(10)}`, 3)).toBe(`\x1b[31maa\x1b]0;t\x07a\x1b[0m`);
+  });
+});
+
+describe('OSC-8 超链发射（挖掘 36 轮〔5〕——styledLineToAnsi 链态机 + osc8Open 单源）', () => {
+  it('osc8Open：ST 终界形；控制字剥除；非 web scheme 返空串【修前红：函数不在位】', () => {
+    expect(osc8Open('https://a.com')).toBe('\x1b]8;;https://a.com\x1b\\'); // ST 终界（\\x1b\\\\）非 BEL——主屏 writeLine 剥 BEL 保 ESC 的物理定谳
+    expect(osc8Open('http://a.com')).toBe('\x1b]8;;http://a.com\x1b\\');
+    expect(osc8Open('https://a.com/\x07x')).toBe('\x1b]8;;https://a.com/x\x1b\\'); // 控制字消毒
+    expect(osc8Open('mailto:a@b.c')).toBe(''); // 非 web scheme 双拒
+    expect(OSC8_CLOSE).toBe('\x1b]8;;\x1b\\'); // 空目标闭形
+  });
+
+  it('run 携 href：SGR 后开链前导 + 文本 + 闭链 + 归零；非链 run 零 OSC-8【修前红】', () => {
+    const line: StyledLine = {
+      plain: 'ab',
+      runs: [{ start: 0, end: 2, style: { bold: true }, href: 'https://a.com' }],
+    };
+    expect(styledLineToAnsi(line)).toBe(`${buildSgr({ bold: true })}\x1b]8;;https://a.com\x1b\\ab${OSC8_CLOSE}\x1b[0m`);
+    // 非链行零 OSC-8（回归锁——素行字节面零变）
+    expect(styledLineToAnsi({ plain: 'ab', runs: [{ start: 0, end: 2, style: { bold: true } }] })).not.toMatch(
+      /\x1b\]8;/,
+    );
+  });
+
+  it('href-only 段（裸 URL 元数据——EMPTY_STYLE）：零 SGR 字节纯 OSC-8 包裹【修前红】', () => {
+    // 裸 URL 仅元数据零观感变：无样式段也产段（href 在场即产段——缺省会丢链）
+    const line: StyledLine = {
+      plain: 'https://a.com',
+      runs: [{ start: 0, end: 14, style: EMPTY_STYLE, href: 'https://a.com' }],
+    };
+    expect(styledLineToAnsi(line)).toBe('\x1b]8;;https://a.com\x1b\\https://a.com\x1b]8;;\x1b\\');
+  });
+
+  it('段间隙裸文本：先闭链再归零写裸段、再开新链（链不吞裸段）', () => {
+    const line: StyledLine = {
+      plain: 'ab cd',
+      runs: [
+        { start: 0, end: 2, style: { bold: true }, href: 'https://a.com' },
+        { start: 3, end: 5, style: { bold: true }, href: 'https://b.com' },
+      ],
+    };
+    expect(styledLineToAnsi(line)).toBe(
+      `${buildSgr({ bold: true })}\x1b]8;;https://a.com\x1b\\ab${OSC8_CLOSE}\x1b[0m ` +
+        `${buildSgr({ bold: true })}\x1b]8;;https://b.com\x1b\\cd${OSC8_CLOSE}\x1b[0m`,
+    );
+  });
+
+  it('相邻两链同色无空隙：SGR 不复位、OSC-8 close→open 切换（异 href 不并段的发射面镜像）', () => {
+    const line: StyledLine = {
+      plain: 'abcd',
+      runs: [
+        { start: 0, end: 2, style: { underline: true }, href: 'https://a.com' },
+        { start: 2, end: 4, style: { underline: true }, href: 'https://b.com' },
+      ],
+    };
+    expect(styledLineToAnsi(line)).toBe(
+      `${buildSgr({ underline: true })}\x1b]8;;https://a.com\x1b\\ab${OSC8_CLOSE}` +
+        `\x1b]8;;https://b.com\x1b\\cd${OSC8_CLOSE}\x1b[0m`,
+    );
+  });
+
+  it('行尾闭合序：OSC-8 close 先于终局 SGR_RESET（链不染后续写出）', () => {
+    const line: StyledLine = {
+      plain: 'ab',
+      runs: [{ start: 0, end: 2, style: { bold: true }, href: 'https://a.com' }],
+    };
+    expect(styledLineToAnsi(line).endsWith(`${OSC8_CLOSE}\x1b[0m`)).toBe(true);
+  });
+
+  it('fillBg 尾腿在链闭合后发（尾腿在链外——EL 不吞进链）', () => {
+    const bg = ansiColor(4);
+    const line: StyledLine = {
+      plain: 'ab',
+      runs: [{ start: 0, end: 2, style: { underline: true }, href: 'https://a.com' }],
+      fillBg: bg,
+    };
+    expect(styledLineToAnsi(line)).toBe(
+      // R-2 既有序：前段非 bg → 归零后再设 bg 发 EL（闭链与归零两步分立不并序）
+      `${buildSgr({ underline: true })}\x1b]8;;https://a.com\x1b\\ab${OSC8_CLOSE}\x1b[0m${buildSgr({ bg })}\x1b[K\x1b[0m`,
+    );
+  });
+
+  it('href 非法形发射位双拒：控制字载荷/非 http scheme 当无链发射（裸文本照写——回归锁）', () => {
+    const mailto: StyledLine = { plain: 'ab', runs: [{ start: 0, end: 2, style: {}, href: 'mailto:a@b.c' }] };
+    expect(styledLineToAnsi(mailto)).toBe('ab'); // 零 SGR 零 OSC-8——纯裸文本
+  });
+
+  it('clampRuns / capStyledLine spread 造形自动保 href（截断链段保留——词条明记可接受降级）', () => {
+    const url = 'https://a.com/' + 'x'.repeat(40);
+    expect(clampRuns([{ start: 0, end: 50, style: { dim: true }, href: url }], 5)).toEqual([
+      { start: 0, end: 5, style: { dim: true }, href: url },
+    ]);
+    const capped = capStyledLine({ plain: url, runs: [{ start: 0, end: url.length, style: {}, href: url }] }, 10);
+    expect(capped.plain).toBe('https://a' + '…'); // 帽 10：截 9 + 省略号
+    expect(capped.runs[0]!.href).toBe(url); // 截断链段保 href（开部分 URL）
   });
 });
 

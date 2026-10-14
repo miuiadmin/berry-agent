@@ -23,6 +23,21 @@ interface DocOptions {
   readonly theme?: ResolvedTheme;
 }
 
+/**
+ * 行集源契约（挖掘 36 轮批〔5〕OSC-8 行集直转）：流式/终值两 doc 的结构
+ * 公共面（measure + rowsFor）——行集直转转换位（transcript renderDocLines /
+ * thinking 展开体）据此接受两形，告别 CellGrid 往返（engine Cell 三元无
+ * href 位——往返即丢链接元数据）。两 doc 结构满足（StreamingMarkdown 同
+ * 构在位、MarkdownDoc.rowsFor 本批公开），render/CellBuffer 落格面不在
+ * 契约内（render 降级为测试锁定的参照实现——生产零调用）。
+ */
+export interface RowsSource {
+  /** 量高（全块行数——计量腿） */
+  measure(width: number): number;
+  /** 装配行集（布局缓存直出——渲染腿；行 = StyledGrapheme 列） */
+  rowsFor(width: number): readonly (readonly StyledGrapheme[])[];
+}
+
 /** Markdown 渲染件：构造后静态不可变（文本件纪律——状态归持有方自管） */
 export class MarkdownDoc implements Renderable {
   /* parsed 构造期两路赋值（文本解析 / fromBlocks 直入）故去 readonly——
@@ -81,6 +96,16 @@ export class MarkdownDoc implements Renderable {
     return this.layout(width).length;
   }
 
+  /**
+   * 装配行集公开（挖掘 36 轮批〔5〕OSC-8 行集直转）：= private layout(width)
+   * 缓存直出——第二次消费零重排（块级缓存承接同 measure/render 共用面）；
+   * 与 StreamingMarkdown.rowsFor 同构满足 RowsSource 契约（流式/终值两 doc
+   * 同构——转换位据此统一接受两形）。
+   */
+  rowsFor(width: number): StyledGrapheme[][] {
+    return this.layout(width);
+  }
+
   /** 前缀行集（流式稳定面计量——首 k 块的装配行集，块间空距同律） */
   prefixRows(width: number, blockCount: number): StyledGrapheme[][] {
     this.openWidth(width); // 帧路径缓存键先开（稳定块布局一次即存）
@@ -97,7 +122,10 @@ export class MarkdownDoc implements Renderable {
     return rows;
   }
 
-  /** 落位渲染：缓存行集逐行写（相邻同样式游程合并 writeText——省格级调用） */
+  /** 落位渲染：缓存行集逐行写（相邻同样式游程合并 writeText——省格级调用）。
+   * 行集直转批（挖掘 36 轮〔5〕）降级为测试锁定的参照实现——生产零调用
+   * （CellBuffer 落格面无 href 位；等价锁以本方法 + gridRowToStyled 为
+   * grid 往返参照侧，与 rowsFor 直转侧逐字节对拍）。 */
   render(buffer: CellBuffer, region: Region): void {
     const rows = this.layout(region.width);
     const max = Math.min(rows.length, region.height);

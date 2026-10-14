@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { ansiColor, sanitizeDisplayText, stringWidth } from '../../engine/index.js';
+import { ansiColor, CellGrid, sanitizeDisplayText, stringWidth } from '../../engine/index.js';
 import type { TodoItem } from '../../types.js';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage, AssistantMessage } from '../../../contracts/index.js';
@@ -27,7 +27,7 @@ import {
   TRANSCRIPT_BLOCK_CAP,
   type TranscriptBlock,
 } from './transcript.js';
-import { buildSgr, styledLineToAnsi } from './ansi-rows.js';
+import { buildSgr, docRowToStyledLine, gridRowToStyled, styledLineToAnsi } from './ansi-rows.js';
 
 /** 直构槽块（测试速构——思考面缺席位 = 零思考槽形，批 10i 字段族全数到场） */
 const slotOf = (epoch: number, text: string, doc: StreamingMarkdown | null): TranscriptBlock => ({
@@ -1234,6 +1234,8 @@ describe('renderSlotTailLines 尾窗渲染（渲染热路径 D1——冻结前�
     '```\nopen tail',
     '中文段落'.repeat(20),
     '# t\n\n> q\n',
+    // 挖掘 36 轮〔5〕OSC-8：链接语料入对拍（尾窗 ≡ 全量两侧同管线——链序列逐字节对拍）
+    '见 [文档](https://example.com/page) 与裸 https://example.com/b. 尾随',
   ];
   const START_ROWS = [0, 1, 2, 5];
 
@@ -1272,6 +1274,117 @@ describe('renderSlotTailLines 尾窗渲染（渲染热路径 D1——冻结前�
     expect(renderSlotTailLines(slot, 40, 4).lines).toEqual(full.slice(4));
     expect(renderSlotTailLines(slot, 40, 1).lines).toEqual(full.slice(1)); // 起点回抬
     expect(renderSlotTailLines(slot, 40, 0).lines).toEqual(full); // 全量回退形
+  });
+});
+
+/* ---------------- 行集直转与 OSC-8 链贯通（挖掘 36 轮〔5〕） ---------------- */
+
+describe('docRowToStyledLine 等价锁（rowsFor 直转 ≡ CellGrid 往返——平移保护件）', () => {
+  it('非链语料逐字节等价：直转行集 === render+gridRowToStyled 读回（序列化面）', () => {
+    // href 除外 = 声明的参照局限（grid 路径 Cell 无 href 位）——语料因此不含链接
+    const texts = [
+      '# 大标题\n\n段落一正文\n\n> 引用行\n\n```ts\nconst x = 1;\n```\n\n- 项一\n- 项二',
+      '中文段落强调 **粗体** 与 `code` 混排，长段折行算术同受烤。'.repeat(3),
+      '| 左 | 右 |\n| :- | -: |\n| 长单元格内容折行 | 2 |',
+      '宽字折行形：一二三四五六七八九十'.repeat(4),
+    ];
+    for (const text of texts) {
+      for (const w of [40, 20, 7, 3]) {
+        const doc = MarkdownDoc.of(text);
+        // 直转侧：rowsFor → docRowToStyledLine → 序列化
+        const direct = doc.rowsFor(w).map((row) => styledLineToAnsi(docRowToStyledLine(row, w)));
+        // grid 往返侧：render 落格 → gridRowToStyled 读回 → 序列化
+        const grid = new CellGrid(w, Math.max(1, doc.measure(w)));
+        doc.render(grid, { row: 0, col: 0, width: w, height: grid.rows });
+        const viaGrid: string[] = [];
+        for (let r = 0; r < grid.rows; r++) {
+          const styled = gridRowToStyled(grid, r);
+          viaGrid.push(styledLineToAnsi(styled ?? { plain: '', runs: [] }));
+        }
+        expect(direct, `text=${text.slice(0, 12)}… w=${w}`).toEqual(viaGrid);
+      }
+    }
+  });
+});
+
+describe('renderDocLines 直转携 href（OSC-8 链元数据贯通主屏管线）', () => {
+  it('markdown 链接块 runs 携 href【修前红：现行管线丢链接目标】', () => {
+    const styled = renderBlockStyledLines(
+      { kind: 'markdown', doc: MarkdownDoc.of('见 [文档](https://example.com/page)') },
+      40,
+      false, // R-1 豁免位
+    );
+    const line = styled.find((l) => l.plain.includes('文档'));
+    expect(line).toBeDefined();
+    const run = line!.runs.find((r) => line!.plain.slice(r.start, r.end) === '文档');
+    expect(run?.href).toBe('https://example.com/page');
+  });
+
+  it('裸 URL 行 runs 携 href（仅元数据零观感变——无样式段 EMPTY_STYLE 也产段）【修前红】', () => {
+    const styled = renderBlockStyledLines(
+      { kind: 'markdown', doc: MarkdownDoc.of('见 https://example.com/a. 后续') },
+      40,
+      false,
+    );
+    const line = styled.find((l) => l.plain.includes('https://example.com/a'));
+    expect(line).toBeDefined();
+    const run = line!.runs.find((r) => line!.plain.slice(r.start, r.end) === 'https://example.com/a');
+    expect(run).toBeDefined();
+    expect(run!.href).toBe('https://example.com/a');
+    expect(run!.style).toEqual({}); // 无观感样式（EMPTY_STYLE——序列化零 SGR 字节）
+  });
+
+  it('bulletSlotLine +2 右移 href 随段走【修前红：位移造形丢 href 位】', () => {
+    const styled = renderBlockStyledLines(
+      { kind: 'markdown', doc: MarkdownDoc.of('- [项](https://a.com/item)') },
+      40,
+      false,
+    );
+    const line = styled.find((l) => l.plain.includes('项'));
+    expect(line).toBeDefined();
+    const run = line!.runs.find((r) => line!.plain.slice(r.start, r.end) === '项');
+    expect(run?.href).toBe('https://a.com/item');
+    expect(run!.start).toBeGreaterThanOrEqual(2); // bullet 槽前缀（• + 空格）后——+2 位移
+  });
+
+  it('相邻两链同样式异 href 不并段（run 合并判据含 href 相等）【修前红】', () => {
+    const styled = renderBlockStyledLines(
+      { kind: 'markdown', doc: MarkdownDoc.of('[甲](https://a.com)[乙](https://b.com)') },
+      40,
+      false,
+    );
+    const line = styled.find((l) => l.plain.includes('甲'));
+    expect(line).toBeDefined();
+    const linkRuns = line!.runs.filter((r) => r.href !== undefined);
+    expect(linkRuns.length).toBe(2); // 不并段——并段即丢链界（后链覆写/前链泄漏）
+    expect(linkRuns[0]!.href).toBe('https://a.com');
+    expect(linkRuns[1]!.href).toBe('https://b.com');
+  });
+
+  it('链接行 plain 零 OSC 字节 + ANSI 形同管线发射 OSC-8（两形分立单源）', () => {
+    const doc = MarkdownDoc.of('见 [文档](https://example.com/page) 与 https://example.com/b.');
+    const styled = renderBlockStyledLines({ kind: 'markdown', doc }, 40, false);
+    for (const line of styled) expect(line.plain).not.toMatch(/[\x1b\x07]/); // plain 纯净（搜索/选区复制单源）
+    const ansi = renderBlockLines({ kind: 'markdown', doc }, 40);
+    expect(ansi.join('\n')).toContain('\x1b]8;;https://example.com/page\x1b\\'); // 发射面超链在场
+    expect(ansi.join('\n')).toContain('\x1b]8;;https://example.com/b\x1b\\'); // 裸 URL 同发
+  });
+
+  it('思考块展开体 runs 携 href（thinking 直转——CellGrid 往返退役）【修前红】', () => {
+    const thinkingDoc = new StreamingMarkdown();
+    thinkingDoc.update('思考 [链](https://a.com/th) 正文');
+    const view = {
+      text: '思考 [链](https://a.com/th) 正文',
+      expanded: true,
+      phase: 'settled' as const,
+      theme: DEFAULT_THEME,
+      toggleHint: 'ctrl+t',
+    };
+    const lines = renderThinkingStyledLines(view, 40, thinkingDoc);
+    const line = lines.find((l) => l.plain.includes('链'));
+    expect(line).toBeDefined();
+    const run = line!.runs.find((r) => line!.plain.slice(r.start, r.end) === '链');
+    expect(run?.href).toBe('https://a.com/th');
   });
 });
 

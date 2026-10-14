@@ -45,24 +45,18 @@
 import type { AgentEvent } from '../../../agent/index.js';
 import { isStandardMessage, type AgentMessage } from '../../../contracts/index.js';
 import {
-  CellGrid,
   DIM_STYLE,
-  EMPTY_STYLE,
   ellipsize,
-  graphemeWidth,
   sanitizeDisplayText,
   stringWidth,
-  styleEquals,
   wrapText,
   type CellStyle,
   type ColorValue,
-  type Renderable,
 } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
-import { gridRowToStyled, capStyledLine, styledLineToAnsi, type StyleRun, type StyledLine } from './ansi-rows.js';
-import { MarkdownDoc } from '../markdown/markdown.js';
-import type { StyledGrapheme } from '../markdown/layout.js';
+import { capStyledLine, docRowToStyledLine, styledLineToAnsi, type StyleRun, type StyledLine } from './ansi-rows.js';
+import { MarkdownDoc, type RowsSource } from '../markdown/markdown.js';
 import { renderThinkingStyledLines, type ThinkingView } from '../blocks/thinking.js';
 import {
   cardBodyOf,
@@ -432,10 +426,13 @@ function askDecisionLine(block: Extract<TranscriptBlock, { kind: 'ask-decision' 
 const BULLET_PREFIX_WIDTH = 2;
 
 /**
- * bullet 槽内容腿有效宽（挖掘 29 轮件 2单源钳）：columns−2 在极窄（≤2 列）
- * 为 0/负——renderDocLines 经 new CellGrid(负宽) 抛 RangeError、计量/渲染两腿
- * 宽口径分立即账漂移。钳 1（markdown 件 blockRows 的 Math.max(1, width) 内钳
- * 同律——本位是「columns−2」消费侧的单源；能画就画，1-2 列下逐字整字独行）。
+ * bullet 槽内容腿有效宽（挖掘 29 轮件 2 单源钳）：columns−2 在极窄（≤2 列）
+ * 为 0/负——修前 renderDocLines 经 new CellGrid(负宽) 抛 RangeError（挖掘
+ * 36 轮〔5〕行集直转后 renderDocLines 不再分配网格，钳仍保留：docRowToStyledLine
+ * 的越列写截停以正宽为前提，且计量/渲染两腿宽口径分立的账漂移风险仍在——
+ * 本位继续单源钳 1）、计量/渲染两腿宽口径分立即账漂移。钳 1（markdown 件
+ * blockRows 的 Math.max(1, width) 内钳同律——本位是「columns−2」消费侧的
+ * 单源；能画就画，1-2 列下逐字整字独行）。
  */
 function bulletDocWidth(columns: number): number {
   return Math.max(1, columns - BULLET_PREFIX_WIDTH);
@@ -554,10 +551,13 @@ export function dialogueBlockCount(blocks: readonly TranscriptBlock[]): number {
  */
 function bulletSlotLine(line: StyledLine, rowIndex: number): StyledLine {
   if (line.plain === '') return { plain: '', runs: [] };
+  // 位移造形补 href（挖掘 36 轮〔5〕OSC-8）：链接段 +2 右移 href 随段走——
+  // 丢位即链元数据在 bullet 槽断流
   const shifted = line.runs.map((run) => ({
     start: run.start + BULLET_PREFIX_WIDTH,
     end: run.end + BULLET_PREFIX_WIDTH,
     style: run.style,
+    href: run.href,
   }));
   return {
     plain: (rowIndex === 0 ? '• ' : '  ') + line.plain,
@@ -570,8 +570,9 @@ function bulletSlotLine(line: StyledLine, rowIndex: number): StyledLine {
  *
  * 主屏 MainScreen 直写（经 renderBlockLines 的 ANSI 序列化形）与件 8 回看器
  * cell 写出（StyledLine 直消费）共用本函数：同输入同行集、零第二渲染器
- * （07 件 8 数据源条款）；markdown/streaming-doc 块经 CellGrid 渲染
- * （gridRowToStyled 提段）、user 块折行续挂对齐（宽算术单源走 wrapText）、
+ * （07 件 8 数据源条款）；markdown/streaming-doc 块经 rowsFor 行集直转
+ * （docRowToStyledLine 提段——挖掘 36 轮〔5〕OSC-8，CellGrid 往返退役）、
+ * user 块折行续挂对齐（宽算术单源走 wrapText）、
  * 简行块整行 dim、streaming 降档纯文本零样式、markdown 无内容行保空行
  * （主屏空行直写形字节不变）。
  *
@@ -839,7 +840,7 @@ export function stableSlotLineCount(
 function thinkingRowCount(
   view: { readonly text: string; readonly expanded: boolean; readonly theme: ResolvedTheme },
   columns: number,
-  doc?: Renderable | null,
+  doc?: RowsSource | null,
 ): number {
   if (view.text === '') return 0;
   if (!view.expanded) return 1; // 折叠档 = 单标签行（体 doc 缺席亦然——渲染支路折叠不触 doc）
@@ -847,74 +848,18 @@ function thinkingRowCount(
   return 1 + Math.max(1, bodyDoc.measure(columns));
 }
 
-/** Renderable doc → 带样式行集（markdown 定稿与流式 doc 共用——同管线律） */
-function renderDocLines(doc: Renderable, columns: number): StyledLine[] {
-  const grid = new CellGrid(columns, doc.measure(columns));
-  doc.render(grid, { row: 0, col: 0, width: columns, height: grid.rows });
+/** RowsSource doc → 带样式行集（markdown 定稿与流式 doc 共用——同管线律）。
+ * 行集直转（挖掘 36 轮批〔5〕OSC-8）：修前经 CellGrid 整面往返（render 落格
+ * + gridRowToStyled 读回——engine Cell 三元无 href 位、链接元数据至此即丢）
+ * 改 doc.rowsFor 装配行集逐行 docRowToStyledLine 直转——href 全程可达；
+ * doc.render + gridRowToStyled 降级为测试锁定的参照实现（生产零调用）。 */
+function renderDocLines(doc: RowsSource, columns: number): StyledLine[] {
+  const rows = doc.rowsFor(columns);
   const lines: StyledLine[] = [];
-  for (let r = 0; r < grid.rows; r++) {
-    lines.push(gridRowToStyled(grid, r) ?? { plain: '', runs: [] }); // 无内容行保空行
+  for (let r = 0; r < rows.length; r++) {
+    lines.push(docRowToStyledLine(rows[r]!, columns));
   }
   return lines;
-}
-
-/**
- * doc 装配行（StyledGrapheme[]）→ 带样式行（渲染热路径 D1——行集直转）：
- * 忠实镜像「doc.render 落格 CellGrid + gridRowToStyled 读回」的净效果，
- * 免去整面网格分配/落格/读回——逐行语义等价要点（与 cell.ts / ansi-rows.ts
- * 两件的单源语义逐条对齐）：
- * - 落格净效果：tab 展开两空格（携段样式）、其余 C0/DEL 跳过不占宽（行集
- *   在 layout 件已源头消毒——本位防御镜像）、零宽字素 setCell 丢弃、越列
- *   写静默吸收（col ≥ columns 截停；宽字素末列基格仍写——续格越界丢弃）；
- * - 读回净效果（gridRowToStyled 同律）：行尾缺省空格修剪（写入的缺省空格
- *   与未写格同判——尾部默认空格不入 plain）、缺省样式段不产段（gap 即裸
- *   文本）、相邻同样式且端点连续的段合并、无内容行返空行。
- */
-function docRowToStyledLine(row: readonly StyledGrapheme[], columns: number): StyledLine {
-  // 虚拟落格（dense 形——写入连续无洞：零宽/控制跳过不推进列位）
-  const cells: { grapheme: string; style: Readonly<CellStyle> | undefined }[] = [];
-  let col = 0;
-  for (const cell of row) {
-    const code = cell.grapheme.charCodeAt(0);
-    if (code === 0x09) {
-      // tab 展开两空格（writeText 同律——两格各自独立越界判定）
-      if (col < columns) cells.push({ grapheme: ' ', style: cell.style });
-      if (col + 1 < columns) cells.push({ grapheme: ' ', style: cell.style });
-      col += 2;
-      continue;
-    }
-    if (code < 0x20 || code === 0x7f) continue; // 控制字素落格跳过不占宽（防御镜像——行集已消毒）
-    const w = graphemeWidth(cell.grapheme);
-    if (w === 0) continue; // 零宽字素 setCell 丢弃（防御镜像——splitGraphemes 已合流）
-    if (col >= columns) break; // 越列写静默吸收（整字独行超帽形与网格兜底同律）
-    cells.push({ grapheme: cell.grapheme, style: cell.style });
-    col += w;
-  }
-  // 行尾缺省空格修剪（cellEquals 归一基准：' ' + EMPTY_STYLE + width 1）
-  let last = cells.length - 1;
-  while (last >= 0) {
-    const tailCell = cells[last]!;
-    if (tailCell.grapheme !== ' ') break;
-    if (tailCell.style !== undefined && !styleEquals(tailCell.style, EMPTY_STYLE)) break;
-    last--;
-  }
-  if (last < 0) return { plain: '', runs: [] }; // 无内容行（gridRowToStyled null 同构——调用面保空行）
-  let plain = '';
-  const runs: StyleRun[] = [];
-  for (let i = 0; i <= last; i++) {
-    const cell = cells[i]!;
-    const start = plain.length;
-    plain += cell.grapheme;
-    if (cell.style === undefined || styleEquals(cell.style, EMPTY_STYLE)) continue; // 缺省段不产段（gap 即裸文本）
-    // 相邻同样式紧邻续段合并（端点连续才并——中间缺省格即断开）
-    const prev = runs[runs.length - 1];
-    if (prev !== undefined && styleEquals(prev.style, cell.style) && prev.end === start) {
-      runs[runs.length - 1] = { start: prev.start, end: start + cell.grapheme.length, style: cell.style };
-    } else {
-      runs.push({ start, end: start + cell.grapheme.length, style: cell.style });
-    }
-  }
-  return { plain, runs };
 }
 
 /** 槽尾窗渲染产出（渲染热路径 D1——尾窗渲染） */

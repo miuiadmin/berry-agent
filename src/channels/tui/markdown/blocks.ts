@@ -237,10 +237,16 @@ export function blockGap(prev: MarkdownBlock, next: MarkdownBlock, prevRowCount 
   return 1;
 }
 
-/** 行内段结构相等（blockEquals 的 span 位支路） */
+/** 行内段结构相等（blockEquals 的 span 位支路——href 第 6 字段随 OSC-8 批入册：
+ *  流式块缓存承接判据含链接目标——目标漂移即结构漂移不承接） */
 function spanEquals(a: InlineSpan, b: InlineSpan): boolean {
   return (
-    a.text === b.text && a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && a.code === b.code
+    a.text === b.text &&
+    a.bold === b.bold &&
+    a.italic === b.italic &&
+    a.underline === b.underline &&
+    a.code === b.code &&
+    a.href === b.href
   );
 }
 
