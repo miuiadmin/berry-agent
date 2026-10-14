@@ -343,6 +343,16 @@ export interface TuiBackendOptions {
   /** 载波探测环境快照（TERM_PROGRAM/TMUX——tui-entry 装配时定值注入，colorEnv 同例） */
   readonly notifyEnv?: { readonly TERM_PROGRAM?: string; readonly TMUX?: string };
   /**
+   * 触发档白名单（挖掘 37 轮 settings-notify-key——settings 第七键装配注入）：
+   * 缺席 = 四档全集（缺席注入律，现行为零变化）；空数组 = 合法显式全静默。
+   * 与载波门 desktopNotify 两维分立：载波定「经哪条道发」、本键定「哪些事
+   * 值得发」，载波关先于档位短路。档位-事件映射：turn-failed 档辖
+   * retry_wait_end 非 resumed 全 outcome 形（含 aborted——揭示延后律下的真
+   * 失败终态）；turn-aborted 档仅辖 agent_end status=aborted（同为「中止」
+   * 词跨两档）。档位判断单点收口 enqueueNotice（四处入账点前置传档位）。
+   */
+  readonly notifyTriggers?: readonly NotifyTrigger[];
+  /**
    * 自定义主题覆盖表（/themes 批）：theme 值为自定义名时装配位载入注入
    * （loadCustomThemeColors 产物；坏文件装配位 warn 后回退内置档——本键缺席
    * 即内置形）。在场景 = 键级回退基板 OSC 重合成（handleOscReply）+ 探测
@@ -572,6 +582,17 @@ const TICK_INTERVAL_MS = 80;
  * settled）即失效——语义边界不吞首帧。
  */
 const SPEED_SLOT_REFRESH_MS = 500;
+
+/**
+ * 桌面通知触发档闭集（挖掘 37 轮 settings-notify-key——04 §9 定形块⑥ 第七键
+ * 值域单源）：档名对齐规范文案四词语域（轮完成/已中止/失败/等待审批）非事件
+ * 名语域。channels 侧单源定义、两级公开面 re-export（tui/index → channels/
+ * index），host settings-store 反向 import 消费（ThemeSetting 同形先例）——
+ * 禁 host/channels 双源。
+ */
+export const NOTIFY_TRIGGER_VALUES = ['turn-completed', 'turn-aborted', 'turn-failed', 'approval-waiting'] as const;
+/** 触发档类型（NOTIFY_TRIGGER_VALUES 值域推导——settings 第七键值域） */
+export type NotifyTrigger = (typeof NOTIFY_TRIGGER_VALUES)[number];
 
 /** notify 档位符号（正文着色纪律——纯符号不配色，与摘要行会话色分立；注⑩：info • 列点位/error ✗ 形） */
 const NOTIFY_SYMBOLS: Readonly<Record<NotifyLevel, string>> = Object.freeze({
@@ -1027,6 +1048,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private readonly notifyConf: { readonly carrier: 'osc9' | 'bel'; readonly tmux: boolean } | null;
   /**
+   * 触发档白名单集（构造期由 notifyTriggers 铸）：null = 缺席档 = 四档全集
+   * （不滤——缺席注入律）；Set 形按档滤（空集 = 显式全静默）。档位判断单点
+   * 在 enqueueNotice（载波关短路优先级先于档位判断——两维分立）。
+   */
+  private readonly notifyTriggersSet: ReadonlySet<NotifyTrigger> | null;
+  /**
    * 同窗合并账（250ms 窗）：审批（优先级 1）压过轮完成（0）——低不覆盖高
    * （codex pending_notification 同律）；窗到点整条裁决（聚焦则弃）。
    */
@@ -1219,6 +1246,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       const carrier = notifyGate === 'auto' ? detectNotifyCarrier(notifyEnv) : notifyGate;
       this.notifyConf = { carrier, tmux: carrier === 'osc9' && notifyEnv.TMUX !== undefined };
     }
+    // 触发档白名单铸集（挖掘 37 轮）：缺席 = null = 四档全集不滤（旧装配零
+    // 扰动）；在场铸 Set（空数组 = 空集 = 显式全静默——合法形非坏值）
+    this.notifyTriggersSet = options.notifyTriggers === undefined ? null : new Set(options.notifyTriggers);
     this.osc = new OscDisplay(io, {
       baseline: this.titleBaseline,
       schedule: this.scheduleFn ?? undefined,
@@ -3076,6 +3106,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.enqueueNotice(
       `等待审批：${sanitizeNotifyText(request.toolName !== undefined ? toolFaceZh(request.toolName) : request.summary, 40)}`,
       1,
+      'approval-waiting',
     );
     return new Promise<ApprovalAskAnswer>((resolve) => {
       const title =
@@ -4437,9 +4468,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 同窗合并——在账优先级高于新入则弃（审批 1 压过轮完成 0，低不覆盖高）。
    * scheduleFn 缺席 = 同步直出（测试语义——零窗即发，armEscapeWindow 同构）。
    * 文案消毒归调用方（动态段帽前置），本方法只承合并与排程。
+   * 档位收口（挖掘 37 轮 settings-notify-key）：单点档位判断——白名单不含
+   * 该档即零账（缺席白名单 = 全集不滤；载波关短路优先级先于档位判断——两
+   * 维分立）。四处入账点（trackDesktopNotice 三腿 + askApproval 审批档）前
+   * 置传档位，散点漏判结构性消除；两记账腿（lastAssistantLine/
+   * noticeFailReason）不辖档位（零行为耦合——预览/原因账照记）。
    */
-  private enqueueNotice(text: string, priority: 0 | 1): void {
-    if (this.notifyConf === null) return; // 通道关——零账零排程（缺席注入律）
+  private enqueueNotice(text: string, priority: 0 | 1, trigger: NotifyTrigger): void {
+    if (this.notifyConf === null) return; // 通道关——零账零排程（缺席注入律；先于档位判断）
+    if (this.notifyTriggersSet !== null && !this.notifyTriggersSet.has(trigger)) return; // 档白名单不含——零账
     if (this.pendingNotice !== null && this.pendingNotice.priority > priority) return; // 低不覆盖高
     if (this.pendingNotice === null && this.scheduleFn !== null) {
       // 首入起窗（窗内后续只改账不重挂）
@@ -4505,13 +4542,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       }
       if (event.status === 'aborted') {
         this.lastAssistantLine.delete(env.sessionId); // 消费即清（陈摘要不跨 run）
-        this.enqueueNotice('本轮已中止', 0);
+        this.enqueueNotice('本轮已中止', 0, 'turn-aborted');
         return;
       }
       // completed：预览缺席 → 裸词（诚实缺席非陈摘要）
       const preview = this.lastAssistantLine.get(env.sessionId);
       this.lastAssistantLine.delete(env.sessionId); // 消费即清
-      this.enqueueNotice(preview === undefined ? '本轮完成' : `本轮完成：${sanitizeNotifyText(preview, 80)}`, 0);
+      this.enqueueNotice(
+        preview === undefined ? '本轮完成' : `本轮完成：${sanitizeNotifyText(preview, 80)}`,
+        0,
+        'turn-completed',
+      );
       return;
     }
     if (event.type === 'retry_wait_end') {
@@ -4520,7 +4561,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       const reason = this.noticeFailReason.get(env.sessionId) ?? '';
       this.noticeFailReason.delete(env.sessionId);
       this.lastAssistantLine.delete(env.sessionId);
-      this.enqueueNotice(reason === '' ? '本轮失败' : `本轮失败：${sanitizeNotifyText(reason, 80)}`, 0);
+      // 档位 turn-failed（非 turn-aborted）：retry_wait_end 非 resumed 全 outcome 形
+      // （含 aborted）皆「揭示延后后的真失败终态」——档位-事件映射见 TuiBackendOptions
+      this.enqueueNotice(reason === '' ? '本轮失败' : `本轮失败：${sanitizeNotifyText(reason, 80)}`, 0, 'turn-failed');
     }
   }
 

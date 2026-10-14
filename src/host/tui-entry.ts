@@ -590,9 +590,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       animationsEnv === '0' ? false : animationsEnv === '1' ? true : (themeLoad?.settings.animations ?? true);
     // —— 桌面通知门铸值（挖掘 36 轮 notify-osc9——07 §4.1 件 7 第三写点）：
     // env BERRY_AGENT_TUI_NOTIFY = auto|osc9|bel|off（缺省 auto；坏值 warn 点名
-    // 忽略走缺省——animations 律同构）。settings 第七键挂账下窗（env-only 先行
-    // ——拍板②）。载波探测材料 = TERM_PROGRAM/TMUX 两键投影（backend 内
-    // detectNotifyCarrier 消费）。
+    // 忽略走缺省——animations 律同构）。载波探测材料 = TERM_PROGRAM/TMUX
+    // 两键投影（backend 内 detectNotifyCarrier 消费）。
     const notifyEnvRaw = env.BERRY_AGENT_TUI_NOTIFY;
     if (
       notifyEnvRaw !== undefined &&
@@ -605,6 +604,13 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     }
     const desktopNotify =
       notifyEnvRaw === 'osc9' || notifyEnvRaw === 'bel' || notifyEnvRaw === 'off' ? notifyEnvRaw : 'auto';
+    // —— 触发档白名单下装（挖掘 37 轮 settings-notify-key——挂账解挂：settings
+    // 第七键 notifyTriggers 直通 TuiBackendOptions.notifyTriggers，backend 构造
+    // 期铸集单点消费；缺席 = 四档全集〔缺席注入律——旧装配零扰动〕，空数组 =
+    // 显式全静默。载波门 desktopNotify 与本键两维分立——载波定「经哪条道发」、
+    // 本键定「哪些事值得发」，载波关先于档位短路。无 env 逐次覆盖位（档集合
+    // 无单值 env 语义形——animations 单值键先例不随迁）。
+    const notifyTriggers = themeLoad?.settings.notifyTriggers;
     const isCustomTheme = themeSetting !== 'dark' && themeSetting !== 'light' && themeSetting !== 'auto';
     const customThemeOverlay =
       isCustomTheme && runtime.dataDir !== null
@@ -1710,6 +1716,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 生产半边）；载波探测 env 快照同装（colorEnv 同例）
       desktopNotify,
       notifyEnv: { TERM_PROGRAM: env.TERM_PROGRAM, TMUX: env.TMUX },
+      // 触发档白名单（挖掘 37 轮 settings-notify-key）：缺席不传 = backend 四档
+      // 全集不滤（缺席注入律）；在场〔含空数组〕铸集档位过滤
+      ...(notifyTriggers !== undefined ? { notifyTriggers } : {}),
       ...(customThemeOverlay !== null ? { customThemeOverlay } : {}),
       colorEnv: { COLORTERM: env.COLORTERM, TERM: env.TERM },
       // 键位用户覆盖（R5 批 10k）：settings.json keybindings 键——形校验在读

@@ -34,6 +34,13 @@
  * `BERRY_AGENT_TUI_ANIMATIONS` 的分层真源 = 07 §4.1 呈现面动效门控批注，
  * 消费位 = tui-entry 装配（零行为耦合，与 theme 键同姿）。非敏感件。
  *
+ * 第七键 `notifyTriggers?`（2026-10-14 挖掘 37 轮 settings-notify-key
+ * ——04 §9 ⑥ 键面扩容 6→7）：TUI 桌面通知触发档白名单（字符串数组，值域
+ * 单源 = channels NOTIFY_TRIGGER_VALUES——ThemeSetting 同形跨域单源）。
+ * 缺席 = 四档全集（装配缺席注入律）；空数组 = 合法显式全静默（两形分立，
+ * 本面零行为耦合只存取）。档位-事件映射与载波门两维分立真源 = 04 §9 ⑥
+ * notifyTriggers 批注；消费位 = tui-entry 装配铸集注入。非敏感件。
+ *
  * 读写纪律（与 tool-policy-store 同族——「文件即用户资产」律）：
  * - 读侧缺席 = {}（零负担首启）；文件级坏 JSON = warn 降级 {}（配置层坏形
  *   取缺省 = 现状常量，非 fail-stop 面）；键级坏值 = 忽略该键 + warn 点名
@@ -48,7 +55,12 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { isValidCustomThemeName, type ThemeSetting } from '../channels/index.js';
+import {
+  NOTIFY_TRIGGER_VALUES,
+  isValidCustomThemeName,
+  type NotifyTrigger,
+  type ThemeSetting,
+} from '../channels/index.js';
 import {
   CUSTOM_PROVIDER_PROTOCOLS,
   customCompatProblem,
@@ -62,7 +74,7 @@ import type { ApprovalPolicyMode, SandboxMode } from '../safety/index.js';
 /** 配置文件名（数据目录单段——04 §9 ⑥「本批定名」） */
 export const SETTINGS_BASENAME = 'settings.json';
 
-/** 配置面形状（六键均可选——缺席走代码常量层） */
+/** 配置面形状（七键均可选——缺席走代码常量层） */
 export interface HostSettings {
   readonly sandboxMode?: SandboxMode;
   readonly approvalPolicy?: ApprovalPolicyMode;
@@ -88,6 +100,13 @@ export interface HostSettings {
    * env 逐次覆盖位分层在装配腿（tui-entry）。
    */
   readonly animations?: boolean;
+  /**
+   * 桌面通知触发档白名单（挖掘 37 轮 settings-notify-key——值域单源 =
+   * channels NOTIFY_TRIGGER_VALUES 四档；元素坏形丢该元素点名、好元素
+   * 生效——keybindings 条目律同形；过滤后空数组合法〔显式全静默〕）。
+   * 本面只存取与形校验（零行为耦合——档位语义真源 04 §9 ⑥ 批注）。
+   */
+  readonly notifyTriggers?: readonly NotifyTrigger[];
 }
 
 /** 读侧选项 */
@@ -252,10 +271,11 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     warn(`配置坏形（${path}，顶层须为对象）——视同缺席；手改修复前回写拒`);
     return { settings: {}, healthy: false };
   }
-  // 键级校验：六键值域/形校验外忽略点名；未知键 warn 保留不动（读侧不区分
-  // 「保留在内存」与否——本面只产六键，未知键经写侧合并律存活）
+  // 键级校验：七键值域/形校验外忽略点名；未知键 warn 保留不动（读侧不区分
+  // 「保留在内存」与否——本面只产七键，未知键经写侧合并律存活）
   const record = doc as Record<string, unknown>;
-  const { sandboxMode, approvalPolicy, theme, keybindings, customProviders, animations, ...rest } = record;
+  const { sandboxMode, approvalPolicy, theme, keybindings, customProviders, animations, notifyTriggers, ...rest } =
+    record;
   const unknownKeys = Object.keys(rest);
   if (unknownKeys.length > 0) {
     warn(`配置含未知键 ${unknownKeys.join('、')}（${path}）——本面不消费、保留不动`);
@@ -267,6 +287,7 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     keybindings?: Readonly<Record<string, string>>;
     customProviders?: Readonly<Record<string, CustomProviderDef>>;
     animations?: boolean;
+    notifyTriggers?: readonly NotifyTrigger[];
   } = {};
   if (sandboxMode !== undefined) {
     if (typeof sandboxMode === 'string' && SANDBOX_MODES.includes(sandboxMode)) {
@@ -340,6 +361,25 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
       warn('配置键 animations 须为 boolean（true|false）——忽略该键');
     }
   }
+  // notifyTriggers 形校验（挖掘 37 轮 settings-notify-key）：值域单源 =
+  // NOTIFY_TRIGGER_VALUES 四档（跨域单源——本面零副本判断）；元素坏形丢该
+  // 元素点名（keybindings 条目律同形——好元素照常生效）；过滤后空数组合法
+  // 存 []（显式全静默形——与缺席〔= 全集〕两形分立，不得折叠为 undefined）
+  if (notifyTriggers !== undefined) {
+    if (Array.isArray(notifyTriggers)) {
+      const triggers: NotifyTrigger[] = [];
+      for (const raw of notifyTriggers) {
+        if (typeof raw === 'string' && (NOTIFY_TRIGGER_VALUES as readonly string[]).includes(raw)) {
+          triggers.push(raw as NotifyTrigger);
+        } else {
+          warn(`配置键 notifyTriggers 元素 ${String(raw)} 值域外（${NOTIFY_TRIGGER_VALUES.join('|')}）——丢该元素`);
+        }
+      }
+      settings.notifyTriggers = triggers;
+    } else {
+      warn('配置键 notifyTriggers 须为字符串数组——忽略该键');
+    }
+  }
   return { settings, healthy: true };
 }
 
@@ -394,7 +434,7 @@ export function writeHostSettings(
   const load = readHostSettings(dataDir, options);
   if (!load.healthy) return 'rejected';
   // 合并基 = 原文件解析出的全键形（含未知键——保留律）。重读一次拿未剥离
-  // 的原始对象（readHostSettings 产物只含六键，未知键需原始面承载）
+  // 的原始对象（readHostSettings 产物只含七键，未知键需原始面承载）
   const path = join(dataDir, SETTINGS_BASENAME);
   let base: Record<string, unknown> = {};
   if (existsSync(path)) {
@@ -408,6 +448,7 @@ export function writeHostSettings(
   if (patch.keybindings !== undefined) next.keybindings = patch.keybindings;
   if (patch.customProviders !== undefined) next.customProviders = patch.customProviders;
   if (patch.animations !== undefined) next.animations = patch.animations;
+  if (patch.notifyTriggers !== undefined) next.notifyTriggers = patch.notifyTriggers;
   mkdirSync(dataDir, { recursive: true });
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');

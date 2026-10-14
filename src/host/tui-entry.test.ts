@@ -1208,6 +1208,37 @@ describe('runTuiEntry 装配序', () => {
     expect(await t3.entry).toBe(0);
   });
 
+  // ── 触发档白名单真装配锁（挖掘 37 轮 settings-notify-key——ASM-1 反制：
+  // settings.json 第七键 → tui-entry 铸值 → TuiBackendOptions.notifyTriggers →
+  // backend 构造铸集四级穿线任一拆线则档位失效、通知照发、本测红。修前红锚：
+  // 实现前读侧无第七键 → 白名单缺席 = 全集 → 通知必发 → not.toContain 红） ──
+  it('settings notifyTriggers 真装配：关 turn-completed → 失焦轮完成零通知字节；键缺席照发（全集律不回归）', async () => {
+    // 腿1：白名单不含 turn-completed——失焦轮完成零「本轮完成」通知字节
+    const dataDir = rigDir('entry-ntrig-a-data-');
+    writeFileSync(
+      join(dataDir, 'settings.json'),
+      JSON.stringify({ notifyTriggers: ['turn-failed', 'approval-waiting'] }),
+    );
+    const t1 = await rigEntry(dataDir, rigDir('entry-ntrig-a-ws-'), { env: { TERM_PROGRAM: 'ghostty' } });
+    t1.io.send('\x1b[O'); // 失焦（通知门控开——载波门与档位门两维分立中的载波维恒开）
+    t1.io.send('hi\r');
+    await until(() => t1.io.output.includes('ok')); // 应答上屏（run 完成时点）
+    await new Promise((r) => setTimeout(r, 400)); // 越合并窗——档位若漏穿线通知必落帧
+    expect(t1.io.output).not.toContain('\x1b]9;本轮完成');
+    t1.io.send('\x04');
+    expect(await t1.entry).toBe(0);
+    // 腿2：键缺席（settings.json 仅他键）= 全集不滤——失焦轮完成通知照发
+    //（防「白名单引入后缺席被误折叠为空集」的过度过滤回归）
+    const dataDir2 = rigDir('entry-ntrig-b-data-');
+    writeFileSync(join(dataDir2, 'settings.json'), JSON.stringify({ theme: 'dark' }));
+    const t2 = await rigEntry(dataDir2, rigDir('entry-ntrig-b-ws-'), { env: { TERM_PROGRAM: 'ghostty' } });
+    t2.io.send('\x1b[O');
+    t2.io.send('hi\r');
+    await until(() => t2.io.output.includes('\x1b]9;本轮完成：ok')); // 缺席档 = 四档全集
+    t2.io.send('\x04');
+    expect(await t2.entry).toBe(0);
+  });
+
   // ── /copy 整轮回复复制真装配锁（挖掘 36 轮批 [2]——ASM-1 反制：
   // lastResponse 注入 + leader c 分支 + dispatchAnchored + TUI
   // writeClipboard 四装配面任一拆线则本测红——单测假注入绿不可代） ──

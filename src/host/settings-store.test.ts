@@ -49,6 +49,29 @@ describe('readHostSettings（读侧——缺席零负担 + 坏形降级）', () 
     writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark' }));
     expect(readHostSettings(dir).settings.animations).toBeUndefined(); // 缺席 undefined
   });
+  it('第七键 notifyTriggers（挖掘 37 轮 settings-notify-key）：好值/坏元素丢元素点名/空数组合法/非数组忽略/缺席 undefined', () => {
+    const dir = tmpDir('settings-ntrig-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({ notifyTriggers: ['turn-completed', 'approval-waiting'] }),
+    );
+    const load = readHostSettings(dir);
+    expect(load.settings.notifyTriggers).toEqual(['turn-completed', 'approval-waiting']); // 子集白名单读入
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ notifyTriggers: ['turn-failed', 'bogus', 7] }));
+    const { warnings, warn } = captureWarn();
+    const bad = readHostSettings(dir, { warn });
+    expect(bad.settings.notifyTriggers).toEqual(['turn-failed']); // 坏元素丢元素点名、好元素照常生效
+    expect(warnings.some((w) => w.includes('notifyTriggers') && w.includes('值域外'))).toBe(true); // 点名
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ notifyTriggers: [] }));
+    const empty = readHostSettings(dir);
+    expect(empty.settings.notifyTriggers).toEqual([]); // 空数组 = 合法显式全静默形（不得折叠为 undefined——与缺席〔= 全集〕两形分立）
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ notifyTriggers: 'turn-completed' }));
+    const notArray = readHostSettings(dir, { warn });
+    expect(notArray.settings.notifyTriggers).toBeUndefined(); // 非数组忽略整键
+    expect(warnings.some((w) => w.includes('notifyTriggers') && w.includes('字符串数组'))).toBe(true);
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark' }));
+    expect(readHostSettings(dir).settings.notifyTriggers).toBeUndefined(); // 缺席 undefined
+  });
   it('好形两键读入', () => {
     const dir = tmpDir('settings-good-');
     writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ sandboxMode: 'read-only', approvalPolicy: 'ask' }));
@@ -186,6 +209,17 @@ describe('writeHostSettings（写侧——合并保留 + 原子 + 坏形拒）',
     writeHostSettings(dir, { sandboxMode: 'read-only' });
     doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
     expect(doc).toEqual({ theme: 'dark', animations: false, sandboxMode: 'read-only' });
+  });
+  it('notifyTriggers 写侧合并（挖掘 37 轮 settings-notify-key）：patch 落盘 + 缺席键不动现状', () => {
+    const dir = tmpDir('settings-ntrig-write-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark' }));
+    expect(writeHostSettings(dir, { notifyTriggers: ['turn-failed'] })).toBe('written');
+    let doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({ theme: 'dark', notifyTriggers: ['turn-failed'] });
+    // 他键写不动 notifyTriggers（缺席键不动现状律）
+    writeHostSettings(dir, { sandboxMode: 'read-only' });
+    doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({ theme: 'dark', notifyTriggers: ['turn-failed'], sandboxMode: 'read-only' });
   });
   it('文件缺席直接造（首启落盘）', () => {
     const dir = tmpDir('settings-create-');

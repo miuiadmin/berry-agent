@@ -10,6 +10,10 @@
  */
 export type { TuiBackendOptions } from './backend/tui-backend.js';
 export { TuiBackend } from './backend/tui-backend.js';
+// 触发档白名单（挖掘 37 轮 settings-notify-key——settings 第七键值域单源）：
+// host settings-store 反向消费（ThemeSetting 同形先例）+ tui-entry 装配铸集
+export type { NotifyTrigger } from './backend/tui-backend.js';
+export { NOTIFY_TRIGGER_VALUES } from './backend/tui-backend.js';
 
 // 启动动画件（07 §4.1 呈现面件 10 批D——tui-entry 装配位消费；host 经
 // channels 公开面取件）

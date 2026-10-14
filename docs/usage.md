@@ -226,19 +226,23 @@ TUI 内建命令（随插件安装动态扩展）：`/plugins`（插件管理 TU
 
 ### 用户设置（settings.json）
 
-数据目录下 `~/.berry-agent/settings.json`（文件缺席 = 全默认；手编改动下次启动生效）。TUI 相关键两枚：
+数据目录下 `~/.berry-agent/settings.json`（文件缺席 = 全默认；手编改动下次启动生效）。TUI 相关键四枚：
 
 ```json
 {
   "theme": "dark",
   "keybindings": {
     "thinking.toggle": "ctrl+alt+t"
-  }
+  },
+  "animations": true,
+  "notifyTriggers": ["turn-completed", "approval-waiting"]
 }
 ```
 
 - `theme`——TUI 主题设置：内置 `dark` / `light` / `auto` 三值（默认 `auto`）或自定义主题名（形见下）；`auto` = 启动时发 OSC 11 背景色查询按终端明暗裁定色板，并订阅明暗变化通知（支持的终端切换明暗即时跟随换板；无返回维持暗色）；显式 `dark`/`light` 不探测；`/themes` 选定同写本键；
-- `keybindings`——键位用户覆盖（动作 id → 单个键串，**整体替换**该动作的默认键集——非追加；同动作多条以末条为准）：动作 id 见上文键位册表；键串文法 = 修饰键固定序 `ctrl+alt+shift+` + 单字符或具名键（`enter` `escape` `tab` `backspace` `delete` `insert` `up` `down` `left` `right` `home` `end` `pageup` `pagedown` `space`，全小写）。坏条目逐条拒载并点名警告（TUI 启动落屏「键位覆盖未生效：<原因>」）——不炸启动、好条目照常生效、拒载动作回退默认键位。拒载四形：未知动作 / 不可覆盖动作（全局五条）/ 畸形键串 / 键冲突（覆盖后同键动作集与默认册不一致）。
+- `keybindings`——键位用户覆盖（动作 id → 单个键串，**整体替换**该动作的默认键集——非追加；同动作多条以末条为准）：动作 id 见上文键位册表；键串文法 = 修饰键固定序 `ctrl+alt+shift+` + 单字符或具名键（`enter` `escape` `tab` `backspace` `delete` `insert` `up` `down` `left` `right` `home` `end` `pageup` `pagedown` `space`，全小写）。坏条目逐条拒载并点名警告（TUI 启动落屏「键位覆盖未生效：<原因>」）——不炸启动、好条目照常生效、拒载动作回退默认键位。拒载四形：未知动作 / 不可覆盖动作（全局五条）/ 畸形键串 / 键冲突（覆盖后同键动作集与默认册不一致）；
+- `animations`——TUI 动效总门（boolean，默认 `true`；`false` = 忙态转轮退 dim 静态符、tick 定时器不摆）；env `BERRY_AGENT_TUI_ANIMATIONS`=`0|1` 逐次覆盖（env 胜持久键，坏值警告后走持久键）；
+- `notifyTriggers`——桌面通知触发档白名单（字符串数组）：四档 `turn-completed`（轮完成）/ `turn-aborted`（轮中止）/ `turn-failed`（轮失败——含重试耗尽）/ `approval-waiting`（等待审批）；键缺席 = 四档全发（默认）、`[]` = 显式全静默、坏元素丢该元素并警告；与载波门 env `BERRY_AGENT_TUI_NOTIFY`（`auto|osc9|bel|off`，默认 `auto`——OSC 9 优先、tmux 环境自动走 DCS 包裹、无载波退响铃）两维分立：载波关（`off` 或探测无载波）时不经白名单直接全静默。
 
 该文件同时承载 `/approval preset` 写入的 `sandboxMode` / `approvalPolicy` 两键（审批持久默认值）；机器写盘只动自己的键，手编的其他键原样保留。
 

@@ -2222,6 +2222,77 @@ describe('TuiBackend 终端外显（件 7）', () => {
     expect(notifyFrames(rig.io)).toEqual([]); // 窗内未 flush 零写出
   });
 
+  // ── 触发档白名单（挖掘 37 轮 settings-notify-key——第七键档位过滤；缺席 =
+  // 全集不滤由上方正向测族兼任：completed/aborted/failed/审批四档均未传档位直发） ──
+  it('档位子集过滤：关 turn-completed → completed 零帧；开 turn-aborted → aborted 照发（同 backend 两段）', () => {
+    const { io, backend } = makeBackend({
+      desktopNotify: 'osc9',
+      notifyEnv: {},
+      notifyTriggers: ['turn-aborted', 'turn-failed', 'approval-waiting'],
+    });
+    blur(io);
+    io.frames.length = 0;
+    emit(backend, { type: 'message_end', message: assistantMsg('答') });
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(notifyFrames(io)).toEqual([]); // 白名单不含 turn-completed——零账零帧
+    emit(backend, { type: 'agent_end', status: 'aborted' });
+    expect(notifyFrames(io)).toEqual(['\x1b]9;本轮已中止\x07']); // 白名单含 turn-aborted——照发
+  });
+
+  it('档位-事件映射：turn-failed 档辖 retry_wait_end 全 outcome 形；turn-aborted 档不辖真失败终态', () => {
+    // 白名单只开 turn-aborted：真失败终态（retry_wait_end exhausted）在 turn-failed
+    // 档辖下——关 turn-failed 即零帧（「中止」词跨两档的映射锁）
+    const onlyAbort = makeBackend({ desktopNotify: 'osc9', notifyEnv: {}, notifyTriggers: ['turn-aborted'] });
+    blur(onlyAbort.io);
+    emit(onlyAbort.backend, { type: 'agent_end', status: 'failed', errorMessage: 'x' });
+    emit(onlyAbort.backend, { type: 'retry_wait_end', outcome: 'exhausted' });
+    expect(notifyFrames(onlyAbort.io)).toEqual([]); // turn-failed 关——真失败零帧
+    // 白名单只开 turn-failed：failed+exhausted 照发（含 aborted outcome 形同辖）
+    const onlyFail = makeBackend({ desktopNotify: 'osc9', notifyEnv: {}, notifyTriggers: ['turn-failed'] });
+    blur(onlyFail.io);
+    emit(onlyFail.backend, { type: 'agent_end', status: 'failed', errorMessage: '某因' });
+    emit(onlyFail.backend, { type: 'retry_wait_end', outcome: 'aborted' }); // 非 resumed 全形皆真失败终态
+    expect(notifyFrames(onlyFail.io)).toEqual(['\x1b]9;本轮失败：某因\x07']);
+  });
+
+  it('空数组 = 显式全静默（合法形——与缺席〔= 全集〕两形分立）；审批档关 → askApproval 零帧', () => {
+    const { io, backend } = makeBackend({ desktopNotify: 'osc9', notifyEnv: {}, notifyTriggers: [] });
+    blur(io);
+    emit(backend, { type: 'message_end', message: assistantMsg('答') });
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    emit(backend, { type: 'agent_end', status: 'aborted' });
+    emit(backend, { type: 'agent_end', status: 'failed', errorMessage: 'x' });
+    emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
+    void backend.askApproval('s1', { summary: '写文件' }); // Promise 悬置不 await——档位判断在入口，不依赖应答
+    expect(notifyFrames(io)).toEqual([]); // 空集全滤——四档全零帧
+  });
+
+  it('载波关先于档位：desktopNotify off + 白名单含档 → 仍零帧（两维分立——载波门短路优先）', () => {
+    const { io, backend } = makeBackend({
+      desktopNotify: 'off',
+      notifyEnv: { TERM_PROGRAM: 'ghostty' },
+      notifyTriggers: ['turn-completed'],
+    });
+    blur(io);
+    io.frames.length = 0;
+    emit(backend, { type: 'message_end', message: assistantMsg('答') });
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(notifyFrames(io)).toEqual([]); // notifyConf null 先 return——档位判断不到达
+  });
+
+  it('审批档开：子集含 approval-waiting → askApproval 同步直出「等待审批」帧', () => {
+    const { io, backend } = makeBackend({
+      desktopNotify: 'osc9',
+      notifyEnv: {},
+      notifyTriggers: ['approval-waiting'],
+    });
+    blur(io);
+    io.frames.length = 0;
+    void backend.askApproval('s1', { summary: '删文件' });
+    expect(notifyFrames(io)).toEqual(['\x1b]9;等待审批：删文件\x07']); // makeBackend 无钟——scheduleFn 缺席同步直出
+    backend.stop(); // 悬置 ask 收口
+  });
+
   it('重复 end 不穿底（clamp ≥ 0——净计数不越零，再 start 即忙）', () => {
     const { io, backend } = makeBackend();
     emit(backend, { type: 'agent_start' }, true);

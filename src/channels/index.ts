@@ -92,6 +92,10 @@ export { fuzzyFilter } from './tui/index.js';
 // 文件面——settings 值域校验与 tui-entry 装配下装消费）
 export type { ColorEnv, PartialSemanticPalette, ThemeSetting } from './tui/index.js';
 export { isValidCustomThemeName, listCustomThemeNames, loadCustomThemeColors } from './tui/index.js';
+// 桌面通知触发档（挖掘 37 轮 settings-notify-key——settings 第七键值域单源：
+// host settings-store 读侧校验 + tui-entry 装配铸集两消费位）
+export type { NotifyTrigger } from './tui/index.js';
+export { NOTIFY_TRIGGER_VALUES } from './tui/index.js';
 // 市场选装面板模型三类型（03 §9.6 mp-5——openMarketplace 签名面：host 侧
 // 编舞 face 构造模型/动作面注入；面板件本体件内消费不出本面）
 export type { MarketEntryRow, MarketPanelModel, MarketPanelActions } from './tui/index.js';
