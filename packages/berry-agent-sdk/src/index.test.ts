@@ -30,6 +30,7 @@ import type * as apiTypes from './index.js';
  * 码位序，与 `Array.prototype.sort` 缺省一致）。
  */
 const EXPECTED_RUNTIME_EXPORTS = [
+  'SDK_FRAME_KINDS',
   'SDK_PROTOCOL_VERSION',
   'SdkError',
   'createSdkClient',
@@ -67,6 +68,13 @@ export type SdkIndexTypeSurface = [
   apiTypes.SdkEventFrame,
   apiTypes.SdkHelloFrame,
   apiTypes.SdkErrorFrame,
+  // —— 协议件已有名纯扩出口（挖掘 37 轮件 6——「点不了名」体操形消解：
+  // 心跳/重放界标/审批双帧四族此前在联合内不可单独点名）——
+  apiTypes.SdkHeartbeatStage,
+  apiTypes.SdkHeartbeatFrame,
+  apiTypes.SdkReplayEndFrame,
+  apiTypes.SdkDecideResultFrame,
+  apiTypes.SdkAskFrame,
   // —— stdio.ts ——
   apiTypes.SpawnServeOptions,
   apiTypes.SdkStdioTransport,

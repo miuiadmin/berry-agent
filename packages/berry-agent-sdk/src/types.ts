@@ -53,8 +53,23 @@ export type { SdkEventFrame } from '../../../src/channels/sdk/protocol.js';
 export type { SdkHelloFrame } from '../../../src/channels/sdk/protocol.js';
 /** 错误帧（code/message——线面业务错词面） */
 export type { SdkErrorFrame } from '../../../src/channels/sdk/protocol.js';
+// —— 协议件已有名纯扩出口（挖掘 37 轮件 6——「点不了名」体操形消解：四族
+//    帧型此前只可经 SdkWireFrame 联合成员间接触达，消费面窄化判别须自铸
+//    结构形；出口后 import 即点名——零新类型零语义变，纯策展面扩容）——
+/** 心跳阶段联合（thinking / `tool:<名>+<耗时>` / `retry <attempt>/<next>` 三形——线控帧载荷单源） */
+export type { SdkHeartbeatStage } from '../../../src/channels/sdk/protocol.js';
+/** 心跳帧（idle 超阈补拍——run 态/阶段/累计 elapsedMs；「慢」不被误读为「死」的协议义务载体） */
+export type { SdkHeartbeatFrame } from '../../../src/channels/sdk/protocol.js';
+/** 重放衔接界标帧（重放段终帧——订阅建立点，此后直播段） */
+export type { SdkReplayEndFrame } from '../../../src/channels/sdk/protocol.js';
+/** decide 应答帧（跨入口竞速回执——applied / superseded 两态） */
+export type { SdkDecideResultFrame } from '../../../src/channels/sdk/protocol.js';
+/** 审批挂起帧（ask 族——独立帧族：不占 seq 不进 durable，重连补推） */
+export type { SdkAskFrame } from '../../../src/channels/sdk/protocol.js';
 /** 线协议版本（握手常量——与主包同一源） */
 export { SDK_PROTOCOL_VERSION } from '../../../src/channels/sdk/protocol.js';
+/** 线帧 kind 闭集（值导出——消费面 exhaustive 判别/测试遍历用；SDK_PROTOCOL_VERSION 同形先例：协议件常量单源 re-export，与主包同一源零漂移） */
+export { SDK_FRAME_KINDS } from '../../../src/channels/sdk/protocol.js';
 
 /* ---------------- 客户端契约 ---------------- */
 

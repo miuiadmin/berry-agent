@@ -15,7 +15,7 @@
  * await client.close();
  * ```
  */
-export { SdkError, SDK_PROTOCOL_VERSION } from './types.js';
+export { SdkError, SDK_FRAME_KINDS, SDK_PROTOCOL_VERSION } from './types.js';
 export type {
   SdkFrameListener,
   SdkLiveHandle,
@@ -41,6 +41,14 @@ export type {
   SdkEventFrame,
   SdkHelloFrame,
   SdkErrorFrame,
+  // 协议件已有名纯扩出口（挖掘 37 轮件 6——「点不了名」体操形消解：五类型
+  // 名纯类型零运行时键；真源 channels/sdk/protocol.ts，经 types.ts 策展
+  // re-export——进什么出什么逐项过目律维持）
+  SdkHeartbeatStage,
+  SdkHeartbeatFrame,
+  SdkReplayEndFrame,
+  SdkDecideResultFrame,
+  SdkAskFrame,
 } from './types.js';
 
 export { createSdkClient } from './client.js';
