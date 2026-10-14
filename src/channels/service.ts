@@ -265,9 +265,13 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
         // B2 截断披露：总数注入在场即取（超窗时切换器头行注记）；缺席回退
         // 清单长度（= 全量已呈现，头行原形）
         const total = (await opts.sessionsTotal?.()) ?? sessions.length;
+        // 尾段预览懒加载闭包（挖掘 35 轮 B5——注入在场才透传，缺席 undefined
+        // 键无效零行为变；异步回执归呈现件缓存不经核路由）
+        const preview = opts.sessionPreview;
         let opened = false;
         for (const b of allBackends()) {
-          if (b.openSessions?.(sessions, selectSession, total, deleteSessionWithReceipt) === true) opened = true;
+          if (b.openSessions?.(sessions, selectSession, total, deleteSessionWithReceipt, preview) === true)
+            opened = true;
         }
         if (!opened) {
           uiCore.notify('当前界面不支持会话切换', { level: 'warn' });

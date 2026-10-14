@@ -841,7 +841,7 @@
       "since": "1.0",
       "desc": "通道后端接口（通道核的呈现消费面）",
       "kind": "interface",
-      "sig": "f0364400b05a30af"
+      "sig": "ee51149712bcea0d"
     },
     {
       "symbol": "UiCallLedger",
@@ -932,6 +932,15 @@
       "desc": "`/sessions` 删除回执三态（05 §2.5 会话删除编排定形注②——编排真身 = 会话管理器删除动词：busy 守卫拒删 → 呈现面收口 → 登记拆除 → 物理三删 → 授予回收 → 焦点处置）",
       "kind": "type",
       "sig": "f0c1ce6d7b4b6086"
+    },
+    {
+      "symbol": "UiSessionPreviewLine",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话尾段预览行（挖掘 35 轮 B5 `/sessions` 切换器尾段预览载荷）：光标行会话最近对话的懒加载产物（升序旧→新；尾段 6 条帽归呈现层、载荷钳制〔单行化+200 字素帽〕归装配侧——text 到面板已单行）",
+      "kind": "interface",
+      "sig": "9f7f8d0dad652484"
     },
     {
       "symbol": "UiSessionSummary",

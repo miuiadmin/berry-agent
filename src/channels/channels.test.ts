@@ -15,6 +15,7 @@ import type {
   UiCapabilities,
   UiCallLedger,
   UiSessionDeleteResult,
+  UiSessionPreviewLine,
 } from './types.js';
 import type { AgentEvent } from '../agent/index.js';
 
@@ -58,6 +59,7 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
     onSelect: (sessionId: string) => void;
     totalCount?: number;
     onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>;
+    onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>;
   }[] = [];
   let sessionsOpenReturn = false;
   const usageOpens: { sessionId: string; summary: unknown }[] = [];
@@ -102,8 +104,9 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
             onSelect: (sessionId: string) => void,
             totalCount?: number,
             onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>,
+            onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>,
           ) => {
-            sessionsOpens.push({ sessions, onSelect, totalCount, onDelete });
+            sessionsOpens.push({ sessions, onSelect, totalCount, onDelete, onPreview });
             return sessionsOpenReturn;
           },
           openUsage: (sessionId: string, summary: never) => {
@@ -807,6 +810,28 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     // 回执面折非 deleted 值（联合无 error 档——notify 已承载因，回执只需「未删」事实）
     await expect(onDelete('s1')).resolves.toEqual({ status: 'missing' });
     expect(b.notified).toEqual([{ message: expect.stringContaining('删除失败'), level: 'error' }]);
+  });
+
+  it('sessionPreview 注入在场：onPreview 第五参原样透传（回执不经核路由——呈现件直消费）；缺席 undefined', async () => {
+    // 挖掘 35 轮 B5——尾段预览注入：与 deleteSession 第四参同位同律（注入
+    // 在场才透传；异步回执归呈现件缓存+请帧，通道核零路由零包装）
+    const onPreview = async (sessionId: string): Promise<readonly UiSessionPreviewLine[]> => [
+      { speaker: 'user', text: sessionId },
+    ];
+    const s = createChannels({ sessions: async () => list, sessionPreview: onPreview });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    expect(b.sessionsOpens[0]!.onPreview).toBe(onPreview); // 闭包原样透传（非包装副本）
+    await expect(b.sessionsOpens[0]!.onPreview!('s1')).resolves.toEqual([{ speaker: 'user', text: 's1' }]);
+    // 缺席腿：不注入 sessionPreview → 第五参 undefined（面板 tab 键无效零行为变）
+    const s2 = createChannels({ sessions: async () => list });
+    const b2 = fakeBackend('tui', {}, true);
+    b2.setSessionsOpen(true);
+    s2.addBackend(b2.backend);
+    await s2.dispatchCommand('/sessions');
+    expect(b2.sessionsOpens[0]!.onPreview).toBeUndefined();
   });
 });
 

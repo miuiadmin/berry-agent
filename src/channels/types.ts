@@ -22,6 +22,7 @@ export type {
   UiCapabilities,
   UiBackend,
   UiSessionSummary,
+  UiSessionPreviewLine,
   UiUsageSummary,
   UiCallStatus,
   UiCallLedgerEntry,
@@ -38,7 +39,7 @@ export type { ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.j
 
 // 本面内用的契约类型（R7 批 10k——ChannelsOptions 两注入位的载荷形；re-export
 // 块不进本文件作用域，值用须显式 import）
-import type { UiSessionSummary, UiUsageSummary, UiCallLedger } from '../contracts/index.js';
+import type { UiSessionSummary, UiUsageSummary, UiCallLedger, UiSessionPreviewLine } from '../contracts/index.js';
 import type { UiSessionDeleteResult } from '../contracts/index.js';
 
 /**
@@ -171,6 +172,13 @@ export interface ChannelsOptions<TProjection> {
    * 消费位 = `/sessions` 面板删除键回调（picker onDelete——缺席键无效）。
    */
   readonly deleteSession?: (sessionId: string) => Promise<UiSessionDeleteResult>;
+  /**
+   * 会话尾段预览注入（挖掘 35 轮 B5 `/sessions` 切换器展开键——注册面律
+   * 同 sessions 族：注入在场才有键行为，缺席 = 键无效零行为变）。真源 =
+   * 光标行会话 → 投影读面过滤 user/assistant 正文消息取尾段（升序旧→新，
+   * 单行化+200 字素帽归装配侧）；异步回执归呈现件缓存（不经核路由）。
+   */
+  readonly sessionPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>;
 }
 
 /**

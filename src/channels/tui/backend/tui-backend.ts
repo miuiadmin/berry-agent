@@ -76,6 +76,7 @@ import type {
   UiInputOptions,
   UiSelectChoice,
   UiSessionDeleteResult,
+  UiSessionPreviewLine,
   UiSessionSummary,
   UiUsageSummary,
   UiRewindEntry,
@@ -1647,6 +1648,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     onSelect: (sessionId: string) => void,
     totalCount?: number,
     onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>,
+    onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>,
   ): boolean {
     if (this.altHandle !== null) return false;
     const handle = this.altHost.open(
@@ -1658,6 +1660,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onInterrupt: () => this.onInterrupt?.(this.sessionId),
         onQuit: this.onQuit,
         ...(onDelete !== undefined ? { onDelete } : {}),
+        ...(onPreview !== undefined ? { onPreview } : {}),
         requestRepaint: () => this.altHost.requestRepaint(),
         theme: this.theme,
       }),

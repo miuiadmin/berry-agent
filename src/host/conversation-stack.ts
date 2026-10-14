@@ -1090,6 +1090,15 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // 泛型钉带 seq 形（挖掘 31 轮 [1]——审批决策行按 seq 归位需消息锚）：两注入
   // 切 projectionWithSeqOf（副本增位——Message 契约形零改动，宽形向下兼容
   // 窄消费位；模型 timeline 种子不经 channels 仍走 projectionOf 零 seq）
+  // 机器注入 source 族镜像（挖掘 35 轮 B5——/sessions 尾段预览 user 侧过滤）：
+  // transcript MACHINE_INJECTED_USER_SOURCES 同集镜像（呈现判据同律；tui 内
+  // 件私有集不扩公开面——词表改两处同步）
+  const MIRRORED_INJECTED_USER_SOURCES: ReadonlySet<string> = new Set([
+    'subagent-settled',
+    'subagent-approval-pending',
+    'compaction',
+  ]);
+
   const channels = createChannels<AgentMessage & { readonly seq: number }>({
     fetchProjection: (sessionId) => projectionWithSeqOf(sessionId),
     history: (sessionId) => projectionWithSeqOf(sessionId),
@@ -1164,6 +1173,44 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // 收口→登记拆除→物理三删→授予回收→焦点处置——seam 接线见 manager 构造
     // 位）；回执三态路由归通道核 wrapper（/sessions 面板删除键消费）
     deleteSession: (sessionId) => manager.deleteSession(sessionId),
+    // /sessions 尾段预览注入（挖掘 35 轮 B5——「（无题）」会话成片可辨）：
+    // 投影读面过滤 user/assistant 正文消息取尾 6 条（升序旧→新）；user 侧
+    // 滤机器注入族（subagent-settled/subagent-approval-pending/compaction——
+    // transcript MACHINE_INJECTED_USER_SOURCES 同集镜像：主屏 user 块呈现
+    // 判据同律，词表改两处同步）；单行化+200 字素帽归装配侧（载荷钳制，
+    // 面板零折行知识）；空文跳过、空组归面板 empty 形
+    sessionPreview: async (sessionId) => {
+      const previews: Array<{ speaker: 'user' | 'assistant'; text: string }> = [];
+      for (const message of await projectionWithSeqOf(sessionId)) {
+        // 标准消息窄化（自定义角色注入——todo 快照等——零 source/content 形不进预览）
+        if (!isStandardMessage(message)) continue;
+        let speaker: 'user' | 'assistant';
+        let text: string;
+        if (message.role === 'user') {
+          if (MIRRORED_INJECTED_USER_SOURCES.has(message.source ?? 'user')) continue;
+          speaker = 'user';
+          // 剪贴板附件批后 content 双形（纯文本 string / 附件块数组——块序
+          // 取 text 块拼接，纯图附件归空文跳过）
+          text =
+            typeof message.content === 'string'
+              ? message.content
+              : message.content
+                  .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+                  .map((block) => block.text)
+                  .join(' ');
+        } else if (message.role === 'assistant') {
+          speaker = 'assistant';
+          text = message.content
+            .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+            .map((block) => block.text)
+            .join(' ');
+        } else continue; // toolResult 等角色不进预览
+        const first = text.split('\n')[0]?.trim() ?? '';
+        if (first === '') continue; // 空文跳过（纯 thinking/toolCall 轮）
+        previews.push({ speaker, text: Array.from(first).slice(0, 200).join('') });
+      }
+      return Promise.resolve(previews.slice(-6));
+    },
   });
 
   // ④½ 会话维视图（e-2 观测腿——SessionView 纯派生读面）：数据三窄面全结构

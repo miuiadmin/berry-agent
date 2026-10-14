@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid, stringWidth } from '../../engine/index.js';
-import type { UiSessionDeleteResult, UiSessionSummary } from '../../../contracts/index.js';
+import type { UiSessionDeleteResult, UiSessionPreviewLine, UiSessionSummary } from '../../../contracts/index.js';
 import { SessionPicker } from './session-picker.js';
 import { formatRelativeStamp } from './session-picker.js';
 
@@ -60,6 +60,7 @@ function makePicker(
   extra: {
     totalCount?: number;
     onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>;
+    onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>;
     requestRepaint?: () => void;
     nowMs?: number;
   } = {},
@@ -584,5 +585,159 @@ describe('SessionPicker 删除键与确认位（05 §2.5 定形注①——破�
     const text = paintAll(picker, 70, 8);
     expect(text).toContain('会话切换 · 1 会话'); // 递减后 1==1 原形
     expect(text).not.toContain('仅显示最近'); // 修前红位：假截断注记在场
+  });
+});
+
+/* ---------------- 尾段预览（挖掘 35 轮 B5——tab 展开键 + 懒加载 + 占位三态） ---------------- */
+
+describe('SessionPicker 尾段预览（挖掘 35 轮 B5——「（无题）」会话成片可辨）', () => {
+  const sessions = [row({ id: 'aaa111111111', title: '甲' }), row({ id: 'bbb222222222', title: '乙' })];
+
+  /** 手控预览回执 rig（deferred——ok/empty/error 由测试注入落位；调用账按 id） */
+  function deferredPreview() {
+    let settle!: (lines: readonly UiSessionPreviewLine[]) => void;
+    const calls: string[] = [];
+    const promise = new Promise<readonly UiSessionPreviewLine[]>((resolve) => {
+      settle = resolve;
+    });
+    return {
+      calls,
+      onPreview: (sessionId: string) => {
+        calls.push(sessionId);
+        return promise;
+      },
+      settle,
+    };
+  }
+
+  /** 全屏读（占位/条目行断言便捷——删除 describe paintAll 同形） */
+  function paintAll(picker: SessionPicker, width: number, height: number): string {
+    const grid = new CellGrid(width, height);
+    picker.render(grid, { row: 0, col: 0, width, height });
+    const lines: string[] = [];
+    for (let r = 0; r < height; r++) {
+      let out = '';
+      for (let c = 0; c < width; c++) out += grid.getCell(r, c)?.grapheme ?? ' ';
+      lines.push(out.trimEnd());
+    }
+    return lines.join('\n');
+  }
+
+  it('tab 展开：按键才拉非自动——展开即 loading 占位 + onPreview 首拉；再 tab 收起', () => {
+    const rig = deferredPreview();
+    const { picker } = makePicker(sessions, { onPreview: rig.onPreview });
+    const closed = paintAll(picker, 70, 8);
+    expect(closed).not.toContain('加载中'); // 收起态零拉零画
+    expect(rig.calls).toEqual([]);
+    picker.handleEvent(k('tab'));
+    expect(rig.calls).toEqual(['aaa111111111']); // 展开即拉光标行
+    expect(paintAll(picker, 70, 8)).toContain('加载中…'); // 占位诚实
+    picker.handleEvent(k('tab')); // 再 tab 收起
+    expect(paintAll(picker, 70, 8)).not.toContain('加载中');
+  });
+
+  it('注入缺席 tab 键无效零行为变（吞而不动作——' + "'d'" + ' 删除键同律）', () => {
+    const { picker, onSelect } = makePicker(sessions); // 无 onPreview
+    expect(picker.handleEvent(k('tab'))).toBe(true); // 吞而不动作
+    const text = paintAll(picker, 70, 8);
+    expect(text).not.toContain('加载中');
+    expect(text).not.toContain('tab 预览'); // 帮助行缺席不注
+    picker.handleEvent(k('enter')); // 选择面不受影响
+    expect(onSelect).toHaveBeenCalledWith('aaa111111111');
+  });
+
+  it('回执落位：requestRepaint 请帧 + user `› ` 前缀行 / assistant 缩进行（升序旧→新）', async () => {
+    const rig = deferredPreview();
+    const repaint = vi.fn();
+    const { picker } = makePicker(sessions, { onPreview: rig.onPreview, requestRepaint: repaint });
+    picker.handleEvent(k('tab'));
+    rig.settle([
+      { speaker: 'user', text: '第一问' },
+      { speaker: 'assistant', text: '第一答' },
+    ]);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(repaint).toHaveBeenCalled(); // 异步回执请帧（面板不自驱重画）
+    const text = paintAll(picker, 70, 8);
+    expect(text).toContain('› 第一问'); // user 前缀与主屏 user 块同词汇
+    expect(text).toContain('  第一答'); // assistant 两空格缩进对齐
+  });
+
+  it('光标行联动懒加载 + 缓存免重复拉（回访零二拉——codex transcript_previews 同构）', async () => {
+    const rig = deferredPreview();
+    const { picker } = makePicker(sessions, { onPreview: rig.onPreview });
+    picker.handleEvent(k('tab'));
+    picker.handleEvent(k('down')); // 联动第二行
+    expect(rig.calls).toEqual(['aaa111111111', 'bbb222222222']);
+    picker.handleEvent(k('up')); // 回访首行——缓存命中
+    expect(rig.calls).toEqual(['aaa111111111', 'bbb222222222']); // 零二拉
+  });
+
+  it('占位三态诚实：空组归 empty「（无转录）」/ 失败折面「预览加载失败：…」', async () => {
+    // empty 态
+    let settleRef!: (lines: readonly UiSessionPreviewLine[]) => void;
+    const emptyPicker = makePicker(sessions, {
+      onPreview: () =>
+        new Promise((resolve) => {
+          settleRef = resolve;
+        }),
+    });
+    emptyPicker.picker.handleEvent(k('tab'));
+    settleRef([]);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(paintAll(emptyPicker.picker, 70, 8)).toContain('（无转录）');
+    // error 态
+    const errorPicker = makePicker(sessions, {
+      onPreview: () => Promise.reject(new Error('库锁')),
+    });
+    errorPicker.picker.handleEvent(k('tab'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(paintAll(errorPicker.picker, 70, 8)).toContain('预览加载失败');
+    expect(paintAll(errorPicker.picker, 70, 8)).toContain('库锁'); // foldErrorText 折面非裸 String
+  });
+
+  it('尾段 6 条帽：8 条回执只画尾 6（升序旧→新——最旧两条让位）', async () => {
+    const eight = Array.from({ length: 8 }, (_, i) => ({
+      speaker: 'user' as const,
+      text: `第${i + 1}条`,
+    }));
+    const { picker } = makePicker(sessions, { onPreview: () => Promise.resolve(eight) });
+    picker.handleEvent(k('tab'));
+    await Promise.resolve();
+    await Promise.resolve();
+    const text = paintAll(picker, 70, 12);
+    expect(text).not.toContain('第1条'); // 帽外最旧让位
+    expect(text).not.toContain('第2条');
+    expect(text).toContain('第3条');
+    expect(text).toContain('第8条');
+  });
+
+  it('帮助行注入在场加 tab 段（收起「tab 预览」/ 展开「tab 收预览」）', () => {
+    const rig = deferredPreview();
+    const { picker } = makePicker(sessions, { onPreview: rig.onPreview });
+    expect(paintAll(picker, 70, 8)).toContain('tab 预览');
+    picker.handleEvent(k('tab'));
+    expect(paintAll(picker, 70, 8)).toContain('tab 收预览');
+  });
+
+  it('measure 一致：展开态量高加预览区（空行 + 内容行——布局面与渲染面同账）', async () => {
+    const rig = deferredPreview();
+    const { picker } = makePicker(sessions, { onPreview: rig.onPreview });
+    const closed = picker.measure(70); // 头 1 + 清单 2 + 底 1 = 4
+    picker.handleEvent(k('tab'));
+    const loading = picker.measure(70); // + 空行 1 + 占位 1 = 6
+    rig.settle([
+      { speaker: 'user', text: '问' },
+      { speaker: 'assistant', text: '答' },
+      { speaker: 'user', text: '再问' },
+    ]);
+    await Promise.resolve();
+    await Promise.resolve();
+    const ok = picker.measure(70); // + 空行 1 + 3 行 = 8
+    expect(loading).toBe(closed + 2);
+    expect(ok).toBe(closed + 4);
   });
 });

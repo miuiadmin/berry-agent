@@ -147,6 +147,13 @@ export interface UiBackend<TProjection> {
      * 恢复」）；回执三态路由归通道核 wrapper（后端只透传）。
      */
     onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>,
+    /**
+     * 尾段预览懒加载闭包（挖掘 35 轮 B5——切换器 tab 展开键的数据源：
+     * 光标行会话 → 最近对话尾段升序行；注入在场才有展开键行为，缺席 =
+     * 键无效零行为变〔onDelete 同律〕）。异步回执归呈现件（面板内缓存 +
+     * requestRepaint 请帧——回执不落通道核）。
+     */
+    onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>,
   ): boolean;
   /**
    * 开副屏用量面板（07 §4.1 R7 批 10k `/usage` 命令的呈现面——数据源 =
@@ -240,6 +247,18 @@ export interface UiSessionSummary {
   readonly updatedAt: number;
   /** 活跃位（当前进程内有 driver 在场——行级标记显示用） */
   readonly active: boolean;
+}
+
+/**
+ * 会话尾段预览行（挖掘 35 轮 B5 `/sessions` 切换器尾段预览载荷）：
+ * 光标行会话最近对话的懒加载产物（升序旧→新；尾段 6 条帽归呈现层、
+ * 载荷钳制〔单行化+200 字素帽〕归装配侧——text 到面板已单行）。
+ */
+export interface UiSessionPreviewLine {
+  /** 说话人（user 行 `› ` 前缀 / assistant 行缩进对齐——呈现层词汇） */
+  readonly speaker: 'user' | 'assistant';
+  /** 单行正文（首行截断形——折行/控制字已折） */
+  readonly text: string;
 }
 
 /**

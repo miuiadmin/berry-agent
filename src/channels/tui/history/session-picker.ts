@@ -18,6 +18,14 @@
  *   esc·q 取消；回执 busy/missing 留确认视图呈就地状态行（notify 副屏期
  *   走停屏缓冲——面板须自带呈现），deleted 就地滤行回清单（刷新重拉最小
  *   形）；注入缺席 'd' 键无效零行为变；
+ * - **尾段预览**（挖掘 35 轮 B5——「（无题）」会话成片不可辨的对位）：
+ *   onPreview 注入在场时 tab 展开键（toggle——按键才拉非自动加载；缺席
+ *   键无效零行为变〔'd' 删除键同律〕）；展开态清单下方预览区（空行分隔
+ *   + 尾段 6 条帽：user 行 `› ` 前缀与主屏 user 块同词汇、assistant 行
+ *   两空格缩进对齐，正文 dim 单行整字截断，升序旧→新）；光标行联动懒加
+ *   载（会话内 Map 缓存免重复拉——codex transcript_previews 缓存同构；
+ *   缓存命中同步落帧零重画）；诚实占位三态（加载中 / 无转录 / 失败折面
+ *   foldErrorText 单源）；异步回执经 requestRepaint 请帧（onDelete 同族）；
  * - **退出键面**：q/Esc 取消退出、Ctrl+C 打断、Ctrl+D 退出进程（先收副屏
  *   再转退出柄）——副屏键面补丁三件套与件 8 同律。
  */
@@ -26,7 +34,7 @@ import { basename } from 'node:path';
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
-import type { UiSessionDeleteResult, UiSessionSummary } from '../../../contracts/index.js';
+import type { UiSessionDeleteResult, UiSessionPreviewLine, UiSessionSummary } from '../../../contracts/index.js';
 import { hintLine } from '../keys/hint.js';
 import { foldErrorText } from '../../service.js';
 import { DIM_STYLE } from '../../engine/index.js';
@@ -53,6 +61,12 @@ export interface SessionPickerOptions {
    */
   readonly onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>;
   /**
+   * 尾段预览懒加载闭包（挖掘 35 轮 B5——注入在场才有 tab 展开键行为，
+   * 缺席键无效零行为变〔onDelete 同律〕）。异步回执归本面板缓存 +
+   * requestRepaint 请帧（不经通道核路由）。
+   */
+  readonly onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>;
+  /**
    * 异步请帧（删除回执落位后重画——面板不自驱重画；装配接 altHost
    * requestRepaint）。同步键路（视图切换/取消）由引擎事件后重画承载。
    */
@@ -77,6 +91,14 @@ const ACTIVE_MARK = '●';
 const WHEEL_LINES = 3;
 /** 删除确认视图警示记号 */
 const WARN_MARK = '⚠';
+/** 尾段预览条数帽（挖掘 35 轮 B5——不足帽如实 N 条） */
+const PREVIEW_CAP = 6;
+/** 预览缓存态（呈现即缓存——三占位态与成功态同账） */
+type PreviewState =
+  | { readonly status: 'loading' }
+  | { readonly status: 'ok'; readonly lines: readonly UiSessionPreviewLine[] }
+  | { readonly status: 'empty' }
+  | { readonly status: 'error'; readonly message: string };
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -131,6 +153,7 @@ export class SessionPicker implements OverlayContent {
   private readonly onInterrupt: (() => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
   private readonly onDelete: ((sessionId: string) => Promise<UiSessionDeleteResult>) | undefined;
+  private readonly onPreview: ((sessionId: string) => Promise<readonly UiSessionPreviewLine[]>) | undefined;
   private readonly requestRepaint: (() => void) | undefined;
   /** 当前视图（list 清单 / confirm 删除确认——视图切换形同 rewind-picker） */
   private view: 'list' | 'confirm' = 'list';
@@ -152,6 +175,10 @@ export class SessionPicker implements OverlayContent {
   private readonly activeRowStyle: Readonly<CellStyle>;
   /** 相对时基准（构造期定格——挖掘 35 轮 B10） */
   private readonly nowMs: number;
+  /** 预览区展开态（挖掘 35 轮 B5——tab toggle；展开才拉才画） */
+  private previewOpen = false;
+  /** 预览缓存（会话 id → 呈现态——光标回访免重复拉；迟到回执落缓存无害） */
+  private readonly previewCache = new Map<string, PreviewState>();
 
   constructor(options: SessionPickerOptions) {
     this.sessions = [...options.sessions]; // 可变副本（就地滤行——不回写调用方数组）
@@ -161,16 +188,37 @@ export class SessionPicker implements OverlayContent {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.onDelete = options.onDelete;
+    this.onPreview = options.onPreview;
     this.requestRepaint = options.requestRepaint;
     this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
     this.nowMs = options.nowMs ?? Date.now();
   }
 
-  /** 量高：清单形 = 头行 + 清单全量 + 底行提示（副屏 root 不经布局路——render 按实际 region 窗口化）；确认视图定高（头 + 警示 + 状态行预留 + 底行） */
+  /** 量高：清单形 = 头行 + 清单全量 + 底行提示（副屏 root 不经布局路——render 按实际 region 窗口化）；展开态加预览区（空行 + 内容行——缓存态单源）；确认视图定高（头 + 警示 + 状态行预留 + 底行） */
   measure(width: number): number {
     void width;
     if (this.view === 'confirm') return 5;
-    return 1 + Math.max(1, this.sessions.length) + 1;
+    let height = 1 + Math.max(1, this.sessions.length) + 1;
+    if (this.previewAreaInUse()) height += 1 + this.previewContentHeight();
+    return height;
+  }
+
+  /** 预览区在用判据（展开态 + 注入在场 + 非空表——三键守卫单源） */
+  private previewAreaInUse(): boolean {
+    return this.previewOpen && this.onPreview !== undefined && this.sessions.length > 0;
+  }
+
+  /** 预览内容行数（缓存态单源——占位三态 1 行 / 成功态 min(帽, N) 行〔空数组归 empty 形〕） */
+  private previewContentHeight(): number {
+    const state = this.previewStateOfCursor();
+    if (state === undefined || state.status !== 'ok') return 1;
+    return Math.min(PREVIEW_CAP, state.lines.length);
+  }
+
+  /** 光标行预览缓存态（缺席 undefined = 未拉——渲染归 loading 位占位） */
+  private previewStateOfCursor(): PreviewState | undefined {
+    if (this.sessions.length === 0) return undefined;
+    return this.previewCache.get(this.sessions[this.cursor]!.id);
   }
 
   /** 落位：清单视图 = 头行 → 清单视口（光标行标记 + 活跃位 + 标题左段 / 时间·短 id 右段）→ 底行提示；确认视图 = 警示文案 + 就地状态行 */
@@ -194,7 +242,10 @@ export class SessionPicker implements OverlayContent {
     buffer.writeText(region.row, region.col, fitLine(head, region.width));
     // 守卫族语义（height=2 → 零内容行只头行+底行）：下限 0——旧 Math.max(1,·)
     // 在 height=2 强立 1 行内容，首内容行先写后又被底行覆写留残段
-    const viewHeight = Math.max(0, region.height - 2);
+    // 预览区在用：底行上方预留（空行 + 内容行）——清单视口相应让位（清单是
+    // 选择主体，矮窗预览区先被行预算截断）
+    const previewArea = this.previewAreaInUse() ? 1 + this.previewContentHeight() : 0;
+    const viewHeight = Math.max(0, region.height - 2 - previewArea);
     this.viewportHeight = viewHeight;
     this.clampOffset();
     if (viewHeight > 0) {
@@ -213,20 +264,65 @@ export class SessionPicker implements OverlayContent {
         }
       }
     }
-    // 底行提示：删除注入在场加「d 删除」段（键面如实——缺席保持原形不虚报）
+    if (previewArea > 0)
+      this.renderPreview(buffer, region.row + 1 + viewHeight, region.col, region.width, region.height - 2 - viewHeight);
+    // 底行提示：删除注入在场加「d 删除」段、预览注入在场加「tab 预览/收起」段
+    // （键面如实——缺席保持原形不虚报）
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
       fitLine(
         this.sessions.length === 0
           ? 'q/esc 返回'
-          : this.onDelete !== undefined
-            ? hintLine('↑↓ 移动', 'enter 切换', 'd 删除', 'q/esc 返回')
-            : hintLine('↑↓ 移动', 'enter 切换', 'q/esc 返回'),
+          : this.onDelete !== undefined && this.onPreview !== undefined
+            ? hintLine('↑↓ 移动', 'enter 切换', this.previewOpen ? 'tab 收预览' : 'tab 预览', 'd 删除', 'q/esc 返回')
+            : this.onDelete !== undefined
+              ? hintLine('↑↓ 移动', 'enter 切换', 'd 删除', 'q/esc 返回')
+              : this.onPreview !== undefined
+                ? hintLine('↑↓ 移动', 'enter 切换', this.previewOpen ? 'tab 收预览' : 'tab 预览', 'q/esc 返回')
+                : hintLine('↑↓ 移动', 'enter 切换', 'q/esc 返回'),
         region.width,
       ),
       HINT_STYLE,
     );
+  }
+
+  /**
+   * 预览区落位（挖掘 35 轮 B5——清单视口下方：空行分隔 + 内容行）。占位
+   * 三态诚实（加载中 / 无转录 / 失败折面）；成功态尾段帽内升序行（user `› `
+   * 前缀与主屏 user 块同词汇、assistant 两空格缩进对齐，正文 dim 单行整字
+   * 截断）。budget = 含空行的总行预算（矮窗清单视口已 clamp 0 时预算小于
+   * 预期——先画先得，连首内容行都放不下则整体零画）。
+   */
+  private renderPreview(buffer: CellBuffer, startRow: number, col: number, width: number, budget: number): void {
+    if (budget < 2) return; // 空行 + 至少 1 内容行
+    // startRow 位 = 空行分隔（零写——清屏底自然空）
+    const state = this.previewStateOfCursor();
+    let row = startRow + 1;
+    let lines = budget - 1;
+    const write = (text: string): void => {
+      if (lines <= 0) return;
+      buffer.writeText(row, col, fitLine(text, width), HINT_STYLE);
+      row += 1;
+      lines -= 1;
+    };
+    if (state === undefined || state.status === 'loading') {
+      write('加载中…');
+      return;
+    }
+    if (state.status === 'empty') {
+      write('（无转录）');
+      return;
+    }
+    if (state.status === 'error') {
+      write(`预览加载失败：${state.message}`);
+      return;
+    }
+    // 尾段方向取帽（规范③「尾段 6 条帽」——超帽让位最旧；装配侧已取尾 6，
+    // 本帽是呈现侧同向保险：载荷异常超长时仍呈最新段非最旧段）
+    for (const line of state.lines.slice(-PREVIEW_CAP)) {
+      write(line.speaker === 'user' ? `› ${line.text}` : `  ${line.text}`);
+    }
   }
 
   /** 确认视图落位：删除对象明示（标题 + 短 id）+ 不可恢复警示（规范明文案）+ 就地状态行 + 底行键面 */
@@ -342,11 +438,13 @@ export class SessionPicker implements OverlayContent {
         if (isPlainKey(k, 'home')) {
           this.cursor = 0;
           this.clampOffset();
+          if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
           return true;
         }
         if (isPlainKey(k, 'end')) {
           this.cursor = this.sessions.length - 1;
           this.clampOffset();
+          if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
           return true;
         }
         if (isPlainKey(k, 'enter')) {
@@ -359,6 +457,15 @@ export class SessionPicker implements OverlayContent {
         // 吞而不动作——键面帮助行同步缺席不注记）
         if (isPlainKey(k, 'd')) {
           this.openConfirm();
+          return true;
+        }
+        // tab = 尾段预览展开键（挖掘 35 轮 B5——注入在场才有效：toggle 预览
+        // 区；缺席吞而不动作〔'd' 删除键同律〕）
+        if (isPlainKey(k, 'tab')) {
+          if (this.onPreview !== undefined) {
+            this.previewOpen = !this.previewOpen;
+            if (this.previewOpen) this.ensurePreviewOfCursor();
+          }
           return true;
         }
       }
@@ -390,6 +497,30 @@ export class SessionPicker implements OverlayContent {
     this.confirmStatus = undefined;
     this.deleteInFlight = false;
     this.view = 'confirm';
+  }
+
+  /**
+   * 光标行预览懒加载（挖掘 35 轮 B5）：缓存命中零动作（同步落帧——键事件
+   * 后引擎重画承载，无需请帧）；缺席置 loading 占位 + 发闭包——异步回执
+   * 落缓存 + requestRepaint 请帧（onDelete 回执同族；面板不自驱重画）。
+   * 空行组归 empty 形（「（无转录）」诚实占位）；异常折 foldErrorText 单源。
+   */
+  private ensurePreviewOfCursor(): void {
+    if (this.onPreview === undefined || this.sessions.length === 0) return;
+    const id = this.sessions[this.cursor]!.id;
+    if (this.previewCache.has(id)) return; // 缓存命中（含 loading 在飞——不双发）
+    this.previewCache.set(id, { status: 'loading' });
+    this.onPreview(id).then(
+      (lines) => {
+        this.previewCache.set(id, lines.length === 0 ? { status: 'empty' } : { status: 'ok', lines });
+        this.requestRepaint?.();
+      },
+      (err: unknown) => {
+        // 错误折面单源 foldErrorText（用户面折面禁裸 String——acceptDelete 同律）
+        this.previewCache.set(id, { status: 'error', message: foldErrorText(err) });
+        this.requestRepaint?.();
+      },
+    );
   }
 
   /** 取消确认回清单（零回调——未确认不删） */
@@ -425,6 +556,8 @@ export class SessionPicker implements OverlayContent {
           if (this.totalCount !== undefined) this.totalCount = Math.max(0, this.totalCount - 1);
           this.cursor = Math.max(0, Math.min(this.sessions.length - 1, this.cursor));
           this.clampOffset();
+          // 滤行后光标行已变——展开态预览区联动新行（缓存命中同步落帧）
+          if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
           this.view = 'list';
           this.confirmTarget = undefined;
           this.confirmStatus = undefined;
@@ -445,10 +578,11 @@ export class SessionPicker implements OverlayContent {
     );
   }
 
-  /** 光标移动（单步环绕/大步夹取——挖掘 35 轮 B6 分立律；移动后光标恒可见） */
+  /** 光标移动（单步环绕/大步夹取——挖掘 35 轮 B6 分立律；移动后光标恒可见；展开态预览区光标行联动） */
   private moveCursor(delta: number): void {
     this.cursor = stepCursorWrap(this.cursor, delta, this.sessions.length);
     this.clampOffset();
+    if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
   }
 
   /** 视口夹取：光标行恒在窗内（下溢提窗 / 上溢压窗） */

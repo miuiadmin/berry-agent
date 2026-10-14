@@ -20,6 +20,7 @@ import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../con
 import type { AgentEvent } from '../agent/index.js';
 import { materializeHostFace } from '../contracts/api.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
+import type { UiSessionDeleteResult } from '../channels/types.js';
 import { canonicalWorkspaceRoot, Scope } from '../context/index.js';
 import type { AuthRefreshSeam, ConversationDriverOptions, ExecSessionDeps } from '../conversation/types.js';
 import { setSessionMode } from '../conversation/index.js';
@@ -3484,6 +3485,129 @@ describe('会话删除编排接线（05 §2.5 定形注②——装配位：chan
     const result = await stack.manager.deleteSession(opened.sessionId);
     expect(result).toEqual({ status: 'deleted' });
     expect(released).toEqual([opened.sessionId]); // 授予回收步随删发射
+    await rt.shutdown();
+  });
+});
+
+describe('/sessions 尾段预览注入（挖掘 35 轮 B5——装配读面：机器注入滤除/首行化/块数组双形/尾 6 帽/200 字素帽）', () => {
+  /** 捕获型后端（openSessions 第五参 onPreview 捕获——核透传律归 channels 域，本组只测装配闭包真身） */
+  class PreviewCaptureBackend implements UiBackend<AgentMessage> {
+    readonly id = 'preview-cap';
+    readonly capabilities = {
+      notify: true,
+      confirm: false,
+      select: false,
+      input: false,
+      approval: false,
+      setStatus: true,
+      setWidget: false,
+    };
+    captured: ((sessionId: string) => Promise<readonly { speaker: 'user' | 'assistant'; text: string }[]>) | undefined;
+    hasAudience(): boolean {
+      return true;
+    }
+    notify(): void {
+      // 本组不断言 notify——openSessions 返 true 不降级
+    }
+    onEnvelope(): void {
+      // 本组不消费信封
+    }
+    onRepaint(): void {
+      // 本组不消费重画
+    }
+    openSessions(
+      _sessions: readonly never[],
+      _onSelect: (sessionId: string) => void,
+      _totalCount?: number,
+      _onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>,
+      onPreview?: (sessionId: string) => Promise<readonly never[]>,
+    ): boolean {
+      // 第五参原样捕（never[] → 宽形收窄只作调用面——真链回执形由断言锁）
+      this.captured = onPreview as typeof this.captured;
+      return true;
+    }
+  }
+
+  it('真链：dispatch /sessions → 面板 onPreview 调用——机器注入滤除/首行化/块数组双形/thinking 块外取文/升序旧→新', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    const backend = new PreviewCaptureBackend();
+    stack.channels.addBackend(backend);
+
+    // durable 直落（活体驱动 log——投影读面单源）：真用户两轮 + 机器注入两
+    // 条 + 附件块数组形 + thinking 先行块——一屏覆盖装配侧全部过滤判据
+    const log = stack.driverOf(session.sessionId)!.session;
+    log.append('user/message', { content: '第一问\n第二行不进预览' }); // 首行化（source 缺省 = 真用户）
+    log.append('assistant/message', { content: [{ type: 'text', text: '第一答' }] });
+    log.append('user/message', { content: '子代理结算回执', source: 'subagent-settled' }); // 机器注入滤除
+    log.append('user/message', { content: '压缩摘要载体', source: 'compaction' }); // 机器注入滤除
+    log.append('user/message', { content: [{ type: 'text', text: '第二问' }] }); // 块数组双形（附件批后合法形）
+    log.append('assistant/message', {
+      content: [
+        { type: 'thinking', thinking: '内心戏不进正文' },
+        { type: 'text', text: '第二答' },
+      ],
+    });
+
+    const ok = await stack.channels.dispatchCommand('/sessions', session.sessionId);
+    expect(ok).toBe(true);
+    expect(backend.captured).toBeInstanceOf(Function); // 注入在场扇出第五参
+    const lines = await backend.captured!(session.sessionId);
+    // 机器注入两条滤除（transcript MACHINE_INJECTED_USER_SOURCES 同集镜像）；
+    // 真用户与 assistant 各就各位；首行化（'第二行不进预览' 不在载荷）
+    expect(lines).toEqual([
+      { speaker: 'user', text: '第一问' },
+      { speaker: 'assistant', text: '第一答' },
+      { speaker: 'user', text: '第二问' },
+      { speaker: 'assistant', text: '第二答' }, // thinking 块外取文——纯 text 块拼接
+    ]);
+    await rt.shutdown();
+  });
+
+  it('尾 6 帽：4 轮 8 条只出尾 6（最早 user/assistant 对让位——升序旧→新维持）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    const backend = new PreviewCaptureBackend();
+    stack.channels.addBackend(backend);
+    const log = stack.driverOf(session.sessionId)!.session;
+    for (let i = 1; i <= 4; i++) {
+      log.append('user/message', { content: `问${i}` });
+      log.append('assistant/message', { content: [{ type: 'text', text: `答${i}` }] });
+    }
+    await stack.channels.dispatchCommand('/sessions', session.sessionId);
+    const lines = await backend.captured!(session.sessionId);
+    expect(lines).toHaveLength(6);
+    expect(lines[0]).toEqual({ speaker: 'user', text: '问2' }); // 首轮对让位（帽取尾段）
+    expect(lines[5]).toEqual({ speaker: 'assistant', text: '答4' }); // 最新在尾（升序旧→新）
+    await rt.shutdown();
+  });
+
+  it('200 字素帽 + 空文跳过：纯 thinking 轮归空不进载荷（诚实空组归面板 empty 形）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    const backend = new PreviewCaptureBackend();
+    stack.channels.addBackend(backend);
+    const log = stack.driverOf(session.sessionId)!.session;
+    const long = '长'.repeat(250); // 250 字素——装配侧钳到 200（面板零折行知识）
+    log.append('user/message', { content: long });
+    log.append('assistant/message', { content: [{ type: 'thinking', thinking: '纯思考轮' }] }); // 零 text 块 → 空文跳过
+    await stack.channels.dispatchCommand('/sessions', session.sessionId);
+    const lines = await backend.captured!(session.sessionId);
+    expect(lines).toEqual([{ speaker: 'user', text: '长'.repeat(200) }]); // Array.from 字素切帽
+    await rt.shutdown();
+  });
+
+  it('空组：零可呈现消息归 []（面板 empty 占位「（无转录）」的装配侧事实源）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    const backend = new PreviewCaptureBackend();
+    stack.channels.addBackend(backend);
+    await stack.channels.dispatchCommand('/sessions', session.sessionId);
+    await expect(backend.captured!(session.sessionId)).resolves.toEqual([]); // 零事件会话如实空
     await rt.shutdown();
   });
 });
