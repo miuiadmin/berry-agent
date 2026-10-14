@@ -83,16 +83,15 @@ describe('SessionPicker 光标与选择模型', () => {
     expect(calls).toEqual(['exit', 'select:aaa111111111']); // 首行默认光标
   });
 
-  it('↓↑ 移动 + 越界夹取不循环；enter 取光标行', () => {
+  it('↓↑ 移动 + 单步环绕（挖掘 35 轮 B6——修前红：越界夹取不循环旧形）；enter 取光标行', () => {
     const { picker, onSelect } = makePicker(sessions);
     picker.handleEvent(k('down'));
-    picker.handleEvent(k('down')); // 越界夹取——停尾行
-    picker.handleEvent(k('enter'));
-    expect(onSelect).toHaveBeenCalledWith('bbb222222222');
-    picker.handleEvent(k('up'));
-    picker.handleEvent(k('up')); // 越界夹取——停首行
+    picker.handleEvent(k('down')); // 尾行再 ↓——单步环绕回首行
     picker.handleEvent(k('enter'));
     expect(onSelect).toHaveBeenCalledWith('aaa111111111');
+    picker.handleEvent(k('up')); // 首行 ↑——单步环绕回尾行
+    picker.handleEvent(k('enter'));
+    expect(onSelect).toHaveBeenCalledWith('bbb222222222');
   });
 
   it('home/end/pagedown 快捷移动', () => {

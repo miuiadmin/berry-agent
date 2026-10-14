@@ -255,7 +255,7 @@ describe('ThemePicker 长清单滚动位置指示（界面美化役 2026-10-01 �
 });
 
 describe('ThemePicker 键面', () => {
-  it('光标移动：down/up + home/end 夹取（› 位随行——渲染面断言）', () => {
+  it('光标移动：down/up 单步环绕 + home/end 跳位（› 位随行——渲染面断言；挖掘 35 轮 B6）', () => {
     const { picker } = makePicker();
     const width = 72;
     const paint = (): CellGrid => {
@@ -268,12 +268,10 @@ describe('ThemePicker 键面', () => {
     expect(readRow(paint(), 2, width).startsWith('›')).toBe(true); // → dark
     picker.handleEvent(k('end'));
     expect(readRow(paint(), 5, width).startsWith('›')).toBe(true); // → 尾条目
-    picker.handleEvent(k('down')); // 尾夹取——位不动
-    expect(readRow(paint(), 5, width).startsWith('›')).toBe(true);
-    picker.handleEvent(k('home'));
-    expect(readRow(paint(), 1, width).startsWith('›')).toBe(true); // 回首
-    picker.handleEvent(k('up')); // 首夹取——位不动
+    picker.handleEvent(k('down')); // 尾行再 down——单步环绕回首
     expect(readRow(paint(), 1, width).startsWith('›')).toBe(true);
+    picker.handleEvent(k('up')); // 首行 up——单步环绕回尾
+    expect(readRow(paint(), 5, width).startsWith('›')).toBe(true);
   });
 
   it('enter 选定：先收副屏（onExit）再回调（onSelect 名）——同序律；onExit 闭锁单次', () => {

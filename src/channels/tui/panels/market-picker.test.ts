@@ -214,7 +214,7 @@ describe('MarketPicker 呈现', () => {
 });
 
 describe('MarketPicker 键面', () => {
-  it('光标移动：down/up + home/end 夹取（› 位随行——渲染面断言）+ 光标变更请求重画', () => {
+  it('光标移动：down/up 单步环绕 + home/end 跳位（› 位随行——渲染面断言；挖掘 35 轮 B6）+ 光标变更请求重画', () => {
     const { picker, requestRepaint } = makePicker();
     const width = 72;
     expect(readRow(paint(picker, width), 1, width).startsWith('›')).toBe(true);
@@ -222,12 +222,10 @@ describe('MarketPicker 键面', () => {
     expect(readRow(paint(picker, width), 2, width).startsWith('›')).toBe(true);
     picker.handleEvent(k('end'));
     expect(readRow(paint(picker, width), 3, width).startsWith('›')).toBe(true);
-    picker.handleEvent(k('down')); // 尾夹取——位不动
+    picker.handleEvent(k('down')); // 尾行再 down——单步环绕回首
+    expect(readRow(paint(picker, width), 1, width).startsWith('›')).toBe(true);
+    picker.handleEvent(k('up')); // 首行 up——单步环绕回尾
     expect(readRow(paint(picker, width), 3, width).startsWith('›')).toBe(true);
-    picker.handleEvent(k('home'));
-    expect(readRow(paint(picker, width), 1, width).startsWith('›')).toBe(true);
-    picker.handleEvent(k('up')); // 首夹取——位不动
-    expect(readRow(paint(picker, width), 1, width).startsWith('›')).toBe(true);
     // 副屏 Engine 输入后不自动重画——面板光标变更自请重画（程序化重画路）
     expect(requestRepaint.mock.calls.length).toBeGreaterThanOrEqual(4);
   });

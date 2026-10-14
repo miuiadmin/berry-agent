@@ -27,7 +27,7 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
-import { activeRowStyleOf, CURSOR_MARK, headStyleOf, HEAD_MARKS, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { activeRowStyleOf, CURSOR_MARK, headStyleOf, HEAD_MARKS, moreHint, PICKER_HEAD_MARK, stepCursorWrap } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
 
@@ -423,9 +423,9 @@ export class MarketPicker implements OverlayContent {
     this.actions.refresh();
   }
 
-  /** 光标移动（越界夹取——不循环；移动后光标恒可见 + 请求重画） */
+  /** 光标移动（单步环绕/大步夹取——挖掘 35 轮 B6 分立律；移动后光标恒可见 + 请求重画） */
   private moveCursor(delta: number): void {
-    this.cursor = Math.max(0, Math.min(this.model.rows.length - 1, this.cursor + delta));
+    this.cursor = stepCursorWrap(this.cursor, delta, this.model.rows.length);
     this.clampOffset();
     this.cursorRepaint();
   }

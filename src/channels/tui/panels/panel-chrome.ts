@@ -67,6 +67,22 @@ export function moreHint(arrow: '↑' | '↓', count: number): string {
 }
 
 /**
+ * picker 族光标步进单源（挖掘 35 轮 B6——codex scroll_state 单步环绕/翻页
+ * 夹取分立律 berry 化）：|delta|=1 **环绕**（顶行 ↑ 绕底、底行 ↓ 绕顶——长
+ * 清单肌肉记忆闭环，到头不必回按反向）；大步（翻页 PgUp/PgDn/滚轮 ±3/
+ * 端跳）仍**夹取**（codex 原文注释「Page movement intentionally does not
+ * wrap」——大步环绕是迷路不是导航）。七件 picker 族 moveCursor 收编换引；
+ * viewer 族（memory/skills）与向导/弹层不随迁（阅读模型与表单模型分立，
+ * 保留首末停驻夹取形）。
+ */
+export function stepCursorWrap(cursor: number, delta: number, count: number): number {
+  if (count <= 0) return 0; // 空表守卫（调用方另有 length>0 门——内置防御位）
+  if (delta === 1) return (cursor + 1) % count;
+  if (delta === -1) return (cursor - 1 + count) % count;
+  return Math.max(0, Math.min(count - 1, cursor + delta)); // 大步夹取
+}
+
+/**
  * 副屏头行样式（accent 派生——美学注④头行层级律：头行 accent 着色、分段头
  * dim、正文随档）。主题经各面板可选注入位传入（缺省 DEFAULT_THEME 系测试
  * 装配形——主会话装配位已接线〔tui-backend theme: this.theme〕，真值随

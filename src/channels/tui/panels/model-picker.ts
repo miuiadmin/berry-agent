@@ -17,7 +17,7 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
-import { activeRowStyleOf, CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { activeRowStyleOf, CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK, stepCursorWrap } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
 
@@ -379,10 +379,10 @@ export class ModelPicker implements OverlayContent {
     this.appendQuery(ch);
   }
 
-  /** 光标移动（越界夹取不循环；移动后光标行恒在窗内） */
+  /** 光标移动（单步环绕/大步夹取——挖掘 35 轮 B6 分立律；移动后光标行恒在窗内） */
   private moveCursor(delta: number): void {
     const items = this.filtered();
-    this.cursor = Math.max(0, Math.min(items.length - 1, this.cursor + delta));
+    this.cursor = stepCursorWrap(this.cursor, delta, items.length);
     this.clampOffset(this.rows(items).length);
   }
 
