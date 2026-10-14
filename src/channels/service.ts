@@ -408,6 +408,49 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     );
   }
 
+  // /copy 注册面（挖掘 36 轮批 [2]——07 §4.1 定形注）：lastResponse 注入在场
+  // 即注册、缺席不注册不虚报（注册面律同 /usage 族——第八前例）。真源 =
+  // 会话锚（args.sessionId 显式位 ?? registry.focusedId）→ 双事实源拉末条带
+  // 正文 assistant（driver 活体 → durable 回退——装配侧 projectionWithSeqOf
+  // 同源）→ 扇出后端 writeClipboard（可选能力面）；回执三态路由归核：
+  // 任一 written → info / 余 too-large → warn 指路 /export / 全 unsupported →
+  // warn 降级（值中立回执不携机制词）；注入返 null 诚实 warn 非静默
+  if (opts.lastResponse !== undefined) {
+    const fetchLastResponse = opts.lastResponse;
+    commands.register(
+      'copy',
+      async (args) => {
+        const sessionId = args.sessionId ?? registry.focusedId;
+        if (sessionId === null) {
+          uiCore.notify('无聚焦会话——先选定会话再复制', { level: 'warn' });
+          return;
+        }
+        const text = await fetchLastResponse(sessionId);
+        if (text === null) {
+          uiCore.notify('还没有可复制的回复——发一条消息后再试', { level: 'warn' });
+          return;
+        }
+        let written = false;
+        let tooLarge = false;
+        for (const b of allBackends()) {
+          const result = b.writeClipboard?.(sessionId, text);
+          // 能力面缺席（undefined）与 unsupported 同账——由「全不支持」降级提示兜底
+          if (result === undefined || result.status === 'unsupported') continue;
+          if (result.status === 'written') written = true;
+          else tooLarge = true;
+        }
+        if (written) {
+          uiCore.notify('已复制最近一条回复');
+        } else if (tooLarge) {
+          uiCore.notify('内容过长未复制——可用 /export 导出全文', { level: 'warn' });
+        } else {
+          uiCore.notify('当前界面不支持剪贴板复制', { level: 'warn' });
+        }
+      },
+      '复制最近一条回复到系统剪贴板',
+    );
+  }
+
   return {
     commands,
     addBackend(backend) {

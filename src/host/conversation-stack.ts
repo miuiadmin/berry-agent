@@ -111,6 +111,7 @@ import type { SessionLog } from '../session/index.js';
 import type { WorktreeService } from '../tools/index.js';
 
 import type { HostRuntime } from './runtime.js';
+import { lastResponseMarkdownOf } from './session-export.js';
 import type { HookDispatchGuardFace } from './hook-dispatch-guard.js';
 import type { GoalFace } from './core-plugins.js';
 import { TOOL_POLICY_BASENAME } from './tool-policy-store.js';
@@ -1210,6 +1211,15 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         previews.push({ speaker, text: Array.from(first).slice(0, 200).join('') });
       }
       return Promise.resolve(previews.slice(-6));
+    },
+    // /copy 数据源注入（挖掘 36 轮批 [2]——07 §4.1 定形注）：同 usage/calls 双
+    // 事实源纪律（driver 活体优先、未开回库装载——/export eventsOf seam 同
+    // 律）；末条带正文 assistant 正文 = lastResponseMarkdownOf 单源（/export
+    // textOf 同律消毒——图块占位/段连接单源，重抄违单源）；快照档语义 =
+    // dispatch 时现读，无订阅无推送面
+    lastResponse: async (sessionId) => {
+      const messages = await projectionWithSeqOf(sessionId);
+      return lastResponseMarkdownOf(messages);
     },
   });
 

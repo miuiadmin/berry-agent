@@ -71,11 +71,17 @@ describe('leader arm 键判（ctrl+x 硬编码——不走册解析）', () => {
   });
 });
 
-describe('leader 分支字母（b/m/h → jobs/model/help）', () => {
-  it('text 主路三分支 + 大小写不敏感（shift 持字母同认）', () => {
+describe('leader 分支字母（b/c/m/h → jobs/copy/model/help）', () => {
+  it('text 主路四分支 + 大小写不敏感（shift 持字母同认）', () => {
     expect(resolveLeaderIntent(armedAt(1000), t('b'), 1500, openGates)).toEqual({
       kind: 'followup',
       branch: 'jobs',
+      rest: '',
+    });
+    // c 分支（挖掘 36 轮批 [2] 扩集——ctrl+x c → /copy 整轮回复复制）
+    expect(resolveLeaderIntent(armedAt(1000), t('c'), 1500, openGates)).toEqual({
+      kind: 'followup',
+      branch: 'copy',
       rest: '',
     });
     expect(resolveLeaderIntent(armedAt(1000), t('m'), 1500, openGates)).toEqual({
@@ -163,7 +169,8 @@ describe('leader 窗判（惰性到期——无自愈定时器位）', () => {
 
 describe('leader 解除与透明', () => {
   it('非匹配任意事件 = 解除 + 透传（吞零键——含层①②③先消费键）', () => {
-    expect(resolveLeaderIntent(armedAt(1000), t('c'), 1500, openGates)).toEqual({ kind: 'disarm' });
+    // 'z' = 未注册字母例（原例 'c' 已入册 copy 分支——挖掘 36 轮批 [2] 锚迁移）
+    expect(resolveLeaderIntent(armedAt(1000), t('z'), 1500, openGates)).toEqual({ kind: 'disarm' });
     expect(resolveLeaderIntent(armedAt(1000), k('tab'), 1500, openGates)).toEqual({ kind: 'disarm' });
     expect(resolveLeaderIntent(armedAt(1000), k('d', { ctrl: true }), 1500, openGates)).toEqual({ kind: 'disarm' });
     expect(resolveLeaderIntent(armedAt(1000), { kind: 'paste', text: 'x' }, 1500, openGates)).toEqual({

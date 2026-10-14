@@ -24,6 +24,7 @@ export type {
   CommandHandler,
   CommandSpec,
   ChannelsOptions,
+  UiClipboardResult,
 } from './types.js';
 export { CommandRegistry, tokenize } from './commands.js';
 export { AskQueue } from './ask-queue.js';

@@ -841,7 +841,7 @@
       "since": "1.0",
       "desc": "通道后端接口（通道核的呈现消费面）",
       "kind": "interface",
-      "sig": "ee51149712bcea0d"
+      "sig": "24bbd939f82c36d4"
     },
     {
       "symbol": "UiCallLedger",
@@ -878,6 +878,15 @@
       "desc": "通道能力声明（07 §4.3 通道降级规则的判定面）：不支持的原语按「notify 化」降级（select→input→notify、setWidget→notify）——插件不感知通道能力差异，降级判定与编舞在核",
       "kind": "interface",
       "sig": "5d6db677578502ba"
+    },
+    {
+      "symbol": "UiClipboardResult",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "剪贴板写回执三态（挖掘 36 轮批 [2]——值中立形，机制词零携带）： written = 已尽力写出 / too-large = 超 64 KiB 帽拒写（指路 /export）/ unsupported = 后端无此能力面",
+      "kind": "type",
+      "sig": "1bb8076e4a039781"
     },
     {
       "symbol": "UiInputOptions",

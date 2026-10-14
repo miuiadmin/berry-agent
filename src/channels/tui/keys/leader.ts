@@ -2,8 +2,9 @@
  * Ctrl+X leader 前缀键系——纯态机（2026-10-05 ZCode TUI 对标批 B4——07
  * §4.1 B4 定形注）。
  *
- * 两段前缀键机制：ctrl+x 入待续态（armed——2 秒窗），窗内裸字母 b/m/h
- * 分发 /jobs（后台任务）/ /model（模型选择）/ /help（帮助）。机制语义照搬
+ * 两段前缀键机制：ctrl+x 入待续态（armed——2 秒窗），窗内裸字母 b/c/m/h
+ * 分发 /jobs（后台任务）/ /copy（整轮回复复制——挖掘 36 轮批 [2] 扩集，
+ * b/m/h → b/c/m/h）/ /model（模型选择）/ /help（帮助）。机制语义照搬
  * ZCode tui app-sidebar-shortcut.ts 的 leader 态机（惰性窗判无自愈定时器、
  * 大小写不敏感 arm、非匹配任意键解除 + 透传、重按续窗经解除 + 重装两跳
  * 达成）；其「提示无定时退场」滞留 wart 不搬（待续提示随窗定时退场归
@@ -25,12 +26,13 @@
 import type { InputEvent } from '../../engine/index.js';
 import { splitGraphemes } from '../../engine/index.js';
 
-/** leader 分支集（b/m/h → 后台任务清单 / 模型选择 / 帮助——分发复用命令 dispatch 单源） */
-export type LeaderBranch = 'jobs' | 'model' | 'help';
+/** leader 分支集（b/c/m/h → 后台任务清单 / 整轮回复复制 / 模型选择 / 帮助——分发复用命令 dispatch 单源） */
+export type LeaderBranch = 'jobs' | 'copy' | 'model' | 'help';
 
 /** 分支字母映射（小写单源——大小写不敏感比对经 toLowerCase 收敛） */
 const BRANCH_BY_LETTER: Readonly<Record<string, LeaderBranch>> = {
   b: 'jobs',
+  c: 'copy',
   m: 'model',
   h: 'help',
 };
@@ -99,7 +101,7 @@ function isBareEscape(ev: InputEvent): boolean {
 
 /**
  * 分支字母判（text 主路 / ime 提交 / key 防御位三路同语义——jump 待靶态形）：
- * 首字素（字素切分保组合字素完整）恰为裸字母 b/m/h 才命中；带 ctrl/alt/meta
+ * 首字素（字素切分保组合字素完整）恰为裸字母 b/c/m/h 才命中；带 ctrl/alt/meta
  * 修饰不认（shift 允许——大写字母同分支）。命中返回分支 + 余字素（合并游程
  * 'bm' 形——首字素作分支、余字素交调用位补入稿）；首字素非分支字母（如
  * CJK）整 run 不命中（不劈游程——透传归编辑器原语义）。

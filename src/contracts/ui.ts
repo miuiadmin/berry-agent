@@ -183,7 +183,25 @@ export interface UiBackend<TProjection> {
    * ——调用侧 usage 文本兜底（不虚报律）。缺席 = 不支持选择器的后端（serve 形）。
    */
   openRewindPicker?(entries: readonly UiRewindEntry[], actions: UiRewindActions): boolean;
+  /**
+   * 写系统剪贴板（挖掘 36 轮批 [2] `/copy` 的可选能力面——openMemory 族同款
+   * optional method）。回执三态值中立（UiClipboardResult——不携 OSC 52 机制
+   * 词，native/SSH 介导后端可同面接入）；回执路由归通道核（任一 written →
+   * 成功 info / 余 too-large → 指路 /export / 全 unsupported → 降级 warn）。
+   * 尽力语义：写出通道（OSC 52 等）终端支持不可探测、无反馈——「written」
+   * 是尽力声明非确定成功（与件 8 选区复制同族已知边界）。缺席 = 不支持
+   * 剪贴板复制的后端（webui——实装挂账后补）。
+   */
+  writeClipboard?(sessionId: string, text: string): UiClipboardResult;
 }
+
+/**
+ * 剪贴板写回执三态（挖掘 36 轮批 [2]——值中立形，机制词零携带）：
+ * written = 已尽力写出 / too-large = 超 64 KiB 帽拒写（指路 /export）/
+ * unsupported = 后端无此能力面。
+ */
+export type UiClipboardResult =
+  { readonly status: 'written' } | { readonly status: 'too-large' } | { readonly status: 'unsupported' };
 
 /**
  * `/sessions` 删除回执三态（05 §2.5 会话删除编排定形注②——编排真身 =

@@ -31,6 +31,7 @@ export type {
   UiRewindPreview,
   UiRewindActions,
   UiSessionDeleteResult,
+  UiClipboardResult,
 } from '../contracts/index.js';
 
 // 审批 ask 词汇归位 contracts（批 11b——conversation 消费同形而边表不可达
@@ -179,6 +180,14 @@ export interface ChannelsOptions<TProjection> {
    * 单行化+200 字素帽归装配侧）；异步回执归呈现件缓存（不经核路由）。
    */
   readonly sessionPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>;
+  /**
+   * 整轮回复拉取注入（挖掘 36 轮批 [2] `/copy`——注册面律同 usage 族：
+   * 在场即注册、缺席不注册不虚报）。真源 = 聚焦会话（或 args.sessionId
+   * 显式锚）→ 双事实源拉末条带正文 assistant 消息（driver 活体 → durable
+   * 回退）→ 消毒文本（与 /export 单源 textOf 同律）；全空返 null 诚实 warn
+   * （非静默）。快照档语义：dispatch 时现读，无订阅无推送面。
+   */
+  readonly lastResponse?: (sessionId: string) => Promise<string | null>;
 }
 
 /**

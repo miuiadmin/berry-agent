@@ -170,8 +170,9 @@ describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字�
 });
 
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
-  it('册数 36：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影两席（B4 同批）+ 外部编辑器（挖掘 31 轮 [9]）+ 历史回搜两席（挖掘 31 轮 [3]）', () => {
-    expect(ACTION_CATALOG).toHaveLength(36);
+  it('册数 37：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影三席（B4 同批；挖掘 36 轮批 [2] c 扩集）+ 外部编辑器（挖掘 31 轮 [9]）+ 历史回搜两席（挖掘 31 轮 [3]）', () => {
+    // 修前红锚：册数 36（copy-response 增册前）
+    expect(ACTION_CATALOG).toHaveLength(37);
     const followUp = ACTION_CATALOG.find((d) => d.id === 'editor.queue-followup');
     expect(followUp).toMatchObject({ scope: 'editor', keys: ['alt+enter'], overridable: true });
     const modelCycle = ACTION_CATALOG.find((d) => d.id === 'global.model-cycle');
@@ -232,10 +233,13 @@ describe('档位模式循环增册（2026-10-05 ZCode TUI 对标批——shift+t
   });
 });
 
-describe('leader 前缀键分支投影位（2026-10-05 ZCode TUI 对标批 B4——ctrl+x b/m/h 复合串）', () => {
-  it('三投影在册：jobs/model-picker 复合串 + help 双面键集（? 居首 = keyText 显示单源）', () => {
+describe('leader 前缀键分支投影位（2026-10-05 ZCode TUI 对标批 B4——ctrl+x b/c/m/h 复合串）', () => {
+  it('四投影在册：jobs/copy-response/model-picker 复合串 + help 双面键集（? 居首 = keyText 显示单源）', () => {
     const jobs = ACTION_CATALOG.find((d) => d.id === 'global.jobs');
     expect(jobs).toMatchObject({ scope: 'global', keys: ['ctrl+x b'], overridable: false });
+    // copy 席（挖掘 36 轮批 [2] 扩集——b/c/m/h 第三分支；复合投影位绑定永不命中）
+    const copy = ACTION_CATALOG.find((d) => d.id === 'global.copy-response');
+    expect(copy).toMatchObject({ scope: 'global', label: '复制最近一条回复', keys: ['ctrl+x c'], overridable: false });
     const picker = ACTION_CATALOG.find((d) => d.id === 'global.model-picker');
     expect(picker).toMatchObject({ scope: 'global', keys: ['ctrl+x m'], overridable: false });
     const help = ACTION_CATALOG.find((d) => d.id === 'global.help');

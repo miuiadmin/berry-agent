@@ -73,6 +73,7 @@ import type {
   UiAskOptions,
   UiBackend,
   UiCallLedgerEntry,
+  UiClipboardResult,
   UiInputOptions,
   UiSelectChoice,
   UiSessionDeleteResult,
@@ -138,7 +139,7 @@ import { editorHeightCap } from '../editor/height-cap.js';
 import { runExternalEditor, type ExternalEditorOutcome } from '../editor/external-editor.js';
 import { OverlayStack, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
 import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
-import { HistoryViewer } from '../history/history-viewer.js';
+import { HistoryViewer, SELECTION_CAP_BYTES } from '../history/history-viewer.js';
 import { SessionPicker } from '../history/session-picker.js';
 import { HelpViewer, type HelpCommandEntry } from '../panels/help-viewer.js';
 import { CallsViewer } from '../panels/calls-viewer.js';
@@ -493,7 +494,7 @@ const FOOTER_HINT_BUSY_TEXT = '回复进行中——输入仍可用：Enter 追�
  * 注）：ctrl+x 入待续态期间示分支菜单（待续提示随窗定时退场——不搬 ZCode
  * 提示滞留 wart）；三键名与册面复合投影串同文（b 任务 / m 模型 / h 帮助）。
  */
-const FOOTER_HINT_LEADER = 'Ctrl+X 已按 · b 任务 · m 模型 · h 帮助';
+const FOOTER_HINT_LEADER = 'Ctrl+X 已按 · b 任务 · c 复制 · m 模型 · h 帮助';
 /**
  * 主屏空态引导行集（07 §4.1 空转写态注 2026-10-05）：零块空稿态转录区引
  * 导——logo 字形随启动动画字形语系（纯文本零 CSI）+ 提示行。与 ob-2 启动
@@ -1789,6 +1790,22 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (handle === null) return false;
     this.altHandle = handle;
     return true;
+  }
+
+  /**
+   * 写系统剪贴板（UiBackend 可选能力面实装——挖掘 36 轮批 [2] `/copy`）：
+   * OSC 52 复用（件 8 选区复制同族——buildOsc52Copy io.write 直出尽力无反馈）；
+   * 64 KiB 帽单源 SELECTION_CAP_BYTES（选区帽同值——零重抄条款；按 utf-8
+   * 字节计〔Buffer.byteLength——多字节字符按字节非字符数〕，超帽拒写返
+   * too-large 由核指路 /export）。OSC 52 尽力语义：终端支持不可探测（iTerm2
+   * 默认禁 / tmux 需 set-clipboard on 属用户面已知边界——件 8 同族）——
+   * written 是尽力声明非确定成功。
+   */
+  writeClipboard(_sessionId: string, text: string): UiClipboardResult {
+    // _sessionId：后端面签名携带会话归属——TUI 单终端单剪贴板不消费（setStatus 同律）
+    if (Buffer.byteLength(text, 'utf8') > SELECTION_CAP_BYTES) return { status: 'too-large' };
+    this.io.write(buildOsc52Copy(text));
+    return { status: 'written' };
   }
 
   /**

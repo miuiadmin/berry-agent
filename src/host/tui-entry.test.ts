@@ -1207,6 +1207,25 @@ describe('runTuiEntry 装配序', () => {
     t3.io.send('\x04');
     expect(await t3.entry).toBe(0);
   });
+
+  // ── /copy 整轮回复复制真装配锁（挖掘 36 轮批 [2]——ASM-1 反制：
+  // lastResponse 注入 + leader c 分支 + dispatchAnchored + TUI
+  // writeClipboard 四装配面任一拆线则本测红——单测假注入绿不可代） ──
+  it('ctrl+x c 真装配：一轮完成后 leader 分支 → /copy dispatch → io 收 OSC 52 序列（载荷 base64(faux 回复)）', async () => {
+    const t = await rigEntry(rigDir('entry-copy-a-data-'), rigDir('entry-copy-a-ws-'));
+    t.io.send('hi\r'); // 一轮对话（faux 回复 'ok'）
+    await until(() => stripAnsi(t.io.output).includes('ok')); // 回复上屏（run settle）
+    await tick(); // settle 后静置（arm 门需闲态）
+    t.io.output = '';
+    t.io.send('\x18'); // ctrl+x——leader arm（空稿闲态五闸开）
+    t.io.send('c'); // copy 分支字母
+    // 端到端链：分支柄 onLeaderBranch('copy') → dispatchAnchored('/copy') →
+    // channels.dispatchCommand → lastResponse 注入（投影末条 'ok'）→
+    // TuiBackend.writeClipboard → OSC 52 序列落 io
+    await until(() => t.io.output.includes(`\x1b]52;c;${Buffer.from('ok', 'utf8').toString('base64')}\x07`));
+    t.io.send('\x04');
+    expect(await t.entry).toBe(0);
+  });
 });
 
 describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {

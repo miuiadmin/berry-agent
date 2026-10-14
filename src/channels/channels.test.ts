@@ -14,6 +14,7 @@ import type {
   UiBackend,
   UiCapabilities,
   UiCallLedger,
+  UiClipboardResult,
   UiSessionDeleteResult,
   UiSessionPreviewLine,
 } from './types.js';
@@ -30,7 +31,13 @@ interface AskHandle<T> {
 /** 可编程假后端：记录一切调用；阻塞应答 deferred 手控；abort 自动保守值收场。
  * withAlt = 带件 8 副屏可选钩（收起 / 开回看 / 开记忆管理面——缺席即无副屏
  * 后端的零义务形）；openMemory 返值经 setMemoryOpen 编程（缺省 false） */
-function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, withAlt = false) {
+function fakeBackend(
+  id: string,
+  capsOverride: Partial<UiCapabilities> = {},
+  withAlt = false,
+  /** writeClipboard 回执编程（null = 能力面缺席——webui 挂账形；挖掘 36 轮批 [2]） */
+  clipboard: UiClipboardResult | null = { status: 'written' },
+) {
   const capabilities: UiCapabilities = {
     notify: true,
     confirm: true,
@@ -66,6 +73,7 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
   let usageOpenReturn = false;
   const callsOpens: { sessionId: string; entries: readonly unknown[]; totalCount?: number }[] = [];
   let callsOpenReturn = false;
+  const clipboardWrites: { sessionId: string; text: string }[] = [];
   let audience = true;
 
   function deferredPush<T>(asks: AskHandle<T>[], message: string, signal: AbortSignal | undefined): Promise<T> {
@@ -90,6 +98,15 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
     setWidget: (sessionId, node) => widgets.push({ sessionId, node }),
     onEnvelope: (env, focused) => envelopes.push({ env, focused }),
     onRepaint: (sessionId, projection, widget) => repaints.push({ sessionId, projection, widget }),
+    // 剪贴板能力面（挖掘 36 轮批 [2]——clipboard 参数 null = 缺席形零义务）
+    ...(clipboard !== null
+      ? {
+          writeClipboard: (sessionId: string, text: string) => {
+            clipboardWrites.push({ sessionId, text });
+            return clipboard;
+          },
+        }
+      : {}),
     // 件 8 副屏可选钩 + mm 批 openMemory（在场即能力——withAlt 才挂，缺席形零义务）
     ...(withAlt
       ? {
@@ -156,6 +173,7 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
     sessionsOpens,
     usageOpens,
     callsOpens,
+    clipboardWrites,
   };
 }
 
@@ -1308,6 +1326,68 @@ describe('/calls 命令面（07 §4.1 ZCode TUI 对标批 B3——调用台账�
     s.addBackend(b.backend);
     expect(s.listCommands().map((c) => c.name)).not.toContain('calls');
     expect(await s.dispatchCommand('/calls')).toBe(false);
+  });
+});
+
+describe('/copy 命令面（挖掘 36 轮批 [2]——整轮回复复制：注入在场即注册；回执三态路由归核）', () => {
+  it('lastResponse 注入在场：注册 + 分发拉聚焦会话末条回复扇出 writeClipboard（info 回执红锚）', async () => {
+    const fetched: string[] = [];
+    const s = createChannels({
+      lastResponse: async (sessionId) => {
+        fetched.push(sessionId);
+        return sessionId === 'a' ? '末条回复正文' : null;
+      },
+    });
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+    s.registerSession('a');
+    await s.focus('a');
+    expect(s.listCommands().map((c) => c.name)).toContain('copy');
+    expect(await s.dispatchCommand('/copy')).toBe(true);
+    expect(fetched).toEqual(['a']); // 聚焦会话为真源（快照档现读）
+    expect(b.clipboardWrites).toEqual([{ sessionId: 'a', text: '末条回复正文' }]); // 注入文本透传
+    expect(b.notified).toEqual([{ message: '已复制最近一条回复', level: undefined }]); // info 档回执
+  });
+
+  it('注入返 null：warn 红锚「还没有可复制的回复」非静默零写', async () => {
+    const s = createChannels({ lastResponse: async () => null });
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+    s.registerSession('a');
+    await s.focus('a');
+    await s.dispatchCommand('/copy');
+    expect(b.clipboardWrites).toEqual([]); // 零写
+    expect(b.notified).toEqual([{ message: '还没有可复制的回复——发一条消息后再试', level: 'warn' }]);
+  });
+
+  it('后端能力面缺席（writeClipboard 不挂）：warn 降级「当前界面不支持剪贴板复制」', async () => {
+    const s = createChannels({ lastResponse: async () => '正文' });
+    const b = fakeBackend('web', {}, false, null); // null = 能力面缺席（webui 挂账形）
+    s.addBackend(b.backend);
+    s.registerSession('a');
+    await s.focus('a');
+    await s.dispatchCommand('/copy');
+    expect(b.clipboardWrites).toEqual([]);
+    expect(b.notified).toEqual([{ message: '当前界面不支持剪贴板复制', level: 'warn' }]);
+  });
+
+  it('返 too-large：warn 指路 /export（帽拒写不炸）', async () => {
+    const s = createChannels({ lastResponse: async () => '超长正文' });
+    const b = fakeBackend('tui', {}, false, { status: 'too-large' });
+    s.addBackend(b.backend);
+    s.registerSession('a');
+    await s.focus('a');
+    await s.dispatchCommand('/copy');
+    expect(b.clipboardWrites).toEqual([{ sessionId: 'a', text: '超长正文' }]); // 扇出已达（帽在后端判）
+    expect(b.notified).toEqual([{ message: '内容过长未复制——可用 /export 导出全文', level: 'warn' }]);
+  });
+
+  it('lastResponse 注入缺席：不注册不虚报（/copy 不在命令面，分发返 false）', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+    expect(s.listCommands().map((c) => c.name)).not.toContain('copy');
+    expect(await s.dispatchCommand('/copy')).toBe(false);
   });
 });
 

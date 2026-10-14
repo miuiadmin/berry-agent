@@ -14,9 +14,13 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import type { SessionEvent } from '../contracts/index.js';
+import type { TextContent, ThinkingContent, ToolCallBlock } from '../contracts/llm.js';
+import type { AgentMessage } from '../contracts/messages.js';
+import type { ContentBlock } from '../session/index.js';
 import { KNOWN_FORMAT, SUPPORTED_VERSION } from '../session/index.js';
 
 import {
+  lastResponseMarkdownOf,
   renderSessionJsonl,
   renderSessionMarkdown,
   runSessionExportCommand,
@@ -476,5 +480,70 @@ describe('runSessionExportCommand 命令腿（TUI/CLI 两消费单源）', () =>
     const lines = readFileSync(path, 'utf8').split('\n');
     expect(JSON.parse(lines[0]!)).toEqual({ format: KNOWN_FORMAT, version: SUPPORTED_VERSION, exportedAt: NOW });
     expect(lines).toHaveLength(7 + 2);
+  });
+});
+
+describe('lastResponseMarkdownOf 末条 assistant 正文（挖掘 36 轮批 [2]——/copy 数据源单源）', () => {
+  /** 造 assistant 消息 helper（usage/stopReason 位恒定填白——本函数只消费 role/content）。
+   * 参数取 session 域 ContentBlock（投影产物真形——含 image/image-ref 块；llm 域
+   * AssistantMessage.content 联合不含图块，经 as 放行同生产面「类型域边界 as」注） */
+  function assistant(content: readonly ContentBlock[]): AgentMessage {
+    return {
+      role: 'assistant',
+      content: content as unknown as (TextContent | ThinkingContent | ToolCallBlock)[],
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+      stopReason: 'stop',
+      timestamp: 0,
+    };
+  }
+
+  it('多轮取末条带正文胜出；末条空文轮（纯 thinking/toolCall）跳过归更早轮', () => {
+    // 修前红：lastResponseMarkdownOf 尚未存在——/copy 数据源无单源函数
+    const messages: AgentMessage[] = [
+      { role: 'user', content: '第一问', timestamp: 0 },
+      assistant([{ type: 'text', text: '第一答' }]),
+      { role: 'user', content: '第二问', timestamp: 1 },
+      assistant([{ type: 'text', text: '第二答' }]),
+    ];
+    expect(lastResponseMarkdownOf(messages)).toBe('第二答'); // 末条带正文胜出
+    // 末条纯 thinking 轮（无 text/图块）= 空文——不算带正文，不覆盖前轮
+    const withThinkingTail: AgentMessage[] = [...messages, assistant([{ type: 'thinking', thinking: '还在想' }])];
+    expect(lastResponseMarkdownOf(withThinkingTail)).toBe('第二答'); // 跳过空文轮归更早轮
+  });
+
+  it('自定义角色消息跳过（isStandardMessage 窄化——todo 快照等注入族不进）', () => {
+    const messages: AgentMessage[] = [
+      assistant([{ type: 'text', text: '真回复' }]),
+      // 自定义角色消息（04 §2——content 载荷形状由角色定义自裁，非块数组）
+      { role: 'todo/snapshot', content: { items: [] }, timestamp: 1 },
+    ];
+    expect(lastResponseMarkdownOf(messages)).toBe('真回复'); // 非标准消息不入账
+  });
+
+  it('图块占位：image/image-ref 块降「[图片]」占位行（text 段 \n\n 连接）', () => {
+    const messages: AgentMessage[] = [
+      assistant([
+        { type: 'text', text: '看这张图' },
+        { type: 'image-ref', ref: 'sha256:ab', mimeType: 'image/png', bytes: 3 },
+        { type: 'image', data: 'aGk=', mimeType: 'image/png' },
+        { type: 'text', text: '以及上面两张' },
+      ]),
+    ];
+    expect(lastResponseMarkdownOf(messages)).toBe('看这张图\n\n[图片]\n\n[图片]\n\n以及上面两张');
+  });
+
+  it('ANSI 消毒：逃逸序列与控制字节剥除（终端外载体消毒律——剪贴板与导出文件同险面）', () => {
+    const messages: AgentMessage[] = [assistant([{ type: 'text', text: '前\x1b]52;c;aGk=\x07脏后' }])];
+    expect(lastResponseMarkdownOf(messages)).toBe('前脏后'); // OSC 52 写剪贴板序列剥除
+  });
+
+  it('全空（无 assistant / 全空文轮）返 null 诚实缺席', () => {
+    expect(lastResponseMarkdownOf([])).toBeNull();
+    expect(
+      lastResponseMarkdownOf([
+        { role: 'user', content: '问', timestamp: 0 },
+        assistant([{ type: 'thinking', thinking: '无正文轮' }]),
+      ]),
+    ).toBeNull(); // 空文轮不伪造空文本——null 由调用方 warn 非静默
   });
 });

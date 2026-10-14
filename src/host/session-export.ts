@@ -32,7 +32,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { SessionEvent } from '../contracts/index.js';
-import { BaseError } from '../contracts/index.js';
+import { BaseError, isStandardMessage } from '../contracts/index.js';
+import type { AgentMessage } from '../contracts/index.js';
 import { sanitizeTitleText, sessionDisplayTitleOf } from '../persist/index.js';
 import type { ContentBlock } from '../session/index.js';
 import { KNOWN_FORMAT, SUPPORTED_VERSION, deriveMessages } from '../session/index.js';
@@ -407,4 +408,27 @@ function textOf(content: string | readonly ContentBlock[]): string {
     }
   }
   return parts.join('\n\n');
+}
+
+/**
+ * 末条 assistant 回复正文（挖掘 36 轮批 [2] `/copy` 数据源——与 /export 文档
+ * 面单源 textOf 同律：text 块 '\n\n' 段连接 + 图块占位 + sanitizeBodyText 消毒。
+ * 终端外载体消毒律辖——剪贴板粘贴回终端与导出文件同险面，消毒面不另起炉灶）。
+ * 取末条**带正文** assistant 标准消息（isStandardMessage 窄化——自定义角色
+ * 注入族如 todo 快照不进；纯 thinking/toolCall 轮空文跳过归更早轮）；全空返
+ * null 诚实缺席（调用方 warn 非静默——不伪造空文本写剪贴板）。
+ */
+export function lastResponseMarkdownOf(messages: readonly AgentMessage[]): string | null {
+  let last: string | null = null;
+  for (const message of messages) {
+    if (!isStandardMessage(message) || message.role !== 'assistant') continue;
+    // 类型域边界 as（投影边界同洞——conversation-stack allBackends 先例）：
+    // 投影产物实为 session 域块形（deriveMessages ProjectedMessage），静态
+    // 标 AgentMessage 使 assistant 分支联合含 ToolCallBlock；textOf 按块
+    // type 分诊（text/图块入账、thinking/toolCall 不入正文），toolCall 块
+    // 运行时被跳过——「纯 thinking/toolCall 轮空文」语义的承载位
+    const text = textOf(message.content as string | readonly ContentBlock[]);
+    if (text !== '') last = text; // 空文轮（无 text/图块）不算带正文——不覆盖前轮
+  }
+  return last;
 }

@@ -25,6 +25,7 @@ import { ansiColor, colorRgb, stringWidth } from '../../engine/index.js';
 import type { TodoItem } from '../../types.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
 import { LEADER_WINDOW_MS } from '../keys/leader.js';
+import { SELECTION_CAP_BYTES } from '../history/history-viewer.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
 import { builtinPalette, detectColorDepth, resolveTheme } from '../theme/index.js';
 import { AltScreenHost } from '../overlay/alt-screen.js';
@@ -5022,11 +5023,11 @@ describe('TuiBackend Ctrl+X leader 前缀键系（2026-10-05 ZCode TUI 对标批
     return { ...rig, branches };
   }
 
-  it('arm 入态 + 待续提示在场；三分支字母命中即消费（字母不入稿——吞字锁）', () => {
+  it('arm 入态 + 待续提示在场；四分支字母命中即消费（字母不入稿——吞字锁）', () => {
     const { io, calls, branches, pump } = leaderRig();
     io.emitInput('\x18'); // ctrl+x——五闸全开（空稿闲态无浮层）入待续态
     pump();
-    expect(io.bytes).toContain('Ctrl+X 已按 · b 任务 · m 模型 · h 帮助'); // 待续提示（footer 教学位）
+    expect(io.bytes).toContain('Ctrl+X 已按 · b 任务 · c 复制 · m 模型 · h 帮助'); // 待续提示（footer 教学位；挖掘 36 轮批 [2] c 扩集随迁）
     io.bytes = '';
     io.emitInput('b'); // 分支字母——text 路拦截
     pump();
@@ -5035,7 +5036,7 @@ describe('TuiBackend Ctrl+X leader 前缀键系（2026-10-05 ZCode TUI 对标批
     io.emitInput('\r'); // 空稿提交零动作——证稿恒空
     pump();
     expect(calls.submitted).toEqual([]);
-    // m / h 两分支同形（各自重新 arm）
+    // m / h / c 三分支同形（各自重新 arm——c 扩集〔挖掘 36 轮批 [2〕〕）
     io.emitInput('\x18');
     pump();
     io.emitInput('m');
@@ -5044,7 +5045,11 @@ describe('TuiBackend Ctrl+X leader 前缀键系（2026-10-05 ZCode TUI 对标批
     pump();
     io.emitInput('h');
     pump();
-    expect(branches).toEqual(['jobs', 'model', 'help']);
+    io.emitInput('\x18');
+    pump();
+    io.emitInput('c');
+    pump();
+    expect(branches).toEqual(['jobs', 'model', 'help', 'copy']);
   });
 
   it('非匹配字母解除 + 透传入稿（吞零键）；提示随解除退场', () => {
@@ -5052,15 +5057,15 @@ describe('TuiBackend Ctrl+X leader 前缀键系（2026-10-05 ZCode TUI 对标批
     io.emitInput('\x18');
     pump();
     io.bytes = '';
-    io.emitInput('c'); // 非分支字母——解除 + 透传
+    io.emitInput('z'); // 非分支字母（原例 'c' 已入册 copy 分支——挖掘 36 轮批 [2] 锚迁移）——解除 + 透传
     pump();
     expect(branches).toEqual([]); // 零分发
-    expect(io.bytes).toContain('c'); // 入稿（透传不吞）
+    expect(io.bytes).toContain('z'); // 入稿（透传不吞）
     expect(io.bytes).not.toContain('Ctrl+X 已按'); // 提示退场（ disarm 对账）
     io.emitInput('b'); // 待续态已解除——后续 b 是普通字符
     pump();
     expect(branches).toEqual([]); // 无迟到分发
-    expect(io.bytes).toContain('cb'); // 连缀成稿
+    expect(io.bytes).toContain('zb'); // 连缀成稿
   });
 
   it('2 秒窗到点：提示定时退场 + 窗外分支字母归普通字符（惰性窗判）', () => {
@@ -5264,6 +5269,29 @@ describe('TuiBackend Ctrl+X leader 前缀键系（2026-10-05 ZCode TUI 对标批
     io.emitInput('b');
     io.emitInput('\r');
     expect(submitted).toEqual(['b']); // b 入稿提交
+  });
+});
+
+describe('TuiBackend writeClipboard（挖掘 36 轮批 [2]——/copy 整轮回复复制的后端面）', () => {
+  it('帽内正文：OSC 52 序列直出 + written（sessionId 不消费——单终端单剪贴板）', () => {
+    const { io, backend, pump } = makeInteractive();
+    const result = backend.writeClipboard('s1', '你好 copy');
+    pump();
+    expect(result).toEqual({ status: 'written' });
+    // OSC 52 载波形锁：\x1b]52;c;<base64(utf-8)>\x07（件 8 选区复制 buildOsc52Copy 同源复用）
+    expect(io.bytes).toContain(`\x1b]52;c;${Buffer.from('你好 copy', 'utf8').toString('base64')}\x07`);
+  });
+
+  it('超 64 KiB 帽：too-large 零写（utf-8 字节计非码点数——SELECTION_CAP_BYTES 单源）', () => {
+    const { io, backend } = makeInteractive();
+    // 65537 单字节字符 = 65537 字节 > 65536 帽（界值外 1 字节）
+    const over = 'a'.repeat(SELECTION_CAP_BYTES + 1);
+    expect(backend.writeClipboard('s1', over)).toEqual({ status: 'too-large' });
+    expect(io.bytes).not.toContain('\x1b]52;'); // 零写——帽拒先于 io.write
+    // 界值内恰帽放行（64 KiB 整——边界含端点）
+    io.bytes = '';
+    expect(backend.writeClipboard('s1', 'a'.repeat(SELECTION_CAP_BYTES))).toEqual({ status: 'written' });
+    expect(io.bytes).toContain('\x1b]52;');
   });
 });
 

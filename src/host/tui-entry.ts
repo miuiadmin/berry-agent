@@ -1505,6 +1505,16 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       string,
       { eventsRef: Parameters<typeof foldTodoTable>[0]; length: number; folded: ReturnType<typeof foldTodoTable> }
     >();
+    // 命令执行窗自动锚 seam（ix-2——07 §4.3 档位 2）：发起会话 = 聚焦会话
+    //（兜底启动会话——焦点空悬时命令仍属 TUI 主会话）；ALS 语境继承语义
+    //——命令 handler 及其 fire-and-forget 尾链零自觉锚定（显式 opts
+    // .sessionId 优先）。sessionId 实参同笔透传（CommandArgs 显式位）。
+    // 两消费位共体（挖掘 36 轮批 [2]）：backend 构造选项 dispatchCommand 字段
+    // + onLeaderBranch copy 分支（对象字面量内字段不可互引用——提外层定义）
+    const dispatchAnchored = (input: string): Promise<boolean> => {
+      const sid = stack.channels.focusedId ?? session.sessionId;
+      return runWithSessionAnchor(sid, () => stack.channels.dispatchCommand(input, sid));
+    };
     const backend = new TuiBackend(io, {
       sessionId: session.sessionId,
       onSubmit: (sessionId, text, opts) => {
@@ -1596,10 +1606,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       //（兜底启动会话——焦点空悬时命令仍属 TUI 主会话）；ALS 语境继承语义
       //——命令 handler 及其 fire-and-forget 尾链零自觉锚定（显式 opts
       // .sessionId 优先）。sessionId 实参同笔透传（CommandArgs 显式位）。
-      dispatchCommand: (input: string) => {
-        const sid = stack.channels.focusedId ?? session.sessionId;
-        return runWithSessionAnchor(sid, () => stack.channels.dispatchCommand(input, sid));
-      },
+      dispatchCommand: dispatchAnchored,
       // TUI 本地命令族（07 §4.1 命令面增补批——本地拦截三词注入）
       localCommands,
       todoFor: (sessionId) => {
@@ -1751,13 +1758,20 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 本体（上 openHelpPanel 闭包）；backend 空稿闲态门控后回调（层③.7）
       onHelpShortcut: () => openHelpPanel(),
       // Ctrl+X leader 前缀键分支柄（B4——2026-10-05 ZCode TUI 对标批 07
-      // §4.1 定形注）：分支复用命令 dispatch 单源非新开面板路——b/m 分支名
-      // 与 localCommands 表名严格同文（查表 run，与 /jobs、/model 命令同一
-      // 动作体）；h 分支与 `?` 教学键 / /help 命令同一 openHelpPanel 本体
-      //（三入口一动作）。backend 五闸/四闸门控后回调（层⓪/层③.4）
+      // §4.1 定形注；挖掘 36 轮批 [2] 扩 c 分支）：分支复用命令 dispatch 单源
+      // 非新开面板路——b/m 分支名与 localCommands 表名严格同文（查表 run，与
+      // /jobs、/model 命令同一动作体）；h 分支与 `?` 教学键 / /help 命令同一
+      // openHelpPanel 本体（三入口一动作）；c 分支 = 通道核命令 /copy
+      //（lastResponse 注入注册面——非本地命令族）走 dispatchAnchored seam
+      //（自动锚同律）；dispatch false（注入缺席命令不在册）静默 no-op
+      //（b/m 查表 find() 空转同族语义）。backend 五闸/四闸门控后回调（层⓪/层③.4）
       onLeaderBranch: (branch) => {
         if (branch === 'help') {
           openHelpPanel();
+          return;
+        }
+        if (branch === 'copy') {
+          void dispatchAnchored('/copy');
           return;
         }
         localCommands.find((command) => command.name === branch)?.run();

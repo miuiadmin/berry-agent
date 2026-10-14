@@ -79,16 +79,24 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
     keys: ['?', 'ctrl+x h'],
     overridable: false,
   },
-  // leader 前缀键分支投影两席（B4——2026-10-05 ZCode TUI 对标批增册至 33）：
-  // 键串文法不扩——'ctrl+x b' 复合串是册面**投影位**（/help 可发现性），绑定
-  // 永不命中（单段文法解析器天然不产此形，用户覆盖表恒拒复合串——
-  // malformed-binding 形；分诊真源 = backend 层③.4 leader 态机，见
-  // keys/leader.ts）。overridable: false——分支面无用户改键面
+  // leader 前缀键分支投影三席（B4——2026-10-05 ZCode TUI 对标批增册至 33；
+  // 挖掘 36 轮批 [2] 扩第三席 copy——增册至 37）：键串文法不扩——'ctrl+x b'
+  // 复合串是册面**投影位**（/help 可发现性），绑定永不命中（单段文法解析器
+  // 天然不产此形，用户覆盖表恒拒复合串——malformed-binding 形；分诊真源 =
+  // backend 层③.4 leader 态机，见 keys/leader.ts）。overridable: false——
+  // 分支面无用户改键面
   {
     id: 'global.jobs',
     scope: 'global',
     label: '打开后台任务清单',
     keys: ['ctrl+x b'],
+    overridable: false,
+  },
+  {
+    id: 'global.copy-response',
+    scope: 'global',
+    label: '复制最近一条回复',
+    keys: ['ctrl+x c'],
     overridable: false,
   },
   {
