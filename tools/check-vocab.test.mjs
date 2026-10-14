@@ -233,4 +233,16 @@ describe('check-vocab 守护炮自测（spawn 全闸形态）', () => {
     expect(status).toBe(0);
     expect(out).toContain('check-vocab 绿');
   });
+
+  // 挖掘 36 轮 [2] 问答落史行词条——两新用户面词随批入批准词面（词面真源
+  // transcript.ts askDecisionLine；「（空）」= input 空输入占位——提案原文
+  // 「已应答」撞查四禁词「应答」改「已回复」的执法对锁）
+  it('查四批准词锁：问答落史行两词「已回复/（空）」→ 绿（[2] 新用户面词入册；零「应答」禁词）', () => {
+    const root = fixture('userface-approved-ask-decision', {
+      'src/channels/tui/backend/transcript.ts': "export const words = ['↳ 已回复', '↳ 已取消', '（空）'];\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(0);
+    expect(out).toContain('check-vocab 绿');
+  });
 });
