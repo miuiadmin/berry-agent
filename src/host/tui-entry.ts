@@ -574,6 +574,19 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // 覆盖表现载（载入 null〔坏文件/缺席〕= 回退 auto 探测档——坏文件 warn 已
     // 落 logger，诚实降级不炸启动）；内置三值/缺席 = 无覆盖直落。
     const themeSetting = themeLoad?.settings.theme ?? 'auto';
+    // —— TUI 动效门控铸值（挖掘 35 轮 B2+B4——07 §4.1 呈现面动效门控）：
+    // settings.json `animations` 键（缺省 true）+ env BERRY_AGENT_TUI_ANIMATIONS
+    // =0|1 逐次覆盖（env 胜持久键；无效值 warn 点名走持久键）——单值下装
+    // TuiBackendOptions.animations（禁用形 = 转轮退 • dim 静态符 + 忙态 tick
+    // 定时器不摆）。
+    const animationsEnv = env.BERRY_AGENT_TUI_ANIMATIONS;
+    if (animationsEnv !== undefined && animationsEnv !== '0' && animationsEnv !== '1') {
+      logger.warn(
+        `环境变量 BERRY_AGENT_TUI_ANIMATIONS 值无效（${animationsEnv}——须 0|1），忽略走 settings.json animations 键`,
+      );
+    }
+    const animationsEnabled =
+      animationsEnv === '0' ? false : animationsEnv === '1' ? true : (themeLoad?.settings.animations ?? true);
     const isCustomTheme = themeSetting !== 'dark' && themeSetting !== 'light' && themeSetting !== 'auto';
     const customThemeOverlay =
       isCustomTheme && runtime.dataDir !== null
@@ -1661,6 +1674,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 覆盖表随装（坏文件已回退 auto——见 startupThemeSetting；色域档由 env
       // 两键裁定）
       theme: startupThemeSetting,
+      // 动效门单值（挖掘 35 轮 B2+B4——settings animations 键 + env 覆盖铸值）
+      animations: animationsEnabled,
       ...(customThemeOverlay !== null ? { customThemeOverlay } : {}),
       colorEnv: { COLORTERM: env.COLORTERM, TERM: env.TERM },
       // 键位用户覆盖（R5 批 10k）：settings.json keybindings 键——形校验在读

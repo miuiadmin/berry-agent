@@ -310,6 +310,14 @@ export interface TuiBackendOptions {
    */
   readonly theme?: ThemeSetting;
   /**
+   * 动效门（挖掘 35 轮 B2+B4——07 §4.1 呈现面动效门控）：缺省 true；false =
+   * 禁用形（转轮退 • dim 静态符 + 忙态 tick 定时器不摆——态变/供数变才触
+   * 重绘）。真源 = settings.json `animations` 键 + env
+   * `BERRY_AGENT_TUI_ANIMATIONS=0|1` 逐次覆盖（env 胜——tui-entry 装配铸
+   * 单值注入本键）。
+   */
+  readonly animations?: boolean;
+  /**
    * 自定义主题覆盖表（/themes 批）：theme 值为自定义名时装配位载入注入
    * （loadCustomThemeColors 产物；坏文件装配位 warn 后回退内置档——本键缺席
    * 即内置形）。在场景 = 键级回退基板 OSC 重合成（handleOscReply）+ 探测
@@ -930,6 +938,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /* ---- 主题态（批 10g——07 R2 三档色域 + 语义键 + OSC 11 自动明暗；/themes 批运行时切档扩） ---- */
   /** 主题档（auto = start 时 OSC 11 探测裁定；显式内置档短路；自定义名探测照开）——/themes 选定可运行时改 */
   private themeSetting: ThemeSetting;
+  /** 动效门单值（挖掘 35 轮 B2+B4——false = tick 定时器不摆 + taskLine 禁用形） */
+  private readonly animationsEnabled: boolean;
   /**
    * 自定义主题覆盖表（/themes 批）：theme 值为自定义名时在场——OSC 回执按
    * 探测基板重合成（overlayBoard 单源）；null = 内置形。运行时切档可改。
@@ -1106,6 +1116,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.customOverlay = options.customThemeOverlay ?? null;
     this.colorDepth = detectColorDepth(options.colorEnv ?? {});
     this.theme = resolveTheme(this.currentBoard(), this.colorDepth);
+    // 动效门（挖掘 35 轮 B2+B4）：单值注入（缺省 true）——tick 定时器摆/不摆
+    // 与 taskLine 禁用形两消费位
+    this.animationsEnabled = options.animations ?? true;
     // 键位注册表（批 10i R5 基座 + 10k 用户覆盖）：settings keybindings 键
     // 透传——四形拒载 fail-loud（拒载弃该键回退缺省，rejections 观测面呈报）
     this.keymap = new Keymap(options.keybindings);
@@ -1212,6 +1225,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       now: () => this.now(),
     });
     this.taskLine.onChange = () => this.touchFixed();
+    // 动效门下装（挖掘 35 轮 B2+B4——禁用形转轮退静态符；早于首 render）
+    this.taskLine.setAnimations(this.animationsEnabled);
     // 后台任务面板（界面美化役批6）：jobs 注入缺席 = 段缺席零变化；本地钟
     // 注入（时长基准——测试确定性）；须早于 injectTheme（主题注入位消费）
     this.jobsSource = options.jobs;
@@ -1296,7 +1311,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.requestRender();
     }
     this.unsubResize = this.io.onResize(() => this.handleResize());
-    if (this.scheduleFn !== null) this.armTick();
+    // 动效门（挖掘 35 轮 B2+B4）：禁用形 tick 定时器不摆——忙态零 80ms 自
+    // 重排（态变/供数变才触重绘，慢 SSH/前庭静止回退）
+    if (this.scheduleFn !== null && this.animationsEnabled) this.armTick();
   }
 
   /** 对称出屏：模式串反序 + 输入卸订 + 定时器全收 + 外显复原 + raw 复原（终退不可复用） */
@@ -1485,7 +1502,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.suspendedTransients = [];
     this.replayTransients(transients);
     this.renderFixed();
-    if (this.scheduleFn !== null) this.armTick(); // 任务行转轮复摆
+    if (this.scheduleFn !== null && this.animationsEnabled) this.armTick(); // 任务行转轮复摆（动效门——挖掘 35 轮 B2+B4 禁用形不摆）
   }
 
   /**
@@ -2666,6 +2683,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 状态行专注 footer 常驻段 + 闲态尾注，忙态不再驱动故不推帧。
    */
   tick(): void {
+    if (!this.animationsEnabled) return; // 禁用形零推帧零重绘（挖掘 35 轮 B2+B4）
     if (!this.taskLine.isBusy) return;
     this.taskLine.tick();
     this.touchFixed();

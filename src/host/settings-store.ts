@@ -6,7 +6,7 @@
  * 工具参数 > 会话策略 > CLI 旗标（逐次） > **本文件（持久缺省）** > 代码常量。
  * 持久位不覆盖逐次显式位（装配根做 gaps 填充，run-entry 只传显式胜者）。
  *
- * 键面（四键）：`sandboxMode?` / `approvalPolicy?`——预设展开的持久
+ * 键面（六键）：`sandboxMode?` / `approvalPolicy?`——预设展开的持久
  * 缺省位；**非敏感件**（两旋钮无秘密，不入 SENSITIVE_READ_DATA_PATHS——
  * 模型可读面不设防，恰四件敏感清单测试锁不动；2026-09-14 五役 CL-1 集员
  * 扩容 + 数组名自 BASENAMES 勘正后注笔随勘）。
@@ -27,6 +27,12 @@
  * 此表、走凭证表绑定行单源；headers 不得含鉴权材料——定性条款归规范面）；
  * 条目级坏形 = 丢该条点名不殃及全键（keybindings 先例同形——04 §9 定形块⑥ 键面条款定形）；
  * id 保留字执法（撞 pi-ai 内置目录 id 拒注）在装配注册腿，本面零 pi-ai 知识。
+ *
+ * 第六键 `animations?`（2026-10-14 挖掘 35 轮 B2+B4——04 §9 ⑥ 键面扩容
+ * 5→6）：TUI 动效总门（boolean、缺省 true）。本面只存取与形校验（非
+ * boolean 忽略点名——keybindings 律同形）；禁用形语义与逐次覆盖位 env
+ * `BERRY_AGENT_TUI_ANIMATIONS` 的分层真源 = 07 §4.1 呈现面动效门控批注，
+ * 消费位 = tui-entry 装配（零行为耦合，与 theme 键同姿）。非敏感件。
  *
  * 读写纪律（与 tool-policy-store 同族——「文件即用户资产」律）：
  * - 读侧缺席 = {}（零负担首启）；文件级坏 JSON = warn 降级 {}（配置层坏形
@@ -56,7 +62,7 @@ import type { ApprovalPolicyMode, SandboxMode } from '../safety/index.js';
 /** 配置文件名（数据目录单段——04 §9 ⑥「本批定名」） */
 export const SETTINGS_BASENAME = 'settings.json';
 
-/** 配置面形状（五键均可选——缺席走代码常量层） */
+/** 配置面形状（六键均可选——缺席走代码常量层） */
 export interface HostSettings {
   readonly sandboxMode?: SandboxMode;
   readonly approvalPolicy?: ApprovalPolicyMode;
@@ -76,6 +82,12 @@ export interface HostSettings {
    * 依赖——类型从 llm 公开面 import type）。
    */
   readonly customProviders?: Readonly<Record<string, CustomProviderDef>>;
+  /**
+   * TUI 动效总门（挖掘 35 轮 B2+B4——缺省 true；false = 禁用形，语义真源
+   * 07 §4.1 呈现面动效门控批注）。本面只做形校验（boolean——坏值忽略点名），
+   * env 逐次覆盖位分层在装配腿（tui-entry）。
+   */
+  readonly animations?: boolean;
 }
 
 /** 读侧选项 */
@@ -240,10 +252,10 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     warn(`配置坏形（${path}，顶层须为对象）——视同缺席；手改修复前回写拒`);
     return { settings: {}, healthy: false };
   }
-  // 键级校验：四键值域/形校验外忽略点名；未知键 warn 保留不动（读侧不区分
-  // 「保留在内存」与否——本面只产四键，未知键经写侧合并律存活）
+  // 键级校验：六键值域/形校验外忽略点名；未知键 warn 保留不动（读侧不区分
+  // 「保留在内存」与否——本面只产六键，未知键经写侧合并律存活）
   const record = doc as Record<string, unknown>;
-  const { sandboxMode, approvalPolicy, theme, keybindings, customProviders, ...rest } = record;
+  const { sandboxMode, approvalPolicy, theme, keybindings, customProviders, animations, ...rest } = record;
   const unknownKeys = Object.keys(rest);
   if (unknownKeys.length > 0) {
     warn(`配置含未知键 ${unknownKeys.join('、')}（${path}）——本面不消费、保留不动`);
@@ -254,6 +266,7 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     theme?: ThemeSetting;
     keybindings?: Readonly<Record<string, string>>;
     customProviders?: Readonly<Record<string, CustomProviderDef>>;
+    animations?: boolean;
   } = {};
   if (sandboxMode !== undefined) {
     if (typeof sandboxMode === 'string' && SANDBOX_MODES.includes(sandboxMode)) {
@@ -319,6 +332,14 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
       warn('配置键 customProviders 须为对象（渠道 id → 渠道定义）——忽略该键');
     }
   }
+  // animations 形校验（挖掘 35 轮 B2+B4——boolean 单形，坏值忽略点名）
+  if (animations !== undefined) {
+    if (typeof animations === 'boolean') {
+      settings.animations = animations;
+    } else {
+      warn('配置键 animations 须为 boolean（true|false）——忽略该键');
+    }
+  }
   return { settings, healthy: true };
 }
 
@@ -373,7 +394,7 @@ export function writeHostSettings(
   const load = readHostSettings(dataDir, options);
   if (!load.healthy) return 'rejected';
   // 合并基 = 原文件解析出的全键形（含未知键——保留律）。重读一次拿未剥离
-  // 的原始对象（readHostSettings 产物只含四键，未知键需原始面承载）
+  // 的原始对象（readHostSettings 产物只含六键，未知键需原始面承载）
   const path = join(dataDir, SETTINGS_BASENAME);
   let base: Record<string, unknown> = {};
   if (existsSync(path)) {
@@ -386,6 +407,7 @@ export function writeHostSettings(
   if (patch.theme !== undefined) next.theme = patch.theme;
   if (patch.keybindings !== undefined) next.keybindings = patch.keybindings;
   if (patch.customProviders !== undefined) next.customProviders = patch.customProviders;
+  if (patch.animations !== undefined) next.animations = patch.animations;
   mkdirSync(dataDir, { recursive: true });
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');

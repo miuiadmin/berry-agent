@@ -373,6 +373,18 @@ describe('TuiBackend 状态面', () => {
     backend.tick();
     expect(io.bytes).toContain('⠙'); // 第二帧
   });
+
+  it('动效门禁用形装配（挖掘 35 轮 B2+B4）：animations=false → 忙态渲染 • 静态符 + tick 零写出', () => {
+    // TuiBackendOptions.animations 单值下装链（tui-entry 装配铸真源——本测
+    // 锁 backend 消费位：taskLine 禁用形 + tick 早退）
+    const { io, backend } = makeBackend({ animations: false });
+    emit(backend, { type: 'agent_start' }); // 态变触固定区重画（禁用形仍达——态变/供数变才重绘律）
+    expect(io.bytes).toContain('•'); // 静态符（非 braille 帧）
+    expect(io.bytes).not.toContain('⠋');
+    io.bytes = '';
+    backend.tick();
+    expect(io.bytes).toBe(''); // 禁用形 tick 零重绘（80ms 自重排停摆）
+  });
 });
 
 describe('TuiBackend notify / repaint / resize', () => {

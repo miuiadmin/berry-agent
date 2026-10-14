@@ -70,6 +70,9 @@ export class TaskStatusLine implements Renderable {
   private errorStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.error });
   /** dim 样式（态③ 文案与括号段——注⑩：engine 正典单源） */
   private readonly dimStyle: Readonly<CellStyle> = DIM_STYLE;
+  /** 动效门（挖掘 35 轮 B2+B4——false = 禁用形：转轮退 • dim 静态符 + tick
+   * 零推帧零通知〔07 §4.1 呈现面动效门控〕；backend 装配单源注入，缺省 true） */
+  private animationsEnabled = true;
   private readonly providers: TaskStatusProviders;
 
   constructor(providers: TaskStatusProviders) {
@@ -80,6 +83,12 @@ export class TaskStatusLine implements Renderable {
   setTheme(theme: ResolvedTheme): void {
     this.spinnerStyle = Object.freeze({ fg: theme.accent });
     this.errorStyle = Object.freeze({ fg: theme.error });
+  }
+
+  /** 动效门控（挖掘 35 轮 B2+B4——backend 构造后早于首 render 注入；真源 =
+   * settings.json animations 键 + env BERRY_AGENT_TUI_ANIMATIONS 逐次覆盖） */
+  setAnimations(enabled: boolean): void {
+    this.animationsEnabled = enabled;
   }
 
   /** 量高：闲态零高度缺席、其余恒 1 行 */
@@ -172,8 +181,10 @@ export class TaskStatusLine implements Renderable {
     this.onChange?.();
   }
 
-  /** 推帧（装配层定时驱动——仅忙态有意义；闲态/终态零变化零通知） */
+  /** 推帧（装配层定时驱动——仅忙态有意义；闲态/终态零变化零通知；禁用形
+   * 零推帧零通知——静止回退，态变/供数变才触重绘〔挖掘 35 轮 B2+B4〕） */
   tick(): void {
+    if (!this.animationsEnabled) return;
     if (!this.isBusy) return;
     this.frameIndex++;
     this.onChange?.();
@@ -191,7 +202,14 @@ export class TaskStatusLine implements Renderable {
       buffer.writeText(region.row, region.col, ellipsize(text, region.width), this.errorStyle);
       return;
     }
-    const frame = SPINNER_FRAMES[this.frameIndex % SPINNER_FRAMES.length]!;
+    // 动效门（挖掘 35 轮 B2+B4）：启用形 = braille 转轮帧 accent；禁用形退
+    // • dim 静态符——前庭敏感/慢 SSH 的静止回退（07 §4.1 呈现面动效门控）
+    if (this.animationsEnabled) {
+      const frame = SPINNER_FRAMES[this.frameIndex % SPINNER_FRAMES.length]!;
+      buffer.writeText(region.row, region.col, frame, this.spinnerStyle);
+    } else {
+      buffer.writeText(region.row, region.col, '•', this.dimStyle);
+    }
     const text = this.statusText();
     const paren = this.parenText();
     // 宽度分配：转轮 1 列 + 间隔 1 列 + 文案段弹性（超宽截断加省略号）+ 括号
@@ -200,7 +218,6 @@ export class TaskStatusLine implements Renderable {
     const useParen = parenWidth > 0 && parenWidth + 2 <= region.width;
     const textBudget = Math.max(0, region.width - 2 - (useParen ? parenWidth : 0));
     const fitted = ellipsize(text, textBudget);
-    buffer.writeText(region.row, region.col, frame, this.spinnerStyle);
     if (fitted !== '') {
       // 态③ 整段 dim（转轮不停——仅文案降存在感，不闪「✗ 失败」）
       buffer.writeText(region.row, region.col + 2, fitted, this.state === 'retrying' ? this.dimStyle : undefined);

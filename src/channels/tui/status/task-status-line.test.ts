@@ -273,4 +273,32 @@ describe('TaskStatusLine', () => {
     const grid = renderLine(line);
     expect(readRow(grid, 0, 40)).toBe('⠋ 正在对话中');
   });
+
+  it('动效门禁用形（挖掘 35 轮 B2+B4）：转轮退 • dim 静态符 + tick 零推帧零通知（静止回退）', () => {
+    const p = makeProviders();
+    const line = new TaskStatusLine(p);
+    line.enterWorking();
+    p.setElapsed(62_000);
+    line.setAnimations(false);
+    const grid = renderLine(line);
+    // 行首 • 静态符（非 braille 帧）+ dim 样式（accent 退役）；文案照常在场
+    expect(readRow(grid, 0, 60)).toBe('• 正在对话中 (1m 02s)');
+    expect(grid.getCell(0, 0)?.style.dim).toBe(true);
+    expect(grid.getCell(0, 0)?.style.fg).toBeUndefined();
+    // tick 零推帧零通知（禁用形忙态不自重排——态变/供数变才触重绘）
+    let changes = 0;
+    line.onChange = () => {
+      changes += 1;
+    };
+    const frameBefore = line.frame;
+    line.tick();
+    expect(changes).toBe(0);
+    expect(line.frame).toBe(frameBefore);
+    // 恢复启用形：tick 推帧 + 通知回归（门可逆——运行期换装同源）
+    line.setAnimations(true);
+    line.tick();
+    expect(changes).toBe(1);
+    const grid2 = renderLine(line);
+    expect(readRow(grid2, 0, 40)).toBe('⠙ 正在对话中 (1m 02s)'); // elapsed 供数仍在（62s）
+  });
 });

@@ -36,6 +36,19 @@ describe('readHostSettings（读侧——缺席零负担 + 坏形降级）', () 
     expect(load.settings).toEqual({});
     expect(load.healthy).toBe(true);
   });
+  it('第六键 animations（挖掘 35 轮 B2+B4）：好值 true/false 读入 + 非 boolean 忽略点名 + 缺席 undefined', () => {
+    const dir = tmpDir('settings-anim-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ animations: false, sandboxMode: 'read-only' }));
+    const load = readHostSettings(dir);
+    expect(load.settings.animations).toBe(false); // false 照常读入（非 falsy 误判）
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ animations: 'off' }));
+    const { warnings, warn } = captureWarn();
+    const bad = readHostSettings(dir, { warn });
+    expect(bad.settings.animations).toBeUndefined(); // 坏值忽略
+    expect(warnings.some((w) => w.includes('animations') && w.includes('boolean'))).toBe(true); // 点名
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark' }));
+    expect(readHostSettings(dir).settings.animations).toBeUndefined(); // 缺席 undefined
+  });
   it('好形两键读入', () => {
     const dir = tmpDir('settings-good-');
     writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ sandboxMode: 'read-only', approvalPolicy: 'ask' }));
@@ -162,6 +175,17 @@ describe('writeHostSettings（写侧——合并保留 + 原子 + 坏形拒）',
     writeHostSettings(dir, { sandboxMode: 'read-only' });
     const doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
     expect(doc).toEqual({ approvalPolicy: 'never', sandboxMode: 'read-only' });
+  });
+  it('animations 写侧合并（挖掘 35 轮 B2+B4）：patch 落盘 + 缺席键不动现状', () => {
+    const dir = tmpDir('settings-anim-write-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark' }));
+    expect(writeHostSettings(dir, { animations: false })).toBe('written');
+    let doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({ theme: 'dark', animations: false });
+    // 他键写不动 animations（缺席键不动现状律）
+    writeHostSettings(dir, { sandboxMode: 'read-only' });
+    doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({ theme: 'dark', animations: false, sandboxMode: 'read-only' });
   });
   it('文件缺席直接造（首启落盘）', () => {
     const dir = tmpDir('settings-create-');
