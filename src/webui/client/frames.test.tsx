@@ -22,6 +22,7 @@ import {
   appliedDecide,
   applyAsked,
   applyEnvelope,
+  ASK_DECISION_ROLE,
   dismissNotice,
   droppedMessage,
   echoKeyOf,
@@ -538,6 +539,80 @@ describe('frames 审批与通知', () => {
     // id 不在场幂等无操作（重复关闭/陈旧 id 不炸）
     state = dismissNotice(state, firstId);
     expect(state.notices).toHaveLength(1);
+  });
+});
+
+describe('frames 问答收场瞬时行（挖掘 37 轮件 4——ask/settled display 单播帧）', () => {
+  /** ask/settled 帧速造 */
+  function askSettled(payload: {
+    readonly outcome: 'answered' | 'cancelled';
+    readonly question: string;
+    readonly answer?: string;
+  }): ClientEnvelope {
+    return display({ type: 'ask/settled', sessionId: 's-1', kind: 'input', ...payload });
+  }
+
+  it('answered 全形：「↳ 已回复 · 问题 · 答案」三段；cancelled：「↳ 已取消 · 问题」两段', () => {
+    // 同词锁（词面副本形·词面独立律）：头词『↳ 已回复 / ↳ 已取消』与 TUI
+    // askDecisionLine（channels/tui/backend/transcript.ts——对侧同词测试锁）
+    // 逐字一致——两端各自锁字面，任一侧改词即各自红（副本漂移双红防线）。
+    // 分隔符 ' · ' 与段序（头词→问题→答案）同法对拍。
+    const answered = applyEnvelope(
+      initialAppState,
+      askSettled({ outcome: 'answered', question: '部署到哪个环境？', answer: '[REDACTED:sensitive-input]' }),
+    );
+    expect(answered.messages).toHaveLength(1);
+    expect(answered.messages[0]).toMatchObject({
+      role: ASK_DECISION_ROLE,
+      text: '↳ 已回复 · 部署到哪个环境？ · [REDACTED:sensitive-input]',
+      streaming: false,
+    });
+    const cancelled = applyEnvelope(initialAppState, askSettled({ outcome: 'cancelled', question: '继续吗？' }));
+    expect(cancelled.messages[0]?.text).toBe('↳ 已取消 · 继续吗？');
+    // cancelled 形 answer 在场不消费（答案段只属 answered——服务端 answered 位
+    // 才铸 answer 键，此为防御位对拍）
+    const cancelledWithAnswer = applyEnvelope(
+      initialAppState,
+      askSettled({ outcome: 'cancelled', question: 'Q', answer: '迟到答案' }),
+    );
+    expect(cancelledWithAnswer.messages[0]?.text).toBe('↳ 已取消 · Q');
+  });
+
+  it('空段折叠：全空裸头词单腿形；仅答案空两段形（无悬空分隔符）', () => {
+    // 空段折叠法（TUI askDecisionLine 同法对拍）：问题/答案空串段不拼——
+    // 悬空 ' · ' 分隔符不出现在任何形
+    const bare = applyEnvelope(initialAppState, askSettled({ outcome: 'answered', question: '', answer: '' }));
+    expect(bare.messages[0]?.text).toBe('↳ 已回复');
+    const qOnly = applyEnvelope(
+      initialAppState,
+      askSettled({ outcome: 'answered', question: '只问没答形', answer: '' }),
+    );
+    expect(qOnly.messages[0]?.text).toBe('↳ 已回复 · 只问没答形');
+    const cancelledBare = applyEnvelope(initialAppState, askSettled({ outcome: 'cancelled', question: '' }));
+    expect(cancelledBare.messages[0]?.text).toBe('↳ 已取消');
+  });
+
+  it('一行化折叠：多行问题/答案折空换行（瞬时行单行形——段内 \\n 不入行）', () => {
+    const state = applyEnvelope(
+      initialAppState,
+      askSettled({ outcome: 'answered', question: '第一行\n第二行', answer: '答一\n答二' }),
+    );
+    expect(state.messages[0]?.text).toBe('↳ 已回复 · 第一行第二行 · 答一答二');
+  });
+
+  it('live-only：投影重拉让位（run_close 同行——瞬时位不进对账、重建诚实消失）', () => {
+    let state = applyEnvelope(initialAppState, askSettled({ outcome: 'answered', question: 'Q', answer: 'A' }));
+    expect(state.messages).toHaveLength(1);
+    // 投影重拉（空快照）：瞬时行让位清空（不进 kept——重拉即清既有律）
+    state = loadedMessages(state, []);
+    expect(state.messages).toHaveLength(0);
+  });
+
+  it('session 族同名帧不消费（分档半边：ask/settled 只走 display 族）', () => {
+    // 服务端只经 display 族单播；session 族到达同名型 = 坏形/未来演进——
+    // 静默忽略（前向兼容律同未知帧）
+    const state = applyEnvelope(initialAppState, session({ type: 'ask/settled', outcome: 'answered', question: 'Q' }));
+    expect(state.messages).toHaveLength(0);
   });
 });
 

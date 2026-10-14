@@ -189,9 +189,15 @@ function queryOf(req: IncomingMessage): URLSearchParams {
   return new URL(req.url ?? '/', 'http://webui.internal').searchParams;
 }
 
-/** 判信封是否纯活体可丢（背压 shedding 面——display 族的 update 两型；session
- *  镜像/notify/status 不弃） */
-function isDroppableEnvelope(env: WebuiEnvelope): boolean {
+/**
+ * 判信封是否纯活体可丢（背压 shedding 面——display 族的 update 两型；session
+ * 镜像/notify/status 不弃）。挖掘 37 轮件 4 扩注：ask/settled 收场帧**不弃**
+ * （决策通知非可再生物质——丢即永失，与 update 帧的「新帧自覆盖旧帧」可再
+ * 生性分立）。导出 = 判据面锁消费位（server.test 谓词锁——真背压在回环上
+ * 不可确定性实测〔routes.test 覆盖界注记先例〕，谓词单源在此执法；wiring
+ * 遗漏方向是 fail-safe〔droppable 不注入 = 永不丢〕——ASM-1 族边界如实注记）。
+ */
+export function isDroppableEnvelope(env: WebuiEnvelope): boolean {
   return (
     env.kind === 'display' && (env.payload.type === 'message_update' || env.payload.type === 'tool_execution_update')
   );
@@ -465,6 +471,23 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
   const add = (descriptor: WebuiRouteDescriptor): void => {
     detachers.push(deps.register({ loopbackOnly: true, ...descriptor }));
   };
+
+  /* ---- 问答收场订阅腿（挖掘 37 轮件 4——ask/settled 总线单播） ---- */
+  // seam 缺席 = 零订阅零帧（旧装配兼容）；display 族承载——背压 shedding
+  // 不辖（isDroppableEnvelope 只认 update 两型——决策通知非可再生物质）；
+  // payload = 通知整体外挂 type/sessionId 铸帧（answer 已经 answerOf 掩码
+  // 单源〔件 3〕——明文不达流）。退订闭包进 detachers（detach 全量收口）。
+  if (deps.askSettled !== undefined) {
+    detachers.push(
+      deps.askSettled((notice) => {
+        pushToSession(notice.sessionId, {
+          kind: 'display',
+          sessionId: notice.sessionId,
+          payload: { type: 'ask/settled', ...notice },
+        });
+      }),
+    );
+  }
 
   // —— 探活（open/liveness——只回 ok 零敏感面）——
   add({

@@ -332,6 +332,42 @@ describe('WebUiRoot主面活体环', () => {
     await screen.findByText(/^⏹ 对话已取消——\d{2}:\d{2}$/);
   });
 
+  it('问答收场瞬时行呈现（挖掘 37 轮件 4）：EventSource 收 ask/settled → 居中弱化行（run_close 同族位锚）', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    const es = FakeEventSource.instances[0]!;
+    // answered 形整行呈现（answer = answerOf 产出口掩码形——件 3 单源，SPA
+    // 零二次加工；掩码词面随行锁——明文不达 DOM）
+    es.emit({
+      kind: 'display',
+      sessionId: 's-1',
+      payload: {
+        type: 'ask/settled',
+        sessionId: 's-1',
+        kind: 'input',
+        question: '部署密钥？',
+        outcome: 'answered',
+        answer: '[REDACTED:sensitive-input]',
+      },
+    });
+    const line = await screen.findByText('↳ 已回复 · 部署密钥？ · [REDACTED:sensitive-input]');
+    // run_close 同族位锚：居中弱化 <p>（非消息块——无角色标签）
+    expect(line.tagName).toBe('P');
+    expect(line.className).toContain('text-center');
+    expect(line.className).toContain('text-ink-faint');
+    // cancelled 形两段行随帧到达（多笔依次尾追）
+    es.emit({
+      kind: 'display',
+      sessionId: 's-1',
+      payload: { type: 'ask/settled', sessionId: 's-1', kind: 'confirm', question: '继续吗？', outcome: 'cancelled' },
+    });
+    await screen.findByText('↳ 已取消 · 继续吗？');
+  });
+
   it('通知浮条可关闭（× 键 → 按 id 出清——界面美化役批⑨）', async () => {
     primeMain();
     render(<WebUiRoot />);

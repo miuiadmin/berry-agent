@@ -50,7 +50,8 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { FileMentionSource } from '../channels/index.js';
+import { ASK_SETTLED_EVENT, FileMentionSource } from '../channels/index.js';
+import type { AskSettledNotice } from '../channels/index.js';
 import { BaseError, type SessionEvent } from '../contracts/index.js';
 import type { TextContent, UserMessage } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
@@ -561,6 +562,18 @@ function bridgeDeps(
       const tail = log.events().length - 1;
       return tail >= 0 ? tail : undefined;
     },
+    // 问答收场订阅 seam（挖掘 37 轮件 4——ask/settled 总线→SSE 单播的桥
+    // 真身）：词注册在 conversation-stack 幂等单点（isRegistered 恒真——
+    // 防御位同 job_settled/tui-entry 腿同律）；TUI 腿聚焦过滤（非聚焦会话
+    // 零本屏呈现），webui 腿按 sessionId 定向单播（每会话各自的 SSE 流——
+    // 无聚焦概念，全量订阅按位分拣）。退订闭包 = seam 返回值（server 侧
+    // 进 mount detachers，随 webui.detach 收口——桥与通道同寿命）。
+    askSettled: (listener) =>
+      stack.dispatch.isRegistered(ASK_SETTLED_EVENT)
+        ? stack.dispatch.on(ASK_SETTLED_EVENT, (data) => {
+            listener(data as AskSettledNotice & { sessionId: string });
+          })
+        : () => {},
     // 会话档位面（2026-09-18 webui 档位面受理批——/thinking //sandbox webui
     // 受路）：WebuiSessionTierFace 桥真身（词面独立律的装配侧兑现）。写入
     // 单源 = conversation 件档位切换面 append（setSessionThinkingLevel /

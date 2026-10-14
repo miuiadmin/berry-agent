@@ -24,7 +24,8 @@
  *   剪贴板附件批 03 §10.4 ①④⑥）
  * ④体限幅 413 且应答不早于收完（排空后应答——拿到应答即证无 RST 连坐）
  * ⑤SSE 信封分档（display 活体 / session 终结镜像 / asked 镜像）与按会话
- * 路由（status 定向 / notify 广播）
+ * 路由（status 定向 / notify 广播；ask/settled 收场单播 + 背压判据闭集
+ * ——挖掘 37 轮件 4）
  * ⑥跨入口审批全环（ask → approvals 清单 → decide applied → 再 decide
  * superseded → 清单出清；abort 撤销清槽；未知 id superseded）
  * ⑦连接帽 503 / 静态面（index/内容型/SPA fallback/穿越拒/未装配 404）
@@ -43,9 +44,10 @@ import type { SdkHttpBridge } from '../sdk/types.js';
 import { BaseError } from '../contracts/index.js';
 import type { AgentMessage, UiSessionDeleteResult } from '../contracts/index.js';
 import type { SessionEnvelope } from '../channels/index.js';
+import type { AskSettledNotice } from '../channels/index.js';
 // 对拍锁消费（挖掘 20 轮件3）：channels 公开面（sdk index `export *` 通）
 import { PromptImageSchema } from '../channels/index.js';
-import { SubmitImageSchema } from './server.js';
+import { SubmitImageSchema, isDroppableEnvelope } from './server.js';
 import type {
   WebuiDeps,
   WebuiEnvelope,
@@ -72,6 +74,10 @@ interface DepsStub {
   readonly setLevels: Array<{ readonly sessionId: string; readonly level: string }>;
   /** 档位面 PUT 受理记账（sandbox 侧） */
   readonly setModes: Array<{ readonly sessionId: string; readonly mode: string }>;
+  /** 问答收场订阅账（挖掘 37 轮件 4——listener 捕获位 + 退订记账） */
+  readonly askListeners: Array<(notice: AskSettledNotice) => void>;
+  /** 测试驱动位：向已捕获 listener 广播一笔试场通知 */
+  emitAskSettled(notice: AskSettledNotice): void;
   setSession(sessionId: string, state: WebuiSessionState): void;
 }
 
@@ -106,6 +112,9 @@ function makeDeps(opts?: {
   readonly intakeReject?: string;
   /** 信封腿取值 seam 注入（卡② 腿②——缺席 = 降级形：message_end 帧不挂 seq） */
   readonly tailSeqOf?: (sessionId: string) => number | undefined;
+  /** 问答收场订阅 seam 注入（挖掘 37 轮件 4——在场 = mount 期订阅腿接管，
+   *  桩捕获 listener 供测试驱动 emit；缺席 = 旧装配形键不注零订阅） */
+  readonly withAskSettled?: boolean;
 }): DepsStub {
   const states = new Map<string, WebuiSessionState>([
     ['s-1', 'open'],
@@ -162,6 +171,8 @@ function makeDeps(opts?: {
   const deleted: string[] = [];
   const setLevels: Array<{ readonly sessionId: string; readonly level: string }> = [];
   const setModes: Array<{ readonly sessionId: string; readonly mode: string }> = [];
+  // 问答收场 listener 账（挖掘 37 轮件 4——seam 桩捕获位）
+  const askListeners: Array<(notice: AskSettledNotice) => void> = [];
   let seq = 0;
   // 档位面桩（host 装配桥真身最小同构——2026-09-18 webui 档位面受理批）：
   // 词表 = 七档/三档词汇（词法面与 conversation/safety 单源同形）；detail 行
@@ -316,6 +327,18 @@ function makeDeps(opts?: {
     ...(opts?.withoutTiers === true ? {} : { tiers }),
     // 信封腿取值 seam 注入（卡② 腿②——缺席 = 键不注入：降级形用例默认面）
     ...(opts?.tailSeqOf !== undefined ? { tailSeqOf: opts.tailSeqOf } : {}),
+    // 问答收场订阅 seam 注入（挖掘 37 轮件 4——缺席 = 键不注入：旧装配形）
+    ...(opts?.withAskSettled === true
+      ? {
+          askSettled: (listener: (notice: AskSettledNotice) => void): (() => void) => {
+            askListeners.push(listener);
+            return () => {
+              const at = askListeners.indexOf(listener);
+              if (at !== -1) askListeners.splice(at, 1);
+            };
+          },
+        }
+      : {}),
   };
   return {
     deps,
@@ -325,6 +348,10 @@ function makeDeps(opts?: {
     deleted,
     setLevels,
     setModes,
+    askListeners,
+    emitAskSettled: (notice) => {
+      for (const listener of [...askListeners]) listener(notice);
+    },
     setSession: (id, state) => {
       if (state === 'missing') states.delete(id);
       else states.set(id, state);
@@ -1445,6 +1472,89 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     } finally {
       reader.abort();
     }
+  });
+
+  it('问答收场单播（挖掘 37 轮件 4）：seam 订阅在场 → emit ask/settled → 目标会话 display 族帧、他会话零帧', async () => {
+    // 修前红形：WebuiDeps.askSettled 键不存在（typecheck 编译红）；esbuild 路径
+    // 下键被静默忽略 → 订阅腿零捕获 → emitAskSettled 空播 → reader 静默超时红。
+    // 真路径锁（ASM-1 族）：seam → mount 期订阅腿 → pushToSession → SSE 帧
+    // 全链——非谓词直锁。answer 在场即已掩码形（件 3 answerOf 产出口单源，
+    // 服务端透传不再加工）。
+    await boot({ stubOpts: { withAskSettled: true } });
+    const reader = await openSse(port, 's-1', token);
+    const otherReader = await openSse(port, 's-closed', token);
+    try {
+      stub.emitAskSettled({
+        sessionId: 's-1',
+        kind: 'input',
+        question: '部署密钥？',
+        outcome: 'answered',
+        answer: '[REDACTED:sensitive-input]',
+      });
+      const frame = await reader.next();
+      // 整形锁：display 族 + payload = 通知整体外挂 type 铸帧（字段逐位）
+      expect(frame).toEqual({
+        kind: 'display',
+        sessionId: 's-1',
+        payload: {
+          type: 'ask/settled',
+          sessionId: 's-1',
+          kind: 'input',
+          question: '部署密钥？',
+          outcome: 'answered',
+          answer: '[REDACTED:sensitive-input]',
+        },
+      });
+      // 单播分账：他会话流零帧（足额 2s 静默窗）
+      await expectSilence(otherReader);
+      await expectSilence(reader);
+    } finally {
+      reader.abort();
+      otherReader.abort();
+    }
+  });
+
+  it('ask/settled 帧背压不可丢（件 4）：isDroppableEnvelope 判据闭集——update 两型可丢、收场帧不弃', () => {
+    // 判据面锁（真路径不可确定性实测——回环真写不背压，routes.test 覆盖界
+    // 注记先例）：可丢闭集恰 update 两型；ask/settled display 帧不弃（决策
+    // 通知非可再生物——丢即永失）；session 镜像/notify/status 族不弃恒律。
+    // wiring 遗漏方向 fail-safe（droppable 不注入 = 永不丢）——ASM-1 族边界
+    // 如实注记：本锁辖判据面，L764 注入位由单播例同链覆盖。
+    const askFrame: WebuiEnvelope = {
+      kind: 'display',
+      sessionId: 's-1',
+      payload: { type: 'ask/settled', sessionId: 's-1', kind: 'input', question: 'Q', outcome: 'cancelled' },
+    };
+    expect(isDroppableEnvelope(askFrame)).toBe(false); // 收场帧不弃——本件核心断言
+    expect(
+      isDroppableEnvelope({
+        kind: 'display',
+        sessionId: 's-1',
+        payload: {
+          type: 'message_update',
+          role: 'assistant',
+          partial: { role: 'assistant', content: 'x', timestamp: 1 },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isDroppableEnvelope({
+        kind: 'display',
+        sessionId: 's-1',
+        payload: { type: 'tool_execution_update', toolCallId: 't', update: {} },
+      }),
+    ).toBe(true);
+    expect(
+      isDroppableEnvelope({ kind: 'display', sessionId: 's-1', payload: { type: 'message_start', role: 'a' } }),
+    ).toBe(false);
+    expect(
+      isDroppableEnvelope({
+        kind: 'session',
+        sessionId: 's-1',
+        payload: { type: 'message_end', message: { role: 'user', content: 'x', timestamp: 1 } },
+      }),
+    ).toBe(false);
+    expect(isDroppableEnvelope({ kind: 'notify', payload: { message: 'm' } })).toBe(false);
   });
 
   it('断线重连一致性（D2①）：close 销账 hasAudience 翻 false → 断线窗事件零滞留 → 新流只收后续帧（live-only）', async () => {

@@ -138,6 +138,37 @@ export interface ViewNotice {
  */
 export const RUN_CLOSE_ROLE = 'run_close';
 
+/**
+ * 问答收场瞬时行角色名（挖掘 37 轮件 4——ask/settled 帧的视图模型）：run_close
+ * 同族瞬时追加位（非对话角色，投影真源永不含此角色——live-only：投影重建/
+ * 重拉即清，重启诚实消失；TUI ask-decision 块同律）。Transcript 据此分派
+ * 居中弱化呈现形；loadedMessages 对账按瞬时位让位（run_close 同行）。
+ */
+export const ASK_DECISION_ROLE = 'ask_decision';
+
+/**
+ * 问答收场行文案（挖掘 37 轮件 4——词面副本形·词面独立律）：头词两态
+ * 「↳ 已回复 / ↳ 已取消」+ ` · ` 段拼问题、answered 另拼答案——空段折叠法
+ * （问题/答案空串段不拼、全空 = 裸头词单腿形）。与 TUI askDecisionLine
+ * （channels/tui/backend/transcript.ts——↳ 头词+空段折叠+' · ' 分隔同法）
+ * 对侧副本：webui React 文本节点天然转义无 OSC 消毒面，只保一行化折叠；
+ * 两端词面一致由同词测试锁点名互证（frames.test 对拍注释锚）。
+ */
+function askDecisionTextOf(notice: {
+  readonly outcome: 'answered' | 'cancelled';
+  readonly question: string;
+  readonly answer?: string;
+}): string {
+  const head = notice.outcome === 'answered' ? '↳ 已回复' : '↳ 已取消';
+  const oneLine = (text: string) => text.replace(/\s*[\n\r]+\s*/g, ''); // 一行化（问题/答案是自由输入——瞬时行单行形）
+  const question = oneLine(notice.question);
+  const answer = notice.outcome === 'answered' && notice.answer !== undefined ? oneLine(notice.answer) : undefined;
+  let plain = head;
+  if (question !== '') plain += ` · ${question}`;
+  if (answer !== undefined && answer !== '') plain += ` · ${answer}`;
+  return plain;
+}
+
 /** todo 条目视图（goal 计划态呈现投影——形状透传 ClientTodoItem） */
 export interface ViewTodo {
   readonly status: string;
@@ -803,6 +834,22 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
             : {}),
         };
       }
+      // 问答收场瞬时行（挖掘 37 轮件 4——ask/settled display 族单播帧）：
+      // askDecisionTextOf 组形（头词两态+空段折叠）瞬时追加（不落投影——
+      // 重拉/回放不可见，run_close 同承载）；同会话多笔依次尾追（无去重——
+      // 每笔收场各自成行）
+      if (payload.type === 'ask/settled') {
+        if (env.kind !== 'display') return state;
+        const { key, seq } = messageKey(state, undefined);
+        return {
+          ...state,
+          seq,
+          messages: [
+            ...state.messages,
+            { key, role: ASK_DECISION_ROLE, text: askDecisionTextOf(payload), streaming: false },
+          ],
+        };
+      }
       // turn_* 不进正文视图（v1 呈现最小面）
       return state;
     }
@@ -1087,10 +1134,11 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
   }
   // 交错窗对账（E4）：活体已落稿且快照未含的终结帧不抹——流式尾巴（投影
   // 接管——终稿后至自会再落）与 run 收尾行（瞬时追加位重拉即清，既有律）除外
+  //；问答收场瞬时行同律（挖掘 37 轮件 4——live-only，投影重建诚实消失）
   const kept: ViewMessage[] = [];
   const keptEchoKeys = new Set<string>();
   for (const m of state.messages) {
-    if (m.streaming || m.role === RUN_CLOSE_ROLE) continue;
+    if (m.streaming || m.role === RUN_CLOSE_ROLE || m.role === ASK_DECISION_ROLE) continue;
     // ---- seq 身份集主判（卡②③客户端对账腿——03 §10.4 L9 定谳③）----
     // live 行携 seq（message_end 落稿贴信封位 / 前轮投影行带 wire seq）→ 按
     // durable 身份对账，身份优先于文本：快照含该 seq → 让位（投影已含本体

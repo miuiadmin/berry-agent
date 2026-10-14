@@ -93,6 +93,25 @@ export type ClientDisplayEvent =
       /** 重试退避窗关（outcome 三值——resumed = 续入即新 agent_start，run 级账不清的判定位） */
       readonly type: 'retry_wait_end';
       readonly outcome: 'resumed' | 'aborted' | 'exhausted';
+    }
+  | {
+      /**
+       * 问答收场镜像（挖掘 37 轮件 4——ask/settled SSE 单播）：= 服务端
+       * WebuiAskSettledPayload 客户端视界（本件自持形状零 import——
+       * ClientTerminalEvent 复制形同律）。瞬时行呈现（Transcript 居中弱化
+       * 行——RUN_CLOSE_ROLE 同族位）；live-only：投影重建不带出（重启诚实
+       * 消失，TUI ask-decision 块同律）。answer 在场即已掩码形（answerOf
+       * 产出口单源——件 3），客户端零二次消毒。
+       */
+      readonly type: 'ask/settled';
+      readonly sessionId: string;
+      /** 原语词（approval 不产本通知） */
+      readonly kind: 'confirm' | 'select' | 'input';
+      /** 原问题文 */
+      readonly question: string;
+      readonly outcome: 'answered' | 'cancelled';
+      /** 答案呈现段（answered 在场——answered 位才拼行） */
+      readonly answer?: string;
     };
 
 /** session 族终结事件视界（落 durable 两型的客户端消费子集） */

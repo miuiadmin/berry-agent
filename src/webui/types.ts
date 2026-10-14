@@ -27,7 +27,7 @@ import type {
   ApprovalDecideAnswer,
   UiSessionDeleteResult,
 } from '../contracts/index.js';
-import type { NotifyLevel, SessionEnvelope, TodoItem, UiBackend } from '../channels/index.js';
+import type { AskSettledNotice, NotifyLevel, SessionEnvelope, TodoItem, UiBackend } from '../channels/index.js';
 
 /* ---------------- 常量（缺省值单源——03 §10.4 各条款钉死值） ---------------- */
 
@@ -122,9 +122,25 @@ export interface WebuiApprovalAskedPayload {
 }
 
 /**
+ * 问答收场镜像载荷（挖掘 37 轮件 4——ask/settled 总线的 SSE 单播形）：
+ * display 族（活体呈现——live-only 与 TUI ask-decision 块同律，投影重建
+ * 不带出）。extends AskSettledNotice（webui→channels 边在册——服务端合法
+ * import 位；answer 已经 UiCore answerOf 产出口掩码单源〔件 3〕——明文
+ * 不达 SSE 流）。客户端 protocol.ts 自持字段子集形状（client 树零服务端
+ * 导入律——两端结构视界各自声明）。
+ */
+export interface WebuiAskSettledPayload extends AskSettledNotice {
+  readonly type: 'ask/settled';
+  readonly sessionId: string;
+}
+
+/**
  * SSE 信封三族（03 §10.4）：`session`（durable 事件镜像）/ `display`（活体
  * 事件信封流）/ `notify`·`status`。分档判据：终结型（message_end/
- * tool_execution_end）与 asked 镜像 → session 族，其余活体 → display 族。
+ * tool_execution_end）与 asked 镜像 → session 族，其余活体 → display 族
+ * （ask/settled 收场镜像经 display 族按会话单播——挖掘 37 轮件 4：背压
+ * shedding 不辖〔isDroppableEnvelope 只认 update 两型〕——决策通知非可
+ * 再生物质）。
  */
 export type WebuiEnvelope =
   | {
@@ -141,7 +157,11 @@ export type WebuiEnvelope =
        */
       readonly seq?: number;
     }
-  | { readonly kind: 'display'; readonly sessionId: string; readonly payload: SessionEnvelope['event'] }
+  | {
+      readonly kind: 'display';
+      readonly sessionId: string;
+      readonly payload: SessionEnvelope['event'] | WebuiAskSettledPayload;
+    }
   | { readonly kind: 'notify'; readonly payload: { readonly message: string; readonly level?: NotifyLevel } }
   | { readonly kind: 'status'; readonly sessionId: string; readonly payload: { readonly status: string } };
 
@@ -341,6 +361,13 @@ export interface WebuiDeps {
    * webui 局部 seam 零 contracts 触碰（AgentEvent message_end 不加字段）。
    */
   readonly tailSeqOf?: (sessionId: string) => number | undefined;
+  /**
+   * 问答收场订阅 seam（挖掘 37 轮件 4——ask/settled 总线接线位）：在场 =
+   * mount 期订阅（dispatch 总线词，isRegistered 守卫由装配侧桥真身承担），
+   * 收场通知按会话单播 display 族帧；返回退订闭包进 mount detachers。
+   * 缺席 = 零订阅零帧（旧装配兼容——纯 API-only 形无收场行）。
+   */
+  readonly askSettled?: (listener: (notice: AskSettledNotice & { sessionId: string }) => void) => () => void;
   /** SPA 静态面目录（生产 dist/webui/；缺席 = API-only 形，/ 与未知路径 404） */
   readonly staticDir?: string;
 }

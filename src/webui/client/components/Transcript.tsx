@@ -14,7 +14,7 @@ import type { ReactElement, RefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
 
 import { attachmentUrl } from '../api.js';
-import { RUN_CLOSE_ROLE, type ViewAttachment, type ViewMessage } from '../frames.js';
+import { ASK_DECISION_ROLE, RUN_CLOSE_ROLE, type ViewAttachment, type ViewMessage } from '../frames.js';
 // 跨通道单源件（contracts 零依赖叶——frames 同批体例）：压缩分隔行词面
 // compactionSeparatorLine + 载体末条 CCR 条目提取 lastCcrEntryOf（N 供数）——
 // 与 TUI 分隔块渲染位同源（07 B2 定形注 webui 对端迁移）
@@ -64,6 +64,12 @@ const MessageView = memo(function MessageView({ message }: { message: ViewMessag
   // DOM 原生 hairline 兑现「全宽补齐」的 webui 载体形（TUI 侧字符补齐对端）
   if (message.role === RUN_CLOSE_ROLE) {
     if (message.text === '') return <div aria-hidden className="h-px w-full bg-edge" />;
+    return <p className="whitespace-pre-wrap text-center text-2xs text-ink-faint">{message.text}</p>;
+  }
+  // 问答收场瞬时行（挖掘 37 轮件 4——ask/settled 帧视图）：run_close 同族
+  // 居中弱化形（无角色标签、无 markdown、无缩进让位——「↳ 已回复 · …」整行
+  // 即内容；live-only 瞬时追加位，投影重建诚实消失）
+  if (message.role === ASK_DECISION_ROLE) {
     return <p className="whitespace-pre-wrap text-center text-2xs text-ink-faint">{message.text}</p>;
   }
   // 压缩摘要载体（source='compaction' 的 user 消息——B2 webui 对端迁移）：
