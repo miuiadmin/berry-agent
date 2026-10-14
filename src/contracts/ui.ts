@@ -117,8 +117,17 @@ export interface UiBackend<TProjection> {
    * ChannelsOptions.history 注入在场判）。载荷 = 全量 durable 正文投影
    * （history() 拉取）；呈现形态归后端（TUI = 1049 副屏整屏回看，同一渲染
    * 管线零第二渲染器）。缺席 = 不支持整屏回看的后端。
+   *
+   * 第三参（挖掘 36 轮件 8 回溯 fork 批）：用户消息回溯编辑回调——注入在场
+   * 才有「e 回溯」键行为（缺席注入律——键无效零行为变，openSessions 的
+   * onDelete/onPreview 同族）。回执三态路由归通道核 wrapper（后端只透传锚
+   * 与收回执），确认编舞 = 先收屏再回调（/rewind 选定序同构）。
    */
-  openHistory?(sessionId: string, messages: readonly TProjection[]): void;
+  openHistory?(
+    sessionId: string,
+    messages: readonly TProjection[],
+    onForkEdit?: (anchor: UiForkEditAnchor) => Promise<UiForkEditReceipt>,
+  ): void;
   /**
    * 开副屏记忆管理面（06 §7 `/memory` 命令的呈现面——命令注册在通道核按
    * ChannelsOptions.memory 注入在场判；mm 批）。零参形——材料归后端装配
@@ -243,6 +252,37 @@ export interface UiRewindActions {
   /** 段二确认回退（面板先收屏再回调——busy 守卫→restore→adopt→回执 notify 全闭包内） */
   onRestore(id: string): Promise<void>;
 }
+
+/**
+ * 回看器用户消息回溯锚（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork）。
+ * seq = 所选 user/message 事件 seq（fork 边界 = beforeSeq−1 含位）；text =
+ * 纯文本块直拼原文（图附件不进锚——诚实缺席不造假占位）。判据单源 =
+ * transcript forkEditAnchorsOf（rendersAsUserBlock 同集过滤）。
+ */
+export interface UiForkEditAnchor {
+  readonly seq: number;
+  readonly text: string;
+}
+
+/**
+ * fork 前置执行回执（注入位 ChannelsOptions.forkBeforeMessage 的返回形——
+ * 通道核 wrapper 据此路由 notify/focus）。forked 携新会话 id（血缘呈现位）；
+ * vetoed = 钩子否决（warn 面）；error 携折面消息（洪水闸/封印位 throw——
+ * foldErrorText 单源）。contracts 不依赖 conversation 系分层刻意
+ * （UiSessionDeleteResult 自持律同族）。
+ */
+export type UiForkBeforeMessageResult =
+  | { readonly status: 'forked'; readonly sessionId: string }
+  | { readonly status: 'vetoed' }
+  | { readonly status: 'error'; readonly message: string };
+
+/**
+ * 回看器回溯编辑回执（openHistory 第三参的返回形——通道核 wrapper 三态
+ * 路由后的终态面：forked 已切焦成功；failed = vetoed/error 合并终态〔notify
+ * 已由 wrapper 发出，呈现层零动作〕）。
+ */
+export type UiForkEditReceipt =
+  { readonly status: 'forked'; readonly sessionId: string } | { readonly status: 'failed' };
 
 /**
  * 会话清单条目（R7 批 10k `/sessions` 副屏切换器载荷——通道核拉取注入

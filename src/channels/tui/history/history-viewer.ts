@@ -38,11 +38,11 @@ import { Keymap } from '../keys/registry.js';
 import { hintLine } from '../keys/hint.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { fitLine } from '../row-segments.js';
-import { LiveTranscript, renderBlockStyledLines, shortIdOf } from '../backend/transcript.js';
+import { LiveTranscript, renderBlockStyledLines, shortIdOf, forkEditAnchorsOf } from '../backend/transcript.js';
 import type { ApprovalDecisionLineInput, TodoSnapshotLineInput } from '../backend/transcript.js';
 import type { StyledLine } from '../backend/ansi-rows.js';
 import type { OverlayContent } from '../overlay/overlay.js';
-import type { AgentMessage } from '../../../contracts/index.js';
+import type { AgentMessage, UiForkEditAnchor } from '../../../contracts/index.js';
 import { sessionColor, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
 import { HEAD_MARKS, renderViewerHintBar } from '../panels/panel-chrome.js';
@@ -82,6 +82,13 @@ export interface HistoryViewerOptions {
    * 自建缺省册（单测语义）；装配位注入会话册——用户覆盖对子编辑器同样生效。
    */
   readonly keymap?: Keymap;
+  /**
+   * 回溯编辑回调（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork）：在场 +
+   * 锚非空才有「e 回溯」键行为（缺席注入律）；Enter 确认 = 先收屏（onExit）
+   * 再 fire 本回调（exit-then-async——异步链与回执路由归上游 wrapper，viewer
+   * 不持 promise）。签名 void——fire-and-forget。
+   */
+  readonly onForkEdit?: (anchor: UiForkEditAnchor) => void;
 }
 
 /** 搜索匹配定位（逻辑行 + UTF-16 区间〔start 含 end 不含〕） */
@@ -169,6 +176,18 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
   /** 底行提示文案（超帽拒复制——常显至选区清除；null = 常态键面提示） */
   private selectionNotice: string | null = null;
 
+  /* ---- 回溯选择态（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork） ---- */
+  /** 回溯锚（forkEditAnchorsOf 单源产物；1:1 对账不齐降级 [] 禁用回溯面） */
+  private readonly forkAnchors: readonly UiForkEditAnchor[];
+  /** user 块行区间账（styledLines 行下标 [from,to)——与锚同序保 paired） */
+  private readonly forkBlockRows: readonly { from: number; to: number }[];
+  /** 选择态在场旗（e 进入 / Esc·q 退出 / Enter 确认即退场） */
+  private forkActive = false;
+  /** 当前选中锚下标（进入 = 首锚 0；步进端点 clamp） */
+  private forkIndex = 0;
+  /** 回溯编辑回调（缺席 = e 键无效——缺席注入律） */
+  private readonly onForkEdit: ((anchor: UiForkEditAnchor) => void) | undefined;
+
   constructor(options: HistoryViewerOptions) {
     super(); // 无 maxHeight——副屏 root 直收 region 全高
     this.sessionId = options.sessionId;
@@ -177,6 +196,7 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.onCopy = options.onCopy;
+    this.onForkEdit = options.onForkEdit;
     // 会话键位册自持（守卫判据与子编辑器同实例——缺席自建缺省册，单测语义）
     this.keymap = options.keymap ?? new Keymap();
     // 全量档行集：投影 → LiveTranscript（Infinity 帽恒不截）→ 带样式行（管线单源）；
@@ -185,10 +205,19 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     const transcript = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY, theme: options.theme });
     transcript.loadProjection(options.messages, options.decisions, options.todoSnapshots);
     const styled: StyledLine[] = [];
+    const userRows: { from: number; to: number }[] = [];
     for (const block of transcript.snapshot) {
+      const from = styled.length; // 块首行位（行位账——与锚同序配对）
       styled.push(...renderBlockStyledLines(block, options.columns));
+      if (block.kind === 'user') userRows.push({ from, to: styled.length });
     }
     this.styledLines = styled;
+    // 回溯锚 + 1:1 对账：锚数（rendersAsUserBlock 同集 + seq 在场）与 user 块数
+    // 不齐（无 seq user 消息破坏配对）→ 降级 [] 禁用回溯面（防御位——诚实无键
+    // 优于错位配对「所见非所选」）
+    const anchors = forkEditAnchorsOf(options.messages);
+    this.forkAnchors = anchors.length === userRows.length ? anchors : [];
+    this.forkBlockRows = userRows;
     // 小写副本构造期预算（搜索比对单源——击键只走 indexOf 比对，不对静态行集
     // 逐行重铸小写串；长度保形：与原文逐下标对齐——İ 等变长小写字不破匹配
     // 坐标系，见 lowercaseAligned）
@@ -264,14 +293,15 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
         height: chromeBottom,
       });
     } else {
-      // 底行：超帽提示优先（常显至选区清除），否则常态键面提示 + 滚动位置
-      // 读数（挖掘 31 轮 [5]——仅常态态在场：超帽提示是行动信息不收口让位；
+      // 底行：超帽提示优先（常显至选区清除），否则常态键面提示（选择态/回溯
+      // 段随注入在场换装——hintText 单源）+ 滚动位置读数（挖掘 31 轮 [5]——仅
+      // 常态态在场：超帽提示是行动信息不收口让位；回溯选择态准模态同让位；
       // 搜索在场走 searchEditor 分支〔底铬=输入行〕读数结构性缺席）
       renderViewerHintBar(
         buffer,
         region,
-        this.selectionNotice ?? HINT_TEXT,
-        this.selectionNotice === null ? this.scrollPercent() : null,
+        this.selectionNotice ?? this.hintText(),
+        this.selectionNotice === null && !this.forkActive ? this.scrollPercent() : null,
       );
     }
   }
@@ -299,7 +329,10 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
       // 搜索开键（条款锁能力不锁键位）：kitty 轨 ctrl+shift+f；legacy 轨 0x06
       // 归一 ctrl+f（shift 不可辨）——搜索关态两形同判，开态 ctrl+f 让路编辑器
       if (k.ctrl && !k.alt && !k.meta && k.key === 'f' && (k.shift || !this.searchOpen)) {
-        if (!this.searchOpen) this.openSearch();
+        if (!this.searchOpen) {
+          this.forkActive = false; // 选择态先收（模态互斥——搜索优先，挖掘 36 轮件 8）
+          this.openSearch();
+        }
         return true; // 已开态的 ctrl+shift+f = no-op（层内终局）
       }
     }
@@ -333,6 +366,58 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
       // 其余（文本/IME/粘贴/编辑键）入搜索框；未消费键层内终局（模态）
       this.searchEditor.handleEvent(event);
       return true;
+    }
+    // 回溯选择态（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork）：模态分路
+    // ——↑/↓ 在用户消息块间步进（端点 clamp）、Enter 确认（先收屏再回调——
+    // exit-then-async）、Esc/q 退选择不退屏（让位判据与搜索模态同律——选择态
+    // 在场时不消费退出义）；其余键（PgUp/PgDn/Home/End 等）仍滚动（选择态与
+    // 滚动共存条款）
+    if (this.forkActive) {
+      if (k !== null && k.phase !== 'release' && !k.ctrl && !k.alt && !k.meta) {
+        if (isPlainKey(k, 'escape') || isPlainKey(k, 'q')) {
+          this.forkActive = false;
+          return true;
+        }
+        if (isPlainKey(k, 'up')) {
+          this.stepFork(-1);
+          return true;
+        }
+        if (isPlainKey(k, 'down')) {
+          this.stepFork(1);
+          return true;
+        }
+      }
+      // q 文本路（kitty disambiguate 轨纯键打字走 text 事件——key 路镜像同判）
+      if (event.kind === 'text' && event.text === 'q') {
+        this.forkActive = false;
+        return true;
+      }
+      // 确认键：字面 Enter 族 + 册驱动提交键（与搜索框确认键同判并集——改键
+      // 面习惯提交键在回溯选择态同义确认）
+      if (k !== null && k.phase !== 'release') {
+        const confirmHit =
+          this.keymap.actionMatches(k, 'editor.submit') || this.keymap.actionMatches(k, 'editor.queue-followup');
+        if (confirmHit || (k.key === 'enter' && !k.ctrl && !k.meta)) {
+          this.confirmFork();
+          return true;
+        }
+      }
+      this.handleEventSuper(event);
+      return true;
+    }
+    // 回溯进入键（册驱动 history.fork-edit——缺省 e）：回调在场 + 锚非空才有
+    // 效（缺席注入律）；key 路 actionMatches + text 路单字符镜像（'?' help 投影
+    // 位同构——可打印字符走 text 事件，两路合围）
+    if (this.onForkEdit !== undefined && this.forkAnchors.length > 0) {
+      if (k !== null && k.phase !== 'release' && this.keymap.actionMatches(k, 'history.fork-edit')) {
+        this.enterForkSelect();
+        return true;
+      }
+      const forkKey = this.keymap.keyText('history.fork-edit');
+      if (event.kind === 'text' && forkKey.length === 1 && event.text === forkKey) {
+        this.enterForkSelect();
+        return true;
+      }
     }
     // 常态退出键（搜索不在场——让位判据的另一面）：q（text 路为主——kitty
     // disambiguate 轨纯键打字走 text 事件；key 路防御同判）与 Esc
@@ -509,6 +594,63 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     this.onExit?.();
   }
 
+  /* ---------------- 回溯选择态（挖掘 36 轮件 8 回溯 fork 批） ---------------- */
+
+  /** 进入选择态：首锚起步 + 滚至块首行（进入位键面提示随 hintText 换装） */
+  private enterForkSelect(): void {
+    if (this.forkAnchors.length === 0) return; // 防御位（常态路已判——双保险零成本）
+    this.forkActive = true;
+    this.forkIndex = 0;
+    const rows = this.forkBlockRows[0]!;
+    this.scrollToLine(rows.from, 0);
+  }
+
+  /** 锚步进（±1——两端 clamp 不循环；随动滚至新选中块首行） */
+  private stepFork(delta: 1 | -1): void {
+    const next = Math.min(this.forkAnchors.length - 1, Math.max(0, this.forkIndex + delta));
+    this.forkIndex = next;
+    const rows = this.forkBlockRows[next]!;
+    this.scrollToLine(rows.from, 0);
+  }
+
+  /**
+   * 确认回溯（Enter——先收屏再回调，/rewind 选定序同构）：exit 闭锁单次收屏
+   * （onExit 装配柄——AltScreenHost close）后才 fire 回调；异步链与回执路由
+   * 归上游 wrapper（exit-then-async——viewer 不持 promise 零异步杀面）。
+   */
+  private confirmFork(): void {
+    const anchor = this.forkAnchors[this.forkIndex];
+    if (anchor === undefined) return;
+    this.forkActive = false;
+    this.exit();
+    this.onForkEdit?.(anchor);
+  }
+
+  /** 本逻辑行是否属当前选中回溯块（writeSlice 整块反色判据——行位账直查） */
+  private inForkBlock(line: number): boolean {
+    if (!this.forkActive) return false;
+    const rows = this.forkBlockRows[this.forkIndex];
+    return rows !== undefined && line >= rows.from && line < rows.to;
+  }
+
+  /**
+   * 底行提示单源（挖掘 36 轮件 8）：选择态 = 专属提示行（紧凑三段——40 列
+   * 窄窗全可见）；常态 = 既有键面 + 「e 回溯」段（随回调在场 + 锚非空注入
+   * ——缺席零段零行为变）。回溯段排第二位（返回之后、搜索之前）——新键
+   * 可发现性优先于既有键枚举，窄窗省略截断先吃搜索段不吃回溯段；回溯段
+   * 键名走 keyText 单源（改键面提示随动）。
+   */
+  private hintText(): string {
+    if (this.forkActive) return hintLine('↑↓ 选择', 'enter 确认回溯', 'q/esc 退选择');
+    if (this.onForkEdit !== undefined && this.forkAnchors.length > 0) {
+      const forkKey = this.keymap.keyText('history.fork-edit');
+      if (forkKey.length === 1) {
+        return hintLine('q/esc 返回', `${forkKey} 回溯`, 'ctrl+shift+f 搜索', '↑↓/pgup/pgdn/home/end 滚动', '拖选复制');
+      }
+    }
+    return HINT_TEXT;
+  }
+
   /* ---------------- 带样式切片写出（writeSlice 覆写接缝） ---------------- */
 
   /**
@@ -529,6 +671,10 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     const sel = this.selectionSpanFor(seg.line);
     const selStart = sel !== null ? Math.max(sel.start, start) : end;
     const selEnd = sel !== null ? Math.min(sel.end, end) : start;
+    // 回溯选中块（挖掘 36 轮件 8——整块反位：行位账判行属，切片全段在选）
+    const forkOn = this.inForkBlock(seg.line);
+    const forkStart = forkOn ? start : end;
+    const forkEnd = forkOn ? end : start;
     // 分段边界：切片端点 ∪ 样式段端点 ∪ 高亮端点 ∪ 选区端点（升序去重）
     const cuts = new Set<number>([start, end]);
     for (const run of styled.runs) {
@@ -539,6 +685,8 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     if (hlEnd > start && hlEnd < end) cuts.add(hlEnd);
     if (selStart > start && selStart < end) cuts.add(selStart);
     if (selEnd > start && selEnd < end) cuts.add(selEnd);
+    if (forkStart > start && forkStart < end) cuts.add(forkStart);
+    if (forkEnd > start && forkEnd < end) cuts.add(forkEnd);
     const bounds = [...cuts].sort((a, b) => a - b);
     const baseCols = prefixDisplayWidth(styled.plain, start);
     for (let i = 0; i + 1 < bounds.length; i++) {
@@ -557,6 +705,10 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
       }
       if (from >= selStart && from < selEnd) {
         // 选区高亮（与搜索匹配同 inverse 载体——叠加处同 inverse 幂等）
+        style = style === undefined ? MATCH_STYLE : { ...style, inverse: true };
+      }
+      if (from >= forkStart && from < forkEnd) {
+        // 回溯选中块整段反位（第三载体叠加——同 inverse 幂等，与匹配/拖选共载体）
         style = style === undefined ? MATCH_STYLE : { ...style, inverse: true };
       }
       buffer.writeText(

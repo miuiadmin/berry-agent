@@ -1181,6 +1181,21 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // 收口→登记拆除→物理三删→授予回收→焦点处置——seam 接线见 manager 构造
     // 位）；回执三态路由归通道核 wrapper（/sessions 面板删除键消费）
     deleteSession: (sessionId) => manager.deleteSession(sessionId),
+    // 回溯编辑机器路注入（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork）：
+    // manager.fork 显式 upToSeq 形——fork 边界 = beforeSeq−1 含位（所选消息不
+    // 进新会话、原文回填重编辑；05 §5.1 钩子 veto 判后/洪水闸 + 04 §1 封印位
+    // 全律承接，机制零改动纯新消费方）；vetoed 折通道核回执 warn 面，异常折
+    // error 回执（foldErrorText 折面 + warn 日志——诚实面不静默）
+    forkBeforeMessage: async (sessionId, beforeSeq) => {
+      try {
+        const outcome = await manager.fork(sessionId, { upToSeq: beforeSeq - 1 });
+        if (outcome.status === 'vetoed') return { status: 'vetoed' } as const;
+        return { status: 'forked', sessionId: outcome.sessionId } as const;
+      } catch (err) {
+        warn(`回溯 fork 失败（${sessionId} beforeSeq=${beforeSeq}）：${foldErrorText(err)}`);
+        return { status: 'error', message: foldErrorText(err) } as const;
+      }
+    },
     // /sessions 尾段预览注入（挖掘 35 轮 B5——「（无题）」会话成片可辨）：
     // 投影读面过滤 user/assistant 正文消息取尾 6 条（升序旧→新）；user 侧
     // 滤机器注入族（subagent-settled/subagent-approval-pending/compaction——

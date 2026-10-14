@@ -699,3 +699,201 @@ describe('底行滚动位置读数（挖掘 31 轮 [5]——NN% 右缘 + 窄窗�
     expect(readRow(grid, 7, 10)).not.toContain('%');
   });
 });
+
+/* ---------------- 回溯选择态（挖掘 36 轮件 8——session-rewind-fork） ---------------- */
+
+describe('回溯选择态（挖掘 36 轮件 8——session-rewind-fork）', () => {
+  /** mouse 事件便捷构造（选区 describe 局部件同形——跨 describe 不可见故就地复制） */
+  function mouse(
+    button: 'left' | 'middle' | 'right' | 'wheel-up' | 'wheel-down',
+    at: { row: number; col: number } = { row: 1, col: 0 },
+    phase: 'press' | 'motion' | 'release' = 'press',
+  ): MouseEvent {
+    return {
+      kind: 'mouse',
+      button,
+      phase,
+      col: at.col,
+      row: at.row,
+      ctrl: false,
+      alt: false,
+      shift: false,
+      meta: false,
+    };
+  }
+
+  /** 带 seq 的 user 消息（fork 锚判据要求 seq 在场——rig 既有工厂无 seq） */
+  function seqUser(textValue: string, seq: number): AgentMessage {
+    // 序位增标 cast：AgentMessage 联合型不含 seq——fork 锚判据要求 seq 在场
+    // （transcript.test seqMsg 工厂同形）
+    return { ...userMsg(textValue), seq } as unknown as AgentMessage;
+  }
+
+  /** 全屏找含 needle 的行（屏外返 -1——可见性断言面） */
+  function rowOf(grid: CellBuffer, needle: string): number {
+    for (let row = 0; row < ROWS; row++) {
+      if (readRow(grid, row, COLS).includes(needle)) return row;
+    }
+    return -1;
+  }
+
+  /** 回溯装配：rig 同形 + onForkEdit 捕获（fire-and-forget 锚账） */
+  function forkRig(messages: readonly AgentMessage[], keybindings?: Readonly<Record<string, string>>) {
+    const log: string[] = [];
+    const copies: string[] = [];
+    const forks: Array<{ seq: number; text: string }> = [];
+    const viewer = new HistoryViewer({
+      sessionId: SESSION,
+      messages,
+      columns: COLS,
+      onExit: () => log.push('exit'),
+      onInterrupt: (id) => log.push(`interrupt:${id}`),
+      onQuit: () => log.push('quit'),
+      onCopy: (text) => copies.push(text),
+      onForkEdit: (anchor) => forks.push({ seq: anchor.seq, text: anchor.text }),
+      ...(keybindings !== undefined ? { keymap: new Keymap(keybindings) } : {}),
+    });
+    const render = (): CellGrid => {
+      const grid = new CellGrid(COLS, ROWS);
+      viewer.render(grid, { row: 0, col: 0, width: COLS, height: ROWS });
+      return grid;
+    };
+    return { viewer, log, copies, forks, render };
+  }
+
+  // 3 user 块 = 12 body 行（块 4 行/块）；视口 8——初始贴尾 offset 4（m0 屏外）
+  const THREE = [seqUser('m0', 3), seqUser('m1', 7), seqUser('m2', 11)];
+
+  it('进入/步进/整块反位：e 进入滚至首锚 + ↑↓ 步进反色迁移 + 端点 clamp + 滚动共存（修前红）', () => {
+    const { viewer, render } = forkRig(THREE);
+    const g0 = render(); // 贴尾 offset 4——m0 在屏外
+    expect(rowOf(g0, '› m0')).toBe(-1);
+    expect(readRow(g0, ROWS - 1, COLS)).toContain('e 回溯'); // 常态键面 + 回溯段（回调在场注入）
+    // 修前红锚：改前 e 落滚动路零选择态——m0 行无 inverse
+    expect(viewer.handleEvent(text('e'))).toBe(true);
+    const g1 = render(); // 进入即滚至首锚块首（offset 0）
+    expect(rowOf(g1, '› m0')).toBe(3); // body 2 - offset 0 + 1 = grid 3
+    expect(g1.getCell(3, 0)?.style.inverse).toBe(true); // 选中块整行反位（'› m0' 全段 0..3 列）
+    expect(g1.getCell(3, 3)?.style.inverse).toBe(true);
+    expect(readRow(g1, ROWS - 1, COLS)).toContain('enter 确认回溯'); // 选择态专属提示换装
+    // ↑ 端点 clamp：仍在锚 0（不循环）
+    viewer.handleEvent(key('up'));
+    const g2 = render();
+    expect(g2.getCell(rowOf(g2, '› m0'), 0)?.style.inverse).toBe(true);
+    // ↓ 步进锚 1：反色迁移到 m1 + 滚至块首（offset 4 → grid 3）
+    viewer.handleEvent(key('down'));
+    const g3 = render();
+    expect(rowOf(g3, '› m1')).toBe(3); // body 6 - offset 4 + 1
+    expect(g3.getCell(3, 3)?.style.inverse).toBe(true);
+    expect(g3.getCell(3, 0)?.grapheme).toBe('›'); // 反位行确系 m1 文行（'› m1' 占 0..3 列）
+    // ↓↓ 至锚 2（尾块贴尾夹回 maxOffset 4）+ 再 ↓ clamp
+    viewer.handleEvent(key('down'));
+    viewer.handleEvent(key('down'));
+    viewer.handleEvent(key('down'));
+    const g4 = render();
+    expect(g4.getCell(rowOf(g4, '› m2'), 0)?.style.inverse).toBe(true); // body 10 - 4 + 1 = grid 7
+    expect(g4.getCell(rowOf(g4, '› m1'), 0)?.style.inverse).toBeUndefined();
+    // ↑ 回锚 1 + pagedown 滚动共存：选择态不退、反位随渲染保持
+    viewer.handleEvent(key('up'));
+    viewer.handleEvent(key('pagedown'));
+    const g5 = render();
+    const r1 = rowOf(g5, '› m1');
+    expect(r1).toBeGreaterThan(0); // 仍在屏（pagedown 夹底）
+    expect(g5.getCell(r1, 0)?.style.inverse).toBe(true); // 滚动后反位保持（选中块跨滚不丢）
+  });
+
+  it('Enter 确认 = 先收屏再回调（exit 恰一次 + 当前锚投递）；Esc/q 退选择不退屏（修前红）', () => {
+    // 确认首锚（e 进入即锚 0）
+    const r1 = forkRig(THREE);
+    r1.viewer.handleEvent(text('e'));
+    expect(r1.viewer.handleEvent(key('enter'))).toBe(true);
+    expect(r1.log).toEqual(['exit']); // 先收屏——恰一次
+    expect(r1.forks).toEqual([{ seq: 3, text: 'm0' }]); // 后回调——当前锚投递
+    // 步进后确认：投递步进位锚
+    const r2 = forkRig(THREE);
+    r2.viewer.handleEvent(text('e'));
+    r2.viewer.handleEvent(key('down'));
+    r2.viewer.handleEvent(key('enter'));
+    expect(r2.forks).toEqual([{ seq: 7, text: 'm1' }]);
+    expect(r2.log).toEqual(['exit']);
+    // Esc 退选择不退屏（让位判据——选择态在场退出义被消费）
+    const r3 = forkRig(THREE);
+    r3.viewer.handleEvent(text('e'));
+    r3.viewer.handleEvent(key('escape'));
+    expect(r3.log).toEqual([]);
+    expect(r3.forks).toEqual([]);
+    const g3 = r3.render();
+    expect(g3.getCell(rowOf(g3, '› m0'), 0)?.style.inverse).toBeUndefined(); // 反位随选择态退场
+    r3.viewer.handleEvent(text('q')); // 退选择后 q 恢复退出义
+    expect(r3.log).toEqual(['exit']);
+    // q 文本路（kitty 轨纯键打字）同律：首 q 退选择、次 q 退屏
+    const r4 = forkRig(THREE);
+    r4.viewer.handleEvent(text('e'));
+    r4.viewer.handleEvent(text('q'));
+    expect(r4.log).toEqual([]);
+    r4.viewer.handleEvent(text('q'));
+    expect(r4.log).toEqual(['exit']);
+  });
+
+  it('缺席注入律与模态互斥：回调缺席 e 零行为；全机器注入降级禁用；搜索在场 e 落框；选择态被 ctrl+f 收口', () => {
+    // 回调缺席（rig 无 onForkEdit）：e 不进选择态——判据 = 随后 q 直退屏 + 底行无回溯段
+    const r1 = rig(THREE);
+    r1.viewer.handleEvent(text('e'));
+    expect(readRow(r1.render(), ROWS - 1, COLS)).not.toContain('回溯'); // 提示面同缺席
+    r1.viewer.handleEvent(text('q'));
+    expect(r1.log).toEqual(['exit']); // 若 e 进了选择态，首 q 只退选择——此键不会退屏
+    // 全机器注入投影：真 user 锚 0 ≠ user 块 2 → 1:1 对账降级禁用（e 无效）
+    const machine = THREE.map((m) => ({ ...m, source: 'subagent-settled' as never }));
+    const r2 = forkRig(machine);
+    r2.viewer.handleEvent(text('e'));
+    r2.viewer.handleEvent(text('q'));
+    expect(r2.log).toEqual(['exit']); // e 未被消费
+    expect(r2.forks).toEqual([]);
+    // 搜索在场：text('e') 落搜索框（查询 'e'）不进选择态
+    const r3 = forkRig(THREE);
+    r3.viewer.handleEvent(key('f', { ctrl: true, shift: true }));
+    r3.viewer.handleEvent(text('e'));
+    const g3 = r3.render();
+    expect(readRow(g3, ROWS - 1, COLS)).toContain('› e'); // 底行 = 搜索输入行（composer '› ' 形——查询在场）
+    expect(readRow(g3, ROWS - 1, COLS)).not.toContain('回溯');
+    r3.viewer.handleEvent(key('escape')); // 关搜索（不退副屏）
+    expect(r3.log).toEqual([]);
+    // 选择态在场 ctrl+shift+f：先收选择态再开搜索（互斥——搜索优先）
+    const r4 = forkRig(THREE);
+    r4.viewer.handleEvent(text('e')); // 进选择态
+    r4.viewer.handleEvent(key('f', { ctrl: true, shift: true })); // 开搜索（选择态收口）
+    const g4 = r4.render();
+    expect(readRow(g4, ROWS - 1, COLS)).toContain('›'); // 底行 = 搜索框（非选择态提示）
+    expect(readRow(g4, ROWS - 1, COLS)).not.toContain('enter 确认回溯');
+    // Esc 关搜索 → 再 Esc 直退屏（若选择态未收口，此键只退选择、log 仍空）
+    r4.viewer.handleEvent(key('escape'));
+    r4.viewer.handleEvent(key('escape'));
+    expect(r4.log).toEqual(['exit']); // 两键退屏 = 选择态已被 ctrl+f 收口的实证
+  });
+
+  it('同 inverse 载体叠加幂等（选中块 ∩ 拖选区）+ 册驱动改键（f 进入 / e 让位）+ 提示随动', () => {
+    // 册驱动改键：history.fork-edit → 'f'——text('f') 进入、text('e') 无效
+    const r1 = forkRig(THREE, { 'history.fork-edit': 'f' });
+    const g0 = r1.render();
+    expect(readRow(g0, ROWS - 1, COLS)).toContain('f 回溯'); // 提示随动（keyText 单源）
+    expect(readRow(g0, ROWS - 1, COLS)).not.toContain('e 回溯');
+    r1.viewer.handleEvent(text('e')); // 旧键无效
+    r1.viewer.handleEvent(text('q')); // e 未进选择态 → q 直退屏
+    expect(r1.log).toEqual(['exit']);
+    const r2 = forkRig(THREE, { 'history.fork-edit': 'f' });
+    expect(r2.viewer.handleEvent(text('f'))).toBe(true);
+    const g2 = r2.render();
+    expect(g2.getCell(rowOf(g2, '› m0'), 0)?.style.inverse).toBe(true); // f 进入同形
+    // 叠加幂等：选中块反位 + 拖选高亮同行重叠——inverse 布尔载体不双反
+    const r3 = forkRig(THREE);
+    r3.viewer.handleEvent(text('e')); // m0 块选中（grid 1-4 = body 0-3，文行 grid 3）
+    r3.viewer.handleEvent(mouse('left', { row: 3, col: 0 }, 'press'));
+    r3.viewer.handleEvent(mouse('left', { row: 3, col: 2 }, 'motion'));
+    const g3 = r3.render();
+    expect(g3.getCell(3, 0)?.style.inverse).toBe(true); // 重叠区（选区∩选中块）仍单反
+    expect(g3.getCell(3, 1)?.style.inverse).toBe(true);
+    expect(g3.getCell(3, 3)?.style.inverse).toBe(true); // 选区外·块内段保持反位
+    r3.viewer.handleEvent(mouse('left', { row: 3, col: 2 }, 'release'));
+    expect(r3.copies).toEqual(['› ']); // 拖选复制照常（选中块内拖选不受选择态干扰——press col0→motion col2 段）
+  });
+});

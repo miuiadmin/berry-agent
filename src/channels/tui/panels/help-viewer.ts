@@ -52,6 +52,7 @@ const SCOPE_LABELS: Readonly<Record<ActionScope, string>> = Object.freeze({
   thinking: '思考块',
   tools: '工具卡',
   editor: '编辑器',
+  history: '回看器', // 挖掘 36 轮件 8 回溯 fork 批——'history' 域首枚随册扩
 });
 
 /** 底行键面提示 */

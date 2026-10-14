@@ -58,7 +58,7 @@ function fakeBackend(
   const envelopes: { env: SessionEnvelope; focused: boolean }[] = [];
   const repaints: { sessionId: string; projection: readonly unknown[]; widget: { node: unknown } | null }[] = [];
   const collapses: number[] = [];
-  const historyOpens: { sessionId: string; messages: readonly unknown[] }[] = [];
+  const historyOpens: { sessionId: string; messages: readonly unknown[]; fork?: unknown }[] = [];
   const memoryOpens: number[] = [];
   let memoryOpenReturn = false;
   const sessionsOpens: {
@@ -111,7 +111,11 @@ function fakeBackend(
     ...(withAlt
       ? {
           collapseAltScreen: () => collapses.push(collapses.length),
-          openHistory: (sessionId: string, messages: readonly never[]) => historyOpens.push({ sessionId, messages }),
+          openHistory: (
+            sessionId: string,
+            messages: readonly never[],
+            onForkEdit?: (anchor: never) => Promise<unknown>,
+          ) => historyOpens.push({ sessionId, messages, fork: onForkEdit }),
           openMemory: () => {
             memoryOpens.push(memoryOpens.length);
             return memoryOpenReturn;
@@ -659,6 +663,89 @@ describe('/history 命令面（07 §4.1 件 8——批 10f-4：在场即注册�
     s.addBackend(b.backend);
     expect(await s.dispatchCommand('/history')).toBe(true); // 命令在场被消费
     expect(b.historyOpens).toEqual([]); // 无聚焦会话——零扇出
+  });
+
+  it('回溯回调注入律（挖掘 36 轮末件——修前红）：forkBeforeMessage 在场才铸第三参、缺席 = undefined', async () => {
+    // 在场：openHistory 收函数形第三参（修前红锚——改前扇出仅两参恒 undefined）
+    const s1 = createChannels({
+      history: async () => [{ role: 'user' }],
+      forkBeforeMessage: async () => ({ status: 'vetoed' }),
+    });
+    const b1 = fakeBackend('tui', {}, true);
+    s1.addBackend(b1.backend);
+    s1.registerSession('a');
+    await s1.focus('a');
+    await s1.dispatchCommand('/history');
+    expect(typeof b1.historyOpens[0]?.fork).toBe('function');
+    // 缺席：/history 照注册照扇出，第三参 undefined（缺席注入律——注册面只系 history）
+    const s2 = createChannels({ history: async () => [{ role: 'user' }] });
+    const b2 = fakeBackend('tui', {}, true);
+    s2.addBackend(b2.backend);
+    s2.registerSession('a');
+    await s2.focus('a');
+    await s2.dispatchCommand('/history');
+    expect(b2.historyOpens[0]?.fork).toBeUndefined();
+  });
+});
+
+describe('/history 回溯回执三态路由（挖掘 36 轮末件——session-rewind-fork：forked 切焦透传 / vetoed·error·异常折 failed + notify）', () => {
+  /** 装配捷径：开屏一次取回溯回调（闭包钉开屏时聚焦会话） */
+  async function openWithFork(
+    forkBefore: (
+      sessionId: string,
+      beforeSeq: number,
+    ) => Promise<{ status: string; sessionId?: string; message?: string }>,
+  ) {
+    const s = createChannels({
+      history: async () => [{ role: 'user' }],
+      forkBeforeMessage: forkBefore as never,
+    });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    s.registerSession('a');
+    await s.focus('a');
+    await s.dispatchCommand('/history');
+    const fork = b.historyOpens[0]?.fork as (anchor: { seq: number; text: string }) => Promise<{
+      status: string;
+      sessionId?: string;
+    }>;
+    return { s, b, fork };
+  }
+
+  it('forked：切焦新会话（registry.focus 权威路）+ 回执透传 + 零 notify（成功通告归 TUI 侧）', async () => {
+    const { s, b, fork } = await openWithFork(async (sessionId, beforeSeq) => {
+      expect(sessionId).toBe('a'); // 闭包钉开屏会话（回调投递真源）
+      expect(beforeSeq).toBe(3); // 锚 seq 直传（beforeSeq 语义）
+      return { status: 'forked', sessionId: 'fork-1' };
+    });
+    const receipt = await fork({ seq: 3, text: '原文' });
+    expect(receipt).toEqual({ status: 'forked', sessionId: 'fork-1' });
+    expect(s.focusedId).toBe('fork-1'); // 切焦生效（未注册 focus 视同注册）
+    expect(b.notified).toEqual([]); // 核侧零 notify
+  });
+
+  it('vetoed：warn 通告 + failed 回执 + 焦点不迁（钩子否决面）', async () => {
+    const { s, b, fork } = await openWithFork(async () => ({ status: 'vetoed' }));
+    const receipt = await fork({ seq: 3, text: '原文' });
+    expect(receipt).toEqual({ status: 'failed' });
+    expect(s.focusedId).toBe('a'); // 不切焦
+    expect(b.notified).toEqual([{ message: '回溯被会话钩子否决（session_before_fork）', level: 'warn' }]);
+  });
+
+  it('error：error 通告折面（foldErrorText）+ failed 回执', async () => {
+    const { b, fork } = await openWithFork(async () => ({ status: 'error', message: '洪水闸超限' }));
+    const receipt = await fork({ seq: 3, text: '原文' });
+    expect(receipt).toEqual({ status: 'failed' });
+    expect(b.notified).toEqual([{ message: '回溯失败：洪水闸超限', level: 'error' }]);
+  });
+
+  it('异步 reject：就地折 error notify + failed（不直穿杀 TUI——selectSession 同律）', async () => {
+    const { s, b, fork } = await openWithFork(() => Promise.reject(new Error('磁盘满')));
+    const receipt = await fork({ seq: 3, text: '原文' });
+    expect(receipt).toEqual({ status: 'failed' });
+    expect(b.notified.map((n) => n.level)).toEqual(['error']);
+    expect(b.notified[0]?.message).toContain('磁盘满'); // foldErrorText 折面非空
+    expect(s.focusedId).toBe('a'); // 焦点不动
   });
 });
 

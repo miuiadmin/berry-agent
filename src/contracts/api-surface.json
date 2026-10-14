@@ -841,7 +841,7 @@
       "since": "1.0",
       "desc": "通道后端接口（通道核的呈现消费面）",
       "kind": "interface",
-      "sig": "24bbd939f82c36d4"
+      "sig": "c1a63ada0c8a367e"
     },
     {
       "symbol": "UiCallLedger",
@@ -887,6 +887,33 @@
       "desc": "剪贴板写回执三态（挖掘 36 轮批 [2]——值中立形，机制词零携带）： written = 已尽力写出 / too-large = 超 64 KiB 帽拒写（指路 /export）/ unsupported = 后端无此能力面",
       "kind": "type",
       "sig": "1bb8076e4a039781"
+    },
+    {
+      "symbol": "UiForkBeforeMessageResult",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "fork 前置执行回执（注入位 ChannelsOptions.forkBeforeMessage 的返回形—— 通道核 wrapper 据此路由 notify/focus）",
+      "kind": "type",
+      "sig": "ccd234c00c851a01"
+    },
+    {
+      "symbol": "UiForkEditAnchor",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "回看器用户消息回溯锚（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork）",
+      "kind": "interface",
+      "sig": "8dcd533a7bc69358"
+    },
+    {
+      "symbol": "UiForkEditReceipt",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "回看器回溯编辑回执（openHistory 第三参的返回形——通道核 wrapper 三态路由后的终态面：forked 已切焦成功；failed = vetoed/error 合并终态〔notify 已由 wrapper 发出，呈现层零动作〕）",
+      "kind": "type",
+      "sig": "ed90a9d68d86339b"
     },
     {
       "symbol": "UiInputOptions",

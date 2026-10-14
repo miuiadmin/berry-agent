@@ -170,9 +170,9 @@ describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字�
 });
 
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
-  it('册数 37：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影三席（B4 同批；挖掘 36 轮批 [2] c 扩集）+ 外部编辑器（挖掘 31 轮 [9]）+ 历史回搜两席（挖掘 31 轮 [3]）', () => {
-    // 修前红锚：册数 36（copy-response 增册前）
-    expect(ACTION_CATALOG).toHaveLength(37);
+  it('册数 38：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影三席（B4 同批；挖掘 36 轮批 [2] c 扩集）+ 外部编辑器（挖掘 31 轮 [9]）+ 历史回搜两席（挖掘 31 轮 [3]）+ 回看器回溯席（挖掘 36 轮末件 [5]——history 域首枚）', () => {
+    // 修前红锚：册数 37（history.fork-edit 增册前）
+    expect(ACTION_CATALOG).toHaveLength(38);
     const followUp = ACTION_CATALOG.find((d) => d.id === 'editor.queue-followup');
     expect(followUp).toMatchObject({ scope: 'editor', keys: ['alt+enter'], overridable: true });
     const modelCycle = ACTION_CATALOG.find((d) => d.id === 'global.model-cycle');
@@ -193,6 +193,11 @@ describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模�
     expect(searchPrev).toMatchObject({ scope: 'editor', keys: ['ctrl+r'], overridable: true });
     const searchNext = ACTION_CATALOG.find((d) => d.id === 'editor.history-search-next');
     expect(searchNext).toMatchObject({ scope: 'editor', keys: ['ctrl+s'], overridable: true });
+    // 回看器回溯席（挖掘 36 轮末件 [5]——session-rewind-fork）：history 域
+    // 首枚、可覆盖；'e' 是可打印字符——绑定仅供 keyText/冲突面投影，分诊
+    // 真源 = history-viewer text 路单字符镜像（'?' help 投影位同构）
+    const forkEdit = ACTION_CATALOG.find((d) => d.id === 'history.fork-edit');
+    expect(forkEdit).toMatchObject({ scope: 'history', keys: ['e'], overridable: true });
   });
 
   it('alt+enter 命中候跑动作（与 editor.submit 键序分立——enter 不误触）', () => {
@@ -265,5 +270,33 @@ describe('leader 前缀键分支投影位（2026-10-05 ZCode TUI 对标批 B4—
     const occupant = occupied.actionOccupying('ctrl+x');
     expect(occupant).toMatchObject({ id: 'editor.move-left' }); // 占用者可点名（fail-loud warn 判据）
     expect(new Keymap({ 'editor.move-left': 'ctrl+x' }).actionOccupying('ctrl+b')).toBeNull(); // 迁离后原键位零占用
+  });
+});
+
+/* ---------------- 回溯席增册（挖掘 36 轮末件 [5]——session-rewind-fork） ---------------- */
+
+describe('回溯席增册（挖掘 36 轮末件——history 域首枚）', () => {
+  it("ActionScope 扩 'history' 第五域 + keyText 'e' 单字符形（viewer text 路镜像消费判据）+ 覆盖随动", () => {
+    // 域面：第五域随册扩（SCOPE_LABELS 强类型伴生位在 help-viewer 侧锁）
+    const scopes = new Set(ACTION_CATALOG.map((d) => d.scope));
+    expect(scopes.has('history')).toBe(true);
+    // keyText 单字符形：viewer text 路镜像判据（forkKey.length === 1 才开镜像）
+    const map = new Keymap();
+    expect(map.keyText('history.fork-edit')).toBe('e');
+    expect(map.actionMatches(key('e'), 'history.fork-edit')).toBe(true); // key 路同命中（双路合围）
+    // 覆盖随动：改键 'f' 后两路随新键
+    const remapped = new Keymap({ 'history.fork-edit': 'f' });
+    expect(remapped.keyText('history.fork-edit')).toBe('f');
+    expect(remapped.actionMatches(key('e'), 'history.fork-edit')).toBe(false);
+    expect(remapped.actionMatches(key('f'), 'history.fork-edit')).toBe(true);
+  });
+
+  it('冲突对拍拒载：与他动作撞键整集对拍拒（回溯席可覆盖位同四形拒载面）', () => {
+    // 'e' 与 editor.delete-char 等缺省键无撞；改绑到占用键（enter）→ 缺省集
+    // 对拍拒载、回退 'e'
+    const r = resolveKeybindings({ 'history.fork-edit': 'enter' });
+    expect(r.rejections[0]).toMatchObject({ kind: 'conflict', actionId: 'history.fork-edit' });
+    expect(r.keysByAction.get('history.fork-edit')).toEqual(['e']); // 拒载回退缺省键
+    expect(r.keysByAction.get('editor.submit')).toEqual(['enter']); // 对家缺省形无损
   });
 });

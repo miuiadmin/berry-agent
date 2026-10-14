@@ -23,7 +23,7 @@ import { join } from 'node:path';
 import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
 import { ansiColor, colorRgb, stringWidth } from '../../engine/index.js';
 import type { TodoItem } from '../../types.js';
-import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
+import { TuiBackend, wireForkEdit, type TuiBackendOptions } from './tui-backend.js';
 import { LEADER_WINDOW_MS } from '../keys/leader.js';
 import { SELECTION_CAP_BYTES } from '../history/history-viewer.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
@@ -6890,5 +6890,71 @@ describe('TuiBackend todo 快照块直播腿（挖掘 35 轮 B8——tool_execut
     io.bytes = '';
     emit(backend, { type: 'tool_execution_end', toolCallId: 't2', result: {} as never }); // 全序列同签——闸跳过
     expect(stripAnsi(io.bytes)).not.toContain('任务清单已更新');
+  });
+});
+
+/* ---------------- 回溯回执编排 wireForkEdit（挖掘 36 轮末件——session-rewind-fork） ---------------- */
+
+describe('TuiBackend 回溯回执编排 wireForkEdit（forked 门控 seed / 草稿非空让位 / failed 零动作 / 异常兜底）', () => {
+  /** 微任务冲刷（fire-and-forget 内链 then/catch 两轮即 settling） */
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+  }
+
+  /** stub deps 装配（账本记录 seed/notify 调用面） */
+  function stubDeps(draftEmpty = true) {
+    const seeds: string[] = [];
+    const notices: { message: string; level?: string }[] = [];
+    return {
+      deps: {
+        draftEmpty: () => draftEmpty,
+        seed: (text: string) => seeds.push(text),
+        notify: (message: string, opts?: { level?: string }) => notices.push({ message, level: opts?.level }),
+        shortIdOf: (sessionId: string) => `sid-${sessionId.slice(-4)}`,
+      },
+      seeds,
+      notices,
+    };
+  }
+
+  it('forked + 空稿：seed 原文 + success notify（含新会话短 id——血缘呈现位）', async () => {
+    const { deps, seeds, notices } = stubDeps(true);
+    const fn = wireForkEdit(async () => ({ status: 'forked', sessionId: 'sess-abcd1234' }), deps);
+    fn({ seq: 3, text: '回填原文' });
+    await flush();
+    expect(seeds).toEqual(['回填原文']); // setText 单源回填
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.level).toBe('success');
+    expect(notices[0]?.message).toContain('sid-1234'); // 短 id 单源注入
+    expect(notices[0]?.message).toContain('编辑后发送'); // 不自动提交指路（条款②）
+  });
+
+  it('forked + 草稿非空：不 seed（破坏性保守面）+ warn 指路保留草稿', async () => {
+    const { deps, seeds, notices } = stubDeps(false);
+    const fn = wireForkEdit(async () => ({ status: 'forked', sessionId: 'sess-abcd1234' }), deps);
+    fn({ seq: 3, text: '回填原文' });
+    await flush();
+    expect(seeds).toEqual([]); // 不覆盖非空草稿
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.level).toBe('warn');
+    expect(notices[0]?.message).toContain('草稿非空'); // 指路文案
+  });
+
+  it('failed（vetoed/error 合并终态）：零动作——seed/notify 双零（核侧已报不重复）', async () => {
+    const { deps, seeds, notices } = stubDeps(true);
+    const fn = wireForkEdit(async () => ({ status: 'failed' }), deps);
+    fn({ seq: 3, text: '原文' });
+    await flush();
+    expect(seeds).toEqual([]);
+    expect(notices).toEqual([]);
+  });
+
+  it('回执 promise reject：兜底吞不炸（防御位——fire-and-forget 不外抛）', async () => {
+    const { deps, seeds, notices } = stubDeps(true);
+    const fn = wireForkEdit(() => Promise.reject(new Error('意外腿')), deps);
+    expect(() => fn({ seq: 3, text: '原文' })).not.toThrow(); // 同步面零抛
+    await flush(); // 异步链 settle 不产生 unhandled rejection
+    expect(seeds).toEqual([]);
+    expect(notices).toEqual([]);
   });
 });

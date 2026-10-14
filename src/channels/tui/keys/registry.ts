@@ -22,7 +22,7 @@
  */
 
 /** 动作域（冲突检测与 /help 分组〔10k〕的判据位） */
-export type ActionScope = 'global' | 'thinking' | 'tools' | 'editor';
+export type ActionScope = 'global' | 'thinking' | 'tools' | 'editor' | 'history';
 
 /** 动作定义（册条目——id / 域 / 中文标签 / 缺省键位 / 可覆盖性） */
 export interface ActionDef {
@@ -189,6 +189,19 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
     scope: 'editor',
     label: '回搜历史（下一条命中）',
     keys: ['ctrl+s'],
+    overridable: true,
+  },
+  // 回看器域首枚（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork：增册至
+  // 38〔global 8 + thinking 1 + tools 1 + editor 27 + history 1〕）。e 进入
+  // 用户消息回溯选择态——键位投影位（可打印字符走 text 事件，绑定永不命中
+  // key 路；分诊真源 = history-viewer text 路单字符镜像，'?' help 条目同构
+  // 投影位注释先例）；↑/↓/enter/esc/q 是选择态内语义键不入册（viewer 态机
+  // 自持——与搜索模态键面同律）
+  {
+    id: 'history.fork-edit',
+    scope: 'history',
+    label: '选中消息回溯编辑',
+    keys: ['e'],
     overridable: true,
   },
 ];

@@ -18,6 +18,7 @@ import { DIM_STYLE } from '../markdown/layout.js';
 import { renderThinkingStyledLines } from '../blocks/thinking.js';
 import {
   dialogueBlockCount,
+  forkEditAnchorsOf,
   LiveTranscript,
   renderBlockLines,
   renderBlockStyledLines,
@@ -2466,5 +2467,50 @@ describe('LiveTranscript todo 快照块（挖掘 35 轮 B8——todo-snapshot）
       [{ seq: 1, items: [todoItem('pending', '甲')] }],
     );
     expect(live.snapshot.map((b) => b.kind)).toEqual(rebuilt.snapshot.map((b) => b.kind)); // 块序同构
+  });
+});
+
+describe('forkEditAnchorsOf 回溯锚单源（挖掘 36 轮件 8——session-rewind-fork）', () => {
+  /** seq 回贴形工厂（投影副本增位——projectionWithSeqOf 产物同构） */
+  const seqMsg = (message: AgentMessage, seq: number): AgentMessage & { seq: number } =>
+    ({ ...message, seq }) as AgentMessage & { seq: number };
+
+  it('判据 = rendersAsUserBlock 同集 + seq 在场：assistant/机器注入族/无 seq 形全滤除', () => {
+    const anchors = forkEditAnchorsOf([
+      seqMsg(userMsg('第一条'), 3),
+      seqMsg(assistantMsg('回答'), 5),
+      seqMsg(userMsg('结算通知', 'subagent-settled'), 7),
+      seqMsg(userMsg('审批挂起', 'subagent-approval-pending'), 8),
+      seqMsg(userMsg('[COMPACTION-SUMMARY] 摘要正文', 'compaction'), 9),
+      userMsg('无 seq 老投影形'), // seq 缺席不入锚——1:1 配对保护（viewer 侧降级判据）
+      seqMsg(userMsg('第二条'), 12),
+    ]);
+    expect(anchors).toEqual([
+      { seq: 3, text: '第一条' },
+      { seq: 12, text: '第二条' },
+    ]);
+  });
+
+  it('图文消息纯文本直拼（图块诚实缺席不产「[图片]」占位）；纯图消息 text 空串保锚（1:1 账守恒）', () => {
+    const imgOnly = {
+      role: 'user',
+      content: [{ type: 'image', data: 'aGk=', mimeType: 'image/png' }],
+      timestamp: 1,
+      seq: 4,
+    } as unknown as AgentMessage & { seq: number };
+    const mixed = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '看图' },
+        { type: 'image-ref', ref: `sha256:${'a'.repeat(64)}`, mimeType: 'image/png', bytes: 1 },
+        { type: 'text', text: '补充' },
+      ],
+      timestamp: 1,
+      seq: 6,
+    } as unknown as AgentMessage & { seq: number };
+    expect(forkEditAnchorsOf([imgOnly, mixed])).toEqual([
+      { seq: 4, text: '' }, // 回填面不造假占位（joinTextBlocks 呈现形分立）
+      { seq: 6, text: '看图补充' }, // 文本块零分隔直拼
+    ]);
   });
 });

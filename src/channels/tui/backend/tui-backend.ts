@@ -74,6 +74,8 @@ import type {
   UiBackend,
   UiCallLedgerEntry,
   UiClipboardResult,
+  UiForkEditAnchor,
+  UiForkEditReceipt,
   UiInputOptions,
   UiSelectChoice,
   UiSessionDeleteResult,
@@ -427,6 +429,52 @@ export interface TuiBackendOptions {
     readonly version: string;
     readonly model: string;
     readonly directory: string;
+  };
+}
+
+/**
+ * 回溯编辑回执编排柄（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork）：
+ * 把通道核 wrapper 的异步回执链接到 backend 动作面（独立导出函数——单测可
+ * 锚接缝，不依赖 TuiBackend 实例）。回执路由：
+ * - **forked + 空稿** → seed 原文（setText 整替 + syncEmptyGuide 对账一体——
+ *   外编回填先例同律）+ 成功 notify（含新会话短 id——fork 血缘呈现位）；
+ * - **forked + 草稿非空** → 不覆盖（破坏性保守面——warn 指路保留草稿）；
+ * - **failed**（vetoed/error 合并终态）→ 零动作（notify 已由通道核 wrapper
+ *   发出——呈现层不重复报）。
+ * 不自动提交（提交路归用户 enter——条款②）；图附件不回填（锚 text 纯文本
+ * 直拼，诚实缺席）。
+ */
+export function wireForkEdit(
+  core: (anchor: UiForkEditAnchor) => Promise<UiForkEditReceipt>,
+  deps: {
+    /** 草稿空判（forked 回执的门控位——非空不 seed） */
+    readonly draftEmpty: () => boolean;
+    /** 原文回填（setText + syncEmptyGuide 对账一体——单动作注入） */
+    readonly seed: (text: string) => void;
+    /** 呈现通知（成功/指路 warn） */
+    readonly notify: (message: string, opts?: { level?: NotifyLevel }) => void;
+    /** 会话短 id 单源（血缘注记） */
+    readonly shortIdOf: (sessionId: string) => string;
+  },
+): (anchor: UiForkEditAnchor) => void {
+  return (anchor) => {
+    void core(anchor)
+      .then((receipt) => {
+        if (receipt.status !== 'forked') return; // failed——零动作（wrapper 已 notify）
+        const shortId = deps.shortIdOf(receipt.sessionId);
+        if (!deps.draftEmpty()) {
+          deps.notify(`已回溯到新会话 ${shortId}——当前草稿非空，原文未回填（草稿已保留，清空后可重试）`, {
+            level: 'warn',
+          });
+          return;
+        }
+        deps.seed(anchor.text);
+        deps.notify(`已回溯到新会话 ${shortId}——原文已回填，编辑后发送`, { level: 'success' });
+      })
+      .catch(() => {
+        // 回执 promise 自身异常兜底吞（通道核 wrapper 已全 catch——此为防御位：
+        // 异步链异常不外溢杀主循环）
+      });
   };
 }
 
@@ -1639,8 +1687,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 条款）。已在副屏 no-op（无嵌套备屏）；主屏不在 running 态 open 被拒
    * （句柄 null——保持无副屏态）。Ctrl+C / Ctrl+D 副屏键面经 viewer 装配柄
    * 透传本件两柄（与主屏同键面）。
+   *
+   * 第三参 onForkEdit（挖掘 36 轮件 8 回溯 fork 批）：注入在场才铸回溯回调
+   * （缺席注入律——viewer 不见键行为）；回执编排经 wireForkEdit（seed 对账
+   * + 血缘 notify）。
    */
-  openHistory(sessionId: string, messages: readonly AgentMessage[]): void {
+  openHistory(
+    sessionId: string,
+    messages: readonly AgentMessage[],
+    onForkEdit?: (anchor: UiForkEditAnchor) => Promise<UiForkEditReceipt>,
+  ): void {
     if (this.altHandle !== null) return;
     const handle = this.altHost.open(
       new HistoryViewer({
@@ -1661,6 +1717,21 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onCopy: (text) => this.io.write(buildOsc52Copy(text)),
         // 键位册同源注入（批 10k 遗漏修——搜索行子编辑器同册，用户覆盖通效）
         keymap: this.keymap,
+        // 回溯编辑回调（挖掘 36 轮件 8）：注入在场才铸——wireForkEdit 编排
+        // 空稿 seed + 血缘 notify（draftEmpty 门控在内）；缺席 undefined
+        //（viewer e 键无效零行为变）
+        onForkEdit:
+          onForkEdit === undefined
+            ? undefined
+            : wireForkEdit(onForkEdit, {
+                draftEmpty: () => this.editor.model.isEmpty(),
+                seed: (text) => {
+                  this.editor.setText(text); // 整替单源路（斜杠回填对账律位——setText 旁路必随 syncEmptyGuide）
+                  this.syncEmptyGuide();
+                },
+                notify: (message, opts) => this.notify(message, opts),
+                shortIdOf,
+              }),
       }),
     );
     this.altHandle = handle; // null = 主屏未 running 被拒——如实保持无副屏

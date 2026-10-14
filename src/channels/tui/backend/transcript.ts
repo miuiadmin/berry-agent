@@ -75,6 +75,7 @@ import {
   toolFaceZh,
   lastCcrEntryOf,
   compactionSeparatorLine,
+  type UiForkEditAnchor,
 } from '../../../contracts/index.js';
 import { CURSOR_MARK } from '../panels/panel-chrome.js';
 import { DIM_STATUSES, STATUS_MARKS } from '../panels/todo-panel.js';
@@ -1267,6 +1268,38 @@ const MACHINE_INJECTED_USER_SOURCES: ReadonlySet<string> = new Set([
 function rendersAsUserBlock(message: AgentMessage): boolean {
   if (!isStandardMessage(message)) return false;
   return message.role === 'user' && !MACHINE_INJECTED_USER_SOURCES.has(message.source ?? 'user');
+}
+
+/**
+ * 纯文本块直拼（回溯锚原文形——挖掘 36 轮件 8 回溯 fork 批）：图块跳过不产
+ * 「[图片]」占位（回填面诚实缺席不造假——joinTextBlocks 的呈现形含占位行，
+ * 与本形分立）；文本块相邻零分隔直拼（与 joinTextBlocks 文本路径同律）。
+ */
+function plainTextOf(message: AgentMessage): string {
+  if (!isStandardMessage(message)) return '';
+  if (typeof message.content === 'string') return message.content; // user 纯文本形
+  let out = '';
+  for (const block of message.content) {
+    if (block.type === 'text' && typeof block.text === 'string') out += block.text;
+  }
+  return out;
+}
+
+/**
+ * 回看器回溯编辑锚单源（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork）：
+ * 判据 = rendersAsUserBlock 同集 + 投影 seq 在场（user/message 事件 seq——
+ * 「第 n 条可见用户消息」按呈现投影解析非原始事件序，codex
+ * backtrack_fork_before_turn_id 同构）。无 seq 的 user 消息不入锚——锚数与
+ * user 块数由调用方 1:1 对账，不齐即降级禁用回溯面（防御位在回看器构造期）。
+ */
+export function forkEditAnchorsOf(messages: readonly (AgentMessage & { readonly seq?: number })[]): UiForkEditAnchor[] {
+  const anchors: UiForkEditAnchor[] = [];
+  for (const message of messages) {
+    if (!rendersAsUserBlock(message)) continue;
+    if (typeof message.seq !== 'number') continue;
+    anchors.push({ seq: message.seq, text: plainTextOf(message) });
+  }
+  return anchors;
 }
 
 /**

@@ -21,6 +21,8 @@ import type {
   SessionEnvelope,
   UiAskOptions,
   UiBackend,
+  UiForkEditAnchor,
+  UiForkEditReceipt,
   UiInputOptions,
   UiSelectChoice,
   UiSessionDeleteResult,
@@ -156,6 +158,13 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
   // 件 8 /history 注册面（07 §4.1 条款：history() 注入在场即注册、缺席不注册
   // 不虚报——真源 = 聚焦会话 → 拉全量 durable 正文投影 → 扇出后端 openHistory；
   // 生产数据源接线归批 12 host 装配）
+  // 〔挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork：扇出追第三参回溯回调
+  // （forkBeforeMessage 注入在场才铸，缺席 = undefined——缺席注入律；/history
+  // 注册面仍只系 history 注入在场）。回执三态路由归核：forked → 切焦新会话
+  // （registry.focus 既有权威路——切焦不打断，/resume 律同引）后透传回执；
+  // vetoed → warn（钩子否决）；error/异常 → error（foldErrorText 折面）折
+  // failed——异步异常就地折 notify 不直穿（直穿沿 viewer→alt-screen→engine
+  // 成 uncaughtException 杀整个 TUI，selectSession 同律）〕
   if (opts.history !== undefined) {
     const fetchHistory = opts.history;
     commands.register(
@@ -164,7 +173,39 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
         const sessionId = registry.focusedId;
         if (sessionId === null) return; // 焦点空悬——无回看对象（静默返回不虚报）
         const messages = await fetchHistory(sessionId);
-        for (const b of allBackends()) b.openHistory?.(sessionId, messages);
+        // 回溯回调铸造（每次开屏一份——闭包钉该会话 id，快照档回看期内焦点
+        // 变更不漂移边界语义）
+        const forkBefore = opts.forkBeforeMessage;
+        const onForkEdit: ((anchor: UiForkEditAnchor) => Promise<UiForkEditReceipt>) | undefined =
+          forkBefore === undefined
+            ? undefined
+            : (anchor) =>
+                // 副屏回调是用户面不是异常面：reject 就地折 error notify + failed
+                // 回执（用户可重试），不直穿杀 TUI
+                forkBefore(sessionId, anchor.seq)
+                  .then(async (result): Promise<UiForkEditReceipt> => {
+                    if (result.status === 'vetoed') {
+                      uiCore.notify('回溯被会话钩子否决（session_before_fork）', { level: 'warn' });
+                      return { status: 'failed' };
+                    }
+                    if (result.status === 'error') {
+                      uiCore.notify(`回溯失败：${result.message}`, { level: 'error' });
+                      return { status: 'failed' };
+                    }
+                    // forked → 切焦新会话（不打断在飞 run）；切焦失败折 failed
+                    try {
+                      await registry.focus(result.sessionId);
+                    } catch (err) {
+                      uiCore.notify(`切换会话失败：${foldErrorText(err)}`, { level: 'error' });
+                      return { status: 'failed' };
+                    }
+                    return { status: 'forked', sessionId: result.sessionId };
+                  })
+                  .catch((err: unknown): UiForkEditReceipt => {
+                    uiCore.notify(`回溯失败：${foldErrorText(err)}`, { level: 'error' });
+                    return { status: 'failed' };
+                  });
+        for (const b of allBackends()) b.openHistory?.(sessionId, messages, onForkEdit);
       },
       '全屏回看会话历史',
     );

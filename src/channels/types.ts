@@ -31,6 +31,9 @@ export type {
   UiRewindPreview,
   UiRewindActions,
   UiSessionDeleteResult,
+  UiForkEditAnchor,
+  UiForkBeforeMessageResult,
+  UiForkEditReceipt,
   UiClipboardResult,
 } from '../contracts/index.js';
 
@@ -42,6 +45,7 @@ export type { ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.j
 // 块不进本文件作用域，值用须显式 import）
 import type { UiSessionSummary, UiUsageSummary, UiCallLedger, UiSessionPreviewLine } from '../contracts/index.js';
 import type { UiSessionDeleteResult } from '../contracts/index.js';
+import type { UiForkBeforeMessageResult } from '../contracts/index.js';
 
 /**
  * todo 条目（07 §4.1 呈现面件 4——todoFor 注入载荷）：items 全量快照真源 =
@@ -136,6 +140,15 @@ export interface ChannelsOptions<TProjection> {
    * openHistory）；缺席 = 不注册不虚报（件 8 条款注册面律）。
    */
   readonly history?: (sessionId: string) => Promise<readonly TProjection[]>;
+  /**
+   * 用户消息回溯 fork 注入（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork）：
+   * 在场 = 通道核 /history 扇出时铸 openHistory 第三参回调（回看器「e 回溯」
+   * 键行为的机器面）；缺席 = 第三参 undefined（缺席注入律——键无效零行为变，
+   * /history 注册面仍只系 history 注入在场）。机器路 = manager.fork
+   * (sessionId,{upToSeq: beforeSeq−1})（05 §5.1 钩子/洪水闸 + 04 §1 封印位
+   * 全律承接）；回执三态（forked/vetoed/error）由核 wrapper 路由 notify/focus。
+   */
+  readonly forkBeforeMessage?: (sessionId: string, beforeSeq: number) => Promise<UiForkBeforeMessageResult>;
   /**
    * 记忆管理面注册位（06 §7 `/memory`——mm 批）：与 history 同层同律的
    * 注入在场判（在场 = 通道核注册 /memory 命令；缺席 = 不注册不虚报）。

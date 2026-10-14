@@ -20,10 +20,11 @@ import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../con
 import type { AgentEvent } from '../agent/index.js';
 import { materializeHostFace } from '../contracts/api.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
-import type { UiSessionDeleteResult } from '../channels/types.js';
-import { canonicalWorkspaceRoot, Scope } from '../context/index.js';
+import type { UiForkEditAnchor, UiForkEditReceipt, UiSessionDeleteResult } from '../channels/types.js';
+import { canonicalWorkspaceRoot, EventDispatch, Scope } from '../context/index.js';
 import type { AuthRefreshSeam, ConversationDriverOptions, ExecSessionDeps } from '../conversation/types.js';
 import { setSessionMode } from '../conversation/index.js';
+import type { SessionBeforeForkInput } from '../conversation/sessions.js';
 import { createBashTool, createSpawnPipeline } from '../exec/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { DEFAULT_COMPACTION_CONFIG } from '../compaction/index.js';
@@ -3657,6 +3658,155 @@ describe('ask/settled 收场总线真装配（挖掘 36 轮 [2]——词注册 +
     expect(notices).toEqual([
       { sessionId: 's-ask', kind: 'confirm', question: '做吗？', outcome: 'answered', answer: '是' },
     ]); // sessionId/kind/question/outcome 齐 + answer 映射对（confirm→是）
+    await rt.shutdown();
+  });
+});
+
+/* ---------------- 回溯 fork 机器路真装配（挖掘 36 轮末件——session-rewind-fork） ---------------- */
+
+describe('回溯 fork 机器路真装配（forkBeforeMessage 注入 + 边界含位 + 三态回执 + 未闭 turn 活体投影）', () => {
+  /** 回看开屏记录后端（RecordingBackend 扩 openHistory——第三参回溯回调捕获面） */
+  class HistoryBackend extends RecordingBackend {
+    readonly historyOpens: Array<{
+      sessionId: string;
+      messages: readonly AgentMessage[];
+      fork?: (anchor: UiForkEditAnchor) => Promise<UiForkEditReceipt>;
+    }> = [];
+    openHistory(
+      sessionId: string,
+      messages: readonly AgentMessage[],
+      onForkEdit?: (anchor: UiForkEditAnchor) => Promise<UiForkEditReceipt>,
+    ): void {
+      this.historyOpens.push({ sessionId, messages, fork: onForkEdit });
+    }
+  }
+
+  /** 单轮提交速记（faux 终态脚本 + await 完成） */
+  async function submitTurn(
+    fauxHandle: { setResponses: (responses: Array<() => PiAssistantMessage>) => void },
+    stack: ReturnType<typeof createConversationStack>,
+    sessionId: string,
+    text: string,
+  ): Promise<void> {
+    fauxHandle.setResponses([() => messageOf('stop')]);
+    const receipt = await stack.submitText(sessionId, text);
+    expect(receipt).toMatchObject({ status: 'completed' });
+  }
+
+  it('ASM-1 真装配链：/history 扇出第三参在场（修前红）+ fork before 第二条 user 边界含位 + fork 保源', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const ws = rigWorkspace();
+    const backend = new HistoryBackend();
+    stack.channels.addBackend(backend);
+    const session = stack.openStartupSession(ws);
+    await submitTurn(faux, stack, session.sessionId, '第一轮');
+    await submitTurn(faux, stack, session.sessionId, '第二轮');
+    await stack.channels.focus(session.sessionId); // /history 真源 = 聚焦会话
+
+    // ASM-1：真装配 /history 开屏——forkBeforeMessage 注入在场才有第三参
+    // （修前红锚：改前 openHistory 恒两参、fork undefined——单测假注入绿掩盖
+    // 装配缺口的族判据，此测钉真链）
+    expect(await stack.channels.dispatchCommand('/history')).toBe(true);
+    expect(backend.historyOpens).toHaveLength(1);
+    const fork = backend.historyOpens[0]!.fork;
+    expect(typeof fork).toBe('function');
+
+    // 边界含位：beforeSeq = 第二条 user 的 seq → upToSeq = seq−1（所选消息
+    // 不进新会话）——新会话前缀恰为第一轮全闭 turn
+    const events = stack.driverOf(session.sessionId)!.session.events();
+    const sourceLen = events.length;
+    const secondUser = events.filter((e) => e.type === 'user/message')[1]!;
+    const receipt = await fork!({ seq: secondUser.seq, text: '第二轮' });
+    expect(receipt).toMatchObject({ status: 'forked' });
+    if (receipt.status !== 'forked') return;
+    // 通道核 wrapper 切焦生效（registry.focus 权威路——真链一并钉）
+    expect(stack.channels.focusedId).toBe(receipt.sessionId);
+    // 子会话投影可读：仅第一轮（user 第一条 + assistant 在场、第二条缺席）
+    const child = await stack.projectionOf(receipt.sessionId);
+    expect(child.some((m) => m.role === 'user' && m.content === '第一轮')).toBe(true);
+    expect(child.some((m) => m.role === 'user' && m.content === '第二轮')).toBe(false);
+    // fork 保源：源日志零污染（05 §5.0 内存种子组装——无 end-seed 写回）
+    const after = stack.driverOf(session.sessionId)!.session.events();
+    expect(after).toHaveLength(sourceLen);
+    expect(after.some((e) => e.type === 'session/end-seed')).toBe(false);
+    await rt.shutdown();
+  });
+
+  it('三态回执：vetoed（真钩子面）→ failed + warn 通告不切焦；upToSeq 越界 throw → error 折面 failed', async () => {
+    const { rt } = rigRuntime();
+    const dispatch = new EventDispatch(); // 注入自持 dispatch——真钩子挂点（options.dispatch 既有缝）
+    const { faux, stack } = rigStack(rt, { dispatch });
+    const ws = rigWorkspace();
+    const backend = new HistoryBackend();
+    const notices: string[] = [];
+    backend.notify = (message: string) => {
+      notices.push(message);
+    };
+    stack.channels.addBackend(backend);
+    const session = stack.openStartupSession(ws);
+    await submitTurn(faux, stack, session.sessionId, '一轮');
+    await stack.channels.focus(session.sessionId);
+
+    // vetoed：session_before_fork 置位（05 §5.1 钩子——veto 判后种子组装前）
+    const off = dispatch.onWaterfall<SessionBeforeForkInput>('session_before_fork', (value, next) => {
+      value.veto = { reason: '策略拒' };
+      return next(value);
+    });
+    await stack.channels.dispatchCommand('/history');
+    const vetoFork = backend.historyOpens[0]!.fork!;
+    const vetoed = await vetoFork({ seq: 1, text: '一轮' });
+    off();
+    expect(vetoed).toEqual({ status: 'failed' }); // 通道核 wrapper 折 failed（呈现层零动作面）
+    expect(stack.channels.focusedId).toBe(session.sessionId); // 不切焦
+    expect(notices.some((n) => n.includes('否决'))).toBe(true); // warn 通告在场
+
+    // error：越界 upToSeq → manager.fork fail-loud throw → catch 折 error 回执
+    const events = stack.driverOf(session.sessionId)!.session.events();
+    const maxSeq = events[events.length - 1]!.seq;
+    const errored = await backend.historyOpens[0]!.fork!({ seq: maxSeq + 100, text: '一轮' });
+    expect(errored).toEqual({ status: 'failed' });
+    expect(notices.some((n) => n.includes('回溯失败'))).toBe(true); // foldErrorText 折面非空
+    await rt.shutdown();
+  });
+
+  it('未闭 turn 前缀（steer 形）：fork 活体投影可读不崩（deriveMessages 尾冲刷——未闭 assistant 冲刷 + 孤儿 tool/call 空缓冲兜底）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const ws = rigWorkspace();
+    const backend = new HistoryBackend();
+    stack.channels.addBackend(backend);
+    const session = stack.openStartupSession(ws);
+    await submitTurn(faux, stack, session.sessionId, '第一轮');
+    await stack.channels.focus(session.sessionId);
+    // 未闭 turn 直落：user 后 assistant/message 无 turn/end + 孤儿 tool/call
+    // （无 tool/result 配对——crash/steer 中途形的日志切片）
+    const log = stack.driverOf(session.sessionId)!.session;
+    log.append('turn/start', {});
+    log.append('user/message', { content: '第二轮', source: 'user' });
+    log.append('assistant/message', {
+      content: [{ type: 'text', text: '半途' }],
+      usage: NO_USAGE,
+      stopReason: 'stop',
+    });
+    log.append('tool/call', { toolCallId: 't9', name: 'read', arguments: '{}' });
+
+    // 显式 upToSeq 切进未闭 turn（07 件 8 批注辖域定谳——显式形豁免净边界）：
+    // 前缀含整段未闭事件
+    const events = log.events();
+    const orphanCall = events[events.length - 1]!;
+    await stack.channels.dispatchCommand('/history');
+    const fork = backend.historyOpens[0]!.fork!;
+    const receipt = await fork({ seq: orphanCall.seq + 1, text: '第二轮' });
+    expect(receipt).toMatchObject({ status: 'forked' });
+    if (receipt.status !== 'forked') return;
+    // 活体投影可读不崩：尾冲刷把未闭 assistant 折成投影消息（text 半途 +
+    // 孤儿 toolCall 空缓冲兜底）——closer 合成归重启后 loadSession 腿，活体期零补形
+    const child = await stack.projectionOf(receipt.sessionId);
+    expect(child.some((m) => m.role === 'user' && m.content === '第二轮')).toBe(true);
+    const halfDone = child.filter((m) => m.role === 'assistant').at(-1);
+    expect(halfDone).toBeDefined(); // 尾冲刷在场（修前崩形 = fold 不冲刷丢尾）
+    expect(JSON.stringify(halfDone)).toContain('半途');
     await rt.shutdown();
   });
 });
