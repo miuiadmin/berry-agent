@@ -28,7 +28,7 @@ import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { BaseError } from '../contracts/index.js';
-import { redactToolResultExit } from '../contracts/index.js';
+import { redactToolResultExit, redactUpdatePayload } from '../contracts/index.js';
 import { TOOL_EXECUTE_EVENT, TOOL_POST_EXECUTE_EVENT, TOOL_PRE_EXECUTE_EVENT } from '../contracts/index.js';
 import { formatElapsedCompact } from '../contracts/index.js';
 import type {
@@ -39,6 +39,7 @@ import type {
   PostExecuteInput,
   TextContent,
   ToolPipelineExecutor,
+  ToolUpdateCallback,
 } from '../contracts/index.js';
 import type { EventDispatch } from '../context/index.js';
 
@@ -170,12 +171,28 @@ export function createToolPipeline(dispatch: EventDispatch, opts: ToolPipelineOp
 
     /* ---- 第二段：执行（around-dispatch；链尾缺省实现 = 超时预算 + execute） ---- */
     // 载荷 = 执行闭包：监听者包装闭包经 next 传播（超时预算/重试/指标类包装位）
+    // onUpdate 出口消毒包装（04 §7 出口治理③射界扩——流式活预览批③）：update
+    // 流同出口（UI 直播回显同是泄漏面）。producer 面收原始载荷，emit 面恒过两
+    // 腿（模式腿 + 值基腿 sensitiveValues live 读；provider 故障降级纯模式腿
+    // ——与 result 出口同律）；缺席链零包装零行为。
+    const emitUpdate: ToolUpdateCallback | undefined =
+      onUpdate === undefined
+        ? undefined
+        : (update) => {
+            let values: readonly string[] = [];
+            try {
+              values = sensitiveValues();
+            } catch {
+              /* provider 读取故障 → 空值表 = 纯模式执法（降级诚实——同 result 出口律） */
+            }
+            onUpdate(redactUpdatePayload(update, values));
+          };
     const timedExecute: ExecuteInput = async () => {
       const timeoutMs = def.timeoutMs ?? defaultTimeoutMs;
       const toolCtx = {
         toolCallId,
         ...(signal !== undefined ? { signal } : {}),
-        ...(onUpdate !== undefined ? { onUpdate } : {}),
+        ...(emitUpdate !== undefined ? { onUpdate: emitUpdate } : {}),
         ...(sessionId !== undefined ? { sessionId } : {}),
       };
       const execOwned = () => def.execute(gated.args, toolCtx);

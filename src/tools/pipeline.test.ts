@@ -392,3 +392,45 @@ describe('出口消毒（出口治理③——护栏之前一步）', () => {
     expect(spilled).toContain('[REDACTED:credential]');
   });
 });
+
+describe('onUpdate 出口消毒（出口治理③射界扩——流式活预览批③）', () => {
+  it('两腿 + 降级 + 拷贝改写 + unknown 原样（修前红：裸透传——收集器收裸秘密串）', async () => {
+    const secret = 'sk-secret-value-9876543210';
+    const frames: unknown[] = [];
+    const { executor } = makeRig({ sensitiveValues: () => [secret] });
+    const producer = { content: [{ type: 'text', text: `token=${secret}` }] };
+    const tool = makeTool({
+      execute: async (_args, toolCtx) => {
+        toolCtx.onUpdate?.(`token=${secret}`); // string 形——两腿合流（值基先行）
+        toolCtx.onUpdate?.('Authorization: Bearer abcdef123456'); // 模式腿（头整行特例）
+        toolCtx.onUpdate?.(producer); // content 形——拷贝改写（不动 producer）
+        toolCtx.onUpdate?.(42); // 其余形状原样（unknown 契约不收紧）
+        return { content: [] };
+      },
+    });
+    await executor(tool, 'call-upd-1', { n: 1 }, undefined, (u) => frames.push(u));
+    expect(frames[0]).toBe('token=[REDACTED:credential]'); // 值基腿（≥8 整段置换）
+    expect(frames[1]).toBe('Authorization: [REDACTED:credential]'); // 模式腿
+    // content 形：帧文本已消毒且 producer 原对象不变（emit 面与 producer 面分立）
+    const frameContent = frames[2] as typeof producer;
+    expect(frameContent).not.toBe(producer);
+    expect(frameContent.content[0]!.text).toBe('token=[REDACTED:credential]');
+    expect(producer.content[0]!.text).toBe(`token=${secret}`);
+    expect(frames[3]).toBe(42); // 原样（引用/值不变）
+    // provider 故障降级纯模式腿：update 流同 result 出口律
+    const frames2: unknown[] = [];
+    const { executor: exec2 } = makeRig({
+      sensitiveValues: () => {
+        throw new Error('store boom');
+      },
+    });
+    const tool2 = makeTool({
+      execute: async (_a, ctx) => {
+        ctx.onUpdate?.('GITHUB_TOKEN=ghp_abcdef1234');
+        return { content: [] };
+      },
+    });
+    await exec2(tool2, 'call-upd-2', { n: 1 }, undefined, (u) => frames2.push(u));
+    expect(frames2[0]).toBe('GITHUB_TOKEN=[REDACTED:secret]');
+  });
+});

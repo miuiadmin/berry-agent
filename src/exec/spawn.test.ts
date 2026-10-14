@@ -482,5 +482,40 @@ describe('spawnInteractive 长存活双工子进程（三桥 stdio 面）', () =
   });
 });
 
+describe('run() onData 只读抽头（04 §8 流式活预览批①三律）', () => {
+  it('到达序透传 + 不进结算 + 抽头异常管道侧吞不炸执行（修前红：SpawnRequest 无 onData 键——抽头零调用）', async () => {
+    const pipeline = createSpawnPipeline();
+    const chunks: string[] = [];
+    const argv = [
+      execPath,
+      '-e',
+      "process.stdout.write('out-a'); process.stderr.write('err-b'); process.stdout.write('out-c');",
+    ];
+    const tapped = await pipeline.run({
+      argv,
+      onData: (stream, chunk) => chunks.push(`${stream}:${Buffer.from(chunk).toString('utf8')}`),
+    });
+    // 到达序透传：抽头收到全部输出（流名 + 字节面）
+    const joined = chunks.join('');
+    expect(joined).toContain('stdout:out-a');
+    expect(joined).toContain('stderr:err-b');
+    expect(joined).toContain('out-c');
+    // 不进结算：与无抽头形逐字相等（保尾语义零动）
+    const plain = await pipeline.run({ argv });
+    expect(tapped.stdout).toBe(plain.stdout);
+    expect(tapped.stderr).toBe(plain.stderr);
+    expect(tapped.exitCode).toBe(0);
+    // 抽头恒 throw → run 照常结算 exit 0（呈现面故障不炸执行——单点吞异常）
+    const boomed = await pipeline.run({
+      argv: [execPath, '-e', "process.stdout.write('still-ok')"],
+      onData: () => {
+        throw new Error('tap boom');
+      },
+    });
+    expect(boomed.exitCode).toBe(0);
+    expect(boomed.stdout).toBe('still-ok');
+  });
+});
+
 /** SpawnPipeline 类型锚（防公共面漂移的编译期断言） */
 export type _PipelineShape = SpawnPipeline;

@@ -673,6 +673,53 @@ describe('createBashTool .git 拦截面（04 §8 腿一/腿二——成熟度缺
   });
 });
 
+describe('bash 流式活预览（04 §8 批②——真装配链 onUpdate 通/缺席零行为）', () => {
+  /** 预览注入形危险档工具（identity 沙箱 + intervalMs 25 测试钟） */
+  function previewTool(intervalMs: number) {
+    return createBashTool({
+      pipeline: createSpawnPipeline(),
+      workspaceRoot: () => process.cwd(),
+      currentMode: () => 'danger',
+      sandboxService: identitySandbox(),
+      env: process.env,
+      preview: { intervalMs },
+    });
+  }
+
+  it('真装配锁：真 spawn 管道 + 真 bash 工具——末行随滚动推进（修前红：execute 全程零 onUpdate、收集器恒空）', async () => {
+    const frames: unknown[] = [];
+    const tool = previewTool(25);
+    const result = await tool.execute(
+      { command: "printf 'line1\\n'; sleep 0.4; printf 'line2\\n'" },
+      { ...CTX, onUpdate: (u) => frames.push(u) },
+    );
+    // 终卡照常（流不改结算）
+    expect(textOf(result)).toContain('line2');
+    // 收集器 ≥1 帧（修前恒空）且全部为 AgentToolResult 形（面板宽容解码承接面）
+    expect(frames.length).toBeGreaterThanOrEqual(1);
+    for (const frame of frames) {
+      const block = (frame as { content?: { type?: string }[] }).content?.[0];
+      expect(block?.type).toBe('text');
+    }
+    // 末行随滚动推进：存在含 line2 的帧（dispose 冲刷腿——已建行末窗确定呈现）
+    const texts = frames.map((f) => {
+      const block = (f as { content?: { type?: string; text?: string }[] }).content?.[0];
+      return block?.text ?? '';
+    });
+    expect(texts.some((t) => t.includes('line2'))).toBe(true);
+  }, 15_000);
+
+  it('onUpdate 缺席零行为 + 终卡不变锁：同命令带/不带抽头两跑结算逐字相等', async () => {
+    const command = "echo 'settle-same-42'";
+    const frames: unknown[] = [];
+    const withTap = await previewTool(25).execute({ command }, { ...CTX, onUpdate: (u) => frames.push(u) });
+    const withoutTap = await previewTool(25).execute({ command }, CTX); // 缺席——抽头不建不炸
+    expect(textOf(withTap)).toContain('settle-same-42');
+    expect(textOf(withoutTap)).toBe(textOf(withTap)); // 流不改结算——§11 保尾语义零动
+    expect(withoutTap.isError).toBeUndefined();
+  }, 15_000);
+});
+
 /** worktree 授予腿测试的临时目录族 */
 const wtDirs: string[] = [];
 afterAll(() => {

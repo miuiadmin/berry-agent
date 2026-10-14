@@ -1213,6 +1213,15 @@
       "sig": "000236cf5f259e23"
     },
     {
+      "symbol": "redactUpdatePayload",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "update 载荷出口消毒（04 §7 出口治理③射界扩——流式活预览批③）：update 流同出口（tool_execution_update 载荷不进模型上下文〔活体层专属〕，但 UI 直播回显同是泄漏面——肩窥/录屏/终端日志，与 result 出口同律两腿）",
+      "kind": "function",
+      "sig": "fa741901ce4f0885"
+    },
+    {
       "symbol": "registerErrorCodes",
       "module": "berry-agent",
       "tier": "stable",

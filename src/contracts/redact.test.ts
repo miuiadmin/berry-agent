@@ -3,7 +3,7 @@
  * 模式集三段幂等性 + 值基腿下限/排序 + 结果出口 walk 结构保形）。
  */
 import { describe, it, expect } from 'vitest';
-import { redactKnownSecretValues, redactSensitiveText, redactToolResultExit } from './redact.js';
+import { redactKnownSecretValues, redactSensitiveText, redactToolResultExit, redactUpdatePayload } from './redact.js';
 import type { AgentToolResult } from './tools.js';
 
 describe('模式腿：URL userinfo 剥离', () => {
@@ -199,5 +199,33 @@ describe('结果出口 walk：redactToolResultExit', () => {
     const b: AgentToolResult = { content: [], details: '裸字符串明细' };
     redactToolResultExit(b, []);
     expect(b.details).toBe('裸字符串明细');
+  });
+});
+
+describe('update 载荷出口：redactUpdatePayload（出口治理③射界扩——流式活预览批③）', () => {
+  it('string 两腿合流 / content 文本块拷贝改写不动 producer / 其余形状原样（unknown 契约不收紧）', () => {
+    const secret = 'sk-update-abcdefgh';
+    // string 形：两腿合流（值基先行——注记形幂等不再触发模式腿）
+    expect(redactUpdatePayload(`v=${secret}`, [secret])).toBe('v=[REDACTED:credential]');
+    expect(redactUpdatePayload('GITHUB_TOKEN=ghp_abcdef1234', [])).toBe('GITHUB_TOKEN=[REDACTED:secret]');
+    // content 文本块形：拷贝改写（帧已消毒、producer 原对象不动、非文本块引用共享）
+    const producer = {
+      content: [
+        { type: 'text', text: `k=${secret}` },
+        { type: 'image', data: 'x' },
+      ],
+    };
+    const out = redactUpdatePayload(producer, [secret]) as typeof producer;
+    expect(out).not.toBe(producer);
+    expect(out.content[0]!.text).toBe('k=[REDACTED:credential]');
+    expect(producer.content[0]!.text).toBe(`k=${secret}`);
+    expect(out.content[1]).toBe(producer.content[1]);
+    // 其余形状原样：数字/布尔/无文本块对象/content 非数组——引用或值原样返回
+    expect(redactUpdatePayload(42, [])).toBe(42);
+    expect(redactUpdatePayload(true, [])).toBe(true);
+    const noText = { content: [{ type: 'image', data: 'x' }] };
+    expect(redactUpdatePayload(noText, [])).toBe(noText); // 零文本块零拷贝
+    const odd = { content: 'not-array' };
+    expect(redactUpdatePayload(odd, [])).toBe(odd);
   });
 });

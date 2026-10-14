@@ -234,3 +234,35 @@ export function redactToolResultExit(result: AgentToolResult, sensitiveValues: r
     redactDetails(result.details, sensitiveValues, 0, new Set());
   }
 }
+
+/**
+ * update 载荷出口消毒（04 §7 出口治理③射界扩——流式活预览批③）：update 流
+ * 同出口（tool_execution_update 载荷不进模型上下文〔活体层专属〕，但 UI 直
+ * 播回显同是泄漏面——肩窥/录屏/终端日志，与 result 出口同律两腿）。
+ *
+ * 只认两形（03 §2.3 update 载荷 unknown 契约不收紧）：string 形过两腿合流；
+ * `{content:[{type:'text'}]}` 形**拷贝改写**文本块（emit 面与 producer 面分立
+ * ——不动 producer 对象；非文本块引用共享，零文本块零拷贝原引用返回）；其余
+ * 形状原样返回。
+ */
+export function redactUpdatePayload(update: unknown, sensitiveValues: readonly string[]): unknown {
+  if (typeof update === 'string') return redactAll(update, sensitiveValues);
+  if (update !== null && typeof update === 'object' && Array.isArray((update as { content?: unknown }).content)) {
+    const source = update as { content: readonly unknown[] };
+    const rewritten = source.content.map((block) => {
+      if (
+        block !== null &&
+        typeof block === 'object' &&
+        (block as { type?: unknown }).type === 'text' &&
+        typeof (block as { text?: unknown }).text === 'string'
+      ) {
+        return { ...block, text: redactAll((block as { text: string }).text, sensitiveValues) };
+      }
+      return block; // 非文本块：引用共享（只改写文本面）
+    });
+    // 零改写零拷贝（无文本块对象原引用返回——原样语义的引用等价形）
+    const changed = rewritten.some((block, i) => block !== source.content[i]);
+    return changed ? { ...(update as object), content: rewritten } : update;
+  }
+  return update;
+}

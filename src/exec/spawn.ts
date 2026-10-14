@@ -64,6 +64,26 @@ interface RunDeps {
 }
 
 /**
+ * onData 抽头调用（04 §8 流式活预览批①三律之异常律）：抽头异常管道侧单点
+ * 吞掉降 debug 日志——呈现面故障不炸执行（保尾账本与结算产物不受影响）。
+ */
+function tapOutput(
+  onData: ((stream: 'stdout' | 'stderr', chunk: Uint8Array) => void) | undefined,
+  stream: 'stdout' | 'stderr',
+  chunk: Buffer,
+  logger: Logger,
+): void {
+  if (onData === undefined) return;
+  try {
+    onData(stream, chunk);
+  } catch (error) {
+    logger.debug('onData 抽头异常已吞（呈现面故障不炸执行）', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
  * 建 spawn 管道（登记簿随建——宿主启动期孤儿清扫消费 pipeline.registry）。
  */
 export function createSpawnPipeline(options: SpawnPipelineOptions = {}): SpawnPipeline {
@@ -248,8 +268,17 @@ async function runSpawn(request: SpawnRequest, deps: RunDeps): Promise<ExecResul
       }
     };
 
-    child.stdout?.on('data', (chunk: Buffer) => tail.append('stdout', chunk));
-    child.stderr?.on('data', (chunk: Buffer) => tail.append('stderr', chunk));
+    // data 双喂：保尾账本 + onData 只读抽头（04 §8 流式活预览批①——与保尾
+    // 账本同喂点位、互不影响：抽头不进结算；抽头异常管道侧吞掉降 debug——
+    // 呈现面故障不炸执行）
+    child.stdout?.on('data', (chunk: Buffer) => {
+      tail.append('stdout', chunk);
+      tapOutput(request.onData, 'stdout', chunk, deps.logger);
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      tail.append('stderr', chunk);
+      tapOutput(request.onData, 'stderr', chunk, deps.logger);
+    });
 
     // 失败二分前者：error 事件 = spawn 阶段失败（进程从未存在——ENOENT/EACCES）；
     // 结算后的迟到 error（stdio EPIPE 类）不改写已封归因

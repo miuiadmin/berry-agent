@@ -65,6 +65,14 @@ export interface SpawnRequest {
   readonly env?: EnvPolicy;
   /** 登记簿归属（缺省 'exec'；bash 工具传工具调用 id） */
   readonly owner?: string;
+  /**
+   * 只读输出抽头（04 §8 流式活预览批①）：stdout/stderr 每个 data 块随到随调
+   * （到达序——与 OutputTail 保尾账本同喂点位、互不影响）。三律：不进结算
+   * （保尾账本/结算产物不受抽头影响）/ 抽头异常管道侧吞掉降 debug 日志（呈现
+   * 面故障不炸执行）/ 缺席无行为。只挂 run() 面（spawnInteractive 三桥面不接
+   * ——桥侧输出流式挂真实需求再立题）。
+   */
+  readonly onData?: (stream: 'stdout' | 'stderr', chunk: Uint8Array) => void;
 }
 
 /** spawn 结算产物（失败二分：spawn 阶段失败走 BaseError 抛出，不走本形） */

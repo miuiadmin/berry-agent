@@ -33,6 +33,8 @@ import type {
 } from '../safety/index.js';
 import { BASH_TIMEOUT_DEFAULT_MS, BASH_TIMEOUT_MAX_MS } from './types.js';
 import type { ExecResult, SpawnPipeline } from './types.js';
+import { createStreamPreview } from './preview.js';
+import type { StreamPreviewOptions } from './preview.js';
 import { findGitRedirectViolations, isGitMetadataExempt, isGitPushAttempt, worktreeGitDir } from './git-guard.js';
 
 /**
@@ -209,6 +211,11 @@ export interface BashToolDeps {
   readonly grantedRoots?: () => string[];
   /** 环境源（发现序读面；测试注入） */
   readonly env?: NodeJS.ProcessEnv;
+  /**
+   * 活预览参数（04 §8 流式活预览批②——测试注入口：缺省常量形；生产装配
+   * 〔open-tools→ExecSessionDeps〕不传）。
+   */
+  readonly preview?: StreamPreviewOptions;
 }
 
 /**
@@ -422,13 +429,26 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
               ? { mode, workspaceRoot: wsRoot, writableRoots: grantedWritableRoots() }
               : { mode, workspaceRoot: wsRoot };
         const confined: ConfinedArgv = deps.sandboxService.confine(rawArgv, policy);
-        const result = await deps.pipeline.run({
-          argv: confined.argv,
-          cwd,
-          timeoutMs,
-          ...(toolCtx.signal !== undefined ? { signal: toolCtx.signal } : {}),
-          owner: toolCtx.toolCallId,
-        });
+        // ---- 流式活预览抽头（04 §8 批②）：toolCtx.onUpdate 在场才建（缺席
+        // 零行为——抽头不建不炸）；两流增量合并 → 钳尾 2KiB → 节流发
+        // AgentToolResult 形（面板零改承接）；终卡/结算路径零改（抽头只读
+        // 不进结算）——run() 结算后 finally dispose 清账（已建行冲刷待发窗、
+        // 此后零新发射——迟到发射由 loop 侧 accepting 旗兜底丢弃） ----
+        const preview =
+          toolCtx.onUpdate !== undefined ? createStreamPreview(toolCtx.onUpdate, deps.preview) : undefined;
+        let result: ExecResult;
+        try {
+          result = await deps.pipeline.run({
+            argv: confined.argv,
+            cwd,
+            timeoutMs,
+            ...(toolCtx.signal !== undefined ? { signal: toolCtx.signal } : {}),
+            owner: toolCtx.toolCallId,
+            ...(preview !== undefined ? { onData: preview.onData } : {}),
+          });
+        } finally {
+          preview?.dispose();
+        }
 
         // ---- 结算分类（退出码非工具面异常——数据面分报） ----
         if (result.outcome === 'timeout') {

@@ -41,6 +41,10 @@ export type { SpawnPipelineOptions } from './spawn.js';
 export { assertNoBackgroundCommand, createBashTool, discoverBash } from './bash.js';
 export type { BashToolDeps } from './bash.js';
 
+// 流式活预览抽头（04 §8 批②——纯逻辑腿）
+export { BASH_PREVIEW_INTERVAL_MS, BASH_PREVIEW_TAIL_BYTES, createStreamPreview } from './preview.js';
+export type { StreamPreviewOptions, StreamPreviewTap } from './preview.js';
+
 // goal gates command 源执行 seam 工厂（03 §10.5 ex 批——exec 判据门真接线；
 // 守门全序与 bash 工具同模块函数族单源复用）
 export { createGateExec, GATE_EXEC_OWNER, GATE_EXEC_TIMEOUT_MS } from './gate-exec.js';
