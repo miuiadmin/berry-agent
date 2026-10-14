@@ -17,7 +17,14 @@ import type { CellBuffer, CellStyle, ColorValue, InputEvent, Region } from '../.
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
-import { activeRowStyleOf, CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK, stepCursorWrap } from './panel-chrome.js';
+import {
+  activeRowStyleOf,
+  CURSOR_MARK,
+  headStyleOf,
+  moreHint,
+  PICKER_HEAD_MARK,
+  stepCursorWrap,
+} from './panel-chrome.js';
 import { builtinPalette, DEFAULT_THEME, resolveTheme, type ResolvedTheme } from '../theme/index.js';
 import { overlayBoard } from '../theme/custom.js';
 import type { PartialSemanticPalette } from '../theme/semantic.js';

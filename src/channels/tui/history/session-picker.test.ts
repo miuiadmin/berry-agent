@@ -214,7 +214,12 @@ describe('SessionPicker 行呈现', () => {
   it('工作区短名段（挖掘 35 轮 B9——右段首位；缺席缩位不虚报）', () => {
     const base = new Date(2026, 9, 14, 12, 0).getTime();
     const sessions = [
-      row({ id: 'aaa111111111', title: '调 TUI', workspaceRoot: '/Users/x/code/berry-agent', updatedAt: base - 5 * 60_000 }),
+      row({
+        id: 'aaa111111111',
+        title: '调 TUI',
+        workspaceRoot: '/Users/x/code/berry-agent',
+        updatedAt: base - 5 * 60_000,
+      }),
       row({ id: 'bbb222222222', title: '别仓', workspaceRoot: undefined, updatedAt: base - 5 * 60_000 }),
     ];
     const { picker } = makePicker(sessions, { nowMs: base });

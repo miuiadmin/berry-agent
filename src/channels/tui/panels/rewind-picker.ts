@@ -23,7 +23,14 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import type { UiRewindActions, UiRewindEntry, UiRewindPreview } from '../../../contracts/index.js';
 import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
-import { activeRowStyleOf, CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK, stepCursorWrap } from './panel-chrome.js';
+import {
+  activeRowStyleOf,
+  CURSOR_MARK,
+  headStyleOf,
+  moreHint,
+  PICKER_HEAD_MARK,
+  stepCursorWrap,
+} from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
 import { foldErrorText } from '../../service.js';

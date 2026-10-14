@@ -267,9 +267,7 @@ export class SessionPicker implements OverlayContent {
     // 光标行覆写律天然继承、窄宽走右段预算律单源收口、缺席缩位不虚报）+
     // 相对时（挖掘 35 轮 B10——构造期定格基准）+ 短 id
     const ws =
-      session.workspaceRoot !== undefined && session.workspaceRoot !== ''
-        ? basename(session.workspaceRoot)
-        : '';
+      session.workspaceRoot !== undefined && session.workspaceRoot !== '' ? basename(session.workspaceRoot) : '';
     const right = `${ws !== '' ? `${ws} ` : ''}${formatRelativeStamp(session.updatedAt, this.nowMs)} ${shortIdOf(session.id)}`;
     // 左段 = 光标标记 + 活跃位 + 标题
     const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
