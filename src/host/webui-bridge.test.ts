@@ -1715,10 +1715,14 @@ describe('completion 面接线：workspaceFiles = FileMentionSource replacement 
       expect(items[0]).toBe('@sub/'); // 目录优先置顶 + 尾斜杠（续深语义）
       expect(items).toContain('@"my file.txt"'); // 空白路径引号形——整 token 直插单位
       expect(items.some((it) => it.startsWith('@.git'))).toBe(false); // 版本库内脏跳过
-      // 前缀过滤（确定性全等）：q=sub → 恰 ['@sub/']
-      const sub = await apiFetch(opened!.port, opened!.token, '/api/workspace/files?q=sub');
-      expect(sub.status).toBe(200);
-      expect((sub.body as { items: string[] }).items).toEqual(['@sub/']);
+      // 前缀过滤（确定性全等）：q=alpha 裸段经全库异步腿 → 恰 ['@alpha.ts']；
+      // q=my 空白路径文件引号形同腿直出（客户端零引号知识）
+      const alpha = await apiFetch(opened!.port, opened!.token, '/api/workspace/files?q=alpha');
+      expect(alpha.status).toBe(200);
+      expect((alpha.body as { items: string[] }).items).toEqual(['@alpha.ts']);
+      const spaced = await apiFetch(opened!.port, opened!.token, '/api/workspace/files?q=my');
+      expect(spaced.status).toBe(200);
+      expect((spaced.body as { items: string[] }).items).toEqual(['@"my file.txt"']);
     } finally {
       await rt.shutdown();
     }
@@ -1735,9 +1739,9 @@ describe('completion 面接线：workspaceFiles = FileMentionSource replacement 
     });
     const mount = mountWebuiOnFace({ stack, face, cwd: wsRoot });
     try {
-      // workspaceFiles 函数形（面在场）——真询回 replacement 形条目
+      // workspaceFiles 函数形（面在场）——真询回 replacement 形条目（裸段经全库异步腿）
       expect(typeof mount.deps.completion!.workspaceFiles).toBe('function');
-      expect(mount.deps.completion!.workspaceFiles!('sub')).toEqual(['@sub/']);
+      await expect(mount.deps.completion!.workspaceFiles!('alpha')).resolves.toEqual(['@alpha.ts']);
       // 键级诚实缺席（与整面缺席分立——全仓零实现零消费，不造符号索引）
       expect(mount.deps.completion!.workspaceSymbols).toBeUndefined();
     } finally {
@@ -1756,9 +1760,34 @@ describe('completion 面接线：workspaceFiles = FileMentionSource replacement 
     const mount = mountWebuiOnFace({ stack, face }); // daemon 形零参——缺省全局态锚
     try {
       expect(typeof mount.deps.completion!.workspaceFiles).toBe('function');
-      // 真询不炸即可（锚 = 宿主树 canonical 根——内容随树面，不锚具体条目）
-      expect(Array.isArray(mount.deps.completion!.workspaceFiles!(''))).toBe(true);
+      // 真询不炸即可（锚 = 宿主树 canonical 根——内容随树面，不锚具体条目；
+      // 空 query 走段导航同步腿、桥 async 化后统一 Promise 出——await 化断言）
+      expect(Array.isArray(await mount.deps.completion!.workspaceFiles!(''))).toBe(true);
       expect(mount.deps.completion!.workspaceSymbols).toBeUndefined();
+    } finally {
+      mount.detach();
+      await rt.shutdown();
+    }
+  });
+
+  it('deps 直锁（全库腿）：workspaceFiles 深层文件异步直出——union 异步形【修前红：现行段导航根列举深查返 []】', async () => {
+    const wsRoot = filesRig();
+    // 深层文件（段导航腿根列举不可达——全库腿专属锚）
+    mkdirSync(join(wsRoot, 'sub', 'deep'), { recursive: true });
+    writeFileSync(join(wsRoot, 'sub', 'deep', 'target-file.ts'), 'export {};\n');
+    const rt = createHostRuntime({ dataDir: rigDir('webui-files-deep-') });
+    const { stack } = rigStack(rt);
+    const face = createSdkHttpFace({
+      config: { tcp: { host: '127.0.0.1', port: 0 } },
+      bridge: createServeBridge(stack, rt, { cwd: process.cwd() }),
+    });
+    const mount = mountWebuiOnFace({ stack, face, cwd: wsRoot });
+    try {
+      // 裸段 'tgfile' → 全库异步腿：union 异步形（thenable）+ 深层文件 replacement
+      // 直出（TUI 同源承诺——@ 前缀直出、客户端零路径知识）
+      const outcome = mount.deps.completion!.workspaceFiles!('tgfile');
+      expect(typeof (outcome as Promise<readonly string[]>).then).toBe('function');
+      await expect(outcome).resolves.toEqual(['@sub/deep/target-file.ts']);
     } finally {
       mount.detach();
       await rt.shutdown();

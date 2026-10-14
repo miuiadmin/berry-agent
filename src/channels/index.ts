@@ -70,7 +70,14 @@ export type {
   WizardPrompter,
 } from './wizard-prompter.js';
 export { FileMentionSource } from './tui/index.js';
-export type { FileMentionSourceOptions, AutocompleteSources, AutocompleteItem } from './tui/index.js';
+export type {
+  FileMentionSourceOptions,
+  AutocompleteSources,
+  AutocompleteItem,
+  RepoFileIndex,
+  RepoFileIndexOptions,
+  RepoFileIndexSnapshot,
+} from './tui/index.js';
 // git 头部读取（V-3 注⑦②——footer ⎇ 段退役，/status 会话段行承接受位）：
 // tui-entry 装配位 openStatusPanel 现算注入——「本面随真实件外消费扩」先例；
 // gitHeadCompactLabel = 紧凑单值拼形（2026-10-04 支名@短哈希双实现单源化批

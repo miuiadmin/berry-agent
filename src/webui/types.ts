@@ -280,9 +280,9 @@ export interface WebuiReadFace {
   readAttachment?(ref: string): { readonly bytes: Uint8Array; readonly mimeType: string } | null;
 }
 
-/** 补全族注入面（两段——缺席诚实空，v1 装配批按需接线） */
+/** 补全族注入面（两段——缺席诚实空，v1 装配批按需接线；union 形 @ 文件全库模糊腿批——源可同步直出或异步解析） */
 export interface WebuiCompletionFace {
-  workspaceFiles?(query: string): readonly string[];
+  workspaceFiles?(query: string): readonly string[] | Promise<readonly string[]>;
   workspaceSymbols?(query: string): readonly string[];
 }
 

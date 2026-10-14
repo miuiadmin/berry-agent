@@ -512,7 +512,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
 
     // 补全命令源：通道核命令表 → '/' 前缀条目；@ 文件段源动态锚（R7 批
     // 10k）——切焦后锚随聚焦会话工作区根（锚取当下真值；FileMentionSource
-    // per-query 新铸）
+    // per-query 新铸——全库索引缓存不随源实例换代：repoIndex 缺省走
+    // sharedRepoFileIndex 模块级单例，per-root 缓存在途共享跨源稳定）
     const mentionSourceFor = (): FileMentionSource => {
       return new FileMentionSource({ basePath: focusedWorkspaceRoot() });
     };
@@ -1692,7 +1693,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           if (live !== null) return live;
           return commandArgumentItems(command, query, priorArgs);
         },
-        mentions: (query) => mentionSourceFor().get(query),
+        mentions: (query, signal) => mentionSourceFor().get(query, signal),
       },
       // 高度帽生产路零注入（07 §4.1 R3 批 10j 帽公式单源在 backend）：显式帽
       // 键省略 = backend 构造期按当值几何解析初帽、resize/复起两路随新几何

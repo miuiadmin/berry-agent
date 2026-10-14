@@ -332,8 +332,9 @@ function bridgeDeps(
   exportSource?: WebuiExportSource,
   cwd?: string,
 ): WebuiDeps {
-  // @ 文件段补全源（挂载期单实例——锚随面恒定、源零状态、同步 IO 毫秒级；
-  // TUI per-query 新铸是因其锚随聚焦会话变，此处锚恒定不必仿）
+  // @ 文件段补全源（挂载期单实例——锚随面恒定、源零状态；裸段走全库异步腿
+  // （索引缓存归 sharedRepoFileIndex 单例，锚恒定 → per-root 缓存全程命中）、
+  // 段导航形态同步毫秒级；TUI per-query 新铸是因其锚随聚焦会话变，此处锚恒定不必仿）
   const fileSource = new FileMentionSource({ basePath: canonicalWorkspaceRoot(cwd ?? process.cwd()) });
   // —— 在飞幂等账（十六役补扫 N2）——
   // durable 查重只覆盖已 append 的 user/message；busy/steer 窗口内消息先进
@@ -633,7 +634,7 @@ function bridgeDeps(
     // 条目即完整 token 代换单位，含 @ 前缀与引号形，客户端零路径知识零引号
     // 知识）；workspaceSymbols 不注入（全仓零实现零消费——服务端 ?? [] 诚实空）
     completion: {
-      workspaceFiles: (query) => fileSource.get(query).map((item) => item.replacement),
+      workspaceFiles: async (query) => (await fileSource.get(query)).map((item) => item.replacement),
     },
     ...(staticDirOverride !== undefined ? { staticDir: staticDirOverride } : { staticDir: resolveStaticDir() }),
   };

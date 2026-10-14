@@ -940,9 +940,11 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     method: 'GET',
     path: WEBUI_ENDPOINTS.workspaceFiles,
     auth: tokenOrCookie,
-    handler: (req, res) => {
+    handler: async (req, res) => {
       const q = queryOf(req).get('q') ?? '';
-      sendJson(res, 200, { items: deps.completion?.workspaceFiles?.(q) ?? [] });
+      // union 源（同步直出 / 异步解析——@ 文件全库模糊腿批）：await 通吃两形
+      const items = await (deps.completion?.workspaceFiles?.(q) ?? []);
+      sendJson(res, 200, { items });
     },
   });
   add({

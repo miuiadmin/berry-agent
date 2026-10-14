@@ -23,9 +23,12 @@ export { buildOnboardingLines, normalizeOnboardingKey, runOnboardingPanel } from
 // /themes 批扩自定义文件面——tui-entry 装配下装与副屏条目两消费位）
 export type { ColorEnv, PartialSemanticPalette, ThemeSetting } from './theme/index.js';
 export { isValidCustomThemeName, listCustomThemeNames, loadCustomThemeColors } from './theme/index.js';
-// 补全源族（批 12e host 装配消费——@ 文件段源与注入面类型；组件族余者仍件内）
+// 补全源族（批 12e host 装配消费——@ 文件段源与注入面类型；组件族余者仍件内；
+// 全库索引器 @ 文件全库模糊腿批——host 测试注入与 SDK 公开面转发）
 export { FileMentionSource } from './autocomplete/file-mentions.js';
 export type { FileMentionSourceOptions } from './autocomplete/file-mentions.js';
+export { RepoFileIndex, sharedRepoFileIndex } from './autocomplete/repo-file-index.js';
+export type { RepoFileIndexOptions, RepoFileIndexSnapshot } from './autocomplete/repo-file-index.js';
 export type { AutocompleteSources } from './autocomplete/autocomplete.js';
 export type { AutocompleteItem } from './autocomplete/provider.js';
 // 高度帽公式（R3 批 10j 引入；第六轮批 D2 起 host 装配注入已撤——backend 构造期/resize 现值单源，真源注 height-cap.ts；导出维持 SDK 公开面转发）

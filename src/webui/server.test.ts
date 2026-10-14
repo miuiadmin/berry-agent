@@ -82,6 +82,8 @@ const ATTACHMENT_REF_IN_STORE = 'sha256:' + 'a1'.repeat(32);
 function makeDeps(opts?: {
   readonly withoutTodo?: boolean;
   readonly withoutCompletion?: boolean;
+  /** workspaceFiles 换异步源形（union 扩面——全库腿批：Promise 返回的消费面锁） */
+  readonly asyncCompletion?: boolean;
   readonly withoutExport?: boolean;
   /** jsonl 键单独缺席（exportMarkdown 照注——键缺席 = jsonl 请求 501 诚实缺席形） */
   readonly withoutExportJsonl?: boolean;
@@ -300,7 +302,16 @@ function makeDeps(opts?: {
             },
           }),
     },
-    ...(opts?.withoutCompletion === true ? {} : { completion: { workspaceFiles: (q) => [`a/${q}.ts`] } }),
+    // 缺省仍同步形（union 向后兼容证载体——同步实现照旧绿）；asyncCompletion
+    // 换 async 源形（b/ 前缀辨桩——异步路由测试的确定性锚）
+    ...(opts?.withoutCompletion === true
+      ? {}
+      : {
+          completion: {
+            workspaceFiles:
+              opts?.asyncCompletion === true ? async (q: string) => [`b/${q}.ts`] : (q: string) => [`a/${q}.ts`],
+          },
+        }),
     // 档位面注入（缺席 = 三端点 501 诚实缺席——exportMarkdown 缺席同精神）
     ...(opts?.withoutTiers === true ? {} : { tiers }),
     // 信封腿取值 seam 注入（卡② 腿②——缺席 = 键不注入：降级形用例默认面）
@@ -1277,6 +1288,20 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     } finally {
       bare.webui.detach();
       await bare.face.stop();
+    }
+  });
+
+  it('补全族异步源：workspaceFiles Promise 形 await 面回 200 条目数组【修前红：Promise 直送 sendJson 序列化成 {}】', async () => {
+    const server = await rig(makeDeps({ asyncCompletion: true }).deps);
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.port}/api/workspace/files?q=deep`, {
+        headers: { authorization: `Bearer ${server.token}` },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ items: ['b/deep.ts'] });
+    } finally {
+      server.webui.detach();
+      await server.face.stop();
     }
   });
 

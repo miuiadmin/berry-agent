@@ -247,8 +247,10 @@ const MODULE_EXTERNALS = {
   // width 件的 EAW 分类数据面（2026-09-06 TUI 栈改裁换防——pi-tui 出列、此包入替）
   // get-east-asian-width = TUI width 件 EAW 分类；typebox 主包 + value 子路径
   // = sdk 线协议请求面深校验 schema 件（03 §10.6「每动词 typebox schema 校验
-  // 后消费」——批 13e 接入；schema 层宿主件直用同律）
-  channels: ['get-east-asian-width', 'typebox', 'typebox/value'],
+  // 后消费」——批 13e 接入；schema 层宿主件直用同律）；ignore = @-mention
+  // 补全全库行走 gitignore 语义匹配（07 篇 §2.3 ignore 行多消费者——@ 文件
+  // 全库模糊腿批 channels/tui/autocomplete 入列）
+  channels: ['get-east-asian-width', 'typebox', 'typebox/value', 'ignore'],
   persist: ['better-sqlite3'],
   // typebox 主包 + value 子路径（07 篇栈纪律：schema 层——工具参数面；宿主件
   // 直用合法，插件侧一律走虚拟键三转发——与 llm 的 pi-ai 同款分账执法）；
