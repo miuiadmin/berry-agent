@@ -86,9 +86,11 @@ function makeCore(
   backends: UiBackend<never>[],
   onApprovalAlways?: (entry: string) => void,
   onAskSettled?: (notice: import('./types.js').AskSettledNotice) => void,
+  sensitiveValues?: () => readonly string[],
 ) {
   // 修前红锚（挖掘 36 轮 [2]）：构造器第 4 参未存在（TS2554）
-  return new UiCore(() => backends, new AskQueue(), onApprovalAlways, onAskSettled);
+  // 第 5 参 sensitiveValues（挖掘 37 轮件 3——answerOf 掩码值基腿源）
+  return new UiCore(() => backends, new AskQueue(), onApprovalAlways, onAskSettled, sensitiveValues);
 }
 
 describe('能力双重校验（防后端声明能力而缺实现——防御位）', () => {
@@ -429,6 +431,56 @@ describe('ask 收场单汇点通知（挖掘 36 轮 [2]——07 §4.1 问答落�
     expect(notices).toEqual([
       { sessionId: 's1', kind: 'input', question: '名字？', outcome: 'answered', answer: 'murong' },
       { sessionId: 's1', kind: 'input', question: '备注？', outcome: 'answered', answer: '（空）' },
+    ]);
+  });
+
+  /* ---------------- answerOf 掩码族（挖掘 37 轮件 3——04 §7 执法位=answerOf 产出口） ---------------- */
+
+  it('掩码族①sensitive 旗 → 定长掩形 + resolve 原文照常（调用方自持处置权——掩码只辖落史段）', async () => {
+    const b = fakeBackend('tui');
+    const { ui, notices } = makeNoticing([b.backend]);
+    // 修前红：sensitive 键未在（TS2353）+ answerOf 明文归册（断言掩形红）
+    const p = ui.input('s1', '密钥？', { sensitive: true });
+    b.inputAsks[0]?.resolve('sk-live-abcdef123456');
+    await expect(p).resolves.toBe('sk-live-abcdef123456'); // 原文 resolve 不掩（落码后此断言仍绿——设计内两分立）
+    expect(notices).toEqual([
+      { sessionId: 's1', kind: 'input', question: '密钥？', outcome: 'answered', answer: '[REDACTED:sensitive-input]' },
+    ]);
+  });
+
+  it('掩码族②兜底扫描两腿并集制：值基腿（sensitiveValues 册）与模式腿（api_key= 赋值形）命中即掩、无命中原文照落', async () => {
+    const b = fakeBackend('tui');
+    const notices: import('./types.js').AskSettledNotice[] = [];
+    const ui = makeCore(
+      [b.backend],
+      undefined,
+      (n) => notices.push(n),
+      () => ['known-secret-value-9876543'], // 值基腿源（≥8 长明文在场）
+    );
+    const p1 = ui.input('s1', '值？');
+    b.inputAsks[0]?.resolve('prefix known-secret-value-9876543 suffix'); // 值基腿命中
+    await p1;
+    const p2 = ui.input('s1', '赋值？');
+    b.inputAsks[1]?.resolve('api_key=abcd1234efgh5678'); // 模式腿命中（敏感键名赋值形）
+    await p2;
+    const p3 = ui.input('s1', '备注？');
+    b.inputAsks[2]?.resolve('普通备注'); // 两腿皆空——原文照落
+    await p3;
+    expect(notices).toEqual([
+      { sessionId: 's1', kind: 'input', question: '值？', outcome: 'answered', answer: '[REDACTED:sensitive-input]' },
+      { sessionId: 's1', kind: 'input', question: '赋值？', outcome: 'answered', answer: '[REDACTED:sensitive-input]' },
+      { sessionId: 's1', kind: 'input', question: '备注？', outcome: 'answered', answer: '普通备注' },
+    ]);
+  });
+
+  it('掩码族③空输入占位词豁免：sensitive 形空答 → 「（空）」不掩（掩占位词是伪安全）', async () => {
+    const b = fakeBackend('tui');
+    const { ui, notices } = makeNoticing([b.backend]);
+    const p = ui.input('s1', '可空？', { sensitive: true });
+    b.inputAsks[0]?.resolve('');
+    await p;
+    expect(notices).toEqual([
+      { sessionId: 's1', kind: 'input', question: '可空？', outcome: 'answered', answer: '（空）' },
     ]);
   });
 

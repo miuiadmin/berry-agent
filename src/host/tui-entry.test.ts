@@ -2475,4 +2475,43 @@ describe('持久化分项目输入历史（B1——07 §4.1 呈现面件 2 定�
     rig.io.send('\x04');
     expect(await rig.entry).toBe(0);
   });
+
+  it('敏感形双跳闭环（挖掘 37 轮件 3）：应答车敏感答 → 两册均无原词（库零行 + 二启召回无）+ resolve 原文照常；普通形照入（回归）', async () => {
+    const dataDir = rigDir('entry-ihS-data-');
+    const ws = rigDir('entry-ihS-ws-');
+    const stacks: ConversationStack[] = [];
+    const first = await rigEntry(dataDir, ws, { onStack: (stack) => stacks.push(stack) });
+    first.io.send('普通消息\r');
+    await until(() => first.faux.state.callCount >= 1);
+    await until(() => first.io.output.includes('ok'));
+    // sensitive 应答车：真装配 UiCore.input（sensitive 旗——修前红：键未在
+    // TS2353 + 落码前普通入册落库）→ TUI 应答车开窗 → 敲答收窗
+    const sid = stacks[0]!.channels.focusedId!;
+    const asked = stacks[0]!.channels.input(sid, '密钥？', { sensitive: true });
+    first.io.send('sk-live-9876543210abcdef\r');
+    expect(await asked).toBe('sk-live-9876543210abcdef'); // 原文照常 resolve（掩码只辖落史/呈现段——调用方自持）
+    first.io.send('\x04');
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+    // 持久册（双跳第二跳）：库面只有普通消息行——敏感词零落库
+    const probe = Persistence.open({
+      dbPath: resolveDatabasePathIn(dataDir),
+      dataDir,
+      migrations: HOST_MIGRATION_TAIL,
+    });
+    const rows = probe.store.connection.prepare('SELECT text FROM input_history ORDER BY id DESC').all() as {
+      text: string;
+    }[];
+    await probe.close();
+    expect(rows).toEqual([{ text: '普通消息' }]); // 修前红：sk-live 词同落库
+    // 二启：种子路召回顶位 = 普通消息（敏感词从未入册——内存册第一跳同锁）
+    const second = await rigEntry(dataDir, ws);
+    await until(() => second.io.output.includes('普通消息')); // resume 首画回读锚（启动完成）
+    second.io.send('\x1b[A'); // ↑ 空框直入历史回溯
+    await until(() => stripAnsi(second.io.output).includes('› 普通消息')); // 召回顶位非敏感词
+    expect(stripAnsi(second.io.output)).not.toContain('sk-live-9876543210abcdef'); // 修前红：明文回灌
+    second.io.send('\x04');
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+  });
 });

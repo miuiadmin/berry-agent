@@ -147,7 +147,14 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
 
   const askQueue = new AskQueue();
   // 第 4 参 askSettledSink（挖掘 36 轮 [2]——07 §4.1 问答落史行收场单汇点穿线）
-  const uiCore = new UiCore(backendsForCore, askQueue, opts.onApprovalAlways, opts.askSettledSink);
+  // 第 5 参 sensitiveValues（挖掘 37 轮件 3——answerOf 掩码值基腿源穿线）
+  const uiCore = new UiCore(
+    backendsForCore,
+    askQueue,
+    opts.onApprovalAlways,
+    opts.askSettledSink,
+    opts.sensitiveValues,
+  );
   const commands = new CommandRegistry();
   const registry = new SessionChannels<TProjection>(opts.fetchProjection, (sessionId, projection) => {
     // repaint 扇出：带上该会话当前 widget 槽值（07 §4.3 单槽重放）——双域合流

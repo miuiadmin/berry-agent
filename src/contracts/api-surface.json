@@ -922,7 +922,7 @@
       "since": "1.0",
       "desc": "input 原语选项",
       "kind": "interface",
-      "sig": "6a236cb87ddeac7b"
+      "sig": "0bc5e34125827004"
     },
     {
       "symbol": "UiRewindActions",

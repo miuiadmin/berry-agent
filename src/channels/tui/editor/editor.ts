@@ -27,6 +27,12 @@ export interface EditorSubmitOptions {
    * 新 run（04 §4 SubmitOptions.queueFollowUp 同名位）；idle 期与普通提交同形。
    */
   readonly queueFollowUp?: boolean;
+  /**
+   * 敏感形旗（挖掘 37 轮件 3——07 §4.1 两集分立律）：true = 本条提交不入
+   * 历史册（内存册 addToHistory 跳过=双跳第一跳）+ 镜像钩携位仍发（第二跳
+   * 由持久回调自判）。正常提交路由不携（应答车 sensitive 模式位自动注入）。
+   */
+  readonly sensitive?: boolean;
 }
 
 /** 组件装配面 */
@@ -68,7 +74,12 @@ export interface EditorOptions {
    * 应答/退出词/本地命令三叉不达 onSubmit，镜像取编辑器级保两集恒等）。
    * 缺席 = 纯内存旧形；写失败 best-effort 归闭包（不阻塞提交）。
    */
-  onHistoryAdd?: (text: string) => void;
+  /**
+   * 持久化史镜像钩（B1 写路——真入册时触发；缺席 = 纯内存旧形）。第二参
+   * sensitive 位（挖掘 37 轮件 3）：sensitive 形不入内存册但仍携位发钩——
+   * 持久回调自判跳写（双跳第二跳）。
+   */
+  onHistoryAdd?: (text: string, opts?: { sensitive?: boolean }) => void;
 }
 
 /** 可打印字符键判（jump 待靶态的靶字符判据——无修饰或仅 shift） */
@@ -88,8 +99,8 @@ export class Editor implements Renderable {
   /** 翻页步幅（= 呈现帽——帽随 resize 重算时同步，见 setMaxVisibleLines） */
   private pageSize: number;
   private readonly keymap: Keymap;
-  /** 持久化史镜像钩（B1 写路——真入册时触发；缺席 = 纯内存旧形） */
-  private readonly onHistoryAdd: ((text: string) => void) | undefined;
+  /** 持久化史镜像钩（B1 写路——真入册时触发；缺席 = 纯内存旧形；sensitive 携位形见 EditorOptions 注） */
+  private readonly onHistoryAdd: ((text: string, opts?: { sensitive?: boolean }) => void) | undefined;
 
   constructor(options: EditorOptions = {}) {
     this.onSubmit = options.onSubmit;
@@ -133,6 +144,20 @@ export class Editor implements Renderable {
   setPlaceholder(text: string | null | undefined): void {
     this.view.setPlaceholder(text);
   }
+
+  /**
+   * 应答车敏感模式开关（挖掘 37 轮件 3——tui-backend activateInputAsk/队列
+   * 收口位换装）：true = ①view 点符回显（呈现面等宽掩码）+ ②提交路自动
+   * 携 sensitive 位（EditorSubmitOptions——双跳豁免的注入位）。复位 false =
+   * 普通形全链（入册照旧）。
+   */
+  setSensitive(on: boolean): void {
+    this.sensitiveInput = on;
+    this.view.setSensitive(on);
+  }
+
+  /** 应答车敏感模式位（setSensitive 换装——提交路注入与 view 回显同源单开关） */
+  private sensitiveInput = false;
 
   getText(): string {
     return this.model.getText();
@@ -464,17 +489,26 @@ export class Editor implements Renderable {
 
   /**
    * 提交：模型全清取文、非空才入册 + 回调（候跑形携标记——调用方按键序分派）。
-   * 入册序不变（addToHistory 先于 onSubmit）；B1 写路——真入册才触发镜像钩
-   * （与内存史同集恒等：两闸〔trim 空/连续去重〕下不镜像，onSubmit 照发）。
+   * 入册序不变（addToHistory 先于 onSubmit）；B1 写路——普通形真入册才触发
+   * 镜像钩（两闸〔trim 空/连续去重〕下不镜像，onSubmit 照发）。
+   * sensitive 形双跳（挖掘 37 轮件 3——07 §4.1 两集分立律）：第一跳 = 内存册
+   * 不入（addToHistory 跳过——↑ 回灌不泄；不入册即无从连续去重，同文多笔
+   * 都镜像）；镜像钩携 sensitive 位仍发——第二跳由持久回调自判跳写（防跨
+   * 进程回灌明文——两级同笔闭环缺一即泄）。
    */
   private handleSubmit(opts?: EditorSubmitOptions): boolean {
     this.jumpPending = null;
     const text = this.model.submit();
     if (text !== '') {
-      if (this.model.addToHistory(text)) {
+      // sensitive 模式位自动注入提交选项（应答车 sensitive 形的携带位）
+      const merged: EditorSubmitOptions | undefined = this.sensitiveInput ? { ...opts, sensitive: true } : opts;
+      if (!this.sensitiveInput && this.model.addToHistory(text)) {
         this.onHistoryAdd?.(text);
+      } else if (this.sensitiveInput) {
+        // 双跳第一跳已跳内存册；镜像钩携位仍发（第二跳归持久回调）
+        this.onHistoryAdd?.(text, { sensitive: true });
       }
-      this.onSubmit?.(text, opts);
+      this.onSubmit?.(text, merged);
     }
     return true;
   }

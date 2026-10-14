@@ -1107,6 +1107,27 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     'compaction',
   ]);
 
+  // ④' 敏感值兜底扫描集（04 §7 执行段 2026-09-08 落码定形⑤ + 挖掘 37 轮
+  // 件 3 双消费）：credentials 库 live 读——出口消毒值基腿（管道链尾消毒步）
+  // 与 UiCore answerOf 产出口掩码值基腿（落史段）**同源装配**（单闭包双消费
+  // ——多会话共享），工具执行期间新入库凭证同受覆盖。单行解密失败跳过
+  // 不连坐（其余行照常参与——行级隔离）；库整体故障抛给管道侧 catch 降级纯
+  // 模式腿（降级诚实）。长度 ≥8 过滤在 redactKnownSecretValues 内执法（短值
+  // 误伤普通文本的灾难面控制）。**定义位在 createChannels 调用前**（件 3
+  // 装配序——answerOf 腿穿线需要前向可引用）。
+  const sensitiveValues = (): string[] => {
+    const values: string[] = [];
+    for (const row of options.runtime.persistence.store.listCredentialProviders()) {
+      try {
+        const entry = options.runtime.persistence.store.getCredential(row.namespace, row.provider);
+        if (entry !== undefined && entry.apiKey.length > 0) values.push(entry.apiKey);
+      } catch {
+        /* 单行坏（解密不匹配等）跳过——消毒面按行降级，不炸 provider */
+      }
+    }
+    return values;
+  };
+
   const channels = createChannels<AgentMessage & { readonly seq: number }>({
     fetchProjection: (sessionId) => projectionWithSeqOf(sessionId),
     history: (sessionId) => projectionWithSeqOf(sessionId),
@@ -1251,6 +1272,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     askSettledSink: (notice) => {
       void dispatch.emit(ASK_SETTLED_EVENT, notice);
     },
+    // input/ask answerOf 掩码两腿之值基腿源（挖掘 37 轮件 3——04 §7 与出口
+    // 消毒同源装配：上方 ④' 前移闭包，单闭包双消费）
+    sensitiveValues,
   });
 
   // ④½ 会话维视图（e-2 观测腿——SessionView 纯派生读面）：数据三窄面全结构
@@ -1265,23 +1289,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     workspaceRoot: workspaceAnchor,
   });
 
-  // ④' 出口治理③ 值基腿活值 provider（04 §7 执行段 2026-09-08 落码定形⑤）：
-  // credentials 库 live 读——管道链尾消毒步每次调用现取（工具执行期间新入库
-  // 凭证同受覆盖）。单行解密失败跳过不连坐（其余行照常参与——行级隔离）；
-  // 库整体故障抛给管道侧 catch 降级纯模式腿（降级诚实）。长度 ≥8 过滤在
-  // redactKnownSecretValues 内执法（短值误伤普通文本的灾难面控制）。
-  const sensitiveValues = (): string[] => {
-    const values: string[] = [];
-    for (const row of options.runtime.persistence.store.listCredentialProviders()) {
-      try {
-        const entry = options.runtime.persistence.store.getCredential(row.namespace, row.provider);
-        if (entry !== undefined && entry.apiKey.length > 0) values.push(entry.apiKey);
-      } catch {
-        /* 单行坏（解密不匹配等）跳过——消毒面按行降级，不炸 provider */
-      }
-    }
-    return values;
-  };
+  // （值基腿闭包已前移至 createChannels 调用前 ④' 区——挖掘 37 轮件 3 装配
+  // 序：answerOf 掩码腿穿线需要前向可引用，原位定义删除单源不破）
 
   // ⑤ SessionManager：DriverFactory 装配注入族全接线（model = per-fresh-session
   // 覆盖 ?? 栈缺省——create init.model 透传位，触发器 starter 载体，C 批 C-3；

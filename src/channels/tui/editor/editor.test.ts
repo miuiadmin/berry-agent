@@ -443,6 +443,58 @@ describe('Editor 持久化史两键（B1——07 §4.1 呈现面件 2 定形注�
   });
 });
 
+describe('Editor 敏感形双跳第一跳（挖掘 37 轮件 3——07 §4.1 两集分立律）', () => {
+  it('setSensitive(true)：提交 → 内存册不入（↑ 召回零原词）+ 镜像钩携位仍发（第二跳归持久回调自判）+ onSubmit 携位', () => {
+    const events: string[] = [];
+    const editor = new Editor({
+      onSubmit: (t, opts) => events.push(`submit:${t}:${String(opts?.sensitive)}`),
+      onHistoryAdd: (t, opts) => events.push(`mirror:${t}:${String(opts?.sensitive)}`),
+      historySeed: ['seeded-top'],
+    });
+    // 修前红：setSensitive 方法缺位（TS2339 + 运行 TypeError）
+    editor.setSensitive(true);
+    editor.handleEvent(text('topsecret-key'));
+    editor.handleEvent(key('enter'));
+    // 双跳第一跳（内存册）：不入册——↑ 召回顶位仍是种子条非敏感词
+    expect(editor.getText()).toBe('');
+    editor.handleEvent(key('up'));
+    expect(editor.getText()).toBe('seeded-top'); // 修前红：召回 topsecret-key（明文入册）
+    // 镜像钩仍发（携 sensitive 位——持久侧跳位自判；onSubmit 携位同拍）
+    expect(events).toEqual(['mirror:topsecret-key:true', 'submit:topsecret-key:true']);
+  });
+
+  it('sensitive 形不受连续去重闸：同文两笔都携位镜像（去重判在内存史——sensitive 形从不入册无从去重）', () => {
+    const mirrored: string[] = [];
+    const editor = new Editor({
+      onSubmit: () => {},
+      onHistoryAdd: (t) => mirrored.push(t),
+    });
+    editor.setSensitive(true);
+    editor.handleEvent(text('same-secret'));
+    editor.handleEvent(key('enter'));
+    editor.handleEvent(text('same-secret'));
+    editor.handleEvent(key('enter'));
+    expect(mirrored).toEqual(['same-secret', 'same-secret']); // 每笔都镜像（无去重可判——对照 B1 去重测试）
+  });
+
+  it('setSensitive(false) 复位：普通形全链回归（入册 + 镜像无位 + 提交无位——应答窗收口退役位）', () => {
+    const mirrored: string[] = [];
+    const optsSeen: Array<boolean | undefined> = [];
+    const editor = new Editor({
+      onSubmit: (_t, opts) => optsSeen.push(opts?.sensitive),
+      onHistoryAdd: (t) => mirrored.push(t),
+    });
+    editor.setSensitive(true);
+    editor.setSensitive(false); // 复位（continueInputQueue 队列空退役位同拍）
+    editor.handleEvent(text('normal'));
+    editor.handleEvent(key('enter'));
+    editor.handleEvent(key('up'));
+    expect(editor.getText()).toBe('normal'); // 照常入册召回
+    expect(mirrored).toEqual(['normal']); // 镜像无位（普通形恒等律）
+    expect(optsSeen).toEqual([undefined]); // 提交无位
+  });
+});
+
 describe('Editor 历史回搜（ctrl+r——挖掘 31 轮 [3]）', () => {
   /** 播种史装置：three 条新→旧（one/two/three 提交入册） */
   function editorWithHistory(): Editor {

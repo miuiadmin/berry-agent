@@ -1660,11 +1660,18 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 会话根与 openStartupSession 缺省 cwd 归一两路均已 canonical 归一形；
       // 进程内恒定不随切焦漂移）。种子路 = 构造期一次 recentTexts 满灌（缺省
       // 帽 100 与编辑器 HISTORY_LIMIT 同值镜像）；写路 = 编辑器入册位镜像直写
-      //（ask 应答/退出词/本地命令三叉不达 onSubmit——镜像取编辑器级保两集
-      // 恒等）；写失败 best-effort：warn 不阻塞提交不呈用户面。
+      //（ask 应答/退出词/本地命令三叉不达 onSubmit——镜像取编辑器级保普通形
+      // 两集恒等；sensitive 形双跳第二跳〔挖掘 37 轮件 3——07 §4.1 两集分立
+      // 律〕：编辑器已跳内存册、镜像钩携 sensitive 位仍达此——本回调判位跳
+      // SQLite persist，防跨进程回灌明文）；写失败 best-effort：warn 不阻塞
+      // 提交不呈用户面。
       history: {
         seed: inputHistory.recentTexts(session.workspaceRoot),
-        onRecord: (text) => {
+        onRecord: (text, opts) => {
+          // 双跳第二跳：sensitive 位跳持久写（与第一跳〔editor 内存册〕
+          // 同笔闭环——两级缺一即泄：只跳内存册跨进程回灌泄、只跳持久册
+          // 进程内 ↑ 回灌泄）
+          if (opts?.sensitive === true) return;
           try {
             inputHistory.record({
               workspaceRoot: session.workspaceRoot,

@@ -294,12 +294,15 @@ export interface TuiBackendOptions {
    * 种子（host 装配根构造期一次 recentTexts〔启动锚根〕满灌——编辑器内存
    * 史跨进程存活位）；onRecord = 写路镜像（编辑器真入册位触发、装配闭包
    * 直写库——ask 应答/退出词/本地命令三叉不达 onSubmit，镜像取编辑器级保
-   * 两集恒等；写失败 best-effort 归闭包）。缺席 = 纯内存旧形零扰动；数据
-   * 面全经装配注入（backend/persist 零触感——28 席 DAG 零新边）。
+   * 普通形两集恒等；**sensitive 形双跳**（挖掘 37 轮件 3——07 §4.1 两集分
+   * 立律）：内存册+持久镜像均不入（编辑器跳 addToHistory、onRecord 携
+   * sensitive 位由装配回调自判跳写——第二参）。写失败 best-effort 归闭
+   * 包）。缺席 = 纯内存旧形零扰动；数据面全经装配注入（backend/persist
+   * 零触感——28 席 DAG 零新边）。
    */
   readonly history?: {
     readonly seed: readonly string[];
-    readonly onRecord: (text: string) => void;
+    readonly onRecord: (text: string, opts?: { sensitive?: boolean }) => void;
   };
   /** 调度注入（启用渲染合并 + fps 帽 + tick 自驱——缺省同步直出测试语义） */
   readonly schedule?: (fn: () => void, ms: number) => unknown;
@@ -633,6 +636,11 @@ interface InputAsk {
   readonly message: string;
   /** 应答车占位文（UiInputOptions.placeholder 透传——挖掘 29 轮件 4 契约死位激活；缺席 = 应答缺省「输入应答…」） */
   readonly placeholder?: string;
+  /**
+   * 敏感形旗（UiInputOptions.sensitive 透传——挖掘 37 轮件 3）：true = 应答
+   * 车点符回显（editor.setSensitive——呈现面等宽掩码）+ 提交路双跳豁免位。
+   */
+  readonly sensitive?: boolean;
   readonly resolve: (text: string) => void;
 }
 
@@ -3034,7 +3042,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         resolve('');
         return;
       }
-      const ask: InputAsk = { message, placeholder: opts?.placeholder, resolve };
+      const ask: InputAsk = { message, placeholder: opts?.placeholder, sensitive: opts?.sensitive, resolve };
       // abort 分派按收场时态判（排队→激活两态同一监听——入队后才 abort 的
       // 排队问仍走激活态撤销面，不因注册时态漏接）
       opts?.signal?.addEventListener(
@@ -3078,6 +3086,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 应答车占位文换装（挖掘 29 轮件 4）：enter 是收窗非提交——composer 缺省
     // 「输入消息…」在应答窗误导；opts.placeholder 透传优先、缺席用应答缺省
     this.editor.setPlaceholder(ask.placeholder ?? INPUT_ASK_PLACEHOLDER_TEXT);
+    // 敏感形点符回显换装（挖掘 37 轮件 3）：sensitive 旗开 → editor 等宽
+    // '*' 掩码 + 提交路自动携位；复位在 continueInputQueue（每窗重设）
+    this.editor.setSensitive(ask.sensitive === true);
     this.autocompleteCompleter.cancel(); // 应答期弹层抑制：撤窗 + 在途作废
     this.popup.applyResult(null); // 在层即刻收层
     this.clearJobsCursor(); // jobs 光标让位（挖掘 26 轮 [5]——应答窗 enter 属应答车道，劫持面随激活拆除）
@@ -3088,7 +3099,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private continueInputQueue(): void {
     const next = this.inputQueue.shift();
     if (next !== undefined) this.activateInputAsk(next);
-    else this.editor.setPlaceholder(undefined); // 应答车退役——占位文回 composer 缺省（队列接续时 activate 再换装）
+    else {
+      this.editor.setPlaceholder(undefined); // 应答车退役——占位文回 composer 缺省（队列接续时 activate 再换装）
+      this.editor.setSensitive(false); // 敏感模式复位（挖掘 37 轮件 3——队列空退役位；接续窗 activate 按新 ask 重设）
+    }
   }
 
   /**

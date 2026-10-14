@@ -89,6 +89,14 @@ export class EditorView implements Renderable {
    */
   private placeholderText: string | null;
 
+  /**
+   * 敏感点符回显模式（挖掘 37 轮件 3——应答车 sensitive 形）：true = 正文与
+   * 组字三段以等宽 '*' 掩码呈现（逐字素 '*'×graphemeWidth——折行几何保真，
+   * 呈现面长度即真长度〔规范面域限定如实——07 §4.1 掩码定谳注〕）；false =
+   * 原文呈现。模式位由 tui-backend 应答车开窗/收口位换装。
+   */
+  private sensitive = false;
+
   /** 滚动指示 overlay 样式（dim；底色在场时携 bg 维持带连续——覆盖写不凿洞） */
   private indicatorStyle: Readonly<CellStyle> = DIM_STYLE;
   /** 预编辑段样式（下划线——组字挂起提示；底色在场时携 bg 合成） */
@@ -117,6 +125,14 @@ export class EditorView implements Renderable {
     this.minPresentedLines = Math.max(1, options.minPresentedLines ?? MIN_PRESENTED_LINES);
     this.padRows = Math.max(0, options.padRows ?? EDITOR_PAD_ROWS);
     this.placeholderText = options.placeholder === undefined ? EMPTY_PLACEHOLDER_TEXT : options.placeholder;
+  }
+
+  /**
+   * 敏感点符回显开关（挖掘 37 轮件 3）：应答车 sensitive 形开窗期 true、
+   * 收口/队列退役复位 false——只辖呈现位（正文/组字），模型文本零动。
+   */
+  setSensitive(on: boolean): void {
+    this.sensitive = on;
   }
 
   /** 帽随几何重设（批 10k 遗漏修——同值早退不重置迟滞带账） */
@@ -255,6 +271,18 @@ export class EditorView implements Renderable {
 
   /* ---------------- 正文（提示符 + 视口内视觉行） ---------------- */
 
+  /**
+   * 等宽点符掩码（挖掘 37 轮件 3——sensitive 形正文/组字呈现位）：逐字素
+   * '*'×graphemeWidth——每字素替换后宽度不变，模型折行 map 几何保真
+   * （掩码不重排版；零宽字素产空串同律）。非 sensitive 态恒原文直透。
+   */
+  private maskedText(text: string): string {
+    if (!this.sensitive) return text;
+    let out = '';
+    for (const g of splitGraphemes(text)) out += '*'.repeat(graphemeWidth(g));
+    return out;
+  }
+
   private drawContent(
     buffer: CellBuffer,
     region: Region,
@@ -303,12 +331,29 @@ export class EditorView implements Renderable {
         // 无右边框列可护）。截断是组字期临时呈现取舍：提交 / 取消后正文并
         // 入 / 还原，按模型折行自愈全量呈现
         const rightEdge = region.col + region.width; // 越界位 = region 末格 + 1
-        const next = writeTextClamped(buffer, row, region.col + PREFIX_WIDTH, prefix, rightEdge, this.contentStyle);
-        const afterPreedit = writeTextClamped(buffer, row, next, preedit, rightEdge, this.preeditStyle);
-        writeTextClamped(buffer, row, afterPreedit, suffix, rightEdge, this.contentStyle);
+        // 组字三段 sensitive 形同步点符掩码（挖掘 37 轮件 3——等宽法掩段宽
+        // 与 clamp 右界计算协同：掩后宽度=原文宽度，几何判定不漂移）
+        const next = writeTextClamped(
+          buffer,
+          row,
+          region.col + PREFIX_WIDTH,
+          this.maskedText(prefix),
+          rightEdge,
+          this.contentStyle,
+        );
+        const afterPreedit = writeTextClamped(
+          buffer,
+          row,
+          next,
+          this.maskedText(preedit),
+          rightEdge,
+          this.preeditStyle,
+        );
+        writeTextClamped(buffer, row, afterPreedit, this.maskedText(suffix), rightEdge, this.contentStyle);
         continue;
       }
-      buffer.writeText(row, region.col + PREFIX_WIDTH, plain, this.contentStyle);
+      // 正文 sensitive 形点符掩码（挖掘 37 轮件 3）——模型文本零动只掩呈现
+      buffer.writeText(row, region.col + PREFIX_WIDTH, this.maskedText(plain), this.contentStyle);
     }
   }
 

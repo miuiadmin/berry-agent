@@ -28,9 +28,34 @@ import type {
   UiSelectChoice,
 } from './types.js';
 import { AskQueue } from './ask-queue.js';
+import { redactKnownSecretValues, redactSensitiveText } from '../contracts/index.js';
 
 /** ask 编舞的呈现体：收到内部 signal（败腿/撤销传播位），返回该问询的答案 */
 type AskPresenter<T> = (signal: AbortSignal) => Promise<T>;
+
+/** 空输入占位词（挖掘 36 轮 [2] 定形——呈现面可辨「答了空」与「没答」；answerOf 与掩码豁免判共用单源） */
+const EMPTY_ANSWER_TEXT = '（空）';
+
+/** 敏感答案定长掩形（挖掘 37 轮件 3——04 §7 reason 闭集第五员；不泄长度） */
+const MASKED_SENSITIVE_ANSWER = '[REDACTED:sensitive-input]';
+
+/**
+ * answerOf 产出口掩码（挖掘 37 轮件 3——04 §7 执法位=answerOf 产出口非
+ * 管道链尾）：空占位词豁免（掩『（空）』是伪安全）；sensitive 旗 → 定长
+ * 掩形；否则两腿兜底扫描（值基先行 + 模式腿——redactAll 同序）命中即掩
+ * 整段（词条旗治调用方已知、扫描腿治漏报——并集制）。原文照常 resolve
+ * 归调用方（调用方自持处置权）——本掩码只辖落史/呈现段。
+ */
+function maskSensitiveAnswer(
+  raw: string,
+  sensitive: boolean,
+  sensitiveValues: (() => readonly string[]) | undefined,
+): string {
+  if (raw === EMPTY_ANSWER_TEXT) return raw;
+  if (sensitive) return MASKED_SENSITIVE_ANSWER;
+  const scanned = redactSensitiveText(redactKnownSecretValues(raw, sensitiveValues?.() ?? []));
+  return scanned === raw ? raw : MASKED_SENSITIVE_ANSWER;
+}
 
 export class UiCore {
   private readonly backendsGetter: () => readonly UiBackend<never>[];
@@ -43,6 +68,11 @@ export class UiCore {
    * 竞速败腿误记已取消两害结构性不可救）；缺席 = 零通知零行为。
    */
   private readonly onAskSettled: ((notice: AskSettledNotice) => void) | undefined;
+  /**
+   * 敏感值兜底扫描集（挖掘 37 轮件 3——ChannelsOptions.sensitiveValues 穿线）：
+   * answerOf 产出口两腿扫描之值基腿源。缺席 = 空集（模式腿照常在场）。
+   */
+  private readonly sensitiveValues: (() => readonly string[]) | undefined;
   /** widget 会话级单槽（07 §4.3——per-session 恰一槽，后写胜前写） */
   private readonly widgets = new Map<string, { node: unknown }>();
 
@@ -51,11 +81,13 @@ export class UiCore {
     askQueue: AskQueue,
     onApprovalAlways?: (entry: string) => void,
     onAskSettled?: (notice: AskSettledNotice) => void,
+    sensitiveValues?: () => readonly string[],
   ) {
     this.backendsGetter = backendsGetter;
     this.askQueue = askQueue;
     this.onApprovalAlways = onApprovalAlways;
     this.onAskSettled = onAskSettled;
+    this.sensitiveValues = sensitiveValues;
   }
 
   private backends(): readonly UiBackend<never>[] {
@@ -182,14 +214,21 @@ export class UiCore {
       (signal) => {
         const viaInput = this.capable('input');
         if (viaInput.length > 0) {
-          return Promise.race(viaInput.map((b) => b.input!(message, { placeholder: opts?.placeholder, signal })));
+          // sensitive 透传（挖掘 37 轮件 3）：后端呈现面自判（TUI 应答车
+          // 点符回显 + 提交路双跳豁免位）；webui 件零消费无害
+          return Promise.race(
+            viaInput.map((b) =>
+              b.input!(message, { placeholder: opts?.placeholder, signal, sensitive: opts?.sensitive }),
+            ),
+          );
         }
         this.notify(message);
         return Promise.resolve('');
       },
       // 落史记录（挖掘 36 轮 [2]）：input 原文；空输入记「（空）」——占位词面
-      // （查四批准词锁在册——非裸空串，呈现面可辨「答了空」与「没答」）
-      { question: message, answerOf: (v) => (v === '' ? '（空）' : v) },
+      // （查四批准词锁在册——非裸空串，呈现面可辨「答了空」与「没答」）。
+      // sensitive 位随 record（挖掘 37 轮件 3）——answerOf 产出口汇点掩码消费
+      { question: message, sensitive: opts?.sensitive === true, answerOf: (v) => (v === '' ? EMPTY_ANSWER_TEXT : v) },
     );
   }
 
@@ -312,8 +351,12 @@ export class UiCore {
     externalSignal: AbortSignal | undefined,
     conservative: () => T,
     present: AskPresenter<T>,
-    /** 落史记录（挖掘 36 轮 [2]——缺席〔approval/测试形〕不记录零通知）：问题文 + 答案映射（answered 位才消费） */
-    record?: { question: string; answerOf: (value: T) => string },
+    /**
+     * 落史记录（挖掘 36 轮 [2]——缺席〔approval/测试形〕不记录零通知）：问题文
+     * + 答案映射（answered 位才消费）。sensitive 位（挖掘 37 轮件 3——input
+     * 形携入）：answerOf 产出口汇点掩码消费（04 §7 执法位=产出口）。
+     */
+    record?: { question: string; answerOf: (value: T) => string; sensitive?: boolean },
   ): Promise<T> {
     // 入参 signal 已中止先检（abort 事件只发一次，只挂监听则死路——
     // safety/approval.ts bridgeApprovalSignal 同律）。早退**不入队**：入队即
@@ -371,7 +414,12 @@ export class UiCore {
           kind,
           question: record.question,
           outcome,
-          ...(outcome === 'answered' ? { answer: record.answerOf(value) } : {}),
+          // answerOf 产出口就地掩码（挖掘 37 轮件 3——04 §7 执法位=产出口）：
+          // 词条旗/扫描腿并集制，answered 位才消费（cancelled 形 answer 键
+          // 缺席不受辖）
+          ...(outcome === 'answered'
+            ? { answer: maskSensitiveAnswer(record.answerOf(value), record.sensitive === true, this.sensitiveValues) }
+            : {}),
         });
       }
     };

@@ -234,6 +234,14 @@ export interface ChannelsOptions<TProjection> {
    * tui-entry，直连不可达）。缺席注入律：缺席 = 零通知零行为。
    */
   readonly askSettledSink?: (notice: AskSettledNotice) => void;
+  /**
+   * 敏感值兜底扫描集（挖掘 37 轮件 3——04 §7 掩码词条）：已知秘密值册活值
+   * getter（credentials 库 live 读，与出口消毒值基腿同源装配、多会话共享）。
+   * 消费位 = UiCore answerOf 产出口两腿扫描之值基腿源（词条旗治调用方已知、
+   * 扫描腿治漏报——并集制）。缺席 = 值基腿空集（模式腿 redactSensitiveText
+   * 照常恒在场）。
+   */
+  readonly sensitiveValues?: () => readonly string[];
 }
 
 /**

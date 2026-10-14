@@ -52,6 +52,13 @@ export interface UiInputOptions extends UiAskOptions {
    * 呈现面的参数位）。
    */
   readonly placeholder?: string;
+  /**
+   * 调用方声明本问敏感（挖掘 37 轮件 3——04 §7 掩码词条）：true = 答案
+   * 掩码入史/入呈现（TUI 应答车点符回显 + answerOf 产出口定长掩形 +
+   * 历史册两级不入）；原文照常 resolve 归调用方（调用方自持处置权）。
+   * 缺席 = false（普通形——兜底扫描腿仍恒在场，词条旗与扫描腿并集制）。
+   */
+  readonly sensitive?: boolean;
 }
 
 /**
