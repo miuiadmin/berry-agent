@@ -23,6 +23,8 @@ import type { ReactElement } from 'react';
 
 import { api, isUnauthorized, sessionEventsUrl } from './api.js';
 import type { SubmitAttachment } from './api.js';
+// DOM 文本消毒（挖掘 37 轮件 2——尾行预览呈现专用：剥 ANSI/C0，域内件不入 contracts）
+import { stripAnsiForDom } from './ansi.js';
 import {
   appliedDecide,
   applyAsked,
@@ -787,7 +789,18 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
             </button>
           </div>
         ) : null}
-        <Transcript messages={state.messages} status={state.status} bottomRef={bottomRef} />
+        <Transcript
+          messages={state.messages}
+          status={state.status}
+          /* 工具流式尾行（挖掘 37 轮件 2）：latest-wins 单键指向条目，消毒在
+              供数位完成（stripAnsiForDom——DOM 文本单源消毒腿） */
+          preview={
+            state.lastPreviewToolId !== null && state.toolPreviews[state.lastPreviewToolId] !== undefined
+              ? stripAnsiForDom(state.toolPreviews[state.lastPreviewToolId]!)
+              : null
+          }
+          bottomRef={bottomRef}
+        />
         {/* relative 容器兼档位浮层锚（TierPopover 卡体 bottom-full 锚本容器
             上沿——随输入区实际高度自适应，界面美化役批⑥） */}
         <div className="relative">

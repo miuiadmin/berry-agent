@@ -55,7 +55,7 @@ export type ClientDisplayEvent =
   | { readonly type: 'message_start'; readonly role: string }
   | { readonly type: 'message_update'; readonly role: string; readonly partial: unknown }
   | { readonly type: 'tool_execution_start'; readonly toolCallId: string; readonly name: string }
-  | { readonly type: 'tool_execution_update'; readonly toolCallId: string }
+  | { readonly type: 'tool_execution_update'; readonly toolCallId: string; readonly update?: unknown }
   | { readonly type: 'agent_start' }
   | {
       /** run 终态（缺席 = completed——与服务端发射位同语义） */

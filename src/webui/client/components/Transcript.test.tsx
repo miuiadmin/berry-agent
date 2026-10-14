@@ -31,7 +31,7 @@ function msg(partial: Partial<ViewMessage> & { key: string; role: string; text: 
 describe('Transcript 空态与贴底锚', () => {
   it('空正文呈引导文案 + bottomRef 挂真实 div', () => {
     const bottomRef = createRef<HTMLDivElement>();
-    render(<Transcript messages={[]} status={null} bottomRef={bottomRef} />);
+    render(<Transcript messages={[]} status={null} preview={null} bottomRef={bottomRef} />);
     expect(screen.getByText('（暂无消息——发送第一条）')).toBeTruthy();
     expect(bottomRef.current).toBeTruthy();
     expect(bottomRef.current!.tagName).toBe('DIV');
@@ -47,6 +47,7 @@ describe('Transcript 角色分形渲染', () => {
           msg({ key: 'm-2', role: 'assistant', text: '**是粗体**' }),
         ]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -61,6 +62,7 @@ describe('Transcript 角色分形渲染', () => {
       <Transcript
         messages={[msg({ key: 'm-1', role: 'user', text: '问' })]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -72,6 +74,7 @@ describe('Transcript 角色分形渲染', () => {
       <Transcript
         messages={[msg({ key: 'm-1', role: 'assistant', text: '半句', error: '模型渠道未配置' })]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -86,6 +89,7 @@ describe('Transcript 角色与错误类名 token 锁（2026-10-08 浅档可读�
       <Transcript
         messages={[msg({ key: 'm-1', role: 'user', text: '问' }), msg({ key: 'm-2', role: 'assistant', text: '答' })]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -100,6 +104,7 @@ describe('Transcript 角色与错误类名 token 锁（2026-10-08 浅档可读�
       <Transcript
         messages={[msg({ key: 'm-1', role: 'assistant', text: '半句', error: '模型渠道未配置' })]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -113,6 +118,7 @@ describe('Transcript 流式尾巴与状态行', () => {
       <Transcript
         messages={[msg({ key: 'm-1', role: 'assistant', text: '半句', streaming: true })]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -121,6 +127,7 @@ describe('Transcript 流式尾巴与状态行', () => {
       <Transcript
         messages={[msg({ key: 'm-1', role: 'assistant', text: '成稿全句', streaming: false })]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -128,9 +135,11 @@ describe('Transcript 流式尾巴与状态行', () => {
   });
 
   it('状态行非 null 呈现列底（呼吸点 + 文案）、null 不占位', () => {
-    const { rerender } = render(<Transcript messages={[]} status="⚙ bash …" bottomRef={createRef<HTMLDivElement>()} />);
+    const { rerender } = render(
+      <Transcript messages={[]} status="⚙ bash …" preview={null} bottomRef={createRef<HTMLDivElement>()} />,
+    );
     expect(screen.getByText('⚙ bash …')).toBeTruthy();
-    rerender(<Transcript messages={[]} status={null} bottomRef={createRef<HTMLDivElement>()} />);
+    rerender(<Transcript messages={[]} status={null} preview={null} bottomRef={createRef<HTMLDivElement>()} />);
     expect(screen.queryByText('⚙ bash …')).toBeNull();
   });
 });
@@ -141,6 +150,7 @@ describe('Transcript run 收尾行（界面美化役批⑪）', () => {
       <Transcript
         messages={[msg({ key: 'm-close', role: RUN_CLOSE_ROLE, text: '── 用时 1m 30s · 工具 2 次 ──' })]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -154,6 +164,7 @@ describe('Transcript run 收尾行（界面美化役批⑪）', () => {
       <Transcript
         messages={[msg({ key: 'm-close', role: RUN_CLOSE_ROLE, text: '' })]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -172,6 +183,7 @@ describe('Transcript 压缩分隔行（B2 webui 对端迁移——source=compact
       <Transcript
         messages={[msg({ key: 'm-1', role: 'user', text: carrier(5), source: 'compaction' })]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -188,6 +200,7 @@ describe('Transcript 压缩分隔行（B2 webui 对端迁移——source=compact
           msg({ key: 'm-1', role: 'user', text: '[COMPACTION-SUMMARY] 老载体只有正文', source: 'compaction' }),
         ]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -199,6 +212,7 @@ describe('Transcript 压缩分隔行（B2 webui 对端迁移——source=compact
       <Transcript
         messages={[msg({ key: 'm-1', role: 'user', text: '普通问句' })]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -220,6 +234,7 @@ describe('Transcript 附件图渲染（剪贴板附件批——image-ref 块 img
           msg({ key: 'm-1', role: 'user', text: '看这张', images: [{ ref: refOf('a'), mimeType: 'image/png' }] }),
         ]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -243,6 +258,7 @@ describe('Transcript 附件图渲染（剪贴板附件批——image-ref 块 img
           }),
         ]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
@@ -259,6 +275,7 @@ describe('Transcript 附件图渲染（剪贴板附件批——image-ref 块 img
           msg({ key: 'm-1', role: 'user', text: '看这张', images: [{ ref: refOf('f'), mimeType: 'image/png' }] }),
         ]}
         status={null}
+        preview={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );

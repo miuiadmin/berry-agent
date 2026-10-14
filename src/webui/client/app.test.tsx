@@ -221,6 +221,40 @@ describe('WebUiRoot主面活体环', () => {
     expect(screen.queryByText('流式半句')).toBeNull(); // 尾巴被成稿换下
   });
 
+  it('工具流式尾行（挖掘 37 轮件 2）：update → 列底状态栏下 dim 尾行（消毒后末条非空行）→ end 撤行；状态行本身零动', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    const src = FakeEventSource.instances[0]!;
+    src.emit({
+      kind: 'display',
+      sessionId: 's-1',
+      payload: { type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} },
+    });
+    await screen.findByText('⚙ bash …'); // 状态行在位（回归锚——尾行不改状态行）
+    // update：多行载荷 + ANSI 转义 → dim 尾行只呈消毒后末条非空行
+    src.emit({
+      kind: 'display',
+      sessionId: 's-1',
+      payload: { type: 'tool_execution_update', toolCallId: 't-1', update: '头部噪音\n\x1b[32m尾部活体\x1b[0m\n' },
+    });
+    await screen.findByText('尾部活体'); // ESC 序列被 stripAnsiForDom 剥、多行取末条非空行
+    expect(screen.getByText('⚙ bash …')).toBeTruthy(); // 状态行不被尾行顶替（两行分立）
+    // end：尾行撤（不残留已终工具的陈预览）+ 状态行清
+    src.emit({
+      kind: 'session',
+      sessionId: 's-1',
+      payload: { type: 'tool_execution_end', toolCallId: 't-1', result: {} },
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('尾部活体')).toBeNull(); // 尾行撤
+    });
+    expect(screen.getByText(/执行完成/)).toBeTruthy(); // 终结行落正文（toolResultLine 词族）
+  });
+
   it('asked 镜像入审批栏 → 应答出清 + decide 回执；superseded 同出清', async () => {
     primeMain();
     render(<WebUiRoot />);

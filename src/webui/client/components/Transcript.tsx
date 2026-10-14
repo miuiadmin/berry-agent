@@ -112,14 +112,21 @@ const MessageView = memo(function MessageView({ message }: { message: ViewMessag
   );
 });
 
-/** 正文列（messages + 状态行 + 贴底锚） */
+/** 正文列（messages + 状态行 + 尾行预览 + 贴底锚） */
 export function Transcript({
   messages,
   status,
+  preview,
   bottomRef,
 }: {
   messages: readonly ViewMessage[];
   status: string | null;
+  /**
+   * 工具流式尾行预览（挖掘 37 轮件 2）：非 null 即状态行下呈现 dim 单行
+   * （latest-wins 单键择一——运行中工具无 per-tool 块，尾行是流式输出的
+   * 唯一用户面活体位）；文本已消毒（stripAnsiForDom 在供数位 App 完成）。
+   */
+  preview: string | null;
   bottomRef: RefObject<HTMLDivElement | null>;
 }): ReactElement {
   return (
@@ -138,6 +145,13 @@ export function Transcript({
           <span aria-hidden className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
           <span>{status}</span>
         </div>
+      ) : null}
+      {preview !== null ? (
+        /* 工具流式尾行（挖掘 37 轮件 2——bash-stream webui 面）：状态行下 dim
+            单行，溢出 ellipsis（单行物理面——巨长输出只露尾行语义不在宽向展开） */
+        <p className="truncate border-t border-edge px-4 py-0.5 text-2xs text-ink-faint sm:px-6" title={preview}>
+          {preview}
+        </p>
       ) : null}
     </div>
   );

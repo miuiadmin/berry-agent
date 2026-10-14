@@ -1159,6 +1159,15 @@
       "sig": "17b05de6abe095af"
     },
     {
+      "symbol": "lastPreviewLineOf",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "update 载荷尾行预览取文（三档）： - string 形：倒扫末条非空行（全空 → null）——尾行预览语义（分立注见头注）； - AgentToolResult 形：content 文本块行序列倒扫末条非空行（全空 → null）； - 其余形：null（数字/布尔/无文本块对象——文本缺席，消费位不落账）",
+      "kind": "function",
+      "sig": "c0e2f5ff182d2e91"
+    },
+    {
       "symbol": "listErrorCodes",
       "module": "berry-agent",
       "tier": "stable",

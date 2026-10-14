@@ -228,6 +228,82 @@ describe('frames 工具族与状态行', () => {
     expect(state.status).toBe('⚙ bash …'); // t-b 不被 t-a 的 end 出账误伤
   });
 
+  // ── 工具流式尾行账（挖掘 37 轮件 2——清账律五句法逐腿，toolNames parity） ──
+  it('尾行账：update 落账（多行取末条非空行）+ latest-wins 改指；null 文本形不落账不清已有', () => {
+    let state = initialAppState;
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-a', name: 'read', arguments: {} }),
+    );
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_update', toolCallId: 't-a', update: '第一行\n第二行\n' }),
+    );
+    expect(state.toolPreviews).toEqual({ 't-a': '第二行' }); // string 档倒扫末条非空行
+    expect(state.lastPreviewToolId).toBe('t-a');
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-b', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-b', update: '跑' }));
+    expect(state.toolPreviews).toEqual({ 't-a': '第二行', 't-b': '跑' }); // per-id 全量
+    expect(state.lastPreviewToolId).toBe('t-b'); // latest-wins 改指
+    // null 文本形（数字载荷）：状态行照常重设、账不动（不清已有好预览）
+    state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-b', update: 42 }));
+    expect(state.toolPreviews).toEqual({ 't-a': '第二行', 't-b': '跑' });
+    expect(state.lastPreviewToolId).toBe('t-b');
+  });
+
+  it('end 出账：同事件同序 delete + 择一键置 null（尾行撤不回退）；兄弟在飞键维持', () => {
+    let state = initialAppState;
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-a', name: 'read', arguments: {} }),
+    );
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-b', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-a', update: '读' }));
+    state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-b', update: '跑' }));
+    expect(state.lastPreviewToolId).toBe('t-b');
+    // A 先终（择一键指向 B 非 A——键不动；A 条目出账）
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-a', result: {} }));
+    expect(state.toolPreviews).toEqual({ 't-b': '跑' });
+    expect(state.lastPreviewToolId).toBe('t-b');
+    // B 终（择一键 === id → 置 null 尾行撤——不回退 t-a〔已出账〕也不回退任何在飞）
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-b', result: {} }));
+    expect(state.toolPreviews).toEqual({});
+    expect(state.lastPreviewToolId).toBeNull();
+  });
+
+  it('setActiveSession 整清 / agent_end 不清账 / 迟到同 id update 回退承接（清账律余三腿）', () => {
+    let state = initialAppState;
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-1', update: '跑' }));
+    // agent_end 只清状态行呈现面——尾行账不动（toolNames 同律）
+    state = applyEnvelope(state, display({ type: 'agent_end' }));
+    expect(state.status).toBeNull();
+    expect(state.toolPreviews).toEqual({ 't-1': '跑' });
+    expect(state.lastPreviewToolId).toBe('t-1');
+    // setActiveSession 整清（旧会话预览对新会话无意义）
+    state = setActiveSession(state, 'other');
+    expect(state.toolPreviews).toEqual({});
+    expect(state.lastPreviewToolId).toBeNull();
+    // 迟到同 id update（end 后）回退承接——落账+改指复活（幂等键 parity）
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-9', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-9', result: {} }));
+    state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-9', update: '迟' }));
+    expect(state.toolPreviews).toEqual({ 't-9': '迟' });
+    expect(state.lastPreviewToolId).toBe('t-9');
+  });
+
   it('工具名中文化（V-0 注⑤跨通道对端）：映射族名走 toolFaceZh、集外名直呈兜底', () => {
     let state = initialAppState;
     state = applyEnvelope(

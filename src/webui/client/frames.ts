@@ -28,7 +28,7 @@ import type { ClientApprovalEntry, ClientEnvelope, ClientSessionSummary } from '
 // partialObserved 位收 contracts 单源——本件原段级 map 加注副本已删）与取消形
 // 时刻段 HH:MM（formatClockHM——原 clockOf 逐字克隆收编，双消费面
 // （tui-backend 收尾行 / webui 取消回执）均已改引本源）。
-import { formatClockHM, runRecapLine, TOOL_RUN_MARK, toolFaceZh } from '../../contracts/index.js';
+import { formatClockHM, lastPreviewLineOf, runRecapLine, TOOL_RUN_MARK, toolFaceZh } from '../../contracts/index.js';
 
 /**
  * 附件图视图位（剪贴板附件批——03 §10.4 批注⑥）：user 消息 image-ref 块的
@@ -199,6 +199,20 @@ export interface AppState {
    * 跨通道同律）；end 时出账，会话切换整段清（有界）。
    */
   readonly toolNames: Readonly<Record<string, string>>;
+  /**
+   * 工具流式尾行账（挖掘 37 轮件 2——bash-stream 挂账 webui 腿）：per-id
+   * 全量（update 载荷经 lastPreviewLineOf 取文——null 文本缺席不落账）。
+   * 清账律与 toolNames 完全同律（parity）：end 出账〔同事件同序〕/
+   * setActiveSession 整清 / agent_end 只清状态行呈现面不清本账 / SSE onopen
+   * 重拉不清〔迟到同 id 帧回退承接〕。
+   */
+  readonly toolPreviews: Readonly<Record<string, string>>;
+  /**
+   * 尾行呈现择一单键（latest-wins——与状态行同姿）：update 落账非同 id 即
+   * 改指；end 出账时若 ===id → 置 null（尾行撤——不回退其他在飞条目，回退
+   * 复杂度高价值低）。null = 无尾行呈现。
+   */
+  readonly lastPreviewToolId: string | null;
   /** 会话清单装载失败旗（true = 空态呈现失败行——不与真空态混同假装「暂无会话」） */
   readonly sessionsFailed: boolean;
   /**
@@ -281,6 +295,8 @@ export const initialAppState: AppState = {
   seq: 0,
   pendingEchoes: [],
   toolNames: {},
+  toolPreviews: {},
+  lastPreviewToolId: null,
   sessionsFailed: false,
   runActive: false,
   runStartedAt: null,
@@ -611,7 +627,18 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
         // 名优先（start 已记账）；映射缺席（乱序/重连丢 start）回退 id 不炸——
         // 两形均过 toolFaceZh（集外名直呈兜底——id 不在映射集原样返回）
         const name = state.toolNames[payload.toolCallId] ?? payload.toolCallId;
-        return { ...state, status: `${TOOL_RUN_MARK} ${toolFaceZh(name)} …` };
+        // 尾行账落账（挖掘 37 轮件 2）：载荷经 lastPreviewLineOf 取文（string 档
+        // 倒扫末条非空行——与 TUI 直显面语义分立）；null 文本缺席不落账（不清
+        // 已有好预览）；落账即 latest-wins 改指（幂等键 = toolCallId 本身，同 id
+        // 后帧覆盖前帧——迟到同 id 帧回退承接，toolNames parity）
+        const previewLine = lastPreviewLineOf(payload.update);
+        if (previewLine === null) return { ...state, status: `${TOOL_RUN_MARK} ${toolFaceZh(name)} …` };
+        return {
+          ...state,
+          status: `${TOOL_RUN_MARK} ${toolFaceZh(name)} …`,
+          toolPreviews: { ...state.toolPreviews, [payload.toolCallId]: previewLine },
+          lastPreviewToolId: payload.toolCallId,
+        };
       }
       if (payload.type === 'tool_execution_end') {
         if (env.kind !== 'session') return state;
@@ -624,6 +651,11 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
         // 终结行动词走 toolFaceZh（V-0 注⑤跨通道对端）
         const name = state.toolNames[payload.toolCallId] ?? payload.toolCallId;
         const { [payload.toolCallId]: _removed, ...toolNames } = state.toolNames;
+        // 尾行出账（挖掘 37 轮件 2——与 toolNames 同事件同序）：delete 预览账；
+        // 择一单键 ===id → 置 null 撤尾行（不回退其他在飞条目——latest-wins
+        // 同姿；兄弟在飞由 siblingStatus 承状态行，尾行随下一个 update 改指恢复）
+        const { [payload.toolCallId]: _previewRemoved, ...toolPreviews } = state.toolPreviews;
+        const lastPreviewToolId = state.lastPreviewToolId === payload.toolCallId ? null : state.lastPreviewToolId;
         // 终态行失败分档：判据 = 工具结果 isError（TUI 三态卡同源位）；终态行
         // 只换语气词——失败详情走 assistant errorMessage 轨（错误块本体呈现），
         // result/isError 缺席（旧服务端/坏形容错）按成功呈现（可选位向后兼容）
@@ -640,6 +672,8 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           ...state,
           status: siblingStatus,
           toolNames,
+          toolPreviews,
+          lastPreviewToolId,
           messages: [
             ...state.messages,
             {
@@ -1184,6 +1218,8 @@ export function setActiveSession(state: AppState, sessionId: string | null): App
     status: null,
     pendingEchoes: [],
     toolNames: {},
+    toolPreviews: {}, // 尾行账随切换整清（toolNames 同律——旧会话预览对新会话无意义）
+    lastPreviewToolId: null,
     // run 活体窗随会话切换整段清（新会话的收尾行/打断键面由新流重开——
     // 旧会话的观察窗对新会话无意义）
     runActive: false,

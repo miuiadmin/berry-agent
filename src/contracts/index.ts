@@ -48,6 +48,11 @@ export * from './redact.js';
 // 分隔行 N 数解析）双消费——channels 无 compaction 边（02 §4.1 边表），零依赖
 // 纯件居本域即零新边（durations / tool-face 同律）
 export * from './ccr-marker.js';
+// 工具执行 update 载荷尾行预览取文（挖掘 37 轮件 2——webui 尾行预览面单源）：
+// webui 客户端单方消费但须经公开面桶（channels 桶拉 node:fs 结构性不可承——
+// tool-face 同律）；与 TUI decodeUpdateText 语义分立（string 档倒扫末条非空行
+// vs 直显折叠——07 §4.1 件 5 分立注），零依赖纯件同律零新边
+export * from './tool-preview.js';
 export * from './llm.js';
 export * from './messages.js';
 export * from './approval.js';
