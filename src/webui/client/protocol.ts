@@ -30,6 +30,8 @@ export const WEBUI_ENDPOINTS = {
   sessionTodo: '/api/sessions/:id/todo',
   /** GET——会话导出 markdown 直出（不落盘） */
   sessionExport: '/api/sessions/:id/export',
+  /** GET——最近回复取文（挖掘 37 轮件 5——/copy SPA 复制径；应答 {text|null}） */
+  sessionLastResponse: '/api/sessions/:id/last-response',
   /** GET——档位面读（当前档 + 两行集——词表/行文案单源服务端；2026-09-18 webui 档位面受理批） */
   sessionTiers: '/api/sessions/:id/tiers',
   /** PUT——切 thinking 档（体 {level} → 应答 {receipt}；回执文案与 TUI setStatus 同文单源） */

@@ -293,4 +293,15 @@ export const api = {
     if (!res.ok) throw await foldError(res);
     return res.blob();
   },
+
+  /**
+   * 最近回复取文（挖掘 37 轮件 5——/copy SPA 复制径：首词拦截后的取文位，
+   * 供浏览器剪贴板面写入）。应答 {text}：null = 末条无带正文 assistant
+   * （调用面折「还没有可复制的回复」warn 非静默）；501/404 折 ApiError 由
+   * 调用面呈现（401 归失效路由）。
+   */
+  async lastResponse(sessionId: string): Promise<string | null> {
+    const body = await call<{ text: string | null }>(withId(WEBUI_ENDPOINTS.sessionLastResponse, sessionId));
+    return body.text;
+  },
 };

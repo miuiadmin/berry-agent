@@ -78,7 +78,12 @@ import { bootPlugins, defaultFs, readEnabledRows } from './plugin-boot.js';
 import { createPluginReloader, emptyRollbackReceipt, rollbackFromReport } from './plugin-reload.js';
 import type { PluginReloader } from './plugin-reload.js';
 import { PLUGINS_CMD_USAGE, runPluginsCommand } from './plugins-command.js';
-import { runSessionExportCommand, scanSessionExportFlags, SESSION_EXPORT_USAGE } from './session-export.js';
+import {
+  lastResponseMarkdownOf,
+  runSessionExportCommand,
+  scanSessionExportFlags,
+  SESSION_EXPORT_USAGE,
+} from './session-export.js';
 import { COMPACT_USAGE, runCompactCommand } from './compact-cmd.js';
 import { runPluginConfigForm } from './plugins-config.js';
 import { DOORS_USAGE, parseDoorsArgv, runDoorsCommand } from './doors-cmd.js';
@@ -1305,6 +1310,16 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                         return undefined; // 行不在场——端点 404 not_found
                       }
                     },
+                  },
+                  // 最近回复取文真身（挖掘 37 轮件 5——/copy SPA 复制径腿 1）：
+                  // 与 channels 核 /copy 命令的 lastResponse 注入同源同形
+                  //（conversation-stack 闭包同构——双事实源纪律单源：driver
+                  // 活体优先〔write-behind 未 flush 也在场〕、未开回库装载；
+                  // 末条带正文 assistant 正文 = lastResponseMarkdownOf 单源
+                  //〔/export textOf 同律消毒〕，缺席 null 端点诚实空）
+                  lastResponseSource: async (sessionId) => {
+                    const messages = await stack.projectionWithSeqOf(sessionId);
+                    return lastResponseMarkdownOf(messages);
                   },
                 }),
               // obs 三 seam：事件源 = Store 真身直传（结构兼容 ObsEventsFace——

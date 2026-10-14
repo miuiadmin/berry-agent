@@ -92,6 +92,9 @@ const apiMock = vi.hoisted(() => ({
   // @ 文件段补全消费腿（hygiene——WebUiRoot 挂点传参闭包踩此面；缺省诚实空
   // 不弹层，实现钉在创建位经 clearAllMocks 不清除）
   workspaceFiles: vi.fn<(query: string) => Promise<readonly string[]>>().mockImplementation(async () => []),
+  // 最近回复取文消费腿（挖掘 37 轮件 5——/copy SPA 首词拦截后的取文位；
+  // 缺省诚实回 null「还没有可复制的回复」形，clearAllMocks 不除实现同律）
+  lastResponse: vi.fn<(sessionId: string) => Promise<string | null>>().mockImplementation(async () => null),
 }));
 
 // 桩只覆写 api 面；真源余出口透传（ApiError 类 / isUnauthorized 谓词——401
@@ -1006,6 +1009,115 @@ describe('WebUiRoot档位受理面（/thinking //sandbox SPA 拦截——webui �
     await screen.findByText(/条早前通知/);
     expect(screen.queryByText('（+5 条早前通知）')).toBeNull();
     expect(screen.getByText('（+4 条早前通知）')).toBeDefined();
+  });
+});
+
+describe('WebUiRoot /copy 复制径（挖掘 37 轮件 5——SPA 首词拦截 + navigator.clipboard 降级链）', () => {
+  /** 发送捷径（输入框敲词 + 点发送——拦截面测试驱动位，档位词同款） */
+  async function sendWord(word: string): Promise<void> {
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: word } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+  }
+
+  /** navigator.clipboard 桩（jsdom 无原生实现——Object.defineProperty 注入；
+   *  configurable: true 使 describe 级 afterEach 的 delete 可还原） */
+  function stubClipboard(writeText: (text: string) => Promise<void>): void {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  }
+
+  afterEach(() => {
+    // 还原桩（jsdom 原生无此键——delete 即回缺席形；两腿互不漏桩）
+    delete (navigator as { clipboard?: unknown }).clipboard;
+    delete (document as { execCommand?: unknown }).execCommand;
+  });
+
+  it('零参 /copy：lastResponse(activeId) 取文 + writeText 剪贴板写 + info 成功通知；不进提交流不 echo（修前红：现穿透提交 api.submit）', async () => {
+    primeMain();
+    apiMock.lastResponse.mockResolvedValueOnce('# 最近回复');
+    const writeText = vi.fn(async () => undefined);
+    stubClipboard(writeText);
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await sendWord('/copy');
+    await waitFor(() => {
+      expect(apiMock.lastResponse).toHaveBeenCalledWith('s-1');
+    });
+    expect(apiMock.submit).not.toHaveBeenCalled(); // 修前红锚：现 /copy 穿透进提交流
+    expect(screen.queryByText('/copy')).toBeNull(); // 不 echo 回显（本地拦截族——档位词同归属律）
+    expect(writeText).toHaveBeenCalledWith('# 最近回复');
+    await screen.findByText('已复制最近一条回复');
+  });
+
+  it('带参 /copy foo：同拦（对齐核命令忽略参数形——零参带参同动作不 fail-loud）；/copyX 词干全等不误拦（穿透照常提交）', async () => {
+    primeMain();
+    apiMock.lastResponse.mockResolvedValueOnce('正文');
+    stubClipboard(vi.fn(async () => undefined));
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await sendWord('/copy foo');
+    await waitFor(() => {
+      expect(apiMock.lastResponse).toHaveBeenCalledWith('s-1');
+    });
+    expect(apiMock.submit).not.toHaveBeenCalled();
+    await screen.findByText('已复制最近一条回复');
+    // 词干全等切分：/copyX 是他会话词非本词——穿透提交照常（词法分割不误拦）
+    await sendWord('/copyX');
+    await waitFor(() => {
+      expect(apiMock.submit).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('text null（末条无带正文 assistant）→ warn「还没有可复制的回复」不写剪贴板（跨通道同词族——核路由同词）', async () => {
+    primeMain(); // 缺省 lastResponse 实现 = null
+    const writeText = vi.fn(async () => undefined);
+    stubClipboard(writeText);
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await sendWord('/copy');
+    await screen.findByText('还没有可复制的回复——发一条消息后再试');
+    expect(writeText).not.toHaveBeenCalled();
+    expect(apiMock.submit).not.toHaveBeenCalled();
+  });
+
+  it('降级链两败（clipboard 缺席 + execCommand 无实现）→ warn「复制失败——可试 /export 导出」诚实失败不谎报', async () => {
+    primeMain();
+    apiMock.lastResponse.mockResolvedValueOnce('正文');
+    // 不注 clipboard（jsdom 原生缺席）——降级 execCommand 亦未桩（缺席）→ 两败
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await sendWord('/copy');
+    await screen.findByText('复制失败——可试 /export 导出');
+    expect(apiMock.submit).not.toHaveBeenCalled();
+  });
+
+  it('降级腿：writeText 拒（权限/手势窗失形）→ execCommand(copy) 降级成功 → 已复制（隐藏 textarea 路——临时节点用毕即除）', async () => {
+    primeMain();
+    apiMock.lastResponse.mockResolvedValueOnce('正文');
+    stubClipboard(
+      vi.fn(async () => {
+        throw new DOMException('denied', 'NotAllowedError');
+      }),
+    );
+    const execMock = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', { value: execMock, configurable: true });
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await sendWord('/copy');
+    await screen.findByText('已复制最近一条回复');
+    expect(execMock).toHaveBeenCalledWith('copy');
+    // 临时 textarea 用毕即除（降级路不留 DOM 残节点）
+    expect(document.querySelector('textarea[data-copy-fallback]')).toBeNull();
+  });
+
+  it('lastResponse 401 → 回换桥位（凭证失效路由——调用面统一律，submit 腿同形）', async () => {
+    primeMain();
+    apiMock.lastResponse.mockRejectedValueOnce(new ApiError(401, 'UNAUTHORIZED'));
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await sendWord('/copy');
+    await screen.findByPlaceholderText('一次性 token');
+    expect(apiMock.submit).not.toHaveBeenCalled();
   });
 });
 

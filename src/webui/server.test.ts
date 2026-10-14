@@ -99,6 +99,8 @@ function makeDeps(opts?: {
   readonly withoutDelete?: boolean;
   /** 附件读回键缺席（GET /api/attachments/:ref 端点 501 诚实缺席形——03 §10.4 ④） */
   readonly withoutAttachment?: boolean;
+  /** 最近回复取文键缺席（GET last-response 端点 501 诚实缺席形——挖掘 37 轮件 5） */
+  readonly withoutLastResponse?: boolean;
   /** fold 坏词形（tiersOf 抛 BaseError——面级 500 路；冷读 CR-TIER-2 边缘三形之三） */
   readonly foldBadWord?: boolean;
   /** submit 幂等冲突形（桥 submitPrompt 抛 SDK_MESSAGE_CONFLICT——409 结构码路） */
@@ -164,6 +166,14 @@ function makeDeps(opts?: {
   const jsonls = new Map<string, string>([
     ['s-1', `${JSON.stringify({ format: 'berry-agent/session', version: 1, exportedAt: 0 })}\n`],
     ['s-closed', `${JSON.stringify({ format: 'berry-agent/session', version: 1, exportedAt: 0 })}\n`],
+  ]);
+  // last-response 取文桩（挖掘 37 轮件 5——/copy SPA 复制径取文单源）：真身
+  // host 桥闭包 projectionWithSeqOf → lastResponseMarkdownOf 产出形的最小
+  // 同构（末条带正文 assistant 正文直出）；无条目会话 = null（端点两形之二
+  // ——「还没有可复制的回复」在 SPA 侧呈现，服务端只如实回空不造文）
+  const lastTexts = new Map<string, string>([
+    ['s-1', '# s-1 最近回复'],
+    ['s-closed', '已闭会话末条回复'],
   ]);
   const submitted: WebuiSubmitInput[] = [];
   const interrupted: string[] = [];
@@ -311,6 +321,14 @@ function makeDeps(opts?: {
               }
               return null;
             },
+          }),
+      // 最近回复取文键（挖掘 37 轮件 5——/copy SPA 复制径；缺席 =
+      // withoutLastResponse 时键不注 → 端点 501 诚实缺席形）。async 形同
+      // 真身（桥闭包 projectionWithSeqOf 是 Promise 面——端点 handler await）
+      ...(opts?.withoutLastResponse === true
+        ? {}
+        : {
+            lastResponseSource: async (id: string) => lastTexts.get(id) ?? null,
           }),
     },
     // 缺省仍同步形（union 向后兼容证载体——同步实现照旧绿）；asyncCompletion
@@ -822,6 +840,57 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
       bare.webui.detach();
       await bare.face.stop();
     }
+  });
+
+  it('last-response：判序三档 + 两形——open 200 {text} / 无条目 200 {text:null} / closed 放行 200（读面语义）/ missing 404', async () => {
+    // 修前红（挖掘 37 轮件 5）：端点未落——微路由无此路径，全档落 /api 兜底
+    // 404「未知 API 路由」，应答形/词面断言均红
+    const open = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/last-response`, {
+      headers: authHeaders(),
+    });
+    expect(open.status).toBe(200);
+    expect(await open.json()).toEqual({ text: '# s-1 最近回复' });
+    // 无条目会话（open 无 lastTexts 行——末条无带正文 assistant 的端点两形
+    // 之二）：200 {text: null} 诚实空不造文
+    const empty = await fetch(`http://127.0.0.1:${port}/api/sessions/s-noanchor/last-response`, {
+      headers: authHeaders(),
+    });
+    expect(empty.status).toBe(200);
+    expect(await empty.json()).toEqual({ text: null });
+    // closed 放行（读面语义同 messages//export——只读腿不受闭态拦）
+    const closed = await fetch(`http://127.0.0.1:${port}/api/sessions/s-closed/last-response`, {
+      headers: authHeaders(),
+    });
+    expect(closed.status).toBe(200);
+    expect(await closed.json()).toEqual({ text: '已闭会话末条回复' });
+    // missing → 404 not_found（GET /export 同词）
+    const missing = await fetch(`http://127.0.0.1:${port}/api/sessions/nope/last-response`, {
+      headers: authHeaders(),
+    });
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({ error: 'not_found', message: '会话不存在' });
+  });
+
+  it('last-response 键缺席：501 诚实缺席且 501 先于 404（键缺席 + 会话不在场 → 501 非 404——GET /export 先例同序：能力缺席先于资源缺席判）', async () => {
+    const bare = await rig(makeDeps({ withoutLastResponse: true }).deps);
+    try {
+      const res = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/nope/last-response`, {
+        headers: { authorization: `Bearer ${bare.token}` },
+      });
+      expect(res.status).toBe(501);
+      expect(await res.json()).toMatchObject({
+        error: 'not_implemented',
+        message: '最近回复取文未启用（当前运行形态不含此功能）',
+      });
+    } finally {
+      bare.webui.detach();
+      await bare.face.stop();
+    }
+  });
+
+  it('last-response 鉴权缺拒：无凭证 401（鉴权随全 API 面）', async () => {
+    const anon = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/last-response`);
+    expect(anon.status).toBe(401);
   });
 
   it('export 鉴权缺拒：无凭证 401（鉴权随全 API 面——cookie 桥/Bearer 双受理族）', async () => {

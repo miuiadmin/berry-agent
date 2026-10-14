@@ -245,4 +245,18 @@ describe('check-vocab 守护炮自测（spawn 全闸形态）', () => {
     expect(status).toBe(0);
     expect(out).toContain('check-vocab 绿');
   });
+
+  // 挖掘 37 轮件 5——webui 复制径词条：SPA 三态词（词面真源 App.tsx
+  // copyLastResponse；「已复制最近一条回复/还没有可复制的回复——发一条
+  // 消息后再试」核路由同词族、「复制失败——可试 /export 导出」= 新造诚实
+  // 失败指路词——writeText 与 execCommand 两败后的兜底腿）
+  it('查四批准词锁：webui 复制径三词「已复制最近一条回复/还没有可复制的回复——发一条消息后再试/复制失败——可试 /export 导出」→ 绿（件 5 新用户面词入册）', () => {
+    const root = fixture('userface-approved-webui-copy', {
+      'src/webui/client/App.tsx':
+        "export const words = ['已复制最近一条回复', '还没有可复制的回复——发一条消息后再试', '复制失败——可试 /export 导出'];\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(0);
+    expect(out).toContain('check-vocab 绿');
+  });
 });

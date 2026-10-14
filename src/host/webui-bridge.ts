@@ -243,6 +243,15 @@ export interface WebuiFaceMountOptions {
    * API-only 形，WebuiCompletionFace? 缺席诚实空同精神）。
    */
   readonly exportSource?: WebuiExportSource;
+  /**
+   * 最近回复取文 seam（挖掘 37 轮件 5——/copy SPA 复制径腿 1）：GET
+   * last-response 端点的供文真身（末条带正文 assistant 正文——与 channels
+   * 核 /copy 命令的 lastResponse 注入同源同形）。真身 = 装配根闭包
+   * projectionWithSeqOf → lastResponseMarkdownOf（assembly webuiFaceMount
+   * 同构）；缺席 = readFace 键不注入（端点 501 诚实缺席——exportSource
+   * 同款注入形）。
+   */
+  readonly lastResponseSource?: (sessionId: string) => Promise<string | null>;
 }
 
 /**
@@ -276,7 +285,13 @@ export interface WebuiFaceMount {
  * 接线；closer 注册与 token 披露归调用方按入口形各自编排。
  */
 export function mountWebuiOnFace(options: WebuiFaceMountOptions): WebuiFaceMount {
-  const deps = bridgeDeps(options.stack, options.staticDir, options.exportSource, options.cwd);
+  const deps = bridgeDeps(
+    options.stack,
+    options.staticDir,
+    options.exportSource,
+    options.cwd,
+    options.lastResponseSource,
+  );
   // 面注册器直注（WebuiRouteDescriptor → SdkRouteDescriptor 方向性结构兼容）
   const webui = mountWebui({ ...deps, register: options.face.register });
   // 通道挂接（UiBackend 第四实装 claim 桥）——12f-2c 期注记「addBackend 归
@@ -332,6 +347,7 @@ function bridgeDeps(
   staticDirOverride?: string,
   exportSource?: WebuiExportSource,
   cwd?: string,
+  lastResponseSource?: (sessionId: string) => Promise<string | null>,
 ): WebuiDeps {
   // @ 文件段补全源（挂载期单实例——锚随面恒定、源零状态；裸段走全库异步腿
   // （索引缓存归 sharedRepoFileIndex 单例，锚恒定 → per-root 缓存全程命中）、
@@ -508,6 +524,10 @@ function bridgeDeps(
       // 单源——件侧不查扩展名不二次判）。内存模式无库（attachments 缺席）
       // → null → 端点 404 诚实空（无库即无在场附件，非 501 能力谎）
       readAttachment: (ref) => stack.attachments?.read(ref) ?? null,
+      // 最近回复取文键（挖掘 37 轮件 5——/copy SPA 复制径）：seam 直注
+      //（闭包无中间分档——与 exportSource 的两渲染器分档不同形：取文单一
+      // 渲染面无 rowOf/eventsOf 拆位必要）；缺席 = 键不注入 → 端点 501
+      ...(lastResponseSource !== undefined ? { lastResponseSource } : {}),
       // /export markdown 拼装真身（2026-09-17 TUI 余量收官批②——renderSessionMarkdown
       // 第三消费位：TUI /export 与 CLI berry sessions export 之外新增 web 直出腿；
       // 不落盘——web 面消费语义 = 浏览器/curl 直接取文）。缺席语义双档：

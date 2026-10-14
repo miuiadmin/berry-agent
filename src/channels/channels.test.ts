@@ -1449,7 +1449,7 @@ describe('/copy 命令面（挖掘 36 轮批 [2]——整轮回复复制：注�
 
   it('后端能力面缺席（writeClipboard 不挂）：warn 降级「当前界面不支持剪贴板复制」', async () => {
     const s = createChannels({ lastResponse: async () => '正文' });
-    const b = fakeBackend('web', {}, false, null); // null = 能力面缺席（webui 挂账形）
+    const b = fakeBackend('web', {}, false, null); // null = 能力面缺席（webui 走 SPA 复制径不经 writeClipboard——挖掘 37 轮件 5 后维持缺席形）
     s.addBackend(b.backend);
     s.registerSession('a');
     await s.focus('a');

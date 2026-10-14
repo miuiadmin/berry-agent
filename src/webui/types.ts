@@ -61,6 +61,8 @@ export const WEBUI_COOKIE_NAME = 'webui_token';
  * 端点 17→18（「端点计数口径」句以后注为准）。
  * 2026-10-08 剪贴板附件批（03 §10.4 ④）：附件族单端点 GET /api/attachments/:ref
  * ——路径 17→18、端点 18→19（表尾键位与客户端副本逐字对齐）。
+ * 2026-10-14 挖掘 37 轮件 5（03 §10.4 批注）：会话族增 last-response 端点
+ * ——路径 18→19、端点 19→20（会话族内扩不新开撮；键位与客户端副本逐字对齐）。
  */
 export const WEBUI_ENDPOINTS = {
   /** GET——探活（open/liveness；只回 ok 零敏感面） */
@@ -83,6 +85,10 @@ export const WEBUI_ENDPOINTS = {
   sessionTodo: '/api/sessions/:id/todo',
   /** GET——会话导出 markdown 直出（不落盘——2026-09-17 TUI 余量收官批②） */
   sessionExport: '/api/sessions/:id/export',
+  /** GET——最近回复取文（挖掘 37 轮件 5——/copy SPA 复制径取文单源：应答
+   * {text|null}〔null = 末条无带正文 assistant〕；判序 501〔键缺席〕先于
+   * 404〔会话不在场〕先于 200——已闭放行读面语义同 messages//export） */
+  sessionLastResponse: '/api/sessions/:id/last-response',
   /** GET——档位面读（当前档 + 两行集——词表/行文案单源服务端，SPA 零硬编码；2026-09-18 webui 档位面受理批） */
   sessionTiers: '/api/sessions/:id/tiers',
   /** PUT——切 thinking 档（体 {level}——应答 {receipt}；回执文案与 TUI setStatus 同文单源） */
@@ -298,6 +304,16 @@ export interface WebuiReadFace {
    * 查扩展名不二次判）。
    */
   readAttachment?(ref: string): { readonly bytes: Uint8Array; readonly mimeType: string } | null;
+  /**
+   * 最近回复取文（挖掘 37 轮件 5——/copy SPA 复制径：GET
+   * /api/sessions/:id/last-response 的执行体；可选键）。拼装真源留 host
+   * 单源（桥闭包 projectionWithSeqOf → lastResponseMarkdownOf——与 channels
+   * 核 /copy 命令的 lastResponse 注入同源同形，textOf 单源+终端外载体消毒
+   * 律）。null = 末条无带正文 assistant（端点 200 {text:null} 诚实空）；
+   * 键缺席 = 端点 501 诚实缺席（API-only 形——exportMarkdown 同族；501 判
+   * 先于会话态 404，GET /export 先例同序）。
+   */
+  lastResponseSource?(sessionId: string): Promise<string | null>;
 }
 
 /** 补全族注入面（两段——缺席诚实空，v1 装配批按需接线；union 形 @ 文件全库模糊腿批——源可同步直出或异步解析） */

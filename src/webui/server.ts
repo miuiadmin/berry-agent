@@ -645,6 +645,31 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       res.end(markdown);
     },
   });
+  // —— 会话族子路由：last-response 取文（挖掘 37 轮件 5——/copy SPA 复制径
+  //    取文单源：SPA /copy 首词拦截后经本端点取末条带正文 assistant 正文，
+  //    再由浏览器剪贴板面写入——写真身在 SPA 腿，本端点只供文）。判序钉死
+  //    501→404→放行→200：注入键缺席先于会话存在性判（GET /export 先例同序
+  //    ——能力缺席比资源缺席更根本，序倒置则面装配缺失被会话态遮蔽）；已闭
+  //    会话放行（读面语义同 messages//export——只读腿不受闭态拦）
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.sessionLastResponse,
+    auth: tokenOrCookie,
+    handler: async (_req, res, ctx) => {
+      const lastResponseSource = deps.read.lastResponseSource;
+      if (lastResponseSource === undefined) {
+        sendError(res, 501, 'not_implemented', '最近回复取文未启用（当前运行形态不含此功能）');
+        return;
+      }
+      const sessionId = ctx.params.id!;
+      const state = deps.sessions.sessionStateOf(sessionId);
+      if (state === 'missing') return sendError(res, 404, 'not_found', '会话不存在');
+      // 已闭放行（closed 态零拦——闭会话近史兜底在桥真身 projectionWithSeqOf
+      // 的 durable 回退腿内）；取文是 Promise 面（桥闭包投影拉取同形）
+      const text = await lastResponseSource(sessionId);
+      sendJson(res, 200, { text });
+    },
+  });
   // —— 会话族子路由：档位面三端点（2026-09-18 webui 档位面受理批——07 §4.1
   //    挂账句销账；词表+行文案单源服务端、SPA 零硬编码；消费单源 = 注入面
   //    落 conversation 件 append 面，webui 侧零第二写入位）——

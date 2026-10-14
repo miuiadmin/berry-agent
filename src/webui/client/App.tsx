@@ -123,6 +123,45 @@ export function deadStreamReasonOf(status: number): string {
  * 流体（200 受理形不占连接至超时）。401 形不在此路由——probeAuthed 腿专管
  * （换桥路由由鉴权腿先行处理，本探针 401 归「连接已断开」档不与之抢面）。
  */
+/**
+ * 剪贴板写两腿（挖掘 37 轮件 5——/copy SPA 复制径）：主路 navigator.
+ * clipboard.writeText（secure context + user activation 手势窗——Enter
+ * 提交即 transient activation，fetch 取文往返后仍在窗内）；败或缺席降级
+ * 隐藏 textarea 选区 + document.execCommand('copy')（传统同步剪贴板 API）
+ * ；再败返 false 诚实败（调用面折指路词——浏览器面非恒成功，与 TUI OSC 52
+ * 尽力语义分岔如实：webui 不设 64KiB 帽但可因手势窗超时/secure context 缺
+ * 失失败）。临时节点 finally 即除（降级路不留 DOM 残节点）。
+ */
+async function writeClipboardText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard !== undefined) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // 主路败（权限拒/手势窗失）——降级腿承接，不在此谎报成败
+  }
+  try {
+    const textarea = document.createElement('textarea');
+    // data 属性标记降级路临时节点（测试面可断言用毕即除；fixed+透明双设
+    // 防视口滚动与闪烁）
+    textarea.setAttribute('data-copy-fallback', '');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      return document.execCommand('copy');
+    } finally {
+      textarea.remove();
+    }
+  } catch {
+    return false; // 降级腿亦无实现/失败——两败诚实 false
+  }
+}
+
 async function classifyDeadStream(url: string, timeoutMs = 5_000): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -480,6 +519,40 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
   );
 
   /**
+   * /copy 复制径（挖掘 37 轮件 5——SPA 首词拦截后的真身）：取文 → 剪贴板
+   * 两腿写 → 三态通知（info 成功 / warn 还没有 / warn 诚实失败指路导出）。
+   * 词面与核路由同词族（跨通道同词——「已复制最近一条回复」「还没有可复制
+   * 的回复——发一条消息后再试」）；「复制失败——可试 /export 导出」= webui
+   * 侧新词（浏览器剪贴板面非恒成功——TUI too-large 指路词的 webui 对位，
+   * 此处失败因是手势窗/secure context 非长度）。401 归失效路由（调用面
+   * 统一律）；其余取文败折 err.message 人读因。
+   */
+  const copyLastResponse = (sessionId: string): void => {
+    void api
+      .lastResponse(sessionId)
+      .then(async (text) => {
+        if (text === null) {
+          setState((prev) => pushedNotice(prev, '还没有可复制的回复——发一条消息后再试', 'warn'));
+          return;
+        }
+        if (await writeClipboardText(text)) {
+          setState((prev) => pushedNotice(prev, '已复制最近一条回复', 'info'));
+        } else {
+          setState((prev) => pushedNotice(prev, '复制失败——可试 /export 导出', 'warn'));
+        }
+      })
+      .catch((err: unknown) => {
+        if (isUnauthorized(err)) {
+          onAuthLost();
+          return;
+        }
+        setState((prev) =>
+          pushedNotice(prev, err instanceof Error && err.message !== '' ? err.message : '取文失败——请重试', 'error'),
+        );
+      });
+  };
+
+  /**
    * 提交入定会话（档位词拦截 + 乐观回显 + 失败撤回）：messageId =
    * crypto.randomUUID 服务端幂等位；撤回键 = echoKeyOf 同源落稿键（闭包
    * 持键——catch 按键撤回，不靠尾部位置）。附件（剪贴板附件批——03
@@ -513,6 +586,15 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
           'error',
         ),
       );
+      return;
+    }
+    // ---- /copy 首词拦截（挖掘 37 轮件 5——webui 复制径腿 1）----
+    // 零参带参同拦（对齐核命令忽略参数形——TUI '/copy' 带参同动作不
+    // fail-loud，与档位词的带参用法错分立）；词干全等切分——/copyX 不误拦
+    // （照常提交）；不进提交流不 echo 回显（本地拦截族——档位词同归属律）；
+    // Enter 提交即 transient activation（剪贴板写的手势窗凭据）
+    if (stem === '/copy') {
+      copyLastResponse(sessionId);
       return;
     }
     const text = trimmed;

@@ -225,6 +225,48 @@ describe('api 档位三函数（/thinking //sandbox webui 受路——2026-09-18
   });
 });
 
+describe('api.lastResponse（/copy SPA 复制径取文腿——挖掘 37 轮件 5）', () => {
+  it('fetch 形：GET last-response 端点 :id 代换 + 同源 cookie 携行（走 call 折叠腿）+ {text} 解包直出', async () => {
+    const fetchMock = vi.fn(async () => resOf({ ok: true, status: 200, json: { text: '# 最近回复' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(api.lastResponse('s-1')).resolves.toBe('# 最近回复');
+    // 端点词面单源代换（WEBUI_ENDPOINTS.sessionLastResponse 的 :id 位）；
+    // call 腿缺省 GET 形——credentials + JSON 头两键（todo 腿同构）
+    expect(fetchMock).toHaveBeenCalledWith('/api/sessions/s-1/last-response', {
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  it('null 直出（端点两形之一——末条无带正文 assistant 诚实空不造文）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => resOf({ ok: true, status: 200, json: { text: null } })),
+    );
+    await expect(api.lastResponse('s-1')).resolves.toBeNull();
+  });
+
+  it('非 2xx 折 ApiError：JSON error 词面优先（404 not_found 形——message 位人读因）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => resOf({ ok: false, status: 404, json: { error: 'not_found', message: '会话不存在' } })),
+    );
+    await expect(api.lastResponse('nope')).rejects.toMatchObject({
+      status: 404,
+      code: 'not_found',
+      message: '会话不存在',
+    });
+  });
+
+  it('非 2xx 折 ApiError：非 JSON 应答回退 HTTP 状态词（501 面未装配防御位）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => resOf({ ok: false, status: 501, jsonThrows: true })),
+    );
+    await expect(api.lastResponse('s-1')).rejects.toMatchObject({ code: 'HTTP_501' });
+  });
+});
+
 describe('api.workspaceFiles（@ 文件段补全消费腿）', () => {
   it('fetch 形：端点常量 + q encodeURIComponent + 同源 cookie 携行（走 call 折叠腿）', async () => {
     const fetchMock = vi.fn(async () => resOf({ ok: true, status: 200, json: { items: ['@src/'] } }));
