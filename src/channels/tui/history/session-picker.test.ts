@@ -9,6 +9,7 @@ import type { KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid, stringWidth } from '../../engine/index.js';
 import type { UiSessionDeleteResult, UiSessionSummary } from '../../../contracts/index.js';
 import { SessionPicker } from './session-picker.js';
+import { formatRelativeStamp } from './session-picker.js';
 
 /** key 事件夹具 */
 const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
@@ -53,13 +54,14 @@ function readRow(grid: CellGrid, rowNumber: number, width: number): string {
   return out.trimEnd();
 }
 
-/** 装配便捷（全回调 vi 记录；extra = Options 可选位覆写——截断披露/删除注入腿用） */
+/** 装配便捷（全回调 vi 记录；extra = Options 可选位覆写——截断披露/删除注入/相对钟腿用） */
 function makePicker(
   sessions: readonly UiSessionSummary[],
   extra: {
     totalCount?: number;
     onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>;
     requestRepaint?: () => void;
+    nowMs?: number;
   } = {},
 ) {
   const onSelect = vi.fn();
@@ -152,12 +154,15 @@ describe('SessionPicker 光标与选择模型', () => {
 });
 
 describe('SessionPicker 行呈现', () => {
+  /** 相对钟基准：fixture 时点 + 8d（≥7d 档——既有绝对断言零变，确定性明示） */
+  const ABS_BASE = new Date(2026, 8, 23, 10, 30).getTime();
+
   it('光标标记 + 活跃位 + 标题 + 右段时间短 id', () => {
     const sessions = [
       row({ id: 'aaa111111111', title: '调 TUI' }),
       row({ id: 'bbb222222222', title: '旧会话', active: true, updatedAt: stamp(9, 5) }),
     ];
-    const { picker } = makePicker(sessions);
+    const { picker } = makePicker(sessions, { nowMs: ABS_BASE });
     const grid = new CellGrid(60, 6);
     picker.render(grid, { row: 0, col: 0, width: 60, height: 6 });
     expect(readRow(grid, 0, 60)).toBe('⇄ 会话切换 · 2 会话');
@@ -165,6 +170,62 @@ describe('SessionPicker 行呈现', () => {
     expect(readRow(grid, 1, 60)).toBe('›   调 TUI' + ' '.repeat(30) + '09-15 10:30 aaa11111');
     expect(readRow(grid, 2, 60)).toBe('  ● 旧会话' + ' '.repeat(30) + '09-15 09:05 bbb22222');
     expect(readRow(grid, 5, 60)).toBe('↑↓ 移动 · enter 切换 · q/esc 返回');
+  });
+
+  it('时间列相对时分档 + ≥7d 回退绝对（挖掘 35 轮 B10——分档边界锁）', () => {
+    // 边界两侧各锁一档：59s→秒档 / 60s→分钟档 / 59m→分钟档 / 60m→小时档 /
+    // 23h→小时档 / 24h→天档 / 6d→天档 / 7d→回退绝对（保日期信息量）
+    const base = new Date(2026, 9, 14, 12, 0).getTime();
+    const S = 1_000;
+    const M = 60 * S;
+    const H = 60 * M;
+    const D = 24 * H;
+    const at = (offset: number) => base - offset;
+    const cases: ReadonlyArray<[number, string]> = [
+      [0, '0 秒前'],
+      [59 * S, '59 秒前'],
+      [60 * S, '1 分钟前'],
+      [59 * M, '59 分钟前'],
+      [60 * M, '1 小时前'],
+      [23 * H, '23 小时前'],
+      [24 * H, '1 天前'],
+      [6 * D, '6 天前'],
+      [7 * D, '10-07 12:00'],
+      [29 * D, '09-15 12:00'],
+    ];
+    for (const [offset, expectText] of cases) {
+      expect(formatRelativeStamp(at(offset), base)).toBe(expectText);
+    }
+  });
+
+  it('相对时渲染消费 + 基准构造期定格（重渲染不随真实时钟漂——呈现位确定性）', () => {
+    const base = new Date(2026, 9, 14, 12, 0).getTime();
+    const sessions = [row({ id: 'aaa111111111', title: '刚聊的', updatedAt: base - 5 * 60_000 })];
+    const { picker } = makePicker(sessions, { nowMs: base });
+    const grid = new CellGrid(60, 4);
+    picker.render(grid, { row: 0, col: 0, width: 60, height: 4 });
+    expect(readRow(grid, 1, 60)).toContain('5 分钟前');
+    // 同实例再渲染——基准定格（不 new Date() 现取），行形字节级不变
+    const grid2 = new CellGrid(60, 4);
+    picker.render(grid2, { row: 0, col: 0, width: 60, height: 4 });
+    expect(readRow(grid2, 1, 60)).toBe(readRow(grid, 1, 60));
+  });
+
+  it('工作区短名段（挖掘 35 轮 B9——右段首位；缺席缩位不虚报）', () => {
+    const base = new Date(2026, 9, 14, 12, 0).getTime();
+    const sessions = [
+      row({ id: 'aaa111111111', title: '调 TUI', workspaceRoot: '/Users/x/code/berry-agent', updatedAt: base - 5 * 60_000 }),
+      row({ id: 'bbb222222222', title: '别仓', workspaceRoot: undefined, updatedAt: base - 5 * 60_000 }),
+    ];
+    const { picker } = makePicker(sessions, { nowMs: base });
+    const grid = new CellGrid(72, 5);
+    picker.render(grid, { row: 0, col: 0, width: 72, height: 5 });
+    // 在场：右段首位 basename 短名 + 相对时 + 短 id（跨仓清单仓别可辨）
+    expect(readRow(grid, 1, 72)).toContain('berry-agent 5 分钟前 aaa11111');
+    // 缺席（undefined）：缩位零虚报——右段无短名段直起相对时
+    const second = readRow(grid, 2, 72);
+    expect(second).toContain('5 分钟前 bbb22222');
+    expect(second).not.toContain('undefined');
   });
 
   it('截断披露：totalCount 超清单长 → 头行 N/M 注记（B2——100 窗静默截断不可见）', () => {
@@ -194,7 +255,7 @@ describe('SessionPicker 行呈现', () => {
 
   it('超宽左段整字截断加省略号（CJK 不产半字）+ 右段超预算同样 … 收口后右对齐（随真态翻档）', () => {
     const longTitle = '很长'.repeat(20); // 80 列 >> 剩余宽
-    const { picker } = makePicker([row({ id: 'ddd444444444', title: longTitle })]);
+    const { picker } = makePicker([row({ id: 'ddd444444444', title: longTitle })], { nowMs: ABS_BASE });
     const grid = new CellGrid(40, 4);
     picker.render(grid, { row: 0, col: 0, width: 40, height: 4 });
     const line = readRow(grid, 1, 40);
@@ -210,7 +271,7 @@ describe('SessionPicker 行呈现', () => {
   it('窄窗右段预算律：时间/短 id 右段先按预算 … 截断再右对齐——负起列劈毁标题坏形封堵（修前红）', () => {
     // 窗 18 < 右段宽 20（时间 12 + 短 id 8）——修前 rightCol = -2：CellGrid 吸收
     // 负列首两字后余段从行首覆写，光标标记与标题全毁（finding 实证坏形）
-    const { picker } = makePicker([row({ id: 'aaa111111111', title: '调 TUI' })]);
+    const { picker } = makePicker([row({ id: 'aaa111111111', title: '调 TUI' })], { nowMs: ABS_BASE });
     const width = 18;
     const grid = new CellGrid(width, 4);
     picker.render(grid, { row: 0, col: 0, width, height: 4 });

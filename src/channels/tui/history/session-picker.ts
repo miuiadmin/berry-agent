@@ -6,8 +6,10 @@
  *   （PgUp/PgDn 翻选、Home/End 到首尾），Enter 选定 → 先收副屏再 onSelect
  *   （切焦异步 repaint 与收屏两序皆收敛——挂起闸/复起全帧重画各担一形）；
  * - **行呈现**：光标标记 › + 活跃位 ●（进程内 driver 在场）+ 标题（缺席
- *   如实「（无题）」）+ 右侧时间（MM-DD HH:mm——呈现位确定性）与会话短
- *   id；超宽整字截断（左段适配剩余宽——CJK 双宽不产半字）；
+ *   如实「（无题）」）+ 右侧工作区短名（挖掘 35 轮 B9——跨仓清单仓别可
+ *   辨，缺席缩位）/ 相对时（挖掘 35 轮 B10——分档 <7d 相对、≥7d 回退绝对
+ *   MM-DD HH:mm；基准构造期定格）与会话短 id；超宽整字截断（左段适配剩
+ *   余宽——CJK 双宽不产半字）；
  * - **滚动**：光标驱动的窗口滚动（光标恒可见——offset 跟随夹取），非
  *   ScrollView 的自由滚动（选择模型下两者合一更直）；
  * - **删除键与确认位**（05 §2.5 会话删除编排定形注①）：onDelete 注入在场
@@ -20,6 +22,7 @@
  *   再转退出柄）——副屏键面补丁三件套与件 8 同律。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
+import { basename } from 'node:path';
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
@@ -59,6 +62,11 @@ export interface SessionPickerOptions {
    * 主会话装配位已接线（tui-backend theme: this.theme）。
    */
   readonly theme?: ResolvedTheme;
+  /**
+   * 相对时基准（挖掘 35 轮 B10——构造期定格单源：呈现位确定性，重开屏
+   * 才换新基准；测试注入固定钟；缺省 Date.now()）。
+   */
+  readonly nowMs?: number;
 }
 
 /** 提示行样式（dim——注⑩：engine DIM_STYLE 单源） */
@@ -80,11 +88,33 @@ function isPlainKey(e: InputEvent & { kind: 'key' }, key: string): boolean {
   return !e.ctrl && !e.alt && !e.shift && !e.meta && e.key === key;
 }
 
-/** 活动时间呈现（MM-DD HH:mm——呈现位确定性形；本地时区显示档） */
+/** 活动时间呈现（MM-DD HH:mm——≥7d 回退档；本地时区显示档） */
 function formatStamp(ms: number): string {
   const d = new Date(ms);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** 相对时分档表（挖掘 35 轮 B10——升档序；unit = 计数单位，ceiling = 升档上界） */
+const RELATIVE_TIERS: ReadonlyArray<{ unit: number; ceiling: number; label: string }> = [
+  { unit: 1_000, ceiling: 60_000, label: '秒前' },
+  { unit: 60_000, ceiling: 3_600_000, label: '分钟前' },
+  { unit: 3_600_000, ceiling: 86_400_000, label: '小时前' },
+  { unit: 86_400_000, ceiling: 7 * 86_400_000, label: '天前' },
+];
+
+/**
+ * 活动时间相对时分档（挖掘 35 轮 B10——最新在前清单的直读性对齐）：
+ * <60s「N 秒前」/<60m「N 分钟前」/<24h「N 小时前」/<7d「N 天前」/≥7d 回退
+ * 绝对 MM-DD HH:mm（远程旧会话保日期信息量——codex 恒 Nd ago 的信息倒挂
+ * 勘正）。基准 now 构造期定格单源传入（呈现位确定性——测试注入固定钟）。
+ */
+export function formatRelativeStamp(ms: number, nowMs: number): string {
+  const diff = nowMs - ms;
+  for (const tier of RELATIVE_TIERS) {
+    if (diff < tier.ceiling) return `${Math.floor(diff / tier.unit)} ${tier.label}`;
+  }
+  return formatStamp(ms);
 }
 
 /**
@@ -120,6 +150,8 @@ export class SessionPicker implements OverlayContent {
   private exited = false;
   /** 在选行整行样式（R-9——accent bold；右段辅助段随光标行覆写） */
   private readonly activeRowStyle: Readonly<CellStyle>;
+  /** 相对时基准（构造期定格——挖掘 35 轮 B10） */
+  private readonly nowMs: number;
 
   constructor(options: SessionPickerOptions) {
     this.sessions = [...options.sessions]; // 可变副本（就地滤行——不回写调用方数组）
@@ -131,6 +163,7 @@ export class SessionPicker implements OverlayContent {
     this.onDelete = options.onDelete;
     this.requestRepaint = options.requestRepaint;
     this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
+    this.nowMs = options.nowMs ?? Date.now();
   }
 
   /** 量高：清单形 = 头行 + 清单全量 + 底行提示（副屏 root 不经布局路——render 按实际 region 窗口化）；确认视图定高（头 + 警示 + 状态行预留 + 底行） */
@@ -227,15 +260,22 @@ export class SessionPicker implements OverlayContent {
     }
   }
 
-  /** 单行落位：左段（光标 + 活跃位 + 标题——适配剩余宽截断）+ 右段（时间 短id）右对齐 */
+  /** 单行落位：左段（光标 + 活跃位 + 标题——适配剩余宽截断）+ 右段（工作区短名 · 时间 · 短id）右对齐 */
   private renderRow(buffer: CellBuffer, row: number, col: number, width: number, index: number): void {
     const session = this.sessions[index]!;
-    const right = `${formatStamp(session.updatedAt)} ${shortIdOf(session.id)}`;
+    // 右段 = 工作区短名（挖掘 35 轮 B9——右段首位形：dim 辅助族样式与 R-9
+    // 光标行覆写律天然继承、窄宽走右段预算律单源收口、缺席缩位不虚报）+
+    // 相对时（挖掘 35 轮 B10——构造期定格基准）+ 短 id
+    const ws =
+      session.workspaceRoot !== undefined && session.workspaceRoot !== ''
+        ? basename(session.workspaceRoot)
+        : '';
+    const right = `${ws !== '' ? `${ws} ` : ''}${formatRelativeStamp(session.updatedAt, this.nowMs)} ${shortIdOf(session.id)}`;
     // 左段 = 光标标记 + 活跃位 + 标题
     const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
     const title = session.title !== undefined && session.title !== '' ? session.title : '（无题）';
     const left = `${prefix}${session.active ? ACTIVE_MARK : ' '} ${title}`;
-    // 右段预算律单源：时间/短 id 先按预算 … 截断再右对齐（窄窗不再负起列
+    // 右段预算律单源：各段先按预算 … 截断再右对齐（窄窗不再负起列
     // 劈毁标题——两段各自整字截断不撕宽字符）
     const fit = fitRowSegments(left, right, width);
     // 在选行整行 accent bold（R-9——codex 全 spans 律：右段辅助段随光标行覆写）
