@@ -1619,6 +1619,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           .approvalDecisionsOf(sessionId)
           .filter(isUserApprovalDecision)
           .map(({ seq, decision, summary }) => ({ seq, decision, summary })),
+      // todo 快照全序列数据源（挖掘 35 轮 B8——直播/投影/回看三路）：条目窄
+      // 形映射（TodoItemData→TodoItem 同形直展——非消息源块零载荷过滤，签名
+      // 闸在 transcript 消费位单源，本层零闸知识）。
+      todoSnapshotsOf: (sessionId) =>
+        stack.todoSnapshotsOf(sessionId).map(({ seq, items }) => ({ seq, items: items.map((item) => ({ ...item })) })),
       // 持久化分项目输入历史（B1——07 §4.1 呈现面件 2 定形注③种写双路）：
       // 域键 = 启动锚工作区根（session.workspaceRoot——resume/--session 续接
       // 会话根与 openStartupSession 缺省 cwd 归一两路均已 canonical 归一形；

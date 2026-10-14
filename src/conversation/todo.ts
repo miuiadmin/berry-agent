@@ -114,6 +114,33 @@ export function foldTodoTable(events: readonly SessionEvent[], scope?: TodoGoalS
 }
 
 /**
+ * todo 快照落史行（挖掘 35 轮 B8——TUI todo-snapshot 块回放读面）：扫日志
+ * 全部可见 `todo/write` 事件 → [{seq, items}] 升序序列（seq = durable 位锚
+ * ——回放侧按消息 seq 归位插块）。**收集位不做签名闸**——闸单源在 TUI
+ * transcript 消费位（直播/回放两路同一闸结果；此处预闸会与直播腿「块账
+ * 最后已落块」比较态分叉）。遮蔽事件跳过（压缩遮蔽 = 轨迹同随消息遮蔽
+ * 消失——foldTodoTable 同语义）。
+ */
+export interface TodoSnapshotEntry {
+  /** durable 位锚（升序） */
+  readonly seq: number;
+  readonly items: readonly TodoItemData[];
+}
+
+/** 扫全部 todo/write 快照（升序——foldTodoTable 的全序列伴生读面） */
+export function collectTodoSnapshots(events: readonly SessionEvent[]): readonly TodoSnapshotEntry[] {
+  const occluded = occludedSeqs(events);
+  const snapshots: TodoSnapshotEntry[] = [];
+  for (let seq = 0; seq < events.length; seq += 1) {
+    if (occluded.has(seq)) continue;
+    const event = events[seq]!;
+    if (event.type !== 'todo/write') continue;
+    snapshots.push({ seq, items: validateTodoItems((event.data as { items?: unknown }).items) });
+  }
+  return snapshots;
+}
+
+/**
  * goal 段窄面（词面独立于 goal 件 GoalScope——组合根闭包注入，结构兼容即
  * 编译期验；缺省 undefined = fold 退化 run-scoped 现行为）。
  */

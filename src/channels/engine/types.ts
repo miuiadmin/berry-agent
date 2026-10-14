@@ -80,6 +80,8 @@ export interface CellStyle {
   readonly underline?: boolean;
   readonly dim?: boolean;
   readonly inverse?: boolean;
+  /** 划线（挖掘 35 轮 B8——SGR 9；首消费 = todo-snapshot 块 completed 条目） */
+  readonly strikethrough?: boolean;
 }
 
 /**

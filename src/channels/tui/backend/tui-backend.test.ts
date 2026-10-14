@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
 import { ansiColor, colorRgb, stringWidth } from '../../engine/index.js';
+import type { TodoItem } from '../../types.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
 import { LEADER_WINDOW_MS } from '../keys/leader.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
@@ -6665,5 +6666,41 @@ describe('TuiBackend appendApprovalDecisionLine（挖掘 31 轮 [1]——块账�
     backend.appendApprovalDecisionLine({ decision: 'always', summary: 'npm run' });
     expect(stripAnsi(io.bytes)).toContain('✓ 已批准 · npm test');
     expect(stripAnsi(io.bytes)).toContain('✓ 已总是批准 · npm run');
+  });
+});
+
+/* ---------------- todo 清单落史快照（挖掘 35 轮 B8）——直播腿锚消费 ---------------- */
+
+describe('TuiBackend todo 快照块直播腿（挖掘 35 轮 B8——tool_execution_end 锚）', () => {
+  /** 快照注入源（升序全序列——闸在 transcript 消费位，本桩直给） */
+  const snapshotsOf = (entries: ReadonlyArray<{ seq: number; items: readonly TodoItem[] }>) => () => entries;
+
+  it('tool_execution_end 落块入帧：卡头 + 条目行（直播实序块位 = 配对工具卡之前）', () => {
+    const { io, backend } = makeBackend({
+      todoSnapshotsOf: snapshotsOf([
+        { seq: 1, items: [{ status: 'in-progress', content: '写实现', activeForm: '正在写实现' }] },
+      ]),
+    });
+    io.bytes = ''; // 清首画——只断言事件增量
+    emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
+    // present 自补链：applyFocusedEvent 后于 enqueuePresent——本位须自补两步（否则零呈现）
+    expect(stripAnsi(io.bytes)).toContain('任务清单已更新');
+    expect(stripAnsi(io.bytes)).toContain('正在写实现'); // activeForm 优先词面
+  });
+
+  it('缺席源 no-op：未注入 todoSnapshotsOf 时 tool_execution_end 零异常零呈现（兼容锁）', () => {
+    const { io, backend } = makeBackend();
+    io.bytes = '';
+    emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
+    expect(stripAnsi(io.bytes)).not.toContain('任务清单已更新');
+  });
+
+  it('闸全跳过零帧源不扰动：同签快照重复事件零增量帧', () => {
+    const items: readonly TodoItem[] = [{ status: 'pending', content: '甲' }];
+    const { io, backend } = makeBackend({ todoSnapshotsOf: snapshotsOf([{ seq: 1, items }]) });
+    emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never }); // 首落
+    io.bytes = '';
+    emit(backend, { type: 'tool_execution_end', toolCallId: 't2', result: {} as never }); // 全序列同签——闸跳过
+    expect(stripAnsi(io.bytes)).not.toContain('任务清单已更新');
   });
 });

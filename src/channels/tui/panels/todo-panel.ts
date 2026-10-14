@@ -18,16 +18,16 @@ import type { TodoItem } from '../../types.js';
 /** 帽内条数（溢出行另计——spec 定形不预收数字者已实测定形 6） */
 const MAX_ITEMS = 6;
 
-/** 四态记号（呈现投影——07 §4.1 件 4 定形） */
-const STATUS_MARKS: Readonly<Record<TodoItem['status'], string>> = Object.freeze({
+/** 四态记号（呈现投影——07 §4.1 件 4 定形；快照块〔挖掘 35 轮 B8〕同源消费） */
+export const STATUS_MARKS: Readonly<Record<TodoItem['status'], string>> = Object.freeze({
   pending: '☐',
   'in-progress': '◐',
   completed: '☑',
   deferred: '⊙',
 });
 
-/** 暗淡两态（已完成 / 缓办——退场视觉语义） */
-const DIM_STATUSES: ReadonlySet<TodoItem['status']> = new Set(['completed', 'deferred']);
+/** 暗淡两态（已完成 / 缓办——退场视觉语义；快照块暗淡基底同源消费） */
+export const DIM_STATUSES: ReadonlySet<TodoItem['status']> = new Set(['completed', 'deferred']);
 
 /** todo 面板：条目快照 → 固定区行段（清板即零行——布局自洽） */
 export class TodoPanel implements Renderable {

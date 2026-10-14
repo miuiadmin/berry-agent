@@ -60,10 +60,12 @@ export type { PluginControlFace } from './control.js';
 export type { ControlToolsDeps } from './control-tools.js';
 export { createControlTools } from './control-tools.js';
 // todo 机器（11e：fold 推导 + conversation/todo 角色 + 快照注入 + 工具件；
-// 15b：goal 段升格窄面 TodoGoalScope——组合根 goalScopeFor 闭包注入位）
-export type { TodoItemData, TodoGoalScope } from './todo.js';
+// 15b：goal 段升格窄面 TodoGoalScope——组合根 goalScopeFor 闭包注入位；
+// 挖掘 35 轮 B8：collectTodoSnapshots 快照全序列读面——TUI todo-snapshot 块）
+export type { TodoItemData, TodoGoalScope, TodoSnapshotEntry } from './todo.js';
 export {
   TODO_ROLE,
+  collectTodoSnapshots,
   createTodoTool,
   ensureTodoRole,
   foldTodoTable,

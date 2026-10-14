@@ -37,7 +37,8 @@ export function styleEquals(a: CellStyle, b: CellStyle): boolean {
     !!a.italic === !!b.italic &&
     !!a.underline === !!b.underline &&
     !!a.dim === !!b.dim &&
-    !!a.inverse === !!b.inverse
+    !!a.inverse === !!b.inverse &&
+    !!a.strikethrough === !!b.strikethrough
   );
 }
 

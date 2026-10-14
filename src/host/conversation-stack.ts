@@ -62,6 +62,7 @@ import {
   createControlTools,
   CONTROL_CROSS_CAPABILITY,
   DEFAULT_RETRY_POLICY,
+  collectTodoSnapshots,
   ensureTodoRole,
   foldApprovalDecisions,
   foldCallLedger,
@@ -81,6 +82,7 @@ import type {
   SubmitOptions,
   SubmitResult,
   SessionsControlFace,
+  TodoSnapshotEntry,
 } from '../conversation/index.js';
 import type { UserMessage } from '../contracts/index.js';
 import { HOST_NAMESPACE } from '../credentials/index.js';
@@ -470,6 +472,14 @@ export interface ConversationStack {
    * 呈现谓词滤除（isUserApprovalDecision）在消费侧单源执行。
    */
   approvalDecisionsOf(sessionId: string): readonly FoldedApprovalDecision[];
+  /**
+   * todo 快照全序列读面（挖掘 35 轮 B8——TUI todo-snapshot 块数据源）：
+   * collectTodoSnapshots 单源扫日志全部可见 todo/write → [{seq, items}] 升序
+   * （收集位不做闸——闸单源在 TUI transcript 消费位，直播/回放两路同一闸
+   * 结果）；双事实源纪律 approvalDecisionsOf 同款（驱动活体优先、未开回库
+   * 装载）。呈现投影映射（TodoItemData→TodoItem）在装配根 tui-entry。
+   */
+  todoSnapshotsOf(sessionId: string): readonly TodoSnapshotEntry[];
   driverOf(sessionId: string): ConversationDriver | undefined;
   /**
    * 工具面换代代投（pi-3 件 B——03 §2.8 换装时点通告通道）：/reload reapply
@@ -1688,6 +1698,16 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     return foldApprovalDecisions(log.events());
   }
 
+  /**
+   * todo 快照全序列读面（挖掘 35 轮 B8）：双事实源解析同 approvalDecisionsOf
+   * 一字不差；collect 单源在 conversation 模块（collectTodoSnapshots——
+   * 收集位不做闸，闸在 TUI transcript 消费位）。
+   */
+  function todoSnapshotsOf(sessionId: string): readonly TodoSnapshotEntry[] {
+    const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
+    return collectTodoSnapshots(log.events());
+  }
+
   // —— ob-3 连通微探针（07 ob-3 改裁注机制形）：真供血路 StreamFn 1-token
   // 探针——专用工厂（maxTokens=1 + 连接级帽）+ 显式 apiKey 位（向导新录
   // key 直供血，不经绑定行回读——录入前即可验证）。15s 请求级双帽由
@@ -1904,6 +1924,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     projectionWithSeqOf,
     // 挖掘 31 轮 [1]：审批决策折面读面（回看/投影重建路决策行数据源）
     approvalDecisionsOf,
+    // 挖掘 35 轮 B8：todo 快照全序列读面（todo-snapshot 块数据源——直播/
+    // 投影/回看三路共用；呈现投影映射在 tui-entry）
+    todoSnapshotsOf,
     driverOf: (sessionId) => manager.driverOf(sessionId),
     // 工具面换代代投（pi-3 件 B）：世代号自增——各驱动下一请求组装位消费
     notifyToolFaceChange() {

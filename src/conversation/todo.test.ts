@@ -12,6 +12,7 @@ import type { SessionEvent } from '../contracts/index.js';
 import { getMessageRoleDefinition, registerMessageRole } from '../contracts/index.js';
 import {
   TODO_ROLE,
+  collectTodoSnapshots,
   createTodoTool,
   ensureTodoRole,
   foldTodoTable,
@@ -287,5 +288,61 @@ describe('createTodoTool', () => {
     expect(Value.Check(parameters, { items: [{ status: 'pending', content: 'x', extra: 1 }] })).toBe(false);
     expect(Value.Check(parameters, { items: [], command: 'rm -rf' })).toBe(false);
     expect(Value.Check(parameters, {})).toBe(false);
+  });
+});
+
+/* ---------------- 快照全序列收集（挖掘 35 轮 B8——TUI todo-snapshot 块读面） ---------------- */
+
+describe('collectTodoSnapshots', () => {
+  it('全序列升序收集：每条可见 todo/write 一档（seq = 数组位锚）', () => {
+    const events = [
+      ev('user/message', { content: '开工' }), // seq 0
+      ev('todo/write', { items: TWO_ITEMS }), // seq 1
+      ev('assistant/message', { stopReason: 'stop' }), // seq 2
+      ev('todo/write', { items: [item({ content: '丙' })] }), // seq 3
+    ];
+    expect(collectTodoSnapshots(events)).toEqual([
+      { seq: 1, items: TWO_ITEMS },
+      { seq: 3, items: [item({ content: '丙' })] },
+    ]);
+  });
+
+  it('空日志/无 todo 事件 → 空序列', () => {
+    expect(collectTodoSnapshots([])).toEqual([]);
+    expect(collectTodoSnapshots([ev('user/message', { content: 'x' })])).toEqual([]);
+  });
+
+  it('被遮蔽的 todo/write 跳过（foldTodoTable 遮蔽同语义——对模型不可见即从未发生）', () => {
+    const events = [
+      ev('todo/write', { items: TWO_ITEMS }), // seq 0 被遮蔽
+      ev('todo/write', { items: [item({ content: '丙' })] }), // seq 1 可见
+      ev('assistant/message', { stopReason: 'error' }, { start: 0, end: 0 }), // 遮蔽 [0,0]
+    ];
+    expect(collectTodoSnapshots(events)).toEqual([{ seq: 1, items: [item({ content: '丙' })] }]);
+  });
+
+  it('收集位不做签名闸：同签重复快照全保留（闸单源在 transcript 消费位）', () => {
+    const events = [ev('todo/write', { items: TWO_ITEMS }), ev('todo/write', { items: TWO_ITEMS })];
+    expect(collectTodoSnapshots(events)).toHaveLength(2);
+  });
+
+  it('读侧防御同 fold：坏条目丢弃、好条目保留；items 非数组 → 空档', () => {
+    const events = [
+      ev('todo/write', {
+        items: [
+          item({ content: '好条目' }),
+          { status: 'bogus', content: 'status 出词表' },
+          { status: 'pending', content: 42 },
+          '非对象',
+        ],
+      }),
+      ev('todo/write', { items: 'not-array' }),
+      ev('todo/write', {}),
+    ];
+    expect(collectTodoSnapshots(events)).toEqual([
+      { seq: 0, items: [item({ content: '好条目' })] },
+      { seq: 1, items: [] },
+      { seq: 2, items: [] },
+    ]);
   });
 });

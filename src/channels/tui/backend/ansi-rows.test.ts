@@ -168,3 +168,19 @@ describe('capAnsiLine ANSI 行显示宽帽（fx2-A——补吐位宽收口原语
     expect(capAnsiLine(`\x1b[31maa\x1b]0;t\x07${'a'.repeat(10)}`, 3)).toBe(`\x1b[31maa\x1b]0;t\x07a\x1b[0m`);
   });
 });
+
+describe('buildSgr strikethrough（挖掘 35 轮 B8——SGR 9 首消费 todo-snapshot completed 条目）', () => {
+  it('dim+划线并置：参数序 dim(2) 后划线(9)——单序列复合', () => {
+    expect(buildSgr({ dim: true, strikethrough: true })).toBe('\x1b[2;9m');
+  });
+
+  it('划线并入复合序：bold(1) 与划线(9) 同序列、色参数续后', () => {
+    const sgr = buildSgr({ bold: true, strikethrough: true, fg: ansiColor(3) });
+    expect(sgr).toBe(`\x1b[1;9;${3 + 30}m`);
+  });
+
+  it('行级端到端：styledLineToAnsi 发射划线段并尾归零', () => {
+    const line: StyledLine = { plain: 'ab', runs: [{ start: 0, end: 2, style: { dim: true, strikethrough: true } }] };
+    expect(styledLineToAnsi(line)).toBe('\x1b[2;9mab\x1b[0m');
+  });
+});

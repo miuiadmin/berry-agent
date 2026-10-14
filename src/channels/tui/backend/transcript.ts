@@ -82,8 +82,9 @@ import {
   compactionSeparatorLine,
 } from '../../../contracts/index.js';
 import { CURSOR_MARK } from '../panels/panel-chrome.js';
+import { DIM_STATUSES, STATUS_MARKS } from '../panels/todo-panel.js';
 import { ACTION_CATALOG } from '../keys/registry.js';
-import type { SessionEnvelope } from '../../types.js';
+import type { SessionEnvelope, TodoItem } from '../../types.js';
 
 export type { StyleRun, StyledLine } from './ansi-rows.js';
 
@@ -225,6 +226,21 @@ export type TranscriptBlock =
       readonly theme: ResolvedTheme;
     }
   | {
+      /**
+       * todo 清单快照块（挖掘 35 轮 B8——07 §4.1 todo-snapshot 词条）：
+       * todo/write durable 轨迹的转录呈现（durable 非消息源块族第三员——
+       * 头卡/审批决策行之后，直播腿 tool_execution_end 锚追加、重建腿
+       * loadProjection 按 seq 归位）。多行块：卡头一行 + 条目每条一行；
+       * 签名 diff 闸在 transcript 消费位（todoSignature——收集位不做闸）。
+       */
+      readonly kind: 'todo-snapshot';
+      /** durable 位锚（todo/write 事件 seq——闸幂等判据；呈现不消费） */
+      readonly seq: number;
+      /** 快照条目（呈现投影形 TodoItem——装配从 TodoItemData 映射） */
+      readonly items: readonly TodoItem[];
+      readonly theme: ResolvedTheme;
+    }
+  | {
       readonly kind: 'streaming';
       /** 槽代次（每条 assistant message_start 递增——冻结账同一性判据） */
       readonly epoch: number;
@@ -258,6 +274,64 @@ export interface ApprovalDecisionLineInput {
   readonly seq: number;
   readonly decision: 'approve' | 'always' | 'reject';
   readonly summary: string;
+}
+
+/**
+ * todo 快照注入窄形（挖掘 35 轮 B8）：投影/回看路的快照载荷（seq 归位锚 +
+ * 呈现投影条目）——直播腿追加（appendTodoSnapshot）与重建腿归位
+ * （loadProjection todoSnapshots 参）两消费位同形；theme 由 LiveTranscript
+ * 自持。文件内导出窄形——contracts 零改（ApprovalDecisionLineInput 同律）。
+ */
+export interface TodoSnapshotLineInput {
+  /** 归位锚（todo/write 事件 durable seq） */
+  readonly seq: number;
+  readonly items: readonly TodoItem[];
+}
+
+/**
+ * todo 快照签名（B8 签名 diff 闸单源）：条目 (status, content) 序列串——
+ * activeForm 呈现辅助不进签名（同表不同 activeForm 不重复落块）；增项/删项/
+ * 状态翻转/内容改才落。直播腿与投影 flush 两路同用本函数（同一闸结果）。
+ */
+export function todoSignature(items: readonly TodoItem[]): string {
+  return items.map((item) => `${item.status} ${item.content}`).join('\n');
+}
+
+/**
+ * todo 快照块行集（B8 渲染本体）：卡头 `• 任务清单已更新`（• dim 前缀 +
+ * 词 bold——codex「• Updated Plan」同构）+ 条目行（两空格缩进 + 四态记号 +
+ * 内容——单行制无折行，超宽走出口帽 capStyledLine 整字截断，简行族同律）。
+ * 四态样式：in-progress = accent bold（activeForm 优先词面——面板同律）；
+ * 暗淡档基底 = TodoPanel DIM_STATUSES 单源（completed/deferred）+ pending
+ * 快照加档（历史轨迹非活跃态整体弱化——与面板当面表 pending 不暗分立）；
+ * completed 在暗淡档上另加划线（strikethrough——SGR 9 首消费，codex
+ * crossed_out 对位）。空表形 = 仅卡头（诚实呈现「已更新为零项」）。
+ */
+function renderTodoSnapshotLines(block: Extract<TranscriptBlock, { kind: 'todo-snapshot' }>): StyledLine[] {
+  const header = '任务清单已更新';
+  const lines: StyledLine[] = [
+    {
+      plain: `• ${header}`,
+      runs: [
+        { start: 0, end: 1, style: DIM_STYLE },
+        { start: 2, end: 2 + header.length, style: BOLD_STYLE },
+      ],
+    },
+  ];
+  for (const item of block.items) {
+    const mark = STATUS_MARKS[item.status];
+    const body = item.status === 'in-progress' && item.activeForm !== undefined ? item.activeForm : item.content;
+    const plain = `  ${mark} ${body}`;
+    // 暗淡基底：DIM_STATUSES 单源 + pending 快照加档（非暗淡档仅 in-progress）
+    const dimmed = DIM_STATUSES.has(item.status) || item.status === 'pending';
+    const style: Readonly<CellStyle> = !dimmed
+      ? Object.freeze({ fg: block.theme.accent, bold: true })
+      : item.status === 'completed'
+        ? Object.freeze({ dim: true, strikethrough: true })
+        : DIM_STYLE;
+    lines.push({ plain, runs: [{ start: 2, end: plain.length, style }] });
+  }
+  return lines;
 }
 
 /** 会话短 id（呈现层自截——散列映射色板键同源） */
@@ -595,6 +669,10 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
       // 审批决策行（挖掘 31 轮 [1]）：单行制（无折行族——超宽走出口帽
       // capStyledLine 整字截断）+ 块前垫（R-1 制度行）
       return withPad([approvalDecisionLine(block)], leadingGap);
+    case 'todo-snapshot':
+      // todo 快照块（挖掘 35 轮 B8）：多行制（卡头 + 条目行，单行制条目）
+      // + 块前垫（R-1 制度行）
+      return withPad(renderTodoSnapshotLines(block), leadingGap);
     case 'streaming': {
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
       // markdown 直推档走网格管线（bullet 槽同轴——与定稿 markdown 块逐行同形）；
@@ -1337,6 +1415,36 @@ export class LiveTranscript {
   }
 
   /**
+   * 直播腿 todo 快照块追加（挖掘 35 轮 B8——tool_execution_end 锚消费位）：
+   * **签名 diff 闸单源在此**（与 loadProjection flush 的 offer 形同一闸——
+   * 直播/回放两路同一块集）：与块账最后 todo-snapshot 块比较——seq 已录位
+   * （≤ 最后已落块 seq）幂等零重落、签名同跳过（增删改状态翻转才落）、首条
+   * 必落。无额外闸状态（块账即状态——repaint 投影重建后闸随块账自愈；cap
+   * 驱逐全体 todo 块时退化首块语义可接受——词条已注记）。调用侧全序列迭代
+   * 幂等（批内多次 todo 调用中间态不丢）。
+   */
+  appendTodoSnapshot(entry: { seq: number; items: readonly TodoItem[] }): void {
+    const last = this.lastTodoSnapshotBlock(this.blocks);
+    if (last !== undefined) {
+      if (entry.seq <= last.seq) return; // 已录位（含幂等重放）
+      if (todoSignature(last.items) === todoSignature(entry.items)) return; // 同签跳过
+    }
+    this.blocks.push({ kind: 'todo-snapshot', seq: entry.seq, items: entry.items, theme: this.theme });
+    this.trimToCap();
+  }
+
+  /** 块账最后 todo-snapshot 块（闸比较态真源——倒扫首中） */
+  private lastTodoSnapshotBlock(
+    blocks: readonly TranscriptBlock[],
+  ): Extract<TranscriptBlock, { kind: 'todo-snapshot' }> | undefined {
+    for (let i = blocks.length - 1; i >= 0; i -= 1) {
+      const block = blocks[i]!;
+      if (block.kind === 'todo-snapshot') return block;
+    }
+    return undefined;
+  }
+
+  /**
    * 投影重建（repaint 路——清账按投影重拉帽内段；直播/repaint 行集同构）。
    * decisions（挖掘 31 轮 [1]——审批决策行重建腿）：按 seq 归位——逐消息
    * 前 flush 队首 seq < 该消息 seq 的决策块（与直播路 emit 时点追加同构：
@@ -1344,10 +1452,19 @@ export class LiveTranscript {
    * flush 先于组窗收口（直播路 agent_end 收口前的 emit 序对齐）。消息全
    * 零 seq（模型 timeline 种子形——projectionOf 路无锚）= 尾 flush 降级
    * （诚实不丢，锚定形两路同构不涉）。
+   * todoSnapshots（挖掘 35 轮 B8——todo 快照块重建腿）：逐消息后 flush
+   * seq < 下一消息 seq 的快照（「M_i 消息后 flush seq<seq(M_{i+1})」≡
+   * 「M_{i+1} 消息前 flush seq<seq(M_{i+1})」——与 decisions 同实现形、
+   * 分立队列；todo/write durable 位在 assistant/message 与 tool/result
+   * 之间，落位 = 配对工具卡之前，与直播路实序〔tool_execution_end 先于
+   * toolResult message_end〕同构）；flush 逐条过签名闸（offer 形与
+   * appendTodoSnapshot 同闸——两路同一块集）；扫尾全 flush + 消息零 seq
+   * 降级尾 flush（decisions 同律诚实不丢）。
    */
   loadProjection(
     messages: readonly (AgentMessage & { readonly seq?: number })[],
     decisions?: readonly ApprovalDecisionLineInput[],
+    todoSnapshots?: readonly TodoSnapshotLineInput[],
   ): void {
     const rebuilt: TranscriptBlock[] = [];
     this.pendingCalls.clear(); // 配对账随投影重建（走查中 assistant 入账、toolResult 出账）
@@ -1365,8 +1482,27 @@ export class LiveTranscript {
         });
       }
     };
+    // 快照归位队列（升序同律）+ 落块闸（appendTodoSnapshot 同闸单源——
+    // 块账比较态在 rebuilt 尾扫，两路同一结果）
+    const todoQueue = [...(todoSnapshots ?? [])].sort((a, b) => a.seq - b.seq);
+    const offerTodoSnapshot = (entry: TodoSnapshotLineInput): void => {
+      const last = this.lastTodoSnapshotBlock(rebuilt);
+      if (last !== undefined) {
+        if (entry.seq <= last.seq) return; // 已录位（防御——升序队列实践不达）
+        if (todoSignature(last.items) === todoSignature(entry.items)) return; // 同签跳过
+      }
+      rebuilt.push({ kind: 'todo-snapshot', seq: entry.seq, items: entry.items, theme: this.theme });
+    };
+    const flushTodoSnapshotsBefore = (limit: number): void => {
+      while (todoQueue.length > 0 && todoQueue[0]!.seq < limit) {
+        offerTodoSnapshot(todoQueue.shift()!);
+      }
+    };
     for (const message of messages) {
-      if (message.seq !== undefined) flushDecisionsBefore(message.seq);
+      if (message.seq !== undefined) {
+        flushDecisionsBefore(message.seq);
+        flushTodoSnapshotsBefore(message.seq);
+      }
       switch (message.role) {
         case 'user': {
           // 压缩摘要载体 → 分隔块（B2 批 2——判据先于 user 块路：载体零直呈）
@@ -1402,6 +1538,10 @@ export class LiveTranscript {
     for (const entry of decisionQueue) {
       rebuilt.push({ kind: 'approval-decision', decision: entry.decision, summary: entry.summary, theme: this.theme });
     }
+    // 快照尾 flush（挖掘 35 轮 B8）：晚于全部消息的快照——同先于组窗收口
+    //（直播路快照落块在 tool_execution_end、组卡收口在 agent_end——尾序
+    // 同构）；零 seq 消息降级尾 flush 同在此（闸逐条过——offer 形同上）
+    for (const entry of todoQueue) offerTodoSnapshot(entry);
     // 组窗走查毕收口（直播路 agent_end 收口位的投影对位——末段窗
     // 不滞留；先于孤儿 ⚙ 扫描：组卡位在前、孤儿兜底在后与直播路同序）
     this.flushGroupWindow(rebuilt);

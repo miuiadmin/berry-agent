@@ -105,6 +105,7 @@ export function buildSgr(style: {
   italic?: boolean;
   underline?: boolean;
   inverse?: boolean;
+  strikethrough?: boolean;
   fg?: ColorValue;
   bg?: ColorValue;
 }): string {
@@ -114,6 +115,7 @@ export function buildSgr(style: {
   if (style.italic) params.push('3');
   if (style.underline) params.push('4');
   if (style.inverse) params.push('7');
+  if (style.strikethrough) params.push('9');
   if (style.fg !== undefined) params.push(colorSgrFg(style.fg));
   if (style.bg !== undefined) params.push(colorSgrBg(style.bg));
   return params.length > 0 ? `${ESC}[${params.join(';')}m` : '';

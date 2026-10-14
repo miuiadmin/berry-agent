@@ -100,6 +100,7 @@ import {
   LiveTranscript,
   shortIdOf,
   type ApprovalDecisionLineInput,
+  type TodoSnapshotLineInput,
   type TranscriptBlock,
 } from './transcript.js';
 import { OscDisplay, buildOsc52Copy } from './osc.js';
@@ -266,6 +267,14 @@ export interface TuiBackendOptions {
    * 行（直播腿总线追加不受影响）零变化。
    */
   readonly approvalDecisionsOf?: (sessionId: string) => readonly ApprovalDecisionLineInput[];
+  /**
+   * todo 快照读面（挖掘 35 轮 B8——todo/write 转录轨迹数据源）：[{seq,
+   * items}] 升序全序列（collectTodoSnapshots 产物映射——收集位不做闸，闸
+   * 单源在 transcript 消费位）；直播腿 tool_execution_end 拉取迭代过闸
+   * （全序列幂等）+ 重建腿 onRepaint/openHistory 随投影传参两路共用。注入
+   * 缺席 = 快照块零变化（兼容锁——旧装配/测试零扰动）。
+   */
+  readonly todoSnapshotsOf?: (sessionId: string) => readonly TodoSnapshotLineInput[];
   /**
    * 外部编辑器执行器（挖掘 31 轮 [9]——ctrl+g 挂起交出形，codex
    * external_editor 对标）：seed = 当前草稿全文，返结局三态（edited /
@@ -842,6 +851,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly queueFor: ((sessionId: string) => readonly string[] | null | undefined) | undefined;
   /** 审批决策折面数据源（挖掘 31 轮 [1]——onRepaint/openHistory 重建路共用） */
   private readonly approvalDecisionsSource: ((sessionId: string) => readonly ApprovalDecisionLineInput[]) | undefined;
+  /** todo 快照读面（挖掘 35 轮 B8——直播腿/重建路共用） */
+  private readonly todoSnapshotsSource: ((sessionId: string) => readonly TodoSnapshotLineInput[]) | undefined;
   /** 排队面板最新在队预览串（帧首拉取缓存——renderFixed 单次读源） */
   private queuePreviews: readonly string[] = [];
   /** 当前 turn 的 assistant 消息用量暂存（turn_end 累加——件 6 等价性条款） */
@@ -1234,6 +1245,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.queueFor = options.queueFor;
     // 审批决策折面数据源（挖掘 31 轮 [1]）：缺席 = 重建路零决策行（直播腿不受影响）
     this.approvalDecisionsSource = options.approvalDecisionsOf;
+    // todo 快照读面（挖掘 35 轮 B8）：缺席 = 快照块零变化（两路同判此位）
+    this.todoSnapshotsSource = options.todoSnapshotsOf;
     this.jobPanel = new JobPanel({ now: () => this.now() });
     this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
     this.stack.onChange = () => this.touchFixed();
@@ -1563,8 +1576,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         sessionId,
         messages,
         // 审批决策行随回看重建（挖掘 31 轮 [1]——openHistory 签名零改：数据
-        // 经 backend 闭包数据源注入，缺席零变化）
+        // 经 backend 闭包数据源注入，缺席零变化）；todo 快照块同路（挖掘 35
+        // 轮 B8——todoSnapshotsOf 同源，缺席零变化）
         decisions: this.approvalDecisionsSource?.(sessionId),
+        todoSnapshots: this.todoSnapshotsSource?.(sessionId),
         columns: this.io.size().columns,
         theme: this.theme, // 会话主题快照（批 10i——回看器行集与主屏同板，含思考块/工具卡烙印）
         onExit: () => this.closeAlt(),
@@ -2627,8 +2642,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.sessionId = sessionId;
     this.refreshTodo(); // 件 4：todo 源锚新焦（refreshTodo 三时点之外的本位）
     // 模型半场照常（repaint 是新真相——挂起期也不丢投影：复起全帧重画携带）；
-    // 审批决策行随投影重建（挖掘 31 轮 [1]——数据源装配注入闭包，缺席零变化）
-    this.transcript.loadProjection(projection, this.approvalDecisionsSource?.(sessionId));
+    // 审批决策行随投影重建（挖掘 31 轮 [1]——数据源装配注入闭包，缺席零变化）；
+    // todo 快照块随投影重建（挖掘 35 轮 B8——同数据源两路共用，缺席零变化）
+    this.transcript.loadProjection(
+      projection,
+      this.approvalDecisionsSource?.(sessionId),
+      this.todoSnapshotsSource?.(sessionId),
+    );
     // 等回声复位分治（切焦 vs 同焦 refresh——2026-10-06 切焦清账修）：切焦即
     // 新观察窗——旧焦提交流的抑制位无条件清账（新焦零块空会话时条件 settle
     // 恒不触发，引导被旧焦瞬态抑制到「编辑器再键入」才解锁）；同焦 refresh
@@ -3963,6 +3983,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         this.taskLine.setTool(null);
         this.toolPanel.end(event.toolCallId); // 件 5：end 即摘行
         this.refreshTodo(); // 件 4：刷新三时点之二（写后即显）
+        this.appendTodoSnapshotsLive(); // 件 B8：todo 快照落史直播腿（写后即落块）
         this.touchFixed();
         break;
       case 'tool_execution_update':
@@ -4155,6 +4176,25 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private refreshTodo(): void {
     if (this.todoFor === undefined) return;
     this.todoPanel.update(this.todoFor(this.sessionId));
+  }
+
+  /**
+   * todo 快照落史直播腿（挖掘 35 轮 B8——tool_execution_end 锚，refreshTodo
+   * 邻位）：拉读面全序列逐条过闸（闸在 transcript——seq 已录位/同签均跳过，
+   * 故全量迭代幂等；批内多次 todo 调用中间态不丢）。落块才入 present 链：
+   * onEnvelope 的 present 快照先于 applyFocusedEvent（2611 序），本位须自补
+   * present + render 两步（appendApprovalDecisionLine 同律）——缺此步新块
+   * 不入帧。注入缺席 = no-op 零变化。
+   */
+  private appendTodoSnapshotsLive(): void {
+    if (this.todoSnapshotsSource === undefined) return;
+    const before = this.transcript.blockCount;
+    for (const entry of this.todoSnapshotsSource(this.sessionId)) {
+      this.transcript.appendTodoSnapshot(entry);
+    }
+    if (this.transcript.blockCount === before) return; // 闸全跳过——零帧源不扰动
+    this.enqueuePresent();
+    this.requestRender();
   }
 
   /**

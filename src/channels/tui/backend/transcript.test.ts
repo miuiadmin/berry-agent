@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { ansiColor, sanitizeDisplayText, stringWidth } from '../../engine/index.js';
+import type { TodoItem } from '../../types.js';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage, AssistantMessage } from '../../../contracts/index.js';
 import { ccrMarkerLine } from '../../../contracts/index.js';
@@ -2136,5 +2137,149 @@ describe('LiveTranscript 审批决策块（挖掘 31 轮 [1]——approval-decis
       decision: (liveDecision as { decision: string }).decision,
       summary: (liveDecision as { summary: string }).summary,
     });
+  });
+});
+
+/* ---------------- todo 清单落史快照（挖掘 35 轮 B8）——签名闸 + 渲染 + 投影归位 ---------------- */
+
+describe('LiveTranscript todo 快照块（挖掘 35 轮 B8——todo-snapshot）', () => {
+  /** 条目速构（呈现投影形） */
+  const todoItem = (
+    status: 'pending' | 'in-progress' | 'completed' | 'deferred',
+    content: string,
+    activeForm?: string,
+  ): TodoItem => ({ status, content, ...(activeForm !== undefined ? { activeForm } : {}) });
+
+  /** 快照块速构（渲染面直锁） */
+  const snapshotBlock = (items: readonly TodoItem[]): TranscriptBlock => ({
+    kind: 'todo-snapshot',
+    seq: 1,
+    items,
+    theme: DEFAULT_THEME,
+  });
+
+  it('渲染：卡头 • dim + 词 bold；四态条目行——in-progress accent bold（activeForm 优先词面）/ completed dim+划线 / pending+deferred dim', () => {
+    const lines = renderBlockStyledLines(
+      snapshotBlock([
+        todoItem('in-progress', '写实现', '正在写实现'),
+        todoItem('pending', '补测试'),
+        todoItem('completed', 'fold 规则'),
+        todoItem('deferred', '缓办项'),
+      ]),
+      100,
+      false,
+    );
+    // 修前红：union 无此 kind——switch 穷尽性红
+    expect(lines).toHaveLength(5); // 卡头 + 四条目
+    expect(lines[0]!.plain).toBe('• 任务清单已更新');
+    expect(lines[0]!.runs[0]).toMatchObject({ start: 0, end: 1, style: { dim: true } }); // • 前缀 dim
+    expect(lines[0]!.runs[1]).toMatchObject({ start: 2, style: { bold: true } }); // 词 bold
+    // in-progress：accent bold + activeForm 优先于 content 词面
+    expect(lines[1]!.plain).toBe('  ◐ 正在写实现');
+    expect(lines[1]!.runs[0]!.style.fg).toEqual(DEFAULT_THEME.accent);
+    expect(lines[1]!.runs[0]!.style.bold).toBe(true);
+    // pending/deferred：dim（无色无粗）；completed：dim 之上加划线（SGR 9 首消费）
+    expect(lines[2]!.plain).toBe('  ☐ 补测试');
+    expect(lines[2]!.runs[0]!.style.dim).toBe(true);
+    expect(lines[2]!.runs[0]!.style.strikethrough).toBeUndefined();
+    expect(lines[3]!.plain).toBe('  ☑ fold 规则');
+    expect(lines[3]!.runs[0]!.style.dim).toBe(true);
+    expect(lines[3]!.runs[0]!.style.strikethrough).toBe(true);
+    expect(lines[4]!.plain).toBe('  ⊙ 缓办项');
+    expect(lines[4]!.runs[0]!.style.dim).toBe(true);
+    expect(lines[4]!.runs[0]!.style.strikethrough).toBeUndefined();
+  });
+
+  it('渲染：空表仅卡头（诚实呈现「已更新为零项」）；in-progress 无 activeForm 退化 content 词面', () => {
+    const empty = renderBlockStyledLines(snapshotBlock([]), 100, false);
+    expect(empty).toHaveLength(1);
+    expect(empty[0]!.plain).toBe('• 任务清单已更新');
+    const noActive = renderBlockStyledLines(snapshotBlock([todoItem('in-progress', '裸词面')]), 100, false);
+    expect(noActive[1]!.plain).toBe('  ◐ 裸词面');
+  });
+
+  it('签名闸：首条必落 / 同签跳过 / seq 已录位幂等 / 异签才落（status+content 进签、activeForm 不进）', () => {
+    const t = new LiveTranscript();
+    t.appendTodoSnapshot({ seq: 5, items: [todoItem('pending', '甲')] });
+    expect(t.snapshot).toHaveLength(1); // 首条必落
+    t.appendTodoSnapshot({ seq: 6, items: [todoItem('pending', '甲')] }); // 同签（status+content 同）
+    expect(t.snapshot).toHaveLength(1); // 同签跳过
+    t.appendTodoSnapshot({
+      seq: 6,
+      items: [todoItem('pending', '甲', '加 activeForm')], // activeForm 不进签名——仍同签
+    });
+    expect(t.snapshot).toHaveLength(1);
+    t.appendTodoSnapshot({ seq: 4, items: [todoItem('completed', '甲')] }); // seq ≤ 已录位（幂等重放形）
+    expect(t.snapshot).toHaveLength(1); // 已录位零重落
+    t.appendTodoSnapshot({ seq: 7, items: [todoItem('completed', '甲')] }); // 状态翻转——异签
+    expect(t.snapshot).toHaveLength(2); // 才落
+    expect(t.snapshot[1]).toMatchObject({ kind: 'todo-snapshot', seq: 7 });
+  });
+
+  it('直播腿块账在册：dialogueBlockCount 计入 + blockCap 同队让位（无特权位）', () => {
+    const t = new LiveTranscript();
+    t.appendTodoSnapshot({ seq: 1, items: [todoItem('pending', '甲')] });
+    expect(dialogueBlockCount(t.snapshot)).toBe(1); // 块账在册——非瞬时行
+    const capped = new LiveTranscript({ blockCap: 2 });
+    capped.appendTodoSnapshot({ seq: 1, items: [todoItem('pending', '一')] });
+    capped.appendTodoSnapshot({ seq: 2, items: [todoItem('completed', '一')] });
+    capped.appendTodoSnapshot({ seq: 3, items: [todoItem('pending', '二')] });
+    expect(capped.blockCount).toBe(2);
+    expect(capped.snapshot.map((b) => (b.kind === 'todo-snapshot' ? b.seq : b.kind))).toEqual([2, 3]); // 首块让位
+  });
+
+  it('投影归位：[assistant][快照][工具卡]——快照落位在配对工具卡之前（durable 序 Sa<S1<S2<S3 两路同构）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection(
+      [
+        { ...assistantMsg('干', [{ id: 'tc1', name: 'todo', arguments: {} }]), seq: 0 },
+        { ...toolResultMsg('已更新', { toolCallId: 'tc1' }), seq: 2 },
+      ] as never,
+      [],
+      [{ seq: 1, items: [todoItem('pending', '甲')] }], // todo/write durable 位在 tool/call 与 tool/result 之间
+    );
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['markdown', 'todo-snapshot', 'tool-card']);
+  });
+
+  it('投影 flush 逐条过闸：批内两同签快照只落一块（中间态异签保留——与直播腿同一块集）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection(
+      [{ ...userMsg('问'), seq: 0 }] as never,
+      [],
+      [
+        { seq: 1, items: [todoItem('pending', '甲')] },
+        { seq: 2, items: [todoItem('pending', '甲')] }, // 同签——flush 过闸跳过
+        { seq: 3, items: [todoItem('in-progress', '甲')] }, // 状态翻转——异签保留
+      ],
+    );
+    expect(t.snapshot.filter((b) => b.kind === 'todo-snapshot')).toHaveLength(2); // 同签并一、异签两档
+  });
+
+  it('投影尾 flush 两形：快照 seq 晚于全部消息 → 尾块；消息零 seq → 降级尾 flush 不丢', () => {
+    const late = new LiveTranscript();
+    late.loadProjection([{ ...userMsg('问'), seq: 0 }] as never, [], [{ seq: 5, items: [todoItem('pending', '甲')] }]);
+    expect(late.snapshot.map((b) => b.kind)).toEqual(['user', 'todo-snapshot']); // 尾块
+    const noSeq = new LiveTranscript();
+    noSeq.loadProjection([userMsg('问'), assistantMsg('答')], [], [{ seq: 1, items: [todoItem('pending', '甲')] }]);
+    expect(noSeq.snapshot.map((b) => b.kind)).toEqual(['user', 'markdown', 'todo-snapshot']); // 降级尾 flush
+  });
+
+  it('直播/重建同构：同一 durable 序下直播终态块序 === 投影重建块序（两路单源律）', () => {
+    // 直播腿：tool_execution_end 锚时点全序列拉取过闸（appendTodoSnapshot）
+    const live = new LiveTranscript();
+    apply(live, { type: 'message_end', message: assistantMsg('干', [{ id: 'tc1', name: 'todo', arguments: {} }]) });
+    live.appendTodoSnapshot({ seq: 1, items: [todoItem('pending', '甲')] });
+    apply(live, { type: 'message_end', message: toolResultMsg('已更新', { toolCallId: 'tc1' }) });
+    // 重建腿：投影消息携 seq + 快照按 seq 归位
+    const rebuilt = new LiveTranscript();
+    rebuilt.loadProjection(
+      [
+        { ...assistantMsg('干', [{ id: 'tc1', name: 'todo', arguments: {} }]), seq: 0 },
+        { ...toolResultMsg('已更新', { toolCallId: 'tc1' }), seq: 2 },
+      ] as never,
+      [],
+      [{ seq: 1, items: [todoItem('pending', '甲')] }],
+    );
+    expect(live.snapshot.map((b) => b.kind)).toEqual(rebuilt.snapshot.map((b) => b.kind)); // 块序同构
   });
 });
