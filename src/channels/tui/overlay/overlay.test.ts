@@ -259,8 +259,8 @@ describe('ConfirmPanel', () => {
 
 describe('AltScreenHost 副屏编舞', () => {
   // 副屏模式串含鼠标准入/关停（mu-2：进 1002+1006 追加于公共尾后、出对称先关 1006 再关 1002）
-  const ENTER_ALT = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c\x1b[?1002h\x1b[?1006h';
-  const LEAVE_ALT = '\x1b[?1006l\x1b[?1002l\x1b[<u\x1b[?2004l\x1b[?25h\x1b[?1049l';
+  const ENTER_ALT = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[?1004h\x1b[>1u\x1b[?u\x1b[c\x1b[?1002h\x1b[?1006h';
+  const LEAVE_ALT = '\x1b[?1006l\x1b[?1002l\x1b[<u\x1b[?1004l\x1b[?2004l\x1b[?25h\x1b[?1049l';
 
   /**
    * 主屏假件（AltScreenPrimary 窄介面替身——批 10f-4）：记录编舞调用序

@@ -2084,6 +2084,142 @@ describe('TuiBackend 终端外显（件 7）', () => {
     expect(activeCount()).toBe(sealed);
   });
 
+  // ── 桌面通知（挖掘 36 轮 notify-osc9——第三写点触发四档/焦点门控/载波/合并律） ──
+  /** 通知帧过滤：OSC 9 桌面通知帧（`OSC 9;<文案>`——与 OSC 9;4 进度族按载荷首段分立） */
+  const notifyFrames = (io: MemoryTerminalIO): string[] =>
+    io.frames.filter((f) => f.startsWith('\x1b]9;') && !f.startsWith('\x1b]9;4;'));
+  /** BEL 通知帧过滤（纯单字节帧——progress 序列含 \x07 但非纯帧） */
+  const belFrames = (io: MemoryTerminalIO): string[] => io.frames.filter((f) => f === '\x07');
+  /** 终端失焦驱动（DECSET 1004 应答——backend 解码器消费；缺省聚焦乐观律） */
+  const blur = (io: MemoryTerminalIO): void => io.emitInput('\x1b[O');
+
+  it('通知缺席注入律：desktopNotify 缺席 / off = 通道关（终态零通知字节——缺席仍写 1004 模式串）', () => {
+    for (const opts of [{}, { desktopNotify: 'off' as const }]) {
+      const { io, backend } = makeBackend(opts);
+      expect(io.frames[0]).toBe(MAIN_ENTER); // 缺席仍开 1004（模式串位与通知门分立）
+      io.bytes = '';
+      io.frames.length = 0;
+      blur(io);
+      emit(backend, { type: 'message_end', message: assistantMsg('答案') });
+      emit(backend, { type: 'agent_end', status: 'completed' });
+      emit(backend, { type: 'agent_end', status: 'failed', errorMessage: '某因' });
+      emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
+      expect(notifyFrames(io)).toEqual([]); // 零通知帧
+      expect(belFrames(io)).toEqual([]); // 零 BEL 帧
+      backend.stop();
+    }
+  });
+
+  it('轮完成档：未聚焦 completed → OSC 9「本轮完成：{正文首行}」（auto+五家载波；多行取首行）', () => {
+    const { io, backend } = makeBackend({ desktopNotify: 'auto', notifyEnv: { TERM_PROGRAM: 'ghostty' } });
+    blur(io);
+    emit(backend, { type: 'message_end', message: assistantMsg('第一行答案\n第二行不进通知') });
+    io.frames.length = 0;
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(notifyFrames(io)).toEqual(['\x1b]9;本轮完成：第一行答案\x07']);
+  });
+
+  it('焦点门控：缺省聚焦弃发 / CSI O 后发 / CSI I 复焦再弃（不补发不重挂）', () => {
+    const { io, backend } = makeBackend({ desktopNotify: 'auto', notifyEnv: { TERM_PROGRAM: 'kitty' } });
+    emit(backend, { type: 'message_end', message: assistantMsg('答') });
+    emit(backend, { type: 'agent_end', status: 'completed' }); // 缺省聚焦——弃
+    expect(notifyFrames(io)).toEqual([]);
+    blur(io);
+    emit(backend, { type: 'message_end', message: assistantMsg('答二') });
+    io.frames.length = 0;
+    emit(backend, { type: 'agent_end', status: 'completed' }); // 失焦——发
+    expect(notifyFrames(io)).toEqual(['\x1b]9;本轮完成：答二\x07']);
+    io.emitInput('\x1b[I'); // 复焦
+    emit(backend, { type: 'message_end', message: assistantMsg('答三') });
+    io.frames.length = 0;
+    emit(backend, { type: 'agent_end', status: 'completed' }); // 复焦——弃
+    expect(notifyFrames(io)).toEqual([]);
+  });
+
+  it('预览缺席裸词：无 assistant 正文直 completed → 「本轮完成」（诚实缺席非陈摘要）', () => {
+    const { io, backend } = makeBackend({ desktopNotify: 'osc9', notifyEnv: {} });
+    blur(io);
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(notifyFrames(io)).toEqual(['\x1b]9;本轮完成\x07']);
+  });
+
+  it('失败档揭示延后：failed 零通知；retry_wait_end exhausted 携预存原因（两账分立）', () => {
+    const { io, backend } = makeBackend({ desktopNotify: 'osc9', notifyEnv: {} });
+    blur(io);
+    emit(backend, { type: 'agent_end', status: 'failed', errorMessage: '模型渠道未配置' });
+    expect(notifyFrames(io)).toEqual([]); // 重试路上不响假警报（V-0 注② 同律）
+    io.frames.length = 0;
+    emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
+    expect(notifyFrames(io)).toEqual(['\x1b]9;本轮失败：模型渠道未配置\x07']);
+    io.frames.length = 0;
+    emit(backend, { type: 'agent_start' }); // 新 run 清账
+    emit(backend, { type: 'agent_end', status: 'failed' }); // 无因 failed
+    emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
+    expect(notifyFrames(io)).toEqual(['\x1b]9;本轮失败\x07']); // 原因缺席裸词
+  });
+
+  it('中止档：aborted → 「本轮已中止」；resumed 续入零通知', () => {
+    const { io, backend } = makeBackend({ desktopNotify: 'osc9', notifyEnv: {} });
+    blur(io);
+    emit(backend, { type: 'agent_end', status: 'aborted' });
+    expect(notifyFrames(io)).toEqual(['\x1b]9;本轮已中止\x07']);
+    io.frames.length = 0;
+    emit(backend, { type: 'agent_end', status: 'failed', errorMessage: 'x' });
+    emit(backend, { type: 'retry_wait_end', outcome: 'resumed' }); // 续入非终态
+    expect(notifyFrames(io)).toEqual([]);
+  });
+
+  it('载波三形：auto+TMUX → BEL 降级；明示 osc9+TMUX → DCS 包裹；明示 bel 直用', () => {
+    const tmux = { TMUX: '/tmp/tmux-501/default,1,0' };
+    const auto = makeBackend({ desktopNotify: 'auto', notifyEnv: tmux });
+    blur(auto.io);
+    emit(auto.backend, { type: 'agent_end', status: 'aborted' });
+    expect(notifyFrames(auto.io)).toEqual([]); // 降级形零 OSC 9 通知帧
+    expect(belFrames(auto.io)).toEqual(['\x07']); // BEL 单字节帧
+    const forced = makeBackend({ desktopNotify: 'osc9', notifyEnv: tmux });
+    blur(forced.io);
+    emit(forced.backend, { type: 'agent_end', status: 'aborted' });
+    expect(forced.io.frames).toContain('\x1bPtmux;\x1b\x1b]9;本轮已中止\x07\x1b\\'); // DCS 透传包裹
+    const bel = makeBackend({ desktopNotify: 'bel', notifyEnv: { TERM_PROGRAM: 'ghostty' } }); // 明示压过探测
+    blur(bel.io);
+    emit(bel.backend, { type: 'agent_end', status: 'aborted' });
+    expect(notifyFrames(bel.io)).toEqual([]);
+    expect(belFrames(bel.io)).toEqual(['\x07']);
+  });
+
+  it('同窗合并律：轮完成(0) 后窗内审批(1) 压过——到点只发最高（250ms 假钟窗）', () => {
+    const rig = makeInteractive({ desktopNotify: 'auto', notifyEnv: { TERM_PROGRAM: 'ghostty' } });
+    blur(rig.io);
+    rig.io.frames.length = 0;
+    emit(rig.backend, { type: 'message_end', message: assistantMsg('答') });
+    emit(rig.backend, { type: 'agent_end', status: 'completed' }); // 轮完成入账（起 250ms 窗）
+    expect(notifyFrames(rig.io)).toEqual([]); // 窗内未发
+    void rig.backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' }); // 审批入账（压过）
+    rig.io.frames.length = 0;
+    rig.clock.advance(250); // 窗到点
+    expect(notifyFrames(rig.io)).toEqual(['\x1b]9;等待审批：写入文件\x07']); // 只发最高优先级（恰一条）
+  });
+
+  it('低不覆盖高：审批(1) 在账 → 轮完成(0) 弃（同窗不降级）', () => {
+    const rig = makeInteractive({ desktopNotify: 'auto', notifyEnv: { TERM_PROGRAM: 'wezterm' } });
+    blur(rig.io);
+    void rig.backend.askApproval('s1', { summary: '删文件' });
+    emit(rig.backend, { type: 'agent_end', status: 'completed' }); // 低优先级——弃
+    rig.io.frames.length = 0;
+    rig.clock.advance(250);
+    expect(notifyFrames(rig.io)).toEqual(['\x1b]9;等待审批：删文件\x07']); // 仍是审批文案
+  });
+
+  it('stop 收口：窗在飞 stop → cancel 摘针——窗到点零写出', () => {
+    const rig = makeInteractive({ desktopNotify: 'auto', notifyEnv: { TERM_PROGRAM: 'ghostty' } });
+    blur(rig.io);
+    emit(rig.backend, { type: 'agent_end', status: 'aborted' }); // 入账起窗
+    rig.io.frames.length = 0;
+    rig.backend.stop(); // 终退收口（含通知窗 cancel）
+    rig.clock.advance(250); // 窗位到点——针已摘
+    expect(notifyFrames(rig.io)).toEqual([]); // 窗内未 flush 零写出
+  });
+
   it('重复 end 不穿底（clamp ≥ 0——净计数不越零，再 start 即忙）', () => {
     const { io, backend } = makeBackend();
     emit(backend, { type: 'agent_start' }, true);
@@ -2131,11 +2267,11 @@ describe('TuiBackend 终端外显（件 7）', () => {
 /* ================= 主屏挂起面（批 10f-4——AltScreenPrimary 交出面） ================= */
 
 /** 主屏形出 / 进屏模式串（tui-backend 单源常量的字节真源——对称反序互证锚） */
-const MAIN_LEAVE = '\x1b[<u\x1b[?2004l';
-const MAIN_ENTER = '\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c';
+const MAIN_LEAVE = '\x1b[<u\x1b[?1004l\x1b[?2004l';
+const MAIN_ENTER = '\x1b[?2004h\x1b[?1004h\x1b[>1u\x1b[?u\x1b[c';
 /** 副屏 Engine 进出屏字节（集成测试序锚） */
-const ALT_ENTER = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c\x1b[?1002h\x1b[?1006h'; // 鼠标准入尾随（mu-2）
-const ALT_LEAVE = '\x1b[?1006l\x1b[?1002l\x1b[<u\x1b[?2004l\x1b[?25h\x1b[?1049l'; // 鼠标关停前置（对称反序）
+const ALT_ENTER = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[?1004h\x1b[>1u\x1b[?u\x1b[c\x1b[?1002h\x1b[?1006h'; // 鼠标准入尾随（mu-2）+ 焦点应答位（notify-osc9）
+const ALT_LEAVE = '\x1b[?1006l\x1b[?1002l\x1b[<u\x1b[?1004l\x1b[?2004l\x1b[?25h\x1b[?1049l'; // 鼠标关停前置（对称反序）+ 焦点位对称收口
 
 /** 副屏内容替身（集成测试——写文 + 事件终局吞掉） */
 function altLayer(text: string): OverlayContent {

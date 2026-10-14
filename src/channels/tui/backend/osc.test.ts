@@ -8,7 +8,15 @@
  */
 import { describe, expect, it } from 'vitest';
 import { MemoryTerminalIO } from '../../engine/index.js';
-import { buildOsc52Copy, OscDisplay, OSC_PROGRESS_KEEPALIVE_MS } from './osc.js';
+import type { TerminalIO } from '../../engine/index.js';
+import {
+  buildOsc9Notify,
+  buildOsc52Copy,
+  detectNotifyCarrier,
+  OscDisplay,
+  OSC_PROGRESS_KEEPALIVE_MS,
+  sanitizeNotifyText,
+} from './osc.js';
 
 /** OSC 9;4 忙态序列（锚定 pi-tui 字节形） */
 const ACTIVE = '\x1b]9;4;3\x07';
@@ -170,5 +178,107 @@ describe('buildOsc52Copy（选区复制序列构造——尽力写出无反馈�
   it('UTF-8 明文按字节 base64（中文 + 换行——选区行间拼 LF 的真实载荷形）', () => {
     const text = '中文\n第二行';
     expect(buildOsc52Copy(text)).toBe(`\x1b]52;c;${Buffer.from(text, 'utf8').toString('base64')}\x07`);
+  });
+});
+
+/* ---------------- 桌面通知（挖掘 36 轮 notify-osc9——07 件 7 第三写点） ---------------- */
+
+describe('detectNotifyCarrier（载波探测纯函数）', () => {
+  it('TERM_PROGRAM 五家 → osc9', () => {
+    for (const tp of ['ghostty', 'iTerm.app', 'kitty', 'wezterm', 'WarpTerminal']) {
+      expect(detectNotifyCarrier({ TERM_PROGRAM: tp })).toBe('osc9');
+    }
+  });
+
+  it('TMUX 在场优先 → bel 诚实降级（外层不可探测——五家猜测不作数）', () => {
+    expect(detectNotifyCarrier({ TERM_PROGRAM: 'ghostty', TMUX: '/tmp/tmux-501/default,123,0' })).toBe('bel');
+  });
+
+  it('缺席/不支持终端 → bel', () => {
+    expect(detectNotifyCarrier({})).toBe('bel');
+    expect(detectNotifyCarrier({ TERM_PROGRAM: 'Apple_Terminal' })).toBe('bel');
+    expect(detectNotifyCarrier({ TERM_PROGRAM: 'vscode' })).toBe('bel');
+  });
+});
+
+describe('buildOsc9Notify（OSC 9 通知字节——codex PostNotification 对拍锁）', () => {
+  it('裸形：OSC 9;<消息> BEL', () => {
+    expect(buildOsc9Notify('done', { tmux: false })).toBe('\x1b]9;done\x07');
+  });
+
+  it('tmux DCS 包裹：前缀 + 载荷 ESC 双写 + ST 尾（codex 测试锁字面同参）', () => {
+    expect(buildOsc9Notify('done', { tmux: true })).toBe('\x1bPtmux;\x1b\x1b]9;done\x07\x1b\\');
+  });
+
+  it('载荷内 ESC 双写（载荷含转义序列不提前终结 DCS）', () => {
+    expect(buildOsc9Notify('danger\x1b[31m', { tmux: true })).toBe('\x1bPtmux;\x1b\x1b]9;danger\x1b\x1b[31m\x07\x1b\\');
+  });
+});
+
+describe('sanitizeNotifyText（通知文案消毒纯函数）', () => {
+  it('首行先行：多行只取第一行（后续行整段丢弃非并入）', () => {
+    expect(sanitizeNotifyText('第一行\n第二行', 80)).toBe('第一行');
+  });
+
+  it('C0/DEL 全剥 + 空白折叠（ESC/制表/连续空格归一——剥成空格后折叠）', () => {
+    expect(sanitizeNotifyText('a\x1b[31m\tb   c\x7f', 80)).toBe('a [31m b c');
+  });
+
+  it('码点帽：超帽截 max-1 尾加「…」总长恰 max（多字节不劈半）', () => {
+    expect(sanitizeNotifyText('一二三四五', 3)).toBe('一二…');
+    expect(sanitizeNotifyText('abcdef', 3)).toBe('ab…');
+  });
+
+  it('帽内零扰动 + 全空白入 → 空串（诚实缺席形）', () => {
+    expect(sanitizeNotifyText('短文案', 80)).toBe('短文案');
+    expect(sanitizeNotifyText('  \n  ', 80)).toBe('');
+  });
+});
+
+describe('OscDisplay.notify（第三写点——定值缺席/载波分档/写失败闩死）', () => {
+  it('定值缺席 = 通道关闭恒零写（缺席注入律）', () => {
+    const io = new MemoryTerminalIO(80, 24);
+    const osc = new OscDisplay(io, { baseline: 'x' });
+    osc.notify('本轮完成');
+    expect(io.frames).toEqual([]); // 零通知字节
+  });
+
+  it('osc9 载波 → OSC 9 序列；bel 载波 → BEL 单字节', () => {
+    const io9 = new MemoryTerminalIO(80, 24);
+    new OscDisplay(io9, { baseline: 'x', notify: { carrier: 'osc9', tmux: false } }).notify('本轮完成');
+    expect(io9.frames).toEqual(['\x1b]9;本轮完成\x07']);
+    const ioBel = new MemoryTerminalIO(80, 24);
+    new OscDisplay(ioBel, { baseline: 'x', notify: { carrier: 'bel', tmux: false } }).notify('本轮完成');
+    expect(ioBel.frames).toEqual(['\x07']);
+  });
+
+  it('tmux 定值 → DCS 包裹形', () => {
+    const io = new MemoryTerminalIO(80, 24);
+    new OscDisplay(io, { baseline: 'x', notify: { carrier: 'osc9', tmux: true } }).notify('done');
+    expect(io.frames).toEqual(['\x1bPtmux;\x1b\x1b]9;done\x07\x1b\\']);
+  });
+
+  it('io.write 抛错即闩死——后续 notify 零写零上抛（teardown EPIPE 不炸）', () => {
+    // 会抛错的 IO 桩（TerminalIO 是引擎契约注入面——写失败注入测试位）
+    const written: string[] = [];
+    let failing = true;
+    const io = {
+      write(data: string): void {
+        if (failing) throw new Error('EPIPE');
+        written.push(data);
+      },
+      size: () => ({ columns: 80, rows: 24 }),
+      setRawMode: () => {},
+      isRaw: () => false,
+      pause: () => {},
+      resume: () => {},
+      onInput: () => () => {},
+      onResize: () => () => {},
+    } satisfies TerminalIO;
+    const osc = new OscDisplay(io, { baseline: 'x', notify: { carrier: 'bel', tmux: false } });
+    expect(() => osc.notify('一')).not.toThrow(); // 失败吞不上抛（通知是尽力面）
+    failing = false; // 写通道恢复
+    osc.notify('二'); // 已闩死——恢复后仍零写
+    expect(written).toEqual([]);
   });
 });

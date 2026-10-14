@@ -587,6 +587,23 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     }
     const animationsEnabled =
       animationsEnv === '0' ? false : animationsEnv === '1' ? true : (themeLoad?.settings.animations ?? true);
+    // —— 桌面通知门铸值（挖掘 36 轮 notify-osc9——07 §4.1 件 7 第三写点）：
+    // env BERRY_AGENT_TUI_NOTIFY = auto|osc9|bel|off（缺省 auto；坏值 warn 点名
+    // 忽略走缺省——animations 律同构）。settings 第七键挂账下窗（env-only 先行
+    // ——拍板②）。载波探测材料 = TERM_PROGRAM/TMUX 两键投影（backend 内
+    // detectNotifyCarrier 消费）。
+    const notifyEnvRaw = env.BERRY_AGENT_TUI_NOTIFY;
+    if (
+      notifyEnvRaw !== undefined &&
+      notifyEnvRaw !== 'auto' &&
+      notifyEnvRaw !== 'osc9' &&
+      notifyEnvRaw !== 'bel' &&
+      notifyEnvRaw !== 'off'
+    ) {
+      logger.warn(`环境变量 BERRY_AGENT_TUI_NOTIFY 值无效（${notifyEnvRaw}——须 auto|osc9|bel|off），忽略走缺省 auto`);
+    }
+    const desktopNotify =
+      notifyEnvRaw === 'osc9' || notifyEnvRaw === 'bel' || notifyEnvRaw === 'off' ? notifyEnvRaw : 'auto';
     const isCustomTheme = themeSetting !== 'dark' && themeSetting !== 'light' && themeSetting !== 'auto';
     const customThemeOverlay =
       isCustomTheme && runtime.dataDir !== null
@@ -1681,6 +1698,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       theme: startupThemeSetting,
       // 动效门单值（挖掘 35 轮 B2+B4——settings animations 键 + env 覆盖铸值）
       animations: animationsEnabled,
+      // 桌面通知门（挖掘 36 轮 notify-osc9）：生产恒传（对位——缺席注入律的
+      // 生产半边）；载波探测 env 快照同装（colorEnv 同例）
+      desktopNotify,
+      notifyEnv: { TERM_PROGRAM: env.TERM_PROGRAM, TMUX: env.TMUX },
       ...(customThemeOverlay !== null ? { customThemeOverlay } : {}),
       colorEnv: { COLORTERM: env.COLORTERM, TERM: env.TERM },
       // 键位用户覆盖（R5 批 10k）：settings.json keybindings 键——形校验在读

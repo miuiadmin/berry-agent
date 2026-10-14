@@ -82,8 +82,8 @@ function rig(screen?: 'inline' | 'alt-screen'): {
   return { engine, io, clock, inputs, root };
 }
 
-const ENTER_INLINE = '\x1b[?25l\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c';
-const LEAVE_INLINE = '\x1b[<u\x1b[?2004l\x1b[?25h';
+const ENTER_INLINE = '\x1b[?25l\x1b[?2004h\x1b[?1004h\x1b[>1u\x1b[?u\x1b[c';
+const LEAVE_INLINE = '\x1b[<u\x1b[?1004l\x1b[?2004l\x1b[?25h';
 const ENTER_ALT = '\x1b[?1049h' + ENTER_INLINE + '\x1b[?1002h\x1b[?1006h'; // + 鼠标准入（mu-2）
 const LEAVE_ALT = '\x1b[?1006l\x1b[?1002l' + LEAVE_INLINE + '\x1b[?1049l'; // 鼠标关停前置（对称反序）
 
@@ -376,6 +376,16 @@ describe('输入接线与协议事件', () => {
     expect(inputs).toEqual([
       { kind: 'key', key: 'right', ctrl: false, alt: false, shift: false, meta: false, phase: 'press' },
     ]);
+  });
+
+  it('焦点回调透传 decoder（notify-osc9）：EngineOptions.onFocus 上抛 CSI I/O', () => {
+    const io = new MemoryTerminalIO(40, 6);
+    const seen: boolean[] = [];
+    const engine = new Engine({ io, onFocus: (focused) => seen.push(focused) });
+    engine.start(makeRoot(['x']));
+    io.emitInput('\x1b[I\x1b[O');
+    expect(seen).toEqual([true, false]); // 透传上抛（进屏模式串已开 1004——应答可达）
+    engine.dispose();
   });
 
   it('kitty 探测落定：keyboardProtocol 事件 + 查询面', () => {

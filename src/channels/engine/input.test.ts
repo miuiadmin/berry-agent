@@ -154,6 +154,20 @@ describe('legacy 轨：C0 控制码与功能键', () => {
     expect(run(['\x1b[10;20R'])).toEqual([]); // CPR 应答形状
     expect(run(['\x1b[I'])).toEqual([]); // 焦点通知
   });
+
+  it('焦点应答上抛（notify-osc9）：CSI I→true / CSI O→false——回调与事件两分立（仍零事件入队）', () => {
+    const seen: boolean[] = [];
+    const decoder = new InputDecoder({ onFocus: (focused) => seen.push(focused) });
+    decoder.feed('\x1b[I\x1b[O');
+    expect(seen).toEqual([true, false]); // DECSET 1004 应答形上抛（聚焦/失焦）
+    expect(decoder.take()).toEqual([]); // 协议层回执不进事件模型（吞锁同持）
+  });
+
+  it('焦点回调缺席 = 吞如旧（缺席注入律——零回调零事件）', () => {
+    const decoder = new InputDecoder();
+    expect(() => decoder.feed('\x1b[I\x1b[O')).not.toThrow();
+    expect(decoder.take()).toEqual([]);
+  });
 });
 
 describe('text 游程（打字 / legacy IME 提交不撕裂）', () => {

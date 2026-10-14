@@ -45,7 +45,16 @@
  * 事件产出形与本仓契约对齐：KeyEvent.phase 必填三值（legacy 恒 press）；
  * ImeEvent.committed（true 提交 / false 预编辑增量——与 berry composing 互反）。
  */
-import type { ImeEvent, InputEvent, KeyEvent, KeyPhase, KeyboardProtocol, MouseButton, MousePhase } from './types.js';
+import type {
+  FocusCallback,
+  ImeEvent,
+  InputEvent,
+  KeyEvent,
+  KeyPhase,
+  KeyboardProtocol,
+  MouseButton,
+  MousePhase,
+} from './types.js';
 import { decodeMods, decodePhase, KITTY_PUA_KEYS, LETTER_KEYS, NO_MODS, TILDE_KEYS } from './input-keys.js';
 
 /** 修饰键四元（KeyEvent 字段内联形——无独立 KeyModifiers 类型位） */
@@ -71,6 +80,12 @@ export interface InputDecoderOptions {
    * 背景色应答的消费入口（主题层探测件解读明暗）。
    */
   onOsc?: (data: string) => void;
+  /**
+   * 焦点应答上抛回调（挖掘 36 轮 notify-osc9）：CSI I（聚焦）/ CSI O（失焦）
+   * ——DECSET 1004 应答形。协议层回执面——同 onOsc 先例不进事件模型；
+   * 缺席 = 吞如旧（零事件零回调——缺席注入律，旧测试零扰动）。
+   */
+  onFocus?: FocusCallback;
 }
 
 /** 粘贴态防护帽：超帽强制冲刷（恶意/畸形流不锁死解码器——4 MiB） */
@@ -156,6 +171,7 @@ export class InputDecoder {
   private readonly onProtocol?: (protocol: KeyboardProtocol) => void;
   private readonly onMouseLegacy?: () => void;
   private readonly onOsc?: (data: string) => void;
+  private readonly onFocus?: FocusCallback;
 
   constructor(opts: InputDecoderOptions = {}) {
     this.now = opts.now ?? Date.now;
@@ -163,6 +179,7 @@ export class InputDecoder {
     this.onProtocol = opts.onProtocol;
     this.onMouseLegacy = opts.onMouseLegacy;
     this.onOsc = opts.onOsc;
+    this.onFocus = opts.onFocus;
   }
 
   /** 组字中旗标（焦面查询面——true 时预编辑在途） */
@@ -662,7 +679,10 @@ export class InputDecoder {
       return; // 光标位置报告应答形状——吞（引擎从不请求，防串扰误键）
     }
     if (final === 'I' || final === 'O') {
-      return; // 焦点进出通知——吞（v1 不消费）
+      // 焦点进出通知——协议层回调上抛（挖掘 36 轮 notify-osc9：DECSET 1004
+      // 应答形），仍零事件入队（外部语义与吞位时代不变——旧测试零扰动）
+      this.onFocus?.(final === 'I');
+      return;
     }
     const letterKey = LETTER_KEYS[final];
     if (letterKey) {

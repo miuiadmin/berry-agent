@@ -1173,6 +1173,40 @@ describe('runTuiEntry 装配序', () => {
     io.send('\x04');
     expect(await entry).toBe(0);
   });
+
+  // ── 桌面通知真装配锁（挖掘 36 轮 notify-osc9——ASM-1 反制：desktopNotify
+  // 生产恒传，删装配位注入则本测红——faux 一轮完成后通知字节须在场） ──
+  it('BERRY_AGENT_TUI_NOTIFY 真装配：缺省 auto + 五家 env → 失焦轮完成通知字节；off 门零字节；坏值 warn 走缺省', async () => {
+    // 腿1：auto 形（ghostty 载波）——失焦后一轮对话完成 → OSC 9 通知字节落 io
+    const t1 = await rigEntry(rigDir('entry-notify-a-data-'), rigDir('entry-notify-a-ws-'), {
+      env: { TERM_PROGRAM: 'ghostty' },
+    });
+    t1.io.send('\x1b[O'); // 终端失焦应答（DECSET 1004——通知门控开）
+    t1.io.send('hi\r');
+    await until(() => t1.io.output.includes('\x1b]9;本轮完成：ok')); // 合并窗 250ms 后落帧
+    t1.io.send('\x04');
+    expect(await t1.entry).toBe(0);
+    // 腿2：off 门——同流程零通知字节
+    const t2 = await rigEntry(rigDir('entry-notify-b-data-'), rigDir('entry-notify-b-ws-'), {
+      env: { TERM_PROGRAM: 'ghostty', BERRY_AGENT_TUI_NOTIFY: 'off' },
+    });
+    t2.io.send('\x1b[O');
+    t2.io.send('hi\r');
+    await until(() => t2.io.output.includes('ok')); // 应答上屏（run 完成时点）
+    await new Promise((r) => setTimeout(r, 400)); // 越合并窗——通知若漏门必落帧
+    expect(t2.io.output).not.toContain('\x1b]9;本轮');
+    t2.io.send('\x04');
+    expect(await t2.entry).toBe(0);
+    // 腿3：坏值 warn 走缺省 auto（animations 律同构）——通知照发
+    const t3 = await rigEntry(rigDir('entry-notify-c-data-'), rigDir('entry-notify-c-ws-'), {
+      env: { TERM_PROGRAM: 'kitty', BERRY_AGENT_TUI_NOTIFY: 'banana' },
+    });
+    t3.io.send('\x1b[O');
+    t3.io.send('hi\r');
+    await until(() => t3.io.output.includes('\x1b]9;本轮完成：ok'));
+    t3.io.send('\x04');
+    expect(await t3.entry).toBe(0);
+  });
 });
 
 describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {

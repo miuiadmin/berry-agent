@@ -104,7 +104,7 @@ import {
   type TodoSnapshotLineInput,
   type TranscriptBlock,
 } from './transcript.js';
-import { OscDisplay, buildOsc52Copy } from './osc.js';
+import { OscDisplay, buildOsc52Copy, detectNotifyCarrier, sanitizeNotifyText } from './osc.js';
 import { allocateFixedBudget, EDITOR_MIN_HEIGHT, fixedBudgetRows } from './fixed-budget.js';
 import { StatusLine } from '../status/status-line.js';
 import { TaskStatusLine } from '../status/task-status-line.js';
@@ -328,6 +328,17 @@ export interface TuiBackendOptions {
    */
   readonly animations?: boolean;
   /**
+   * 桌面通知门（挖掘 36 轮 notify-osc9——07 §4.1 件 7 第三写点）：缺席或
+   * 'off' = 通道整体关闭（零通知字节零合并账——缺席注入律，旧测试/旧装配
+   * 零扰动）；生产 tui-entry 恒传（对位——BERRY_AGENT_TUI_NOTIFY 解析值）。
+   * 'auto' = 载波探测（detectNotifyCarrier——TERM_PROGRAM 五家 osc9 / TMUX
+   * 在场 bel 诚实降级）；'osc9' / 'bel' 明示直用（明示 osc9 且 TMUX 在场 →
+   * DCS 包裹透传）。
+   */
+  readonly desktopNotify?: 'auto' | 'osc9' | 'bel' | 'off';
+  /** 载波探测环境快照（TERM_PROGRAM/TMUX——tui-entry 装配时定值注入，colorEnv 同例） */
+  readonly notifyEnv?: { readonly TERM_PROGRAM?: string; readonly TMUX?: string };
+  /**
    * 自定义主题覆盖表（/themes 批）：theme 值为自定义名时装配位载入注入
    * （loadCustomThemeColors 产物；坏文件装配位 warn 后回退内置档——本键缺席
    * 即内置形）。在场景 = 键级回退基板 OSC 重合成（handleOscReply）+ 探测
@@ -417,10 +428,10 @@ export interface TuiBackendOptions {
   };
 }
 
-/** 主屏形进屏模式串：粘贴开 + kitty 推栈（disambiguate 最小位）+ 探测哨兵（无光标藏无 1049——与 Engine 全屏形分立） */
-const ENTER_MAIN = '\x1b[?2004h' + '\x1b[>1u' + '\x1b[?u' + '\x1b[c';
-/** 出屏模式串（与进屏严格对称反序——单源常量） */
-const LEAVE_MAIN = '\x1b[<u' + '\x1b[?2004l';
+/** 主屏形进屏模式串：粘贴开 + 焦点开（1004——notify-osc9）+ kitty 推栈（disambiguate 最小位）+ 探测哨兵（无光标藏无 1049——与 Engine 全屏形分立） */
+const ENTER_MAIN = '\x1b[?2004h' + '\x1b[?1004h' + '\x1b[>1u' + '\x1b[?u' + '\x1b[c';
+/** 出屏模式串（与进屏严格对称反序——单源常量；1004 位对称收口） */
+const LEAVE_MAIN = '\x1b[<u' + '\x1b[?1004l' + '\x1b[?2004l';
 /**
  * DECSTBM 滚动区复位（挖掘 26 轮 [7]）：MainScreen applyScrollRegion 反复写
  * 1;{rows-fixedHeight}r 设区——终端侧状态不随进程退出自复位，出屏不复位则
@@ -461,6 +472,12 @@ const DRAIN_MAX_MS = 1000;
 const DRAIN_IDLE_MS = 50;
 /** footer 教学提示闲态文案（V-3 注⑦④——`?` 键投影与 footer 提示同文单源） */
 const FOOTER_HINT_TEXT = '? 快捷键';
+/**
+ * 桌面通知同窗合并窗（挖掘 36 轮 notify-osc9 拍板④）：首入起窗、窗内后续
+ * 入账只改账不重挂，到点整条裁决（聚焦弃 / 未聚焦发最高优先级）——轮完成
+ * 与审批近邻到达时只扰铃一次（codex pending_notification 同窗合并同参）。
+ */
+const NOTICE_COALESCE_MS = 250;
 /** 排队清单可见预览条数帽（首条计入——挖掘 31 轮 [7]：逐条清单形；超帽折叠尾行） */
 const QUEUE_PREVIEW_LIMIT = 3;
 /**
@@ -947,6 +964,37 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 进度态上次写出（忙闲迁移门——同态静默，周期重发归保活自持） */
   private progressBusy = false;
 
+  /* ---- 桌面通知态（挖掘 36 轮 notify-osc9——07 §4.1 件 7 第三写点） ---- */
+  /**
+   * 终端焦点位（DECSET 1004 应答 CSI I/O 维护）：缺省聚焦（乐观律——
+   * codex 同参：应答未到前不发伪通知）。主/副屏两解码器共指本位（换防
+   * 无盲窗）。
+   */
+  private terminalFocused = true;
+  /**
+   * 通知定值（构造期由 desktopNotify/notifyEnv 解析）：null = 通道关闭
+   * （enqueueNotice 恒零账、osc.notify 恒零写——缺席注入律）。
+   */
+  private readonly notifyConf: { readonly carrier: 'osc9' | 'bel'; readonly tmux: boolean } | null;
+  /**
+   * 同窗合并账（250ms 窗）：审批（优先级 1）压过轮完成（0）——低不覆盖高
+   * （codex pending_notification 同律）；窗到点整条裁决（聚焦则弃）。
+   */
+  private pendingNotice: { readonly text: string; readonly priority: 0 | 1 } | null = null;
+  /** 合并窗定时器句柄（null = 无在飞——首入起窗、窗内后续只改账不重挂） */
+  private noticeHandle: unknown = null;
+  /**
+   * 轮完成预览单源（按 sessionId 归账）：message_end assistant 正文首个
+   * 非空行；agent_start 清 + 终态消费即清（「本轮」语义——陈摘要不跨 run）。
+   */
+  private readonly lastAssistantLine = new Map<string, string>();
+  /**
+   * 失败原因预存账（按 sessionId 归账——与任务行持有档 pendingFailReason
+   * 分立两账）：agent_end failed 时 errorMessage 预存（retry_wait_end 契约
+   * 无原因字段）、retry_wait_end {aborted|exhausted} 消费即清、agent_start 清。
+   */
+  private readonly noticeFailReason = new Map<string, string>();
+
   /* ---- 主题态（批 10g——07 R2 三档色域 + 语义键 + OSC 11 自动明暗；/themes 批运行时切档扩） ---- */
   /** 主题档（auto = start 时 OSC 11 探测裁定；显式内置档短路；自定义名探测照开）——/themes 选定可运行时改 */
   private themeSetting: ThemeSetting;
@@ -1110,15 +1158,30 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 件 7：title 基线（version 注入缺席 = 裸名）；外显件复用本件调度注入
     // （schedule 缺席 = 保活缺位——同步测试语义，与渲染合并同构）
     this.titleBaseline = options.version ? `berry-agent ${options.version}` : 'berry-agent'; // 空串同缺席归裸名（无尾随空格脏基线）
+    // 桌面通知定值（挖掘 36 轮 notify-osc9）：门缺席/'off' = 通道关（null）；
+    // auto = 探测（TMUX 在场 bel 诚实降级 / TERM_PROGRAM 五家 osc9）；明示
+    // osc9/bel 直用——明示 osc9 且 TMUX 在场 → DCS 包裹（tmux:true）
+    const notifyGate = options.desktopNotify ?? 'off';
+    if (notifyGate === 'off') {
+      this.notifyConf = null;
+    } else {
+      const notifyEnv = options.notifyEnv ?? {};
+      const carrier = notifyGate === 'auto' ? detectNotifyCarrier(notifyEnv) : notifyGate;
+      this.notifyConf = { carrier, tmux: carrier === 'osc9' && notifyEnv.TMUX !== undefined };
+    }
     this.osc = new OscDisplay(io, {
       baseline: this.titleBaseline,
       schedule: this.scheduleFn ?? undefined,
       cancel: this.cancelFn,
+      notify: this.notifyConf ?? undefined, // 通道关 = 定值缺席（osc.notify 恒零写）
     });
     this.decoder = new InputDecoder({
       now: this.now,
       escapeWindowMs: this.escapeWindowMs,
       onOsc: (data) => this.handleOscReply(data), // OSC 11 应答上抛（批 10g——显式档回调内短路）
+      onFocus: (focused) => {
+        this.terminalFocused = focused; // 通知门控焦点位（notify-osc9——副屏解码器另指同位）
+      },
     });
     // 主题基座（批 10g + /themes 批）：档位 + 色域构造期一次解析（显式内置档
     // 零探测；auto 先 dark 缺省、probe 回执换装；自定义名 = dark 基板 + 覆盖
@@ -1271,6 +1334,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
             return null;
           }),
         cancelSchedule: this.scheduleFn !== null ? this.cancelFn : () => {},
+        // 焦点续报（notify-osc9）：副屏解码器同指主屏焦点位——换防无盲窗
+        onFocus: (focused) => {
+          this.terminalFocused = focused;
+        },
       },
     });
   }
@@ -1356,6 +1423,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.cancelTimer('frame');
     this.cancelTimer('tick');
     this.cancelTimer('escape');
+    this.cancelTimer('notice'); // 通知合并窗收口（notify-osc9——窗内未 flush 零写出）
     this.disarmLeaderWindow(); // leader 待续窗收口（B4——提示定时器同收、复起陈窗不续）
     this.autocompleteCompleter.cancel(); // 补全在途全收（停机后零迟到交付）
     this.osc.restore(); // 件 7：复原两写点（title 基线 + 进度清零）+ 保活停针（名册语义）
@@ -2632,6 +2700,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.enqueuePresent();
     this.requestRender();
     this.trackProgress(env); // 件 7：按会话净计数（终端级注意力——任一会话在飞即忙）
+    this.trackDesktopNotice(env); // 件 7 第三写点：桌面通知触发路由（notify-osc9——不问聚焦位，后台终态可达）
     if (focused) this.applyFocusedEvent(env.event);
     this.syncEmptyGuide(); // 空态引导对账（块集/忙闲两翻转源之后——本帧驱动收敛）
   }
@@ -2893,6 +2962,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   askApproval(_sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer> {
     // _sessionId：会话归属位随批 13b-3 后端面签名携带——TUI 呈现不消费（单屏
     // 焦点态无会话路由需求），SDK 通道后端以此路由 ask 帧
+    // 桌面通知（notify-osc9）：审批到达即入账（优先级 1——同窗压过轮完成 0）；
+    // 文案 = 工具中文名优先、摘要兜底（title 同源词料，纯呈现层零审批语义改动）
+    this.enqueueNotice(
+      `等待审批：${sanitizeNotifyText(request.toolName !== undefined ? toolFaceZh(request.toolName) : request.summary, 40)}`,
+      1,
+    );
     return new Promise<ApprovalAskAnswer>((resolve) => {
       const title =
         // ⚙ 走 HEAD_MARKS.tool 单源（panel-chrome 符号册——选型翻档只改一处）
@@ -3707,13 +3782,21 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     }, TICK_INTERVAL_MS);
   }
 
-  /** 定时器收口（frame/tick/escape 三名） */
-  private cancelTimer(which: 'frame' | 'tick' | 'escape'): void {
-    const handle = which === 'frame' ? this.frameHandle : which === 'tick' ? this.tickHandle : this.escapeHandle;
+  /** 定时器收口（frame/tick/escape/notice 四名） */
+  private cancelTimer(which: 'frame' | 'tick' | 'escape' | 'notice'): void {
+    const handle =
+      which === 'frame'
+        ? this.frameHandle
+        : which === 'tick'
+          ? this.tickHandle
+          : which === 'escape'
+            ? this.escapeHandle
+            : this.noticeHandle;
     if (handle !== null) this.cancelFn(handle);
     if (which === 'frame') this.frameHandle = null;
     else if (which === 'tick') this.tickHandle = null;
-    else this.escapeHandle = null;
+    else if (which === 'escape') this.escapeHandle = null;
+    else this.noticeHandle = null;
   }
 
   /* ---------------- 内部：主题面（批 10g + /themes 批） ---------------- */
@@ -4232,6 +4315,98 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.progressBusy = busy;
       this.osc.setProgress(busy);
       this.syncFooterHint(); // 教学提示门控对账（忙闲翻转锚——缓存短路零重画）
+    }
+  }
+
+  /**
+   * 触发入账（挖掘 36 轮 notify-osc9）：通道关（notifyConf null）恒零账；
+   * 同窗合并——在账优先级高于新入则弃（审批 1 压过轮完成 0，低不覆盖高）。
+   * scheduleFn 缺席 = 同步直出（测试语义——零窗即发，armEscapeWindow 同构）。
+   * 文案消毒归调用方（动态段帽前置），本方法只承合并与排程。
+   */
+  private enqueueNotice(text: string, priority: 0 | 1): void {
+    if (this.notifyConf === null) return; // 通道关——零账零排程（缺席注入律）
+    if (this.pendingNotice !== null && this.pendingNotice.priority > priority) return; // 低不覆盖高
+    if (this.pendingNotice === null && this.scheduleFn !== null) {
+      // 首入起窗（窗内后续只改账不重挂）
+      this.noticeHandle = this.scheduleFn(() => {
+        this.noticeHandle = null;
+        this.flushNotice();
+      }, NOTICE_COALESCE_MS);
+    }
+    this.pendingNotice = { text, priority };
+    if (this.scheduleFn === null) this.flushNotice(); // 同步直出档（无注入调度）——零窗即发（armEscapeWindow 同构）
+  }
+
+  /**
+   * 窗到点裁决：聚焦则整条弃（不补发不重挂——用户在场即零扰铃，codex 弃律
+   * 同参）；未聚焦 → osc.notify 发最高优先级文案（写失败闩死归 osc 自持）。
+   */
+  private flushNotice(): void {
+    const notice = this.pendingNotice;
+    this.pendingNotice = null;
+    if (notice === null) return;
+    if (this.terminalFocused) return; // 聚焦弃——整条不补发
+    this.osc.notify(notice.text);
+  }
+
+  /**
+   * 桌面通知触发路由（挖掘 36 轮 notify-osc9——onEnvelope 新腿，trackProgress
+   * 旁挂；不问聚焦位——后台会话终态可达同语义）：触发四档——
+   * - message_end（assistant 正文）→ 记首行摘要账（轮完成预览单源）；
+   * - agent_start → 清两账（「本轮」语义——陈摘要/陈原因不跨 run）；
+   * - agent_end completed → 「本轮完成：{预览}」（预览缺席裸词）；aborted →
+   *   「本轮已中止」；failed → 只记原因账不通知（V-0 注② 揭示延后——重试
+   *   路上不响假警报）；
+   * - retry_wait_end {aborted|exhausted} → 「本轮失败：{原因}」（原因缺席
+   *   裸词——两账分立）；resumed → 零通知。
+   * 通道关时首行短路（三账全零——缺席注入律专项锁锚）。
+   */
+  private trackDesktopNotice(env: SessionEnvelope): void {
+    if (this.notifyConf === null) return; // 通道关——零账零通知
+    const { event } = env;
+    if (event.type === 'agent_start') {
+      this.lastAssistantLine.delete(env.sessionId);
+      this.noticeFailReason.delete(env.sessionId);
+      return;
+    }
+    if (event.type === 'message_end' && isStandardMessage(event.message) && event.message.role === 'assistant') {
+      // 正文首个非空行（text 块拼接——thinking 块不参摘要）
+      const parts: string[] = [];
+      for (const block of event.message.content) {
+        if (block.type === 'text' && block.text.trim() !== '') parts.push(block.text);
+      }
+      const firstLine = parts
+        .join('\n')
+        .split('\n')
+        .find((line) => line.trim() !== '');
+      if (firstLine !== undefined) this.lastAssistantLine.set(env.sessionId, firstLine.trim());
+      return;
+    }
+    if (event.type === 'agent_end') {
+      if (event.status === 'failed') {
+        // 原因预存（retry_wait_end 契约无原因字段）——不通知（揭示延后）
+        this.noticeFailReason.set(env.sessionId, event.errorMessage ?? '');
+        return;
+      }
+      if (event.status === 'aborted') {
+        this.lastAssistantLine.delete(env.sessionId); // 消费即清（陈摘要不跨 run）
+        this.enqueueNotice('本轮已中止', 0);
+        return;
+      }
+      // completed：预览缺席 → 裸词（诚实缺席非陈摘要）
+      const preview = this.lastAssistantLine.get(env.sessionId);
+      this.lastAssistantLine.delete(env.sessionId); // 消费即清
+      this.enqueueNotice(preview === undefined ? '本轮完成' : `本轮完成：${sanitizeNotifyText(preview, 80)}`, 0);
+      return;
+    }
+    if (event.type === 'retry_wait_end') {
+      if (event.outcome === 'resumed') return; // 续入——真终态未达，零通知
+      // aborted / exhausted：真失败终态——原因消费即清（缺席裸词诚实形）
+      const reason = this.noticeFailReason.get(env.sessionId) ?? '';
+      this.noticeFailReason.delete(env.sessionId);
+      this.lastAssistantLine.delete(env.sessionId);
+      this.enqueueNotice(reason === '' ? '本轮失败' : `本轮失败：${sanitizeNotifyText(reason, 80)}`, 0);
     }
   }
 

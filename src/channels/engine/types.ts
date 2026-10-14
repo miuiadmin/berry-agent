@@ -271,3 +271,10 @@ export interface MouseEvent {
 
 /** 输入事件五分判别联合（mouse 系 2026-09-11 鼠标解码批增补） */
 export type InputEvent = KeyEvent | TextInputEvent | ImeEvent | PasteEvent | MouseEvent;
+
+/**
+ * 焦点回调：CSI I（聚焦）/ CSI O（失焦）解码上抛——DECSET 1004 焦点应答的
+ * 消费面（挖掘 36 轮 notify-osc9 桌面通知件）。协议层回执面（onProtocol /
+ * onMouseLegacy / onOsc 同例），不进输入事件五分模型。
+ */
+export type FocusCallback = (focused: boolean) => void;

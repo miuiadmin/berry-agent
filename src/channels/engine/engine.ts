@@ -32,7 +32,7 @@ import { CellGrid } from './cell.js';
 import { renderFrameDiff } from './diff.js';
 import { InputDecoder } from './input.js';
 import { ProcessTerminalIO } from './process-io.js';
-import type { InputEvent, KeyboardProtocol, Region, Renderable, TerminalIO } from './types.js';
+import type { FocusCallback, InputEvent, KeyboardProtocol, Region, Renderable, TerminalIO } from './types.js';
 
 /** 缺省帧率帽（帧间隔下限 = 1000/60——批 10f-3 性能回归锁建锁校准：v1 定值 60 维持〔perf-lock.test.ts 四指标锁内过〕，实机校准后收紧留批 12 host 装配） */
 const DEFAULT_FPS_CAP = 60;
@@ -45,10 +45,11 @@ const DRAIN_IDLE_MS = 50;
 /** 屏幕形态两分：inline 主屏（不进 1049）/ alt-screen 副屏（1049 备屏进出） */
 export type ScreenForm = 'inline' | 'alt-screen';
 
-/** 进屏模式串公共尾（两形态共用）：光标藏 + 粘贴开 + kitty 推送 + 探测 */
+/** 进屏模式串公共尾（两形态共用）：光标藏 + 粘贴开 + 焦点开 + kitty 推送 + 探测 */
 const ENTER_COMMON =
   '\x1b[?25l' + // 光标藏（帧尾按声明落位再显）
   '\x1b[?2004h' + // bracketed paste 开（粘贴严格处理）
+  '\x1b[?1004h' + // 焦点应答开（挖掘 36 轮 notify-osc9——CSI I/O 上抛 onFocus）
   '\x1b[>1u' + // kitty 键盘协议推栈：disambiguate 最小位（Esc/alt/ctrl 无歧义化）
   '\x1b[?u' + // kitty 探测：查询当前增强位
   '\x1b[c'; // DA1 探测哨兵（应答先到无 kitty 应答 = legacy）
@@ -56,6 +57,7 @@ const ENTER_COMMON =
 /** 出屏模式串公共头（两形态共用）：与进屏公共尾严格对称反序 */
 const LEAVE_COMMON =
   '\x1b[<u' + // kitty 弹栈（恢复宿主栈态——kitty 规范）
+  '\x1b[?1004l' + // 焦点应答关（1004 位对称收口——见 ENTER_COMMON 注）
   '\x1b[?2004l' + // 粘贴关
   '\x1b[?25h'; // 光标显
 
@@ -132,6 +134,12 @@ export interface EngineOptions {
    * 终端原生选区——降级编舞归 AltScreenHost 组合柄）
    */
   onMouseLegacy?: () => void;
+  /**
+   * 焦点回调透传解码器（挖掘 36 轮 notify-osc9）：CSI I/O 应答上抛——进屏
+   * 模式串已开 DECSET 1004，副屏期焦点续报无盲窗。装配层据此维护焦点位
+   * （桌面通知门控——聚焦则弃发）。
+   */
+  onFocus?: FocusCallback;
 }
 
 /** TUI 引擎（构造后 start 进屏；dispose 终退） */
@@ -202,6 +210,7 @@ export class Engine {
         this.events.emit('keyboardProtocol', p);
       },
       onMouseLegacy: opts.onMouseLegacy,
+      onFocus: opts.onFocus,
     });
     this.decoderEscapeWindowMs = opts.escapeWindowMs ?? DEFAULT_ESCAPE_WINDOW_MS;
   }

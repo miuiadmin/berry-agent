@@ -223,9 +223,11 @@ async function assertCleanExitRestored(lock: ReturnType<typeof spawnTuiEntry>): 
   const out = lock.output();
   // (b) 判据前提：主屏确实武装了终端（数的是「出屏」不是「从未进屏」）
   expect(count(out, '\x1b[?2004h')).toBeGreaterThanOrEqual(1); // bracketed paste 开（ENTER_MAIN）
+  expect(count(out, '\x1b[?1004h')).toBeGreaterThanOrEqual(1); // 焦点应答开（ENTER_MAIN——notify-osc9 真装配位）
   expect(count(out, '\x1b[?u')).toBeGreaterThanOrEqual(1); // kitty 探测（ENTER_MAIN）
   // (b) 出屏复原字节在场（LEAVE_MAIN 与进屏严格对称反序——单源常量）
   expect(count(out, '\x1b[<u')).toBeGreaterThanOrEqual(1); // kitty 键盘协议弹栈（恢复宿主栈态）
+  expect(count(out, '\x1b[?1004l')).toBeGreaterThanOrEqual(1); // 焦点应答关（1004 位对称收口——notify-osc9）
   expect(count(out, '\x1b[?2004l')).toBeGreaterThanOrEqual(1); // 粘贴关
   // (b) DECSTBM 滚动区复位在场（挖掘 26 轮 [7]）：MainScreen applyScrollRegion
   // 反复写 1;{rows-fixedHeight}r 设区——终端侧状态不随进程退出自复位，不复位
