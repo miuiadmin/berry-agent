@@ -7736,3 +7736,49 @@ describe('TuiBackend 回溯回执编排 wireForkEdit（forked 门控 seed / 草�
     expect(notices).toEqual([]);
   });
 });
+
+/* ---------------- 终端 title 待处置外显（件 C——挖掘 46 轮） ---------------- */
+
+describe('TuiBackend 终端 title 待处置外显（件 C——挖掘 46 轮）', () => {
+  it('input 问在场开注意态——应答收场归位（开帧显形缀常态 title）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const p = backend.input('填啥？');
+    pump();
+    expect(io.bytes).toContain('[ ! ] 待处置 berry-agent'); // 注意帧（常态 title 缀尾——起屏基线值）
+    io.bytes = '';
+    io.emitInput('答\r');
+    pump();
+    await expect(p).resolves.toBe('答');
+    expect(io.bytes).toContain('\x1b]0;berry-agent\x07'); // 归位写（帧值→常态值强制重写）
+    expect(io.bytes).not.toContain('待处置'); // title 面收净
+  });
+
+  it('审批浮层在场同开注意态（stack 开层面）——浮层收场归位', async () => {
+    const { io, backend, clock, pump } = makeInteractive();
+    const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    pump();
+    expect(io.bytes).toContain('[ ! ] 待处置 berry-agent');
+    io.bytes = '';
+    io.emitInput('\x1b'); // esc → 面板保守值 '' → cancel
+    escapePump(clock);
+    await expect(p).resolves.toBe('cancel');
+    expect(io.bytes).toContain('\x1b]0;berry-agent\x07'); // 归位写
+    expect(io.bytes).not.toContain('待处置');
+  });
+
+  it('停机闸：stop 后迟到 abort 队列接续不重启注意针（终退后零 OSC 写出）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const ac1 = new AbortController();
+    const p1 = backend.input('问一？', { signal: ac1.signal }); // 激活
+    pump();
+    void backend.input('问二？'); // 入队候接（无 signal——只经迟到 abort 接续激活）
+    pump();
+    expect(io.bytes).toContain('[ ! ] 待处置'); // 注意态开
+    backend.stop(); // 终退（restore 归位基线 + 双针全停）
+    io.bytes = '';
+    ac1.abort(); // 迟到 abort——激活问收场 + 队列接续问二
+    pump();
+    expect(io.bytes).toBe(''); // 修前红位：接续激活无停机闸会重启注意针写出注意帧
+    await expect(p1).resolves.toBe(''); // 保守值收口
+  });
+});

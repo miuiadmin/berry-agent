@@ -13,6 +13,10 @@
  *   detectNotifyCarrier 纯函数（TMUX 在场 bel 诚实降级 / TERM_PROGRAM 五家
  *   osc9）+ buildOsc9Notify / sanitizeNotifyText 两纯函数 + notify() 写点
  *   （定值缺席 = 通道关闭恒零写；写失败即闩死——后续零写）；
+ * - **待处置注意态 title 外显**（件 C——挖掘 46 轮）：setAttention 开/收
+ *   1s 交替拍（`[ ! ] 待处置 <常态title>` / `[ . ] …` 同宽防抖——常态值账
+ *   与帧值分立防污染）——判据归 TuiBackend（应答车在场或模态浮层在场），
+ *   本件只承拍显、归位与停针自持（注意拍与保活拍两针分立）；
  * - 进度态判据（按 sessionId 归账的 agent_start/end 净计数、任一会话 > 0
  *   即忙）在 TuiBackend 侧——本件只承「忙/闲」两态写出与保活自持；
  * - 退出复原两写点：title 复原基线 + 进度清零（restore——TuiBackend 的
@@ -28,10 +32,23 @@ import type { TerminalIO } from '../../engine/index.js';
 /** 保活重发周期（ms——pi-tui TERMINAL_PROGRESS_KEEPALIVE_MS 实证值） */
 export const OSC_PROGRESS_KEEPALIVE_MS = 1000;
 
+/**
+ * 注意态交替拍周期（ms——件 C 挖掘 46 轮）：与保活同拍 1s（OSC 外显族
+ * 帧节奏单源经验值——终端标签页注意力外显的感知粒度）。
+ */
+export const OSC_ATTENTION_BLINK_MS = 1000;
+
 /** OSC 9;4 忙态序列（indeterminate progress——state 3） */
 const PROGRESS_ACTIVE_SEQUENCE = '\x1b]9;4;3\x07';
 /** OSC 9;4 清零序列（state 0） */
 const PROGRESS_CLEAR_SEQUENCE = '\x1b]9;4;0\x07';
+
+/** 注意态帧词（件 C——待处置问句在场的外显词面） */
+const ATTENTION_WORD = '待处置';
+/** 注意态显形拍标记 */
+const ATTENTION_MARK_ON = '[ ! ]';
+/** 注意态隐形拍标记（'.' 占位与显形拍同宽——交替不抖动） */
+const ATTENTION_MARK_OFF = '[ . ]';
 
 /**
  * OSC 52 选区复制序列（07 §4.1 呈现面件 8 细则——BEL 终界）：
@@ -118,10 +135,16 @@ export type OscSchedule = (fn: () => void, ms: number) => unknown;
 export interface OscDisplayOptions {
   /** title 复原基线（退出复原落点——起屏基线形如 `berry-agent <版本>`） */
   readonly baseline: string;
-  /** 调度注入（保活周期重发；缺席 = 保活缺位——忙态首写不受影响） */
+  /** 调度注入（保活周期重发 + 注意拍交替；缺席 = 保活缺位——忙态首写不受影响） */
   readonly schedule?: OscSchedule;
   /** 取消调度注入（与 schedule 配对——停针名册语义的取消出口） */
   readonly cancel?: (handle: unknown) => void;
+  /**
+   * 动效门（件 C——挖掘 46 轮）：false = 注意拍不摆（显形帧静态常驻——
+   * TuiBackend animationsEnabled 同源注入，taskLine 转轮动效门同例）；
+   * 缺省 true。保活针不受此门辖（progress 序列是超时衰减维持面非动效）。
+   */
+  readonly animations?: boolean;
   /**
    * 桌面通知定值（挖掘 36 轮 notify-osc9）——缺席 = 通知通道整体关闭
    * （notify() 恒零写零字节——缺席注入律，旧测试/旧装配零扰动）。
@@ -142,6 +165,14 @@ export interface OscDisplayOptions {
 export class OscDisplay {
   /** title 值缓存（null = 未写过——同值不重写判据位） */
   private lastTitle: string | null = null;
+  /** 常态 title 值账（最后一次 setTitle 值——收注意态归位写数据源；null = 从未写常态值） */
+  private normalTitle: string | null = null;
+  /** 注意态位（true = 待处置外显在身——帧写出经私法绕开常态值记账） */
+  private attentionOn = false;
+  /** 注意态拍相位（true = 显形拍；开态首帧恒显形） */
+  private attentionPhase = true;
+  /** 注意拍在飞句柄（null = 无在飞——名册语义判据位；与保活针分立互不牵连） */
+  private blinkHandle: unknown = null;
   /** 保活在飞句柄（null = 无在飞——名册语义判据位） */
   private keepaliveHandle: unknown = null;
 
@@ -149,6 +180,8 @@ export class OscDisplay {
   private readonly baseline: string;
   private readonly schedule: OscSchedule | null;
   private readonly cancel: (handle: unknown) => void;
+  /** 动效门（false = 注意拍不摆——显形帧静态常驻；缺省 true） */
+  private readonly animations: boolean;
   /** 桌面通知定值（null = 通道关闭——notify 恒零写；构造期定值不再变） */
   private readonly notifyConf: { readonly carrier: NotifyCarrier; readonly tmux: boolean } | null;
   /** 通知写失败闩（true = 已闩死——io.write 抛错后后续 notify 零写，teardown EPIPE 不炸） */
@@ -160,6 +193,7 @@ export class OscDisplay {
     this.schedule = options.schedule ?? null;
     // 取消缺省兜底 setTimeout 句柄族（与 TuiBackend cancelFn 缺省同形）
     this.cancel = options.cancel ?? ((handle) => clearTimeout(handle as NodeJS.Timeout));
+    this.animations = options.animations ?? true;
     this.notifyConf = options.notify ?? null;
   }
 
@@ -168,11 +202,65 @@ export class OscDisplay {
     return this.keepaliveHandle;
   }
 
-  /** 标题写出（OSC 0;… BEL——值缓存去重：同值不重写字节） */
+  /** 标题写出（OSC 0;… BEL——值缓存去重：同值不重写字节；常态值随写记账〔注意帧经私法绕开记账〕） */
   setTitle(title: string): void {
+    this.writeTitleDedup(title);
+    this.normalTitle = title;
+  }
+
+  /** 去重写出私法（注意态帧共用去重律——帧值非常态值，不记常态值账防污染） */
+  private writeTitleDedup(title: string): void {
     if (title === this.lastTitle) return; // 去重律——同值零字节
     this.lastTitle = title;
     this.io.write(`\x1b]0;${title}\x07`);
+  }
+
+  /**
+   * 待处置外显（件 C——挖掘 46 轮）：true = 注意态——title 以 1s 交替拍外显
+   * `[ ! ] 待处置 <常态title>` / `[ . ] 待处置 <常态title>`（隐形拍 '.' 占位
+   * 同宽防抖）；false = 收态——停拍 + 常态 title 强制重写归位（lastTitle 清空
+   * 绕过去重；常态值 null 则跳过归位写）。同态重复调用零字节零重排。
+   * blink 门 = schedule 在场 && animations 开（任一缺席 = 显形帧静态常驻
+   * ——taskLine 转轮动效门同例）；注意拍与保活拍两针分立互不牵连。
+   */
+  setAttention(active: boolean): void {
+    if (active === this.attentionOn) return; // 同态零扰动
+    this.attentionOn = active;
+    if (active) {
+      this.attentionPhase = true; // 开态首帧恒显形
+      this.writeAttentionFrame();
+      this.armBlink();
+    } else {
+      this.stopBlink();
+      this.lastTitle = null; // 强制归位（lastTitle 是注意帧值——绕过去重律）
+      if (this.normalTitle !== null) this.setTitle(this.normalTitle);
+    }
+  }
+
+  /** 注意帧 title 铸 + 去重写出（经私法——不记常态值账） */
+  private writeAttentionFrame(): void {
+    const mark = this.attentionPhase ? ATTENTION_MARK_ON : ATTENTION_MARK_OFF;
+    this.writeTitleDedup(
+      this.normalTitle === null ? `${mark} ${ATTENTION_WORD}` : `${mark} ${ATTENTION_WORD} ${this.normalTitle}`,
+    );
+  }
+
+  /** 起注意拍（门：schedule 在场 && animations 开；触发即翻相清位自重排续拍——单链不叠针） */
+  private armBlink(): void {
+    if (this.schedule === null || !this.animations || this.blinkHandle !== null) return;
+    this.blinkHandle = this.schedule(() => {
+      this.blinkHandle = null;
+      this.attentionPhase = !this.attentionPhase;
+      this.writeAttentionFrame();
+      this.armBlink();
+    }, OSC_ATTENTION_BLINK_MS);
+  }
+
+  /** 停注意拍（名册语义：句柄非空才取消、停后清位——与 stopKeepalive 分立） */
+  private stopBlink(): void {
+    if (this.blinkHandle === null) return;
+    this.cancel(this.blinkHandle);
+    this.blinkHandle = null;
   }
 
   /**
@@ -194,9 +282,12 @@ export class OscDisplay {
   /**
    * 退出复原两写点齐（07 §4.1 件 7 条款）：title 复原基线（经值缓存——
    * 已在基线则零字节）+ 进度清零（无条件写——终态收口，含停保活）。
+   * 注意态同收（件 C——复原后 setTitle 记账恢复常态语义；注意拍停针）。
    */
   restore(): void {
+    this.attentionOn = false;
     this.stopKeepalive();
+    this.stopBlink();
     this.setTitle(this.baseline);
     this.io.write(PROGRESS_CLEAR_SEQUENCE);
   }

@@ -15,6 +15,7 @@ import {
   buildOsc52CopyDcs,
   detectNotifyCarrier,
   OscDisplay,
+  OSC_ATTENTION_BLINK_MS,
   OSC_PROGRESS_KEEPALIVE_MS,
   sanitizeNotifyText,
 } from './osc.js';
@@ -305,5 +306,124 @@ describe('OscDisplay.notify（第三写点——定值缺席/载波分档/写失
     failing = false; // 写通道恢复
     osc.notify('二'); // 已闩死——恢复后仍零写
     expect(written).toEqual([]);
+  });
+});
+
+/* ---------------- setAttention 待处置外显（件 C——挖掘 46 轮） ---------------- */
+
+describe('OscDisplay.setAttention 待处置外显（件 C——挖掘 46 轮）', () => {
+  it('开注意态首帧显形 + 1s 交替拍隐形帧（常态 title 缀尾——两拍同宽不抖）', () => {
+    const { io, osc, clock } = makeOsc();
+    osc.setTitle('berry-agent 1.2.3 · ab12cd'); // 常态 title 播种（起屏/切焦路同形）
+    osc.setAttention(true);
+    expect(io.frames.slice(-1)).toEqual([title('[ ! ] 待处置 berry-agent 1.2.3 · ab12cd')]); // 首帧显形（同步写出）
+    clock.advance(OSC_ATTENTION_BLINK_MS);
+    expect(io.frames.slice(-1)).toEqual([title('[ . ] 待处置 berry-agent 1.2.3 · ab12cd')]); // 隐形拍
+    clock.advance(OSC_ATTENTION_BLINK_MS);
+    expect(io.frames.slice(-1)).toEqual([title('[ ! ] 待处置 berry-agent 1.2.3 · ab12cd')]); // 再翻显形（自重排续拍）
+  });
+
+  it('同态重复调用零字节（幂等）+ 拍单链不叠针（一窗恰一帧）', () => {
+    const { io, osc, clock } = makeOsc();
+    osc.setTitle('base');
+    osc.setAttention(true);
+    const n = io.frames.length;
+    osc.setAttention(true); // 同态——零字节零重排
+    expect(io.frames.length).toBe(n);
+    clock.advance(OSC_ATTENTION_BLINK_MS);
+    expect(io.frames.length).toBe(n + 1); // 单链——一窗恰一帧（叠针会出 2 帧）
+  });
+
+  it('收注意态：停拍 + 常态 title 强制重写归位 + 推进零写出', () => {
+    const { io, osc, clock } = makeOsc();
+    osc.setTitle('base');
+    osc.setAttention(true);
+    clock.advance(OSC_ATTENTION_BLINK_MS); // 隐形帧在屏（lastTitle = 帧值）
+    osc.setAttention(false);
+    expect(io.frames.slice(-1)).toEqual([title('base')]); // 归位重写（lastTitle 清空绕过去重——漏重写则 title 滞留隐形帧）
+    const n = io.frames.length;
+    clock.advance(OSC_ATTENTION_BLINK_MS * 5);
+    expect(io.frames.length).toBe(n); // 停拍——推进零写出
+  });
+
+  it('常态 title 缺席形：帧无缀尾 + 收态跳过归位写（backend 装配不可达——防御位锁形）', () => {
+    const io = new MemoryTerminalIO(80, 24);
+    const osc = new OscDisplay(io, { baseline: 'x' }); // 从未 setTitle——常态值缺席
+    osc.setAttention(true);
+    expect(io.frames).toEqual([title('[ ! ] 待处置')]); // 无缀尾
+    osc.setAttention(false);
+    expect(io.frames).toEqual([title('[ ! ] 待处置')]); // 无常态可归位——零新字节
+  });
+
+  it('注意态中途 setTitle：常态值账随记不污染（下拍帧缀新值 + 收态归位最新常态值）', () => {
+    const { io, osc, clock } = makeOsc();
+    osc.setTitle('old');
+    osc.setAttention(true);
+    clock.advance(OSC_ATTENTION_BLINK_MS); // 隐形帧
+    osc.setTitle('new'); // 注意态中途常态 title 更新（切焦点缀路）——直写 + 记账
+    expect(io.frames.slice(-1)).toEqual([title('new')]);
+    clock.advance(OSC_ATTENTION_BLINK_MS); // 下一拍——帧缀新常态值（帧值不记账：缀 new 非 old）
+    expect(io.frames.slice(-1)).toEqual([title('[ ! ] 待处置 new')]);
+    osc.setAttention(false);
+    expect(io.frames.slice(-1)).toEqual([title('new')]); // 归位 = 最新常态值（帧值未污染账）
+  });
+
+  it('restore 清注意态：双针全停 + title 复原基线 + 进度清零', () => {
+    const { io, osc, clock } = makeOsc('berry-agent 1.2.3');
+    osc.setTitle('berry-agent 1.2.3 · ab12cd');
+    osc.setProgress(true); // 保活针并陈
+    osc.setAttention(true); // 注意拍并陈
+    clock.advance(OSC_ATTENTION_BLINK_MS); // 两针各一写
+    osc.restore();
+    expect(io.frames.slice(-2)).toEqual([title('berry-agent 1.2.3'), CLEAR]);
+    const n = io.frames.length;
+    clock.advance(OSC_ATTENTION_BLINK_MS * 5);
+    expect(io.frames.length).toBe(n); // 双针全停——推进零写出
+  });
+
+  it('schedule 缺席 = 注意帧静态常驻（首帧显形写出、无拍——同步测试语义）', () => {
+    const io = new MemoryTerminalIO(80, 24);
+    const osc = new OscDisplay(io, { baseline: 'x' });
+    osc.setTitle('base');
+    osc.setAttention(true);
+    expect(io.frames).toEqual([title('base'), title('[ ! ] 待处置 base')]); // 静态显形帧
+    osc.setAttention(false);
+    expect(io.frames.slice(-1)).toEqual([title('base')]); // 收态归位仍有效
+  });
+
+  it('双针并陈互不牵连：保活停针注意拍续摆、注意收态归位（两针分立）', () => {
+    const { io, osc, clock } = makeOsc();
+    osc.setTitle('base');
+    osc.setProgress(true); // 保活针先起
+    osc.setAttention(true); // 注意拍后起（同刻到期——保活先排先执行）
+    clock.advance(OSC_ATTENTION_BLINK_MS);
+    expect(io.frames.slice(-2)).toEqual([ACTIVE, title('[ . ] 待处置 base')]); // 一窗两针各恰一写
+    osc.setProgress(false); // 保活停针——注意拍不牵连
+    expect(io.frames.slice(-1)).toEqual([CLEAR]);
+    clock.advance(OSC_ATTENTION_BLINK_MS);
+    expect(io.frames.slice(-1)).toEqual([title('[ ! ] 待处置 base')]); // 注意拍续摆
+    osc.setAttention(false); // 注意收——归位写
+    expect(io.frames.slice(-1)).toEqual([title('base')]);
+    const n = io.frames.length;
+    clock.advance(OSC_ATTENTION_BLINK_MS * 3);
+    expect(io.frames.length).toBe(n); // 全停——零写出
+  });
+
+  it('animations: false = 显形帧静态常驻零拍（动效门禁用形——schedule 在场也不摆）', () => {
+    const io = new MemoryTerminalIO(80, 24);
+    const clock = new ManualClock();
+    const osc = new OscDisplay(io, {
+      baseline: 'x',
+      animations: false,
+      schedule: clock.schedule,
+      cancel: clock.cancel,
+    });
+    osc.setTitle('base');
+    osc.setAttention(true);
+    expect(io.frames).toEqual([title('base'), title('[ ! ] 待处置 base')]); // 静态常驻
+    clock.advance(OSC_ATTENTION_BLINK_MS * 5);
+    expect(io.frames).toEqual([title('base'), title('[ ! ] 待处置 base')]); // 零拍
+    osc.setAttention(false);
+    expect(io.frames.slice(-1)).toEqual([title('base')]); // 收态归位仍有效
   });
 });

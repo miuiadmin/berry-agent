@@ -1399,10 +1399,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 触发档白名单铸集（挖掘 37 轮）：缺席 = null = 四档全集不滤（旧装配零
     // 扰动）；在场铸 Set（空数组 = 空集 = 显式全静默——合法形非坏值）
     this.notifyTriggersSet = options.notifyTriggers === undefined ? null : new Set(options.notifyTriggers);
+    // 动效门（挖掘 35 轮 B2+B4）：单值注入（缺省 true）——osc 注意拍门（件 C）
+    // 在构造位消费，须先于 osc 构造赋值；tick 定时器摆/不摆与 taskLine 禁用
+    // 形两消费位在 start/装配尾
+    this.animationsEnabled = options.animations ?? true;
     this.osc = new OscDisplay(io, {
       baseline: this.titleBaseline,
       schedule: this.scheduleFn ?? undefined,
       cancel: this.cancelFn,
+      // 注意拍动效门同源透传（件 C——挖掘 46 轮）：禁用形显形帧静态常驻
+      animations: this.animationsEnabled,
       notify: this.notifyConf ?? undefined, // 通道关 = 定值缺席（osc.notify 恒零写）
     });
     this.decoder = new InputDecoder({
@@ -1421,9 +1427,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.customOverlay = options.customThemeOverlay ?? null;
     this.colorDepth = detectColorDepth(options.colorEnv ?? {});
     this.theme = resolveTheme(this.currentBoard(), this.colorDepth);
-    // 动效门（挖掘 35 轮 B2+B4）：单值注入（缺省 true）——tick 定时器摆/不摆
-    // 与 taskLine 禁用形两消费位
-    this.animationsEnabled = options.animations ?? true;
     // 键位注册表（批 10i R5 基座 + 10k 用户覆盖）：settings keybindings 键
     // 透传——四形拒载 fail-loud（拒载弃该键回退缺省，rejections 观测面呈报）
     this.keymap = new Keymap(options.keybindings);
@@ -1553,7 +1556,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.todoSnapshotsSource = options.todoSnapshotsOf;
     this.jobPanel = new JobPanel({ now: () => this.now() });
     this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
-    this.stack.onChange = () => this.touchFixed();
+    // 浮层开/关两触点：重绘请求 + 注意态对账（件 C——stack 尺寸迁移即 sync；
+    // 开层单源 = activateAskLayer 的 stack.open，关层经句柄 close）
+    this.stack.onChange = () => {
+      this.touchFixed();
+      this.syncAttentionTitle();
+    };
     // 装配（43 轮件 B）：节律门 = 注入调度在场 && 动画开——同步直出档
     //（scheduleFn null）帧即 flush 无节拍窗、关动画档零推帧，两形零节拍；
     // 内容可见性不依赖动画开关（pacing off 恒全量冻结）
@@ -3454,6 +3462,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
             this.popup.applyResult(null);
             resolve('');
             this.continueInputQueue();
+            // 注意态对账在接续之后（件 C）：接续激活会话开新窗——先 sync 会写
+            // 一次假收态帧（接续窗即刻又开），置后则接续的 activateInputAsk
+            // sync 直开真态，零中间帧
+            this.syncAttentionTitle();
           } else {
             // 排队态 abort：静默出队（从未上屏——不落撤销说明行）
             const idx = this.inputQueue.indexOf(ask);
@@ -3488,6 +3500,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.autocompleteCompleter.cancel(); // 应答期弹层抑制：撤窗 + 在途作废
     this.popup.applyResult(null); // 在层即刻收层
     this.clearJobsCursor(); // jobs 光标让位（挖掘 26 轮 [5]——应答窗 enter 属应答车道，劫持面随激活拆除）
+    this.syncAttentionTitle(); // 注意态开（件 C——应答车在场判据位）
     this.touchFixed();
   }
 
@@ -3977,6 +3990,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.autocompleteCompleter.cancel(); // 应答收场：撤窗 + 在途作废（下轮 ask 重开）
       this.popup.applyResult(null); // 应答期抑制的补全层即刻收层
       this.continueInputQueue(); // 队首晋升接续（FIFO——十六役扫 #2）
+      // 注意态对账在接续之后（件 C——与 abort 清位同律）：接续开新窗直开真态
+      this.syncAttentionTitle();
       // 收窗后门控对账（B2 对称面）：模型清稿的 change 先于本分支到达（editor
       // 侧先 model.submit 后 onSubmit），彼时 inputAsk 仍在场——教学提示未随清稿
       // 复现；此处补对账（队列接续时 activateInputAsk 的 setText 会再翻回，
@@ -4877,6 +4892,20 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.osc.setProgress(busy);
       this.syncFooterHint(); // 教学提示门控对账（忙闲翻转锚——缓存短路零重画）
     }
+  }
+
+  /**
+   * 终端 title 待处置态对账（件 C——挖掘 46 轮）：应答车在场或模态浮层在场
+   * 即开注意态（1s 交替拍 `[ ! ] 待处置`——终端标签页外显面：挂起/切走期
+   * 屏内提示不可见，title 是唯一外显位），否则收。判据单源现取（inputAsk /
+   * stack 两账），四调用位：activateInputAsk / input abort 清位〔sync 恒在
+   * continueInputQueue 接续之后〕 / handleSubmit ask 收场〔同律〕 /
+   * stack.onChange〔浮层开/关两触点〕。首行停机闸：stop 后迟到 abort/接续
+   * 事件不得重启注意针（终退后零写出——trackProgress 同闸）。
+   */
+  private syncAttentionTitle(): void {
+    if (!this.running) return; // 停机闸——迟到事件不重启针不写字节
+    this.osc.setAttention(this.inputAsk !== null || this.stack.size > 0);
   }
 
   /**
