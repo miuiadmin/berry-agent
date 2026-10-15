@@ -148,7 +148,8 @@ import { SessionPicker } from '../history/session-picker.js';
 import { HelpViewer, type HelpCommandEntry } from '../panels/help-viewer.js';
 import { CallsViewer } from '../panels/calls-viewer.js';
 import { formatCount, formatTokensCompact, formatTokensPerSecond, UsageViewer } from '../panels/usage-viewer.js';
-import { gitHeadSuffix, readGitHead } from '../status/footer.js';
+import { gitHeadSuffix, readGitHead, type GitHeadInfo } from '../status/footer.js';
+import { computeBranchStats, type GitQuery } from '../status/branch-stats.js';
 import { StatusViewer, type StatusPanelData } from '../panels/status-viewer.js';
 import { DebugViewer, type DebugPanelData } from '../panels/debug-viewer.js';
 import { GuideViewer, type GuidePanelData } from '../panels/guide-viewer.js';
@@ -298,6 +299,14 @@ export interface TuiBackendOptions {
    * 进程纪律——externalEditor seam 同例）。
    */
   readonly tmuxSpawn?: (args: readonly string[], input?: string) => { status: number; stdout: string };
+  /**
+   * git 只读查询注入（挖掘 39 轮件 II——⎇ 槽 +N/−M 异步统计腿）：args +
+   * cwd → { status, stdout } | null（null = git 不在场/超时）。**缺席 = 统计
+   * 腿整体缺席**——⎇ 槽维持支名@短哈希现状零行为变（测试基线零真进程纪
+   * 律；生产装配显式传 createDefaultGitQuery() 真身——GIT_OPTIONAL_LOCKS=0
+   * 只读档 + 10s 超时 kill + stdout trim 归一在封装内）。
+   */
+  readonly gitQuery?: GitQuery;
   /**
    * 持久化史透传（B1——07 §4.1 呈现面件 2 定形注⑦种写双路）：seed = 启动
    * 种子（host 装配根构造期一次 recentTexts〔启动锚根〕满灌——编辑器内存
@@ -1163,8 +1172,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private footerModeDanger = false;
   /** 行2 目录短名缓存（rebuildFooter 低频锚拉 cwdLabel 闭包） */
   private footerCwd = '';
-  /** 行2 ⎇ 支名@短哈希缓存（refreshFooterGit 低频锚——'⎇ dev @a1b2c3d' 单源 gitHeadSuffix().trim()：⎇ 支名两侧空格 + @ 记形随单源） */
+  /** 行2 ⎇ 支名@短哈希缓存（refreshFooterGit 低频锚——'⎇ dev @a1b2c3d' 单源 buildFooterGitSuffix 拼形：⎇ 支名两侧空格 + @ 记形随单源 + 统计段命中追加） */
   private footerGitSuffix = '';
+  /**
+   * ⎇ 槽统计段缓存（挖掘 39 轮件 II——` +N −M` 追加段）：键 = `${cwd} ${shortHash}`
+   * → 统计文本（null = 缺席负缓存——失败/双零同键不重试直到键变）；**回执只写
+   * 缓存永不动 suffix**（呈现走 buildFooterGitSuffix 当前键查缓存——同 cwd
+   * checkout 竞窗下旧 HEAD 回执结构性不虚报）。
+   */
+  private readonly branchStatsCache = new Map<string, string | null>();
+  /** 统计腿单飞旗（在途不叠发；回执 finally 清位后 refreshFooterGit 重检收敛） */
+  private branchStatsInFlight = false;
   /**
    * 上下文三件套供数（注⑪②——E-4 context_usage turn 收口随发）：used/
    * max 双可选（缺席 = 未知不显示）；切焦清位（首轮前整段缺席律 per
@@ -1237,6 +1255,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly streamFrameByteCap: number;
   /** 瞬时行保全账帽（选项注入面——缺省 LANDED_TRANSIENT_CAP 生产定值） */
   private readonly landedTransientCap: number;
+  /** git 只读查询注入（挖掘 39 轮件 II——⎇ 槽统计腿；undefined = 腿缺席零行为变） */
+  private readonly gitQuery: GitQuery | undefined;
 
   constructor(io: TerminalIO, options: TuiBackendOptions = {}) {
     this.io = io;
@@ -1249,6 +1269,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 缺省闭包调时读 process.env（用户中途 export 新编辑器即时生效——import 时绑定会钉死启动快照）
     this.externalEditor = options.externalEditor ?? ((seed) => runExternalEditor(seed, process.env));
     this.tmuxSpawn = options.tmuxSpawn ?? defaultTmuxSpawn;
+    // 统计腿 seam（39 轮件 II）：缺席不造真身——测试基线零真进程；生产装配显式传
+    this.gitQuery = options.gitQuery;
     this.onHelpShortcut = options.onHelpShortcut;
     this.onLeaderBranch = options.onLeaderBranch;
     this.dispatchCommand = options.dispatchCommand;
@@ -2757,10 +2779,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * ⎇ 槽 git 读盘低频锚（注⑪③——refreshFooterGit；07 注⑪③ 追注定形
    * 三枚）：构造期 + onRepaint（切焦 cwd 漂移）+ 会话复起 resumeMain
    * （复起重画路不触发 onRepaint——挂起期 checkout 换支须此锚收敛）；
-   * readGitHead 零子进程直读 refs，gitHeadSuffix 单源
-   * 拼形去 lead 空格（'⎇ dev@a1b2c3d'）。**不进 setStatus/resize 高频锚**
-   * （07 定值「避 resize 高频读盘」承 V-3 前律）；闭包缺席/非库/抛错 =
-   * 槽缩位不虚报。
+   * 支名@短哈希腿 readGitHead 零子进程直读 refs（gitHeadSuffix 单源拼形
+   * 去 lead 空格）；**+N/−M 统计段异步腿**（挖掘 39 轮件 II——经 gitQuery
+   * seam 子进程只读查询，拼形走 buildFooterGitSuffix 当前键查缓存——缓存
+   * 命中锚保形不丢段、旧键回执结构性不虚报；seam 缺席/非库/初生支零行为
+   * 变）。**不进 setStatus/resize 高频锚**（07 定值「避 resize 高频读盘」
+   * 承 V-3 前律）；闭包缺席/非库/抛错 = 槽缩位不虚报。
    */
   private refreshFooterGit(): void {
     if (!this.footerEnabled || this.footerGitRoot === undefined) {
@@ -2768,11 +2792,75 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       return;
     }
     try {
-      this.footerGitSuffix = gitHeadSuffix(readGitHead(this.footerGitRoot())).trim();
+      const head = readGitHead(this.footerGitRoot());
+      this.footerGitSuffix = this.buildFooterGitSuffix(head);
+      this.ensureBranchStats(head);
     } catch {
       // fail-open：⎇ 槽缩位
       this.footerGitSuffix = '';
     }
+  }
+
+  /**
+   * ⎇ 槽拼形单源（39 轮件 II）：支名@短哈希（gitHeadSuffix）+ 当前键缓存
+   * 命中统计段（` +N −M`——缓存消费的是 stats 值非「跳过一切」，锚上缓存
+   * 命中保形不丢段）。detached（branch null、shortHash 在场）不属缺席族
+   * ——统计段照常可贴。
+   */
+  private buildFooterGitSuffix(head: GitHeadInfo): string {
+    const base = gitHeadSuffix(head).trim();
+    if (base === '') return ''; // 非库/双缺席——槽整体缩位（不虚报）
+    const stats = this.cachedBranchStatsText(head);
+    return stats === null ? base : base + stats;
+  }
+
+  /** 统计缓存键（cwd + shortHash；shortHash null〔初生支/畸形〕退化键——统计腿不 fire） */
+  private branchStatsKey(cwd: string, shortHash: string | null): string {
+    return `${cwd} ${shortHash ?? 'null'}`;
+  }
+
+  /** 当前键查缓存（未命中 undefined 与 null 负缓存分立——null 是缺席值非未算） */
+  private cachedBranchStatsText(head: GitHeadInfo): string | null {
+    if (this.footerGitRoot === undefined) return null;
+    const cached = this.branchStatsCache.get(this.branchStatsKey(this.footerGitRoot(), head.shortHash));
+    return cached === undefined ? null : cached;
+  }
+
+  /**
+   * 统计腿编排（39 轮件 II）：seam 缺席/非库/初生支（shortHash null）no-op；
+   * 键命中（含负缓存）零重算；单飞旗在途不叠发（窗内新键 miss 由回执
+   * finally 的 refreshFooterGit 重检收敛——有界缺席缩一窗）。**回执只写缓存
+   * 永不动 suffix**；回执落地后经 refreshFooterGit 重拼（当前键=回执键才贴
+   * 段）+ touchFixed 落帧。失败/双零写 null 负缓存（同键不重试直到键变——
+   * 防失败无限重 fire）。
+   */
+  private ensureBranchStats(head: GitHeadInfo): void {
+    if (this.gitQuery === undefined || this.footerGitRoot === undefined) return;
+    if (head.shortHash === null) return; // 初生支/畸形——失败缺席（键退化注记）
+    const cwd = this.footerGitRoot();
+    const key = this.branchStatsKey(cwd, head.shortHash);
+    if (this.branchStatsCache.has(key)) return; // 命中（含负缓存）零重算
+    if (this.branchStatsInFlight) return; // 单飞——回执 finally 重检收敛
+    if (this.branchStatsCache.size > 64) this.branchStatsCache.clear(); // checkout 换支积键防胀（低频量级粗帽）
+    this.branchStatsInFlight = true;
+    void computeBranchStats(this.gitQuery, cwd)
+      .then((stats) => {
+        // 双零（在默认支无累计差）= 缺席形；− 为 U+2212（diffCountRuns 计数词汇同源）
+        this.branchStatsCache.set(
+          key,
+          stats === null || (stats.added === 0 && stats.removed === 0) ? null : ` +${stats.added} −${stats.removed}`,
+        );
+      })
+      .catch(() => {
+        this.branchStatsCache.set(key, null); // 异常负缓存
+      })
+      .finally(() => {
+        this.branchStatsInFlight = false;
+        // 清位即重检（单飞窗内新键被挡的补偿）+ 回执键若为当前键经重拼贴段；
+        // refreshFooterGit 内部 catch 兜底（fail-open 槽缩位）
+        this.refreshFooterGit();
+        this.touchFixed();
+      });
   }
 
   /**

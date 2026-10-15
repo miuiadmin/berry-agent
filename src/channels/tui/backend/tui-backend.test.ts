@@ -24,6 +24,7 @@ import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
 import { ansiColor, colorRgb, stringWidth } from '../../engine/index.js';
 import type { TodoItem } from '../../types.js';
 import { TuiBackend, wireForkEdit, type TuiBackendOptions } from './tui-backend.js';
+import type { GitQuery, GitQueryResult } from '../status/branch-stats.js';
 import { LEADER_WINDOW_MS } from '../keys/leader.js';
 import { SELECTION_CAP_BYTES } from '../history/history-viewer.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
@@ -5851,6 +5852,192 @@ describe('TuiBackend resumeMain 复起附件（fx2-E——编辑器帽随动 + f
       io.reset();
       backend.resumeMain();
       expect(io.bytes).toContain('⎇ feat @f9e8d7c'); // 复起重读收敛（修前：⎇ dev 陈值驻留——git IO 已拆 refreshFooterGit 不在复起锚）
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('TuiBackend ⎇ 槽统计段 +N/−M（挖掘 39 轮件 II——gitQuery seam 异步只读腿；回执只写缓存永不动 suffix）', () => {
+  /** 微任务排空（computeBranchStats 四步 await + then/finally + refreshFooterGit 重检链全微任务——setImmediate 宏任务界冲净链，轮冗余兜二次 fire） */
+  const flushMicrotasks = async (): Promise<void> => {
+    for (let i = 0; i < 8; i += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+  };
+
+  /** 临时 git 库桩（readGitHead 零子进程直读形——同 ⎇ 槽既有锁族构造法） */
+  const mkGitDir = (hash = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2'): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-stats-slot-'));
+    mkdirSync(join(dir, '.git', 'refs', 'heads'), { recursive: true });
+    writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/dev\n');
+    writeFileSync(join(dir, '.git', 'refs', 'heads', 'dev'), `${hash}\n`);
+    return dir;
+  };
+
+  /** 全链应答桩基底（origin symbolic-ref 命中链——numstat 应答可覆写） */
+  const fullChainQuery =
+    (numstat: string): GitQuery =>
+    async (args) => {
+      if (args[0] === 'rev-parse' && args[1] === '--git-dir') return { status: 0, stdout: '.git' };
+      if (args[0] === 'remote') return { status: 0, stdout: 'origin\n' };
+      if (args[0] === 'symbolic-ref') return { status: 0, stdout: 'refs/remotes/origin/main' };
+      if (args[0] === 'merge-base') return { status: 0, stdout: 'mb0000000000' };
+      if (args[0] === 'diff') return { status: 0, stdout: numstat };
+      return { status: 1, stdout: '' };
+    };
+
+  it('origin symbolic-ref 命中链：merge-base → numstat 累加 → suffix 追统计段（binary − 行计 0；− 为 U+2212 同 diffCountRuns 词汇源）', async () => {
+    const dir = mkGitDir();
+    try {
+      const { io } = makeBackend({
+        sessionId: SESSION,
+        footer: { cwdLabel: () => 'proj', gitRoot: () => dir },
+        gitQuery: fullChainQuery('12\t3\tsrc/a.ts\n-\t-\tbin/logo.png\n'),
+      });
+      await flushMicrotasks(); // 异步腿回执后 finally 重拼 + touchFixed 落帧
+      expect(io.bytes).toContain('⎇ dev @a1b2c3d +12 −3'); // binary 行计 0——12/3 不受 -/- 行影响
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('无 remotes：本地 main 兜底腿调用序走到（rev-parse --verify 存在性判定）+ 统计段照贴', async () => {
+    const dir = mkGitDir();
+    try {
+      const calls: string[] = [];
+      const gitQuery: GitQuery = async (args) => {
+        calls.push(args.join(' '));
+        if (args[0] === 'rev-parse' && args[1] === '--git-dir') return { status: 0, stdout: '.git' };
+        if (args[0] === 'remote') return { status: 0, stdout: '' }; // 无 remotes——跳远端腿
+        if (args[3] === 'refs/heads/main') return { status: 0, stdout: 'm1' }; // 兜底腿命中
+        if (args[0] === 'merge-base') return { status: 0, stdout: 'mb' };
+        if (args[0] === 'diff') return { status: 0, stdout: '5\t2\tsrc/b.ts\n' };
+        return { status: 1, stdout: '' };
+      };
+      const { io } = makeBackend({
+        sessionId: SESSION,
+        footer: { cwdLabel: () => 'proj', gitRoot: () => dir },
+        gitQuery,
+      });
+      await flushMicrotasks();
+      expect(calls).toContain('rev-parse --verify --quiet refs/heads/main'); // 存在性判定非 merge-base 试探
+      expect(io.bytes).toContain('⎇ dev @a1b2c3d +5 −2');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('merge-base 失败：suffix 维持零追加 + 负缓存同键不重试（resumeMain 二次锚 diff 腿永未到达）', async () => {
+    const dir = mkGitDir();
+    try {
+      let diffReached = 0;
+      const gitQuery: GitQuery = async (args) => {
+        if (args[0] === 'diff') diffReached += 1; // merge-base 失败则 diff 不应到达——到达即管线漏
+        if (args[0] === 'rev-parse' && args[1] === '--git-dir') return { status: 0, stdout: '.git' };
+        if (args[0] === 'remote') return { status: 0, stdout: 'origin\n' };
+        if (args[0] === 'symbolic-ref') return { status: 0, stdout: 'refs/remotes/origin/main' };
+        return { status: 1, stdout: '' }; // merge-base 失败 → 管线 null
+      };
+      const { io, backend } = makeBackend({
+        sessionId: SESSION,
+        footer: { cwdLabel: () => 'proj', gitRoot: () => dir },
+        gitQuery,
+      });
+      await flushMicrotasks();
+      expect(io.bytes).toContain('⎇ dev @a1b2c3d'); // 维持支名@短哈希
+      expect((io.bytes.match(/\+\d+ −\d+/g) ?? []).length).toBe(0); // 零追加（负缓存=缺席值非未算）
+      backend.suspendMain();
+      io.reset();
+      backend.resumeMain(); // 二次锚（同 cwd+shortHash 键）
+      await flushMicrotasks();
+      expect(io.bytes).toContain('⎇ dev @a1b2c3d');
+      expect((io.bytes.match(/\+\d+ −\d+/g) ?? []).length).toBe(0);
+      expect(diffReached).toBe(0); // 负缓存命中零重发（防失败无限重 fire）
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('同键二次锚：缓存命中零重发 + 统计段保形不丢（缓存消费的是 stats 值非「跳过一切」）', async () => {
+    const dir = mkGitDir();
+    try {
+      const calls: string[] = [];
+      const gitQuery: GitQuery = async (args, cwd) => {
+        calls.push(args.join(' '));
+        return fullChainQuery('12\t3\tsrc/a.ts\n')(args, cwd);
+      };
+      const { io, backend } = makeBackend({
+        sessionId: SESSION,
+        footer: { cwdLabel: () => 'proj', gitRoot: () => dir },
+        gitQuery,
+      });
+      await flushMicrotasks();
+      expect(io.bytes).toContain('⎇ dev @a1b2c3d +12 −3');
+      const callsAfterFirst = calls.length;
+      backend.suspendMain();
+      io.reset();
+      backend.resumeMain(); // 二次锚（同键命中——resumeMain 不触发 onRepaint 须此锚）
+      await flushMicrotasks();
+      expect(calls.length).toBe(callsAfterFirst); // 零重发
+      expect(io.bytes).toContain('⎇ dev @a1b2c3d +12 −3'); // 锚上缓存命中保形不丢段
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('竞窗锁：在途期 checkout 换哈希 + 二次锚被单飞挡 → 旧回执只写旧键缓存不虚报新 HEAD（新键回执后贴段）', async () => {
+    const dir = mkGitDir();
+    try {
+      let diffCalls = 0;
+      // 对象属性形（闭包内赋值外部读——TS 流分析不窄化对象属性，规避 let 局部变量闭包赋值不可见折 never）
+      const release = { resolveDiff: null as ((v: GitQueryResult) => void) | null };
+      const gitQuery: GitQuery = async (args, cwd) => {
+        if (args[0] !== 'diff') {
+          const base = fullChainQuery('')(args, cwd);
+          return base; // 前三步即答（diff 帽在下方）
+        }
+        diffCalls += 1;
+        if (diffCalls === 1)
+          return new Promise<GitQueryResult>((resolve) => {
+            release.resolveDiff = resolve;
+          }); // 首发挂起（在途）
+        return { status: 0, stdout: '3\t1\ty.ts\n' }; // 次发即答（新键回执）
+      };
+      const { io, backend } = makeBackend({
+        sessionId: SESSION,
+        footer: { cwdLabel: () => 'proj', gitRoot: () => dir },
+        gitQuery,
+      });
+      await flushMicrotasks(); // 前三步走完、diff 挂起（单飞在途）
+      backend.suspendMain();
+      writeFileSync(join(dir, '.git', 'refs', 'heads', 'dev'), 'f9e8d7c6b5a4f9e8d7c6b5a4f9e8d7c6b5a4f9e8\n'); // 在途窗内 checkout 换哈希
+      io.reset();
+      backend.resumeMain(); // 二次锚：新键 miss + 单飞旗在途被挡
+      expect(io.bytes).toContain('⎇ dev @f9e8d7c'); // 新哈希落位、无段（有界缺席缩一窗）
+      expect((io.bytes.match(/\+\d+ −\d+/g) ?? []).length).toBe(0);
+      release.resolveDiff?.({ status: 0, stdout: '99\t9\tx.ts\n' }); // 旧回执到达（旧键 99/9）
+      await flushMicrotasks(); // 旧回执写旧键缓存 → finally 清旗重检 → fire 新键即答 → 贴段
+      expect(io.bytes).toContain('⎇ dev @f9e8d7c +3 −1'); // 新键回执贴新段
+      expect(io.bytes).not.toContain('+99 −9'); // 旧 stats 永不虚报到新 HEAD（回执不动 suffix 结构性保证）
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('seam 缺席：腿缺席零行为变（构造/复起锚后 suffix 恒支名@短哈希零段零异常——现状锁）', async () => {
+    const dir = mkGitDir();
+    try {
+      const { io, backend } = makeBackend({
+        sessionId: SESSION,
+        footer: { cwdLabel: () => 'proj', gitRoot: () => dir },
+      });
+      await flushMicrotasks();
+      expect(io.bytes).toContain('⎇ dev @a1b2c3d');
+      backend.suspendMain();
+      io.reset();
+      backend.resumeMain();
+      await flushMicrotasks();
+      expect(io.bytes).toContain('⎇ dev @a1b2c3d');
+      expect((io.bytes.match(/\+\d+ −\d+/g) ?? []).length).toBe(0); // 零子进程零段
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
