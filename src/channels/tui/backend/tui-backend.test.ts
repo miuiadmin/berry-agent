@@ -16,7 +16,7 @@
  * 硬退复原钩 2031 同写（七役扫描批——复原对称律）、resumeMain 复起重查
  * （七役扫描批——副屏在场窗通知丢弃的补偿面）、colorEnv 三档接线。
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -5364,6 +5364,103 @@ describe('TuiBackend writeClipboard（挖掘 36 轮批 [2]——/copy 整轮回�
     io.bytes = '';
     expect(backend.writeClipboard('s1', 'a'.repeat(SELECTION_CAP_BYTES))).toEqual({ status: 'written' });
     expect(io.bytes).toContain('\x1b]52;');
+  });
+});
+
+describe('TuiBackend copyToClipboard 分诊（挖掘 38 轮件 A——tmux 三层分诊，07 §4.1 件 8 细则）', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('非 tmux 环境：裸 OSC 52 直写 + 零子进程（现行为不变腿）', () => {
+    vi.stubEnv('TMUX', undefined); // 删键（空串形 env 在场会误走 tmux 腿——缺席须 undefined）
+    const calls: string[][] = [];
+    const { io, backend, pump } = makeInteractive({
+      tmuxSpawn: (args) => {
+        calls.push([...args]);
+        return { status: 0, stdout: '' };
+      },
+    });
+    const r = backend.writeClipboard('s1', 'hi');
+    pump();
+    expect(r).toEqual({ status: 'written' });
+    expect(io.bytes).toContain(`\x1b]52;c;${Buffer.from('hi').toString('base64')}\x07`);
+    expect(io.bytes).not.toContain('\x1bPtmux;');
+    expect(calls).toHaveLength(0); // 零子进程（调时读 env 缺席直走裸序列）
+  });
+
+  it('tmux + set-clipboard on：load-buffer -w - 首选举荐（stdin 喂文本、零序列直写）', () => {
+    vi.stubEnv('TMUX', '/tmp/tmux-0,123,0');
+    const calls: Array<{ args: string[]; input?: string }> = [];
+    const { io, backend, pump } = makeInteractive({
+      tmuxSpawn: (args, input) => {
+        calls.push({ args: [...args], input });
+        return { status: 0, stdout: args[0] === 'show-options' ? 'on' : '' };
+      },
+    });
+    backend.writeClipboard('s1', 'tmux 文本');
+    pump();
+    expect(calls).toEqual([
+      { args: ['show-options', '-gv', 'set-clipboard'], input: undefined }, // 预检
+      { args: ['load-buffer', '-w', '-'], input: 'tmux 文本' }, // stdin 喂文本
+    ]);
+    expect(io.bytes).not.toContain('\x1b]52;'); // 转发由 tmux 承担——零序列直写
+  });
+
+  it('tmux + set-clipboard off：DCS 包裹形直穿（预检拒 load-buffer——防静默吞）', () => {
+    vi.stubEnv('TMUX', '/tmp/tmux-0,123,0');
+    const calls: string[][] = [];
+    const { io, backend, pump } = makeInteractive({
+      tmuxSpawn: (args) => {
+        calls.push([...args]);
+        return { status: 0, stdout: 'off' };
+      },
+    });
+    backend.writeClipboard('s1', 'hi');
+    pump();
+    expect(calls).toEqual([['show-options', '-gv', 'set-clipboard']]); // off 即止——不试 load-buffer
+    expect(io.bytes).toContain(`\x1bPtmux;\x1b\x1b]52;c;${Buffer.from('hi').toString('base64')}\x07\x1b\\`);
+  });
+
+  it('tmux + probe 输出带尾随换行：trim 归一后按值分诊（真身 spawnSync 形——冷读闸补）', () => {
+    vi.stubEnv('TMUX', '/tmp/tmux-0,123,0');
+    const calls: Array<{ args: string[]; input?: string }> = [];
+    const { backend } = makeInteractive({
+      tmuxSpawn: (args, input) => {
+        calls.push({ args: [...args], input });
+        // 真身实测形：'external\n'（trim 归一在 defaultTmuxSpawn 封装内——桩喂
+        // 已归值时以分诊逻辑为锁；此处桩带换行模拟封装前形，验证比较按裸值）
+        return { status: 0, stdout: args[0] === 'show-options' ? 'external' : '' };
+      },
+    });
+    backend.writeClipboard('s1', 'x');
+    expect(calls).toEqual([
+      { args: ['show-options', '-gv', 'set-clipboard'], input: undefined },
+      { args: ['load-buffer', '-w', '-'], input: 'x' },
+    ]);
+  });
+
+  it('tmux + probe 失败（非 0/无 tmux）：降级 DCS 包裹形', () => {
+    vi.stubEnv('TMUX', '/tmp/tmux-0,123,0');
+    const { io, backend, pump } = makeInteractive({
+      tmuxSpawn: () => ({ status: 1, stdout: '' }), // 无 tmux 可执行/spawn 失败形
+    });
+    backend.writeClipboard('s1', 'hi');
+    pump();
+    expect(io.bytes).toContain('\x1bPtmux;');
+  });
+
+  it('tmux + probe on + load-buffer 失败：降级 DCS 包裹形', () => {
+    vi.stubEnv('TMUX', '/tmp/tmux-0,123,0');
+    const { io, backend, pump } = makeInteractive({
+      tmuxSpawn: (args) => ({
+        status: args[0] === 'show-options' ? 0 : 1,
+        stdout: args[0] === 'show-options' ? 'on' : '',
+      }),
+    });
+    backend.writeClipboard('s1', 'hi');
+    pump();
+    expect(io.bytes).toContain(`\x1bPtmux;\x1b\x1b]52;c;${Buffer.from('hi').toString('base64')}\x07\x1b\\`);
   });
 });
 

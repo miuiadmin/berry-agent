@@ -45,6 +45,18 @@ export function buildOsc52Copy(text: string): string {
 }
 
 /**
+ * OSC 52 复制 tmux DCS 透传形（挖掘 38 轮件 A——tmux 三层分诊的第三层）：
+ * `\x1bPtmux;` 前缀 + 裸 OSC 52 载荷（内层 ESC 双写——防载荷内 ESC 提前
+ * 终结 DCS）+ `\x1b\\` 收尾。buildOsc9Notify DCS 包裹判例同构（codex
+ * dcs_passthrough 同律）——直穿 tmux 至外层终端，外层支持 OSC 52 即成
+ * （尽力写出无反馈——件 8 细则语义维持）。
+ */
+export function buildOsc52CopyDcs(text: string): string {
+  const payload = buildOsc52Copy(text);
+  return `\x1bPtmux;${payload.replace(/\x1b/g, '\x1b\x1b')}\x1b\\`;
+}
+
+/**
  * 桌面通知载波两形（挖掘 36 轮 notify-osc9）：osc9 = OSC 9 真桌面通知、
  * bel = BEL 响铃降级。探测与写点分治——探测归 detectNotifyCarrier 纯函数、
  * 写出归 OscDisplay.notify（本件），装配层定值注入。

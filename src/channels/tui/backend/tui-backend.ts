@@ -108,7 +108,7 @@ import {
   type TodoSnapshotLineInput,
   type TranscriptBlock,
 } from './transcript.js';
-import { OscDisplay, buildOsc52Copy, detectNotifyCarrier, sanitizeNotifyText } from './osc.js';
+import { OscDisplay, buildOsc52Copy, buildOsc52CopyDcs, detectNotifyCarrier, sanitizeNotifyText } from './osc.js';
 import { allocateFixedBudget, EDITOR_MIN_HEIGHT, fixedBudgetRows } from './fixed-budget.js';
 import { StatusLine } from '../status/status-line.js';
 import { TaskStatusLine } from '../status/task-status-line.js';
@@ -140,6 +140,7 @@ import { LEADER_WINDOW_MS, resolveLeaderIntent, type LeaderBranch, type LeaderIn
 import { Editor, type EditorSubmitOptions } from '../editor/editor.js';
 import { editorHeightCap } from '../editor/height-cap.js';
 import { runExternalEditor, type ExternalEditorOutcome } from '../editor/external-editor.js';
+import { spawnSync } from 'node:child_process';
 import { OverlayStack, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
 import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
 import { HistoryViewer, SELECTION_CAP_BYTES } from '../history/history-viewer.js';
@@ -289,6 +290,14 @@ export interface TuiBackendOptions {
    * 绑定）；测试装配注入受控桩（MemoryTerminalIO 测试面零真进程纪律）。
    */
   readonly externalEditor?: (seed: string) => Promise<ExternalEditorOutcome>;
+  /**
+   * tmux 子进程执行器（挖掘 38 轮件 A——OSC 52 tmux 三层分诊）：args +
+   * 可选 stdin 文本 → { status, stdout }。缺省真身封装 spawnSync（stdout
+   * **trim 归一在封装内**——spawnSync 输出带尾随换行，分诊比较裸值
+   * 'on'/'external'/'off'）；测试装配注入受控桩（MemoryTerminalIO 零真
+   * 进程纪律——externalEditor seam 同例）。
+   */
+  readonly tmuxSpawn?: (args: readonly string[], input?: string) => { status: number; stdout: string };
   /**
    * 持久化史透传（B1——07 §4.1 呈现面件 2 定形注⑦种写双路）：seed = 启动
    * 种子（host 装配根构造期一次 recentTexts〔启动锚根〕满灌——编辑器内存
@@ -511,6 +520,17 @@ const THEME_CHANGE_DISABLE = '\x1b[?2031l';
 
 /** 渲染合并帧率帽缺省（对齐 Engine DEFAULT_FPS_CAP——批 10f-3 性能回归锁校准定值 60，实机校准后收紧留批 12） */
 const DEFAULT_FPS_CAP = 60;
+
+/**
+ * tmux 子进程缺省真身（件 A 分诊 seam）：spawnSync 阻塞形（复制是用户显式
+ * 动作、tmux 子进程毫秒级——codex 同阻塞形）；**stdout trim 归一在此**
+ * （spawnSync 输出带尾随换行——'external\n'/'off\n'，分诊比较裸值）。
+ * spawn 失败（无 tmux 可执行）→ status -1（分诊落 DCS 降级腿）。
+ */
+function defaultTmuxSpawn(args: readonly string[], input?: string): { status: number; stdout: string } {
+  const r = spawnSync('tmux', args, { input, encoding: 'utf8' });
+  return { status: r.status ?? -1, stdout: (r.stdout ?? '').trim() };
+}
 /**
  * 流式帧字节帽（批 10h——R1 perf 护栏落码定值）：冻结编舞下常态帧 ≈ 视口
  * 行 × 转义开销（24×80 档 < 10KB）；256KB 帽只拦病理性整档重排。超标降档
@@ -816,6 +836,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly onModeCycle: (() => void) | undefined;
   /** 外部编辑器执行器（挖掘 31 轮 [9]——构造缺省闭包 runExternalEditor：调时取 process.env 现值） */
   private readonly externalEditor: (seed: string) => Promise<ExternalEditorOutcome>;
+  /** tmux 子进程执行器（件 A 分诊 seam——缺省真身 defaultTmuxSpawn） */
+  private readonly tmuxSpawn: (args: readonly string[], input?: string) => { status: number; stdout: string };
   /** 闲态教学键柄（V-3 注⑦④——`?` text 路分诊消费；缺席不劫键） */
   private readonly onHelpShortcut: (() => void) | undefined;
   /** leader 前缀键分支柄（B4——层⓪ 待续分诊消费；缺席族不激活） */
@@ -1226,6 +1248,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.onModeCycle = options.onModeCycle;
     // 缺省闭包调时读 process.env（用户中途 export 新编辑器即时生效——import 时绑定会钉死启动快照）
     this.externalEditor = options.externalEditor ?? ((seed) => runExternalEditor(seed, process.env));
+    this.tmuxSpawn = options.tmuxSpawn ?? defaultTmuxSpawn;
     this.onHelpShortcut = options.onHelpShortcut;
     this.onLeaderBranch = options.onLeaderBranch;
     this.dispatchCommand = options.dispatchCommand;
@@ -1750,9 +1773,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
-        // OSC 52 复制写出柄（mu-2）：release 选区行间拼 LF 到达 → 铸序列直写
-        // io（终端支持不可探测——尽力写出无反馈，件 8 细则）
-        onCopy: (text) => this.io.write(buildOsc52Copy(text)),
+        // OSC 52 复制写出柄（mu-2）：release 选区行间拼 LF 到达 → 分诊单源
+        //（件 A——tmux 三层分诊，件 8 细则；与 openMemory 同柄同律）
+        onCopy: (text) => this.copyToClipboard(text),
         // 键位册同源注入（批 10k 遗漏修——搜索行子编辑器同册，用户覆盖通效）
         keymap: this.keymap,
         // 回溯编辑回调（挖掘 36 轮件 8）：注入在场才铸——wireForkEdit 编排
@@ -1799,10 +1822,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onExit: () => this.closeAlt(),
         onInterrupt: () => this.onInterrupt?.(this.sessionId), // 零参形——装配闭包已知目标会话
         onQuit: this.onQuit,
-        // OSC 52 复制写出柄（挂账解挂批①）：release 选区行间拼 LF 到达 → 铸
-        // 序列直写 io（与 openHistory 同柄同律——终端支持不可探测，尽力写出
-        // 无反馈，件 8 细则）
-        onCopy: (text) => this.io.write(buildOsc52Copy(text)),
+        // OSC 52 复制写出柄（挂账解挂批①）：release 选区行间拼 LF 到达 → 分
+        // 诊单源（件 A——与 openHistory 同柄同律，件 8 细则）
+        onCopy: (text) => this.copyToClipboard(text),
         // 键位册同源注入（批 10k 遗漏修——导出行子编辑器同册，用户覆盖通效）
         keymap: this.keymap,
       }),
@@ -1914,8 +1936,33 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   writeClipboard(_sessionId: string, text: string): UiClipboardResult {
     // _sessionId：后端面签名携带会话归属——TUI 单终端单剪贴板不消费（setStatus 同律）
     if (Buffer.byteLength(text, 'utf8') > SELECTION_CAP_BYTES) return { status: 'too-large' };
-    this.io.write(buildOsc52Copy(text));
+    this.copyToClipboard(text); // 分诊单源（件 A——三消费位同柄）
     return { status: 'written' };
+  }
+
+  /**
+   * 剪贴板写出分诊单源（挖掘 38 轮件 A——tmux 三层分诊，07 §4.1 件 8 细则）：
+   * ① TMUX env 缺席（**调时读现值**——externalEditor 同律，中途进/出 tmux
+   *    即时生效）→ 裸 OSC 52 直写（现行为不变）；
+   * ② TMUX 在场 → 预检 set-clipboard（on/external）→ `tmux load-buffer -w -`
+   *    子进程首选举荐（stdin 喂文本——转发由 tmux 承担；off 时 load-buffer
+   *    同样 exit 0 但不转发，故必预检防静默吞）；
+   * ③ off/预检失败/load-buffer 失败 → DCS 包裹形 OSC 52 直穿 tmux 至外层
+   *    终端（外层支持 OSC 52 即成）。
+   * 三层皆尽力写出无反馈（外层终端支持性不可探测——件 8 语义）。三消费位
+   * （/history 选区、openMemory 选区、writeClipboard）单源。
+   */
+  private copyToClipboard(text: string): void {
+    if (process.env.TMUX === undefined) {
+      this.io.write(buildOsc52Copy(text));
+      return;
+    }
+    const probe = this.tmuxSpawn(['show-options', '-gv', 'set-clipboard']);
+    if (probe.status === 0 && (probe.stdout === 'on' || probe.stdout === 'external')) {
+      const load = this.tmuxSpawn(['load-buffer', '-w', '-'], text);
+      if (load.status === 0) return; // tmux 面转发成功——不再直写序列
+    }
+    this.io.write(buildOsc52CopyDcs(text));
   }
 
   /**

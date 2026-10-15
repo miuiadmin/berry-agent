@@ -12,6 +12,7 @@ import type { TerminalIO } from '../../engine/index.js';
 import {
   buildOsc9Notify,
   buildOsc52Copy,
+  buildOsc52CopyDcs,
   detectNotifyCarrier,
   OscDisplay,
   OSC_PROGRESS_KEEPALIVE_MS,
@@ -178,6 +179,30 @@ describe('buildOsc52Copy（选区复制序列构造——尽力写出无反馈�
   it('UTF-8 明文按字节 base64（中文 + 换行——选区行间拼 LF 的真实载荷形）', () => {
     const text = '中文\n第二行';
     expect(buildOsc52Copy(text)).toBe(`\x1b]52;c;${Buffer.from(text, 'utf8').toString('base64')}\x07`);
+  });
+});
+
+describe('buildOsc52CopyDcs（tmux DCS 透传形——挖掘 38 轮件 A 分诊第三层）', () => {
+  it('Ptmux 前缀 + 裸 OSC 52 载荷 + ST 收尾（内层 ESC 双写防提前终结）', () => {
+    const b64 = Buffer.from('hi', 'utf8').toString('base64');
+    // 全字面锁：\x1bPtmux; + ESC 双写 + ]52;c;<b64> + BEL + ESC \
+    expect(buildOsc52CopyDcs('hi')).toBe(`\x1bPtmux;\x1b\x1b]52;c;${b64}\x07\x1b\\`);
+  });
+
+  it('包裹结构与 buildOsc9Notify DCS 判例同构（前缀/双写/收尾三段同形）', () => {
+    // 同构断言：两者均为 \x1bPtmux; + 双写载荷 + \x1b\\——仅内层载荷体不同
+    const osc9 = buildOsc9Notify('x', { tmux: true });
+    const osc52 = buildOsc52CopyDcs('x');
+    expect(osc52.startsWith('\x1bPtmux;')).toBe(osc9.startsWith('\x1bPtmux;'));
+    expect(osc52.endsWith('\x1b\\')).toBe(osc9.endsWith('\x1b\\'));
+    // 载荷体内层每个 ESC 必双写（DCS 语义——无单生 ESC）
+    const body = osc52.slice('\x1bPtmux;'.length, -'\x1b\\'.length);
+    expect(body).not.toMatch(/(?<!\x1b)\x1b(?!\x1b)/);
+  });
+
+  it('UTF-8 中文载荷同形（base64 后包裹——内层无 ESC 特例位）', () => {
+    const b64 = Buffer.from('中文复制', 'utf8').toString('base64');
+    expect(buildOsc52CopyDcs('中文复制')).toBe(`\x1bPtmux;\x1b\x1b]52;c;${b64}\x07\x1b\\`);
   });
 });
 
