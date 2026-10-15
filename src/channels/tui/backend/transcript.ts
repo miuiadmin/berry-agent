@@ -882,8 +882,10 @@ export interface SlotTailLines {
  * 60fps 预算 4.5 倍。
  *
  * 字节等价契约：`(total, lines) ≡ (renderBlockLines(slot, columns, leadingGap).length,
- * renderBlockLines(slot, columns, leadingGap).slice(startRow))`——对拍锁在
- * transcript.test.ts（多形语料 × 多宽 × 多起点 × 双 leadingGap）。legs：
+ * renderBlockLines(slot, columns, leadingGap).slice(effectiveStart))`——effectiveStart =
+ * max(startRow, total − tailCap)（tailCap 缺省无穷 = startRow 本值——缺省调用形
+ * 零变）；对拍锁在 transcript.test.ts（多形语料 × 多宽 × 多起点 × 双 leadingGap ×
+ * 多 tailCap）。legs：
  * - thinking 腿：行数走 thinkingRowCount 算术；startRow 落思考区内才渲染
  *   （折叠档 = 标签单行便宜；展开档 opt-in 走原渲染函数——ctrl+t 罕见路径，
  *   仍经 renderThinkingStyledLines 保字节同源）；
@@ -894,14 +896,16 @@ export interface SlotTailLines {
  * - 降档腿（doc = null）：纯文本 wrapText 切片（应急路径——字节帽超标回退
  *   形，wrapText 纯文本无网格往返，成本可忍）。
  *
- * 回退形（正确性优先）：startRow = 0 即全量渲染——repaint/resize/新槽开账/
- * 让位收缩后的首帧自然走全量（调用方 main-screen 注释在位）。
+ * 回退形（正确性优先）：startRow = 0 且 tailCap ≥ total 即全量渲染——repaint/
+ * resize/新槽开账/让位收缩后的首帧自然走全量（调用方 main-screen 注释在位）。
  */
 export function renderSlotTailLines(
   slot: Extract<TranscriptBlock, { kind: 'streaming' }>,
   columns: number,
   startRow: number,
   leadingGap = true,
+  /** 渲染帽（42 轮件 A——不稳尾段溢出尾窗化）：尾窗行数上限；缺省无穷零变 */
+  tailCap = Number.POSITIVE_INFINITY,
 ): SlotTailLines {
   // R-1 槽组合镜像账（renderBlockStyledLinesUncapped streaming case 同形）：
   // [头垫]+think+[腿间垫]+doc——startRow 偏移映射随两垫前移；垫行 ANSI 空串
@@ -916,41 +920,47 @@ export function renderSlotTailLines(
           slot.thinkingDoc,
         )
       : 0;
+  // doc 行集/降档行集先取 + total 前置折算：渲染帽判据 effectiveStart =
+  // max(startRow, total − tailCap) 需先知 total（42 轮件 A——行集算术与全量
+  // 渲染同源不变，仅取行前置）
+  const docRows = slot.doc !== null ? slot.doc.rowsFor(bulletDocWidth(columns)) : null;
+  const plainRows = slot.doc === null && slot.text !== '' ? wrapText(slot.text, bulletDocWidth(columns)) : null;
+  const docRowCount = docRows !== null ? docRows.length : plainRows !== null ? plainRows.length : 0;
+  const total = gap + thinkingRows + interGap + docRowCount;
+  // 渲染帽（42 轮件 A——尾窗化）：帽外顶行流式期不渲染（mutable tail 语义
+  // ——尾窗只保底段；调用方帽值 = 零触滚余量 + 冻结源）。缺省无穷时
+  // effectiveStart ≡ startRow——三/四参既有调用形零变
+  const effectiveStart = Math.max(startRow, total - tailCap);
   const lines: string[] = [];
-  // 头垫尾窗段（startRow = 0 落垫上——仅全量形触达，垫行单字节空串）
-  if (startRow < gap) lines.push('');
-  // thinking 尾窗段（startRow 落思考区内——超出则思考行全在冻结前缀，零渲染）
-  if (slot.thinking !== '' && startRow < gap + thinkingRows) {
+  // 头垫尾窗段（effectiveStart = 0 落垫上——仅全量形触达，垫行单字节空串）
+  if (effectiveStart < gap) lines.push('');
+  // thinking 尾窗段（effectiveStart 落思考区内——超出则思考行全在冻结前缀，零渲染）
+  if (slot.thinking !== '' && effectiveStart < gap + thinkingRows) {
     const thinkingLines = renderThinkingStyledLines(slotThinkingView(slot), columns, slot.thinkingDoc).map((line) =>
       styledLineToAnsi(capStyledLine(line, columns)),
     );
-    for (let i = Math.max(0, startRow - gap); i < thinkingLines.length; i++) lines.push(thinkingLines[i]!);
+    for (let i = Math.max(0, effectiveStart - gap); i < thinkingLines.length; i++) lines.push(thinkingLines[i]!);
   }
-  // 腿间垫尾窗段（垫行槽位 = gap+thinkingRows——startRow 未越过才发；空串与
+  // 腿间垫尾窗段（垫行槽位 = gap+thinkingRows——effectiveStart 未越过才发；空串与
   // BLANK_LINE 序列化同形）
-  if (interGap === 1 && startRow < gap + thinkingRows + interGap) lines.push('');
+  if (interGap === 1 && effectiveStart < gap + thinkingRows + interGap) lines.push('');
   // doc 尾窗段（行集直转——自 docStart 起逐行；bullet 槽前缀同轴〔注⑩〕；
   // 行宽 = columns−2 内容 + 前缀 2 = columns——出口帽 + 序列化与全量管线同律）
-  const docStart = Math.max(0, startRow - gap - thinkingRows - interGap);
-  let docRowCount = 0;
-  if (slot.doc !== null) {
-    const rows = slot.doc.rowsFor(bulletDocWidth(columns));
-    docRowCount = rows.length;
-    for (let r = docStart; r < rows.length; r++) {
+  const docStart = Math.max(0, effectiveStart - gap - thinkingRows - interGap);
+  if (docRows !== null) {
+    for (let r = docStart; r < docRows.length; r++) {
       lines.push(
         styledLineToAnsi(
-          capStyledLine(bulletSlotLine(docRowToStyledLine(rows[r]!, bulletDocWidth(columns)), r), columns),
+          capStyledLine(bulletSlotLine(docRowToStyledLine(docRows[r]!, bulletDocWidth(columns)), r), columns),
         ),
       );
     }
-  } else if (slot.text !== '') {
+  } else if (plainRows !== null) {
     // 降档纯文本腿（零样式直推——bullet 前缀同律；切片同律）
-    const wrapped = wrapText(slot.text, bulletDocWidth(columns));
-    docRowCount = wrapped.length;
-    for (let i = docStart; i < wrapped.length; i++)
-      lines.push(styledLineToAnsi(capStyledLine(bulletSlotLine({ plain: wrapped[i]!, runs: [] }, i), columns)));
+    for (let i = docStart; i < plainRows.length; i++)
+      lines.push(styledLineToAnsi(capStyledLine(bulletSlotLine({ plain: plainRows[i]!, runs: [] }, i), columns)));
   }
-  return { total: gap + thinkingRows + interGap + docRowCount, lines };
+  return { total, lines };
 }
 
 /** 简行块的带样式形（整行 dim——与 ANSI 形 dim() 字节同源） */

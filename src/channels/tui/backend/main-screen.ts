@@ -37,8 +37,12 @@
  *
  * v1 已知边界：流式槽 partial 回缩（新行数少于旧）按余行 EL 清——inline
  * 终端无删行机制；固定区高度变化时光标账按区底钳制（内容可能被固定区
- * 覆盖——装配宜随高度变化触发 repaint 重建）；不稳定尾自身超视口时接受
- * 滚动（尾行样式陈旧不回改——开栏 fence 闭合高亮回翻即此形的代价注记）。
+ * 覆盖——装配宜随高度变化触发 repaint 重建）；不稳尾段溢出**尾窗化**（42
+ * 轮件 A——「不稳定尾自身超视口时接受滚动」句退役）：渲染帽 + 写出起点
+ * 截断双控——不稳内容流式期零滚动写入 scrollback（多份列宽残卷病灶根除）、
+ * 帽外顶行暂不可见（mutable tail 语义）；溢出期稳定前缀全量冻结升格（冻结
+ * 升格滚动是合法滚、滚动源单一化于冻结段）；message_end 定稿整段升格
+ * durable 全量直写照旧（B 段 skip 族不动）。
  */
 import { CellGrid, type TerminalIO } from '../../engine/index.js';
 import {
@@ -267,17 +271,29 @@ export class MainScreen {
       // 帧全量渲染整槽纯白算（且冻结面渲染不进 slotFrameBytes 帽不可观测）。
       // startRow = 0 即全量渲染回退形：repaint/resize/新槽开账（冻结账清零）
       // 与让位收缩（frozenSlotLines 回抬变小）天然经此回退，正确性优先。
-      const tail = renderSlotTailLines(slot, this.columns, this.frozenSlotLines, slotLeadingGap);
-      slotTotal = tail.total;
-      // 稳定面冻结：可视余量外的稳定前缀升格 durable 直写（写行即交
-      // scrollback 不可回改——冻结额 = min(溢出量, 稳定行数 - 已冻结)）；
-      // 稳定面含思考前缀行（批 10i——thinkingSettled 判据下思考行全稳，
-      // stableSlotLineCount 单源；降档 doc = null 走 doc 面 0 + 思考行稳面）
+      // 渲染帽（42 轮件 A——尾窗化）：帽 = 尾窗容量（区底锚下限 1——钉底形
+      // 新内容可见性；零触滚余量 regionBottom − durableEndRow）加 freezable
+      // 冻结前值（冻结段写消费 tail.lines[0..freezeNow)——渲染须含冻结源）。
+      // 行数维有界：巨表流式帧不再全量序列化（256KB 字节帽不触降档）。
       const regionBottom = this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP - 1;
+      const freezable = stableNow - this.frozenSlotLines;
+      const tail = renderSlotTailLines(
+        slot,
+        this.columns,
+        this.frozenSlotLines,
+        slotLeadingGap,
+        Math.max(1, regionBottom - this.durableEndRow) + freezable,
+      );
+      slotTotal = tail.total;
+      // 稳定面冻结（42 轮件 A 冻结拓宽·甲案）：溢出期全量冻结——freezeNow =
+      // overflow > 0 ? freezable : 0（原 min(overflow, freezable) 钳制废止：
+      // 溢出期稳定前缀全量升格，与 B 段 append 直写同构——冻结升格滚动是
+      // 合法滚、滚动源单一化于冻结段）；非溢出期照旧零冻结（尾段纯视口内
+      // 重写零涉）。稳定面含思考前缀行（批 10i——thinkingSettled 判据下思考
+      // 行全稳，stableSlotLineCount 单源；降档 doc = null 走 doc 面 0 + 思考行稳面）
       const capacity = regionBottom - this.durableEndRow + 1;
       const overflow = tail.total - this.frozenSlotLines - capacity;
-      const freezable = stableNow - this.frozenSlotLines;
-      const freezeNow = Math.max(0, Math.min(overflow, freezable));
+      const freezeNow = overflow > 0 ? freezable : 0;
       if (freezeNow > 0) {
         this.gotoRow(this.durableEndRow);
         for (let i = 0; i < freezeNow; i++) {
@@ -286,9 +302,14 @@ export class MainScreen {
         this.frozenSlotLines += freezeNow;
         this.durableEndRow = this.cursorRow;
       }
-      // 尾段整写（回流/开栏不稳定尾恒在此重绘；自身超视口时接受滚动）
+      // 尾段写出（42 轮件 A——写出起点截断）：起点 = max(freezeNow, 尾窗长 −
+      // 尾窗容量（区底锚下限 1——冻结后值）)。只写容量内底段——不稳内容
+      // 永不滚入 scrollback（残卷病灶根除；帽外顶行流式期暂不可见 =
+      // mutable tail 语义）；深溢出钉底形容量 1 = 区底锚单行（写出触滚 1 行
+      // 旧内容合法——新内容可见性优先）；冻结段滚动是唯一批量滚动源。
       this.gotoRow(this.durableEndRow);
-      for (let i = freezeNow; i < tail.lines.length; i++) {
+      const writeFrom = Math.max(freezeNow, tail.lines.length - Math.max(1, regionBottom - this.durableEndRow));
+      for (let i = writeFrom; i < tail.lines.length; i++) {
         this.writeSlotLine(tail.lines[i]!);
       }
     }

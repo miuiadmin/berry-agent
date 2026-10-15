@@ -332,27 +332,28 @@ describe('MainScreen 超视口冻结提交', () => {
     doc.update(text2);
     io.bytes = '';
     screen.present([docSlot(text2, doc)]);
-    // 帧一冻结的前缀（溢出 11 行：标题一..六及其间隔）不再写出
-    for (const n of ['一', '二', '三', '四', '五', '六']) {
+    // 帧一甲案全量冻结（19 行——overflow>0 全冻）；帧二新增 2 稳定行同走冻结升格
+    //（写出仅新增段——标题一..十零重写）
+    for (const n of NUMS.slice(0, 10)) {
       expect(io.bytes).not.toContain(sg(n));
     }
-    expect(io.bytes).toContain(sg('十一')); // 新尾写出（尾段重写）
+    expect(io.bytes).toContain(sg('十一')); // 新尾冻结升格写出（帧内恰一份）
   });
 
-  it('message_end 定稿换装：B 段跳过已冻结行（冻结行不重写不重复）', () => {
+  it('message_end 定稿换装：B 段跳过已冻结行（甲案全冻——定稿帧零重写）', () => {
     const { io, screen } = makeScreen();
     screen.start();
     const text = headingText(10);
     const doc = new StreamingMarkdown();
     doc.update(text);
-    screen.present([docSlot(text, doc)]); // 冻结 11 行（标题一..六）
+    screen.present([docSlot(text, doc)]); // 甲案帧一溢出期全量冻结（19 行——freezeNow = freezable）
     io.bytes = '';
     screen.present([{ kind: 'markdown', doc: MarkdownDoc.of(text) }]); // 定稿换装（同文同宽同行集）
-    for (const n of ['一', '二', '三', '四', '五', '六']) {
-      expect(io.bytes).not.toContain(sg(n)); // 已冻前缀不重写
-    }
-    for (const n of ['七', '八', '九', '十']) {
-      expect(io.bytes.split(sg(n)).length - 1).toBe(1); // 未冻尾恰写一次
+    // 42 轮件 A 冻结拓宽：帧一已全冻 → B 段 skip = 19 全跳——定稿帧零块写出。
+    // 锁语义升格（非放松）：修前「未冻尾（七..十）恰写一次」→「全量零重写」
+    // ——与 :311 帧一恰写一次合取仍锁「恰一份」且更强（滚动源单一化实证）
+    for (const n of NUMS) {
+      expect(io.bytes).not.toContain(sg(n)); // 已冻全量不重写
     }
     expect(screen.lastSlotFrameBytes).toBe(0); // 无槽帧计量归零
   });
@@ -363,7 +364,7 @@ describe('MainScreen 超视口冻结提交', () => {
     const text = headingText(10);
     const doc = new StreamingMarkdown();
     doc.update(text);
-    screen.present([docSlot(text, doc)]); // 冻结 11 行（标题一..六）
+    screen.present([docSlot(text, doc)]); // 甲案帧一全量冻结（19 行——freezeNow = freezable）
     io.bytes = '';
     // 合并帧形（装配层 enqueuePresent 连续 present 保末次快照——fps 帽合并窗
     // 内 message_end 定稿与紧邻下条 message_start 新槽同 op）：blocks = [定稿
@@ -388,16 +389,14 @@ describe('MainScreen 超视口冻结提交', () => {
         toggleHint: 'ctrl+t',
       },
     ]);
-    for (const n of ['一', '二', '三', '四', '五', '六']) {
-      expect(io.bytes).not.toContain(sg(n)); // 已冻前缀不重写（修前红锚：全量重写双显）
+    // 甲案全冻（42 轮件 A）：定稿块 skip = 19 全跳零重写；新槽区底锚写出可见
+    for (const n of NUMS) {
+      expect(io.bytes).not.toContain(sg(n)); // 已冻全量不重写（修前红锚：全量重写双显）
     }
-    for (const n of ['七', '八', '九', '十']) {
-      expect(io.bytes.split(sg(n)).length - 1).toBe(1); // 未冻尾恰写一次
-    }
-    expect(io.bytes).toContain('次条流式'); // 新槽换装照常
+    expect(io.bytes).toContain('次条流式'); // 新槽换装照常（尾窗容量区底锚下限 1 行）
   });
 
-  it('不稳定尾（段落回流形）不冻结：帧帧全量重写（v1 边界——接受滚动）', () => {
+  it('不稳定尾（段落回流形）不冻结：尾窗化重写底段（42 轮件 A——流式期零滚动）', () => {
     const { io, screen } = makeScreen();
     screen.start();
     const text = 'A' + 'a'.repeat(80 * 14); // 单段落块折 15 行——恒不稳
@@ -406,17 +405,66 @@ describe('MainScreen 超视口冻结提交', () => {
     screen.present([docSlot(text, doc)]);
     io.bytes = '';
     screen.present([docSlot(text, doc)]); // 同文——无冻结面可承接
-    expect(io.bytes).toContain('\r\x1b[2m• \x1b[0mA'); // 首行仍重写（未冻证据——stableLineCount = 0；注⑩ bullet 槽前缀随行 dim）
+    // 尾窗化：帧帧只重写尾窗底段（〔8,15) 7 行——零触滚写出）；修前全量整写
+    // 15 行触滚 7 行（首行 • A 滚入 scrollback——残卷病灶源）。帽外顶行流式期
+    // 暂不可见（mutable tail 语义——42 轮件 A）
+    expect(io.bytes).not.toContain('• \x1b[0mA'); // 首行（A 起头）不在尾窗——帽外
+    expect(io.bytes).toContain('aaaa'); // 尾窗折行底段在场（重写证据；注⑩ bullet 槽前缀随行 dim）
   });
 
-  it('降档纯文本（doc = null）零冻结：溢出走滚动不升格', () => {
+  it('不稳尾段溢出尾窗化（42 轮件 A 修前红）：表格尾块流式期零滚动沉淀、定稿整表恰一份', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    // 30 行表（表头 + 定界 + 28 数据行）——表格尾块恒不稳（列宽回流）、溢出容量 8
+    const text =
+      '| key | value |\n| --- | ----- |\n' +
+      Array.from({ length: 28 }, (_, i) => `| k${i} | v${i} |`).join('\n') +
+      '\n';
+    const doc = new StreamingMarkdown();
+    doc.update(text);
+    screen.present([docSlot(text, doc)]);
+    io.bytes = '';
+    screen.present([docSlot(text, doc)]); // 流式帧二（同文重呈——帧写出观测窗）
+    // 修前红：尾段整写全表 30 行 → 头部行 k0 写出（触滚滚入 scrollback 残卷源）
+    expect(io.bytes).not.toContain('k0'); // 帽外顶行不写出（尾窗 = 底段〔23,30)）
+    expect(io.bytes).toContain('k27'); // 尾窗底段在场（最新行可见性）
+    // 定稿换装：整表全量直写（B 段 skip=0——表格未冻）恰一份（合法滚动）
+    io.bytes = '';
+    screen.present([{ kind: 'markdown', doc: MarkdownDoc.of(text) }]);
+    expect(io.bytes.split('k0').length - 1).toBe(1); // 定稿整表恰一份
+  });
+
+  it('尾窗骤缩：截断带 stale 行 EL 清理（D 段覆盖性回归锁——预期落绿）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    // 帧 k：长表尾窗满区（尾窗 7 行占满滚动区）
+    const longText =
+      '| key | value |\n| --- | ----- |\n' +
+      Array.from({ length: 28 }, (_, i) => `| k${i} | v${i} |`).join('\n') +
+      '\n';
+    const doc = new StreamingMarkdown();
+    doc.update(longText);
+    screen.present([docSlot(longText, doc)]);
+    // 帧 k+1：partial 回缩骤短（4 行表）——前帧尾窗残行须被 EL 清（v1 边界的
+    // 清除带须覆盖尾窗截断带——A6 定谳：物理末行 ≤ 逻辑账末行恒成立）
+    const shortText = '| key | value |\n| --- | ----- |\n| k0 | v0 |\n';
+    doc.update(shortText);
+    io.bytes = '';
+    screen.present([docSlot(shortText, doc)]);
+    expect(io.bytes).toContain('\x1b[K'); // EL 清行在场（stale 尾行擦除）
+    expect(io.bytes).toContain('k0'); // 新尾窗内容在场
+  });
+
+  it('降档纯文本（doc = null）零冻结：尾窗化底段重写（42 轮件 A——流式期零滚动）', () => {
     const { io, screen } = makeScreen();
     screen.start();
     const text = 'b'.repeat(80 * 12); // 12 行纯文本 > 容量 8
     screen.present([slotBlock(text)]);
     io.bytes = '';
     screen.present([slotBlock(text)]);
-    expect(io.bytes).toContain('\r\x1b[2m• \x1b[0mb'); // 全量重写——doc 空则 freezable 恒 0（注⑩ bullet 槽——降档腿同轴）
+    // 尾窗化：帧帧只重写尾窗底段（〔5,12) 7 行——首行 • b 在帽外）；doc 空则
+    // freezable 恒 0（零冻结维持）——续行 2 空格前缀形在场（注⑩ bullet 槽）
+    expect(io.bytes).toContain('\r  b'); // 尾窗底段重写（降档腿同轴尾窗化）
   });
 });
 
@@ -462,7 +510,7 @@ describe('MainScreen 思考前缀冻结', () => {
     expect(io.bytes).toContain(sg('十一')); // 新尾仍写出（尾段重写）
   });
 
-  it('思考在场未定 → 冻结面整体为空（不稳头行不可跳——前缀连续律；标签帧帧重写）', () => {
+  it('思考在场未定 → 冻结面整体为空（不稳头行不可跳——前缀连续律；尾窗化底段重写）', () => {
     const { io, screen } = makeScreen();
     screen.start();
     const doc = new StreamingMarkdown();
@@ -470,7 +518,10 @@ describe('MainScreen 思考前缀冻结', () => {
     screen.present([thinkSlot(headingText(10), doc, '想法', false)]);
     io.bytes = '';
     screen.present([thinkSlot(headingText(10), doc, '想法在继续', false)]); // 流式档标签恒形
-    expect(stripAnsi(io.bytes)).toContain('思考中'); // 标签行重写（未冻证据——冻结面前缀连续）
+    // 尾窗化（42 轮件 A）：零冻结 → 尾窗起点 = total − cap 无跳行——doc 尾段
+    // 帧帧重写在场（未冻证据——冻结面前缀连续）；标签行帽外流式期暂不可见
+    expect(io.bytes).toContain(sg('十')); // 尾窗底段（doc 尾行）重写——重写域活着
+    expect(stripAnsi(io.bytes)).not.toContain('思考中'); // 标签行帽外（mutable tail 语义）
   });
 
   it('message_end 换装：thinking 块 + markdown 块跳过已冻前缀（含标签行——不重写不重复）', () => {
@@ -479,7 +530,7 @@ describe('MainScreen 思考前缀冻结', () => {
     const text = headingText(10);
     const doc = new StreamingMarkdown();
     doc.update(text);
-    screen.present([thinkSlot(text, doc, '想法', true, { startAt: 1000, settledAt: 4500 })]); // 冻结 12 行（标签 + 一..六）
+    screen.present([thinkSlot(text, doc, '想法', true, { startAt: 1000, settledAt: 4500 })]); // 甲案帧一全量冻结（21 行——freezeNow = freezable）
     io.bytes = '';
     screen.present([
       {
@@ -492,9 +543,12 @@ describe('MainScreen 思考前缀冻结', () => {
       },
       { kind: 'markdown', doc: MarkdownDoc.of(text) },
     ]);
+    // 42 轮件 A 甲案：帧一已全冻（21 行 = 标签 + gap + doc 全量）→ B 段 skip
+    // 全跳——换装帧零块写出（零重写锁：修前「未冻尾恰写一次」观测点随全冻
+    // 消失，与帧一恰写一次合取仍锁恰一份且更强）
     expect(io.bytes).not.toContain('思考'); // 已冻标签行不重写（换装块无时长形标签零写出）
     for (const n of ['七', '八', '九', '十']) {
-      expect(io.bytes.split(sg(n)).length - 1).toBe(1); // 未冻尾恰写一次
+      expect(io.bytes).not.toContain(sg(n)); // 已冻全量不重写
     }
   });
 
@@ -506,11 +560,12 @@ describe('MainScreen 思考前缀冻结', () => {
     doc.update(headingText(10));
     screen.present([thinkSlot(headingText(10), doc, '想法', true, { startAt: 1000, settledAt: 3000 })]);
     // 帧二交错：后到思考使 settled 翻回 false——已冻标签行变不稳内容，冻结账
-    // 为不稳头行让位重算（收缩到稳定面 0）、让位行回换装重写域整面重画
+    // 为不稳头行让位重算（收缩到稳定面 0）、让位行回换装重写域（尾窗化后重
+    // 写域 = 尾窗底段自视口顶起笔——帽外顶行流式期暂不可见；修前红锚迁移：
+    // 让位 bug 复发形 = 尾写仍自旧冻账起 → 尾窗空零写出）
     io.bytes = '';
     screen.present([thinkSlot(headingText(10), doc, '想法继续', false)]);
-    expect(stripAnsi(io.bytes)).toContain('思考中'); // 流式档标签重写——交错期可见反馈（修前红：尾写恒自旧冻账起、标签永不被写）
-    expect(io.bytes).toContain(sg('一')); // 让位行含 doc 前缀——整面重画（修前红：doc 前缀同样被旧账跳过）
+    expect(io.bytes.split(sg('十')).length - 1).toBe(1); // 尾窗底段（doc 尾行）自视口顶起笔重写——让位账清零证据
     expect(io.bytes).not.toContain('思考 · 2s'); // 旧定稿档标签不在让位重画帧
     // 帧三再定终值（文本续推使 settled 翻回 true）：冻结面自让位账重建，标签携
     // 终值时长（注④末次 settled 重戳——5s）入冻
@@ -532,7 +587,7 @@ describe('MainScreen 思考前缀冻结', () => {
       { kind: 'markdown', doc: MarkdownDoc.of(headingText(11)) },
     ]);
     expect(io.bytes).not.toContain('思考'); // 已冻终值标签不重写（换装收口）
-    expect(io.bytes).toContain(sg('十一')); // 未冻尾恰写出
+    expect(io.bytes).not.toContain(sg('十一')); // 甲案帧三已全冻——换装帧零重写（恰一份之零重复侧）
   });
 });
 

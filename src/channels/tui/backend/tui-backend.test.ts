@@ -75,11 +75,14 @@ function mixedSnapshot(thinking: readonly string[], texts: readonly string[]): A
   return { role: 'assistant', content, usage, stopReason: 'stop', timestamp: 1 };
 }
 
-function makeBackend(options: Partial<TuiBackendOptions> = {}): {
+function makeBackend(
+  options: Partial<TuiBackendOptions> = {},
+  rows = ROWS,
+): {
   io: MemoryTerminalIO;
   backend: TuiBackend;
 } {
-  const io = new MemoryTerminalIO(COLS, ROWS);
+  const io = new MemoryTerminalIO(COLS, rows);
   const backend = new TuiBackend(io, {
     // 外编受控桩（挖掘 31 轮 [9]）：生产缺省闭包会真 spawn 子进程——
     // MemoryTerminalIO 测试面零真进程纪律。不涉外编的测永不触发（不按
@@ -144,19 +147,24 @@ describe('TuiBackend 直播呈现', () => {
 
   it('流式帧字节帽超帽降档纯文本（批 10h R1 perf 护栏——streamFrameByteCap 注入面使触发路可测）', () => {
     // 小帽注入（16 单位）：单字帧不超帽（R-4 前缀 dim 后 `\x1b[2m• \x1b[0m甲`
-    // = 11 字位——注⑩ bullet 槽含前缀 SGR 一并计入帧长）；带 markdown 帧
-    // 字节远超 16（首行 11 + H1 行 16 = 27）
+    // = 11 字位——注⑩ bullet 槽含前缀 SGR 一并计入帧长）；42 轮件 A 尾窗化后
+    // 帧字节行数维有界（尾窗 ≤ 容量行）——触发语料改**单行超帽**形（H1 长标
+    // 题行 ≈ 27 位 > 16，尾窗含该行即超帽）
     // ——超帽帧本帧仍 markdown 直推（帧已落账不回改），present 后降档（弃 doc），
     // 次帧起流式正文纯文本直推
     const { io, backend } = makeBackend({ streamFrameByteCap: 16 });
     emit(backend, { type: 'message_start', role: 'assistant' });
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') }); // 1 字节不超帽
     io.bytes = '';
-    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题') });
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题行加长使单行超帽') });
     expect(io.bytes).toContain('\x1b[1;4m# 标题'); // 超帽帧本帧仍 markdown（R-3 H1 属性游程——降档不回改已落帧）
     io.bytes = '';
-    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题\n乙') });
-    expect(io.bytes).toContain('# 标题'); // 降档纯文本直推（R-3 markdown 档 # 前缀也保留——原文在场不再独证，直推证据仍真）
+    emit(backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: assistantMsg('甲\n# 标题行加长使单行超帽\n乙'),
+    });
+    expect(io.bytes).toContain('\r  乙'); // 降档纯文本直推尾窗底行（42 轮件 A 尾窗化——顶行帽外，2 空格前缀纯文本形）
     expect(io.bytes).not.toContain('\x1b[1;4m'); // 零属性游程——流式 markdown 直推档已降（R-3 分辨形）
     // 对称面（缺省帽 256KB 生产定值不降档）：同序列次帧仍 markdown 直推——
     // H1 属性游程在场（R-3：# 前缀保留 + bold+underline；与降档帧零游程互为分辨形）
@@ -164,8 +172,16 @@ describe('TuiBackend 直播呈现', () => {
     emit(ctl.backend, { type: 'message_start', role: 'assistant' });
     emit(ctl.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') });
     ctl.io.bytes = '';
-    emit(ctl.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题') });
-    emit(ctl.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题\n乙') });
+    emit(ctl.backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: assistantMsg('甲\n# 标题行加长使单行超帽'),
+    });
+    emit(ctl.backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: assistantMsg('甲\n# 标题行加长使单行超帽\n乙'),
+    });
     expect(ctl.io.bytes).toContain('\x1b[1;4m# 标题'); // markdown 直推档（H1 属性游程在场）
   });
 
@@ -208,9 +224,11 @@ describe('TuiBackend 直播呈现', () => {
     expect(table.io.bytes).not.toContain('┼');
 
     // 形三：CJK 双宽文本流式帧不截半字——折行走网格管线字素级：逐行可见宽
-    // ≤ 屏宽帽（截半即越帽 autowrap 或残宽）+ 折行拼接还原全文（半字即断链）
+    // ≤ 屏宽帽（截半即越帽 autowrap 或残宽）+ 折行拼接还原全文（半字即断链）。
+    // 24 行屏承载折行族全量（42 轮件 A 尾窗化后小屏尾窗截底段——本锁锁折行
+    // 字素完整性非屏容量，语料全量在场须足容屏）
     const cjkText = '中文测试'.repeat(30); // 120 字素 × 宽 2 = 240 列——80 列屏折 3 行
-    const cjk = makeBackend();
+    const cjk = makeBackend({}, 24);
     emit(cjk.backend, { type: 'message_start', role: 'assistant' });
     emit(cjk.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') });
     cjk.io.bytes = '';

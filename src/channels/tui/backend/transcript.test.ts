@@ -1277,6 +1277,38 @@ describe('renderSlotTailLines 尾窗渲染（渲染热路径 D1——冻结前�
     expect(renderSlotTailLines(slot, 40, 1).lines).toEqual(full.slice(1)); // 起点回抬
     expect(renderSlotTailLines(slot, 40, 0).lines).toEqual(full); // 全量回退形
   });
+
+  it('渲染帽对拍（42 轮件 A——尾窗化）：tailCap 帽下 lines ≡ 全量切片 max(startRow, total−cap)', () => {
+    // 帽语义：lines ≡ full.slice(max(startRow, total − tailCap))——含降档纯文本腿
+    // （A5：漏覆写必红）与 cap ≥ total 的零变退化形（缺省帽无穷同此形）
+    for (const docText of DOC_TEXTS) {
+      for (const w of [40, 20, 7, 3]) {
+        const doc = new StreamingMarkdown();
+        doc.update(docText);
+        const thinkingDoc = new StreamingMarkdown();
+        thinkingDoc.update('# 想法\n\n思考正文段落内容');
+        const shapes = [
+          d1Slot({ doc }),
+          d1Slot({ doc, thinking: '先想一步' }),
+          d1Slot({ doc, thinking: '# 想法\n\n思考正文段落内容', thinkingDoc, thinkingExpanded: true }),
+          d1Slot({ doc: null, text: '纯文本降档段落\n第二行继续' }),
+          d1Slot({ doc: null, text: '降档 + 思考', thinking: '折叠思考' }),
+        ];
+        for (const slot of shapes) {
+          const full = renderBlockLines(slot, w);
+          for (const k of [0, 1, 3]) {
+            const caps = [1, 2, Math.ceil(full.length / 2), Math.max(1, full.length - 1), full.length, full.length + 5];
+            for (const cap of caps) {
+              const tail = renderSlotTailLines(slot, w, k, true, cap);
+              const expectStart = Math.max(k, full.length - cap);
+              expect(tail.total).toBe(full.length);
+              expect(tail.lines).toEqual(full.slice(expectStart));
+            }
+          }
+        }
+      }
+    }
+  });
 });
 
 /* ---------------- 行集直转与 OSC-8 链贯通（挖掘 36 轮〔5〕） ---------------- */
