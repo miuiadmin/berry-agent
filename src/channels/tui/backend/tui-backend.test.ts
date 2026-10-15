@@ -4307,15 +4307,15 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
   it('context_usage 消费（注⑪② 上下文三件套）：真值在场 → 流中估值平滑 → 切焦清位', () => {
     const { io, backend } = makeBackend({ sessionId: SESSION, footer: { modelLabel: 'm', cwdLabel: () => 'w' } });
     emit(backend, { type: 'context_usage', usedTokens: 996, maxTokens: 1_000_000 });
-    expect(io.bytes).toContain('上下文 996 / 1 M · 0%'); // 真值三件套（K/M 单源——<1K 原值）
+    expect(io.bytes).toContain('上下文 996 / 1 M · 剩 100%'); // 真值三件套（K/M 单源——<1K 原值；剩余口径+向标词——44 轮件 B）
     io.bytes = '';
     emit(backend, { type: 'agent_start' });
     emit(backend, { type: 'message_start', role: 'assistant' });
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('你好世界') }); // 估值 +4
-    expect(io.bytes).toContain('上下文 1 K / 1 M · 0%'); // 流中平滑：996 + 4 → 1000 → '1 K'
+    expect(io.bytes).toContain('上下文 1 K / 1 M · 剩 100%'); // 流中平滑：996 + 4 → 1000 → '1 K'
     // 平滑帧晚于 agent_start 间隙帧（turn 边界 settled 996 = 合法中间态——上下文
     // 会话级量跨 run 幸存；判据 = 终态帧序非全程缺席）
-    expect(io.bytes.lastIndexOf('上下文 1 K / 1 M · 0%')).toBeGreaterThan(io.bytes.lastIndexOf('上下文 996'));
+    expect(io.bytes.lastIndexOf('上下文 1 K / 1 M · 剩 100%')).toBeGreaterThan(io.bytes.lastIndexOf('上下文 996'));
     // 切焦清位（onRepaint → resetUsage 连清——首轮前整段缺席律 per focus）
     backend.onRepaint('sess-bbbbbbbbbbbb', [], null);
     io.bytes = '';
@@ -4338,7 +4338,7 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
     // 零写出——尾注变更使上下文槽重落屏可观测）
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
     backend.setStatus(SESSION, '相位观测');
-    expect(io.bytes).toContain('上下文 996 / 1 M · 0%'); // settled 纯值（<1K 原值直读）
+    expect(io.bytes).toContain('上下文 996 / 1 M · 剩 100%'); // settled 纯值（<1K 原值直读）
     expect(io.bytes).not.toContain('上下文 1 K'); // 双计形缺席（996 + 40/50 估值残值 → 1036/1046 → '1 K'——关窗失效形）
   });
 
@@ -4348,7 +4348,20 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
     expect(io.bytes).not.toContain('上下文');
     emit(backend, { type: 'context_usage', usedTokens: 12_345 }); // maxTokens 缺席 = 二件套（无帽无百分比）
     expect(io.bytes).toContain('上下文 12 K');
+    // 已用率裸形退役防复发锁（44 轮件 B）+ 二件套无百分比守锁
     expect(io.bytes).not.toContain(' · 0%');
+    expect(io.bytes).not.toContain(' · 剩');
+  });
+
+  it('【44 轮件 B 双面同值】footer 上下文槽剩余口径：384 K / 1 M → 剩 62%（单源 contextRemainingPercent——/usage 余量行同式同值）', () => {
+    const { io, backend } = makeBackend({ sessionId: SESSION, footer: { modelLabel: 'm', cwdLabel: () => 'w' } });
+    emit(backend, { type: 'context_usage', usedTokens: 384_000, maxTokens: 1_000_000 });
+    // 100 − floor(0.384 × 100) = 62：footer 呈现值与 /usage 余量行（31 轮 [6] 锁
+    // 「剩 60%」形——400 K/1 M 语料）同读数单源——round 变体此值仍 62 不可判别，
+    // 取整向判别锁在 usage-viewer.test.ts A2 纯函数面（385 K→62 分叉）
+    expect(io.bytes).toContain('上下文 384 K / 1 M · 剩 62%');
+    // 旧已用率裸形缺席（38% = 100−62 互补形退役——44 轮件 B）
+    expect(io.bytes).not.toContain(' · 38%');
   });
 
   it('【注⑪⑥(c) 修前红→回归锁】速度槽流中供数腿（一机制喂两槽）：流中相位读估值平滑非空——settled 账整段缺席修前', () => {
@@ -4553,10 +4566,10 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(400)) }); // 估值 100 → 速度 50 tok/s；上下文 996+100 → 1 K
     const line = stripAnsi(io.bytes);
     // 整行1 连接序恰为六槽序（' · ' 连接——整行显示宽 71 < 80 无坍缩无损）
-    expect(line).toContain('Auto · 思考高 · glm-4.7 · 累计 500 · 50 tok/s · 上下文 1 K / 1 M · 0%');
+    expect(line).toContain('Auto · 思考高 · glm-4.7 · 累计 500 · 50 tok/s · 上下文 1 K / 1 M · 剩 100%');
     // 各槽锚词相对位置严格右移（缺席 indexOf -1 即红——判别锚：调换速度/上下文 push 序本断言红）
     let at = -1;
-    for (const anchor of ['Auto', '思考高', 'glm-4.7', '累计 500', '50 tok/s', '上下文 1 K / 1 M · 0%']) {
+    for (const anchor of ['Auto', '思考高', 'glm-4.7', '累计 500', '50 tok/s', '上下文 1 K / 1 M · 剩 100%']) {
       const next = line.indexOf(anchor, at + 1);
       expect(next).toBeGreaterThan(at);
       at = next;

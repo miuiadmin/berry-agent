@@ -147,7 +147,13 @@ import { HistoryViewer, SELECTION_CAP_BYTES } from '../history/history-viewer.js
 import { SessionPicker } from '../history/session-picker.js';
 import { HelpViewer, type HelpCommandEntry } from '../panels/help-viewer.js';
 import { CallsViewer } from '../panels/calls-viewer.js';
-import { formatCount, formatTokensCompact, formatTokensPerSecond, UsageViewer } from '../panels/usage-viewer.js';
+import {
+  contextRemainingPercent,
+  formatCount,
+  formatTokensCompact,
+  formatTokensPerSecond,
+  UsageViewer,
+} from '../panels/usage-viewer.js';
 import { gitHeadSuffix, readGitHead, type GitHeadInfo } from '../status/footer.js';
 import { computeBranchStats, type GitQuery } from '../status/branch-stats.js';
 import { planNativeClipboard, type NativeClipboardSpawn } from './native-clipboard.js';
@@ -2912,17 +2918,19 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 行1 上下文槽文案（注⑪② 三件套）：max 在场 = `上下文 12 K / 1 M · 38%`
-   * （K/M 单源 formatTokensCompact；百分比向下取整）；缺席 = 二件套（无帽
-   * 无百分比）；双缺席整段缩位。流中平滑 = settled + 估值器（contextStreamLive
-   * 门控——流式窗内开、真值收口关，防 turn 间双计）。
+   * 行1 上下文槽文案（注⑪② 三件套）：max 在场 = `上下文 12 K / 1 M · 剩 62%`
+   * （K/M 单源 formatTokensCompact；百分比 = 剩余口径带向标词——挖掘 44 轮
+   * 件 B 与 /usage 余量行同式同值，单源 contextRemainingPercent，已用率裸形
+   * 退役）；缺席 = 二件套（无帽无百分比）；双缺席整段缩位。流中平滑 =
+   * settled + 估值器（contextStreamLive 门控——流式窗内开、真值收口关，防
+   * turn 间双计）。
    */
   private contextSlotText(): string {
     const used = this.contextUsedNow();
     if (used === null) return '';
     const max = this.contextMaxTokens;
     if (max === null || max <= 0) return `上下文 ${formatTokensCompact(used)}`;
-    return `上下文 ${formatTokensCompact(used)} / ${formatTokensCompact(max)} · ${Math.floor((used / max) * 100)}%`;
+    return `上下文 ${formatTokensCompact(used)} / ${formatTokensCompact(max)} · 剩 ${contextRemainingPercent(used, max)}%`;
   }
 
   /**

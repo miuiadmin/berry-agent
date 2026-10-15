@@ -297,7 +297,7 @@ describe('状态行窄宽（1-8 列）', () => {
       // 负，部分落格）+ 模式词独存 ellipsize 兜底
       const split = new StatusLine();
       split.setFooter({
-        instruments: () => ['YOLO', '思考', 'gemini-2.5-pro', '累计 1,234', '45.2 tok/s', '上下文 12 K / 1 M · 38%'],
+        instruments: () => ['YOLO', '思考', 'gemini-2.5-pro', '累计 1,234', '45.2 tok/s', '上下文 12 K / 1 M · 剩 62%'], // 44 轮件 B 剩余口径形（语料随产码同形）
         env: () => ['berry-agent', 'sess-aaa', '⎇ dev@a1b2c3d', '工作区写'],
         hint: '? 快捷键',
         modeDanger: true,

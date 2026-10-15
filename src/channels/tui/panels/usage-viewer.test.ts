@@ -7,7 +7,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { KeyEvent } from '../../engine/index.js';
 import { stringWidth } from '../../engine/index.js';
 import type { UiUsageSummary } from '../../../contracts/index.js';
-import { buildUsageLines, formatTokensCompact, formatTokensPerSecond, UsageViewer } from './usage-viewer.js';
+import {
+  buildUsageLines,
+  contextRemainingPercent,
+  formatTokensCompact,
+  formatTokensPerSecond,
+  UsageViewer,
+} from './usage-viewer.js';
 
 /** key 事件夹具 */
 const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
@@ -168,5 +174,27 @@ describe('buildUsageLines 上下文余量条形行（挖掘 31 轮 [6]）', () =
 
   it('互补律与 footer 百分比同取整向：384 K 帽 1 M → 剩 62%（floor 38 互补）', () => {
     expect(buildUsageLines(summary(), { used: 384_000, max: 1_000_000 })[11]).toContain('剩 62%');
+  });
+});
+
+describe('contextRemainingPercent 单源（挖掘 44 轮件 B——footer 行1 上下文槽与 /usage 余量行双面同式同值）', () => {
+  it('A1 同值族：100 − floor(已用率 × 100)——384 K/600 K/0 三档对帽 1 M', () => {
+    // footer 双面同值锁（tui-backend.test.ts 44 轮件 B it）同语料同读数：384 K → 剩 62
+    expect(contextRemainingPercent(384_000, 1_000_000)).toBe(62);
+    expect(contextRemainingPercent(600_000, 1_000_000)).toBe(40);
+    expect(contextRemainingPercent(0, 1_000_000)).toBe(100);
+  });
+
+  it('A2 取整向判别：floor 非 round——385 K → 62（round 变体 61）/ 995 K → 1（round 变体 0）', () => {
+    // .5 档界语料：floor(38.5)=38 互补 62、round(38.5)=39 互补 61——两向在此分叉；
+    // 995 K 同理 floor(99.5)=99 → 1、round 半上入 100 → 0。若实现误取 round 两断言红。
+    expect(contextRemainingPercent(385_000, 1_000_000)).toBe(62);
+    expect(contextRemainingPercent(995_000, 1_000_000)).toBe(1);
+  });
+
+  it('A3 边界夹：越帽下夹 0（诚实见底）/ 帽内微量上界 100——值域 [0,100]', () => {
+    expect(contextRemainingPercent(1_200_000, 1_000_000)).toBe(0); // 越帽瞬态：100 − 120 下夹 0
+    expect(contextRemainingPercent(996, 1_000_000)).toBe(100); // footer 真值语料同款（<1K 原值直读帧）
+    expect(contextRemainingPercent(1_000, 1_000_000)).toBe(100); // 恰 0.1% —— floor 0 互补 100
   });
 });

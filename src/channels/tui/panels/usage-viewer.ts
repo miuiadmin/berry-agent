@@ -64,7 +64,8 @@ const REMAINING_BAR_EMPTY = '░';
  * 余量条形串（挖掘 31 轮 [6]）：按**剩余率**取整画段——`[████░░░░]` 满段数
  * = round(剩余率 × 20)。取向铁律：剩余率非已用率（传已用率整条倒读——
  * 剩多满少恰反转）；互补律：条形段取整与百分比 floor 同源互补，两读数恒
- * 同向不矛盾（剩 N% 口径 = 100 - floor(已用率 × 100)）。
+ * 同向不矛盾（剩 N% 口径单源 contextRemainingPercent——footer 同式同值，
+ * 挖掘 44 轮件 B 起双面同源）。
  */
 function renderRemainingBar(used: number, max: number): string {
   const ratio = Math.max(0, 1 - used / max);
@@ -109,7 +110,7 @@ export function formatTokensPerSecond(n: number): string {
 /**
  * token 数紧凑格式（V-4 注⑪②——footer 行1 上下文三件套单源）：≥1M 一位
  * 小数（尾零剥除——1.0 → 1）、≥1K 千位整数、<1K 原值；空格单位形（用户样例
- * `上下文 12 K / 1 M · 38%`）。与 formatCount 千位分组分职（累计段用全值
+ * `上下文 12 K / 1 M · 剩 62%`）。与 formatCount 千位分组分职（累计段用全值
  * 分组形——槽位充裕；上下文段用紧凑形——三件套并列省宽）。
  *
  * K 档先舍入后分档（alpha.31 二轮扫描处置——修「1000 K」双单位并置）：
@@ -127,6 +128,16 @@ export function formatTokensCompact(n: number): string {
     return `${rounded} K`;
   }
   return `${n}`;
+}
+
+/**
+ * 上下文剩余百分比（挖掘 44 轮件 B——footer 行1 上下文槽与 /usage 余量行
+ * 双面单源）：100 − floor(已用率 × 100)，下夹 0（越帽瞬态诚实见底）；
+ * 值域 [0,100]（used ≥ 0 恒成立——settled 真值非负 + 流中估值器非负）。
+ * 前置条件 max > 0（双消费位各自守门后才入——无帽二件套形不入本函数）。
+ */
+export function contextRemainingPercent(used: number, max: number): number {
+  return Math.max(0, 100 - Math.floor((used / max) * 100));
 }
 
 /**
@@ -217,7 +228,8 @@ export class UsageViewer extends ScrollView implements OverlayContent {
  * + 合计 → 货币行（无 cost 上报如实呈现）→ 上下文余量条形行（挖掘 31 轮
  * [6]——context 在场时追加式殿后：既有 0..9 行零迁移）。max>0 形 =
  * `[bar] 剩 N% · used / max`（紧凑值单源 formatTokensCompact——与 footer
- * 三件套同词汇）；缺席双态（context null / max 缺报）裸呈紧凑值不画条形。
+ * 三件套同词汇；百分比单源 contextRemainingPercent——挖掘 44 轮件 B 起双面
+ * 同式同值）；缺席双态（context null / max 缺报）裸呈紧凑值不画条形。
  */
 export function buildUsageLines(summary: UiUsageSummary, context: UsageContextSnapshot | null = null): string[] {
   const labelCol = 8; // 标签列宽（最长标签「缓存读/缓存写」宽 6 + 2）
@@ -245,9 +257,9 @@ export function buildUsageLines(summary: UiUsageSummary, context: UsageContextSn
       row(
         '上下文',
         context.max !== null && context.max > 0
-          ? `${renderRemainingBar(context.used, context.max)} 剩 ${Math.max(
-              0,
-              100 - Math.floor((context.used / context.max) * 100),
+          ? `${renderRemainingBar(context.used, context.max)} 剩 ${contextRemainingPercent(
+              context.used,
+              context.max,
             )}% · ${formatTokensCompact(context.used)} / ${formatTokensCompact(context.max)}`
           : formatTokensCompact(context.used),
       ),
