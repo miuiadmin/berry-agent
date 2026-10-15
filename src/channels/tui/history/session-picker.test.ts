@@ -741,3 +741,219 @@ describe('SessionPicker 尾段预览（挖掘 35 轮 B5——「（无题）」�
     expect(ok).toBe(closed + 4);
   });
 });
+
+/* ---------------- 打字搜索（挖掘 43 轮件 C——'/' 进搜索态 + 三字段过滤 + 键面分档） ---------------- */
+
+describe('SessionPicker 打字搜索（挖掘 43 轮件 C）', () => {
+  // 语料覆盖三过滤字段：title / ws basename / shortId + 无题占位行
+  const sessions = [
+    row({ id: 'sea111111111', title: '修复登录闪退', workspaceRoot: '/Users/x/code/berry-agent' }),
+    row({ id: 'docs22222222', title: '写文档', workspaceRoot: '/Users/x/code/webapp' }),
+    row({ id: 'zzz333333333', title: undefined, workspaceRoot: '' }),
+  ];
+
+  /** 全屏读（删除/预览 describe paintAll 同形） */
+  function paintAll(picker: SessionPicker, width: number, height: number): string {
+    const grid = new CellGrid(width, height);
+    picker.render(grid, { row: 0, col: 0, width, height });
+    const lines: string[] = [];
+    for (let r = 0; r < height; r++) {
+      let out = '';
+      for (let c = 0; c < width; c++) out += grid.getCell(r, c)?.grapheme ?? ' ';
+      lines.push(out.trimEnd());
+    }
+    return lines.join('\n');
+  }
+
+  /** 进搜索态便捷（'/' 一击 + 驻留空 query） */
+  function enterSearch(picker: SessionPicker): void {
+    picker.handleEvent(k('/'));
+  }
+
+  /** 手控预览回执 rig（预览联动锁用——预览 describe deferredPreview 同形） */
+  function deferredPreview() {
+    let settle!: (lines: readonly UiSessionPreviewLine[]) => void;
+    const calls: string[] = [];
+    const promise = new Promise<readonly UiSessionPreviewLine[]>((resolve) => {
+      settle = resolve;
+    });
+    return {
+      calls,
+      onPreview: (sessionId: string) => {
+        calls.push(sessionId);
+        return promise;
+      },
+      settle,
+    };
+  }
+
+  it('① ' + "'/'" + ' 进搜索态：头行换过滤计数面 + hint 换「输入过滤」面（修前红：旧键面无响应）', () => {
+    const { picker } = makePicker(sessions);
+    const before = paintAll(picker, 70, 8);
+    expect(before).toContain('3 会话'); // 非搜索态原头行
+    expect(before).not.toContain('输入过滤');
+    enterSearch(picker);
+    const after = paintAll(picker, 70, 8);
+    expect(after).toContain('· 3/3 匹配 ·'); // 搜索态头行：filtered/denom 计数 + 空 query 驻留尾段空
+    expect(after).toContain('输入过滤'); // hint 换面
+    expect(after).not.toContain('3 会话'); // 原头行退场
+  });
+
+  it('② 三字段过滤各自命中 + 大小写不敏感 + basename 不搜全路径', () => {
+    const { picker } = makePicker(sessions);
+    enterSearch(picker);
+    // title 维
+    picker.handleEvent({ kind: 'text', text: '闪退' });
+    let text = paintAll(picker, 70, 8);
+    expect(text).toContain('· 1/3 匹配 · 闪退');
+    expect(text).toContain('修复登录闪退');
+    expect(text).not.toContain('写文档');
+    // ws basename 维 + 大小写不敏感（query 大写 / 语料小写）——text 轨是
+    // 追加语义：段间 escape 退态 + '/' 重进取干净 query
+    picker.handleEvent(k('escape'));
+    enterSearch(picker);
+    picker.handleEvent({ kind: 'text', text: 'WEBAPP' });
+    text = paintAll(picker, 70, 8);
+    expect(text).toContain('· 1/3 匹配 · WEBAPP');
+    expect(text).toContain('写文档'); // basename 'webapp' 命中
+    expect(text).not.toContain('修复登录闪退');
+    // shortId 维（前八位）
+    picker.handleEvent(k('escape'));
+    enterSearch(picker);
+    picker.handleEvent({ kind: 'text', text: 'zzz33333' });
+    text = paintAll(picker, 70, 8);
+    expect(text).toContain('· 1/3 匹配 · zzz33333');
+    expect(text).toContain('（无题）'); // shortId 命中的无题行
+    // 全路径不搜（basename 之外的字段不进判据）
+    picker.handleEvent(k('escape'));
+    enterSearch(picker);
+    picker.handleEvent({ kind: 'text', text: 'Users/x' });
+    text = paintAll(picker, 70, 8);
+    expect(text).toContain('· 0/3 匹配 · Users/x'); // 路径前缀零命中——basename 维边界
+    expect(text).toContain('（无匹配会话）');
+  });
+
+  it('③ q/d 归输入不抢键面：text 轨 q/d 进 query（不退出不进确认）+ key 轨 d 同律', () => {
+    const { picker, onExit, onSelect } = makePicker(sessions);
+    enterSearch(picker);
+    picker.handleEvent({ kind: 'text', text: 'q' });
+    picker.handleEvent(k('d')); // key 轨单字符同路
+    const text = paintAll(picker, 70, 8);
+    expect(text).toContain('· 0/3 匹配 · qd'); // 两键均入 query
+    expect(onExit).not.toHaveBeenCalled(); // q 未退出
+    expect(onSelect).not.toHaveBeenCalled(); // d 未进删除确认（paint 亦无确认面）
+    expect(text).not.toContain('删除');
+  });
+
+  it('④ esc 清搜索保位（by id 同行找回——全表 index 断言）+ 再 esc 退出', () => {
+    const { picker, onSelect, onExit } = makePicker(sessions);
+    picker.handleEvent(k('down')); // 全表 cursor 1（docs 行）
+    enterSearch(picker);
+    picker.handleEvent({ kind: 'text', text: 'docs' }); // 过滤后 docs 行仍在光标位（id 相同）
+    picker.handleEvent(k('escape')); // 清搜索退态保位
+    const text = paintAll(picker, 70, 8);
+    expect(text).toContain('3 会话'); // 回非搜索态头行
+    expect(text).not.toContain('匹配');
+    picker.handleEvent(k('enter'));
+    expect(onSelect).toHaveBeenCalledWith('docs22222222'); // 保位=全表 index 1（若错归 0 则选 sea）
+    picker.handleEvent(k('esc'));
+    expect(onExit).toHaveBeenCalledTimes(1); // 再 esc 退出（旧退出键面仍在）
+  });
+
+  it('⑤ backspace 删尾逐键 + 空 query 驻留 + 空态再 backspace 退搜索', () => {
+    const { picker } = makePicker(sessions);
+    enterSearch(picker);
+    picker.handleEvent({ kind: 'text', text: 'docs' });
+    picker.handleEvent(k('backspace')); // 'doc'
+    let text = paintAll(picker, 70, 8);
+    expect(text).toContain('· 1/3 匹配 · doc');
+    picker.handleEvent(k('backspace'));
+    picker.handleEvent(k('backspace'));
+    picker.handleEvent(k('backspace')); // → ''（'docs' 四键删空）
+    text = paintAll(picker, 70, 8);
+    expect(text).toContain('· 3/3 匹配 ·'); // 空 query 驻留（不弹回非搜索态）
+    picker.handleEvent(k('backspace')); // 空态再删 = 退搜索
+    text = paintAll(picker, 70, 8);
+    expect(text).toContain('3 会话');
+    expect(text).not.toContain('匹配');
+  });
+
+  it('⑥ query 变更 cursor 归 0 + 预览联动拉过滤表光标行（行源 visible 单源）', () => {
+    const rig = deferredPreview();
+    const { picker, onSelect } = makePicker(sessions, { onPreview: rig.onPreview });
+    picker.handleEvent(k('tab')); // 展开拉光标行 sea（第 1 笔——loading 在飞不双发）
+    expect(rig.calls).toEqual(['sea111111111']);
+    enterSearch(picker); // cursor 0=sea——在飞不双发
+    expect(rig.calls).toEqual(['sea111111111']);
+    picker.handleEvent({ kind: 'text', text: '写' }); // 过滤 [docs]——afterQueryChanged 联动拉新光标行
+    expect(rig.calls).toEqual(['sea111111111', 'docs22222222']); // 缺联动则 1 笔红；行源漏换 sessions 则重拉 sea 红
+    picker.handleEvent(k('enter'));
+    expect(onSelect).toHaveBeenCalledWith('docs22222222'); // 收缩后光标行合法可达（归 0/夹取路径）
+  });
+
+  it('⑦ 空结果：「（无匹配会话）」行 + 导航/enter 零动作 + esc 仍可退搜索', () => {
+    const { picker, onSelect } = makePicker(sessions);
+    enterSearch(picker);
+    picker.handleEvent({ kind: 'text', text: 'nomatch' });
+    let text = paintAll(picker, 70, 8);
+    expect(text).toContain('· 0/3 匹配 · nomatch');
+    expect(text).toContain('（无匹配会话）');
+    expect(text).toContain('输入过滤'); // 空匹配 hint 只剩输入过滤 + esc 清搜索
+    expect(text).not.toContain('enter 切换'); // 无可选项——切换段退场
+    expect(picker.handleEvent(k('down'))).toBe(true); // 吞而不炸
+    picker.handleEvent(k('up'));
+    picker.handleEvent(k('enter'));
+    expect(onSelect).not.toHaveBeenCalled(); // 零匹配 enter 不选
+    picker.handleEvent(k('escape'));
+    text = paintAll(picker, 70, 8);
+    expect(text).toContain('3 会话'); // esc 退搜索回全表
+  });
+
+  it('⑧ enter 选定过滤表光标行（非全表行）', () => {
+    const { picker, onSelect, onExit } = makePicker(sessions);
+    enterSearch(picker);
+    picker.handleEvent({ kind: 'text', text: '写' }); // 过滤后唯一行 docs
+    picker.handleEvent(k('enter'));
+    expect(onExit).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith('docs22222222');
+  });
+
+  it('⑨ tab 预览 toggle 仍效 + 导航键走过滤表', () => {
+    const rig = deferredPreview();
+    const { picker } = makePicker(sessions, { onPreview: rig.onPreview });
+    enterSearch(picker);
+    picker.handleEvent({ kind: 'text', text: 'e' }); // 'e' 命中 sea（shortId 'sea11111'）+ docs（basename 'webapp'）
+    let text = paintAll(picker, 70, 8);
+    expect(text).toContain('· 2/3 匹配 · e');
+    picker.handleEvent(k('down')); // 过滤表 cursor 0→1（docs）
+    picker.handleEvent(k('tab')); // 展开拉过滤表光标行
+    expect(rig.calls).toEqual(['docs22222222']); // 走过滤表非全表（全表 cursor 1 也是 docs——down 两次更证）
+    picker.handleEvent(k('down')); // 过滤表两行——down 环绕回 sea
+    expect(rig.calls).toEqual(['docs22222222', 'sea111111111']); // 联动拉 sea（全表则 cursor 2 = zzz 无 e 命中态矛盾）
+    text = paintAll(picker, 70, 12);
+    expect(text).toContain('加载中…'); // toggle 展开仍效
+    picker.handleEvent(k('tab')); // 再 tab 收起
+    expect(paintAll(picker, 70, 12)).not.toContain('加载中');
+  });
+
+  it('⑩ 双轨输入：key 轨单字符与 text 轨粘贴各达 query', () => {
+    const { picker } = makePicker(sessions);
+    enterSearch(picker);
+    picker.handleEvent(k('w')); // key 轨
+    picker.handleEvent(k('e')); // key 轨
+    picker.handleEvent({ kind: 'text', text: 'bapp' }); // text 轨续接
+    const text = paintAll(picker, 70, 8);
+    expect(text).toContain('· 1/3 匹配 · webapp'); // 三段拼合
+  });
+
+  it('⑪ 空表 ' + "'/'" + ' 不进搜索态（无会话可搜——hint 仍返回段）', () => {
+    const { picker } = makePicker([]);
+    picker.handleEvent(k('/'));
+    const text = paintAll(picker, 70, 6);
+    expect(text).toContain('无会话');
+    expect(text).not.toContain('匹配');
+    expect(text).not.toContain('输入过滤');
+    picker.handleEvent({ kind: 'text', text: 'x' }); // 追加零炸（不进态不吞——q 返回键面让位）
+    expect(paintAll(picker, 70, 6)).toContain('无会话');
+  });
+});

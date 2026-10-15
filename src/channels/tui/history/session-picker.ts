@@ -26,6 +26,16 @@
  *   载（会话内 Map 缓存免重复拉——codex transcript_previews 缓存同构；
  *   缓存命中同步落帧零重画）；诚实占位三态（加载中 / 无转录 / 失败折面
  *   foldErrorText 单源）；异步回执经 requestRepaint 请帧（onDelete 同族）；
+ * - **打字搜索**（挖掘 43 轮件 C——'/' 进搜索态：list 视图子模式非新视图）：
+ *   '/' 进态（空表不可进——visible 门内）；三字段（标题占位词含 / 工作区
+ *   短名 basename / 短 id）小写包含过滤（双侧 lowercase，query 进判据前
+ *   trim——空规整 = 全匹配形）；搜索态内 q/d/'/' 归输入让位（退出/删除键
+ *   不触发——hint 同步不虚报）、tab 维持预览 toggle、导航键仍效走过滤表；
+ *   打印键 key/text 双轨同律（text 轨粘贴空白规整 split 空白 + 单空格
+ *   join）；backspace 删尾、空 query 退态；esc 一步清 query 退态保位
+ *   （by id——退态前光标行经 sessions.findIndex 找回，找不到回退 0）；
+ *   query 变更 cursor 归 0 + 预览联动；空结果「（无匹配会话）」诚实行 +
+ *   导航段让位；头行 `N/M 匹配 · query` 形（截断披露与匹配计数并存）；
  * - **退出键面**：q/Esc 取消退出、Ctrl+C 打断、Ctrl+D 退出进程（先收副屏
  *   再转退出柄）——副屏键面补丁三件套与件 8 同律。
  */
@@ -140,6 +150,18 @@ export function formatRelativeStamp(ms: number, nowMs: number): string {
 }
 
 /**
+ * 会话行匹配判据（挖掘 43 轮件 C——三字段小写包含，双侧 lowercase）：标题
+ * （占位词「（无题）」按词面可搜——所见即可搜）/ 工作区短名（**只搜末端
+ * 目录名不搜全路径**——短清单场景 basename 足够，全路径长串误匹配泛滥）/
+ * 短 id。query 调用侧已 trim+lowercase（空规整 = 全匹配形在调用侧短路）。
+ */
+function matchesQuery(session: UiSessionSummary, query: string): boolean {
+  const title = session.title !== undefined && session.title !== '' ? session.title : '（无题）';
+  const ws = session.workspaceRoot !== undefined && session.workspaceRoot !== '' ? basename(session.workspaceRoot) : '';
+  return `${title}\n${ws}\n${shortIdOf(session.id)}`.toLowerCase().includes(query);
+}
+
+/**
  * 会话切换器内容件（OverlayContent——副屏 root 直收全屏 region；自持
  * 光标与视口窗口，非 ScrollView〔选择模型与滚动合一〕）。
  */
@@ -179,6 +201,12 @@ export class SessionPicker implements OverlayContent {
   private previewOpen = false;
   /** 预览缓存（会话 id → 呈现态——光标回访免重复拉；迟到回执落缓存无害） */
   private readonly previewCache = new Map<string, PreviewState>();
+  /**
+   * 搜索词（挖掘 43 轮件 C——null = 不在搜索态；进态置 ''，空串驻留态可见
+   * ——用户续打或退）。渲染/导航/选定/删除目标/预览六面全经 visibleSessions
+   * 单源换源，不裂第二账
+   */
+  private searchQuery: string | null = null;
 
   constructor(options: SessionPickerOptions) {
     this.sessions = [...options.sessions]; // 可变副本（就地滤行——不回写调用方数组）
@@ -198,14 +226,29 @@ export class SessionPicker implements OverlayContent {
   measure(width: number): number {
     void width;
     if (this.view === 'confirm') return 5;
-    let height = 1 + Math.max(1, this.sessions.length) + 1;
+    // 清单行数换源 visible（挖掘 43 轮件 C——过滤态量高随匹配收缩；空匹配
+    // max(1,·) 保持单行占位不塌行）
+    let height = 1 + Math.max(1, this.visibleSessions().length) + 1;
     if (this.previewAreaInUse()) height += 1 + this.previewContentHeight();
     return height;
   }
 
-  /** 预览区在用判据（展开态 + 注入在场 + 非空表——三键守卫单源） */
+  /**
+   * 过滤表单源（挖掘 43 轮件 C——六消费位唯一行源）：非搜索态 = 全表；
+   * 搜索态 = 三字段过滤；query 空规整 = 全匹配形（驻留空态等价未过滤）。
+   * 每调用现过滤（清单帽 100 × 三字段小写包含——键入开销可忽略，不持缓存
+   * 副本防双账漂移）
+   */
+  private visibleSessions(): UiSessionSummary[] {
+    if (this.searchQuery === null) return this.sessions;
+    const query = this.searchQuery.trim().toLowerCase();
+    if (query === '') return this.sessions;
+    return this.sessions.filter((session) => matchesQuery(session, query));
+  }
+
+  /** 预览区在用判据（展开态 + 注入在场 + 非空过滤表——三键守卫单源〔挖掘 43 轮件 C：visible 换源〕） */
   private previewAreaInUse(): boolean {
-    return this.previewOpen && this.onPreview !== undefined && this.sessions.length > 0;
+    return this.previewOpen && this.onPreview !== undefined && this.visibleSessions().length > 0;
   }
 
   /** 预览内容行数（缓存态单源——占位三态 1 行 / 成功态 min(帽, N) 行〔空数组归 empty 形〕） */
@@ -215,10 +258,11 @@ export class SessionPicker implements OverlayContent {
     return Math.min(PREVIEW_CAP, state.lines.length);
   }
 
-  /** 光标行预览缓存态（缺席 undefined = 未拉——渲染归 loading 位占位） */
+  /** 光标行预览缓存态（缺席 undefined = 未拉——渲染归 loading 位占位；行源 = visible 单源） */
   private previewStateOfCursor(): PreviewState | undefined {
-    if (this.sessions.length === 0) return undefined;
-    return this.previewCache.get(this.sessions[this.cursor]!.id);
+    const visible = this.visibleSessions();
+    if (visible.length === 0) return undefined;
+    return this.previewCache.get(visible[this.cursor]!.id);
   }
 
   /** 落位：清单视图 = 头行 → 清单视口（光标行标记 + 活跃位 + 标题左段 / 时间·短 id 右段）→ 底行提示；确认视图 = 警示文案 + 就地状态行 */
@@ -229,14 +273,20 @@ export class SessionPicker implements OverlayContent {
       return;
     }
     // 头行：全量已呈现原形；总数超清单长 → N/M + 仅显示最近（B2 截断披露——
-    // 清单默认 100 窗，超窗不注记即「所见即全量」的静默谎）
-    const n = this.sessions.length;
+    // 清单默认 100 窗，超窗不注记即「所见即全量」的静默谎）；搜索态 →
+    // N/M 匹配 + query（挖掘 43 轮件 C——截断披露 totalCount 与匹配计数两数
+    // 并存〔denom = totalCount ?? 全表长〕；query 空驻留形尾段空——「匹配 · 」
+    // 后零字，不写「显示 / 尾段」防与 N/M 分隔符 '/' 混淆）
+    const visible = this.visibleSessions();
+    const n = visible.length;
     const head =
-      n === 0
+      this.sessions.length === 0
         ? `${HEAD_MARKS.session} 会话切换 · 无会话`
-        : this.totalCount !== undefined && this.totalCount > n
-          ? `${HEAD_MARKS.session} 会话切换 · ${n}/${this.totalCount} 会话（仅显示最近）`
-          : `${HEAD_MARKS.session} 会话切换 · ${n} 会话`;
+        : this.searchQuery !== null
+          ? `${HEAD_MARKS.session} 会话切换 · ${n}/${this.totalCount ?? this.sessions.length} 匹配 · ${this.searchQuery}`
+          : this.totalCount !== undefined && this.totalCount > n
+            ? `${HEAD_MARKS.session} 会话切换 · ${n}/${this.totalCount} 会话（仅显示最近）`
+            : `${HEAD_MARKS.session} 会话切换 · ${n} 会话`;
     // 非条目行（头行/空态行/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5——raw
     // writeText 窄窗硬截断无提示；条目行走 fitRowSegments 双段）
     buffer.writeText(region.row, region.col, fitLine(head, region.width));
@@ -256,35 +306,45 @@ export class SessionPicker implements OverlayContent {
           fitLine('（暂无会话——esc 返回，输入 /new 新建）', region.width),
           HINT_STYLE,
         );
+      } else if (visible.length === 0) {
+        // 空结果诚实行（挖掘 43 轮件 C——空态行同位同形先例 dim）
+        buffer.writeText(region.row + 1, region.col, fitLine('（无匹配会话）', region.width), HINT_STYLE);
       } else {
         for (let i = 0; i < viewHeight; i++) {
           const index = this.offset + i;
-          if (index >= this.sessions.length) break;
-          this.renderRow(buffer, region.row + 1 + i, region.col, region.width, index);
+          if (index >= visible.length) break;
+          this.renderRow(buffer, region.row + 1 + i, region.col, region.width, index, visible);
         }
       }
     }
     if (previewArea > 0)
       this.renderPreview(buffer, region.row + 1 + viewHeight, region.col, region.width, region.height - 2 - viewHeight);
-    // 底行提示：删除注入在场加「d 删除」段、预览注入在场加「tab 预览/收起」段
-    // （键面如实——缺席保持原形不虚报）
-    buffer.writeText(
-      region.row + region.height - 1,
-      region.col,
-      fitLine(
-        this.sessions.length === 0
-          ? 'q/esc 返回'
+    // 底行提示（键面如实——缺席保持原形不虚报）：搜索态分档（挖掘 43 轮件 C
+    //——q/d 归输入让位不注记、「q/esc 返回」段让位〔q 已非退出键〕；空匹配
+    // 导航/enter/tab 段让位〔门零动作不虚报〕）
+    const bottomHint =
+      this.sessions.length === 0
+        ? 'q/esc 返回'
+        : this.searchQuery !== null
+          ? visible.length === 0
+            ? hintLine('输入过滤', 'esc 清搜索')
+            : this.onPreview !== undefined
+              ? hintLine(
+                  '输入过滤',
+                  '↑↓ 移动',
+                  'enter 切换',
+                  this.previewOpen ? 'tab 收预览' : 'tab 预览',
+                  'esc 清搜索',
+                )
+              : hintLine('输入过滤', '↑↓ 移动', 'enter 切换', 'esc 清搜索')
           : this.onDelete !== undefined && this.onPreview !== undefined
             ? hintLine('↑↓ 移动', 'enter 切换', this.previewOpen ? 'tab 收预览' : 'tab 预览', 'd 删除', 'q/esc 返回')
             : this.onDelete !== undefined
               ? hintLine('↑↓ 移动', 'enter 切换', 'd 删除', 'q/esc 返回')
               : this.onPreview !== undefined
                 ? hintLine('↑↓ 移动', 'enter 切换', this.previewOpen ? 'tab 收预览' : 'tab 预览', 'q/esc 返回')
-                : hintLine('↑↓ 移动', 'enter 切换', 'q/esc 返回'),
-        region.width,
-      ),
-      HINT_STYLE,
-    );
+                : hintLine('↑↓ 移动', 'enter 切换', 'q/esc 返回');
+    buffer.writeText(region.row + region.height - 1, region.col, fitLine(bottomHint, region.width), HINT_STYLE);
   }
 
   /**
@@ -356,9 +416,16 @@ export class SessionPicker implements OverlayContent {
     }
   }
 
-  /** 单行落位：左段（光标 + 活跃位 + 标题——适配剩余宽截断）+ 右段（工作区短名 · 时间 · 短id）右对齐 */
-  private renderRow(buffer: CellBuffer, row: number, col: number, width: number, index: number): void {
-    const session = this.sessions[index]!;
+  /** 单行落位：左段（光标 + 活跃位 + 标题——适配剩余宽截断）+ 右段（工作区短名 · 时间 · 短id）右对齐；行源 = visible 单源〔挖掘 43 轮件 C〕 */
+  private renderRow(
+    buffer: CellBuffer,
+    row: number,
+    col: number,
+    width: number,
+    index: number,
+    visible: readonly UiSessionSummary[],
+  ): void {
+    const session = visible[index]!;
     // 右段 = 工作区短名（挖掘 35 轮 B9——右段首位形：dim 辅助族样式与 R-9
     // 光标行覆写律天然继承、窄宽走右段预算律单源收口、缺席缩位不虚报）+
     // 相对时（挖掘 35 轮 B10——构造期定格基准）+ 短 id
@@ -378,16 +445,17 @@ export class SessionPicker implements OverlayContent {
     if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, active ?? HINT_STYLE);
   }
 
-  /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 确认视图（enter 确认 / esc·q 取消）→ 删除键 → 选定/取消 → 移动键 */
+  /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 确认视图（enter 确认 / esc·q 取消）→ 搜索态键面（esc 清搜索 / backspace 删尾 / 打印键归输入）→ 搜索态进态（'/'）→ 删除键 → 选定/取消 → 移动键 */
   handleEvent(event: InputEvent): boolean {
     if (event.kind === 'mouse') {
       // 确认视图吞鼠标（光标移动无意义——模态确认）
       if (this.view === 'confirm') return true;
       // 滚轮 = 光标 ±3 行（mu-2 件族面——经 moveCursor 既有夹取与视口跟随，
       // ↑↓ 同路）；wheel 无 release 相（终端不报——press 一相到达）；非滚轮
-      // 鼠标相零动作吞（v1 无选区/点击面，模态独占）
+      // 鼠标相零动作吞（v1 无选区/点击面，模态独占）；空过滤表零动作（门随
+      // visible 换源——挖掘 43 轮件 C）
       if (event.phase === 'press' && (event.button === 'wheel-up' || event.button === 'wheel-down')) {
-        if (this.sessions.length > 0) {
+        if (this.visibleSessions().length > 0) {
           this.moveCursor(event.button === 'wheel-up' ? -WHEEL_LINES : WHEEL_LINES);
         }
         return true;
@@ -418,7 +486,32 @@ export class SessionPicker implements OverlayContent {
         }
         return true;
       }
-      if (this.sessions.length > 0) {
+      // —— 搜索态键面（挖掘 43 轮件 C——list 视图子模式；q/d/'/' 打印键归
+      // 输入让位，导航/enter/tab fall through 仍效走过滤表）——
+      if (this.searchQuery !== null) {
+        if (isPlainKey(k, 'escape')) {
+          this.exitSearch(); // 一步清 query + 退态保位（单层子模式不造三段 esc）
+          return true;
+        }
+        if (isPlainKey(k, 'backspace')) {
+          // 删尾；空 query 退态保位（与 esc 同保位语义）
+          if (this.searchQuery === '') this.exitSearch();
+          else {
+            this.searchQuery = this.searchQuery.slice(0, -1);
+            this.afterQueryChanged();
+          }
+          return true;
+        }
+        // 打印键归输入（key 轨——shift 放行大写、ctrl/alt/meta 排除组合键）
+        if (!k.ctrl && !k.alt && !k.meta && k.key.length === 1) {
+          this.appendQuery(k.key);
+          return true;
+        }
+        // 命名导航键（up/down/pgup/pgdn/home/end/enter/tab）fall through——
+        // q/d 不再触发退出/删除（归输入已在上方吃掉）
+      }
+      const visible = this.visibleSessions();
+      if (visible.length > 0) {
         if (isPlainKey(k, 'up')) {
           this.moveCursor(-1);
           return true;
@@ -442,25 +535,34 @@ export class SessionPicker implements OverlayContent {
           return true;
         }
         if (isPlainKey(k, 'end')) {
-          this.cursor = this.sessions.length - 1;
+          this.cursor = visible.length - 1;
           this.clampOffset();
           if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
           return true;
         }
         if (isPlainKey(k, 'enter')) {
-          const chosen = this.sessions[this.cursor]!;
+          const chosen = visible[this.cursor]!;
           this.exit(); // 先收副屏（切焦 repaint 异步到达——收屏与重画两序皆收敛）
           this.onSelect(chosen.id);
           return true;
         }
+        // '/' = 进搜索态（挖掘 43 轮件 C——list 视图现无消费零冲突；空过滤表
+        // 不可进——空表 × 搜索态组合不可达，空态行/空表 hint 专档不需搜索分档）
+        if (isPlainKey(k, '/')) {
+          this.searchQuery = '';
+          this.cursor = 0;
+          this.clampOffset();
+          if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
+          return true;
+        }
         // 'd' = 删除键（05 §2.5 定形注①——注入在场才有效：进确认视图；缺席
-        // 吞而不动作——键面帮助行同步缺席不注记）
+        // 吞而不动作——键面帮助行同步缺席不注记；搜索态归输入不可达）
         if (isPlainKey(k, 'd')) {
           this.openConfirm();
           return true;
         }
         // tab = 尾段预览展开键（挖掘 35 轮 B5——注入在场才有效：toggle 预览
-        // 区；缺席吞而不动作〔'd' 删除键同律〕）
+        // 区；缺席吞而不动作〔'd' 删除键同律〕；不可打印零输入冲突不废）
         if (isPlainKey(k, 'tab')) {
           if (this.onPreview !== undefined) {
             this.previewOpen = !this.previewOpen;
@@ -475,11 +577,20 @@ export class SessionPicker implements OverlayContent {
       }
     }
     if (event.kind === 'text') {
-      // kitty disambiguate 轨纯键打字走 text 事件——q/d 双轨收键（与 key 轨
-      // 同律：q 退出/取消、d 删除）
+      // kitty disambiguate 轨纯键打字走 text 事件——双轨同律（同键单轨到达）
+      if (this.view === 'confirm') {
+        if (event.text === 'q') this.cancelConfirm(); // text 轨 q 取消确认
+        return true;
+      }
+      // 搜索态：text 轨归输入（挖掘 43 轮件 C——单字符打字与多字符粘贴同路；
+      // 粘贴空白规整 split 空白 + 单空格 join〔codex split_whitespace 锚——
+      // 裸 split(/\s+/) 对前导/尾随空白产空串元素，filter(Boolean) 补齐等价〕）
+      if (this.searchQuery !== null) {
+        this.appendQuery(event.text.trim().split(/\s+/).filter(Boolean).join(' '));
+        return true;
+      }
       if (event.text === 'q') {
-        if (this.view === 'confirm') this.cancelConfirm();
-        else this.exit();
+        this.exit();
         return true;
       }
       if (event.text === 'd') {
@@ -490,13 +601,53 @@ export class SessionPicker implements OverlayContent {
     return true; // 未消费键终局吞（模态独占）
   }
 
-  /** 进确认视图（光标行快照为删除目标——注入缺席/空表/已退出零动作） */
+  /** 进确认视图（光标行快照为删除目标——注入缺席/空表/已退出零动作；行源 = visible 单源〔挖掘 43 轮件 C〕） */
   private openConfirm(): void {
-    if (this.onDelete === undefined || this.sessions.length === 0 || this.exited) return;
-    this.confirmTarget = this.sessions[this.cursor]!;
+    if (this.onDelete === undefined || this.exited) return;
+    const visible = this.visibleSessions();
+    if (visible.length === 0) return;
+    this.confirmTarget = visible[this.cursor]!;
     this.confirmStatus = undefined;
     this.deleteInFlight = false;
     this.view = 'confirm';
+  }
+
+  /**
+   * query 变更后处理（挖掘 43 轮件 C——append/删尾/进态共用）：cursor 归 0
+   * （过滤表收缩旧光标位无意义——codex query 变更 selected 归零同义）+ 视口
+   * 夹取 + 展开态预览区联动新行
+   */
+  private afterQueryChanged(): void {
+    this.cursor = 0;
+    this.clampOffset();
+    if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
+  }
+
+  /**
+   * 退搜索态保位（挖掘 43 轮件 C——codex 稳定键同义）：退态前光标行 id 经
+   * 全表 findIndex 找回（清 query 后过滤表恢复全表——selected 映射回同一
+   * 元素）；空过滤表回退 0；找不到回退 0（防御位——picker 生命周期内
+   * sessions 只经本地删除滤行，退态前 visible[cursor] 必在 sessions）。
+   * 保的是「当前浏览位」非「进场位」——无须进场快照账。
+   */
+  private exitSearch(): void {
+    const visible = this.visibleSessions();
+    const heldId = visible.length > 0 ? visible[this.cursor]!.id : undefined;
+    this.searchQuery = null;
+    if (heldId !== undefined) {
+      const at = this.sessions.findIndex((s) => s.id === heldId);
+      this.cursor = at >= 0 ? at : 0;
+    } else {
+      this.cursor = 0;
+    }
+    this.clampOffset();
+    if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
+  }
+
+  /** query 追加（挖掘 43 轮件 C——key 轨单字符 / text 轨粘贴规整串共用） */
+  private appendQuery(text: string): void {
+    this.searchQuery = (this.searchQuery ?? '') + text;
+    this.afterQueryChanged();
   }
 
   /**
@@ -504,10 +655,14 @@ export class SessionPicker implements OverlayContent {
    * 后引擎重画承载，无需请帧）；缺席置 loading 占位 + 发闭包——异步回执
    * 落缓存 + requestRepaint 请帧（onDelete 回执同族；面板不自驱重画）。
    * 空行组归 empty 形（「（无转录）」诚实占位）；异常折 foldErrorText 单源。
+   * 行源 = visible 单源（挖掘 43 轮件 C——漏换此位则 query 归 0 后预览区拉
+   * 全表首行会话的尾段）。
    */
   private ensurePreviewOfCursor(): void {
-    if (this.onPreview === undefined || this.sessions.length === 0) return;
-    const id = this.sessions[this.cursor]!.id;
+    if (this.onPreview === undefined) return;
+    const visible = this.visibleSessions();
+    if (visible.length === 0) return;
+    const id = visible[this.cursor]!.id;
     if (this.previewCache.has(id)) return; // 缓存命中（含 loading 在飞——不双发）
     this.previewCache.set(id, { status: 'loading' });
     this.onPreview(id).then(
@@ -554,7 +709,8 @@ export class SessionPicker implements OverlayContent {
           // 不递减即翻「N/M（仅显示最近）」假截断注记新谎（B2 披露位——
           // total > 清单长判据两侧同步动；webui App 删除腿同裁量）
           if (this.totalCount !== undefined) this.totalCount = Math.max(0, this.totalCount - 1);
-          this.cursor = Math.max(0, Math.min(this.sessions.length - 1, this.cursor));
+          // 光标夹取随 visible 重算（删除后 query 不变过滤自然跟随——挖掘 43 轮件 C）
+          this.cursor = Math.max(0, Math.min(this.visibleSessions().length - 1, this.cursor));
           this.clampOffset();
           // 滤行后光标行已变——展开态预览区联动新行（缓存命中同步落帧）
           if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
@@ -578,9 +734,9 @@ export class SessionPicker implements OverlayContent {
     );
   }
 
-  /** 光标移动（单步环绕/大步夹取——挖掘 35 轮 B6 分立律；移动后光标恒可见；展开态预览区光标行联动） */
+  /** 光标移动（单步环绕/大步夹取——挖掘 35 轮 B6 分立律；移动后光标恒可见；展开态预览区光标行联动；表长随 visible 单源〔挖掘 43 轮件 C〕） */
   private moveCursor(delta: number): void {
-    this.cursor = stepCursorWrap(this.cursor, delta, this.sessions.length);
+    this.cursor = stepCursorWrap(this.cursor, delta, this.visibleSessions().length);
     this.clampOffset();
     if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
   }
@@ -589,7 +745,7 @@ export class SessionPicker implements OverlayContent {
   private clampOffset(): void {
     // 窗高上界：视口长高时 offset 不得深于「尾行恰贴窗底」位（首渲染前击键
     // 会以陈 viewportHeight=1 夹出过深 offset——render 回写真实窗高后回拉）
-    const maxOffset = Math.max(0, this.sessions.length - this.viewportHeight);
+    const maxOffset = Math.max(0, this.visibleSessions().length - this.viewportHeight);
     if (this.offset > maxOffset) this.offset = maxOffset;
     if (this.cursor < this.offset) this.offset = this.cursor;
     else if (this.cursor >= this.offset + this.viewportHeight) {
