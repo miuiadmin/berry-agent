@@ -209,8 +209,11 @@ describe('TuiBackend 直播呈现', () => {
     expect(code.io.bytes).not.toContain('│'); // 沟线退役锁
 
     // 形二：GFM 表格流式帧含双线定界（V-3 注⑨④——表头 ━ 重线整段线色键；
-    // 全框形退役：├ ┼ 交点符零在场）
-    const table = makeBackend();
+    // 全框形退役：├ ┼ 交点符零在场）。24 行屏足容锁全量（43 轮件 B 分离双
+    // 渲染后 10 行小屏表格形 = bullet 冻结进 scrollback + 尾行在视口、中段
+    // 不稳行容量丢弃——断档在「不稳行数 > 尾窗帽 + 可冻量」时为容量语义
+    // 固有；42 轮 10 行屏 ━ 在场靠错位冻结凑巧——本锁锁块型渲染非屏容量）
+    const table = makeBackend({}, 24);
     emit(table.backend, { type: 'message_start', role: 'assistant' });
     emit(table.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') });
     table.io.bytes = '';
@@ -7536,6 +7539,56 @@ describe('TuiBackend 回合收尾 recap 块化（挖掘 43 轮件 A——成功�
     io.bytes = '';
     backend.onRepaint(SESSION, [{ role: 'user', content: '投影问题', timestamp: 1 }], null);
     expect(stripAnsi(io.bytes)).not.toContain('── 用时'); // 重建后不在场——turn-recap 无 durable 投影源
+  });
+});
+
+/* ---------------- 溢出释放节律装配面（挖掘 43 轮件 B——tick 排空腿 + 动画门控） ---------------- */
+
+/** 节律锁语料：稳定标题前缀 + 不稳段落尾（尾窗被段落占——升格时点词面可精确观测；同 main-screen.test paraText 族） */
+const paraHead = (count: number): string => {
+  const nums = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  return (
+    nums
+      .slice(0, count)
+      .map((n) => `### ${n}`)
+      .join('\n\n') +
+    '\n' +
+    'A' +
+    'a'.repeat(80 * 20)
+  );
+};
+
+describe('TuiBackend 溢出释放节律（挖掘 43 轮件 B——装配级：tick 排空腿 + 动画门控）', () => {
+  it('⑩tick 排空腿：停流期积压经 tick 推帧续释放（首例 tick 触转录面；修前红 = 停流无驱动永积压）', () => {
+    const { io, backend, clock, pump } = makeInteractive();
+    emit(backend, { type: 'message_start', role: 'assistant' }); // enterWorking——tick 体忙态门开
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg(paraHead(6)) });
+    pump(); // 帧1：开账即全量（11 稳定行全冻）
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg(paraHead(8)) });
+    pump(); // 帧2：Smooth +2——'七' 升格、'八' 留账（尾窗被段落占故零写出）
+    const afterStream = io.bytes;
+    expect(stripAnsi(afterStream)).not.toContain('### 八'); // 停流时点：'八' 未升格（积压在场）
+    // 停 message_update——唯一驱动 = tick 排空腿（releaseBacklogActive 快照 →
+    // enqueuePresent + requestRender）；advance 窗内 t=80 tick 到期 → 帧3
+    //（now = clock.t）Smooth 再 +2 → '八' 升格写出
+    clock.advance(100);
+    const drained = io.bytes.slice(afterStream.length);
+    expect(stripAnsi(drained)).toContain('### 八'); // 排空驱动升格（修前：tick 不触转录面 → 永积压零新帧）
+  });
+
+  it('⑪animations=false：tick 零触转录面（B2+B4 禁用形装配级先例同构——pacing 随动画门关）', () => {
+    const { io, backend, clock, pump } = makeInteractive({ animations: false });
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg(paraHead(6)) });
+    pump(); // pacing off 全量形——帧1 全冻（'七' 前 11 行）
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg(paraHead(8)) });
+    pump(); // 帧2：全量追平——'七' '八' 当帧全升格（42 轮行为零回退）
+    const afterStream = io.bytes;
+    expect(stripAnsi(afterStream)).toContain('### 八'); // 全量形前提（对照 ⑩ 节律形）
+    clock.advance(200); // tick 周期 ×2.5——禁用形 tick 体首行短路
+    const drained = io.bytes.slice(afterStream.length);
+    expect(stripAnsi(drained)).not.toContain('### 八'); // 已冻行零重写（tick 不触转录面）
+    expect(stripAnsi(drained)).not.toContain('### 七');
   });
 });
 

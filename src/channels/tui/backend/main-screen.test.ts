@@ -292,22 +292,23 @@ const headingText = (count: number): string => {
 };
 const sg = (n: string): string => `### ${n}\x1b[0m`; // H3 标题行收口形（R-3 整行单游程——# 前缀与正文同 bold+italic；'一'/'十一' 前缀定界不互撞）
 
-describe('MainScreen 超视口冻结提交', () => {
-  const docSlot = (text: string, doc: StreamingMarkdown): TranscriptBlock => ({
-    kind: 'streaming',
-    epoch: 1,
-    text,
-    doc,
-    thinking: '',
-    thinkingDoc: null,
-    thinkingSettled: false,
-    thinkingExpanded: false,
-    thinkingStartAt: null,
-    thinkingSettledAt: null,
-    theme: DEFAULT_THEME,
-    toggleHint: 'ctrl+t',
-  });
+/** 流式 markdown 槽块（epoch 指定；冻结/节律 describe 共用） */
+const docSlot = (text: string, doc: StreamingMarkdown, epoch = 1): TranscriptBlock => ({
+  kind: 'streaming',
+  epoch,
+  text,
+  doc,
+  thinking: '',
+  thinkingDoc: null,
+  thinkingSettled: false,
+  thinkingExpanded: false,
+  thinkingStartAt: null,
+  thinkingSettledAt: null,
+  theme: DEFAULT_THEME,
+  toggleHint: 'ctrl+t',
+});
 
+describe('MainScreen 超视口冻结提交', () => {
   it('稳定面前缀超视口 → 冻结升格 durable（帧一全内容恰写一次）', () => {
     const { io, screen } = makeScreen();
     screen.start();
@@ -465,6 +466,191 @@ describe('MainScreen 超视口冻结提交', () => {
     // 尾窗化：帧帧只重写尾窗底段（〔5,12) 7 行——首行 • b 在帽外）；doc 空则
     // freezable 恒 0（零冻结维持）——续行 2 空格前缀形在场（注⑩ bullet 槽）
     expect(io.bytes).toContain('\r  b'); // 尾窗底段重写（降档腿同轴尾窗化）
+  });
+});
+
+/* ---------------- 溢出释放节律（挖掘 43 轮件 B——releasedSlotLines 账 + Smooth/CatchUp 两档） ---------------- */
+
+/**
+ * 节律锁语料族：稳定标题前缀 + 长不稳段落尾（无尾随换行 → 尾块恒不稳）。
+ * 不稳段落 ≥ 尾窗帽 → 尾窗全被段落行占据——**未冻稳定行不在尾窗可见域**，
+ * 冻结升格时点可由帧词面精确观测（冻则在冻结位恰写一次、未冻则零次）——
+ * 纯标题语料下未冻稳定行在尾窗可见，升格时点词面不可分。
+ */
+const paraText = (headCount: number): string => headingText(headCount) + 'A' + 'a'.repeat(80 * 20);
+
+describe('MainScreen 溢出释放节律（43 轮件 B）', () => {
+  /** 节律屏：pacing on（80×10 固定区 2 同基础 rig——now 全经 present 参数注入） */
+  const makePacingScreen = (): { io: MemoryTerminalIO; screen: MainScreen } => {
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    return { io, screen: new MainScreen(io, { fixedHeight: FIXED, streamReleasePacing: true }) };
+  };
+
+  it('①Smooth 节奏：溢出期稳定行 +2/帧匀速冻结（开账即全量后接管）', () => {
+    const { io, screen } = makePacingScreen();
+    screen.start();
+    const doc = new StreamingMarkdown();
+    doc.update(paraText(6)); // 6 标题 + 3 空行 = 11 行稳定——首帧开账即全量（零重放）
+    screen.present([docSlot(paraText(6), doc)], 0, { now: 0 });
+    // 帧2：+2 标题（+4 稳定行）→ 积压 4 → Smooth +2：恰冻 '七'，'八' 留账未升格
+    const text2 = paraText(8);
+    doc.update(text2);
+    io.bytes = '';
+    screen.present([docSlot(text2, doc)], 0, { now: 100 });
+    expect(io.bytes).toContain('### 七'); // 冻结升格写出（尾窗被段落占——在场即升格）
+    expect(io.bytes).not.toContain('### 八'); // 未释放——零写出（非尾窗可见）
+    expect(screen.releaseBacklogActive).toBe(true); // 积压观测面在场（tick 排空腿驱动源）
+    // 帧3：同文重呈 → Smooth 再 +2 → '八' 升格、账追平
+    io.bytes = '';
+    screen.present([docSlot(text2, doc)], 0, { now: 116 });
+    expect(io.bytes).toContain('### 八');
+    expect(screen.releaseBacklogActive).toBe(false); // 追平即归零
+  });
+
+  it('②CatchUp 深门：一帧注入 ≥8 行稳定 → 当帧一跳式全量追平', () => {
+    const { io, screen } = makePacingScreen();
+    screen.start();
+    const doc = new StreamingMarkdown();
+    doc.update(paraText(6));
+    screen.present([docSlot(paraText(6), doc)], 0, { now: 0 }); // 开账全冻 11 行
+    const text2 = paraText(11); // +5 标题（+10 稳定行）→ backlog 10 ≥ 8 深门
+    doc.update(text2);
+    io.bytes = '';
+    screen.present([docSlot(text2, doc)], 0, { now: 100 });
+    expect(io.bytes).toContain('### 十一'); // burst 跳到队尾——Smooth 形 '十一' 不可能当帧升格
+    expect(screen.releaseBacklogActive).toBe(false); // 一跳即追平
+  });
+
+  it('③CatchUp 龄门 + 时戳生命周期：积压 ≥120ms 追平；追平清戳 + null 门重戳（小积压再入仍 Smooth）', () => {
+    const { io, screen } = makePacingScreen();
+    screen.start();
+    const doc = new StreamingMarkdown();
+    doc.update(paraText(6));
+    screen.present([docSlot(paraText(6), doc)], 0, { now: 0 }); // 开账全冻；追平清戳 null
+    const text2 = paraText(8);
+    doc.update(text2);
+    screen.present([docSlot(text2, doc)], 0, { now: 100 }); // Smooth +2 → 积压 2、戳 = 100
+    // 帧3：同文停流 120ms → 龄门 CatchUp 一跳追平（深门 2 < 8 不触）
+    io.bytes = '';
+    screen.present([docSlot(text2, doc)], 0, { now: 220 }); // 220 − 100 = 120 ≥ 120
+    expect(io.bytes).toContain('### 八'); // 龄门追平升格
+    expect(screen.releaseBacklogActive).toBe(false);
+    // 帧4：追平后再注 4 行小积压——陈戳已清 + null 门重戳 → 仍 Smooth（+2 非
+    // CatchUp）：'九' 升格、'十' 留账。若陈戳残留（=100/220），400 − 戳 ≥ 120
+    // → 误 CatchUp → '十' 当帧在场 → 红（陈戳清 + null 门双锁锚）
+    const text4 = paraText(10);
+    doc.update(text4);
+    io.bytes = '';
+    screen.present([docSlot(text4, doc)], 0, { now: 400 }); // backlog 4 < 8 深门不触
+    expect(io.bytes).toContain('### 九');
+    expect(io.bytes).not.toContain('### 十');
+  });
+
+  it('④让位与回缩：stableNow 回缩帧零新冻结 + 冻结前缀回缩腿重冻恰一次（账卫生面）', () => {
+    const { io, screen } = makePacingScreen();
+    screen.start();
+    const doc = new StreamingMarkdown();
+    doc.update(paraText(6));
+    screen.present([docSlot(paraText(6), doc)], 0, { now: 0 }); // 开账全冻 11 行
+    doc.update(paraText(8));
+    screen.present([docSlot(paraText(8), doc)], 0, { now: 100 }); // Smooth +2：'七' 冻、积压 2
+    // 回缩帧：doc 回 6 标题（11 行稳定）→ stableNow 11 < released 13 → 让位；
+    // frozen 13 > stableNow 11 → 冻结前缀回缩腿（durableEndRow 回退——scrollback
+    // 旧行副本是 append-only 物理律接受代价）。帧面：零新冻结、无积压
+    const text3 = paraText(6);
+    doc.update(text3);
+    io.bytes = '';
+    screen.present([docSlot(text3, doc)], 0, { now: 150 });
+    expect(io.bytes).not.toContain('### 八'); // 已裁块零冻结（从未升格——账不越 stableNow）
+    expect(screen.releaseBacklogActive).toBe(false); // 让位后无积压（账卫生观测面）
+    // 再增长：'七' 经回缩腿退账后重冻恰一次（让位账从 11 起算——无残留虚账）
+    doc.update(paraText(7));
+    io.bytes = '';
+    screen.present([docSlot(paraText(7), doc)], 0, { now: 200 });
+    expect(io.bytes.split('### 七').length - 1).toBe(1); // 重冻恰一次
+  });
+
+  it('⑤新槽开账即全量：epoch 变更哨兵腿——旧槽回缩小账不跨槽（新槽首帧无积压）', () => {
+    const { io, screen } = makePacingScreen();
+    screen.start();
+    const docA = new StreamingMarkdown();
+    docA.update(paraText(6));
+    screen.present([docSlot(paraText(6), docA, 1)], 0, { now: 0 }); // 槽 A 开账全冻
+    docA.update(paraText(3));
+    screen.present([docSlot(paraText(3), docA, 1)], 0, { now: 50 }); // 槽 A 回缩 → released 让位至 5
+    // 槽 B（epoch 2）首帧：开账即全量（哨兵 −1 消费）——旧槽小账 5 不跨槽误判
+    // 积压；坏形（无开账）released 5 < stableNow 11 → releaseBacklogActive true → 红
+    const docB = new StreamingMarkdown();
+    docB.update(paraText(6));
+    io.bytes = '';
+    screen.present([docSlot(paraText(6), docB, 2)], 0, { now: 100 });
+    expect(io.bytes).toContain('### 六'); // 开账全量冻结（全稳定前缀当帧升格）
+    expect(screen.releaseBacklogActive).toBe(false); // 开账即全量零积压
+  });
+
+  it('⑥混合形回归锁（42 轮洞修前红）：不稳尾 > 窗容——冻结写真稳定前缀、定稿零缺行', () => {
+    const { io, screen } = makeScreen(); // 缺省 pacing off——正确性修复不受节律门控
+    screen.start();
+    const text = paraText(4); // 4 闭标题（7 稳定行）+ 21 行不稳段落——42 轮 PoC 几何
+    const doc = new StreamingMarkdown();
+    doc.update(text);
+    io.bytes = '';
+    screen.present([docSlot(text, doc)]);
+    // 修前（42 轮单调用帽耦合）：effectiveStart 回抬 → 冻结循环写窗底段落行、
+    // 标题 0 次写出（PoC 实证红锚）——修后冻结带帽无穷恒取 [frozen, total)
+    for (const n of NUMS.slice(0, 4)) {
+      expect(io.bytes.split(`### ${n}`).length - 1).toBe(1); // 标题恰写一次（冻结升格）
+    }
+    expect(io.bytes).not.toContain('• A'); // 段落首行帽外——流式期零段落头部沉淀
+    // 定稿换装：frozenSlotLines 真值 → B 段 skip 恰好——标题零重写 + 段落全量直写
+    io.bytes = '';
+    screen.present([{ kind: 'markdown', doc: MarkdownDoc.of(text) }]);
+    for (const n of NUMS.slice(0, 4)) {
+      expect(io.bytes).not.toContain(`### ${n}`); // 已冻全量 skip（修前虚账 skip 过头定稿缺行）
+    }
+    expect(io.bytes).toContain('aaaa'); // 段落定稿直写（合法滚动）
+  });
+
+  it('⑦窗头 = frozen 不变量：混合形帧冻结带首行 = 稳定前缀首行（非段落行）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    const text = paraText(4);
+    const doc = new StreamingMarkdown();
+    doc.update(text);
+    io.bytes = '';
+    screen.present([docSlot(text, doc)]);
+    // 帧字节序：稳定前缀首行先于任何段落行——修前冻结带写窗底段落行（段落
+    // 词面先现或标题缺席）
+    const stripped = stripAnsi(io.bytes);
+    expect(stripped.indexOf('### 一')).toBeGreaterThanOrEqual(0); // 在场前置（修前 −1）
+    expect(stripped.indexOf('### 一')).toBeLessThan(stripped.indexOf('aaaa')); // 前缀先行
+  });
+
+  it('⑧pacing off（缺省）+ now 在场：恒全量冻结（42 轮行为零回退）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    const text = paraText(10); // 10 标题 19 稳定行 + 不稳段落尾
+    const doc = new StreamingMarkdown();
+    doc.update(text);
+    io.bytes = '';
+    screen.present([docSlot(text, doc)], 0, { now: 500 }); // pacing off 门优先于节拍
+    for (const n of NUMS) {
+      expect(io.bytes.split(`### ${n}`).length - 1).toBe(1); // 全量冻结恰一次
+    }
+  });
+
+  it('⑨now 缺席（同步直出档）：时基失效恒全量追平（回退形）', () => {
+    const { io, screen } = makePacingScreen(); // pacing on 但 now 缺席——回退形
+    screen.start();
+    const text = paraText(10);
+    const doc = new StreamingMarkdown();
+    doc.update(text);
+    io.bytes = '';
+    screen.present([docSlot(text, doc)]); // 无 opts——+Infinity 时基
+    for (const n of NUMS) {
+      expect(io.bytes.split(`### ${n}`).length - 1).toBe(1); // 全量追平恰一次
+    }
+    expect(screen.releaseBacklogActive).toBe(false); // 全量形零积压
   });
 });
 
@@ -817,9 +1003,11 @@ describe('槽呈现尾窗化（渲染热路径 D1——冻结前缀不重渲染�
     expect(frame2).toContain('尾段新行'); // 尾段照常整写
   });
 
-  it('词法锁：present 槽渲染走尾窗单源（renderSlotTailLines 恰两处 = import + 唯一消费；旧全量私法除名）', () => {
+  it('词法锁：present 槽渲染走尾窗单源（renderSlotTailLines 恰三处 = import + 冻结带/尾窗带双消费；旧全量私法除名）', () => {
     const src = readFileSync(new URL('./main-screen.ts', import.meta.url), 'utf8');
-    expect((src.match(/renderSlotTailLines/g) ?? []).length).toBe(2);
+    // 43 轮件 B 分离双渲染：冻结带（帽无穷恒取全段——混合形洞根杀）与尾窗带
+    // （帽 = 区底余量）各消费一次——观测点随消费位迁移翻新（恰两处 → 三处）
+    expect((src.match(/renderSlotTailLines/g) ?? []).length).toBe(3);
     expect((src.match(/renderSlotLines\(/g) ?? []).length).toBe(0); // 修前红锚：旧私法在场
   });
 });

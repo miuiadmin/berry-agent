@@ -1523,7 +1523,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.jobPanel = new JobPanel({ now: () => this.now() });
     this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
     this.stack.onChange = () => this.touchFixed();
-    this.screen = new MainScreen(io, { fixedHeight: 4 }); // 初始高：编辑器 3 + 状态行 1（动态更新经 setFixed）
+    // 装配（43 轮件 B）：节律门 = 注入调度在场 && 动画开——同步直出档
+    //（scheduleFn null）帧即 flush 无节拍窗、关动画档零推帧，两形零节拍；
+    // 内容可见性不依赖动画开关（pacing off 恒全量冻结）
+    this.screen = new MainScreen(io, {
+      fixedHeight: 4, // 初始高：编辑器 3 + 状态行 1（动态更新经 setFixed）
+      streamReleasePacing: this.scheduleFn !== null && this.animationsEnabled,
+    });
     // 空态引导置态锚（07 §4.1 空转写态注 2026-10-05）：构造期零块空稿即置
     // 态入队（screen 就位后——起屏首画随 start 驱达；requestRender 未启
     // no-op，op 在队候 flush）
@@ -3225,6 +3231,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (!this.animationsEnabled) return; // 禁用形零推帧零重绘（挖掘 35 轮 B2+B4）
     if (!this.taskLine.isBusy) return;
     this.taskLine.tick();
+    // 溢出释放排空腿（挖掘 43 轮件 B——首例 tick 触转录面）：停流期
+    //（message_update 静默）积压仍在——tick 读主屏帧末快照推帧续释放（释放
+    // 步进按「目标−已释放」差值驱动非每 tick 定增；与 message_update 帧同窗
+    // 合并由 enqueuePresent 既有语义承载；停流积压最坏 120ms 龄门 + 80ms
+    // tick 周期 ≈200ms 追平）。scheduleFn null ⇒ 装配 pacing off ⇒ 快照恒
+    // false 恒惰性——公开手动驱动面语义不变
+    if (this.screen.releaseBacklogActive) {
+      this.enqueuePresent();
+      this.requestRender();
+    }
     this.touchFixed();
   }
 
@@ -4191,7 +4207,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // ——本循环只按 op 自带快照判定，不回看 flush 时刻 snapshot）
     for (const op of ops) {
       if (op.kind === 'present') {
-        this.screen.present(op.blocks, op.offset);
+        this.screen.present(op.blocks, op.offset, { now: this.now() });
         // 流式帧字节帽（批 10h R1 perf 护栏）：冻结编舞下常态帧为视口量级，
         // 超帽即病理性重排（巨表/超长开栏）——降档纯文本直推，下条消息重试
         //（帽值经选项注入面可测——缺省生产定值，见 streamFrameByteCap）

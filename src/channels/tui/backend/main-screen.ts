@@ -40,9 +40,13 @@
  * 覆盖——装配宜随高度变化触发 repaint 重建）；不稳尾段溢出**尾窗化**（42
  * 轮件 A——「不稳定尾自身超视口时接受滚动」句退役）：渲染帽 + 写出起点
  * 截断双控——不稳内容流式期零滚动写入 scrollback（多份列宽残卷病灶根除）、
- * 帽外顶行暂不可见（mutable tail 语义）；溢出期稳定前缀全量冻结升格（冻结
- * 升格滚动是合法滚、滚动源单一化于冻结段）；message_end 定稿整段升格
- * durable 全量直写照旧（B 段 skip 族不动）。
+ * 帽外顶行暂不可见（mutable tail 语义）；溢出期稳定前缀冻结升格 + **分离
+ * 双渲染**（43 轮件 B）：冻结带帽无穷（窗头 = frozen 构造保证——42 轮单
+ * 调用帽在不稳尾 > 窗容的混合溢出形回抬错位洞根杀）+ 释放账节律（Smooth
+ * 匀速 2 行/帧 + 深度/龄双门一跳式追平——溢出滚动节奏化，亚百毫秒平滑
+ * 非 42 轮帧批量跳；pacing 关/时基缺席档退化全量形）+ 尾窗带底 W 行自带
+ * 回抬（writeFrom 截断退役）；message_end 定稿整段升格 durable 全量直写
+ * 照旧（B 段 skip 族不动）。
  */
 import { CellGrid, type TerminalIO } from '../../engine/index.js';
 import {
@@ -71,6 +75,14 @@ import {
 export interface MainScreenOptions {
   /** 固定区高（行——输入框 + 状态行；随内容折行动态变化经 setFixed 更新） */
   readonly fixedHeight: number;
+  /**
+   * 溢出释放节律门（挖掘 43 轮件 B）：true = 溢出期稳定前缀按释放额度匀速
+   * 冻结（Smooth 2 行/帧 + 深度/龄双门一跳式追平）；缺省 false 零回退——
+   * 节拍短路恒全量（= 42 轮全量冻结形）。分离双渲染（正确性修复）不受本门
+   * 辖、恒开。装配位 = scheduleFn 注入 && 动画开（同步直出/关动画档零节拍
+   * ——内容可见性不依赖动画开关）。
+   */
+  readonly streamReleasePacing?: boolean;
 }
 
 /** 缺省几何（真值以 io.size() 为准——resize 路装配调 handleResize） */
@@ -112,6 +124,20 @@ export class MainScreen {
   private frozenSlotLines = 0;
   /** 在场槽代次（null = 无槽——epoch 判据） */
   private slotEpoch: number | null = null;
+  /**
+   * 释放额度（挖掘 43 轮件 B）：溢出期稳定行已获冻结许可的行数（frozen ≤
+   * released ≤ stableNow 不变量——冻结只经释放许可）。**−1 哨兵 = 未开账**
+   *（epoch 变更 / repaint·resize 权威重建 / 槽收口三处置——C 段 stableNow
+   * 求值后消费位开账即全量：重建后零重放动画、有机新槽起点 0-2 行全量无害，
+   * 两形合一无须分叉标志）。
+   */
+  private releasedSlotLines = -1;
+  /** 释放积压起点时戳（null = 无积压——CatchUp 龄门判据 + 时戳步单源：归零清戳、null 门重戳，陈戳不可能残留） */
+  private releaseBacklogSince: number | null = null;
+  /** 释放积压在场（帧末快照——backend tick 排空腿只读观测面；present C 段更新） */
+  releaseBacklogActive = false;
+  /** 溢出释放节律门（构造期定值——见 MainScreenOptions 头注） */
+  private readonly streamReleasePacing: boolean;
   /** 本帧槽写出字节数（冻结 + 换装两段合计——字节帽判据观测面） */
   private slotFrameBytes = 0;
   /** 固定区网格（装配画好交入——null = 固定区未装配只归位光标） */
@@ -135,6 +161,7 @@ export class MainScreen {
   constructor(io: TerminalIO, options: MainScreenOptions) {
     this.io = io;
     this.fixedHeight = options.fixedHeight;
+    this.streamReleasePacing = options.streamReleasePacing ?? false;
     const size = io.size();
     this.columns = size.columns;
     this.rows = size.rows;
@@ -158,8 +185,11 @@ export class MainScreen {
    * @param blocks 当前行集（帽内最近段——trim 可卸前缀）
    * @param blocksOffset 行集首块的历史裁块累计（绝对位对账输入——装配层取
    *   transcript.trimmedBlockCount；缺席 0 = 无裁块旧形）
+   * @param opts.now 节拍时基（挖掘 43 轮件 B——backend flush 注入 this.now()；
+   *   缺席 = 同步直出档时基失效 → 节拍恒全量追平（现行为回退形），时戳步
+   *   跳过防 +Infinity 入戳账）
    */
-  present(blocks: readonly TranscriptBlock[], blocksOffset = 0): void {
+  present(blocks: readonly TranscriptBlock[], blocksOffset = 0, opts?: { now?: number }): void {
     this.slotFrameBytes = 0;
     // 末块为 streaming 时即流式槽（const 绑定经 kind 判别收窄）
     const last = blocks.length > 0 ? blocks[blocks.length - 1]! : null;
@@ -240,10 +270,14 @@ export class MainScreen {
       // 槽不在场即冻结账收口（残值防御清——epoch 账只在槽在场期有意义）
       this.frozenSlotLines = 0;
       this.slotEpoch = null;
+      this.releasedSlotLines = -1; // 释放账随槽收口置哨兵（下槽开账即全量）
+      this.releaseBacklogSince = null; // 收口戳同清（旧戳跨槽会误触发龄门 CatchUp）
     } else if (slot.epoch !== this.slotEpoch) {
       // 槽代次变更 = 新槽开账：冻结行数清零（旧槽冻结行已交 scrollback 不回收）
       this.slotEpoch = slot.epoch;
       this.frozenSlotLines = 0;
+      this.releasedSlotLines = -1; // 释放账新槽哨兵（开账即全量）
+      this.releaseBacklogSince = null; // 旧槽积压戳不跨槽
     }
 
     // C. 槽换装（光标已在槽尾段首 = durable 末；partial 是完整快照——逐行整写）
@@ -266,52 +300,98 @@ export class MainScreen {
         this.durableEndRow = Math.max(0, this.durableEndRow - (this.frozenSlotLines - stableNow));
         this.frozenSlotLines = stableNow;
       }
-      // 尾窗渲染（渲染热路径 D1——冻结前缀不重渲染）：只渲染 [冻结行, 总行)
-      // 段——已冻结行是升格 durable 的不可回改内容（此后永不重写），修前每
-      // 帧全量渲染整槽纯白算（且冻结面渲染不进 slotFrameBytes 帽不可观测）。
-      // startRow = 0 即全量渲染回退形：repaint/resize/新槽开账（冻结账清零）
-      // 与让位收缩（frozenSlotLines 回抬变小）天然经此回退，正确性优先。
-      // 渲染帽（42 轮件 A——尾窗化）：帽 = 尾窗容量（区底锚下限 1——钉底形
-      // 新内容可见性；零触滚余量 regionBottom − durableEndRow）加 freezable
-      // 冻结前值（冻结段写消费 tail.lines[0..freezeNow)——渲染须含冻结源）。
-      // 行数维有界：巨表流式帧不再全量序列化（256KB 字节帽不触降档）。
+      // 步① 冻结带取源（43 轮件 B——分离双渲染）：渲染热路径 D1 尾窗语义
+      // 维持（只渲染 [冻结行, 总行) 段——已冻结行是升格 durable 的不可回改
+      // 内容，重渲染纯白算），但**帽无穷** ⇒ effectiveStart = frozen 恒成立
+      //——「窗头 = frozen」不变量从假设变构造保证（42 轮件 A 遗留洞根杀：
+      // 不稳尾行数 > 窗容的混合溢出形，单调用帽 = W + freezable 使
+      // effectiveStart = max(frozen, total − 帽) 回抬到 frozen 之上——冻结
+      // 循环消费 tail.lines[0..) 写进 scrollback 的是窗底附近行非稳定前缀、
+      // frozenSlotLines 虚增、message_end 定稿按虚账 skip 致稳定行定稿缺行）。
+      // 行集 = [frozen, total) 全段 + total 回传（prefixRows 块级缓存直承
+      // ——每帧外层数组分配 O(total−frozen)，与 42 轮同阶；非零成本诚实注记，
+      // 实测有差再优化前缀切片 API）。
+      const frozenBand = renderSlotTailLines(
+        slot,
+        this.columns,
+        this.frozenSlotLines,
+        slotLeadingGap,
+        Number.POSITIVE_INFINITY,
+      );
+      slotTotal = frozenBand.total;
       const regionBottom = this.rows - this.fixedHeight - TRANSCRIPT_FIXED_GAP - 1;
-      const freezable = stableNow - this.frozenSlotLines;
+      // 步② 节拍步（43 轮件 B——溢出期稳定行匀速释放 + burst 追赶）：capacity
+      // 取**冻结前值**（冻结写出触滚容量自衡）。四小步单源：
+      //   开账（哨兵 −1 消费位——repaint/resize 权威重建与新槽有机起点两形
+      //   合一：开账即全量，重建后零重放动画）→ 让位（released 随 stableNow
+      //   回缩同帧同量收缩——违 append-only 律防位）→ 节拍（非溢出 / 缺 now
+      //   时基 / pacing off 恒全量〔= 42 轮全量冻结退化形〕；溢出有积压走
+      //   CatchUp 判据 **OR**：深度 ≥8 行或积压龄 ≥120ms → 一跳式全量追平，
+      //   否则 Smooth +2 行/帧 ≈120 行/s @60fps 帽——codex Smooth 同量级；
+      //   常量件内单源可调）→ 时戳（积压归零任一路径〔Smooth 追平/CatchUp
+      //   跳后/让位〕清戳、null 门即重戳——陈戳不可能残留，Smooth 恒可再
+      //   入场；缺 now 跳过防 +Infinity 入戳账）。
+      const capacity = regionBottom - this.durableEndRow + 1;
+      const overflow = frozenBand.total - this.frozenSlotLines - capacity;
+      const now = opts?.now ?? Number.POSITIVE_INFINITY; // 缺席 = 同步直出档：时基失效恒 CatchUp
+      if (this.releasedSlotLines < 0) this.releasedSlotLines = stableNow; // 开账即全量
+      this.releasedSlotLines = Math.min(this.releasedSlotLines, stableNow); // 让位
+      if (overflow <= 0 || !this.streamReleasePacing) {
+        this.releasedSlotLines = stableNow; // 非溢出恒全量 / pacing off 退化（42 轮形）
+      } else {
+        const backlog = stableNow - this.releasedSlotLines;
+        if (backlog >= 8 || (this.releaseBacklogSince !== null && now - this.releaseBacklogSince >= 120)) {
+          this.releasedSlotLines = stableNow; // CatchUp 一跳式追平
+        } else {
+          this.releasedSlotLines = Math.min(stableNow, this.releasedSlotLines + 2); // Smooth 匀速
+        }
+      }
+      if (opts?.now !== undefined) {
+        if (this.releasedSlotLines >= stableNow)
+          this.releaseBacklogSince = null; // 归零清戳
+        else if (this.releaseBacklogSince === null) this.releaseBacklogSince = now; // null 门重戳
+      }
+      // 步③ 消费与写出：freezeNow 按释放额度（frozen ≤ released ≤ stableNow
+      // 不变量——冻结只经释放许可；pacing off/时基缺席档 released = stableNow
+      // 退化回 42 轮全量形）。冻结行直接消费步①行集 [0, freezeNow)——先有鸡
+      // 消解：total 先行、节拍后定帽、行集已在手。非溢出期照旧零冻结（尾段
+      // 纯视口内重写零涉）；稳定面含思考前缀行（批 10i——thinkingSettled 判据
+      // 下思考行全稳，stableSlotLineCount 单源；降档 doc = null 走 doc 面 0 +
+      // 思考行稳面）
+      const freezeNow =
+        overflow > 0 ? Math.max(0, Math.min(this.releasedSlotLines, stableNow) - this.frozenSlotLines) : 0;
+      if (freezeNow > 0) {
+        this.gotoRow(this.durableEndRow);
+        for (let i = 0; i < freezeNow; i++) {
+          this.writeSlotLine(frozenBand.lines[i]!);
+        }
+        this.frozenSlotLines += freezeNow;
+        this.durableEndRow = this.cursorRow;
+      }
+      // 尾窗带（43 轮件 B——writeFrom 截断退役）：帽 = 底 W 行（区底锚下限 1
+      //——钉底形新内容可见性；W = 零触滚余量·冻结后值），行集起点自带回抬
+      // 语义 effectiveStart = max(frozen, total − W)——**起点恒取 frozen
+      //（冻结后 ≡ released——溢出冻结消费到位；非溢出零冻结，released 越
+      // 过的稳定行〔含槽头垫行〕回尾窗可见域——冻结行为唯一推进器）**：未冻
+      // 结稳定行与不稳尾在 mutable 区可见 = codex 队列语义等价；帽外顶行
+      // 流式期不渲染（mutable tail 语义——不稳内容永不滚入 scrollback，残卷
+      // 病灶根除）；深溢出钉底形 W = 1 区底锚单行（写出触滚 1 行旧内容合法
+      //——新内容可见性优先）；冻结段滚动是唯一批量滚动源。
+      this.gotoRow(this.durableEndRow);
       const tail = renderSlotTailLines(
         slot,
         this.columns,
         this.frozenSlotLines,
         slotLeadingGap,
-        Math.max(1, regionBottom - this.durableEndRow) + freezable,
+        Math.max(1, regionBottom - this.durableEndRow),
       );
-      slotTotal = tail.total;
-      // 稳定面冻结（42 轮件 A 冻结拓宽·甲案）：溢出期全量冻结——freezeNow =
-      // overflow > 0 ? freezable : 0（原 min(overflow, freezable) 钳制废止：
-      // 溢出期稳定前缀全量升格，与 B 段 append 直写同构——冻结升格滚动是
-      // 合法滚、滚动源单一化于冻结段）；非溢出期照旧零冻结（尾段纯视口内
-      // 重写零涉）。稳定面含思考前缀行（批 10i——thinkingSettled 判据下思考
-      // 行全稳，stableSlotLineCount 单源；降档 doc = null 走 doc 面 0 + 思考行稳面）
-      const capacity = regionBottom - this.durableEndRow + 1;
-      const overflow = tail.total - this.frozenSlotLines - capacity;
-      const freezeNow = overflow > 0 ? freezable : 0;
-      if (freezeNow > 0) {
-        this.gotoRow(this.durableEndRow);
-        for (let i = 0; i < freezeNow; i++) {
-          this.writeSlotLine(tail.lines[i]!);
-        }
-        this.frozenSlotLines += freezeNow;
-        this.durableEndRow = this.cursorRow;
-      }
-      // 尾段写出（42 轮件 A——写出起点截断）：起点 = max(freezeNow, 尾窗长 −
-      // 尾窗容量（区底锚下限 1——冻结后值）)。只写容量内底段——不稳内容
-      // 永不滚入 scrollback（残卷病灶根除；帽外顶行流式期暂不可见 =
-      // mutable tail 语义）；深溢出钉底形容量 1 = 区底锚单行（写出触滚 1 行
-      // 旧内容合法——新内容可见性优先）；冻结段滚动是唯一批量滚动源。
-      this.gotoRow(this.durableEndRow);
-      const writeFrom = Math.max(freezeNow, tail.lines.length - Math.max(1, regionBottom - this.durableEndRow));
-      for (let i = writeFrom; i < tail.lines.length; i++) {
+      for (let i = 0; i < tail.lines.length; i++) {
         this.writeSlotLine(tail.lines[i]!);
       }
+      // 帧末快照（tick 排空腿观测面——backend 只读不重算）：溢出且未追平 = 积压在场
+      this.releaseBacklogActive = overflow > 0 && this.releasedSlotLines < stableNow;
+    } else {
+      this.releaseBacklogActive = false; // 无槽帧积压观测面归零
     }
 
     // D. 余行清除（新槽末到上次槽末之间的 stale 行——EL 擦除禁空格填充）；
@@ -454,6 +534,8 @@ export class MainScreen {
     this.slotLineCount = 0;
     this.frozenSlotLines = 0;
     this.slotEpoch = null;
+    this.releasedSlotLines = -1; // 释放账随权威重建置哨兵（下帧开账即全量——零重放动画）
+    this.releaseBacklogSince = null; // 重建戳同清（旧戳会误触发龄门）
     this.durableEndRow = 0;
     this.guideRows = 0; // 空态引导账随清屏失效（emptyGuide 态位存续——present 按态重画）
     this.guideSig = '';
