@@ -54,9 +54,7 @@
 import {
   DIM_STYLE,
   ellipsize,
-  graphemeWidth,
   sanitizeDisplayText,
-  splitGraphemes,
   stringWidth,
   truncateToWidth,
   wrapText,
@@ -65,6 +63,7 @@ import {
 } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import { capStyledLine, clampRuns, type StyledLine, type StyleRun } from '../backend/ansi-rows.js';
+import { mapRunsOntoSegment, wrapByGraphemes } from './wrap.js';
 import { highlight, languageForPath, tokenStyle } from '../markdown/highlight/index.js';
 import { diffWords, parsePatchSections, type PatchSection } from './word-diff.js';
 import { lookupToolRenderer, type RendererLine, type ToolRenderResultInput } from '../../renderers.js';
@@ -1280,44 +1279,6 @@ function diffRowStyledLines(
     }
   }
   return lines;
-}
-
-/**
- * 内容列硬折行（字素推进硬切）：产出源串 UTF-16 区间随段携带（供游程交集
- * 映射）；空内容单空段（首行仍出——bg 带形）。与 wrapText 分立：diff 内容
- * 列保真优先（wrapText 续行跳行首空格会丢字符——内容对齐是代码 diff 的语义）。
- */
-function wrapByGraphemes(text: string, avail: number): Array<{ text: string; start: number; end: number }> {
-  if (text === '') return [{ text: '', start: 0, end: 0 }];
-  const segments: Array<{ text: string; start: number; end: number }> = [];
-  let current = '';
-  let start = 0;
-  let width = 0;
-  for (const grapheme of splitGraphemes(text)) {
-    const w = graphemeWidth(grapheme);
-    // 硬切：累计宽超内容列即断段（当前段非空——单字素超列直接入段由整行帽兜底）
-    if (current !== '' && width + w > avail) {
-      segments.push({ text: current, start, end: start + current.length });
-      start += current.length;
-      current = '';
-      width = 0;
-    }
-    current += grapheme;
-    width += w;
-  }
-  if (current !== '') segments.push({ text: current, start, end: start + current.length });
-  return segments;
-}
-
-/** 内容游程 → 折行段源区间交集平移（游程跨折行边界保留——各段各持交集片） */
-function mapRunsOntoSegment(runs: readonly StyleRun[], segStart: number, segEnd: number, offset: number): StyleRun[] {
-  const out: StyleRun[] = [];
-  for (const run of runs) {
-    const start = Math.max(run.start, segStart);
-    const end = Math.min(run.end, segEnd);
-    if (start < end) out.push({ start: start - segStart + offset, end: end - segStart + offset, style: run.style });
-  }
-  return out;
 }
 
 /** 段族 → 游程（挖掘 39 轮件 I 翻档）：目标类段 = diff 色整段（R4 语义优先

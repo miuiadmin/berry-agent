@@ -194,7 +194,7 @@ describe('DiffViewer 副屏件', () => {
     expect(row1).not.toContain('-0');
   });
 
-  it('词级对行超宽省略形收口（界面美化役 2026-10-01 ①——… 记号随段着色 + 两侧记号同列；修前红：硬切被切行与真实行尾不可辨）', () => {
+  it('词级对行超宽硬折行——续行承接与着色跨切点保留（49 轮件 A；修前红实证=旧「… 收口」锁三枚红——行尾不可见旧行为）', () => {
     const patch = [
       '*** Begin Patch',
       '*** Update File: src/one.ts',
@@ -213,22 +213,22 @@ describe('DiffViewer 副屏件', () => {
     viewer.handleEvent(k('enter')); // 展开首组（收起行空间单组头——光标钉组头，组体行空光标位）
     const grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    // 对行几何（ZCode 对标批后）：空光标位 + 行号槽（旧轨|新轨 W=1 + 缝 2）+
-    // '-'/‘+’ 前缀 + 'old '/'new ' 同宽前缀 → 两侧变段同列起笔、同帽截断；
-    // 尾部变段 40 列 > 余 15 → 14 整字 + '…' 恰满 24 列（修前红锚：17 x 硬切
-    // 到帽、尾部无 …）
-    expect(readRow(grid, 2, width)).toBe(' 1  -old ' + 'x'.repeat(14) + '…');
-    expect(readRow(grid, 3, width)).toBe('   1+new ' + 'y'.repeat(14) + '…');
-    // … 记号随段既有着色（界面美化役①——diffRemoved/diffAdded 前景不变）：
-    // del 行记号红系 / add 行记号绿系，且两侧记号同列（对行词级几何不破）
-    const markerCol = width - 1;
-    expect(grid.getCell(2, markerCol)?.grapheme).toBe('…');
-    expect(grid.getCell(2, markerCol)?.style?.fg).toBe(DEFAULT_THEME.diffRemoved);
-    expect(grid.getCell(3, markerCol)?.grapheme).toBe('…');
-    expect(grid.getCell(3, markerCol)?.style?.fg).toBe(DEFAULT_THEME.diffAdded);
-    // 记号后零残留（被切即行终——… 后不缀后续段内容）
-    expect(readRow(grid, 2, width).endsWith('…')).toBe(true);
-    expect(readRow(grid, 3, width).endsWith('…')).toBe(true);
+    // 内容预算 19（24 − 槽区 4 − 前缀 1）：'old '+40x 共 44 列折 3 视觉行
+    //（19 + 19 + 6）——首视觉行截于折点**无 '…'**（省略号只在帽行/省略位）
+    expect(readRow(grid, 2, width)).toBe(' 1  -old ' + 'x'.repeat(15));
+    // 续行：行号槽空格对齐 + 前缀列空格（-/+ 仅首视觉行）+ 承接段片
+    expect(readRow(grid, 3, width)).toBe(' '.repeat(5) + 'x'.repeat(19));
+    // 尾段可达（本件核心价值——修前 '…' 截断行尾不可见）
+    expect(readRow(grid, 4, width)).toBe(' '.repeat(5) + 'x'.repeat(6));
+    // add 行同律（对行合并行序：del 3 视觉行后接 add 3 视觉行）
+    expect(readRow(grid, 5, width)).toBe('   1+new ' + 'y'.repeat(15));
+    expect(readRow(grid, 6, width)).toBe(' '.repeat(5) + 'y'.repeat(19));
+    expect(readRow(grid, 7, width)).toBe(' '.repeat(5) + 'y'.repeat(6));
+    // 着色跨切点保留：变段折行后两视觉行均 diffRemoved/diffAdded 前景
+    expect(grid.getCell(2, 10)?.style?.fg).toBe(DEFAULT_THEME.diffRemoved);
+    expect(grid.getCell(3, 10)?.style?.fg).toBe(DEFAULT_THEME.diffRemoved);
+    expect(grid.getCell(5, 10)?.style?.fg).toBe(DEFAULT_THEME.diffAdded);
+    expect(grid.getCell(6, 10)?.style?.fg).toBe(DEFAULT_THEME.diffAdded);
   });
 
   it('enter 展开光标组：组体行呈现（前缀 + 行文本）；再 enter 收起', () => {
@@ -588,7 +588,7 @@ describe('DiffViewer 行号槽 + split 双栏（ZCode 对标批双件）', () =>
     expect(readRow(grid2, 2, width)).toBe('100% · ↑↓ 移动 · enter 展开/收起 · q/esc 返回');
   });
 
-  it('split 半栏超宽 … 收口：两侧各自半栏预算内截断 + 中缝不越（… 省略位两形同律）', () => {
+  it('split 半栏超宽硬折行——两侧独立折续行承接 + 中缝不越（49 轮件 A 翻档；… 省略位两形同律句随形改帽行语义）', () => {
     const patch = [
       '*** Begin Patch',
       '*** Update File: src/wide.ts',
@@ -602,13 +602,16 @@ describe('DiffViewer 行号槽 + split 双栏（ZCode 对标批双件）', () =>
     viewer.handleEvent(k('enter')); // 展开唯一组 → 对行合并行落屏行 2
     const grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    // 左半预算 46（槽 3 + 前缀 1 后余 41 → 40 整字 + '…' 止步缝前 col 48）；
-    // 右半同律（col 98）——… 记号随段既有着色（unified 同源 renderLineContent）
-    expect(readSeg(grid, 2, 0, 49)).toBe(' 1 -old ' + 'x'.repeat(40) + '…');
-    expect(readSeg(grid, 2, 50, 100)).toBe(' 1 +new ' + 'y'.repeat(40) + '…');
-    expect(grid.getCell(2, 48)?.grapheme).toBe('…');
-    expect(grid.getCell(2, 98)?.grapheme).toBe('…');
-    expect(grid.getCell(2, 49)?.grapheme ?? ' ').toBe(' '); // 中缝列不越占
+    // 左半预算 45（半栏 49 − 槽 3 − 前缀 1）：'old '+60x 共 64 列折 2 视觉行
+    //（45 + 19）——首视觉行截于折点（'old ' 4 + 41x）；右半同律 y
+    expect(readSeg(grid, 2, 0, 49)).toBe(' 1 -old ' + 'x'.repeat(41));
+    expect(readSeg(grid, 2, 50, 100)).toBe(' 1 +new ' + 'y'.repeat(41));
+    // 续行承接：空槽 + 前缀列空格 + 余段（19 列）——两侧独立折同律
+    expect(readSeg(grid, 3, 0, 49)).toBe(' '.repeat(4) + 'x'.repeat(19));
+    expect(readSeg(grid, 3, 50, 100)).toBe(' '.repeat(4) + 'y'.repeat(19));
+    // 中缝列不越占（两侧折行文本恒止步缝前）
+    expect(grid.getCell(2, 49)?.grapheme ?? ' ').toBe(' ');
+    expect(grid.getCell(3, 49)?.grapheme ?? ' ').toBe(' ');
   });
 });
 
@@ -731,8 +734,9 @@ describe('DiffViewer 组体行 bg 色带（挖掘 45 轮件 E）', () => {
     expect(bgAt(grid, 5, 40)).toBe(lightTrue.diffAddedBg);
   });
 
-  it('超宽截断行带尾完整——… 收口后余列仍衬底（pre-fill 语义：截断点后无裸尾）', () => {
-    const patch = ['*** Begin Patch', '*** Update File: src/one.ts', `-old ${'x'.repeat(60)}`, '*** End Patch'].join(
+  it('超帽行收口带尾完整——帽行 … 后余列仍衬底（pre-fill 语义：截断点后无裸尾；49 轮件 A 随折行形迁移）', () => {
+    // 内容 600 列 > 预算 59 × 帽 9 → 折行帽收口：第 8 续行（屏行 10）'…' 截断
+    const patch = ['*** Begin Patch', '*** Update File: src/one.ts', `-old ${'x'.repeat(600)}`, '*** End Patch'].join(
       '\n',
     );
     const { viewer } = makeViewer({ messages: [assistant([editCall('t1', patch)]), result('t1')] });
@@ -740,9 +744,15 @@ describe('DiffViewer 组体行 bg 色带（挖掘 45 轮件 E）', () => {
     viewer.handleEvent(k('enter')); // 展开唯一组（光标钉组头）→ del 行落屏行 2
     const grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 2, width).endsWith('…')).toBe(true);
+    // 帽行（第 8 续行）'…' 收口——超帽内容截断有示（'…' 语义随形翻档：帽收口位）
+    expect(readRow(grid, 10, width).endsWith('…')).toBe(true);
     for (let c = 5; c < width; c++) {
-      expect(bgAt(grid, 2, c)).toBe(darkTrue.diffRemovedBg); // 带连续性——截断点后余列恒衬底
+      expect(bgAt(grid, 10, c)).toBe(darkTrue.diffRemovedBg); // 带连续性——截断点后余列恒衬底
+    }
+    // 全视觉行带承继（首视觉行与中段续行同律——band 全视觉行铺）
+    for (let c = 5; c < width; c++) {
+      expect(bgAt(grid, 2, c)).toBe(darkTrue.diffRemovedBg);
+      expect(bgAt(grid, 6, c)).toBe(darkTrue.diffRemovedBg);
     }
   });
 
@@ -755,6 +765,211 @@ describe('DiffViewer 组体行 bg 色带（挖掘 45 轮件 E）', () => {
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
     expect(bgAt(grid, 2, 1)).toBe(darkTrue.diffRemovedBg);
     expect(bgAt(grid, 2, 3)).toBe(darkTrue.diffRemovedBg);
+  });
+});
+
+/* ---- 挖掘 49 轮件 A：超宽行硬折行续行（ellipsize 截断翻档——codex diff_render.rs
+       「long lines are hard-wrapped at the available column width」同律）---- */
+
+describe('DiffViewer 超宽行硬折行（挖掘 49 轮件 A）', () => {
+  /** 读回一行（trimEnd） */
+  function readRow(grid: CellGrid, row: number, width: number): string {
+    let out = '';
+    for (let col = 0; col < width; col++) out += grid.getCell(row, col)?.grapheme ?? ' ';
+    return out.trimEnd();
+  }
+
+  /** 读回列段 [from, to)（split 双栏左右半几何断言——trimEnd 收口） */
+  function readSeg(grid: CellGrid, row: number, from: number, to: number): string {
+    let out = '';
+    for (let col = from; col < to; col++) out += grid.getCell(row, col)?.grapheme ?? ' ';
+    return out.trimEnd();
+  }
+
+  /** 读某格 bg 色值（带断言 helper——undefined = 无带） */
+  const bgAt = (grid: CellGrid, row: number, col: number) => grid.getCell(row, col)?.style?.bg;
+
+  const darkTrue = resolveTheme(DARK_PALETTE, 'truecolor');
+
+  function makeViewer(patch: string, theme = DEFAULT_THEME) {
+    const viewer = new DiffViewer({
+      messages: [assistant([editCall('t1', patch)]), result('t1')],
+      theme,
+      sessionId: 'sess-x',
+      onExit: vi.fn(),
+    });
+    return viewer;
+  }
+
+  it('续行帽 8 几何上界——600 列折 11 段帽至 9 视觉行、帽行 … 收口、非帽行无 …', () => {
+    // 内容预算 59（64 − 槽区 4 − 前缀 1）：'old '+600x 共 604 列 → 11 段 →
+    // 帽 8：首 + 8 续 = 9 视觉行上界（护帧预算——巨宽单行不炸屏）
+    const viewer = makeViewer(
+      ['*** Begin Patch', '*** Update File: src/one.ts', `-old ${'x'.repeat(600)}`, '*** End Patch'].join('\n'),
+    );
+    const width = 64;
+    viewer.handleEvent(k('enter')); // 展开唯一组 → 组体屏行 2 起
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // 行账锁：标题 1 + 组头 1 + 组体 9 + footer 1 = 12（修前截断形 4——帽上界生效实证）
+    expect(grid.rows).toBe(12);
+    // 首视觉行：'old ' 入首段（59 列 = 'old ' 4 + 55x）、行号前缀照常
+    expect(readRow(grid, 2, width)).toBe(' 1  -old ' + 'x'.repeat(55));
+    // 中段续行（第 5 视觉行）：满段 59x
+    expect(readRow(grid, 6, width)).toBe(' '.repeat(5) + 'x'.repeat(59));
+    // 帽行（第 8 续行 = 屏行 10）：59x+'…' 超 59 → ellipsize 收口 58x+'…'（'…'
+    // 恒在场——帽行片恰满宽不触超宽路，收口形片尾拼 … 后整体过 ellipsize 单源）
+    expect(readRow(grid, 10, width)).toBe(' '.repeat(5) + 'x'.repeat(58) + '…');
+    // 非帽行无 …（省略号只在帽收口位——'…' 语义随形翻档的几何面锁）
+    for (let r = 3; r <= 9; r++) expect(readRow(grid, r, width)).not.toContain('…');
+  });
+
+  it('percent 按视觉行账——折行展开行数涨、end 到底 100 与 home 回顶 0（48B 解耦红利首消费件）', () => {
+    // 10 行各 133 列（'l0 '+130x）→ 每行 3 视觉行 → 行空间 1 + 30 = 31
+    const lines = Array.from({ length: 10 }, (_, i) => `-l${i} ${'x'.repeat(130)}`);
+    const viewer = makeViewer(['*** Begin Patch', '*** Update File: src/big.ts', ...lines, '*** End Patch'].join('\n'));
+    const width = 64;
+    const height = 8; // viewHeight = 6 < 行空间 31——滚动账真实成立
+    viewer.handleEvent(k('enter'));
+    const readBottom = (): string => {
+      const grid = new CellGrid(width, height);
+      viewer.render(grid, { row: 0, col: 0, width, height });
+      return readRow(grid, height - 1, width);
+    };
+    // 量高随视觉行展开（标题 1 + 组头 1 + 组体 30 + footer 1 = 33；修前每行截断 1 视觉行 = 13）
+    expect(viewer.measure(width)).toBe(33);
+    viewer.handleEvent(k('home'));
+    expect(readBottom()).toBe('0% · ↑↓ 移动 · enter 展开/收起 · q/esc 返回');
+    viewer.handleEvent(k('end')); // 光标尾视觉行 → offset 压至 maxOffset（31 − 6 = 25）
+    expect(readBottom()).toBe('100% · ↑↓ 移动 · enter 展开/收起 · q/esc 返回');
+    viewer.handleEvent(k('home'));
+    viewer.handleEvent(k('pagedown')); // 中段非端点（视觉行粒度光标行走）
+    const mid = readBottom();
+    expect(mid).toContain('%');
+    expect(mid.startsWith('0%')).toBe(false);
+    expect(mid.startsWith('100%')).toBe(false);
+  });
+
+  it('光标停续行——› 落续行首列钉随带上（视觉行粒度行走：flatRows 展开后光标账跟新）', () => {
+    const viewer = makeViewer(
+      ['*** Begin Patch', '*** Update File: src/one.ts', `-old ${'x'.repeat(600)}`, '*** End Patch'].join('\n'),
+      darkTrue,
+    );
+    const width = 64;
+    viewer.measure(width); // 形随宽先行（事件面 flatRows 折行粒度依赖 lastWidth——渲染前缺省 0 单行形；真实序首帧先于键）
+    viewer.handleEvent(k('enter')); // 光标 = 组头（行空间 0）
+    for (let i = 0; i < 7; i++) viewer.handleEvent(k('down')); // → 行空间 7（第 7 视觉行）
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // 光标行 7 = 第 7 视觉行（中段续行）→ 屏行 8：› 覆首列、内容片不扰
+    expect(readRow(grid, 8, width)).toBe('›' + ' '.repeat(4) + 'x'.repeat(59));
+    // 钉随不凿洞（件 E 同律）：标记写携带行级带
+    expect(grid.getCell(8, 0)?.style).toEqual({ bg: darkTrue.diffRemovedBg });
+  });
+
+  it('split 短侧衬空——对行左折 2 右 1：第二视觉行右半空挂但带与槽仍铺、中缝恒裸', () => {
+    // 左半 'old '+60x 共 64 列 → 45+19 两视觉行；右半 'new' 3 列单片 → pair
+    // 折数取 max=2，右第二视觉行衬空（带属行级非片级——diff 并排语义对齐）
+    const viewer = makeViewer(
+      ['*** Begin Patch', '*** Update File: src/wide.ts', `-old ${'x'.repeat(60)}`, '+new', '*** End Patch'].join('\n'),
+      darkTrue,
+    );
+    const width = 100;
+    viewer.measure(width); // 形随宽先行（split 行空间）
+    viewer.handleEvent(k('enter')); // 对行合并行落屏行 2
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // 第一视觉行：左侧首段 + 右侧整行（短侧首即末）
+    expect(readSeg(grid, 2, 0, 49)).toBe(' 1 -old ' + 'x'.repeat(41));
+    expect(readSeg(grid, 2, 50, 100)).toBe(' 1 +new');
+    // 第二视觉行：左续行承接、右半空挂（trimEnd 收口空）但 add 带衬空铺
+    expect(readSeg(grid, 3, 0, 49)).toBe(' '.repeat(4) + 'x'.repeat(19));
+    expect(readSeg(grid, 3, 50, 100)).toBe('');
+    expect(bgAt(grid, 3, 60)).toBe(darkTrue.diffAddedBg);
+    // 中缝列恒裸（衬空视觉行同律——带不越缝）
+    expect(bgAt(grid, 3, 49)).toBeUndefined();
+  });
+
+  it('极窄窗多字素行视觉行恒 1——avail ≤ 0 守卫（wrapByGraphemes 逐字素成段防虚胀；调用位自守）', () => {
+    // width=5：内容预算 = 5 − 槽区 4 − 前缀 1 = 0 → 守卫单片（修前若直入
+    // wrapByGraphemes(text, 0) 逐字素成段 8 行 → measure 11 虚胀——守卫回归锁）
+    const viewer = makeViewer(
+      ['*** Begin Patch', '*** Update File: src/one.ts', '-abcdefgh', '*** End Patch'].join('\n'),
+    );
+    const width = 5;
+    viewer.handleEvent(k('enter'));
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // 行账：标题 1 + 组头 1 + 组体 1（恒单视觉行）+ footer 1 = 4
+    expect(grid.rows).toBe(4);
+    // 内容位 room 0（槽区 4 + 前缀 1 占满 5 列）——renderLineContent 早退零写
+    //（与件 E 极窄窗带行同律：守卫锁行账，内容不可见不是缺字）
+    expect(readRow(grid, 2, width)).toBe(' 1  -');
+  });
+
+  it('孤增行孤立路折行——Add File 体整行增：前缀 + 仅首视觉行、尾段可达、着色跨切点', () => {
+    // 孤立路（无词级对行）：Add File 体 '+' 前缀剥除后 '# '+50b 共 52 列折
+    // 3 视觉行（19+19+14）——尾段完整可达（本件核心价值的孤立行面）
+    const viewer = makeViewer(`*** Add File: src/new.md\n+# ${'b'.repeat(50)}`);
+    const width = 24;
+    viewer.handleEvent(k('enter'));
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    expect(readRow(grid, 2, width)).toBe('   1+# ' + 'b'.repeat(17));
+    expect(readRow(grid, 3, width)).toBe(' '.repeat(5) + 'b'.repeat(19));
+    expect(readRow(grid, 4, width)).toBe(' '.repeat(5) + 'b'.repeat(14));
+    // 孤增行整行 diffAdded 前景——折行后各视觉行同色（跨切点保留）
+    expect(grid.getCell(2, 8)?.style?.fg).toBe(DEFAULT_THEME.diffAdded);
+    expect(grid.getCell(3, 10)?.style?.fg).toBe(DEFAULT_THEME.diffAdded);
+    expect(grid.getCell(4, 10)?.style?.fg).toBe(DEFAULT_THEME.diffAdded);
+  });
+
+  it('ctx 行孤立路折行——前缀列恒空、尾段可达、ctx 裸无变段前景', () => {
+    // ctx 行文本 ' '+44c 共 45 列折 3 视觉行（19+19+7）；ctx 无 -/+ 前缀
+    const viewer = makeViewer(
+      ['*** Begin Patch', '*** Update File: src/one.ts', ` ${'c'.repeat(44)}`, '-old', '+new', '*** End Patch'].join(
+        '\n',
+      ),
+    );
+    const width = 24;
+    viewer.handleEvent(k('enter'));
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // ctx 双轨槽 '1 1' + 前缀列空 + 首段（空格 + 18c）
+    expect(readRow(grid, 2, width)).toBe(' 1 1  ' + 'c'.repeat(18));
+    expect(readRow(grid, 3, width)).toBe(' '.repeat(5) + 'c'.repeat(19));
+    expect(readRow(grid, 4, width)).toBe(' '.repeat(5) + 'c'.repeat(7));
+    // ctx 裸（无变段前景——续行同律）
+    expect(grid.getCell(2, 10)?.style?.fg).toBeUndefined();
+    expect(grid.getCell(3, 10)?.style?.fg).toBeUndefined();
+  });
+
+  it('gap 分隔行不折——段间 ⋮ 视觉行恒 1（wrap 只作用组体内容行：既有消费面零扰）', () => {
+    // 同文件两段须两 call 形（foldSessionDiff 跨 call 段序聚合到同组——单 call
+    // 内同路径二段头不认段）：各段超宽行折 3 视觉行 ×2 + gap 1 → 组体 7 行
+    const viewer = new DiffViewer({
+      messages: [
+        assistant([editCall('t1', `*** Update File: src/one.ts\n-old ${'x'.repeat(44)}`)]),
+        result('t1'),
+        assistant([editCall('t2', `*** Update File: src/one.ts\n+new ${'y'.repeat(44)}`)]),
+        result('t2'),
+      ],
+      theme: DEFAULT_THEME,
+      sessionId: 'sess-x',
+      onExit: vi.fn(),
+    });
+    const width = 24; // 内容预算 19：'old '+44x 共 48 列折 3 视觉行（19+19+10）
+    viewer.handleEvent(k('enter'));
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // 行账：标题 1 + 组头 1 +（3 视觉行 + gap 1 + 3 视觉行）+ footer 1 = 10
+    expect(grid.rows).toBe(10);
+    // gap ⋮ 行（屏行 5）恰单行——槽区空 + ⋮ 落内容列（:1010 同形；折行不波及 gap 形）
+    expect(readRow(grid, 5, width)).toBe('    ⋮');
+    // 前后段折行在场（gap 不折 ≠ 段内不折——两面同帧锁）；段 2 无回执续前段
+    // 尾游标：新轨 1（段 1 纯删无新轨行）
+    expect(readRow(grid, 4, width)).toBe(' '.repeat(5) + 'x'.repeat(10));
+    expect(readRow(grid, 6, width)).toBe('   1+new ' + 'y'.repeat(15));
   });
 });
 

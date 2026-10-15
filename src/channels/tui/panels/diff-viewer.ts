@@ -35,6 +35,7 @@ import { fitLine } from '../row-segments.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
 import { diffWords, parsePatchLines, type DiffSeg, type PatchLine } from '../blocks/word-diff.js';
+import { wrapByGraphemes } from '../blocks/wrap.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { DIM_STYLE } from '../../engine/index.js';
@@ -328,12 +329,59 @@ function splitRowsOf(rows: readonly DiffBodyRow[]): readonly SplitPair[] {
 
 /**
  * 扁平呈现行（光标/滚动的行空间单源——形随宽双空间）：组头 + 展开组体
- *（unified 形逐行 / split 形双栏合并行）。
+ *（unified 形逐行 / split 形双栏合并行）。49 轮件 A：超宽行在 flatRows 层
+ * 硬折行展开为多视觉行（光标/滚动/percent 按 FlatRow 粒度自动跟新）。
  */
 type FlatRow =
   | { readonly kind: 'head'; readonly group: DiffFileGroup }
-  | { readonly kind: 'body'; readonly row: DiffBodyRow; readonly numWidth: number }
-  | { readonly kind: 'split'; readonly pair: SplitPair; readonly numWidth: number };
+  | {
+      readonly kind: 'body';
+      readonly row: DiffBodyRow;
+      readonly numWidth: number;
+      /** 折行片（49 轮件 A——undefined = 窄行/gap 现状单行形零扰） */
+      readonly wrap?: WrapSlice;
+    }
+  | {
+      readonly kind: 'split';
+      readonly pair: SplitPair;
+      readonly numWidth: number;
+      /** 左侧视觉行片（null = 本视觉行左侧无内容——短侧衬空 / gap 双侧空） */
+      readonly left: WrapSlice | null;
+      /** 右侧视觉行片（同上） */
+      readonly right: WrapSlice | null;
+    };
+
+/**
+ * 视觉行片（49 轮件 A 硬折行展开）：index/count = 视觉行序与总数；
+ * start/end = 源行文本（body.text）UTF-16 闭开区间——render 按区间切段族
+ * 交集片（段族本侧拼接重建恒等 body.text 的 diffWords 契约假设——偏移失配
+ * 时交集自然空，降级缺字不炸）。
+ */
+interface WrapSlice {
+  readonly index: number;
+  readonly count: number;
+  readonly start: number;
+  readonly end: number;
+}
+
+/** 续行帽（49 轮件 A——第 8 续行起 '…' 收口护帧预算；巨宽单行不炸屏） */
+const DIFF_WRAP_CONTINUATION_CAP = 8;
+
+/**
+ * 行文本 → 视觉行片全集（49 轮件 A）：极窄窗（avail ≤0）与窄行恒单片
+ *〔0, text.length〕（wrap 不折——renderLineContent room 0 早退 / 整行写
+ * 现状承底）；超宽行走 wrapByGraphemes 字素硬切 + 续行帽（段数超 1+帽
+ * 取前 1+帽——末帽行收口由 renderLineContent 帽行 ellipsize 兜底）。
+ */
+function visualSlicesOf(text: string, avail: number): readonly WrapSlice[] {
+  if (avail <= 0 || stringWidth(text) <= avail) {
+    return [{ index: 0, count: 1, start: 0, end: text.length }];
+  }
+  const segments = wrapByGraphemes(text, avail);
+  const maxRows = 1 + DIFF_WRAP_CONTINUATION_CAP;
+  const capped = segments.length > maxRows ? segments.slice(0, maxRows) : segments;
+  return capped.map((seg, i) => ({ index: i, count: capped.length, start: seg.start, end: seg.end }));
+}
 
 /** 改动总览装配选项 */
 export interface DiffViewerOptions {
@@ -428,7 +476,7 @@ export class DiffViewer implements OverlayContent {
     return this.lastWidth >= SPLIT_MIN_WIDTH;
   }
 
-  /** 扁平行空间（组头 + 展开组体——render/事件两消费面单源；形随宽双空间） */
+  /** 扁平行空间（组头 + 展开组体——render/measure/事件三消费面单源；形随宽双空间） */
   private flatRows(): readonly FlatRow[] {
     const split = this.splitForm;
     const rows: FlatRow[] = [];
@@ -437,11 +485,45 @@ export class DiffViewer implements OverlayContent {
       if (!this.expanded.has(group.path)) continue;
       const bodyRows = bodyRowsOf(group.sections);
       const numWidth = numWidthOfRows(bodyRows);
-      // split 形：对行合并同屏行（行空间收缩）；unified 形：组体逐行
+      // split 形：对行合并同屏行（行空间收缩）+ 两侧独立折独立帽（49 轮件 A
+      //——行折数取 max 短侧衬空，diff 并排语义：左右行视觉对齐）
       if (split) {
-        for (const pair of splitRowsOf(bodyRows)) rows.push({ kind: 'split', pair, numWidth });
-      } else {
-        for (const row of bodyRows) rows.push({ kind: 'body', row, numWidth });
+        const half = Math.floor((this.lastWidth - 1) / 2);
+        const avail = half - numWidth - 2 - 1; // 内容预算（扣前缀列 1）
+        for (const pair of splitRowsOf(bodyRows)) {
+          if (pair.left === null && pair.right === null) {
+            // 段间分隔行（双侧空占位——renderSplit gap 分支）
+            rows.push({ kind: 'split', pair, numWidth, left: null, right: null });
+            continue;
+          }
+          const leftSlices = pair.left !== null ? visualSlicesOf(pair.left.text, avail) : null;
+          const rightSlices = pair.right !== null ? visualSlicesOf(pair.right.text, avail) : null;
+          const count = Math.max(leftSlices?.length ?? 0, rightSlices?.length ?? 0);
+          for (let i = 0; i < count; i++) {
+            rows.push({
+              kind: 'split',
+              pair,
+              numWidth,
+              left: leftSlices !== null && i < leftSlices.length ? leftSlices[i]! : null,
+              right: rightSlices !== null && i < rightSlices.length ? rightSlices[i]! : null,
+            });
+          }
+        }
+        continue;
+      }
+      // unified 形：组体逐行折行展开（窄行 wrap 省略——现状单行形消费面零扰）
+      const avail = this.lastWidth - (2 * numWidth + 2) - 1; // 内容预算（扣前缀列 1）
+      for (const row of bodyRows) {
+        if (row.kind === 'gap') {
+          rows.push({ kind: 'body', row, numWidth }); // 段间 ⋮ 短恒窄不折
+          continue;
+        }
+        const slices = visualSlicesOf(row.text, avail);
+        if (slices.length === 1) {
+          rows.push({ kind: 'body', row, numWidth });
+          continue;
+        }
+        for (const slice of slices) rows.push({ kind: 'body', row, numWidth, wrap: slice });
       }
     }
     return rows;
@@ -491,9 +573,28 @@ export class DiffViewer implements OverlayContent {
           if (row.kind === 'head') {
             this.renderHead(buffer, region.row + 1 + i, region.col, region.width, index, row.group);
           } else if (row.kind === 'body') {
-            this.renderBody(buffer, region.row + 1 + i, region.col, region.width, index, row.row, row.numWidth);
+            this.renderBody(
+              buffer,
+              region.row + 1 + i,
+              region.col,
+              region.width,
+              index,
+              row.row,
+              row.numWidth,
+              row.wrap,
+            );
           } else {
-            this.renderSplit(buffer, region.row + 1 + i, region.col, region.width, index, row.pair, row.numWidth);
+            this.renderSplit(
+              buffer,
+              region.row + 1 + i,
+              region.col,
+              region.width,
+              index,
+              row.pair,
+              row.numWidth,
+              row.left,
+              row.right,
+            );
           }
         }
       }
@@ -557,7 +658,9 @@ export class DiffViewer implements OverlayContent {
   /**
    * 组体行（unified 形）：光标位 + 行号槽（旧轨|新轨 dim——各循其轨）+ 前缀
    * 与内容（词级对行同段裸/变段着色——R4 单源呈现；孤立 del/add 整行着色；
-   * ctx 裸行；超宽 … 收口）。行几何 = 光标位(1) + 槽区(2W+1) + 前缀(1) + 文本。
+   * ctx 裸行；49 轮件 A：超宽行硬折行续行）。行几何 = 光标位(1) + 槽区(2W+1)
+   * + 前缀(1) + 文本；**续行**（wrap.index > 0）行号槽空格对齐 + 前缀列空格
+   *（codex 续行空槽同形——前缀 -/+ 仅首视觉行）。
    */
   private renderBody(
     buffer: CellBuffer,
@@ -567,6 +670,7 @@ export class DiffViewer implements OverlayContent {
     index: number,
     body: DiffBodyRow,
     numWidth: number,
+    wrap?: WrapSlice,
   ): void {
     if (body.kind === 'gap') {
       // 段间分隔行（挖掘 45 轮件 D）：无带无槽——光标位 + 前缀列 dim ⋮
@@ -577,29 +681,35 @@ export class DiffViewer implements OverlayContent {
     }
     // 行级全宽 bg 色带（件 E）：先铺整行底带再落文本——setCell 全量替换律下，
     // 带内每个后写必须同携 bg 才不凿洞；行尾衬底（文本外余列）由底带自然
-    // 覆盖（工具卡 fillBg 尾腿 / history-viewer 逐格补底同效——BCE 同义）
+    // 覆盖（工具卡 fillBg 尾腿 / history-viewer 逐格补底同效——BCE 同义）；
+    // 续行全视觉行铺带（49 轮件 A——band 全视觉行承继）
     const band = this.bandOf(body.kind);
     if (band !== undefined) {
       buffer.writeText(row, col, ' '.repeat(width), band);
     }
     buffer.writeText(row, col, index === this.cursor ? CURSOR_MARK : ' ', band);
+    const first = wrap === undefined || wrap.index === 0;
     buffer.writeText(
       row,
       col + 1,
-      `${lineSlot(body.oldLine, numWidth)} ${lineSlot(body.newLine, numWidth)}`,
+      first
+        ? `${lineSlot(body.oldLine, numWidth)} ${lineSlot(body.newLine, numWidth)}`
+        : // 续行行号槽空格对齐（49 轮件 A——行号仅首视觉行）
+          `${' '.repeat(numWidth)} ${' '.repeat(numWidth)}`,
       // 槽 dim 与带合流；缺席腿（band undefined）恒等传 HINT_STYLE——不造新
       // 对象（16 档腿 toBe identity 锁的硬约束）
       band !== undefined ? { ...HINT_STYLE, ...band } : HINT_STYLE,
     );
     const start = col + 2 * numWidth + 2; // 前缀列（槽区 2W+1 起于 col+1）
-    this.renderLineContent(buffer, row, start, width - (2 * numWidth + 2), body, band);
+    this.renderLineContent(buffer, row, start, width - (2 * numWidth + 2), body, band, wrap);
   }
 
   /**
    * split 双栏行（宽屏形——左旧右新、中缝 1 列）：行号槽分栏各随（左旧轨/
    * 右新轨 dim）；两侧同预算（对齐位 1 + 槽 W + 缝 1 + 前缀 1——前缀列跨缝
-   * 同列，width 奇偶余列归右半）；内容收口单源 renderLineContent（半栏窗——
-   * … 省略位与 unified 同律，止步缝前）。
+   * 同列，width 奇偶余列归右半）；内容收口单源 renderLineContent（半栏窗
+   *——49 轮件 A：两侧独立折行——left/right 视觉行片，null = 短侧衬空
+   *〔本视觉行该侧无内容，带与槽仍铺〕；行号/前缀仅各侧首视觉行）。
    */
   private renderSplit(
     buffer: CellBuffer,
@@ -609,6 +719,8 @@ export class DiffViewer implements OverlayContent {
     index: number,
     pair: SplitPair,
     numWidth: number,
+    left: WrapSlice | null,
+    right: WrapSlice | null,
   ): void {
     const half = Math.floor((width - 1) / 2); // 左半 [col, col+half)，缝 1 列，右半 [col+half+1, col+width)
     const rightCol = col + half + 1;
@@ -622,7 +734,8 @@ export class DiffViewer implements OverlayContent {
     }
     // 双侧分立带（件 E）：左半 del 带 / 右半 add 带、中缝 1 列恒不铺
     //（del 带 | 裸缝 | add 带的双带并置分隔位；文本写恒不越缝既有律）；
-    // 空挂半（孤增左 / 孤删右）无带（pair 侧 null → 本侧 band undefined）
+    // 空挂半（孤增左 / 孤删右）无带（pair 侧 null → 本侧 band undefined）；
+    // 短侧衬空视觉行带仍铺（49 轮件 A——带属行级非片级）
     const leftBand = pair.left !== null ? this.bandOf(pair.left.kind) : undefined;
     const rightBand = pair.right !== null ? this.bandOf(pair.right.kind) : undefined;
     if (leftBand !== undefined) buffer.writeText(row, col, ' '.repeat(half), leftBand);
@@ -633,7 +746,7 @@ export class DiffViewer implements OverlayContent {
       buffer.writeText(
         row,
         col + 1,
-        lineSlot(pair.left.oldLine, numWidth),
+        left !== null && left.index === 0 ? lineSlot(pair.left.oldLine, numWidth) : ' '.repeat(numWidth),
         leftBand !== undefined ? { ...HINT_STYLE, ...leftBand } : HINT_STYLE,
       );
     }
@@ -641,23 +754,29 @@ export class DiffViewer implements OverlayContent {
       buffer.writeText(
         row,
         rightCol + 1,
-        lineSlot(pair.right.newLine, numWidth),
+        right !== null && right.index === 0 ? lineSlot(pair.right.newLine, numWidth) : ' '.repeat(numWidth),
         rightBand !== undefined ? { ...HINT_STYLE, ...rightBand } : HINT_STYLE,
       );
     }
     const room = half - numWidth - 2; // 两侧同内容预算（前缀列起算——含前缀 1）
-    if (pair.left !== null) this.renderLineContent(buffer, row, col + numWidth + 2, room, pair.left, leftBand);
-    if (pair.right !== null) this.renderLineContent(buffer, row, rightCol + numWidth + 2, room, pair.right, rightBand);
+    if (left !== null && pair.left !== null) {
+      this.renderLineContent(buffer, row, col + numWidth + 2, room, pair.left, leftBand, left);
+    }
+    if (right !== null && pair.right !== null) {
+      this.renderLineContent(buffer, row, rightCol + numWidth + 2, room, pair.right, rightBand, right);
+    }
   }
 
   /**
    * 行内容渲染（前缀 -/+/空 + 词级段族或整行文本，窗 [start, start+room) 内
    * 收口——unified 全宽窗 / split 半栏窗两消费面单源）：词级段族在场逐段写
-   * （same 段裸、本侧变段着色——对行的异侧段不在此行），超宽段省略形收口
-   * （… 记号随段既有着色、被切即行终——界面美化役①）；孤立行整行着色
-   * （ctx 裸）+ 超宽 ellipsize（0 宽守卫在源）。尾参 band（件 E）= 行级
-   * bg 色带——全部写点携 bg 合并（same 段洞补裸 bg 承底；bg 缺席腿纯前景
-   * 现状独行——双通道并行律）。
+   *（same 段裸、本侧变段着色——对行的异侧段不在此行）；孤立行整行着色
+   *（ctx 裸）。49 轮件 A：**折行片形**（wrap 在场）按 [wrap.start, wrap.end)
+   * 区间切——段族行取本侧段累计区间交集片（着色随段跨折行保留）、孤立行
+   * 直接切片；前缀列仅首视觉行（续行空格——codex 续行空槽同形）；**帽行**
+   *（第 8 续行）片超宽 ellipsize 收口（'…' 语义随形翻档——从「超宽即截断」
+   * 收窄为帽收口）。尾参 band（件 E）= 行级 bg 色带——全部写点携 bg 合并
+   *（same 段洞补裸 bg 承底；bg 缺席腿纯前景现状独行——双通道并行律）。
    */
   private renderLineContent(
     buffer: CellBuffer,
@@ -666,6 +785,7 @@ export class DiffViewer implements OverlayContent {
     room: number,
     body: DiffBodyRow,
     band?: CellStyle,
+    wrap?: WrapSlice,
   ): void {
     if (room <= 0) return; // 极窄窗（槽区占满）——内容位零预算不写（带已由 caller pre-fill 铺就）
     const fg: ColorValue | undefined =
@@ -674,6 +794,63 @@ export class DiffViewer implements OverlayContent {
     const style: CellStyle | undefined =
       fg === undefined ? (bg === undefined ? undefined : { bg }) : bg === undefined ? { fg } : { fg, bg };
     const prefix = body.kind === 'del' ? '-' : body.kind === 'add' ? '+' : '';
+    // 折行片形：前缀列仅首视觉行（续行空格）；帽行（第 8 续行）整片收口
+    if (wrap !== undefined) {
+      const first = wrap.index === 0;
+      buffer.writeText(row, start, first ? prefix : ' ', style);
+      let c = start + 1;
+      const limit = start + room;
+      // 帽行判据：折出总数恰 1+帽 且本行是末行（第 8 续行）——'…' 收口示截断
+      //（帽行片可恰满宽不触 ellipsize 超宽路——恒收口形：片尾拼 '…' 后整体
+      // 过 ellipsize 单源，'…' 恒在场；帽行是截断面——着色降级行色，段级
+      // 着色不进帽〔边界注〕）
+      const capRow = wrap.count === 1 + DIFF_WRAP_CONTINUATION_CAP && wrap.index === wrap.count - 1;
+      if (capRow) {
+        let all = body.text.slice(wrap.start, wrap.end);
+        if (body.segs !== null) {
+          // 段族行帽：本侧段交集片拼接（单色收口——着色降级注释见上）
+          let joined = '';
+          let off = 0;
+          for (const seg of body.segs) {
+            if (seg.kind !== 'same' && seg.kind !== body.kind) continue;
+            const segStart = off;
+            const segEnd = off + seg.text.length;
+            off = segEnd;
+            const s = Math.max(segStart, wrap.start);
+            const e = Math.min(segEnd, wrap.end);
+            if (s < e) joined += seg.text.slice(s - segStart, e - segStart);
+          }
+          all = joined;
+        }
+        buffer.writeText(row, c, ellipsize(all + '…', limit - c), style);
+        return;
+      }
+      if (body.segs !== null) {
+        // 段族行：本侧段（same + 本侧变段）累计偏移 → 与 [wrap.start, wrap.end)
+        // 区间交集片（着色随段跨折行保留——49 轮件 A；偏移失配防御位：交集
+        // 自然空即缺字降级，不炸）
+        let off = 0;
+        for (const seg of body.segs) {
+          if (seg.kind !== 'same' && seg.kind !== body.kind) continue;
+          const segStart = off;
+          const segEnd = off + seg.text.length;
+          off = segEnd;
+          const s = Math.max(segStart, wrap.start);
+          const e = Math.min(segEnd, wrap.end);
+          if (s >= e) continue;
+          if (c >= limit) break;
+          const isChange = seg.kind === body.kind;
+          const piece = seg.text.slice(s - segStart, e - segStart);
+          buffer.writeText(row, c, piece, isChange ? style : bg !== undefined ? { bg } : undefined);
+          c += stringWidth(piece);
+        }
+        return;
+      }
+      // 孤立行/上下文行：区间片直写
+      const piece = body.text.slice(wrap.start, wrap.end);
+      buffer.writeText(row, c, piece, style);
+      return;
+    }
     buffer.writeText(row, start, prefix, style);
     let c = start + 1;
     const limit = start + room;
