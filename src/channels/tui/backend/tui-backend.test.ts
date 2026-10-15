@@ -3909,22 +3909,27 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     { type: 'toolResult', toolCallId: 't1' },
   ];
 
-  function rig(options: Partial<TuiBackendOptions> = {}) {
+  function rig(options: Partial<TuiBackendOptions> = {}, rows: number = ROWS) {
     const calls: RigCalls = { submitted: [], interrupted: [], quit: 0, dispatched: [] };
-    const { io, backend } = makeBackend({
-      sessionId: SESSION,
-      onInterrupt: (sessionId) => calls.interrupted.push(sessionId),
-      onQuit: () => {
-        calls.quit += 1;
+    const { io, backend } = makeBackend(
+      {
+        sessionId: SESSION,
+        onInterrupt: (sessionId) => calls.interrupted.push(sessionId),
+        onQuit: () => {
+          calls.quit += 1;
+        },
+        ...options,
       },
-      ...options,
-    });
+      rows,
+    );
     io.reset();
     return { io, backend, calls };
   }
 
   it('openThemes 编舞：主屏出屏 → 副屏进 → 主题首帧（计数头 + 当前档标记 + 坏文件 ⚠）', () => {
-    const { io, backend } = rig();
+    // 行高 12 = 恰容整面（48C 样例区 +6：头 1 + 4 条目 + 样例 6 + 底 1）——
+    // 缺省 10 行下条目视口被样例区压到 2 行、坏文件条目挤出窗（⚠ 缺席）
+    const { io, backend } = rig({}, 12);
     expect(backend.openThemes(THEME_ENTRIES, 'dark', () => {})).toBe(true);
     expect(backend.lifecycle).toBe('suspended');
     expect(io.frames[0]).toBe(MAIN_LEAVE);

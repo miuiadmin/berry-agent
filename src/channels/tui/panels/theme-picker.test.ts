@@ -10,6 +10,7 @@ import { CellGrid, colorRgbOf, stringWidth, type ColorValue } from '../../engine
 import { ThemePicker, swatchOf } from './theme-picker.js';
 import type { ThemePickEntry, ThemePickerOptions } from './theme-picker.js';
 import { builtinPalette, DEFAULT_THEME, resolveTheme } from '../theme/index.js';
+import { overlayBoard } from '../theme/custom.js';
 
 /** key 事件夹具 */
 const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
@@ -74,9 +75,9 @@ describe('ThemePicker 呈现', () => {
     picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
     expect(readRow(grid, 0, width)).toBe('◆ 主题切换 · 5 个主题');
     expect(readRow(grid, 1, width)).toContain('auto');
-    // dark = 当前档——● 标记位（非光标行前缀两空格 + ● 段）
+    // dark = 当前档——● 标记位（预选律 48C：现档行 = 初光标行——› 与 ● 同行）
     const darkRow = readRow(grid, 2, width);
-    expect(darkRow.startsWith('  ●')).toBe(true);
+    expect(darkRow.startsWith('› ●')).toBe(true);
     expect(darkRow).toContain('dark');
     // 坏文件条目——⚠ 标注
     expect(readRow(grid, 5, width)).toContain('⚠');
@@ -139,7 +140,9 @@ describe('ThemePicker 呈现', () => {
   });
 
   it('窄窗右段预算律：右段先按预算 … 截断再右对齐——负起列劈毁档名坏形封堵（修前红）', () => {
-    const { picker } = makePicker();
+    // current:'auto' = 光标预选律（48 轮件 C）下保「光标在首行」前置——it 主旨
+    // 是右段预算非光标位，预选面另锁（样例区 describe 预选 it）
+    const { picker } = makePicker({ current: 'auto' });
     // 窗 20 < auto 行右段宽 27——修前 rightCol = 20-27 = -7：CellGrid 吸收负列
     // 首段后余段从行首覆写，光标标记与档名 'auto' 全毁（finding 实证坏形）
     const width = 20;
@@ -254,9 +257,120 @@ describe('ThemePicker 长清单滚动位置指示（界面美化役 2026-10-01 �
   });
 });
 
+describe('ThemePicker 样例区即时预览（48 轮件 C——样例区随在选档换色）', () => {
+  /** 全高渲染夹具：measure 网格（条目全量在场——无滚动指示扰位） */
+  const paintFull = (picker: ThemePicker, width = 72): CellGrid => {
+    const grid = new CellGrid(width, picker.measure(width));
+    picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    return grid;
+  };
+  /** 样例区标签行号（头行 1 + 条目全量 N 后——全高网格算术） */
+  const labelRowOf = (entries: readonly unknown[]): number => 1 + entries.length;
+
+  it('dark 在选（预选 current）：标签「预览 · dark」+ 用户行 accent 真色（resolve 管线现算）', () => {
+    const { picker } = makePicker(); // current:'dark' 缺省——预选律开屏即 dark 在选
+    const grid = paintFull(picker);
+    const labelRow = labelRowOf(ENTRIES); // 6
+    expect(readRow(grid, labelRow, 72)).toBe('◆ 预览 · dark');
+    // 用户样例行（标签 +1）'› ' 前缀以在选档 accent 着色——真色断言（非 16 档名）
+    const expected = resolveTheme(builtinPalette('dark'), DEFAULT_THEME.depth);
+    const cell = grid.getCell(labelRow + 1, 0);
+    expect(cell?.grapheme).toBe('›');
+    expect(cell?.style?.fg).toEqual(expected.accent);
+  });
+
+  it('自定义 overlay 在选：样例以合成板着色（overlayBoard 后 accent 真值——非基板值）', () => {
+    // overlay 值形 = loadCustomThemeColors 产物同源（parseColorValue hex 腿产
+    // RgbChannels 对象——resolve 管线消费面；colorRgbOf hex 串是 swatch 直用面）
+    const overlay = { accent: { r: 9, g: 8, b: 7 } };
+    const entries: readonly ThemePickEntry[] = [
+      { name: 'auto', detail: '跟随终端明暗（自动检测）', broken: false },
+      { name: 'dark', detail: '内置暗色', broken: false },
+      { name: 'mine', detail: '自定义（themes/<名>.json）', broken: false, overlay },
+    ];
+    const { picker } = makePicker({ entries }); // current:'dark' 预选 → down 到 mine
+    picker.handleEvent(k('down'));
+    const grid = paintFull(picker);
+    const labelRow = labelRowOf(entries); // 4
+    expect(readRow(grid, labelRow, 72)).toBe('◆ 预览 · mine');
+    const expected = resolveTheme(overlayBoard(builtinPalette('dark'), overlay), DEFAULT_THEME.depth);
+    const base = resolveTheme(builtinPalette('dark'), DEFAULT_THEME.depth);
+    expect(expected.accent).not.toEqual(base.accent); // overlay 真改色（锁非恒真）
+    expect(grid.getCell(labelRow + 1, 0)?.style?.fg).toEqual(expected.accent);
+  });
+
+  it('auto 在选：标签「预览缺席」+ 样例行维持基样（options.theme 注入基准——诚实缺席）', () => {
+    const light = resolveTheme(builtinPalette('light'), DEFAULT_THEME.depth);
+    const { picker } = makePicker({ current: 'auto', theme: light });
+    const grid = paintFull(picker);
+    const labelRow = labelRowOf(ENTRIES);
+    const label = readRow(grid, labelRow, 72);
+    expect(label).toContain('预览缺席');
+    expect(label).toContain('跟随终端明暗'); // 缺席原因 = 条目右段单源（detail）
+    // 双态行 '✓' 段维持基样 success（预览缺席不瞎猜——基样 = options.theme）
+    expect(grid.getCell(labelRow + 4, 0)?.style?.fg).toEqual(light.success);
+  });
+
+  it('坏文件条目在选：同缺席锁（原因词「坏文件」）', () => {
+    const { picker } = makePicker(); // 预选 dark → end 到 broken-one
+    picker.handleEvent(k('end'));
+    const grid = paintFull(picker);
+    const label = readRow(grid, labelRowOf(ENTRIES), 72);
+    expect(label).toContain('预览缺席');
+    expect(label).toContain('坏文件');
+  });
+
+  it('光标移动样例随在选行变：dark → mine 标签换档名（值变锁）', () => {
+    const entries: readonly ThemePickEntry[] = [
+      { name: 'auto', detail: '跟随终端明暗（自动检测）', broken: false },
+      { name: 'dark', detail: '内置暗色', broken: false },
+      { name: 'mine', detail: '自定义（themes/<名>.json）', broken: false, overlay: { accent: { r: 9, g: 8, b: 7 } } },
+    ];
+    const { picker } = makePicker({ entries });
+    const labelRow = labelRowOf(entries);
+    expect(readRow(paintFull(picker), labelRow, 72)).toBe('◆ 预览 · dark'); // 初帧 = 预选现档
+    picker.handleEvent(k('down'));
+    expect(readRow(paintFull(picker), labelRow, 72)).toBe('◆ 预览 · mine'); // 值变
+  });
+
+  it('measure 增高锁：非空恰 +6（标签 1 + 样例 5）；空条目零增', () => {
+    const { picker } = makePicker();
+    expect(picker.measure(72)).toBe(13); // 1 + 5 + 6 + 1（修前 7——红锚）
+    const { picker: empty } = makePicker({ entries: [] });
+    expect(empty.measure(72)).toBe(3); // 空集不立样例区（既有 3 不变）
+  });
+
+  it('极小终端守卫（height=8 < 9）：样例区整区缺席零残段、底行仍恒在', () => {
+    const { picker } = makePicker();
+    const width = 72;
+    const grid = new CellGrid(width, 8);
+    picker.render(grid, { row: 0, col: 0, width, height: 8 });
+    for (let row = 1; row < 7; row++) {
+      expect(readRow(grid, row, width)).not.toContain('预览'); // 样例区不写（零挤压残段）
+    }
+    expect(readRow(grid, 7, width)).toContain('enter 选定'); // 底行恒在（既有律）
+  });
+
+  it('光标预选 current（跟 codex initial_selected_idx）：开屏 › 与 ● 同行；不在清单 row 0 兜底', () => {
+    const { picker } = makePicker(); // current:'dark'
+    const grid = paintFull(picker);
+    const row2 = readRow(grid, 2, 72);
+    expect(row2.startsWith('›')).toBe(true); // 光标预选到现档行
+    expect(row2).toContain('●'); // 两标记同行（现档 = 初光标）
+    // current 不在清单 → findIndex -1 → 0 兜底（长清单族形）
+    const MANY: readonly ThemePickEntry[] = [
+      { name: 't0', detail: '档', broken: false },
+      { name: 't1', detail: '档', broken: false },
+    ];
+    const { picker: alien } = makePicker({ entries: MANY }); // current 'dark' 不在
+    expect(readRow(paintFull(alien), 1, 72).startsWith('›')).toBe(true);
+  });
+});
+
 describe('ThemePicker 键面', () => {
   it('光标移动：down/up 单步环绕 + home/end 跳位（› 位随行——渲染面断言；挖掘 35 轮 B6）', () => {
-    const { picker } = makePicker();
+    // current:'auto' = 预选律（48 轮件 C）下保「初光标首位 auto」前置
+    const { picker } = makePicker({ current: 'auto' });
     const width = 72;
     const paint = (): CellGrid => {
       const grid = new CellGrid(width, picker.measure(width));
@@ -277,7 +391,9 @@ describe('ThemePicker 键面', () => {
   it('enter 选定：先收副屏（onExit）再回调（onSelect 名）——同序律；onExit 闭锁单次', () => {
     const calls: string[] = [];
     let exits = 0;
+    // current:'auto' = 预选律（48 轮件 C）下保「down → dark」前置
     const { picker } = makePicker({
+      current: 'auto',
       onSelect: (name) => calls.push(`select:${name}`),
       onExit: () => {
         exits += 1;
@@ -371,7 +487,8 @@ describe('ThemePicker 键面', () => {
   });
 
   it('滚轮 = 光标 ±3 行（经既有夹取与视口跟随——↑↓ 同路；修前红：wheel 零动作）+ 空条目零动作吞', () => {
-    const { picker, onSelect } = makePicker();
+    // current:'auto' = 预选律（48 轮件 C）下保「初光标首位」前置
+    const { picker, onSelect } = makePicker({ current: 'auto' });
     const width = 72;
     const paint = (): CellGrid => {
       const grid = new CellGrid(width, 4); // 头 + 2 行视口 + 提示（矮窗）
