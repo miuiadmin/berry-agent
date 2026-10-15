@@ -1657,6 +1657,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 与注入缺席同义）。busy 判据不在接线层——面板帧首拉取在队快照即真源
       //（steer 顶注件与候跑件同池全量呈现）。
       queueFor: (sessionId) => stack.driverOf(sessionId)?.peekWaiting() ?? null,
+      // 弹回排队末条数据源（挖掘 47 轮件 A——收回半环）：driver 尾出谓词原语
+      // 直投（纯文本 user 件尾出全文投影——操控件/图片件跳过在驱动侧单源）；
+      // 会话未开 = null（空弹诚实呈报同义）
+      queuePopLast: (sessionId) => stack.driverOf(sessionId)?.popWaitingLast() ?? null,
       // 审批决策折面数据源（挖掘 31 轮 [1]——onRepaint/openHistory 重建路）：
       // 谓词单源两路共用（直播腿订阅位同一 isUserApprovalDecision——过滤只此
       // 一处下筛，backend 收到的已是呈现子集）；窄形映射剥 fold 专属位

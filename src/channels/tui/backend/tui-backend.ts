@@ -303,6 +303,13 @@ export interface TuiBackendOptions {
    */
   readonly queueFor?: (sessionId: string) => readonly string[] | null | undefined;
   /**
+   * 弹回排队末条数据源（挖掘 47 轮件 A——07 §4.1 装配向接线收回半环）：
+   * 聚焦会话弹回末条可弹件全文投影（真源 = driver popWaitingLast——纯
+   * 文本 user 件尾出，操控件/图片件跳过）；数据面全经装配注入，backend
+   * 零 conversation 触感。注入缺席 = 功能关（alt+↑ 落编辑器终局零扰动）。
+   */
+  readonly queuePopLast?: (sessionId: string) => string | null;
+  /**
    * 审批决策折面数据源（挖掘 31 轮 [1]——回看/投影重建路决策行）：聚焦会话
    * durable 审批对 fold 投影（载体 = backend 闭包注入——UiBackend 公开面
    * openHistory 签名零改）；呈现谓词滤除（isUserApprovalDecision）在装配
@@ -643,7 +650,11 @@ const QUEUE_PREVIEW_LIMIT = 3;
  * 闲态专属（忙态 `?` 落编辑器是字符——提示面与键位实况对齐，键位门控
  * 不随本批扩忙态）。
  */
-const FOOTER_HINT_BUSY_TEXT = '回复进行中——输入仍可用：Enter 追加 / Alt+Enter 排队后继';
+const FOOTER_HINT_BUSY_TEXT =
+  // 宽度预算（行2 hint 槽与 env 短 id 共存 ≤80 列）：三键教学位全保——
+  // 「进行/后继」省 8 列（键名教学为主、语义细节由实操验证；全保形 79 列
+  // 在 80 列标准宽与 env 槽共存必被坍缩梯⑧整槽挤丢——教学位先丢律）
+  '回复中——输入仍可用：Enter 追加 / Alt+Enter 排队 / Alt+↑ 弹回';
 /**
  * footer 教学提示待续态文案（B4——2026-10-05 ZCode TUI 对标批 07 §4.1 定形
  * 注）：ctrl+x 入待续态期间示分支菜单（待续提示随窗定时退场——不搬 ZCode
@@ -1056,6 +1067,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 零变化（与 jobsSource 同判位形）；在场时帧首拉取聚焦会话在队预览串。
    */
   private readonly queueFor: ((sessionId: string) => readonly string[] | null | undefined) | undefined;
+  /** 弹回排队末条数据源（47 轮件 A；缺席 = 功能关） */
+  private readonly queuePopLast: ((sessionId: string) => string | null) | undefined;
   /** 审批决策折面数据源（挖掘 31 轮 [1]——onRepaint/openHistory 重建路共用） */
   private readonly approvalDecisionsSource: ((sessionId: string) => readonly ApprovalDecisionLineInput[]) | undefined;
   /** todo 快照读面（挖掘 35 轮 B8——直播腿/重建路共用） */
@@ -1478,6 +1491,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       // 持久化史透传（B1）：缺席 = undefined 直落编辑器缺省（纯内存旧形）
       historySeed: options.history?.seed,
       onHistoryAdd: options.history?.onRecord,
+      // 弹回排队末条（47 轮件 A）：门序判据全归本闭包（编辑器只司键分发）
+      onQueueEditLast: () => this.handleQueueEditLast(),
     });
     // 教学提示首画锚（V-3 注⑦②）：构造期空稿闲态即期翻转 footerHint
     //（refreshFooter 先行走 hint-off 基线——editor 就位后此处收敛真态）
@@ -1546,6 +1561,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.jobsSource = options.jobs;
     // 排队常驻面板（2026-10-05 ZCode TUI 对标批）：queueFor 注入缺席 = 段缺席零变化
     this.queueFor = options.queueFor;
+    // 弹回排队末条（47 轮件 A）：注入缺席 = 功能关
+    this.queuePopLast = options.queuePopLast;
     // goal 持续态数据源（件 G）：缺席 = 两呈现位零扰动；归一 null/undefined
     // 返值为空数组（供数器恒返数组——类字段契约收窄，帧首拉取零再判）
     const goalSource = options.goalStatus;
@@ -3858,16 +3875,20 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         return;
       }
       // 后台任务段光标翻页态（界面美化役批6——UX 批6 B 件）：alt+↑/↓ 段内
-      // 移动光标（键位册零在册动作、编辑器只绑 alt+y/alt+enter——无争键，
-      // 直达判形）；jobs 段在场且有行才劫（空段/注入缺席透传——既有键语义
-      // 零扰动）；enter 光标激活期开 /jobs 副屏定位在选任务（未激活不劫——
-      // 提交语义零扰动；开屏失败〔副屏已占〕清光标消费不透传）。input-ask
+      // 移动光标（直达判形）；jobs 段在场且有行才劫（空段/注入缺席透传——
+      // 既有键语义零扰动）；enter 光标激活期开 /jobs 副屏定位在选任务（未激活
+      // 不劫——提交语义零扰动；开屏失败〔副屏已占〕清光标消费不透传）。
+      // alt+↑ 双语义窗分割（挖掘 47 轮件 A 键位裁决）：光标未激活时让位编辑器
+      // （弹回排队末条 editor.queue-edit-last 在册——弹回可用窗 = jobs 无行 ||
+      // 光标未激活）；alt+↓ 恒劫持（首按激活光标现状保留）。input-ask
       // 应答窗闸（挖掘 26 轮 [5]——「?」教学键 teachingGatesOpen 同款门）：
       // 应答期编辑器作应答车接管提交首序，enter 属应答车道——alt+↑/↓ 与
       // enter 两劫持腿皆让位
       if (this.jobsSource !== undefined && this.jobPanel.hasRows && this.inputAsk === null) {
-        if (ev.alt && !ev.ctrl && !ev.shift && !ev.meta && (ev.key === 'up' || ev.key === 'down')) {
-          this.jobPanel.moveCursor(ev.key === 'up' ? -1 : 1);
+        const isAltUp = ev.alt && !ev.ctrl && !ev.shift && !ev.meta && ev.key === 'up';
+        const isAltDown = ev.alt && !ev.ctrl && !ev.shift && !ev.meta && ev.key === 'down';
+        if (isAltDown || (isAltUp && this.jobPanel.cursorActive)) {
+          this.jobPanel.moveCursor(isAltUp ? -1 : 1);
           this.touchFixed();
           return;
         }
@@ -3972,6 +3993,41 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 拦截 → '/' 命令柄（false 兜底）→ onSubmit。候跑标记随两落点透传（挂账
    * 解挂批 2026-09-15——alt+enter 提交形第三参）。
    *
+  /**
+   * 弹回排队末条（挖掘 47 轮件 A——alt+↑ 收回编辑，onQueueEditLast 闭包体）：
+   * 门序判据全归本闭包（编辑器只司键分发）。返回是否消费——应答窗/seam
+   * 缺席返 false 键落终局无害；其余终局消费（保守拒/空弹诚实呈报/成功弹回）。
+   * 回搜态不需守卫（editor.handleEvent 搜索态先拦吃尽一切键——结构性不可达）。
+   */
+  private handleQueueEditLast(): boolean {
+    // ① 应答窗是应答车非编辑——弹回污染应答稿（「?」教学键同款门）
+    if (this.inputAsk !== null) return false;
+    // ② seam 缺席 = 功能关（键落终局无害——queueFor 同族注入律）
+    if (this.queuePopLast === undefined) return false;
+    // ③ 草稿非空保守拒（外编种子「非空稿不 seed」同律——写稿动作对非空稿
+    // 是破坏性面）；终局消费防双弹
+    if (!this.editor.model.isEmpty()) {
+      this.notify('草稿非空——清空后再弹回（防覆稿丢失）', { level: 'warn' });
+      return true;
+    }
+    // ④ 弹回：无可弹件（空队/仅图片或操控件）诚实呈报——专用键静默无反应
+    // 是困惑面；终局消费
+    const text = this.queuePopLast(this.sessionId);
+    if (text === null) {
+      this.notify('没有可弹回的排队文本件（空队或仅图片/操控件）', { level: 'info' });
+      return true;
+    }
+    // ⑤ 成功：整替编辑稿（setText 旁路对账——ctrl+d 清稿双对账同形：syncFooterHint
+    // + syncEmptyGuide）；成功不 notify（草稿可见填充即反馈）；touchFixed 帧首
+    // 重拉 queueFor 面板自然缩容（renderFixed 帧首锚——手动重拉冗余）
+    this.editor.setText(text);
+    this.syncFooterHint(); // 教学提示门控对账（setText 绕 handleEvent 单源锚）
+    this.syncEmptyGuide(); // 空态引导对账（零块态弹回填稿即退引导）
+    this.touchFixed();
+    return true;
+  }
+
+  /**
    * lifecycle 闸（迟到续链防——2026-09-23 B5）：onSubmit 两触达位（dispatch
    * 兜底 .then 续链位 + '/' 外直落位）前置 this.running 闸。真实窄窗 = 同
    * stdin chunk 粘贴形 quit 先行 + '/' 命令后随（如 '/exit\n/unknown\n' 单

@@ -486,6 +486,33 @@ export class ConversationDriver {
   }
 
   /**
+   * 弹回末条可弹件（挖掘 47 轮件 A——TUI 收回编辑消费面，07 §4.1 对端）：
+   * 从队尾向队首找首个纯文本 user 件弹出、返全文投影（文本块按换行拼接、
+   * 块内空白保全——编辑稿非呈现行，与 peekWaiting 预览折叠分形）。跳过：
+   * 操控件（id 位——deliverControl 专径载荷非用户稿）/ 图片件（块数组含
+   * 图块——弹回丢图是静默损失，保守跳过）/ 非 user 形（防御——队列不变式
+   * 恒 UserMessage）。无可弹件返 null（诚实缺席）。
+   */
+  popWaitingLast(): string | null {
+    const popped = this.queue.popLastWhere((item) => {
+      // 操控件不弹（id 位在場 = deliverControl 专径）
+      if (item.id !== undefined) return false;
+      // 防御位：队列不变式恒 UserMessage，非 user 形不弹
+      if (!isStandardMessage(item.message) || item.message.role !== 'user') return false;
+      const content = item.message.content;
+      if (typeof content === 'string') return true; // 纯文本件可弹
+      return content.every((block) => block.type === 'text'); // 含图块不弹
+    });
+    if (popped === undefined) return null;
+    const msg = popped.message;
+    if (!isStandardMessage(msg)) return null; // 防御位重判（谓词窄化不跨闭包传播——谓词已过滤，此路恒不达）
+    const content = msg.content;
+    return typeof content === 'string'
+      ? content
+      : content.map((block) => (block.type === 'text' ? block.text : '')).join('\n');
+  }
+
+  /**
    * 子代理审批挂起通知（04 §10 审批挂起通知——11f 注入面；子代理机器是
    * 调用方，one-shot 形态不注入由调用方裁量）：background 子代理触发审批对
    * 时向父会话注入一条 UserMessage（source='subagent-approval-pending'，

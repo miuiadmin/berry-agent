@@ -832,6 +832,63 @@ describe('ConversationDriver 待发队列通道', () => {
     await first;
   });
 
+  it('popWaitingLast 弹回末条可弹件：尾文本直取 / 操控件（id 位）与图片件跳过且留队 / 全不可弹 null（挖掘 47 轮件 A——收回编辑数据面）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一答' }] }),
+        assistant({ content: [{ type: 'text', text: '二答' }] }),
+      ],
+      gates: [gate],
+    });
+    const first = driver.submit('一问');
+    expect(driver.running).toBe(true);
+    // busy 窗入列四形：早文本件 + 图片件（块数组含 image 块）+ 末文本件 + 操控件（id 位）
+    driver.submit('排队早件');
+    driver.submit([
+      { type: 'text', text: '图文件' },
+      { type: 'image', data: 'aGk=', mimeType: 'image/png' },
+    ]);
+    driver.submit('排队末件');
+    driver.deliverControl(
+      { role: 'user', content: '跨会话指令', timestamp: 0, source: 'session:s-caller' },
+      'ctl-1',
+      1,
+    );
+    // 尾向首个可弹件 = 末文本件（操控件与图片件被跳过）
+    expect(driver.popWaitingLast()).toBe('排队末件');
+    // 再弹 = 更早文本件（跳过件仍在队且相对次序不变）
+    expect(driver.popWaitingLast()).toBe('排队早件');
+    // 全不可弹（只剩图片件 + 操控件）→ null 诚实缺席
+    expect(driver.popWaitingLast()).toBeNull();
+    expect(driver.peekWaiting()).toEqual(['图文件 [图片]', '跨会话指令']); // 跳过件仍在队（预览面不动）
+    release();
+    await first;
+  });
+
+  it('popWaitingLast 块数组件全文投影：纯文本块按换行拼接（编辑稿非呈现行——不折叠空白，与 peekWaiting 预览分形）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver } = makeDriver({
+      scripts: [assistant({ content: [{ type: 'text', text: '一答' }] })],
+      gates: [gate],
+    });
+    const first = driver.submit('一问');
+    driver.submit([
+      { type: 'text', text: '首行\n  次行' },
+      { type: 'text', text: '三行' },
+    ]);
+    // 全文投影：块间换行拼接、块内空白保全（预览形折单空格，弹回形是编辑稿）
+    expect(driver.popWaitingLast()).toBe('首行\n  次行\n三行');
+    release();
+    await first;
+  });
+
   it('busy 期队满 drop-oldest 驱逐报备：warn 携被丢件预览非静默（挖掘 33 轮 [C-1]——修前三入列腿弃置回执零痕迹）', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {

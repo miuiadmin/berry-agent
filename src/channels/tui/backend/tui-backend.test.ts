@@ -4710,7 +4710,7 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
     expect(io.bytes).toContain('? 快捷键'); // 闲态空稿基线（`?` 教学键闲态专属）
     io.bytes = '';
     emit(backend, { type: 'agent_start' });
-    expect(io.bytes).toContain('回复进行中——输入仍可用：Enter 追加 / Alt+Enter 排队后继'); // 忙态空稿——busy 文案在场（修前红：忙态退场零文案）
+    expect(io.bytes).toContain('回复中——输入仍可用：Enter 追加 / Alt+Enter 排队 / Alt+↑ 弹回'); // 忙态空稿——busy 文案在场（修前红：忙态退场零文案；47 轮件 A 扩尾跟新——宽度预算形）
     expect(io.bytes).not.toContain('? 快捷键'); // 闲态文案退场（忙态 `?` 落编辑器是字符——提示面与键位实况对齐）
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
@@ -5350,7 +5350,7 @@ describe('TuiBackend Ctrl+X leader 前缀键系（2026-10-05 ZCode TUI 对标批
     io.emitInput('b');
     pump();
     expect(branches).toEqual(['jobs']); // 四闸不含闲态——忙期照分发
-    expect(io.bytes).toContain('回复进行中'); // 分支解除后提示位归忙态（正向对照——busy 文案并非不可达）
+    expect(io.bytes).toContain('回复中——输入仍可用'); // 分支解除后提示位归忙态（正向对照——busy 文案并非不可达；47 轮件 A 宽度预算形跟新）
   });
 
   it('escape 闲态取消消费（零分发零入稿）；忙态让路层①打断（打断生命线优先）', () => {
@@ -6957,6 +6957,122 @@ describe('TuiBackend 后台任务段 + /jobs 副屏（界面美化役批6——U
     pump();
     expect(backend.lifecycle).toBe('running'); // 修前红：光标激活 → enter 劫持开副屏
     await expect(p2).resolves.toBe('又答');
+  });
+
+  // 挖掘 47 轮件 A——alt+↑ 弹回排队末条（收回编辑）：门序五闸 + jobs 光标
+  // 裁决（alt+↑ 双语义窗分割——未激活让位弹回、激活归面板上移、alt+↓ 恒劫持）
+  it('alt+↑ 弹回排队末条：草稿整替全文投影 + 面板缩容（帧首重拉）+ 成功零通知', () => {
+    const previews = ['排队早件', '排队末件 次词'];
+    const { io, pump } = makeInteractive(
+      { queueFor: () => [...previews], queuePopLast: () => previews.pop() ?? null },
+      24,
+    );
+    io.emitInput('\x1b[1;3A'); // alt+↑（CSI 修饰参 3 = 1+alt）
+    pump();
+    expect(io.bytes).toContain('排队末件 次词'); // 草稿整替（编辑器内容行——全文投影非预览折叠）
+    expect(io.bytes).toContain('已排队 1：排队早件'); // 面板缩容（renderFixed 帧首重拉 queueFor）
+    expect(io.bytes).not.toContain('没有可弹回'); // 成功不通知（填充即反馈）
+    expect(io.bytes).not.toContain('草稿非空'); // 零保守拒通知
+  });
+
+  it('空弹 info 诚实呈报：专用键静默无反应是困惑面（无可弹件终局消费）', () => {
+    const { io, pump } = makeInteractive({ queueFor: () => [], queuePopLast: () => null });
+    io.emitInput('\x1b[1;3A');
+    pump();
+    expect(io.bytes).toContain('没有可弹回的排队文本件（空队或仅图片/操控件）');
+  });
+
+  it('草稿非空保守拒 warn（防覆稿丢失——外编种子同律）+ 草稿保持', () => {
+    const previews = ['排队件'];
+    const { io, pump } = makeInteractive({
+      queueFor: () => [...previews],
+      queuePopLast: () => previews.pop() ?? null,
+    });
+    io.emitInput('既有草稿');
+    pump();
+    io.bytes = '';
+    io.emitInput('\x1b[1;3A');
+    pump();
+    expect(io.bytes).toContain('草稿非空——清空后再弹回（防覆稿丢失）');
+    io.emitInput('增'); // 拒后续编一字符（onChange 触 touchFixed 帧重画编辑器区）
+    pump();
+    expect(io.bytes).toContain('既有草稿增'); // 草稿保持（保守拒不覆稿、可续编——门 ③ 拒不 touchFixed 无固定区帧，续编帧代证）
+    expect(previews).toEqual(['排队件']); // 队不受扰（拒在弹前）
+  });
+
+  it('seam 缺席 alt+↑ 零扰动（注入缺席 = 功能关——键落终局无害）', () => {
+    const { io, calls, pump } = makeInteractive();
+    io.emitInput('\x1b[1;3A');
+    pump();
+    expect(calls.submitted).toEqual([]); // 不误触提交
+    expect(io.bytes).not.toContain('弹回'); // 零通知零反馈
+  });
+
+  it('应答窗 alt+↑ 零弹（应答车非编辑——门 1 让位不污染应答稿）', async () => {
+    const previews = ['排队件'];
+    const { io, backend, pump } = makeInteractive({
+      queueFor: () => [...previews],
+      queuePopLast: () => previews.pop() ?? null,
+    });
+    const p = backend.input('问？'); // 应答窗接管主编辑器
+    pump();
+    io.bytes = '';
+    io.emitInput('\x1b[1;3A'); // 应答窗内 alt+↑（inputAsk 闸 → 返 false 落终局）
+    pump();
+    expect(io.bytes).not.toContain('排队件'); // 弹回未发生（应答稿不被污染）
+    expect(previews).toEqual(['排队件']); // 队不受扰
+    io.emitInput('答\r'); // 应答车道照常
+    pump();
+    await expect(p).resolves.toBe('答');
+  });
+
+  it('回搜态弹回未发生：搜索态吃尽一切键（alt+↑ = 历史步进非弹回——结构性不可达）', () => {
+    const previews = ['排队件'];
+    const { io, pump } = makeInteractive({
+      queueFor: () => [...previews],
+      queuePopLast: () => previews.pop() ?? null,
+    });
+    io.emitInput('\x12'); // ctrl+r 开搜（搜索态先拦）
+    pump();
+    expect(io.bytes).toContain('回搜'); // 开搜基线
+    io.bytes = '';
+    io.emitInput('\x1b[1;3A'); // 搜索态 alt+↑ —— 编辑器吞（历史步进），不达弹回
+    pump();
+    expect(previews).toEqual(['排队件']); // popWaitingLast 零调（弹回未发生）
+    expect(io.bytes).not.toContain('草稿非空'); // 零保守拒（弹回闭包未达）
+    expect(io.bytes).not.toContain('没有可弹回'); // 零空弹通知（同上）
+  });
+
+  it('jobs 光标裁决：未激活 alt+↑ 让位弹回不激活光标 / 激活时归面板上移不走弹回路 / alt+↓ 首按激活保留（47 轮键位裁决）', () => {
+    const previews = ['排队件'];
+    const rig = makeInteractive(
+      {
+        now: () => 65_000,
+        jobs: jobsOf(() => [job('job-1'), job('job-2')]),
+        queueFor: () => [...previews],
+        queuePopLast: () => previews.pop() ?? null,
+      },
+      24,
+    );
+    // ① 未激活：alt+↑ 让位弹回（busy 常见窗可用）——不激活光标
+    rig.io.emitInput('\x1b[1;3A');
+    rig.pump();
+    expect(rig.io.bytes).toContain('排队件'); // 弹回发生
+    expect(rig.io.bytes).not.toContain('› ◆'); // 光标未激活（让位非激活——首按激活语义只在 alt+↓；编辑器行 '› ' 前缀恒在不作锚）
+    // ② 激活时：alt+↑ 归面板上移——不走弹回路（队已弹空+稿非空，走弹回路必现其一通知）
+    rig.io.emitInput('\x1b[1;3B'); // alt+↓ 首按激活
+    rig.pump();
+    expect(rig.io.bytes).toContain('› ◆'); // 激活即见光标（首行——CURSOR_MARK+mark 连缀精确锚）
+    rig.io.bytes = '';
+    rig.io.emitInput('\x1b[1;3A'); // 光标激活态 alt+↑ = 面板上移（首行 clamp 同位——moveCursor「首行之上无路」）
+    rig.pump();
+    expect(rig.io.bytes).not.toContain('没有可弹回'); // 未走弹回空弹臂
+    expect(rig.io.bytes).not.toContain('草稿非空——清空后再弹回'); // 未走弹回保守拒臂
+    // ③ alt+↓ 首按激活保留（既有锁回归验证——本裁决零扰动）
+    const rig2 = makeInteractive({ now: () => 65_000, jobs: jobsOf(() => [job('job-a')]) }, 24);
+    rig2.io.emitInput('\x1b[1;3B');
+    rig2.pump();
+    expect(rig2.io.bytes).toContain('› ◆');
   });
 
   it('副屏 q 返回主屏（生命周期复原——件族退出律）', () => {

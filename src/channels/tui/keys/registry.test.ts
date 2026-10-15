@@ -170,9 +170,12 @@ describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字�
 });
 
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
-  it('册数 39：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影三席（B4 同批；挖掘 36 轮批 [2] c 扩集）+ 外部编辑器（挖掘 31 轮 [9]）+ 历史回搜两席（挖掘 31 轮 [3]）+ 回看器回溯席（挖掘 36 轮末件 [5]——history 域首枚）+ 真挂起（挖掘 41 轮件 III global.suspend）', () => {
-    // 修前红锚：册数 38（global.suspend 增册前）
-    expect(ACTION_CATALOG).toHaveLength(39);
+  it('册数 40：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影三席（B4 同批；挖掘 36 轮批 [2] c 扩集）+ 外部编辑器（挖掘 31 轮 [9]）+ 历史回搜两席（挖掘 31 轮 [3]）+ 回看器回溯席（挖掘 36 轮末件 [5]——history 域首枚）+ 真挂起（挖掘 41 轮件 III global.suspend）+ 弹回排队末条（挖掘 47 轮件 A）', () => {
+    // 修前红锚：册数 39（editor.queue-edit-last 增册前）
+    expect(ACTION_CATALOG).toHaveLength(40);
+    // 弹回席（47 轮件 A）：editor 域可覆盖 + alt+up 单键
+    const editLast = ACTION_CATALOG.find((d) => d.id === 'editor.queue-edit-last');
+    expect(editLast).toMatchObject({ scope: 'editor', keys: ['alt+up'], overridable: true });
     // 真挂起席（41 轮件 III）：安全位族不可覆盖 + ctrl+z 单键
     const suspend = ACTION_CATALOG.find((d) => d.id === 'global.suspend');
     expect(suspend).toMatchObject({ scope: 'global', keys: ['ctrl+z'], overridable: false });

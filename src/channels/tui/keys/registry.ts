@@ -126,6 +126,16 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
     keys: ['alt+enter'],
     overridable: true,
   },
+  // 弹回排队末条（挖掘 47 轮件 A——codex edit_queued_message 对标：alt+↑ 收回
+  // 编辑末条在队文本件，操控件/图片件保守跳过；jobs 光标激活态让位面板上移
+  // ——键位裁决注 07 §4.1。增册至 40）
+  {
+    id: 'editor.queue-edit-last',
+    scope: 'editor',
+    label: '弹回排队末条（收回编辑）',
+    keys: ['alt+up'],
+    overridable: true,
+  },
   { id: 'editor.new-line', scope: 'editor', label: '换行', keys: ['shift+enter', 'ctrl+j'], overridable: true },
   // 外部编辑器（挖掘 31 轮 [9]——codex external_editor 对标：ctrl+g 挂起主屏
   // 交出子进程，草稿播种临时 .md、退出读回整替；规范 07 §5 词条）

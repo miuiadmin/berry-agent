@@ -86,6 +86,12 @@ export interface EditorOptions {
    * （纯逻辑件可裸构测）；拒绝时 onSubmit 不触发、草稿全量保留。
    */
   onSubmitRejected?: (info: { cap: number; actual: number }) => void;
+  /**
+   * 弹回排队末条回调（挖掘 47 轮件 A——alt+↑ 收回编辑）：返回是否消费
+   * （true = 已消费不落后续键路；false = 键落终局）。门序判据（应答窗/
+   * seam 缺席/草稿非空/空弹）全归宿主闭包——编辑器只司键分发。
+   */
+  onQueueEditLast?: () => boolean;
 }
 
 /** 可打印字符键判（jump 待靶态的靶字符判据——无修饰或仅 shift） */
@@ -111,6 +117,8 @@ export class Editor implements Renderable {
   private readonly onSubmit: ((text: string, opts?: EditorSubmitOptions) => void) | undefined;
   /** 提交帽拒绝反馈钩（件 B——挖掘 46 轮；缺席 = 静默拒） */
   private readonly onSubmitRejected: ((info: { cap: number; actual: number }) => void) | undefined;
+  /** 弹回排队末条钩（47 轮件 A；缺席 = 键落终局无害） */
+  private readonly onQueueEditLast: (() => boolean) | undefined;
   /** 翻页步幅（= 呈现帽——帽随 resize 重算时同步，见 setMaxVisibleLines） */
   private pageSize: number;
   private readonly keymap: Keymap;
@@ -120,6 +128,7 @@ export class Editor implements Renderable {
   constructor(options: EditorOptions = {}) {
     this.onSubmit = options.onSubmit;
     this.onSubmitRejected = options.onSubmitRejected;
+    this.onQueueEditLast = options.onQueueEditLast;
     this.pageSize = Math.max(1, options.maxVisibleLines ?? 8);
     this.keymap = options.keymap ?? new Keymap();
     this.onHistoryAdd = options.onHistoryAdd;
@@ -309,6 +318,9 @@ export class Editor implements Renderable {
     // 候跑提交（alt+enter——挂账解挂批 2026-09-15）：与 enter 键序分立（规范键串
     // 'alt+enter' ≠ 'enter'，两 hit 互不误触）；空框消费不回调与 submit 同判据
     if (hit('editor.queue-followup')) return this.handleSubmit({ queueFollowUp: true });
+    // 弹回排队末条（alt+↑——47 轮件 A）：门序判据归宿主闭包（onQueueEditLast），
+    // 缺席或返 false = 键落终局无害（seam 关 = 功能关）
+    if (hit('editor.queue-edit-last')) return this.onQueueEditLast?.() ?? false;
     if (hit('editor.submit')) return this.handleSubmit();
     if (hit('editor.new-line')) {
       this.jumpPending = null;

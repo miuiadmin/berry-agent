@@ -134,6 +134,46 @@ describe('PendingMessageQueue 撤回关联键与在队撤回（e-4 withdraw—�
   });
 });
 
+describe('PendingMessageQueue 尾出谓词原语（挖掘 47 轮件 A——弹回收回编辑数据面）', () => {
+  it('popLastWhere 尾向首个谓词命中弹出：尾命中 / 尾不命中中位命中（跳过队尾件）/ 无命中与空队返 undefined', () => {
+    const q = new PendingMessageQueue();
+    // 空队 → undefined
+    expect(q.popLastWhere(() => true)).toBeUndefined();
+    q.enqueue(msg(1), ch, { id: 'msg-1' });
+    q.enqueue(msg(2), ch);
+    q.enqueue(msg(3), ch, { id: 'msg-3' });
+    // 尾不命中（队尾是操控件）→ 中位命中弹出 msg-2（跳过队尾件取更早可弹件）
+    const popped = q.popLastWhere((item) => item.id === undefined);
+    expect(popped?.message.content).toBe('m2');
+    expect(q.size).toBe(2);
+    // 被跳过件仍在队且相对次序不变（FIFO 序 [m1, m3]）
+    q.mode = 'all';
+    const drained = q.drain();
+    expect(drained.map((i) => i.message.content)).toEqual(['m1', 'm3']);
+    // 尾命中（谓词全纳）→ 弹队尾件
+    const q2 = new PendingMessageQueue();
+    q2.enqueue(msg(1), ch);
+    q2.enqueue(msg(2), ch);
+    expect(q2.popLastWhere(() => true)?.message.content).toBe('m2');
+    expect(q2.size).toBe(1);
+    // 无命中 → undefined（全不可弹诚实缺席）
+    expect(q2.popLastWhere(() => false)).toBeUndefined();
+    expect(q2.size).toBe(1); // 无弹出——队不受扰
+  });
+
+  it('popLastWhere 与 withdraw 并存无扰：两撤路各取所需、互不移除对方的件', () => {
+    const q = new PendingMessageQueue();
+    q.enqueue(msg(1), ch, { id: 'msg-1' });
+    q.enqueue(msg(2), ch);
+    q.enqueue(msg(3), ch, { id: 'msg-3' });
+    // 谓词尾出弹普通件、id 键控撤回弹操控件——两原语各司其职
+    expect(q.popLastWhere((item) => item.id === undefined)?.message.content).toBe('m2');
+    expect(q.withdraw('msg-1')?.id).toBe('msg-1');
+    expect(q.size).toBe(1);
+    expect(q.snapshot().map((i) => i.message.content)).toEqual(['m3']);
+  });
+});
+
 describe('PendingMessageQueue 在队快照（e-5——interrupt 回执 still_queued 数据源）', () => {
   it('snapshot 只读呈报：返回浅拷贝、改写不影响队内真身、后续取件不改已取快照', () => {
     const q = new PendingMessageQueue();

@@ -201,4 +201,18 @@ export class PendingMessageQueue {
     if (index === -1) return undefined;
     return this.items.splice(index, 1)[0]!;
   }
+
+  /**
+   * 尾出谓词原语（挖掘 47 轮件 A——弹回收回编辑数据面）：从队尾向队首找
+   * 首个满足谓词的件弹出（withdraw 的尾向谓词版——纯机制原语不做件形
+   * 判断，件形判据归消费方谓词）。
+   * @returns 命中返回被弹出条目（余件相对次序保持）；无命中/空队返回
+   * undefined——调用方以「无可弹件」语义诚实呈报。
+   */
+  popLastWhere(pred: (item: PendingItem) => boolean): PendingItem | undefined {
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      if (pred(this.items[i]!)) return this.items.splice(i, 1)[0]!;
+    }
+    return undefined;
+  }
 }
