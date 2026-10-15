@@ -7,9 +7,10 @@
  * 标题 #..######、段落（段内软换行折叠为空格——标准语义）、无序/有序
  * 列表（嵌套缩进 4 空格一层——R-3 渲染每层 4 列缩进同构；tight/loose
  * 逐邻近似记录源文形态——R-3 起呈现层不消费，见 list-item.loose 注）、
- * 围栏代码块（```/~~~）、引用（>，连续行
- * 归块）、水平线（三连 - 或 * 或 _）、GFM 表格（批 10h——表头 + 定界行
- * + 数据行，单元格行内解析，转义竖线 `\|` 不支撑）。缩进四空格代码块、
+ * 围栏代码块（```/~~~）、引用（>，连续行归块——子块化：剥一层前缀递归
+ * 解析，引用内表格/代码/列表/多层引用结构化，42 轮件 C）、水平线（三连
+ * - 或 * 或 _）、GFM 表格（批 10h——表头 + 定界行 + 数据行，单元格行内
+ * 解析，转义竖线 `\|` 不支撑）。缩进四空格代码块、
  * 脚注不支撑（未列形按段落回退——坏输入不丢字）。
  */
 import { parseInline, type InlineSpan } from './inline.js';
@@ -42,7 +43,16 @@ export type MarkdownBlock =
       /** 开栏未闭标记（流式半截形——渲染退单色不高亮、永不入稳定面） */
       readonly open?: true;
     }
-  | { readonly type: 'quote'; readonly lines: InlineSpan[][] }
+  | {
+      readonly type: 'quote';
+      /**
+       * 子块列表（42 轮件 C——子块化）：剥一层 '>' 前缀后的体文本递归
+       * parseMarkdown 产物（引用内标题/表格/代码/列表/多层引用结构化）；
+       * 引用内空行 = 子块分隔、软换行折叠与顶层段落同律。空数组 = 空
+       * 引用（渲染单行 '> ' 占位）。
+       */
+      readonly children: MarkdownBlock[];
+    }
   | {
       /** GFM 表格：header/rows 单元格已行内解析；align 逐列（null = 缺省左） */
       readonly type: 'table';
@@ -244,17 +254,19 @@ export function parseMarkdown(text: string): MarkdownBlock[] {
       i++;
       continue;
     }
-    // 引用（连续 > 行归一块）
+    // 引用（连续 > 行归一块——子块化：剥一层前缀整段递归解析，42 轮件 C）
     if (line.startsWith('>')) {
       flushParagraph();
-      const quoted: InlineSpan[][] = [];
+      const bodies: string[] = [];
       while (i < lines.length && lines[i]!.startsWith('>')) {
         // 剥 '> ' 或 '>' 前缀（无空格紧贴形同剥）
-        const body = lines[i]!.replace(/^>\s?/, '');
-        quoted.push(body.trim() === '' ? [] : parseInline(body));
+        bodies.push(lines[i]!.replace(/^>\s?/, ''));
         i++;
       }
-      blocks.push({ type: 'quote', lines: quoted });
+      // 体行剥前缀 join 喂 parseMarkdown 递归——纯函数递归零共享态；引用内
+      // 空行 = 子块分隔、软换行折叠与顶层同律；```md 围栏解包预扫天然重入
+      //（条件④按子文本末行判——流式判稳侧 consequences 见 streaming tailSafe）
+      blocks.push({ type: 'quote', children: parseMarkdown(bodies.join('\n')) });
       continue;
     }
     // 列表项（每项一块——滚动帽子行单位）
@@ -371,9 +383,10 @@ export function blockEquals(a: MarkdownBlock, b: MarkdownBlock): boolean {
       );
     }
     case 'quote':
+      // 子块化（42 轮件 C）：children 逐块递归结构相等
       return (
-        a.lines.length === (b as typeof a).lines.length &&
-        a.lines.every((spans, k) => spansEquals(spans, (b as typeof a).lines[k]!))
+        a.children.length === (b as typeof a).children.length &&
+        a.children.every((child, k) => blockEquals(child, (b as typeof a).children[k]!))
       );
     case 'table': {
       const other = b as typeof a;

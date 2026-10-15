@@ -11,8 +11,10 @@
  * - 闭栏代码 + 文本尾随换行：高亮样式已定（闭栏才高亮），且闭栏行后有
  *   换行——后续追加必为新块 → 稳定；无尾换形的闭栏行仍可被粘字（后续
  *   分块把非围栏字符粘上围栏行 → 整行围栏判定失败回翻开栏）→ 不稳；
- * - 标题/列表项/引用/水平线 + 文本尾随换行：尾行已终，追加必为新块，
- *   既有行集不可变（引用追加行不改前行布局）→ 稳定；
+ * - 标题/列表项/水平线 + 文本尾随换行：尾行已终，追加必为新块，
+ *   既有行集不可变 → 稳定；引用子块化递归判稳（42 轮件 C——非空 +
+ *   尾子块非 code 且自身终态；code 尾子块恒不稳：引用体 join 不带尾随
+ *   换行，子层围栏解包条件④可翻形不入稳定面）；
  * - 段落（软折行回流）/ 表格（列宽回流）/ 开栏代码（追加行改行集 + 粘字
  *   回翻——闭栏回翻开栏时收尾围栏行删；样式面已随 41 轮件 II 开栏增量高亮
  *   连续，样式回翻理由退役）→ 恒不稳定，冻结面止于其开行之前。
@@ -115,7 +117,20 @@ export class StreamingMarkdown implements Renderable {
     if (tail.type === 'code') return tail.open !== true && this.lastText !== null && this.lastText.endsWith('\n');
     // 尾行未终（无换行收尾）——行内容仍可延伸，标题/列表/引用/横线全不稳
     if (this.lastText === null || !this.lastText.endsWith('\n')) return false;
-    return tail.type === 'heading' || tail.type === 'list-item' || tail.type === 'quote' || tail.type === 'hr';
+    // 引用递归判稳（42 轮件 C——C1 勘正）：quote 稳 ⇔ 非空 ∧ 尾子块非
+    // code ∧ 尾子块自身终态（quote 体行与文本行 1:1——外层尾换行门对子层
+    // 同一有效）。code 尾子块恒不稳：体行 join 无尾随换行，子层解包条件④
+    //（闭栏非末行）在追加引用行后可翻转——children 从 ['code'] 翻
+    // ['table','paragraph'] 改写已冻行，违 durable 永不重写律（宽认稳形
+    // 记残账）；空 quote 占位行可被子块化改写亦不稳。非尾子块结构恒定
+    //（追加只延伸尾子块或入新块——块序无回插），无须逐块复验
+    if (tail.type === 'quote') {
+      const children = tail.children;
+      if (children.length === 0) return false;
+      const last = children[children.length - 1]!;
+      return last.type !== 'code' && this.tailSafe(last);
+    }
+    return tail.type === 'heading' || tail.type === 'list-item' || tail.type === 'hr';
   }
 
   /**

@@ -19,7 +19,7 @@
  */
 import { ellipsize, graphemeWidth, sanitizeDisplayText, splitGraphemes, type CellStyle } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
-import type { MarkdownBlock } from './blocks.js';
+import { blockGap, type MarkdownBlock } from './blocks.js';
 import type { InlineSpan } from './inline.js';
 import { highlight, resolveSpec, tokenizeLine, tokenStyle } from './highlight/index.js';
 import type { CarryState, LanguageSpec } from './highlight/index.js';
@@ -137,6 +137,17 @@ function trimTrailingSpaces(line: StyledGrapheme[]): void {
     if (last.grapheme !== ' ' || last.style !== undefined) break; // 有样式位（内容空格）不裁
     line.pop();
   }
+}
+
+/**
+ * 引用基色贯通单格（42 轮件 C——B 腿后处理）：无显式 fg 的格补 quoteText、
+ * 显式 fg/bold 等属性位原样保留（与 R-3 行级基色落 fg 位同构——行内
+ * code/link 色与标题属性梯度不丢；href 随字素原样携带）。
+ */
+function tintQuoteCell(cell: StyledGrapheme, quoteText: Readonly<CellStyle>['fg']): StyledGrapheme {
+  return cell.style !== undefined && cell.style.fg !== undefined
+    ? cell
+    : { grapheme: cell.grapheme, href: cell.href, style: { ...cell.style, fg: quoteText } };
 }
 
 /**
@@ -489,12 +500,35 @@ export function blockRows(block: MarkdownBlock, width: number, theme: Readonly<R
     case 'code':
       return codeRows(block, width, theme);
     case 'quote': {
-      // R-3：> 前缀 + 整行 quoteText 行级基础色（┆ 沟线 + dim 退役——行内
-      // 样式位叠加：spanStyle 行内位覆盖基础色同名位，code/link 色不丢）
+      // 子块化渲染（42 轮件 C——引用内嵌套块，codex 同语义）：children 逐块
+      // blockRows 递归（子块宽 width−2）+ 块间 blockGap 空行行（判据循顶层
+      // 组装律——同类相邻不隔，gap 行同 '> ' 前缀）；基色贯通 B 腿后处理
+      //（不动 blockRows 签名——41 轮件 II 刚收口的全支路零波及）：子行集
+      // 逐格无显式 fg 补 quoteText、显式 fg/属性位保留（code/link 色不丢，
+      // 与 R-3 行级基色落 fg 位同构）；每视觉行行尾无样式空白裁；空块
+      // 单行 '> ' 占位（空 children 占位行可被子块化改写——流式侧恒不稳）
       const base: Readonly<CellStyle> = { fg: theme.quoteText };
+      const innerWidth = Math.max(1, width - 2);
       const rows: StyledGrapheme[][] = [];
-      for (const line of block.lines) rows.push(...layoutSpans(line, Math.max(1, width - 2), theme, base));
-      return rows.map((row) => [...prefixCells('> ', base), ...row]);
+      let prevRowCount = 0; // 前子块渲染行数（blockGap 第三参——多行列表项判据同律）
+      for (let k = 0; k < block.children.length; k++) {
+        const child = block.children[k]!;
+        // 引用内空行 = 子块分隔（blockGap 单源；前缀已有行才补——零行块不改判据）
+        if (k > 0 && prevRowCount > 0 && blockGap(block.children[k - 1]!, child, prevRowCount) === 1) {
+          rows.push(prefixCells('> ', base));
+        }
+        const childRows = blockRows(child, innerWidth, theme);
+        prevRowCount = childRows.length;
+        for (const raw of childRows) {
+          const row = [...raw];
+          trimTrailingSpaces(row); // 裁在染色前（染色后无样式空白不可辨——内容空格不误伤）
+          const line = prefixCells('> ', base);
+          for (const cell of row) line.push(tintQuoteCell(cell, theme.quoteText));
+          rows.push(line);
+        }
+      }
+      if (rows.length === 0) return [prefixCells('> ', base)]; // 空 quote 单行占位
+      return rows;
     }
     case 'table':
       return tableRows(block, width, theme);

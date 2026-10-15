@@ -58,10 +58,12 @@ describe('StreamingMarkdown 流式直推', () => {
       '# 标\n\n> 引用一\n> 引用二\n> 引用三\n',
       '# 标\n\n> 引用一\n> 引用二\n> 引用三\n\n段落收\n',
     ];
-    // f1/f2：尾块引用无尾随换行不稳（稳定面止于标题 1 行——R-3 无下划线行）；
-    //   f3：尾随换行 + 单行终态块全稳；f4：尾块段落恒不稳（稳定面止于引用块）
-    const stableWants = [1, 1, 5, 5];
-    const measureWants = [3, 4, 5, 7]; // 标题 1 行 + 块间空行 + 引用逐行 + （f4 空行 + 段落 1 行）
+    // f1-f3：引用体软换行折叠并入单段（42 轮件 C——measure 恒 3：标题 1 +
+    //   空行 + 引用 1 行）；f1/f2 无尾随换行不稳（稳定面止于标题）；f3 有
+    //   尾换但尾子块 = paragraph（回流形——续行并入改写行集）仍不稳 → 1；
+    //   f4：尾块段落恒不稳（稳定面 = 标题 + 空行 + 引用 = 3）
+    const stableWants = [1, 1, 1, 3];
+    const measureWants = [3, 3, 3, 5]; // f4：+ 块间空行 + 段落 1 行
     const stepwise = new StreamingMarkdown();
     frames.forEach((frame, i) => {
       stepwise.update(frame);
@@ -110,11 +112,40 @@ describe('StreamingMarkdown 流式直推', () => {
     expect(s.rowsFor(40).slice(0, stable1)).toEqual(frozen.slice(0, stable1));
   });
 
-  it('稳定面三形之单行终态块：标题/列表/引用/横线 + 尾随换行 → 稳', () => {
+  it('稳定面三形之单行终态块：标题/列表/横线 + 尾随换行 → 稳（引用子块化递归判稳——终态尾子块同稳）', () => {
     const s = new StreamingMarkdown();
     s.update('# 标\n\n段\n\n- 项\n');
     // 尾块 = list-item 且文末有换行 → 稳定面 = 全块；段落（回流形）不算稳
     expect(s.stableLineCount(40)).toBe(s.measure(40));
+    // 引用尾块递归判稳（42 轮件 C）：heading 尾子块终态 → 引用整块稳
+    const q = new StreamingMarkdown();
+    q.update('段\n\n> # 引内标题\n');
+    expect(q.stableLineCount(40)).toBe(q.measure(40));
+  });
+
+  it('引用判稳收窄（42 轮件 C）：paragraph 尾子块不稳 / 空 quote 不稳', () => {
+    const s1 = new StreamingMarkdown();
+    s1.update('# 标\n\n> 引用\n'); // 尾子块 = paragraph（续行并入改写）→ 引用不稳
+    expect(s1.stableLineCount(40)).toBe(1); // 修前红：恒稳判据 stable = 3
+    const s2 = new StreamingMarkdown();
+    s2.update('# 标\n\n>\n'); // 空 quote：占位行可被子块化改写 → 不稳
+    expect(s2.stableLineCount(40)).toBe(1);
+  });
+
+  it('引用 code 尾子块恒不稳（C1——解包条件④可翻形不入稳定面）', () => {
+    // quote 体行 join 无尾随换行——子层 unwrapMarkdownTableFences 条件④
+    //（闭栏非末行）在追加 '> x' 后翻转：children 从 ['code'] 翻
+    // ['table','paragraph']——若判稳入冻结面必改写已冻行（违 durable 永不
+    // 重写律）→ code 尾子块恒不稳（宽认稳形记残账）
+    const s = new StreamingMarkdown();
+    s.update('# 标\n\n> ```md\n> | a |\n> | --- |\n> ```\n');
+    expect(rowsOf(s, 40)).toEqual(['# 标', '', '> | a |', '> | --- |']); // code 子块体行呈现
+    expect(s.stableLineCount(40)).toBe(1); // 修前红：恒稳判据 stable = 4
+    s.update('# 标\n\n> ```md\n> | a |\n> | --- |\n> ```\n> x');
+    const f2 = rowsOf(s, 40);
+    expect(f2[0]).toBe('# 标'); // 冻结面前缀不改写
+    expect(f2).not.toEqual(['# 标', '', '> | a |', '> | --- |']); // 引用翻转（table + gap + 段）
+    expect(f2.join('\n')).toContain('> x'); // 解包后段落子块同前缀呈现
   });
 
   it('稳定面三形之回流形：段落尾 / 表格尾 / 开栏代码 / 无换行尾 → 止于尾块前', () => {
@@ -145,17 +176,24 @@ describe('StreamingMarkdown 流式直推', () => {
 /* ---------------- 渲染热路径 D2：计数改算术 ---------------- */
 
 describe('StreamingMarkdown 计数算术（渲染热路径 D2——计数腿不装配行集）', () => {
-  /** 引用实现：镜像修前 stableLineCount 本体（MarkdownDoc.prefixRows 装配后取长） */
+  /** 引用实现：镜像 stableLineCount 本体（MarkdownDoc.prefixRows 装配后取长；
+   * 42 轮件 C 起引用递归判稳同镜像——对拍锁与本体两侧同管线自动跟新） */
   function referenceStable(text: string, width: number): number {
     const blocks = parseMarkdown(text);
     if (blocks.length === 0) return 0;
     const tail = blocks[blocks.length - 1]!;
-    const tailSafe =
-      tail.type === 'code'
-        ? tail.open !== true && text.endsWith('\n')
-        : text.endsWith('\n') &&
-          (tail.type === 'heading' || tail.type === 'list-item' || tail.type === 'quote' || tail.type === 'hr');
-    const stableBlocks = blocks.length - 1 + (tailSafe ? 1 : 0);
+    const endsNl = text.endsWith('\n');
+    const isTailSafe = (b: ReturnType<typeof parseMarkdown>[number]): boolean => {
+      if (b.type === 'code') return b.open !== true && endsNl;
+      if (!endsNl) return false;
+      if (b.type === 'quote') {
+        if (b.children.length === 0) return false;
+        const last = b.children[b.children.length - 1]!;
+        return last.type !== 'code' && isTailSafe(last);
+      }
+      return b.type === 'heading' || b.type === 'list-item' || b.type === 'hr';
+    };
+    const stableBlocks = blocks.length - 1 + (isTailSafe(tail) ? 1 : 0);
     return MarkdownDoc.fromBlocks(blocks, null).prefixRows(width, stableBlocks).length;
   }
 

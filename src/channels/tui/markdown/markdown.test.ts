@@ -254,11 +254,11 @@ describe('parseMarkdown 块解析', () => {
   it('异字符围栏不互闭（``` 体内 ~~~ 行不闭反栏——marker 首字符单源）', () => {
     expect(parseMarkdown('```\n~~~\n```')).toEqual([{ type: 'code', lines: ['~~~'], language: undefined }]);
   });
-  it('引用连续行归块（行内解析入块）', () => {
+  it('引用子块化：连续行剥前缀递归解析（软换行折叠入单段——42 轮件 C）', () => {
     const blocks = parseMarkdown('> 引用一\n> 引用 *二*\n\n正文');
     expect(blocks[0]).toEqual({
       type: 'quote',
-      lines: [[{ text: '引用一' }], [{ text: '引用 ' }, { text: '二', italic: true }]],
+      children: [{ type: 'paragraph', spans: [{ text: '引用一 引用 ' }, { text: '二', italic: true }] }],
     });
     expect(blocks[1]).toEqual({ type: 'paragraph', spans: [{ text: '正文' }] });
   });
@@ -465,6 +465,68 @@ describe('MarkdownDoc 渲染', () => {
     // 行内 code 叠加：code 段 fg 覆盖基础色为 codeInline（叠加律——'引用'
     // 双宽占 col 2-5、空格 6、定界反引号 7，'x' 在 col 8）
     expect(grid.getCell(0, 8)?.style.fg).toBe(DEFAULT_THEME.codeInline);
+  });
+
+  /* ---------- 引用子块化（42 轮件 C——嵌套块渲染 + 递归判稳的前提面） ---------- */
+
+  it('引用嵌套表格：真表格双线 + 子块宽 width−2 + 逐行前缀（修前红——旧形整块单色管道行）', () => {
+    const grid = renderDoc(MarkdownDoc.of('> | a | b |\n> | --- | --- |\n> | 1 | 2 |'), 20);
+    // 子块在 innerWidth 18 布局（列宽与顶层 @20 同形——帽不触发）→ 逐视觉行加 '> '
+    expect(readRow(grid, 0, 20)).toBe('>  a    b');
+    expect(readRow(grid, 1, 20)).toBe('> ━━━━━━━━━━');
+    expect(readRow(grid, 2, 20)).toBe('>  1    2');
+    expect(grid.rows).toBe(3); // 无附加行（表内轻线缺席——单数据行）
+  });
+
+  it('引用嵌套代码块：体行裸文本呈现 + 前缀（围栏行不入行集）', () => {
+    const grid = renderDoc(MarkdownDoc.of('> ```js\n> const x = 1;\n> ```'), 20);
+    expect(readRow(grid, 0, 20)).toBe('> const x = 1;');
+    expect(grid.rows).toBe(1);
+  });
+
+  it('引用多子块翻新：heading 属性梯度 + 基色贯通 + gap 行前缀 + 渲染层列表前缀重建', () => {
+    const grid = renderDoc(MarkdownDoc.of('> # 引内标题\n>\n> - 项一'), 30);
+    // heading 子块：'# ' 渲染层前缀 + bold 属性位 + 基色贯通（无显式 fg 补 quoteText）
+    expect(readRow(grid, 0, 30)).toBe('> # 引内标题');
+    expect(grid.getCell(0, 2)?.style.bold).toBe(true);
+    expect(grid.getCell(0, 4)?.style.fg).toBe(DEFAULT_THEME.quoteText); // 正文基色贯通
+    // 引用内空行 = 子块分隔（blockGap 空行行同 '> ' 前缀——结构分隔非空 span 行）
+    expect(readRow(grid, 1, 30)).toBe('>');
+    // list-item 子块：渲染层 '- ' 前缀重建（解析位剥离）
+    expect(readRow(grid, 2, 30)).toBe('> - 项一');
+  });
+
+  it('引用软换行折叠：连续行并入单段（与顶层段落同律——逐行零空距旧形退役）', () => {
+    const grid = renderDoc(MarkdownDoc.of('> a\n> b'), 30);
+    expect(readRow(grid, 0, 30)).toBe('> a b');
+    expect(grid.rows).toBe(1);
+  });
+
+  it('多层引用：嵌套 quote 逐层剥前缀（「> > x」双层前缀直拼）', () => {
+    const grid = renderDoc(MarkdownDoc.of('> > x'), 30);
+    expect(readRow(grid, 0, 30)).toBe('> > x');
+  });
+
+  it('空行分隔两段 + 空 quote 占位（children 空形）', () => {
+    const grid = renderDoc(MarkdownDoc.of('> a\n>\n> b'), 30);
+    expect(readRow(grid, 0, 30)).toBe('> a');
+    expect(readRow(grid, 1, 30)).toBe('>'); // gap 行（'>' + 行尾空格裁）
+    expect(readRow(grid, 2, 30)).toBe('> b');
+    const empty = renderDoc(MarkdownDoc.of('>'), 30);
+    expect(readRow(empty, 0, 30)).toBe('>'); // 空 quote 单行占位
+    expect(empty.rows).toBe(1);
+  });
+
+  it('引用内 ```md 围栏解包重入（子层 unwrap 条件④按体末行判）', () => {
+    // 闭栏后有后文（条件④过）→ 解包：children [table, paragraph]
+    const grid = renderDoc(MarkdownDoc.of('> ```md\n> | a |\n> | --- |\n> | 1 |\n> ```\n> 后文'), 20);
+    const all = [0, 1, 2, 3, 4].map((r) => readRow(grid, r, 20)).join('\n');
+    expect(all).not.toContain('```md'); // 栅栏行删（解包重入）
+    expect(all).toContain('━'); // 真表格在场
+    expect(readRow(grid, 4, 20)).toBe('> 后文'); // 解包后段落子块
+    // 闭栏即体末行（条件④不过——体 join 无尾随换行）→ 照旧 code 子块
+    const keep = renderDoc(MarkdownDoc.of('> ```md\n> | a |\n> | --- |\n> ```'), 20);
+    expect([0, 1].map((r) => readRow(keep, r, 20)).join('\n')).not.toContain('━');
   });
 
   it('R-3 列表：每层 4 列缩进 + 无序全深度统一 `- `（BULLET_LADDER 轮换退役）', () => {
