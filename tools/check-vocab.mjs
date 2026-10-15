@@ -118,7 +118,9 @@ const USERFACE_RE =
 // check-vocab.test.mjs「查四批准词锁」；后续入册族：审批决策三档词（挖掘
 // 31 轮 [1]）、问答落史行「已回复/（空）」（挖掘 36 轮 [2]）、webui 复制
 // 径三词「已复制最近一条回复/还没有可复制的回复——发一条消息后再试/复制
-// 失败——可试 /export 导出」（挖掘 37 轮件 5——App.tsx copyLastResponse）。
+// 失败——可试 /export 导出」（挖掘 37 轮件 5——App.tsx copyLastResponse）、
+// /usage 按模型分段两词「按模型/未标识」（挖掘 44 轮件 A——usage-viewer
+// buildUsageLines）。
 
 /**
  * 提取字符串字面量内容、保行号（查四专用——与 stripCode 互补：只看串内容，

@@ -11,7 +11,7 @@
  * - cost 在场才累、currency 首见定着（与件 6 accumulateUsage 同律）；
  * - 载荷缺 usage（防御位——旧日志或非标准形）跳过不炸。
  */
-import type { SessionEvent, Usage } from '../contracts/index.js';
+import type { SessionEvent, UiUsageModelRow, Usage } from '../contracts/index.js';
 
 /** 会话用量汇总（通道核 UiUsageSummary 的 conversation 侧真源形——结构兼容经装配透传） */
 export interface SessionUsageSummary {
@@ -26,6 +26,12 @@ export interface SessionUsageSummary {
   readonly cost: number;
   /** 币种（首见定着；null = 无 cost 上报） */
   readonly currency: string | null;
+  /**
+   * 按模型分表（挖掘 44 轮件 A——同遍扩聚合产物，UiUsageSummary.byModel
+   * 同形）：≥1 入账事件才带、零事件不带（缺席不带律）；排序 = totalTokens
+   * 降序、键升序。
+   */
+  readonly byModel?: readonly UiUsageModelRow[];
 }
 
 /** 零账基线（空事件流产物） */
@@ -62,6 +68,10 @@ function isUsageShape(value: unknown): value is Usage {
 /**
  * 折叠会话事件流为全 run 用量汇总。assistant/message 载荷 = 完整 assistant
  * 消息含 usage（05 §1.1 durable 事件序——wiring.appendMessage 落账形）。
+ * 按模型分表（挖掘 44 轮件 A）同遍扩聚合：与四桶同事件同 isUsageShape 门
+ * 入账——Σ 分表逐维恒等汇总位（对账恒等式）；分组键三档 = provider+model
+ * 双非空串拼全形 > model 非空串半形 > '' 残键（实录缺席——空串等价缺席，
+ * 防 'provider/' 病键与裸 '' 混形）。
  */
 export function foldSessionUsage(events: readonly SessionEvent[]): SessionUsageSummary {
   let turns = 0;
@@ -72,6 +82,11 @@ export function foldSessionUsage(events: readonly SessionEvent[]): SessionUsageS
   let totalTokens = 0;
   let cost = 0;
   let currency: string | null = null;
+  // 按模型分表累加位（挖掘 44 轮件 A——Map 键 = 分组键三档）
+  const byModel = new Map<
+    string,
+    { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number }
+  >();
   for (const event of events) {
     if (event.type === 'turn/end') turns += 1;
     if (event.type !== 'assistant/message') continue;
@@ -84,6 +99,39 @@ export function foldSessionUsage(events: readonly SessionEvent[]): SessionUsageS
     totalTokens += usage.totalTokens;
     cost += usage.cost?.total ?? 0;
     currency = currency ?? usage.cost?.currency ?? null;
+    // 同门内入账（挖掘 44 轮件 A）：门外的坏形事件不入总量也不入分组——
+    // 两账同门是对账恒等式的成立前提
+    const record = event.data as { provider?: unknown; model?: unknown };
+    const provider = typeof record.provider === 'string' && record.provider !== '' ? record.provider : undefined;
+    const model = typeof record.model === 'string' && record.model !== '' ? record.model : undefined;
+    // 分组键三档：全形（双在场拼 '/'）> 半形（仅 model）> 残键 ''（双缺席
+    // ——空串等价缺席，防 'provider/' 病键；比 foldCallLedger 键律收紧一档）
+    const key = provider !== undefined && model !== undefined ? `${provider}/${model}` : (model ?? '');
+    const bucket = byModel.get(key) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+    bucket.input += usage.input;
+    bucket.output += usage.output;
+    bucket.cacheRead += usage.cacheRead;
+    bucket.cacheWrite += usage.cacheWrite;
+    bucket.totalTokens += usage.totalTokens;
+    byModel.set(key, bucket);
   }
-  return { turns, input, output, cacheRead, cacheWrite, totalTokens, cost, currency };
+  return {
+    turns,
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    totalTokens,
+    cost,
+    currency,
+    // 缺席不带律：≥1 入账事件才带字段（零事件/全坏形流不带——冷启动零噪声）
+    ...(byModel.size > 0
+      ? {
+          byModel: [...byModel.entries()]
+            .map(([model, b]) => ({ model, ...b }))
+            // 双键排序（确定性供测试词面锁）：totalTokens 降序、键升序
+            .sort((a, b) => b.totalTokens - a.totalTokens || (a.model < b.model ? -1 : a.model > b.model ? 1 : 0)),
+        }
+      : {}),
+  };
 }

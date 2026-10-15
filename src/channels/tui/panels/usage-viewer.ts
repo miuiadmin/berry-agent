@@ -10,7 +10,7 @@
  *   补丁三件套与件 8 同律。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { stringWidth } from '../../engine/index.js';
+import { ellipsize, stringWidth } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
@@ -59,6 +59,18 @@ const REMAINING_BAR_SEGMENTS = 20;
 const REMAINING_BAR_FILLED = '█';
 /** 余量条形空段符 */
 const REMAINING_BAR_EMPTY = '░';
+
+/** 按模型分段模型名列宽帽（挖掘 44 轮件 A——calls-viewer MODEL_WIDTH 同值镜像） */
+const MODEL_COLUMN_CAP = 24;
+
+/**
+ * 模型短名（挖掘 44 轮件 A——footer modelShortOf 同律第三拷；一行函数不立
+ * 共享模块，calls-viewer 第二拷同款注记先例）：'provider/model' 取尾段、
+ * 裸 id 自返；残键 '' 自返 ''（呈现词「未标识」另派）。
+ */
+function modelShortOf(spec: string): string {
+  return spec.split('/').pop() ?? spec;
+}
 
 /**
  * 余量条形串（挖掘 31 轮 [6]）：按**剩余率**取整画段——`[████░░░░]` 满段数
@@ -226,10 +238,12 @@ export class UsageViewer extends ScrollView implements OverlayContent {
 /**
  * 用量行集构造（纯函数——测试直锁消费）：口径注记 → 轮次 → token 四分表
  * + 合计 → 货币行（无 cost 上报如实呈现）→ 上下文余量条形行（挖掘 31 轮
- * [6]——context 在场时追加式殿后：既有 0..9 行零迁移）。max>0 形 =
- * `[bar] 剩 N% · used / max`（紧凑值单源 formatTokensCompact——与 footer
- * 三件套同词汇；百分比单源 contextRemainingPercent——挖掘 44 轮件 B 起双面
- * 同式同值）；缺席双态（context null / max 缺报）裸呈紧凑值不画条形。
+ * [6]——context 在场时追加式殿后：既有 0..9 行零迁移）→ 按模型分段（挖掘
+ * 44 轮件 A——绝对尾追加：byModel ≥2 行才出段，缺席律冷启动零噪声）。
+ * max>0 形 = `[bar] 剩 N% · used / max`（紧凑值单源 formatTokensCompact
+ * ——与 footer 三件套同词汇；百分比单源 contextRemainingPercent——挖掘 44
+ * 轮件 B 起双面同式同值）；缺席双态（context null / max 缺报）裸呈紧凑值
+ * 不画条形。
  */
 export function buildUsageLines(summary: UiUsageSummary, context: UsageContextSnapshot | null = null): string[] {
   const labelCol = 8; // 标签列宽（最长标签「缓存读/缓存写」宽 6 + 2）
@@ -264,6 +278,43 @@ export function buildUsageLines(summary: UiUsageSummary, context: UsageContextSn
           : formatTokensCompact(context.used),
       ),
     );
+  }
+  // 按模型分段（挖掘 44 轮件 A——追加位 = 绝对尾，31 轮 [6] 上下文行之后）：
+  // 缺席律 = 分组键 <2 整段缺席（连空行带头行都不出——单模型会话主表已是该
+  // 模型的账，重复即噪声；面板与现状逐字节相同）
+  const modelRows = summary.byModel;
+  if (modelRows !== undefined && modelRows.length >= 2) {
+    // 撞尾回落：块内 ≥2 个互异键短名相同（如 zai/glm-4.7 与 fit/glm-4.7）→
+    // 该撞名组全部回落全形呈现（防两行同名误读同模型——呈现层规则，数据键不动）
+    const shortCounts = new Map<string, number>();
+    for (const r of modelRows) {
+      const short = modelShortOf(r.model);
+      shortCounts.set(short, (shortCounts.get(short) ?? 0) + 1);
+    }
+    // 呈现名三档：残键「未标识」/ 撞名组全形 / 短名
+    const presentName = (r: (typeof modelRows)[number]): string =>
+      r.model === '' ? '未标识' : (shortCounts.get(modelShortOf(r.model)) ?? 0) >= 2 ? r.model : modelShortOf(r.model);
+    // 块内动态列宽：max(8, 块内最宽呈现名) 帽 24（ellipsize 收口——超帽键有损
+    // 呈现，/calls 面板 MODEL_WIDTH 同帽可查全形）；数值三段 + 百分数块内右对齐
+    const nameWidth = Math.min(MODEL_COLUMN_CAP, Math.max(8, ...modelRows.map((r) => stringWidth(presentName(r)))));
+    const count = (n: number): string => formatCount(n);
+    const widthOf = (vals: string[]): number => Math.max(...vals.map((v) => v.length));
+    const wIn = widthOf(modelRows.map((r) => count(r.input)));
+    const wOut = widthOf(modelRows.map((r) => count(r.output)));
+    const wTotal = widthOf(modelRows.map((r) => count(r.totalTokens)));
+    const pctOf = (r: (typeof modelRows)[number]): number =>
+      summary.totalTokens > 0 ? Math.round((r.totalTokens / summary.totalTokens) * 100) : 0; // 分母 ≤0 防御归 0%（codex 同守卫）
+    const wPct = widthOf(modelRows.map((r) => String(pctOf(r))));
+    const pad = (v: string, w: number): string => ' '.repeat(Math.max(0, w - v.length)) + v;
+    lines.push('', '按模型');
+    for (const r of modelRows) {
+      // 名列左对齐补齐（显示宽计量）+ 数值三段/百分数块内右对齐
+      const name = ellipsize(presentName(r), nameWidth);
+      const namePad = ' '.repeat(Math.max(0, nameWidth - stringWidth(name)));
+      lines.push(
+        `${name}${namePad}输入 ${pad(count(r.input), wIn)} · 输出 ${pad(count(r.output), wOut)} · 合计 ${pad(count(r.totalTokens), wTotal)} · ${pad(String(pctOf(r)), wPct)}%`,
+      );
+    }
   }
   return lines;
 }

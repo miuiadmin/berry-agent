@@ -327,6 +327,24 @@ export interface UiSessionPreviewLine {
 }
 
 /**
+ * 按模型分表行（挖掘 44 轮件 A——/usage 面板「按模型」分段载荷）：与
+ * UiUsageSummary 四分表同源同口径（同批 assistant/message 事件、同一
+ * isUsageShape 门），仅按 provider/model 实录键分组——Σ 各桶恒等汇总位
+ * （对账恒等式）。model = 分组键：provider+model 双在场且皆非空串拼
+ * 'provider/model' 全形、仅 model 非空串半形原样、实录缺席 = '' 残键
+ * （呈现层词「未标识」——codex "Other" 残桶同义）。
+ */
+export interface UiUsageModelRow {
+  /** 分组键（provider/model 全形 | model 半形 | '' 残键） */
+  readonly model: string;
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+  readonly totalTokens: number;
+}
+
+/**
  * 会话用量汇总（R7 批 10k `/usage` 副屏面板载荷）：会话全 run 累计
  * （token 四分表 + 合计 + 货币），与件 6 run 级清账态分职不互替。
  */
@@ -342,6 +360,12 @@ export interface UiUsageSummary {
   readonly cost: number;
   /** 币种（首见定着；null = 无 cost 上报） */
   readonly currency: string | null;
+  /**
+   * 按模型分表（挖掘 44 轮件 A——可选带出形：≥1 入账事件才带、零事件
+   * 不带〔缺席不带律〕；与四分表同源同口径，排序 = totalTokens 降序、
+   * 键升序）
+   */
+  readonly byModel?: readonly UiUsageModelRow[];
 }
 
 /**

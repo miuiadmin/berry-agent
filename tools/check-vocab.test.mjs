@@ -259,4 +259,16 @@ describe('check-vocab 守护炮自测（spawn 全闸形态）', () => {
     expect(status).toBe(0);
     expect(out).toContain('check-vocab 绿');
   });
+
+  // 挖掘 44 轮件 A——/usage 按模型分段词条：分段头「按模型」+ 残行呈现词
+  // 「未标识」（词面真源 usage-viewer.ts buildUsageLines；输入/输出/合计系
+  // 既有面板词复用不另锁）
+  it('查四批准词锁：/usage 按模型分段两词「按模型/未标识」→ 绿（件 A 新用户面词入册）', () => {
+    const root = fixture('userface-approved-usage-by-model', {
+      'src/channels/tui/panels/usage-viewer.ts': "export const words = ['按模型', '未标识'];\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(0);
+    expect(out).toContain('check-vocab 绿');
+  });
 });

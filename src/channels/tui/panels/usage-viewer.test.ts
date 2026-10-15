@@ -198,3 +198,106 @@ describe('contextRemainingPercent 单源（挖掘 44 轮件 B——footer 行1 �
     expect(contextRemainingPercent(1_000, 1_000_000)).toBe(100); // 恰 0.1% —— floor 0 互补 100
   });
 });
+
+describe('按模型分段（挖掘 44 轮件 A——buildUsageLines 绝对尾追加）', () => {
+  /** 标签段期望串（31 轮 [6] 块内同形自建） */
+  const label = (text: string): string => text + ' '.repeat(Math.max(0, 8 - stringWidth(text)));
+
+  /** 两行 byModel 语料（B2 词面锁同款——手造数值） */
+  const twoRows = [
+    { model: 'zai/glm-4.7', input: 12345, output: 6789, cacheRead: 0, cacheWrite: 0, totalTokens: 19134 },
+    { model: 'fit/kimi-k2', input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, totalTokens: 1500 },
+  ];
+
+  it('B1 追加位零迁移：12 基线 + 追加段 4 行（空行+头行+2 模型行）= 16；31 轮 [6] 三行原位（修前红：现 12 行）', () => {
+    const lines = buildUsageLines(summary({ byModel: twoRows }), { used: 400_000, max: 1_000_000 });
+    expect(lines).toHaveLength(16);
+    expect(lines[9]).toBe(`${label('费用')}1.5000 USD`); // 既有费用行原位不动
+    expect(lines[10]).toBe('');
+    expect(lines[11]).toBe(`${label('上下文')}[████████████░░░░░░░░] 剩 60% · 400 K / 1 M`);
+    expect(lines[12]).toBe('');
+    expect(lines[13]).toBe('按模型');
+  });
+
+  it('B2 分段行词面：短名 + 三段数值（formatCount 全值分组形）+ 占比%（round 四舍五入）', () => {
+    const lines = buildUsageLines(summary({ totalTokens: 20634, byModel: twoRows }), {
+      used: 400_000,
+      max: 1_000_000,
+    });
+    expect(lines[14]).toContain('glm-4.7');
+    expect(lines[14]).toContain('输入 12,345');
+    expect(lines[14]).toContain('输出 6,789');
+    expect(lines[14]).toContain('合计 19,134');
+    expect(lines[14]).toContain('93%'); // 19134/20634 = 92.78% → round 93
+    expect(lines[15]).toContain('kimi-k2');
+    expect(lines[15]).toContain('7%'); // 1500/20634 = 7.27% → round 7
+  });
+
+  it('B3 缺席三态：byModel undefined / 单行 / 零行 → 行长恒 12 基线且不含「按模型」（≥2 门语义——门值锁）', () => {
+    for (const byModel of [undefined, [twoRows[0]!], []] as Partial<UiUsageSummary>['byModel'][]) {
+      const lines = buildUsageLines(summary({ byModel }), { used: 400_000, max: 1_000_000 });
+      expect(lines).toHaveLength(12);
+      expect(lines.join('\n')).not.toContain('按模型');
+    }
+  });
+
+  it('B4 撞尾回落全形：两互异键短名相同 → 全形呈现（禁裸 not.toContain——全形含短名子串恒红，改锁出现次数恒 1）', () => {
+    const lines = buildUsageLines(
+      summary({
+        totalTokens: 300,
+        byModel: [
+          { model: 'a/glm-4.7', input: 200, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 200 },
+          { model: 'b/glm-4.7', input: 100, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 100 },
+        ],
+      }),
+    );
+    expect(lines.join('\n')).toContain('a/glm-4.7');
+    expect(lines.join('\n')).toContain('b/glm-4.7');
+    const modelLines = lines.filter((l) => l.includes('glm-4.7')); // 两模型行
+    expect(modelLines).toHaveLength(2);
+    for (const line of modelLines) {
+      expect(line.split('glm-4.7').length - 1).toBe(1); // 全形内恰一次（短名独立呈现形缺席）
+    }
+  });
+
+  it('B5 残行词：\'\' 残键呈现「未标识」（实录缺席——codex "Other" 残桶同义）', () => {
+    const lines = buildUsageLines(
+      summary({
+        totalTokens: 300,
+        byModel: [
+          { model: 'zai/glm-4.7', input: 200, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 200 },
+          { model: '', input: 100, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 100 },
+        ],
+      }),
+    );
+    const joined = lines.join('\n');
+    expect(joined).toContain('未标识');
+  });
+
+  it('B6 分母防御：summary.totalTokens ≤0 → 占比归 0%（codex 同守卫）', () => {
+    const lines = buildUsageLines(summary({ totalTokens: 0, byModel: twoRows }));
+    // 模型行 = 同行含输入+合计两段（主表输入/合计是独立行不双含）
+    const modelLines = lines.filter((l) => l.includes('输入') && l.includes('合计'));
+    expect(modelLines).toHaveLength(2);
+    for (const line of modelLines) {
+      expect(line).toContain('0%');
+    }
+  });
+
+  it('B7 长键收口：30 字符模型键 → ellipsize 帽 24 收口（含 …，行内名词段宽 ≤ 24）', () => {
+    const longKey = 'a'.repeat(30);
+    const lines = buildUsageLines(
+      summary({
+        totalTokens: 300,
+        byModel: [
+          { model: longKey, input: 200, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 200 },
+          { model: 'fit/kimi-k2', input: 100, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 100 },
+        ],
+      }),
+    );
+    const longLine = lines.find((l) => l.includes('…'))!;
+    expect(longLine).toBeTruthy();
+    // 名词段 = 行首至「输入」前——ellipsize 帽 24 收口
+    expect(stringWidth(longLine.slice(0, longLine.indexOf('输入')))).toBeLessThanOrEqual(24);
+  });
+});

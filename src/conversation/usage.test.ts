@@ -12,9 +12,14 @@ function ev(type: string, data: unknown): SessionEvent {
   return { type, seq: 0, time: 0, data };
 }
 
-/** assistant/message 带 usage 载荷形（wiring.appendMessage 落账形） */
-function assistantUsage(usage: unknown): SessionEvent {
-  return ev('assistant/message', { stopReason: 'stop', usage });
+/** assistant/message 带 usage 载荷形（wiring.appendMessage 落账形——meta 并入 FX-4 响应实录位 provider/model） */
+function assistantUsage(usage: unknown, meta?: { provider?: string; model?: string }): SessionEvent {
+  return ev('assistant/message', {
+    stopReason: 'stop',
+    usage,
+    ...(meta?.provider !== undefined ? { provider: meta.provider } : {}),
+    ...(meta?.model !== undefined ? { model: meta.model } : {}),
+  });
 }
 
 /** 基线 usage 载荷（四分表 + 合计——cost 可选携带） */
@@ -117,5 +122,87 @@ describe('四桶残缺载荷防御位收严（挖掘 33 轮 [P3]）', () => {
     // 修前红实录：残缺件被当真载荷，cacheRead += undefined → NaN 污染
     expect(Number.isFinite(folded.cacheRead)).toBe(true);
     expect(Number.isFinite(folded.cacheWrite)).toBe(true);
+  });
+});
+
+describe('按模型分表（挖掘 44 轮件 A——foldSessionUsage 同遍扩聚合）', () => {
+  it('A1 分组累计 + 全形键：同模型两事件并账、跨模型分立（provider/model 拼全形键）', () => {
+    const events = [
+      assistantUsage(usageOf({ input: 100, output: 10, totalTokens: 110 }), { provider: 'zai', model: 'glm-4.7' }),
+      assistantUsage(usageOf({ input: 200, output: 20, totalTokens: 220 }), { provider: 'zai', model: 'glm-4.7' }),
+      assistantUsage(usageOf({ input: 50, output: 5, totalTokens: 55 }), { provider: 'fit', model: 'kimi-k2' }),
+    ];
+    expect(foldSessionUsage(events)).toMatchObject({
+      byModel: [
+        { model: 'zai/glm-4.7', input: 300, output: 30, totalTokens: 330 },
+        { model: 'fit/kimi-k2', input: 50, output: 5, totalTokens: 55 },
+      ],
+    });
+  });
+
+  it('A2 排序双键：totalTokens 降序首键、model 键升序次键（同量键字典序）', () => {
+    const events = [
+      assistantUsage(usageOf({ input: 300, totalTokens: 300 }), { provider: 'a', model: 'mid' }),
+      assistantUsage(usageOf({ input: 500, totalTokens: 500 }), { provider: 'b', model: 'top' }),
+      assistantUsage(usageOf({ input: 300, totalTokens: 300 }), { provider: 'c', model: 'aaa' }),
+    ];
+    const byModel = foldSessionUsage(events).byModel ?? [];
+    expect(byModel.map((r) => r.model)).toEqual(['b/top', 'a/mid', 'c/aaa']); // 500 在首、同 300 键字典序 a/mid < c/aaa
+  });
+
+  it("A3 半形与残行：仅 model 半形键原样；双缺席事件归 '' 残键", () => {
+    const events = [
+      assistantUsage(usageOf({ input: 10, totalTokens: 10 }), { model: 'glm-4.7' }),
+      assistantUsage(usageOf({ input: 20, totalTokens: 20 })), // 实录双缺席 → 残键
+    ];
+    expect(foldSessionUsage(events)).toMatchObject({
+      byModel: [
+        { model: '', input: 20 }, // 降序首键：残行 20 > glm-4.7 行 10
+        { model: 'glm-4.7', input: 10 },
+      ],
+    });
+  });
+
+  it('A4 对账恒等式：Σ 分表逐维 === 汇总位同名字段（同门同遍前提）', () => {
+    const events = [
+      assistantUsage(usageOf({ input: 100, output: 10, cacheRead: 1, cacheWrite: 2, totalTokens: 113 }), {
+        provider: 'zai',
+        model: 'glm-4.7',
+      }),
+      assistantUsage(usageOf({ input: 50, output: 5, cacheRead: 3, cacheWrite: 0, totalTokens: 58 }), {
+        model: 'kimi-k2',
+      }),
+      assistantUsage(usageOf({ input: 20, output: 2, cacheRead: 0, cacheWrite: 4, totalTokens: 26 })), // 残键行
+    ];
+    const folded = foldSessionUsage(events);
+    for (const dim of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const) {
+      expect((folded.byModel ?? []).reduce((sum, r) => sum + r[dim], 0)).toBe(folded[dim]);
+    }
+  });
+
+  it('A5 同门律：四桶残缺坏形事件不入总量也不入分组（byModel 不含其模型键）', () => {
+    const events = [
+      assistantUsage({ input: 10, output: 5, totalTokens: 15 }, { provider: 'bad', model: 'broken' }), // 33 轮 [P3] 坏形
+      assistantUsage(usageOf({ input: 100, totalTokens: 100 }), { provider: 'zai', model: 'glm-4.7' }), // 好形
+    ];
+    const folded = foldSessionUsage(events);
+    expect(folded.totalTokens).toBe(100);
+    expect((folded.byModel ?? []).map((r) => r.model)).toEqual(['zai/glm-4.7']);
+  });
+
+  it('A6 缺席不带：零事件流 / 全坏形流无 byModel 键且零账同形（回归绿锁——防「恒带空数组」形漂移）', () => {
+    const empty = foldSessionUsage([]);
+    expect('byModel' in empty).toBe(false);
+    expect(empty).toEqual(ZERO_SESSION_USAGE);
+    const allBad = foldSessionUsage([assistantUsage({ input: 10, output: 5, totalTokens: 15 })]);
+    expect('byModel' in allBad).toBe(false);
+  });
+
+  it('A7 空串视同缺席：model 空串不产独立半形键、不拼 ' + "'provider/'" + '（与双缺席同归残键）', () => {
+    const events = [
+      assistantUsage(usageOf({ input: 10, totalTokens: 10 }), { provider: 'zai', model: '' }), // model 空串等价缺席
+      assistantUsage(usageOf({ input: 20, totalTokens: 20 })), // 双缺席
+    ];
+    expect(foldSessionUsage(events)).toMatchObject({ byModel: [{ model: '', input: 30, totalTokens: 30 }] });
   });
 });

@@ -988,13 +988,22 @@
       "sig": "ba9e5c57d05e39c7"
     },
     {
+      "symbol": "UiUsageModelRow",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "按模型分表行（挖掘 44 轮件 A——/usage 面板「按模型」分段载荷）：与 UiUsageSummary 四分表同源同口径（同批 assistant/message 事件、同一 isUsageShape 门），仅按 provider/model 实录键分组——Σ 各桶恒等汇总位（对账恒等式）",
+      "kind": "interface",
+      "sig": "7ced8fb7da78d158"
+    },
+    {
       "symbol": "UiUsageSummary",
       "module": "berry-agent",
       "tier": "stable",
       "since": "1.0",
       "desc": "会话用量汇总（R7 批 10k `/usage` 副屏面板载荷）：会话全 run 累计（token 四分表 + 合计 + 货币），与件 6 run 级清账态分职不互替",
       "kind": "interface",
-      "sig": "7d118ec1d788a1f4"
+      "sig": "086009fe4ff19335"
     },
     {
       "symbol": "Usage",
