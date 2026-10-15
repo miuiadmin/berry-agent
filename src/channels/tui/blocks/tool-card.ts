@@ -136,6 +136,41 @@ export const CARD_PREVIEW_LINES = 5;
 export const CARD_BODY_MAX_LINES = 200;
 
 /**
+ * 卡体存账窗头/尾配额（挖掘 38 轮件 B——头尾化）：超帽形 = 头 100 + 省略
+ * 标记行 + 尾 100。内容行保留帽 CARD_BODY_MAX_LINES=200 语义维持（100+100），
+ * 标记行帽外不计——总账 201 行与修前形同账（修前 = 标记 + 尾 200 同 201）。
+ */
+export const CARD_BODY_HEAD_LINES = CARD_BODY_MAX_LINES / 2;
+export const CARD_BODY_TAIL_LINES = CARD_BODY_MAX_LINES - CARD_BODY_HEAD_LINES;
+
+/**
+ * 卡体省略标记文案（件 B——头尾化后「中段已省」：头已保留，「前文已省」
+ * 失实翻档）。cardBodyOf 主位 + 组卡体/探索组体/插件体三同律位单源。
+ */
+export function cardBodyOmissionMarker(dropped: number): string {
+  return `⋯（中段已省 ${dropped} 行）`;
+}
+
+/** 卡体单行帽值（码点——挖掘 38 轮件 C：超帽行行内头尾截断防折行材料化风暴） */
+export const CARD_BODY_LINE_MAX_CODEPOINTS = 2000;
+
+/** 行内截断头尾配额（各半——头 1000 + ⋯ + 尾 1000） */
+const CARD_BODY_LINE_HALF = CARD_BODY_LINE_MAX_CODEPOINTS / 2;
+
+/**
+ * 单行超长帽（挖掘 38 轮件 C）：>2000 码点行 → 头 1000 + ⋯ + 尾 1000
+ * （总长 2001 码点）。折行材料化防线——64KiB 单行不进存账窗（否则
+ * wrapText 每帧折出数百视觉行）；码点阵切片防代理对撕裂（[...str]
+ * spread 形——sanitizeNotifyText 码点帽同律）。行内 ⋯ 截断记号与行级
+ * 「中段已省」省略标记分立：行级 = 行数帽标记、行内 = 单行截断记号。
+ */
+export function capLongLine(text: string): string {
+  const cps = [...text];
+  if (cps.length <= CARD_BODY_LINE_MAX_CODEPOINTS) return text;
+  return [...cps.slice(0, CARD_BODY_LINE_HALF), '⋯', ...cps.slice(-CARD_BODY_LINE_HALF)].join('');
+}
+
+/**
  * 插件渲染腿载荷（renderResult 现调事实——toolName 单源 = card.name 故载荷
  * 不含名）。由 transcript 落卡时从 toolCall 参数与 toolResult 消息面铸入；
  * 缺席 = 无插件腿走宿主缺省卡体。
@@ -229,12 +264,17 @@ function noteAdjacent(raw: readonly string[], i: number): boolean {
   return false; // 下方全空行（文末）——非注记邻接，正文空行保留
 }
 
-/** 卡体文本 → 存账行（尾留帽 + 截断标记首行——内存上限语义；护栏注记先转写） */
+/** 卡体文本 → 存账行（头尾存账帽——件 B：超帽头 100 + 标记 + 尾 100；护栏注记先转写） */
 export function cardBodyOf(text: string): readonly string[] {
-  const lines = humanizeGuardedOutput(text).split('\n');
+  // 单行帽先行（件 C——行内头尾截断；护栏注记已在 humanize 转写位消化不受截）
+  const lines = humanizeGuardedOutput(text).split('\n').map(capLongLine);
   if (lines.length <= CARD_BODY_MAX_LINES) return lines;
   const dropped = lines.length - CARD_BODY_MAX_LINES;
-  return [`⋯（前文已省 ${dropped} 行）`, ...lines.slice(-CARD_BODY_MAX_LINES)!];
+  return [
+    ...lines.slice(0, CARD_BODY_HEAD_LINES),
+    cardBodyOmissionMarker(dropped),
+    ...lines.slice(-CARD_BODY_TAIL_LINES),
+  ];
 }
 
 /**
@@ -275,7 +315,7 @@ export function renderToolCardStyledLines(card: ToolCardView, columns: number): 
   // 窗终形（└ 槽 + 整窗 dim + 折叠帽自持——两档皆窗，绕过下方通用两档路；
   // diff 档恒非 bash——edit 族卡，不另判）
   if (card.name === 'bash' && pluginBody === null) {
-    const window = renderExecOutputWindow(card.body, columns, card.expanded);
+    const window = renderExecOutputWindow(card.body, columns, card.expanded, card.toggleHint);
     const body = statusLine === null ? window : [statusLine, ...window];
     return [...headerLines, ...body].map((line) => withCardBg(line, card.theme.toolCardBg));
   }
@@ -543,8 +583,9 @@ function collapsedGroupLine(group: ToolCardGroupData, columns: number, toggleHin
 }
 
 /**
- * 组卡体命令行集：各命令一行摘要 + 卡体帽同律（超帽截头保尾 + 截断标记首行
- * ——CARD_BODY_MAX_LINES 同语义；组命令数超帽属病理性长窗，防御位在册）。
+ * 组卡体命令行集：各命令一行摘要 + 卡体帽同律（件 B 头尾化：超帽头 100 +
+ * 省略标记行 + 尾 100——CARD_BODY_MAX_LINES 同语义；组命令数超帽属病理性
+ * 长窗，防御位在册）。
  */
 function groupCommandLines(
   commands: readonly ToolCardGroupCommand[],
@@ -554,10 +595,11 @@ function groupCommandLines(
   const lines = commands.map((command) => groupCommandLine(command, columns, theme));
   if (lines.length <= CARD_BODY_MAX_LINES) return lines;
   const dropped = lines.length - CARD_BODY_MAX_LINES;
-  const marker = `⋯（前文已省 ${dropped} 行）`;
+  const marker = cardBodyOmissionMarker(dropped);
   return [
+    ...lines.slice(0, CARD_BODY_HEAD_LINES),
     { plain: marker, runs: [{ start: 0, end: marker.length, style: DIM_STYLE }] },
-    ...lines.slice(-CARD_BODY_MAX_LINES),
+    ...lines.slice(-CARD_BODY_TAIL_LINES),
   ];
 }
 
@@ -648,8 +690,8 @@ function collapsedExploringGroupLine(
 
 /**
  * 探索组卡体子行集：各条目一至两行（动词行 + error 态嵌套诊断行）+ 卡体帽
- * 同律（超帽截头保尾 + 截断标记首行——CARD_BODY_MAX_LINES 同语义；帽按
- * 渲染后行数计——诊断行入账）。
+ * 同律（件 B 头尾化：超帽头 100 + 省略标记行 + 尾 100——CARD_BODY_MAX_LINES
+ * 同语义；帽按渲染后行数计——诊断行入账）。
  */
 function exploringEntryLines(
   entries: readonly ExploringGroupEntry[],
@@ -659,10 +701,11 @@ function exploringEntryLines(
   const lines = entries.flatMap((entry) => exploringEntryLine(entry, columns, theme));
   if (lines.length <= CARD_BODY_MAX_LINES) return lines;
   const dropped = lines.length - CARD_BODY_MAX_LINES;
-  const marker = `⋯（前文已省 ${dropped} 行）`;
+  const marker = cardBodyOmissionMarker(dropped);
   return [
+    ...lines.slice(0, CARD_BODY_HEAD_LINES),
     { plain: marker, runs: [{ start: 0, end: marker.length, style: DIM_STYLE }] },
-    ...lines.slice(-CARD_BODY_MAX_LINES),
+    ...lines.slice(-CARD_BODY_TAIL_LINES),
   ];
 }
 
@@ -777,12 +820,19 @@ const EXEC_WINDOW_SLOT_WIDTH = EXEC_WINDOW_PREFIX.length;
  * 维持）。首视觉行 `  └ ` 转折前缀、其余视觉行 4 空格槽（└ 词条扩例——
  * ④ 符号册）；折宽 columns − 4（槽宽让位）；**整窗 DIM 档**——前缀与内容
  * 同档单游程（批 10i「展开正常亮度」两档律于 exec 输出窗翻档：折叠/展开
- * 两档皆 dim）。折叠帽 5 = 头 2 + 省略行（4 空格槽 `⋯ +N 行`——N = 中段
- * 省略的视觉行数；文案与 ⑦ 卡头省略行同族）+ 尾 2（中段截断既有律）；
- * 展开 = 全量窗行。空输出（全行皆空——含 cardBodyOf('') 的 [''] 形）→
- * `  └ (no output)` dim 单行（§4.4 文案律——落码定值）。
+ * 两档皆 dim）。折叠帽 5 = 头 2 + 省略行（4 空格槽 `⋯ +N 行 · {hint} 展开`
+ * ——N = 中段省略的视觉行数、hint 随键位册注入空回退 ctrl+o——挖掘 38 轮
+ * 件 D 补提示尾段：提示只属**可展开截断面**〔折叠窗中段截断可 ctrl+o 展开〕，
+ * 卡头命令续行⑦与护栏保尾转写省略行不可展开维持无提示）+ 尾 2（中段截断
+ * 既有律）；展开 = 全量窗行。空输出（全行皆空——含 cardBodyOf('') 的 ['']
+ * 形）→ `  └ (no output)` dim 单行（§4.4 文案律——落码定值）。
  */
-function renderExecOutputWindow(body: readonly string[], columns: number, expanded: boolean): StyledLine[] {
+function renderExecOutputWindow(
+  body: readonly string[],
+  columns: number,
+  expanded: boolean,
+  toggleHint: string,
+): StyledLine[] {
   // 空输出判据：全行皆空串（多空行形同落——「无输出」语义不看行数看内容）
   if (body.every((line) => line === '')) {
     const plain = `${EXEC_WINDOW_PREFIX}(no output)`;
@@ -799,7 +849,12 @@ function renderExecOutputWindow(body: readonly string[], columns: number, expand
   });
   if (expanded || visual.length <= CARD_PREVIEW_LINES) return visual;
   const dropped = visual.length - (CARD_PREVIEW_LINES - 1); // 头 2 + 尾 2 之外的省略视觉行数
-  const marker = truncateToWidth(`${' '.repeat(EXEC_WINDOW_SLOT_WIDTH)}⋯ +${dropped} 行`, Math.max(0, columns));
+  // 展开提示（件 D——previewWindow 同律空回退；提示只属可展开截断面）
+  const hint = toggleHint !== '' ? toggleHint : 'ctrl+o';
+  const marker = truncateToWidth(
+    `${' '.repeat(EXEC_WINDOW_SLOT_WIDTH)}⋯ +${dropped} 行 · ${hint} 展开`,
+    Math.max(0, columns),
+  );
   return [
     ...visual.slice(0, 2),
     ...(marker === '' ? [] : [{ plain: marker, runs: [{ start: 0, end: marker.length, style: DIM_STYLE }] }]),
@@ -831,12 +886,14 @@ function renderPluginBodyLines(card: ToolCardView, columns: number): StyledLine[
     });
     // 空行集回落 + 坏形返回（非数组/段非字符串文本）同回落档——渲染路径零崩
     if (!Array.isArray(lines) || lines.length === 0) return null;
-    // 卡体帽同律（cardBodyOf 同语义：超帽截头保尾 + 截断标记首行——作用于行集）
+    // 卡体帽同律（cardBodyOf 同语义——件 B 头尾化：超帽头 100 + 省略标记行
+    //+ 尾 100，作用于行集）
     const capped =
       lines.length > CARD_BODY_MAX_LINES
         ? [
-            [{ text: `⋯（前文已省 ${lines.length - CARD_BODY_MAX_LINES} 行）` }] as RendererLine,
-            ...lines.slice(-CARD_BODY_MAX_LINES),
+            ...lines.slice(0, CARD_BODY_HEAD_LINES),
+            [{ text: cardBodyOmissionMarker(lines.length - CARD_BODY_MAX_LINES) }] as RendererLine,
+            ...lines.slice(-CARD_BODY_TAIL_LINES),
           ]
         : lines;
     return capped.map((line) => pluginLineToStyled(line, columns, card.theme));

@@ -15,8 +15,11 @@ import { registerToolRenderer } from '../../renderers.js';
 import { styledLineToAnsi } from '../backend/ansi-rows.js';
 import { renderBlockLines, type TranscriptBlock } from '../backend/transcript.js';
 import {
+  CARD_BODY_HEAD_LINES,
+  CARD_BODY_LINE_MAX_CODEPOINTS,
   CARD_BODY_MAX_LINES,
   CARD_PREVIEW_LINES,
+  capLongLine,
   cardBodyOf,
   renderToolCardStyledLines,
   type ExploringGroupEntry,
@@ -197,12 +200,68 @@ describe('卡体两档与存账帽', () => {
     expect(collapsed.map((l) => l.plain)).toEqual([' ✓ 读取文件(path)', '仅一行']);
   });
 
-  it('cardBodyOf 尾留帽：超帽截头保尾 + 截断标记首行', () => {
+  it('单行超长帽 capLongLine：界内原样 + 超帽头 1000 + ⋯ + 尾 1000 + 代理对不撕裂（挖掘 38 轮件 C）', () => {
+    // 界内原样：恰 2000 码点（含多字节——按码点计非字节）不截
+    const at = 'a'.repeat(CARD_BODY_LINE_MAX_CODEPOINTS);
+    expect(capLongLine(at)).toBe(at);
+    // 超帽 1 码点 → 头 1000 + ⋯ + 尾 1000（总 2001）
+    const over = capLongLine('a'.repeat(CARD_BODY_LINE_MAX_CODEPOINTS + 1));
+    expect([...over]).toHaveLength(CARD_BODY_LINE_MAX_CODEPOINTS + 1);
+    expect(over).toContain('⋯');
+    expect(over.startsWith('a'.repeat(1000))).toBe(true);
+    expect(over.endsWith('a'.repeat(1000))).toBe(true);
+    // 空串/短串原样
+    expect(capLongLine('')).toBe('');
+    expect(capLongLine('短行')).toBe('短行');
+    // 代理对不撕裂：构造切口恰在代理对中间（emoji 每码点 2 UTF-16 单元）
+    const emoji = '😀'.repeat(CARD_BODY_LINE_MAX_CODEPOINTS + 1);
+    const capped = capLongLine(emoji);
+    const parts = [...capped];
+    expect(parts).toHaveLength(CARD_BODY_LINE_MAX_CODEPOINTS + 1); // 1000 emoji + ⋯ + 1000 emoji
+    // 码点阵形保证：唯一单 UTF-16 单元项是 ⋯ 记号——无孤立半代理（撕裂形会出现 \ud83d/\ude00 落单项）
+    expect(parts.filter((p) => p.length === 1)).toEqual(['⋯']);
+  });
+
+  it('cardBodyOf 单行帽集成：64KiB 单行 → 存账行行长 ≤ 帽（折行材料化防线）', () => {
+    const body = cardBodyOf('x'.repeat(65536));
+    expect(body).toHaveLength(1); // 单行输入行数帽不触发
+    expect([...body[0]!]).toHaveLength(CARD_BODY_LINE_MAX_CODEPOINTS + 1);
+    expect(body[0]!.includes('⋯')).toBe(true);
+  });
+
+  it('超长单行帧预算：展开档视觉行有界 + 折叠档省略计数有界（修前风暴锁）', () => {
+    // 64KiB 单行 bash 卡（exec 输出窗面）：body 走生产同源形 cardBodyOf 铸
+    //（transcript 落卡单源——测试 rig 直灌 string[] 不经构造位会假红）。
+    // 修前展开档 wrapText 折出 65536/36 ≈ 1822 视觉行/帧——材料化风暴；
+    // 修后单行 2001 码点 → ~50 视觉行量级
+    const storedBody = cardBodyOf('x'.repeat(65536));
+    const expanded = renderToolCardStyledLines(card({ name: 'bash', body: [...storedBody], expanded: true }), 40);
+    expect(expanded.length).toBeLessThan(100); // 修前 1800+ 级必红
+    // 折叠档：省略行 dropped 计数有界（修前 ⋯ +1818 行 4 位计数；修后两位数）
+    const collapsed = renderToolCardStyledLines(card({ name: 'bash', body: [...storedBody] }), 40);
+    const marker = collapsed.find((l) => l.plain.includes('⋯ +'));
+    expect(marker).toBeDefined();
+    expect(marker!.plain).toMatch(/⋯ \+\d{1,3} 行/); // 修前 4 位计数必红
+  });
+
+  it('cardBodyOf 头尾存账帽：超帽头 100 + 中段省略标记 + 尾 100（件 B——首错在头可辨）', () => {
     const lines = Array.from({ length: CARD_BODY_MAX_LINES + 30 }, (_, i) => `L${i}`);
     const body = cardBodyOf(lines.join('\n'));
-    expect(body).toHaveLength(CARD_BODY_MAX_LINES + 1); // 标记行 + 尾留 200
-    expect(body[0]).toContain('前文已省 30 行');
+    expect(body).toHaveLength(CARD_BODY_MAX_LINES + 1); // 头 100 + 标记 + 尾 100（标记帽外——与修前同总账）
+    expect(body[0]).toBe('L0'); // 首行保住（修前尾留形首行是标记——首错不可辨）
+    expect(body[CARD_BODY_HEAD_LINES]).toContain('中段已省 30 行'); // 标记位在头配额后
     expect(body[body.length - 1]).toBe('L229'); // 尾行保住
+  });
+
+  it('超帽形 card.body[0] 位序恢复：状态行退出码在头保留下可解析（件 B 正交受益锁——修前尾留必红）', () => {
+    // 修前：超帽 body[0] = 省略标记 → renderExecStatusLine 退出码解析静默失败
+    const text = ['Exit code: 1', ...Array.from({ length: CARD_BODY_MAX_LINES + 10 }, (_, i) => `out ${i}`)].join('\n');
+    const lines = renderToolCardStyledLines(
+      card({ name: 'bash', status: 'error', body: [...cardBodyOf(text)], expanded: true, durationMs: 1200 }),
+      40,
+    );
+    const status = lines.find((l) => l.plain.includes('(1)'));
+    expect(status).toBeDefined(); // 头保留后首行真身 → 退出码段在场
   });
 
   it('护栏注记呈现层转写（V-2 笔2 注④双轨分层）：剥字节注记行 + 前置 ⋯ +N 行', () => {
@@ -592,7 +651,7 @@ describe('插件卡体（renderResult 消费——回落恒在律）', () => {
     expect(lines.slice(1).map((line) => line.plain)).toEqual(['宿主']);
   });
 
-  it('折叠预览 N=5 与卡体帽 200 行对插件行集同律（尾留 + 截断标记首行）', () => {
+  it('折叠预览 N=5 与卡体帽 200 行对插件行集同律（件 B 头尾化——头 100 + 标记 + 尾 100）', () => {
     // 扁平行集（每元素一行 = 段序列——[[段]] 嵌套是行集的行集属坏形）
     const many = Array.from({ length: CARD_BODY_MAX_LINES + 30 }, (_, i) => [{ text: `L${i}` }]);
     disposers.push(registerToolRenderer('plug_cap', { renderResult: () => many }));
@@ -600,9 +659,10 @@ describe('插件卡体（renderResult 消费——回落恒在律）', () => {
       card({ name: 'plug_cap', body: [], expanded: true, renderInput: renderInputOf() }),
       40,
     );
-    // 卡头 + 截断标记 + 尾留 200（cardBodyOf 同语义）
+    // 卡头 + 头 100 + 截断标记 + 尾 100（cardBodyOf 同语义）
     expect(expanded).toHaveLength(1 + 1 + CARD_BODY_MAX_LINES);
-    expect(expanded[1]!.plain).toContain('前文已省 30 行');
+    expect(expanded[1]!.plain).toBe('L0'); // 头行保住
+    expect(expanded[1 + CARD_BODY_HEAD_LINES]!.plain).toContain('中段已省 30 行');
     expect(expanded[expanded.length - 1]!.plain).toBe(`L${many.length - 1}`); // 尾行保住
     // 折叠档 = 卡头 + 尾 5 视觉行且整面 dim（同宿主卡体律）
     const collapsed = renderToolCardStyledLines(
@@ -923,11 +983,12 @@ describe('exec 折叠组卡（组级形——卡头 • Ran N commands + 最差�
     expect(expanded).toHaveLength(1 + 8); // 全量逐条（无中段截断帽）
   });
 
-  it('卡体帽 200 行同律：超帽截头保尾 + 截断标记首行（词条——卡体帽 200 同律）', () => {
+  it('卡体帽 200 行同律：超帽头 100 + 中段省略标记 + 尾 100（词条——卡体帽 200 同律·件 B 头尾化）', () => {
     const commands = Array.from({ length: CARD_BODY_MAX_LINES + 10 }, (_, i) => ({ command: `c${i}` }));
     const lines = renderToolCardStyledLines(groupCard(commands, { expanded: true }), 40);
     expect(lines).toHaveLength(1 + 1 + CARD_BODY_MAX_LINES);
-    expect(lines[1]!.plain).toContain('前文已省 10 行');
+    expect(lines[1]!.plain).toBe('$ c0'); // 头行保住
+    expect(lines[1 + CARD_BODY_HEAD_LINES]!.plain).toContain('中段已省 10 行');
     expect(lines[lines.length - 1]!.plain).toBe(`$ c${commands.length - 1}`); // 尾行保住
   });
 });
@@ -984,7 +1045,7 @@ describe('exec 卡体状态行（UX 五问题批③——bash 卡族卡体首行
     expect(noDur[1]!.plain).toBe('  └ Exit code: 1'); // 输出窗按名施用（卡头形无关——④）
   });
 
-  it('exec 输出窗折叠档（④）：帽 5 头 2 + 省略行 + 尾 2——整窗 dim + 省略行 4 空格槽 `⋯ +N 行`', () => {
+  it('exec 输出窗折叠档（④）：帽 5 头 2 + 省略行 + 尾 2——整窗 dim + 省略行 4 空格槽 `⋯ +N 行 · {hint} 展开`（件 D 补提示）', () => {
     // 顶层 card 直构（无 durationMs → 无状态行；输出窗按名施用与卡头形无关）
     const body = ['第一行', ...Array.from({ length: 8 }, (_, i) => `第 ${i + 1} 行`)];
     const lines = renderToolCardStyledLines(card({ name: 'bash', body }), 40); // 卡头 1 + 窗 5
@@ -992,11 +1053,21 @@ describe('exec 卡体状态行（UX 五问题批③——bash 卡族卡体首行
     expect(lines[1]!.plain).toBe('  └ 第一行'); // 首行 └ 形（dim）
     expect(lines[1]!.runs).toEqual([{ start: 0, end: lines[1]!.plain.length, style: { dim: true } }]); // 整窗 dim（前缀与内容同档）
     expect(lines[2]!.plain).toBe('    第 1 行'); // 头 2 次行（4 空格槽）
-    expect(lines[3]!.plain).toBe('    ⋯ +5 行'); // 省略行 4 空格槽（9 行 − 4 = 5——文案不含展开键提示）
+    expect(lines[3]!.plain).toBe('    ⋯ +5 行 · ctrl+o 展开'); // 省略行 4 空格槽（9 行 − 4 = 5）+ 展开提示（hint 随册——rig 缺省 ctrl+o）
     expect(lines[3]!.runs).toEqual([{ start: 0, end: lines[3]!.plain.length, style: { dim: true } }]);
     expect(lines[4]!.plain).toBe('    第 7 行'); // 尾 2（body 尾 = 第一行 + 第 1..8 行共 9 行——尾 2 即第 7/8 行）
     expect(lines[5]!.plain).toBe('    第 8 行');
     expect(lines.slice(1).every((l) => l.runs.every((r) => r.style.dim === true))).toBe(true); // 整窗 dim
+  });
+
+  it('exec 窗省略行 hint 注入与空回退（件 D——previewWindow 同律）', () => {
+    const body = ['第一行', ...Array.from({ length: 8 }, (_, i) => `第 ${i + 1} 行`)];
+    // 注入形：非空 hint 直用
+    const injected = renderToolCardStyledLines(card({ name: 'bash', body, toggleHint: 'ctrl+t' }), 40);
+    expect(injected[3]!.plain).toBe('    ⋯ +5 行 · ctrl+t 展开');
+    // 空串回退：册首缺省 ctrl+o（previewWindow L754 同律）
+    const fallback = renderToolCardStyledLines(card({ name: 'bash', body, toggleHint: '' }), 40);
+    expect(fallback[3]!.plain).toBe('    ⋯ +5 行 · ctrl+o 展开');
   });
 
   it('exec 输出窗空输出形（④）：`  └ (no output)` dim 单行', () => {
@@ -1166,14 +1237,17 @@ describe('探索组卡（组级形——卡头 • 已探索 N 项 + 归并动�
     expect(toolFaceZh('grep')).toBe('搜索文本');
   });
 
-  it('卡体帽 200 行同律：超帽子行截头保尾 + 截断标记首行（CARD_BODY_MAX_LINES 同语义——诊断行入账）', () => {
+  it('卡体帽 200 行同律：超帽子行头 100 + 中段省略标记 + 尾 100（CARD_BODY_MAX_LINES 同语义——诊断行入账·件 B 头尾化）', () => {
     const many = Array.from({ length: CARD_BODY_MAX_LINES + 5 }, (_, i) => ({
       tool: 'read',
       args: [`f${i}.ts`],
     }));
     const lines = renderToolCardStyledLines(exploringCard(many, { expanded: true }), 40);
     expect(lines).toHaveLength(1 + CARD_BODY_MAX_LINES + 1); // 头 + 帽内子行 + 标记
-    expect(lines[1]!.plain).toBe('⋯（前文已省 5 行）');
-    expect(lines[1]!.runs).toEqual([{ start: 0, end: '⋯（前文已省 5 行）'.length, style: { dim: true } }]);
+    expect(lines[1]!.plain).not.toContain('已省'); // 头子行在场（修前首行是标记）
+    expect(lines[1 + CARD_BODY_HEAD_LINES]!.plain).toBe('⋯（中段已省 5 行）');
+    expect(lines[1 + CARD_BODY_HEAD_LINES]!.runs).toEqual([
+      { start: 0, end: '⋯（中段已省 5 行）'.length, style: { dim: true } },
+    ]);
   });
 });
