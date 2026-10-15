@@ -211,8 +211,10 @@ export interface ToolCardView {
   readonly expanded: boolean;
   readonly theme: ResolvedTheme;
   /**
-   * 执行时长近似 ms（UX 五问题批③——exec 卡状态行消费）：toolResult 时戳减
-   * assistant 请求时戳（含调度延迟的诚实近似）。缺席 = 无状态行。
+   * 执行时长 ms（UX 五问题批③——exec 卡状态行消费；挖掘 49 轮件 C 翻档）：
+   * 主位 = bash 真执行时长（ExecResult.durationMs 经 toolResult.details
+   * 上浮——铸卡位优先读）；回退档 = 时戳差值近似（孤儿/旧 durable 档/非
+   * bash 工具——含调度延迟）。缺席 = 无状态行。
    */
   readonly durationMs?: number;
   /** 展开键提示（tools.toggle-expand 键名——预览省略行文案随册） */

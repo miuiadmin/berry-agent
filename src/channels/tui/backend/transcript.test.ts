@@ -1655,6 +1655,83 @@ describe('LiveTranscript exec 折叠组（直播路——agent_end 窗口收口�
   });
 });
 
+/* ------- exec 卡时长主位真执行（挖掘 49 轮件 C——07 §4.1 UX 五问题批③ 翻档） ------- */
+
+describe('exec 卡时长主位真执行（挖掘 49 轮件 C）', () => {
+  /**
+   * 时戳差腿：bash 调用 requestedAt = 1（assistantMsg 硬编码）+ 结果
+   * timestamp = resultAt（toolResultMsg 硬编码 1——本面 override）——回退账
+   * 恒 resultAt − 1 可精确断言（两账分离：details 真值 vs 时戳近似）。
+   */
+  function runBashGap(t: LiveTranscript, id: string, resultAt: number, details?: unknown): void {
+    apply(t, { type: 'message_end', message: bashCallMsg(id, 'sleep 5') });
+    apply(t, {
+      type: 'message_end',
+      message: {
+        ...toolResultMsg('Exit code: 0', { toolCallId: id, ...(details !== undefined ? { details } : {}) }),
+        timestamp: resultAt,
+      },
+    });
+  }
+  const singleCard = (t: LiveTranscript): Extract<TranscriptBlock, { kind: 'tool-card' }> =>
+    t.snapshot.find((b) => b.kind === 'tool-card') as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+
+  it('主位主锁：details.durationMs=100 胜出时戳差 5000（修前红锚——修前显 5000 近似）', () => {
+    const t = new LiveTranscript();
+    runBashGap(t, 'e1', 5001, { durationMs: 100 });
+    apply(t, { type: 'agent_end', status: 'completed' });
+    expect(singleCard(t).durationMs).toBe(100);
+  });
+
+  it('回退档：details 缺席（旧 durable 档等）时戳差近似维持 5000', () => {
+    const t = new LiveTranscript();
+    runBashGap(t, 'e1', 5001);
+    apply(t, { type: 'agent_end', status: 'completed' });
+    expect(singleCard(t).durationMs).toBe(5000);
+  });
+
+  it('守卫窄化：非 bash 工具 details 异形（operations 数组）不误读——近似档照走', () => {
+    const t = new LiveTranscript();
+    apply(t, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'g1', name: 'grep', arguments: { pattern: 'x', path: 'y' } }]),
+    });
+    apply(t, {
+      type: 'message_end',
+      message: {
+        ...toolResultMsg('grep 结果', {
+          toolCallId: 'g1',
+          // 异形：数组非 { durationMs } 形——bash 专属键守卫（call.name === 'bash'）
+          // 先行不中，typeof number 双守卫再兜底
+          details: [{ op: 'read', lines: 3 }],
+        }),
+        timestamp: 5001,
+      },
+    });
+    apply(t, { type: 'agent_end', status: 'completed' });
+    const card = singleCard(t);
+    expect(card.name).toBe('grep');
+    expect(card.durationMs).toBe(5000);
+  });
+
+  it('状态行两形单源锁：真值档 100ms 与回退档 5.00s（renderExecStatusLine 零改消费 card.durationMs——本件零渲染面改动）', () => {
+    const durationLine = (card: TranscriptBlock): string | undefined =>
+      renderBlockStyledLines(card, 80)
+        .map((l) => l.plain)
+        // 状态行形 `• {时长}`（成功腿无码形——谓词收窄防卡头命令词误中）
+        .find((p) => /^• \d/.test(p));
+    const t1 = new LiveTranscript();
+    runBashGap(t1, 'e1', 5001, { durationMs: 100 });
+    apply(t1, { type: 'agent_end', status: 'completed' });
+    // 成功腿无码形：`• {时长}`（100 < 1s → 100ms——ms 档格式化 codex 形）
+    expect(durationLine(singleCard(t1))).toBe('• 100ms');
+    const t2 = new LiveTranscript();
+    runBashGap(t2, 'e1', 5001);
+    apply(t2, { type: 'agent_end', status: 'completed' });
+    expect(durationLine(singleCard(t2))).toBe('• 5.00s');
+  });
+});
+
 describe('LiveTranscript exec 折叠组（投影路——user 消息段窗聚合重建）', () => {
   /** 三对 bash 的投影语料（同窗 ≥3 形） */
   const threePairs = [

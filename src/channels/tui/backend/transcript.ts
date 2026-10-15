@@ -2076,10 +2076,18 @@ export class LiveTranscript {
     // ——bodyRuns 不进插件体）
     const styledBody =
       !isEditPatch && !isBackgroundDelegation && call.name !== 'bash' ? cardBodyStyledOf(bodyText) : undefined;
-    // 状态行时长近似（UX 五问题批③——契约零扩的诚实近似）：toolResult 时戳
-    // 减 assistant 请求时戳，含调度延迟（工具排队/审批等待计入——非纯执行
-    // 时长）；钳非负（时钟回退防御）
-    const durationMs = Math.max(0, message.timestamp - call.requestedAt);
+    // 状态行时长（07 §4.1 UX 五问题批③ 翻档——挖掘 49 轮件 C）：主位 = bash
+    // 真执行时长（ExecResult.durationMs 经 details 上浮——守卫窄化：bash
+    // 专属键 + typeof number 双守卫，他工具 details 异形〔operations 等〕
+    // 不误读）；回退档 = 时戳差值近似（孤儿/旧 durable 档/非 bash 工具——
+    // 含调度延迟〔工具排队/审批等待计入——非纯执行时长〕；钳非负防时钟回退）
+    const execDuration =
+      call.name === 'bash' &&
+      message.details !== undefined &&
+      typeof (message.details as { durationMs?: unknown }).durationMs === 'number'
+        ? (message.details as { durationMs: number }).durationMs
+        : undefined;
+    const durationMs = execDuration ?? Math.max(0, message.timestamp - call.requestedAt);
     return {
       kind: 'tool-card',
       name: call.name,

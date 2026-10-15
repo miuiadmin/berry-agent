@@ -366,6 +366,95 @@ describe('createBashTool 升权面（allowed-once 语义）', () => {
   });
 });
 
+describe('createBashTool 结算时长上浮（挖掘 49 轮件 C——details.durationMs 铸入）', () => {
+  /** stub confine（node 脚本伪 runner——打签名；三分类面 stubSandbox 的本面精简镜像） */
+  const stubConfine = (script: string): SandboxService => ({
+    confine: (): ConfinedArgv => ({
+      argv: [execPath, '-e', script],
+      enforcement: 'full',
+      denialSignatures: ['operation not permitted'],
+      runnerFailureRules: [{ fatalSignatures: ['runner-init-failed'] }],
+    }),
+    registerBackend: () => () => {},
+    listBackends: () => [],
+  });
+  const confinedTool = (script: string) =>
+    createBashTool({
+      pipeline: createSpawnPipeline(),
+      workspaceRoot: () => process.cwd(),
+      currentMode: () => 'workspace-write',
+      sandboxService: stubConfine(script),
+    });
+
+  // 自然退出腿两 return 形（exit 0 / exit 3）同铸——真 bash 真计时（真值非确定，
+  // 锁形不锁值）
+  it('自然退出两 return 形均铸——exit 0 与 exit 3 同腿', { timeout: 15_000 }, async () => {
+    const tool = dangerTool(createSpawnPipeline());
+    const ok = await tool.execute({ command: 'true' }, CTX);
+    expect(ok.isError).toBeUndefined();
+    expect(ok.details).toEqual({ durationMs: expect.any(Number) });
+    const fail = await tool.execute({ command: 'exit 3' }, CTX);
+    expect(fail.isError).toBe(true);
+    expect(fail.details).toEqual({ durationMs: expect.any(Number) });
+  });
+
+  // 树杀前进程真跑满预算——durationMs ≥ 300 恒真（setTimeout 不早于 delay 触发）
+  it('超时腿——EXEC_TIMEOUT 铸真跑时长（≥ 预算 300ms）', { timeout: 15_000 }, async () => {
+    const result = await dangerTool(createSpawnPipeline()).execute({ command: 'sleep 30', timeoutMs: 300 }, CTX);
+    expect(textOf(result)).toContain('EXEC_TIMEOUT');
+    expect(result.details).toEqual({ durationMs: expect.any(Number) });
+    expect((result.details as { durationMs: number }).durationMs).toBeGreaterThanOrEqual(300);
+  });
+
+  // 拒绝腿：进程真跑过真计时——与自然退出同语义（07 §4.1 批③）
+  it('策略拒绝腿（denied）同铸——拒绝非未跑，时长照记', { timeout: 15_000 }, async () => {
+    const result = await confinedTool(
+      "process.stderr.write('sandbox: operation not permitted\\n'); process.exit(1)",
+    ).execute({ command: 'echo hi' }, CTX);
+    expect(textOf(result)).toContain('operation not permitted');
+    expect(result.details).toEqual({ durationMs: expect.any(Number) });
+  });
+
+  it('runner 失败腿（fatal）同铸——EXEC_SPAWN_FAILED 是结算非抛出', { timeout: 15_000 }, async () => {
+    const result = await confinedTool(
+      "process.stderr.write('seatbelt runner-init-failed: profile parse\\n'); process.exit(1)",
+    ).execute({ command: 'echo hi' }, CTX);
+    expect(textOf(result)).toContain('EXEC_SPAWN_FAILED');
+    expect(result.details).toEqual({ durationMs: expect.any(Number) });
+  });
+
+  it('abort 腿同铸——协作中止真跑段计时（200ms 中止窗 ≥ 100ms 保守下界）', { timeout: 15_000 }, async () => {
+    const ac = new AbortController();
+    const pending = dangerTool(createSpawnPipeline()).execute(
+      { command: 'sleep 30' },
+      { toolCallId: 'tc-abort', signal: ac.signal },
+    );
+    setTimeout(() => ac.abort(), 200);
+    const result = await pending;
+    expect(textOf(result)).toContain('EXEC_ABORTED');
+    expect(result.details).toEqual({ durationMs: expect.any(Number) });
+    expect((result.details as { durationMs: number }).durationMs).toBeGreaterThanOrEqual(100);
+  });
+
+  // 未起进程腿诚实缺席：升权拒绝发生在 spawn 前——无真执行可记（不铸）
+  it('升权拒绝腿不铸——未起进程诚实缺席（details undefined）', async () => {
+    const result = await createBashTool({
+      pipeline: createSpawnPipeline(),
+      workspaceRoot: () => process.cwd(),
+      currentMode: () => 'read-only',
+      approval: { ask: async () => ({ outcome: 'rejected' as const }) },
+    }).execute({ command: "echo 'x'", sandbox_permissions: 'danger', justification: '需要' }, CTX);
+    expect(result.isError).toBe(true);
+    expect(result.details).toBeUndefined();
+  });
+
+  it('抛出腿不铸——后台化截获前置拒（未 spawn 零时长账）', async () => {
+    const result = await dangerTool(createSpawnPipeline()).execute({ command: 'sleep 30 &' }, CTX);
+    expect(textOf(result)).toContain('EXEC_BACKGROUND_REJECTED');
+    expect(result.details).toBeUndefined();
+  });
+});
+
 describe('createBashTool .git 拦截面（04 §8 腿一/腿二——成熟度缺口 #9）', () => {
   /** 计数管道：断言零 spawn（硬拒前置——不应到达执行层） */
   function countingPipeline(): { pipeline: SpawnPipeline; runs: () => number } {

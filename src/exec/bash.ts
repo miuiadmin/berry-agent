@@ -450,15 +450,19 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
           preview?.dispose();
         }
 
-        // ---- 结算分类（退出码非工具面异常——数据面分报） ----
+        // ---- 结算分类（退出码非工具面异常——数据面分报）----
+        // 时长上浮（挖掘 49 轮件 C）：真执行时长 ExecResult.durationMs 经
+        // details 铸入（契约既有宽容键位零扩）——transcript 状态行主位消费
+        //（07 §4.1 UX 五问题批③ 翻档：主位真值/回退时戳近似双档）
         if (result.outcome === 'timeout') {
           return errorWithTail(
             `[EXEC_TIMEOUT] 命令超时（预算 ${timeoutMs}ms）——已进程组树杀；尾部输出保留下方`,
             result,
+            execDurationDetails(result),
           );
         }
         if (result.outcome === 'abort') {
-          return errorWithTail('[EXEC_ABORTED] 命令被打断（协作中止信号）', result);
+          return errorWithTail('[EXEC_ABORTED] 命令被打断（协作中止信号）', result, execDurationDetails(result));
         }
         // runner 自身失败（runner 没跑起来——区别于策略拒绝生效）：EXEC_SPAWN_FAILED
         // 分类（spawn 阶段失败同族：进程虽 spawn 了但沙箱 runner 未成活）
@@ -471,9 +475,11 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
             return errorWithTail(
               `[EXEC_SPAWN_FAILED] 沙箱 runner 未跑起来（后端故障非策略拒绝）——安装对应沙箱后端`,
               result,
+              execDurationDetails(result),
             );
           }
           // 策略拒绝（denialSignatures 命中）：拒绝标记 + 真实 stderr + 升权提示
+          //（时长同铸——进程真跑过真计时，与自然退出同语义）
           const denied = confined.denialSignatures.some((sig) => lower.includes(sig.toLowerCase()));
           if (denied) {
             return {
@@ -484,6 +490,7 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
                 },
               ],
               isError: true,
+              details: execDurationDetails(result),
             };
           }
         }
@@ -495,9 +502,10 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
           sections.push(`（输出超 60KiB 已截尾：实收 ${result.bytes} 字节，保尾部）`);
         }
         const text = sections.join('\n');
+        const details = execDurationDetails(result);
         return result.exitCode === 0
-          ? { content: [{ type: 'text', text }] }
-          : { content: [{ type: 'text', text }], isError: true };
+          ? { content: [{ type: 'text', text }], details }
+          : { content: [{ type: 'text', text }], isError: true, details };
       } catch (error) {
         // 抛出面（EXEC_SPAWN_FAILED/EXEC_BACKGROUND_REJECTED/SANDBOX_* 校验族）
         // 编码为 isError 数据面（03 §2.3）——BaseError 携码前置披露
@@ -512,13 +520,31 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
   };
 }
 
-/** isError + 输出保尾段（超时/打断/runner 失败三形共用——尾部现场须保留） */
-function errorWithTail(prefix: string, result: ExecResult): AgentToolResult {
+/**
+ * isError + 输出保尾段（超时/打断/runner 失败三形共用——尾部现场须保留）。
+ * 可选 details 透传（挖掘 49 轮件 C）——三形结算均铸时长上浮
+ * （execDurationDetails），调用位展开非隐式。
+ */
+function errorWithTail(prefix: string, result: ExecResult, details?: { durationMs: number }): AgentToolResult {
   const sections: string[] = [prefix];
   if (result.stdout !== '') sections.push(`--- stdout ---\n${result.stdout}`);
   if (result.stderr !== '') sections.push(`--- stderr ---\n${result.stderr}`);
   if (result.truncated) {
     sections.push(`（输出超 60KiB 已截尾：实收 ${result.bytes} 字节，保尾部）`);
   }
-  return { content: [{ type: 'text', text: sections.join('\n') }], isError: true };
+  return {
+    content: [{ type: 'text', text: sections.join('\n') }],
+    isError: true,
+    ...(details !== undefined ? { details } : {}),
+  };
+}
+
+/**
+ * 结算时长上浮载荷（挖掘 49 轮件 C）：ExecResult.durationMs（run() 结算
+ * 时钟差 = 真执行时长）经 AgentToolResult.details 铸入——transcript 状态行
+ * 主位消费（07 §4.1 UX 五问题批③ 翻档）。契约既有宽容键位零扩；升权
+ * 拒绝/spawn 抛出等未起进程腿诚实缺席不铸（在调用位不传本参）。
+ */
+function execDurationDetails(result: ExecResult): { durationMs: number } {
+  return { durationMs: result.durationMs };
 }
