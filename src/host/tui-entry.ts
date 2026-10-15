@@ -23,7 +23,17 @@
  */
 import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
-import { closeSync, fstatSync, mkdirSync, openSync, readSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 
 import {
   BootAnimation,
@@ -108,6 +118,7 @@ import {
 } from './upgrade.js';
 import { createDefaultSpawnRunner } from './plugin-install.js';
 import { runDirectShellCommand } from './direct-shell.js';
+import { installStderrGuard, STDERR_GUARD_CAP } from './stderr-guard.js';
 import type { HostRuntime } from './runtime.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
 import { MarketplaceTuiFace } from './marketplace-tui-face.js';
@@ -420,6 +431,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
   //（shutdown 前取——driver 事件面 shutdown 后不可靠）
   let exitCrashSid: string | undefined;
   let exitSummary: { sid: string; usage: ReturnType<typeof foldSessionUsage> } | undefined;
+  // —— 持屏期 stderr 抑制释放柄（挖掘 47 轮件 C——装位在 try 内 backend 构造
+  // 后，catch 腿可达故 try 外声明先行；缺省 no-op——装桩条件不满足形零副作用）
+  let releaseStderrGuard: () => void = () => {};
   try {
     // —— scheduler 挂钟起钟（批 20c——长驻形编舞）：件在场即起（重启补推进
     // + 排首轮轮询），停钟挂 closer（engine 真身定时器非 unref——不挂停钟
@@ -1861,6 +1875,65 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       },
     });
 
+    // —— 持屏期 stderr 抑制（挖掘 47 轮件 C——07 §4.1）：TUI 持屏期（含
+    // onboarding 面板期——装位前移覆盖之）stderr 写点装桩拦截——logger 缺省
+    // sink 即 stderr（TUI 期 warn/info 直写脏屏是现实面）、console.error 同
+    // 经写点。装位判别 = 注入形或非 TTY 不装（onboardingKeySource 同构——
+    // vitest worker 恒非 TTY 结构性不装，rigEntry 运行窗 stderr 诊断面保
+    // 全）。不经 logger 通道（logger 缺省 sink 即 stderr——回灌成环，07 §4.1
+    // 定谳注）。
+    if (options.io === undefined && process.stdin.isTTY === true) {
+      const STDERR_LOG_TRUNCATE_BYTES = 1024 * 1024; // 安装期截断帽（跨会话无界增长上限）
+      const guardDataDir = runtime.dataDir;
+      const stderrLogPath = guardDataDir !== null ? join(guardDataDir, 'tui-stderr.log') : null;
+      // 安装期准备（install 原子性律——sink 产线先建后 patch）：目录确保 +
+      // 超 1 MiB 清空重开；失败不阻装（兜底失效非功能失效——追加面照开）
+      if (stderrLogPath !== null && guardDataDir !== null) {
+        try {
+          mkdirSync(guardDataDir, { recursive: true });
+          if (existsSync(stderrLogPath) && statSync(stderrLogPath).size > STDERR_LOG_TRUNCATE_BYTES) {
+            writeFileSync(stderrLogPath, '');
+          }
+        } catch {
+          /* 准备失败不阻装（抑制面非故障面） */
+        }
+      }
+      const stderrSink: (chunk: string) => void =
+        stderrLogPath !== null
+          ? (chunk) => {
+              try {
+                appendFileSync(stderrLogPath, chunk);
+              } catch {
+                /* 吞——抑制面非故障面 */
+              }
+            }
+          : () => {}; // memory 形：丢弃仅计数（释放柄直写「未落档」摘要如实报）
+      const stderrGuard = installStderrGuard({ sink: stderrSink, cap: STDERR_GUARD_CAP });
+      let stderrGuardReleased = false; // 释放幂等旗（closer 与 crash 腿双路可达）
+      releaseStderrGuard = () => {
+        if (stderrGuardReleased) return;
+        stderrGuardReleased = true;
+        const capturedCount = stderrGuard.capturedCount();
+        const droppedCount = stderrGuard.droppedCount();
+        stderrGuard.dispose(); // 还原写点 + 摘要行经 sink（文件形落档；memory 形经 noop 吞）
+        // memory 形补直写摘要（dispose 已还原写点——此写直达终端如实报「未落档」）
+        if (stderrLogPath === null && capturedCount > 0) {
+          process.stderr.write(
+            `持屏期 stderr 抑制 ${capturedCount} 段（未落档——内存模式${droppedCount > 0 ? `，超限丢弃 ${droppedCount} 段` : ''}）\n`,
+          );
+        }
+      };
+      // 卸位一（正常路）：挂 tui-backend closer 之后注册——runtime closer FIFO
+      // 序 backend.stop 出屏后还原直写（退出摘要/flush 告警落终端正果；drain
+      // 循环内先序诊断落桩窗内文件——可辩护诚实降级，07 §4.1 卸序条款定谳注）
+      runtime.registerCloser({
+        label: 'tui-stderr-guard',
+        fn: () => {
+          releaseStderrGuard();
+        },
+      });
+    }
+
     // —— 会话用量结算总线呈现订阅（V-4 注⑪②——footer 行1 累计段即时刷新锚）：
     // run 结算落账即通知（通知时点后于缓存推进，现拉必含本笔——sessionSpentOf
     // 聚合读面）。提交路 settled promise 锚（onSubmit run?.then 刷新）仍盖本入口
@@ -2101,6 +2174,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     }
   } catch (err) {
     runtime.writeCrashLog(err); // 崩溃取证先行（memory 形跳过——件内语义）
+    // 件 C——先卸抑制桩再写崩溃行（桩未卸则下两行落 tui-stderr.log、终端
+    // 静默——崩溃诊断面丢失；closer 路与 crash 路双卸由幂等旗收口）
+    releaseStderrGuard();
     // 错误折面单源（BaseError 码直呈——stderr 诊断面同 notify 面同源）
     process.stderr.write(`TUI 运行失败：${foldErrorText(err)}\n`);
     // R-10 catch 腿会话行（session 已建才推——组装期失败未建恰缺席；引导

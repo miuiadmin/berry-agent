@@ -416,6 +416,28 @@ describe('runTuiEntry 装配序', () => {
     expect(exitSeqCapture.events).toEqual(['drain', 'stop']);
   });
 
+  it('持屏期 stderr 抑制装配判别（挖掘 47 轮件 C——修前红锚为装位判别条件）：注入 io 形不装桩——rig 运行窗 stderr 写直达不被吞、dataDir 零 tui-stderr.log', async () => {
+    const dataDir = rigDir('entry-guard-');
+    const writes: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      const { entry, io } = await rigEntry(dataDir, rigDir('entry-ws-guard-'));
+      process.stderr.write('stderr-guard-probe\n'); // rig 运行窗内探针写
+      // 直达未被桩拦（spy 收到即证写点未被装桩遮蔽——vitest worker 诊断面
+      // 保全；writes 里 logger warn 直写噪音在场恰证「logger 缺省 sink 即
+      // stderr 是现实面」——非全等断言，探针在场即锁）
+      expect(writes).toContain('stderr-guard-probe\n');
+      io.send('\x04');
+      expect(await entry).toBe(0);
+      expect(existsSync(join(dataDir, 'tui-stderr.log'))).toBe(false); // 不装即零文件
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+
   it('退出序落盘失败折非零（十六役补扫 N3）：flush 抛错 → ctrl+d 退 1 不再零码假绿', async () => {
     // 05 §6.3#6「flush 失败 = 退出非零码」——正常退出档零码只在落盘两步皆净
     // 时成立；onRuntime 注入位实例级遮蔽 flush（③⑥ 同失败——close 内含
