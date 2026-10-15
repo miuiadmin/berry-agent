@@ -950,7 +950,12 @@ describe('exec 卡头复刻（UX 五问题批①——bash 族）', () => {
 describe('exec 折叠组卡（组级形——卡头 • Ran N commands + 最差态符号）', () => {
   /** 组卡速构（命令条目 → 组数据；count = 条目数） */
   const groupCard = (
-    commands: ReadonlyArray<{ command: string; status?: 'success' | 'error' | 'aborted'; exitCode?: number }>,
+    commands: ReadonlyArray<{
+      command: string;
+      status?: 'success' | 'error' | 'aborted';
+      exitCode?: number;
+      outputLines?: readonly string[];
+    }>,
     over: Partial<ToolCardView> = {},
   ): ToolCardView =>
     card({
@@ -960,7 +965,12 @@ describe('exec 折叠组卡（组级形——卡头 • Ran N commands + 最差�
       group: {
         kind: 'exec',
         count: commands.length,
-        commands: commands.map((c) => ({ command: c.command, status: c.status ?? 'success', exitCode: c.exitCode })),
+        commands: commands.map((c) => ({
+          command: c.command,
+          status: c.status ?? 'success',
+          exitCode: c.exitCode,
+          ...(c.outputLines !== undefined ? { outputLines: c.outputLines } : {}),
+        })),
       },
       ...over,
     });
@@ -991,6 +1001,62 @@ describe('exec 折叠组卡（组级形——卡头 • Ran N commands + 最差�
     expect(aborted).toHaveLength(1 + 3);
     expect(aborted[0]!.plain).toBe(' ⏹ • Ran 3 commands');
     expect(aborted[0]!.runs[0]).toEqual({ start: 0, end: 2, style: { fg: DEFAULT_THEME.secondary } });
+  });
+
+  it('失败条目嵌套输出窗（挖掘 40 轮件 B）——摘要行后窗行（缩进+└ 槽+整行 dim）；成功条目后无窗', () => {
+    const lines = renderToolCardStyledLines(
+      groupCard([
+        { command: 'ls' },
+        { command: 'npm test', status: 'error', exitCode: 1, outputLines: ['boom stderr'] },
+        { command: 'pwd' },
+      ]),
+      40,
+    );
+    // 修前红锚：渲染位原无窗——`$ npm test (1)` 后直接 `$ pwd`
+    expect(lines.map((l) => l.plain)).toEqual([
+      ' ✗ • Ran 3 commands',
+      '$ ls',
+      '$ npm test (1)',
+      '      └ boom stderr', // 嵌套窗：4 缩进层 + EXEC_WINDOW_PREFIX `  └ ` 槽
+      '$ pwd',
+    ]);
+    // 窗行整行 dim 单游程（嵌套缩进重铸——游程全长覆盖）
+    expect(lines[3]!.runs).toEqual([{ start: 0, end: '      └ boom stderr'.length, style: { dim: true } }]);
+    // aborted 条目携窗同显（status !== 'success' 同判——中止命令的截留输出有诊断价值）
+    const abortedWin = renderToolCardStyledLines(
+      groupCard([{ command: 'long-run', status: 'aborted', outputLines: ['partial output'] }]),
+      40,
+    );
+    expect(abortedWin.map((l) => l.plain)).toEqual([' ⏹ • Ran 1 commands', '$ long-run', '      └ partial output']);
+  });
+
+  it('失败窗两档帽（挖掘 40 轮件 B）——折叠档头2+省略+尾2 预览（CARD_PREVIEW_LINES 同源）/ ctrl+o 展开档全量', () => {
+    const output = ['l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8'];
+    const spec: Array<{ command: string; status: 'error'; exitCode: number; outputLines: string[] }> = [
+      { command: 'x', status: 'error', exitCode: 1, outputLines: [...output] },
+    ];
+    const folded = renderToolCardStyledLines(groupCard(spec), 40);
+    // 8 视觉行 > 5 预览帽 → 头2 + ⋯ +4 行（8−4）+ 尾2；窗形=首视觉行 └ 槽、
+    // 序 ≥1 恒 4 空格槽（renderExecOutputWindow 既有律——源行界与续行界同形）
+    expect(folded.map((l) => l.plain)).toEqual([
+      ' ✗ • Ran 1 commands',
+      '$ x (1)',
+      '      └ l1',
+      '        l2',
+      '        ⋯ +4 行 · ctrl+o 展开',
+      '        l7',
+      '        l8',
+    ]);
+    const full = renderToolCardStyledLines(groupCard(spec, { expanded: true }), 40);
+    // 展开档：窗行全量（存账行已过 cardBodyOf 帽——会话级展开既有律，零新展开机制）
+    expect(full.map((l) => l.plain)).toEqual([
+      ' ✗ • Ran 1 commands',
+      '$ x (1)',
+      '      └ l1',
+      ...output.slice(1).map((l) => `        ${l}`),
+    ]);
+    // 纯函数律锁：同组数据两次渲染同行集（渲染位零状态——组数据是摘要终形）
+    expect(renderToolCardStyledLines(groupCard(spec), 40)).toEqual(folded);
   });
 
   it('⑤ 展开态逐条形维持：ctrl+o 展开组卡 = 头 ` ✓ • Ran N commands` + 逐条全量（✓ 恒 bold）', () => {

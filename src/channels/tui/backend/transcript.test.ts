@@ -15,6 +15,7 @@ import { LIGHT_PALETTE, resolveTheme, DEFAULT_THEME } from '../theme/index.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
 import { DIM_STYLE } from '../markdown/layout.js';
+import type { ToolCardGroupData } from '../blocks/tool-card.js';
 import { renderThinkingStyledLines } from '../blocks/thinking.js';
 import {
   dialogueBlockCount,
@@ -1494,6 +1495,26 @@ describe('LiveTranscript exec 折叠组（直播路——agent_end 窗口收口�
     expect(lines[0]!.plain).toBe('');
     expect(lines[1]!.plain).toBe(' • Ran 3 commands · ctrl+o 展开');
     expect(lines).toHaveLength(2);
+  });
+
+  it('失败条目铸输出窗（挖掘 40 轮件 B）——outputLines 含诊断行不含 Exit code 码形；成功条目缺席', () => {
+    const t = new LiveTranscript();
+    runBashPair(t, 'e1', 'ls');
+    // 中条直构：失败体带诊断 stderr（runBashPair 体硬编码无体参——面一构造法）
+    apply(t, { type: 'message_end', message: bashCallMsg('e2', 'npm test') });
+    apply(t, {
+      type: 'message_end',
+      message: toolResultMsg('Exit code: 1\nboom stderr', { toolCallId: 'e2', isError: true }),
+    });
+    runBashPair(t, 'e3', 'pwd');
+    apply(t, { type: 'agent_end', status: 'completed' });
+    const group = t.snapshot.find((b) => b.kind === 'tool-card') as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    // 修前红锚：铸卡位原丢 toolResult 全文（body: []），outputLines 恒 undefined
+    // （组数据窄化 exec 侧——commands 只在 exec 组不在探索组）
+    const execGroup = group.group as Extract<ToolCardGroupData, { kind: 'exec' }> | undefined;
+    expect(execGroup?.commands[1]?.outputLines).toEqual(['boom stderr']); // 码形首行剥除（防与退出码位双显）
+    expect(execGroup?.commands[0]?.outputLines).toBeUndefined(); // 成功条目纯摘要零窗
+    expect(execGroup?.commands[2]?.outputLines).toBeUndefined();
   });
 
   it('N<3 逐条补落保序（R4 逐卡形不变——exec 单卡不携组数据）', () => {

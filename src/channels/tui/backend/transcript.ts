@@ -1243,6 +1243,17 @@ function parseExecExitCode(message: Extract<AgentMessage, { role: 'toolResult' }
   return m !== null ? Number(m[1]) : undefined;
 }
 
+/**
+ * 失败条目输出窗首行剥除（挖掘 40 轮件 B——铸卡位配套）：`Exit code: N`
+ * 码形首行已由条目退出码位呈现，窗内再显即双显——剥纯码形首行；信号终止
+ * （Exit code: null 形文本）/EXEC_TIMEOUT 等无码形不剥（判据与
+ * parseExecExitCode 同正则——首行命中才剥，中段出现不动）。
+ */
+function stripExitCodeHeadLine(lines: readonly string[]): readonly string[] {
+  if (lines.length > 0 && /^Exit code: \d+$/.test(lines[0]!)) return lines.slice(1);
+  return lines;
+}
+
 /** 组窗条目（窗收口求值的数据源——调用面 + 结果消息全存，收口现铸卡；exec/探索两族共形） */
 interface GroupWindowEntry {
   readonly call: PendingToolCall;
@@ -1869,11 +1880,18 @@ export class LiveTranscript {
    * 状态行机制不进组卡——组级聚合面）。
    */
   private buildExecGroupCard(entries: readonly GroupWindowEntry[]): TranscriptBlock {
-    const commands: ToolCardGroupCommand[] = entries.map((entry) => ({
-      command: typeof entry.call.arguments.command === 'string' ? entry.call.arguments.command : '',
-      status: toolResultStatus(entry.message),
-      exitCode: parseExecExitCode(entry.message),
-    }));
+    const commands: ToolCardGroupCommand[] = entries.map((entry) => {
+      const status = toolResultStatus(entry.message);
+      return {
+        command: typeof entry.call.arguments.command === 'string' ? entry.call.arguments.command : '',
+        status,
+        exitCode: parseExecExitCode(entry.message),
+        // 失败条目输出窗（挖掘 40 轮件 B）：cardBodyOf 单源过账——头尾 100+100
+        // 存账帽 + 2000 码点单行帽自动继承零新帽；首行 Exit code 码形剥除
+        // （退出码位已显码防双显——只剥纯码形，信号终止/超时无码形不剥）
+        ...(status !== 'success' ? { outputLines: stripExitCodeHeadLine(cardBodyOf(textOf(entry.message))) } : {}),
+      };
+    });
     const status: ToolCardStatus = commands.some((c) => c.status === 'aborted')
       ? 'aborted'
       : commands.some((c) => c.status === 'error')

@@ -81,6 +81,15 @@ export interface ToolCardGroupCommand {
   readonly status: ToolCardStatus;
   /** 退出码（bash 数据面卡体首行 `Exit code: N` 解析值；缺席 = 无码形） */
   readonly exitCode?: number;
+  /**
+   * 失败条目输出窗行（挖掘 40 轮件 B——失败可见性扩至输出可见）：仅
+   * status !== 'success' 条目铸入（成功条目纯摘要零变）；源 = cardBodyOf
+   * 单源过账（头尾 100+100 存账帽 + 2000 码点单行帽自动继承零新帽），首行
+   * `Exit code: N` 码形已剥（防与退出码位双显——只剥码形，信号终止/超时
+   * 无码形不剥）。呈现面失败摘要行后嵌套窗（折叠档头2+省略+尾2 预览 /
+   * ctrl+o 会话级展开档全量——复用会话级展开既有律）。
+   */
+  readonly outputLines?: readonly string[];
 }
 
 /**
@@ -562,7 +571,7 @@ function renderGroupCardStyledLines(card: ToolCardView, group: ToolCardGroupData
     },
     columns,
   );
-  return [header, ...groupCommandLines(group.commands, columns, card.theme)];
+  return [header, ...groupCommandLines(group.commands, columns, card.theme, card.expanded, card.toggleHint)];
 }
 
 /**
@@ -597,8 +606,10 @@ function groupCommandLines(
   commands: readonly ToolCardGroupCommand[],
   columns: number,
   theme: Readonly<ResolvedTheme>,
+  expanded: boolean,
+  toggleHint: string,
 ): StyledLine[] {
-  const lines = commands.map((command) => groupCommandLine(command, columns, theme));
+  const lines = commands.flatMap((command) => groupCommandLine(command, columns, theme, expanded, toggleHint));
   if (lines.length <= CARD_BODY_MAX_LINES) return lines;
   const dropped = lines.length - CARD_BODY_MAX_LINES;
   const marker = cardBodyOmissionMarker(dropped);
@@ -610,11 +621,21 @@ function groupCommandLines(
 }
 
 /**
- * 单命令摘要行：`$ ` 前缀（`$` 位符 dim——注⑩ 命令位，同 exec 单卡头）+
- * 命令文本（消毒 + `bash -lc` 外壳剥除 + ellipsize 截到剩余宽）+ 退出码位。
- * 预算 = columns − `$ ` 前缀 2 − 退出码后缀宽（后缀在场恒保——失败定位可辨）。
+ * 单命令摘要行（+失败条目嵌套输出窗——挖掘 40 轮件 B）：`$ ` 前缀（`$`
+ * 位符 dim——注⑩ 命令位，同 exec 单卡头）+ 命令文本（消毒 + `bash -lc`
+ * 外壳剥除 + ellipsize 截到剩余宽）+ 退出码位。预算 = columns − `$ ` 前缀
+ * 2 − 退出码后缀宽（后缀在场恒保——失败定位可辨）。失败/中止条目携
+ * outputLines 时摘要行后嵌套输出窗（复用 renderExecOutputWindow 窗形——
+ * 折叠档头2+省略+尾2 预览、ctrl+o 会话级展开档全量存账行；嵌套缩进一层
+ * 与探索组诊断行前缀同宽——窗行整体 dim 重铸游程）。
  */
-function groupCommandLine(command: ToolCardGroupCommand, columns: number, theme: Readonly<ResolvedTheme>): StyledLine {
+function groupCommandLine(
+  command: ToolCardGroupCommand,
+  columns: number,
+  theme: Readonly<ResolvedTheme>,
+  expanded: boolean,
+  toggleHint: string,
+): StyledLine[] {
   // 退出码位：非零码 ` (N)` 后缀（零码不显——UX 批④ 同律；无码形〔aborted/
   // EXEC_TIMEOUT 族〕无后缀）
   const suffix = command.exitCode !== undefined && command.exitCode !== 0 ? ` (${command.exitCode})` : '';
@@ -628,7 +649,27 @@ function groupCommandLine(command: ToolCardGroupCommand, columns: number, theme:
     // 退出码段失败可辨（` (N)` 的括号段——前导空格不染色，弱存在感同 `$` 位）
     runs.push({ start: plain.length - suffix.length + 1, end: plain.length, style: { fg: theme.error } });
   }
-  return capStyledLine({ plain, runs }, columns);
+  const line = capStyledLine({ plain, runs }, columns);
+  // 失败条目嵌套输出窗：输出可见性（数据面 outputLines 在场才显——成功
+  // 条目纯摘要零变；aborted 无体形窗缺席自然）
+  if (command.status !== 'success' && command.outputLines !== undefined) {
+    const window = renderExecOutputWindow(
+      command.outputLines,
+      Math.max(1, columns - GROUP_WINDOW_INDENT),
+      expanded,
+      toggleHint,
+    );
+    // 嵌套缩进：窗行（└ 槽/空格槽/省略行）整体前插缩进层——窗行全 dim 单
+    // 游程，前插后整行重铸即可（游程全长覆盖）
+    return [
+      line,
+      ...window.map((l): StyledLine => {
+        const nested = GROUP_WINDOW_INDENT_STR + l.plain;
+        return { plain: nested, runs: [{ start: 0, end: nested.length, style: DIM_STYLE }] };
+      }),
+    ];
+  }
+  return [line];
 }
 
 /**
@@ -811,6 +852,9 @@ function previewWindow(lines: readonly StyledLine[], toggleHint: string, columns
 
 /** exec 输出窗首行转折前缀（④——`  └ `：2 空格 + 转折符 + 空格；与 4 空格续行槽同 4 列对齐） */
 const EXEC_WINDOW_PREFIX = '  └ ';
+/** 组卡失败条目嵌套输出窗缩进层（挖掘 40 轮件 B——与探索组诊断行前缀同宽 4） */
+const GROUP_WINDOW_INDENT = 4;
+const GROUP_WINDOW_INDENT_STR = ' '.repeat(GROUP_WINDOW_INDENT);
 
 /**
  * exec 输出窗槽宽（④——`  └ ` 首行与 4 空格续行/省略行槽同宽；窗行折宽
