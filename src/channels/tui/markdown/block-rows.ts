@@ -20,12 +20,16 @@
 import { ellipsize, graphemeWidth, sanitizeDisplayText, splitGraphemes, type CellStyle } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import type { MarkdownBlock } from './blocks.js';
+import type { InlineSpan } from './inline.js';
 import { highlight, resolveSpec, tokenizeLine, tokenStyle } from './highlight/index.js';
 import type { CarryState, LanguageSpec } from './highlight/index.js';
 import { DIM_STYLE, layoutSpans, prefixCells, spansWidth, type StylePart, type StyledGrapheme } from './layout.js';
 
 /** 表格列最小宽（三连定界形下限） */
 const TABLE_MIN_COL = 3;
+
+/** 对齐档值列最小宽（42 轮件 B——键值退化两档判据；codex MIN_ALIGNED_COMPACT_VALUE_WIDTH 对应位。撞名异值警示：codex 另有 MIN_VALUE_WIDTH=3 是另一量——本仓不采） */
+const MIN_ALIGNED_VALUE_WIDTH = 12;
 
 /** 行显示宽（字素宽求和——列宽 padding 算术） */
 function rowWidth(row: readonly StyledGrapheme[]): number {
@@ -54,6 +58,78 @@ function ruleStyle(theme: Readonly<ResolvedTheme>): Readonly<CellStyle> {
   return { fg: theme.weakRule ?? theme.tableRule };
 }
 
+/** 单元格最长 token 显示宽（空白分词、字素宽求和——键值退化判据的碎片计量） */
+function maxTokenWidth(spans: readonly InlineSpan[]): number {
+  const text = spans.map((span) => span.text).join('');
+  let max = 0;
+  for (const token of text.split(/\s+/)) {
+    if (token === '') continue;
+    let w = 0;
+    for (const g of splitGraphemes(token)) w += graphemeWidth(g);
+    max = Math.max(max, w);
+  }
+  return max;
+}
+
+/**
+ * 键值记录卡形（42 轮件 B——窄表格键值退化形）：碎片判据命中后全表退化——
+ * 每条数据行一张记录卡（卡内逐列 label/value）、全列呈现无指路行。
+ * 两档：对齐档（labelWidth + 2 + MIN_ALIGNED_VALUE_WIDTH ≤ width——label
+ * bold 补齐 + ': ' + 值列折行续行拼前缀〔list-item 支路先例同形〕）/ 堆叠档
+ * （label 行 bold 缩进 1 + 值行缩进 2——label 超宽 layoutSpans 折行不静默
+ * 裁）；记录间 ─ 细线（ruleStyle 单源、随宽伸展形）；每视觉行尾空白裁；
+ * 对齐位放弃（codex 签名同构——退化形无列宽概念）。
+ */
+function renderRecordRows(
+  block: Extract<MarkdownBlock, { type: 'table' }>,
+  width: number,
+  theme: Readonly<ResolvedTheme>,
+): StyledGrapheme[][] {
+  const allCols = Math.max(block.header.length, ...block.rows.map((row) => row.length), 1);
+  // labelWidth = max 表头显示宽（不帽——循 codex：键值形全列呈现须全名列宽）
+  const labelWidth = Math.max(1, ...block.header.map((spans) => spansWidth(spans ?? [])));
+  const aligned = labelWidth + 2 + MIN_ALIGNED_VALUE_WIDTH <= width;
+  const valueWidth = Math.max(1, aligned ? width - labelWidth - 2 : width - 2);
+  const rule = ruleStyle(theme);
+  const rows: StyledGrapheme[][] = [];
+  for (let i = 0; i < block.rows.length; i++) {
+    if (i > 0) rows.push(prefixCells('─'.repeat(width), rule)); // 记录间细线（仅记录间；随宽伸展）
+    const row = block.rows[i]!;
+    for (let j = 0; j < allCols; j++) {
+      const laidValue = layoutSpans(row[j] ?? [], valueWidth, theme);
+      if (aligned) {
+        // 对齐档：label 恒单行（表头宽 ≤ labelWidth = max——label 位不帽），
+        // 首行 = label 补齐 + ': ' + 值首行；值续行拼 labelWidth+2 空格前缀
+        //（前缀拼装形——list-item 支路先例同构）；空值至少 label 行一行
+        const labelCells = (layoutSpans(block.header[j] ?? [], labelWidth, theme, { bold: true })[0] ?? []).slice();
+        for (let r = 0; r < Math.max(1, laidValue.length); r++) {
+          const line: StyledGrapheme[] = [];
+          if (r === 0) line.push(...labelCells, ...padCells(labelWidth - rowWidth(labelCells)), ...prefixCells(': '));
+          else line.push(...padCells(labelWidth + 2)); // 值续行对齐值列左缘
+          if (r < laidValue.length) line.push(...laidValue[r]!);
+          trimTrailingSpaces(line);
+          rows.push(line);
+        }
+      } else {
+        // 堆叠档：label 行（bold）缩进 1 + 值行缩进 2；label 超宽在 width−1
+        //（下夹 1）布局折行不静默裁；空值零值行（仅 label 行）
+        const laidLabel = layoutSpans(block.header[j] ?? [], Math.max(1, width - 1), theme, { bold: true });
+        for (let r = 0; r < laidLabel.length; r++) {
+          const line = [...prefixCells(' '), ...laidLabel[r]!];
+          trimTrailingSpaces(line);
+          rows.push(line);
+        }
+        for (let r = 0; r < laidValue.length; r++) {
+          const line = [...prefixCells('  '), ...laidValue[r]!];
+          trimTrailingSpaces(line);
+          rows.push(line);
+        }
+      }
+    }
+  }
+  return rows;
+}
+
 /** 行尾无样式空白裁（V-3 注⑨④——padding 空格不入行集：字节面/断言面双赢） */
 function trimTrailingSpaces(line: StyledGrapheme[]): void {
   while (line.length > 0) {
@@ -75,6 +151,39 @@ function tableRows(
   theme: Readonly<ResolvedTheme>,
 ): StyledGrapheme[][] {
   const allCols = Math.max(block.header.length, ...block.rows.map((row) => row.length), 1);
+  // 键值退化判据（42 轮件 B——codex 同语义：窄表格列帽收缩致碎片化时改键值
+  // 记录呈现）：全列集（列收缩**前**——键值形全列呈现无丢列）先算等分帽，
+  // 再逐数据行逐列「最长 token 显示宽 > 列帽宽 min(natural, cap)」碎片计量
+  //（只扫数据行——表头断 token 不触发；宽表 capAll 无穷 → colCap =
+  // natural ≥ 任意 token 宽恒不触发，宽表零退化）。碎片行数 ≥ threshold
+  //（单行表 1 / 多行表 max(2, ceil(rows/3))——少数碎片行是噪音不整表陪葬）
+  // → 整表提前退化 renderRecordRows；列帽宽 ≥ MIN_ALIGNED_VALUE_WIDTH 免
+  //（列够宽自然折行，无碎片病理）
+  const naturalAll: number[] = [];
+  for (let j = 0; j < allCols; j++) {
+    const cells = [block.header[j], ...block.rows.map((row) => row[j])];
+    naturalAll[j] = Math.max(TABLE_MIN_COL, ...cells.map((spans) => (spans === undefined ? 0 : spansWidth(spans))));
+  }
+  const availAll = Math.max(allCols * TABLE_MIN_COL, width - 2 * allCols);
+  const totalAll = naturalAll.reduce((sum, w) => sum + w, 0);
+  const capAll =
+    totalAll > availAll ? Math.max(TABLE_MIN_COL, Math.floor(availAll / allCols)) : Number.POSITIVE_INFINITY;
+  let fragmentedRows = 0;
+  for (const row of block.rows) {
+    let fragmented = false;
+    for (let j = 0; j < allCols; j++) {
+      const colCap = Math.min(naturalAll[j]!, capAll);
+      if (colCap >= MIN_ALIGNED_VALUE_WIDTH) continue;
+      if (maxTokenWidth(row[j] ?? []) > colCap) {
+        fragmented = true;
+        break;
+      }
+    }
+    if (fragmented) fragmentedRows++;
+  }
+  const dataRows = block.rows.length;
+  const threshold = dataRows === 1 ? 1 : Math.max(2, Math.ceil(dataRows / 3));
+  if (fragmentedRows >= threshold) return renderRecordRows(block, width, theme);
   // 窄屏列收缩（挖掘 27 轮 [1]）：每列最窄占位 = TABLE_MIN_COL 3 + 两侧空
   // 2 = 5——双地板（avail≥cols×3 / cap≥3）保列宽下限使窄屏 tableWidth 恒
   // ≥5×cols 溢出视口，越界列下游 writeText 静默丢（markdown 逐游程无钳制
@@ -84,12 +193,9 @@ function tableRows(
   const maxCols = Math.max(1, Math.floor(width / (TABLE_MIN_COL + 2)));
   const droppedCols = Math.max(0, allCols - maxCols);
   const cols = allCols - droppedCols;
-  // 自然列宽 = 表头 + 数据行整格宽最大值（min 3）
-  const natural: number[] = [];
-  for (let j = 0; j < cols; j++) {
-    const cells = [block.header[j], ...block.rows.map((row) => row[j])];
-    natural[j] = Math.max(TABLE_MIN_COL, ...cells.map((spans) => (spans === undefined ? 0 : spansWidth(spans))));
-  }
+  // 自然列宽 = 表头 + 数据行整格宽最大值（min 3）——全列前缀切片复用
+  //（件 B 省算形：判据段已算全列，保留列不再重扫）
+  const natural = naturalAll.slice(0, cols);
   // 可用内容预算 = 总宽 - 每列两侧空格（2×cols——V-3 注⑨④ 纵线退役零扣）；
   // 超预算走等分帽（更精的贪心再分配 v1 不做——列宽等分律）
   const avail = Math.max(cols * TABLE_MIN_COL, width - 2 * cols);

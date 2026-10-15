@@ -153,6 +153,106 @@ describe('blockRows 表格渲染（V-3 注⑨④ codex 双线制）', () => {
   });
 });
 
+describe('blockRows 键值退化（42 轮件 B——窄表格碎片行退化记录卡形）', () => {
+  it('修前红：碎片行退化堆叠档（label 行 bold 缩进 1 + 值行缩进 2；修前等分帽 3 硬切碎 token）', () => {
+    // width 11 两列：naturalAll [10,7] 总 17 > availAll 7 → 帽 3 < 12 且
+    // 'abcdefghij' token 10 > 帽 3 → 碎片行；单行表 threshold 1 → 整表退化。
+    // labelWidth 5 → 5+2+12 > 11 堆叠档（值列宽 11−2 = 9）
+    const rows = blockRows(first('| key | value |\n| --- | --- |\n| abcdefgh | running |'), 11, DEFAULT_THEME);
+    expect(texts(rows)).toEqual([' key', '  abcdefgh', ' value', '  running']);
+    // label 行 bold 位（堆叠档 label 行 = bold 缩进 1）；值行无 bold
+    expect(rows[0]!.find((cell) => cell.grapheme === 'k')?.style?.bold).toBe(true);
+    expect(rows[1]!.find((cell) => cell.grapheme === 'a')?.style?.bold).toBeUndefined();
+    // 表形重线退役（退化形无 ━——记录间只有 ─ 细线）
+    expect(texts(rows).join('')).not.toContain('━');
+  });
+
+  it("对齐档：labelWidth + 2 + 12 ≤ width——label 补齐 + ': ' + 值列折行续行拼前缀", () => {
+    // width 20：帽 8 < 12、'abcdefghij' 10 > 8 触发；labelWidth 1 → 1+2+12 =
+    // 15 ≤ 20 对齐档（值列宽 17）；值折行续行对齐值列左缘（前缀 = labelWidth+2 = 3）
+    const rows = blockRows(
+      first('| k | v |\n| --- | --- |\n| abcdefghij | running just fine today |'),
+      20,
+      DEFAULT_THEME,
+    );
+    expect(texts(rows)).toEqual(['k: abcdefghij', 'v: running just fine', '   today']);
+    // label bold 补齐；值列 plain（非 bold）
+    expect(rows[0]!.find((cell) => cell.grapheme === 'k')?.style?.bold).toBe(true);
+    expect(rows[1]!.find((cell) => cell.grapheme === 'r')?.style?.bold).toBeUndefined();
+  });
+
+  it('多记录：记录间 ─ 细线随宽伸展（ruleStyle 单源线色）+ 每记录逐列 label/值行', () => {
+    // CJK 真实形：帽 4 < 12、两行 token 10 > 4 全碎片（6 行表 threshold=2 对
+    // 2 行全碎片同退——本例 2 行表 threshold max(2,1)=2）
+    const rows = blockRows(
+      first('| 键 | 值 |\n| --- | --- |\n| 长值说明文 | 甲 |\n| 另行长值文 | 乙 |'),
+      12,
+      DEFAULT_THEME,
+    );
+    expect(texts(rows)).toEqual([
+      ' 键',
+      '  长值说明文',
+      ' 值',
+      '  甲',
+      '────────────',
+      ' 键',
+      '  另行长值文',
+      ' 值',
+      '  乙',
+    ]);
+    // 细线走线色键（weakRule 缺席回退 tableRule——与表格线同源）
+    for (const cell of rows[4]!) expect(cell.style?.fg).toBe(DEFAULT_THEME.tableRule);
+  });
+
+  it('阈值两端：6 行 2 碎片退化（threshold 2）vs 9 行 2 碎片不退化（threshold 3）', () => {
+    const cell = (v: string): string => `| ${v} | x |`;
+    // width 11：帽 3；'abcdefghij' token 10 > 3 碎片行，'1' 行不碎
+    const long = cell('abcdefghij');
+    const short = cell('1');
+    const mkTable = (rowsLines: string[]): string => `| k | v |\n| --- | --- |\n${rowsLines.join('\n')}`;
+    // 6 行表 2 碎片：threshold = max(2, ceil(6/3)=2) = 2 → 2 ≥ 2 退化
+    const six = texts(blockRows(first(mkTable([short, short, long, short, short, long])), 11, DEFAULT_THEME));
+    expect(six.join('')).not.toContain('━'); // 记录卡形（无表头重线）
+    // 9 行表 2 碎片：threshold = max(2, ceil(9/3)=3) = 3 → 2 < 3 不退化（表形保持）
+    const nine = texts(
+      blockRows(first(mkTable([short, short, long, short, short, short, short, short, long])), 11, DEFAULT_THEME),
+    );
+    expect(nine.join('')).toContain('━'); // 表形保持（少数碎片行是噪音不整表陪葬）
+  });
+
+  it('列帽 ≥ 12 宽免：帽 12 列宽够自然折行——token 15 > 12 也不退化', () => {
+    // width 44 三列 natural 15：总 45 > availAll 38 → 帽 12 ≥ 12 → 免（碎片
+    // 病理只在窄帽下成立；12 宽列自然折行可读）
+    const rows = blockRows(
+      first(
+        '| aaaaaaaaaaaaaaa | aaaaaaaaaaaaaaa | aaaaaaaaaaaaaaa |\n| --- | --- | --- |\n| bbbbbbbbbbbbbbb | ccccccccccccccc | ddddddddddddddd |',
+      ),
+      44,
+      DEFAULT_THEME,
+    );
+    expect(texts(rows).join('')).toContain('━'); // 表形保持
+  });
+
+  it('表头断 token 不触发（判据只扫数据行）：头长值短走表形', () => {
+    // 头 'verylongheader' 14 宽（若扫表头必碎）——数据行 '1'/'2' 不碎 → 表形
+    const rows = blockRows(first('| verylongheader | b |\n| --- | --- |\n| 1 | 2 |'), 11, DEFAULT_THEME);
+    expect(texts(rows).join('')).toContain('━');
+  });
+
+  it('退化形全列呈现无丢列指路（对位窄屏列收缩的 + N 列更多——诚实全显优于丢列）', () => {
+    // width 12 三列长值：帽 3 碎片退化；表形 maxCols = floor(12/5) = 2 会丢
+    // 第 3 列出指路——记录卡形全列呈现
+    const rows = blockRows(
+      first('| k1 | k2 | k3 |\n| --- | --- | --- |\n| abcdefghij | abcdefghij | abcdefghij |'),
+      12,
+      DEFAULT_THEME,
+    );
+    const lines = texts(rows);
+    expect(lines).toEqual([' k1', '  abcdefghij', ' k2', '  abcdefghij', ' k3', '  abcdefghij']);
+    expect(lines.join('')).not.toContain('+ 1 列更多');
+  });
+});
+
 describe('blockRows 标题梯度（R-3 观感翻档——# 前缀保留 + 六级属性位）', () => {
   it('H1 = 字面 # 前缀 + bold+underline（─ 下划线行退役）', () => {
     const rows = blockRows(first('# 标题文本'), 20, DEFAULT_THEME);
