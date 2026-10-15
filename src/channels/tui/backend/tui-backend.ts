@@ -2219,6 +2219,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const handle = this.altHost.open(
       new StatusViewer({
         data,
+        // 行集截宽锚（挖掘 44 轮件 C——openHistory 先例同律）：开屏时终端列宽
+        columns: this.io.size().columns,
         theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线；data.theme 档位串另键不撞）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,

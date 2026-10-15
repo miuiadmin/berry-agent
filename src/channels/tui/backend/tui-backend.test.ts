@@ -3774,6 +3774,20 @@ describe('TuiBackend /status · /debug · /skills 副屏装配（07 §4.1 命令
     expect(io.bytes).not.toContain('BERRY_AGENT_LOG_LEVEL');
   });
 
+  it('【44 轮件 C】窄终端开屏截断入帧：openStatus 注入 columns → 工作区全路径段形中截（修前红：columns 未传全长折行）', () => {
+    const io = new MemoryTerminalIO(40, 24);
+    const backend = new TuiBackend(io, { sessionId: SESSION });
+    backend.start();
+    io.reset();
+    expect(backend.openStatus({ ...STATUS_DATA, cwdFull: '/Users/alice/work/very/deep/nested/berry-agent' })).toBe(
+      true,
+    );
+    // 40 列 → 预算 40 − 标签列 10 = 30 → 段形中截 '/Users/…/berry-agent'（宽 22 容）
+    expect(io.bytes).toContain('/Users/…/berry-agent');
+    // 全长中段恒不入帧（截断形唯一——防折行全长形双呈）
+    expect(io.bytes).not.toContain('/Users/alice/work/very/deep/nested');
+  });
+
   it('openDebug 编舞：调试首帧；daemon.log 尾快照 token 形掩码（明文恒不在场）', () => {
     // 行集 15 行超 10 行终端视口——高终端（24 行）使尾快照段入首帧（锚顶律
     // 由 openStatus 组同形锁定，本组聚焦掩码呈现）

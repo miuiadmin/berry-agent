@@ -22,6 +22,7 @@
  * （main.ts 编舞；本件 closer 注册保证出屏复原在该路径同样执行）。
  */
 import { basename, join } from 'node:path';
+import { homedir } from 'node:os';
 import { closeSync, fstatSync, mkdirSync, openSync, readSync, writeFileSync } from 'node:fs';
 
 import {
@@ -43,6 +44,7 @@ import {
   createDefaultGitQuery,
   createDefaultNativeClipboardSpawn,
   gitHeadCompactLabel,
+  homeRelativePath,
   readGitHead,
 } from '../channels/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
@@ -674,6 +676,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           modelCredentialKey: stack.modelCredentialKeyOf() ?? null,
           sessionId: sid,
           cwdLabel: basename(root),
+          // 工作区全路径（挖掘 44 轮件 C——codex /status Directory 行同形）：
+          // $HOME 下 ~ 相对形（homeRelativePath 纯函数注入 home——面板不见
+          // env 边外面律维持）；footer 仍走 cwdLabel 短名零动
+          cwdFull: homeRelativePath(root, homedir()),
           gitHead,
           turns,
           // 今日全道耗（V-4 注⑪⑤——footer 今日段退役迁此）：快照档开屏现读

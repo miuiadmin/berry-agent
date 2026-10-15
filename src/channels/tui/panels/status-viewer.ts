@@ -17,7 +17,7 @@
  *   退出柄）——副屏键面补丁三件套与件 8 同律。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { stringWidth } from '../../engine/index.js';
+import { splitGraphemes, graphemeWidth, stringWidth, truncateToWidth } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
@@ -54,6 +54,14 @@ export interface StatusPanelData {
   /** 工作区短名（cwd basename） */
   readonly cwdLabel: string;
   /**
+   * 工作区全路径（挖掘 44 轮件 C——codex /status Directory 行同形）：装配位
+   * homeRelativePath(root, homedir()) 现算注入的**呈现形**（$HOME 下 `~/rel`
+   * 相对形 / 恰为 home 的 `~` 形 / 家外全路径直呈——realpath 分叉诚实回落）；
+   * 缺席 = 回退 cwdLabel 短名形（旧装配/测试零扰动——gitHead 可选字段同律）。
+   * footer 目录段不消费本字段（仍走 cwdLabel——两呈现面分立）。
+   */
+  readonly cwdFull?: string;
+  /**
    * git 支名@短哈希（V-3 注⑦——footer 三段退役的承接受位）：值形 =
    * `支名@短哈希` / `支名@`（哈希读失败）/ `@短哈希`（detached）/ null
    * （非库/缺席——null 不推行，不虚报）。装配位 readGitHead 现算注入。
@@ -82,6 +90,13 @@ export interface StatusPanelData {
 /** 状态面板装配选项 */
 export interface StatusViewerOptions {
   readonly data: StatusPanelData;
+  /**
+   * 行集构建截宽锚（挖掘 44 轮件 C——openHistory columns 先例同律）：开屏时
+   * 终端列宽，工作区行超宽中段截断（首尾段保留 + 中部 `…`，stringWidth 显示
+   * 宽计量）；缺席 = 不截断（旧装配/测试零扰动）。快照档行集静态——resize
+   * 不重算，渲染期 ScrollView 按实际 region 宽重折同 HistoryViewer 律。
+   */
+  readonly columns?: number;
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
@@ -130,7 +145,8 @@ export class StatusViewer extends ScrollView implements OverlayContent {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.headStyle = headStyleOf(theme);
-    this.setLines(buildStatusLines(options.data));
+    // 行集截宽锚（挖掘 44 轮件 C——columns 可选注入）：开屏时终端列宽一次定格
+    this.setLines(buildStatusLines(options.data, options.columns));
     this.scrollToTop(); // 开屏锚顶（ScrollView 缺省贴尾为回看器语义——状态首段是运行时头）
   }
 
@@ -194,12 +210,69 @@ export class StatusViewer extends ScrollView implements OverlayContent {
 }
 
 /**
- * 状态行集构造（纯函数——测试直锁消费）：运行时段（版本 / 模型 + 全集计数）
- * → 会话段（短 id / cwd 短名 / 轮次）→ 环境段（数据目录 / theme 档 / env
- * 三键——白名单制，缺席值「未设」）。标签补齐按显示宽（批 10k 遗漏修同律
- * ——CJK 双宽标签 padEnd 码元计量会错位 1 格）。
+ * 工作区路径 ~ 相对化呈现形（挖掘 44 轮件 C——codex relativize_to_home 同形；
+ * 纯函数注入 home——真身 os.homedir()，装配位 tui-entry 消费）：恰为 home
+ * → '~'；home 下 → '~/相对段'；家外 / realpath 分叉 → 原样直呈（不虚标 ~
+ * ——canonical 根是 realpath 形，与 homedir 串不匹配时诚实回落）。
  */
-export function buildStatusLines(data: StatusPanelData): string[] {
+export function homeRelativePath(path: string, home: string): string {
+  if (home === '') return path; // 空 home 守卫——空前缀 '/' 会误吞一切绝对路径
+  if (path === home) return '~'; // 恰为家目录——codex 空段 '~' 形
+  // 尾斜杠归一：段界前缀匹配防 '/Users/alice' 误吃 '/Users/aliceish'
+  const prefix = home.endsWith('/') ? home : `${home}/`;
+  return path.startsWith(prefix) ? `~/${path.slice(prefix.length)}` : path;
+}
+
+/**
+ * 尾侧整字截断（truncateToWidth 的镜像——挖掘 44 轮件 C 兜底配额用）：自尾
+ * 向头按显示宽收字素，剩余列宽不足整字即止（不撕宽字符）。
+ */
+function tailToWidth(text: string, cols: number): string {
+  if (cols <= 0) return '';
+  const graphemes = splitGraphemes(text);
+  const kept: string[] = [];
+  let used = 0;
+  for (let i = graphemes.length - 1; i >= 0; i--) {
+    const w = graphemeWidth(graphemes[i]!);
+    if (used + w > cols) break; // 剩余列宽不足整字——整字放弃（不产半字）
+    used += w;
+    kept.unshift(graphemes[i]!);
+  }
+  return kept.join('');
+}
+
+/**
+ * 路径中段截断（挖掘 44 轮件 C——codex center_truncate_path 简化形）：不超宽
+ * 原样；超宽先试段形中截「首段/…/尾段」（保头（/~ 家根）与尾（basename）
+ * 最可辨两段、丢中段——与 codex「keep leading and trailing segments +
+ * single ellipsis」同旨，尾 2 段优先的深水算法不取——小 helper 贴 berry
+ * 习语）；段形仍超宽 / 不足三段 → 字素宽计量头尾配额兜底（… 占 1 列，余宽
+ * 对半——不撕宽字符，stringWidth/truncateToWidth 同族律）。maxWidth ≤ 0 返
+ * 空串（ellipsize 0 宽守卫同律）。
+ */
+export function middleTruncatePath(value: string, maxWidth: number): string {
+  if (maxWidth <= 0) return '';
+  if (stringWidth(value) <= maxWidth) return value;
+  // 段切：剥首尾空段（绝对路径首空段——'/Users/…' 头段 = '/' + 首实段）
+  const parts = value.split('/').filter((part, i, all) => part !== '' || (i !== 0 && i !== all.length - 1));
+  if (parts.length >= 3) {
+    const head = value.startsWith('/') ? `/${parts[0]}` : parts[0];
+    const candidate = `${head}/…/${parts[parts.length - 1]}`;
+    if (stringWidth(candidate) <= maxWidth) return candidate; // 段形可容——保首尾丢中段
+  }
+  // 兜底：头尾配额（floor/ceil 对半——… 恒 1 列居中）
+  const rest = maxWidth - 1;
+  const headBudget = Math.floor(rest / 2);
+  return `${truncateToWidth(value, headBudget)}…${tailToWidth(value, rest - headBudget)}`;
+}
+
+/**
+ * 状态行集构造（纯函数——测试直锁消费）：运行时段（版本 / 模型 + 全集计数）
+ * → 会话段（短 id / 工作区行 44 轮件 C 全路径形 / 轮次）→ 环境段（数据目录
+ * / theme 档 / env 三键——白名单制，缺席值「未设」）。标签补齐按显示宽（批
+ * 10k 遗漏修同律——CJK 双宽标签 padEnd 码元计量会错位 1 格）。
+ */
+export function buildStatusLines(data: StatusPanelData, columns?: number): string[] {
   const labelCol = 10; // 标签列宽（段内对齐——最长「模型凭证/数据目录」宽 8 + 2；纯中文标签族随 copy-omni 批收窄）
   const row = (label: string, value: string): string =>
     label + ' '.repeat(Math.max(0, labelCol - stringWidth(label))) + value;
@@ -218,7 +291,15 @@ export function buildStatusLines(data: StatusPanelData): string[] {
     '',
     '── 会话 ──',
     row('会话', shortIdOf(data.sessionId)),
-    row('工作区', data.cwdLabel),
+    // 工作区行（挖掘 44 轮件 C）：cwdFull 在场走全路径呈现形（超宽中段截断
+    // ——columns 锚在场才截；预算 = 列宽 − 标签列宽，整行不折）；缺席回退
+    // cwdLabel 短名形（旧装配零扰动——footer 两呈现面分立注见契约 JSDoc）
+    row(
+      '工作区',
+      columns !== undefined
+        ? middleTruncatePath(data.cwdFull ?? data.cwdLabel, Math.max(0, columns - labelCol))
+        : (data.cwdFull ?? data.cwdLabel),
+    ),
     // git 支名行（V-3 注⑦——footer ⎇ 段退役迁此）：null 不推行（不虚报）
     ...(data.gitHead != null && data.gitHead !== '' ? [row('git', data.gitHead)] : []),
     // 轮次行：null（driver 缺席——不可知）不推行（不虚报 0；含真 0 在场的

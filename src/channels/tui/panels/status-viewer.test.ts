@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent } from '../../engine/index.js';
 import { CellGrid, colorRgb, stringWidth } from '../../engine/index.js';
 import { DARK_PALETTE, resolveTheme } from '../theme/index.js';
-import { buildStatusLines, StatusViewer } from './status-viewer.js';
+import { buildStatusLines, homeRelativePath, middleTruncatePath, StatusViewer } from './status-viewer.js';
 import type { StatusPanelData } from './status-viewer.js';
 
 /** key 事件夹具 */
@@ -281,5 +281,61 @@ describe('StatusViewer 分段头取色（V-3 注⑨①——面板分段线承�
     viewer.render(grid, { row: 0, col: 0, width: 60, height: grid.rows });
     expect(grid.getCell(1, 0)?.style?.dim).toBe(true); // 回退腿：dim 既有形
     expect(grid.getCell(1, 0)?.style?.fg).toBeUndefined();
+  });
+});
+
+describe('工作区行全路径 + 中段截断（挖掘 44 轮件 C——codex /status Directory 行对标）', () => {
+  it('A1 cwdFull 全路径入行 + columns 缺席零截断（修前红：cwdFull 不在契约回落短名，endsWith 长形失败）', () => {
+    const lines = buildStatusLines({ ...DATA, cwdFull: '/Users/alice/work/berry-agent' });
+    expect(lines.some((line) => line.startsWith('工作区') && line.endsWith('/Users/alice/work/berry-agent'))).toBe(
+      true,
+    );
+    // 短名形不再独占工作区行（cwdFull 在场即取代——两呈现面分立注）
+    expect(
+      lines.some((line) => line.startsWith('工作区') && line.endsWith('berry-agent') && !line.includes('/Users')),
+    ).toBe(false);
+  });
+
+  it('A2 ~ 相对形入行：cwdFull 在场优先于 cwdLabel（装配位 homeRelativePath 产物直呈）', () => {
+    const lines = buildStatusLines({ ...DATA, cwdFull: '~/work/berry-agent' });
+    expect(lines.some((line) => line.startsWith('工作区') && line.endsWith('~/work/berry-agent'))).toBe(true);
+  });
+
+  it('A3 homeRelativePath 直测六态（修前红：导出缺席整文件红）', () => {
+    expect(homeRelativePath('/Users/alice/work/proj', '/Users/alice')).toBe('~/work/proj'); // 家下相对形
+    expect(homeRelativePath('/Users/alice', '/Users/alice')).toBe('~'); // 恰为家
+    expect(homeRelativePath('/Users/aliceish', '/Users/alice')).toBe('/Users/aliceish'); // 段界不误吃——同串前缀非段前缀
+    expect(homeRelativePath('/tmp/x', '/Users/alice')).toBe('/tmp/x'); // 家外直呈
+    expect(homeRelativePath('/Users/alice/work', '')).toBe('/Users/alice/work'); // 空 home 守卫
+    expect(homeRelativePath('/Users/alice/work', '/Users/alice/')).toBe('~/work'); // 尾斜杠归一
+  });
+
+  it('A4 middleTruncatePath 段形中截：保首尾段 + 中部 …（修前红：导出缺席）', () => {
+    expect(middleTruncatePath('/Users/alice/work/very/deep/nested/berry-agent', 30)).toBe('/Users/…/berry-agent'); // 全宽 46 超帽、段形 22 容
+    expect(middleTruncatePath('~/Documents/code/berry-agent', 15)).toBe('~/…/berry-agent'); // 全宽 28 超帽、段形恰 15 临帽容（边界语料）
+  });
+
+  it('A5 兜底头尾配额：不足三段 / 段形仍超宽 → 字素宽 floor/ceil 对半 + … 居中', () => {
+    expect(middleTruncatePath('~/berry-agent', 6)).toBe('~/…ent'); // 两段无段形 → rest 5 头 2 尾 3
+    expect(middleTruncatePath('/averyveryverylongsegment/mid/berry-agent-x', 12)).toBe('/aver…gent-x'); // 段形 39 仍超帽 → rest 11 头 5 尾 6
+  });
+
+  it('A6 0/负宽守卫：返空串（ellipsize 0 宽守卫同律）', () => {
+    expect(middleTruncatePath('/a/b/c', 0)).toBe('');
+    expect(middleTruncatePath('/a/b/c', -3)).toBe('');
+  });
+
+  it('A7 CJK 宽计量不撕半字：宽字素整字律（断言不越帽含 …，切点位属实现自由度不断言）', () => {
+    const out = middleTruncatePath('/Users/alice/工作区目录/超长中文名称的项目', 20);
+    expect(stringWidth(out)).toBeLessThanOrEqual(20);
+    expect(out.includes('…')).toBe(true);
+    expect(out.startsWith('/')).toBe(true);
+  });
+
+  it('A8 columns 行宽不溢锁：40 列预算 30 → 段形中截 + 整行显示宽 ≤ 40（修前红：第二参被忽略行长溢）', () => {
+    const lines = buildStatusLines({ ...DATA, cwdFull: '/Users/alice/work/very/deep/nested/berry-agent' }, 40);
+    const workspace = lines.find((line) => line.startsWith('工作区'))!;
+    expect(workspace.endsWith('/Users/…/berry-agent')).toBe(true);
+    expect(stringWidth(workspace)).toBeLessThanOrEqual(40);
   });
 });

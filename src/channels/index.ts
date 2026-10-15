@@ -84,6 +84,9 @@ export type {
 // ——tui-entry /status 表格列值散拷贝收敛走本源）
 export { readGitHead, gitHeadCompactLabel } from './tui/status/footer.js';
 export type { GitHeadInfo } from './tui/status/footer.js';
+// 工作区路径 ~ 相对化呈现形（挖掘 44 轮件 C）：tui-entry /status 装配位
+// openStatusPanel 现算注入——readGitHead「本面随真实件外消费扩」先例同律
+export { homeRelativePath } from './tui/panels/status-viewer.js';
 // ⎇ 槽统计腿真身工厂（挖掘 39 轮件 II——host 装配注入；纯函数族测试直测不经此）
 export { createDefaultGitQuery } from './tui/status/branch-stats.js';
 // 原生剪贴板腿真身工厂（挖掘 40 轮件 A——host 装配注入；计划纯函数/桩面测试直测不经此）
