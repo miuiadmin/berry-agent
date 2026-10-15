@@ -62,7 +62,7 @@ import {
   type ColorValue,
 } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
-import { capStyledLine, clampRuns, type StyledLine, type StyleRun } from '../backend/ansi-rows.js';
+import { capStyledLine, clampRuns, parseAnsiRuns, type StyledLine, type StyleRun } from '../backend/ansi-rows.js';
 import { mapRunsOntoSegment, wrapByGraphemes } from './wrap.js';
 import { highlight, languageForPath, tokenStyle } from '../markdown/highlight/index.js';
 import { diffWords, parsePatchSections, type PatchSection } from './word-diff.js';
@@ -192,6 +192,13 @@ export interface ToolCardView {
   readonly status: ToolCardStatus;
   /** 卡体行（result 文本或 edit 的 patch 体——cardBodyOf 产物） */
   readonly body: readonly string[];
+  /**
+   * 卡体按行旁挂 ANSI 游程（挖掘 49 轮件 B）：cardBodyStyledOf 产物 runs 席
+   * ——与 body 等长对齐；null = 单色行（游程缺席/触帽丢弃）；整席缺席
+   * （diff 档 / bash exec 窗 / 插件腿 / 旧 durable 投影）= 渲染面回落单色
+   * （renderPlainBodyLines 保锚判据结构性不中——零消费位改写）。
+   */
+  readonly bodyRuns?: readonly (readonly StyleRun[] | null)[];
   /** diff 档旗标（true = body 是 patch 体——⑥ 段几何渲染） */
   readonly diff: boolean;
   /**
@@ -283,6 +290,60 @@ export function cardBodyOf(text: string): readonly string[] {
     cardBodyOmissionMarker(dropped),
     ...lines.slice(-CARD_BODY_TAIL_LINES),
   ];
+}
+
+/**
+ * 带样式卡体（挖掘 49 轮件 B——工具输出 ANSI 色彩保真）：lines 与
+ * cardBodyOf 同律存账行（呈现面零漂移——plain 恒剥后纯文本），runs 按行
+ * 旁挂 SGR 解析游程。铸卡一次解析、渲染位零再解析（durable 行集 + 游程
+ * 同源——锚漂移结构性不可能）。
+ */
+export interface StyledCardBody {
+  /**
+   * 存账行（parseAnsiRuns 剥后 plain）：无 ESC 输入与 cardBodyOf 逐字节
+   * 一致；带 ESC 输入为剥后净化形（呈现面零漂移——渲染位 wrapText 内嵌
+   * sanitize 同律，视觉行恒等；存账净化翻档——摘要位正则可靠化）
+   */
+  readonly lines: readonly string[];
+  /** 按行旁挂游程：null = 单色行；与 lines 等长对齐 */
+  readonly runs: readonly (readonly StyleRun[] | null)[];
+}
+
+/**
+ * 卡体文本 → 带样式行集（挖掘 49 轮件 B）：cardBodyOf 的样式保真变体。
+ * 管线 = humanize 转写 → 逐行 parseAnsiRuns（plain 剥后 + SGR 游程）→
+ * 单行帽/行帽两截断面弃色。四边界诚实降级（弃色不丢字）：
+ * - humanize 转写发生 → runs 整体丢弃（行集已变化——护栏超帽产物罕见形，
+ *   逐行保锚复杂度不值得，保守全弃）；
+ * - 单行帽触发（capLongLine 截断改写）→ 该行 runs 丢弃；
+ * - 行帽省略标记行 → null（宿主铸入行无原色）；
+ * - 空游程席归 null（省内存——与「无色行」语义同形）。
+ * 折行降级不在此位：渲染位 renderPlainBodyLines 保锚判据自判（本位产
+ * 原行原锚，折行发生与否是屏宽事）。
+ */
+export function cardBodyStyledOf(text: string): StyledCardBody {
+  // humanize 转写旗：转写发生 = 行集变化（剥注记行 + 前置 ⋯ 行）→ runs 整体丢弃
+  const humanized = humanizeGuardedOutput(text);
+  const transformed = humanized !== text;
+  const lines: string[] = [];
+  const runs: (readonly StyleRun[] | null)[] = [];
+  for (const parsed of humanized.split('\n').map(parseAnsiRuns)) {
+    // 单行帽（件 C 同律）：截断改写发生 = 游程锚失真 → 该行弃色
+    const capped = capLongLine(parsed.plain);
+    lines.push(capped);
+    runs.push(transformed || capped !== parsed.plain || parsed.runs.length === 0 ? null : parsed.runs);
+  }
+  if (lines.length <= CARD_BODY_MAX_LINES) return { lines, runs };
+  // 行帽（头 100 + 标记 + 尾 100）：保留行 runs 按行携带天然成立，省略标记行 null
+  const dropped = lines.length - CARD_BODY_MAX_LINES;
+  return {
+    lines: [
+      ...lines.slice(0, CARD_BODY_HEAD_LINES),
+      cardBodyOmissionMarker(dropped),
+      ...lines.slice(-CARD_BODY_TAIL_LINES),
+    ],
+    runs: [...runs.slice(0, CARD_BODY_HEAD_LINES), null, ...runs.slice(-CARD_BODY_TAIL_LINES)],
+  };
 }
 
 /**
@@ -384,8 +445,9 @@ export function renderToolCardStyledLines(card: ToolCardView, columns: number): 
     const body = card.expanded ? bodyLines : previewWindow(bodyLines, card.toggleHint, columns).map(addDim);
     return [...headerLines, ...body].map((line) => withCardBg(line, card.theme.toolCardBg));
   }
-  // 通用路（含 diff 非段形回落）：插件腿 ?? plain 体（diff 段形已在上方分路）
-  const bodyLines = pluginBody ?? renderPlainBodyLines(card.body, columns);
+  // 通用路（含 diff 非段形回落）：插件腿 ?? plain 体（diff 段形已在上方分路；
+  // bodyRuns 旁挂——件 B 色彩保真，缺席形回落单色）
+  const bodyLines = pluginBody ?? renderPlainBodyLines(card.body, columns, card.bodyRuns);
   const body = card.expanded
     ? statusLine === null
       ? bodyLines
@@ -1005,11 +1067,28 @@ function pluginLineToStyled(line: RendererLine, columns: number, theme: Resolved
   return { plain: clipped, runs: clampRuns(runs, clipped.length) };
 }
 
-/** 普通卡体行：折行续推（无缩进——正文态），无样式裸行 */
-function renderPlainBodyLines(body: readonly string[], columns: number): StyledLine[] {
+/**
+ * 普通卡体行：折行续推（无缩进——正文态）。带样式路（挖掘 49 轮件 B）：
+ * bodyRuns 按行旁挂，**保锚判据** = `wrapped.length === 1 && wrapped[0] === line`
+ * ——折行零发生且零改写才携 runs（任何变换即弃色诚实降级：折行产多视觉行
+ * 时游程锚不跨行映射；wrapText 内嵌 sanitize 与 parseAnsiRuns plain 同律，
+ * 判据恒可靠——非巧合）。null / 席缺席（undefined）= 单色行维持（零回退面）。
+ */
+function renderPlainBodyLines(
+  body: readonly string[],
+  columns: number,
+  bodyRuns?: readonly (readonly StyleRun[] | null)[],
+): StyledLine[] {
   const lines: StyledLine[] = [];
-  for (const line of body) {
-    for (const wrapped of wrapText(line, columns)) lines.push({ plain: wrapped, runs: [] });
+  for (let i = 0; i < body.length; i++) {
+    const line = body[i]!;
+    const runs = bodyRuns?.[i];
+    const wrapped = wrapText(line, columns);
+    if (runs !== undefined && runs !== null && wrapped.length === 1 && wrapped[0] === line) {
+      lines.push({ plain: line, runs });
+      continue;
+    }
+    for (const w of wrapped) lines.push({ plain: w, runs: [] });
   }
   return lines;
 }

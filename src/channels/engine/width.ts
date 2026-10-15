@@ -221,8 +221,11 @@ export function sanitizeDisplayText(text: string, tabWidth = 2): string {
  * ESC 转义序列消费（返回序列末后位——整段剥除用）。
  * 三形：CSI（'[' + 参数/中间码 + final 0x40–0x7E）、OSC（']' + 至 BEL/ST）、
  * 传统式（中间码 0x20–0x2F* + final 0x30–0x7E）。截尾 malformed 形吞到串尾。
+ * 2026-10-16 挖掘 49 轮件 B 升格导出：SGR 游程解析（ansi-rows parseAnsiRuns）
+ * 需要「非 SGR 序列剥除」与 sanitizeDisplayText 同语义单源——本地镜像收敛
+ * （ansi-rows consumeAnsiSequence 镜像撤除改 import）。
  */
-function consumeEscapeSequence(text: string, start: number): number {
+export function consumeEscapeSequence(text: string, start: number): number {
   let i = start + 1;
   if (i >= text.length) return i;
   const kind = text[i]!;

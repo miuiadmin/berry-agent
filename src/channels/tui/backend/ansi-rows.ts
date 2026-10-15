@@ -15,12 +15,18 @@
  *   超宽行 autowrap 物理行账漂移的收口位）+ capAnsiLine（TUI 第四役 fx2-A：
  *   已序列化 ANSI 行的显示宽帽——补吐缓冲行宽收口，SGR 零宽透传不丢色）。
  */
-// width 三原语（sanitizeDisplayText/truncateToWidth）经 engine 聚合面（index）
-// 消费——TUI 第四役残腿收纳（子目录直达形撤除）
+// width 三原语（sanitizeDisplayText/truncateToWidth/consumeEscapeSequence）经
+// engine 聚合面（index）消费——TUI 第四役残腿收纳（子目录直达形撤除）；
+// consumeEscapeSequence 为 49 轮件 B 收敛单源（本地镜像撤除）；色值构造
+// 三件（ansiColor/color256/colorRgbOf）供 parseAnsiRuns SGR 参数族映射
 import {
+  ansiColor,
   cellEquals,
+  color256,
+  colorRgbOf,
   colorSgrBg,
   colorSgrFg,
+  consumeEscapeSequence,
   EMPTY_STYLE,
   graphemeWidth,
   sanitizeDisplayText,
@@ -446,7 +452,7 @@ export function capAnsiLine(line: string, columns: number): string {
   while (i < line.length && fit) {
     if (line.charCodeAt(i) === 0x1b) {
       // ESC 序列整段透传——零宽不占帽；SGR 形同步跟踪着色态
-      const end = consumeAnsiSequence(line, i);
+      const end = consumeEscapeSequence(line, i);
       const seq = line.slice(i, end);
       if (isSgrReset(seq)) styled = false;
       else if (isSgrSequence(seq)) styled = true;
@@ -473,61 +479,150 @@ export function capAnsiLine(line: string, columns: number): string {
   return styled ? parts.join('') + SGR_RESET : parts.join('');
 }
 
-/**
- * ESC 序列消费（返回序列末后位——整段透传用）：三形镜像 engine 件
- * consumeEscapeSequence 语义（CSI / OSC / 传统式；截尾 malformed 吞到串尾），
- * engine 未导出且 width 件不归本组，此处本地镜像（语义漂移以 engine 为准）。
- */
-function consumeAnsiSequence(text: string, start: number): number {
-  let i = start + 1;
-  if (i >= text.length) return i;
-  const kind = text[i]!;
-  if (kind === '[') {
-    // CSI：参数码 0x30–0x3F 与中间码 0x20–0x2F 直到 final 0x40–0x7E
-    i++;
-    while (i < text.length) {
-      const c = text.charCodeAt(i);
-      if (c >= 0x40 && c <= 0x7e) return i + 1; // final——序列闭合
-      if (c >= 0x20 && c <= 0x3f) {
-        i++;
-        continue;
-      }
-      return i; // 非 CSI 语法字节——malformed 截断
-    }
-    return i;
-  }
-  if (kind === ']') {
-    // OSC：吞到 BEL（0x07）或 ST（ESC \）
-    i++;
-    while (i < text.length) {
-      const c = text.charCodeAt(i);
-      if (c === 0x07) return i + 1;
-      if (c === 0x1b && text[i + 1] === '\\') return i + 2; // ST
-      i++;
-    }
-    return i;
-  }
-  // 传统式：中间码 0x20–0x2F* + final 0x30–0x7E（如 ESC ( B 字符集选择）
-  while (i < text.length) {
-    const c = text.charCodeAt(i);
-    if (c >= 0x20 && c <= 0x2f) {
-      i++;
-      continue;
-    }
-    if (c >= 0x30 && c <= 0x7e) return i + 1; // final
-    return i; // 非法形——截断
-  }
-  return i;
-}
-
 /** SGR 形判据（CSI + 参数串 + 'm' final——仅着色序列参与状态跟踪） */
 function isSgrSequence(seq: string): boolean {
-  return /^\x1b[[0-9;]*m$/.test(seq);
+  return /^\x1b\[[0-9;]*m$/.test(seq);
 }
 
 /** SGR 全复位判据（显式 0 / 空参数缺省 0——归零即离开色态） */
 function isSgrReset(seq: string): boolean {
   return seq === SGR_RESET || seq === '\x1b[m';
+}
+
+/** SGR 解析产物行（挖掘 49 轮件 B——工具输出色彩保真，铸卡位一次解析） */
+export interface ParsedAnsiLine {
+  /** 剥后纯文本（SGR 与非 SGR 序列均除；tab/C0 消毒与 sanitizeDisplayText 同语义） */
+  readonly plain: string;
+  /** SGR 解析游程（UTF-16 锚 plain——升序不交叠同式相邻已并段） */
+  readonly runs: readonly StyleRun[];
+}
+
+/** 键剔除（CellStyle 归位族小工具——纯函数重建，不改入参） */
+function omitStyleKeys<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Omit<T, K> {
+  const out = { ...obj };
+  for (const key of keys) delete out[key];
+  return out;
+}
+
+/**
+ * 单行 ANSI SGR → 带样式游程解析（挖掘 49 轮件 B——codex ansi_escape_line
+ * 同义）：CSI SGR 参数族映射 CellStyle（30-37/90-97 前景 16 色〔码位换算
+ * 30+n/82+n 逆映 ansiColor——与 colorSgrFg 序列化互逆〕、38;5;n 256 色、
+ * 38;2;r;g;b truecolor→colorRgbOf hex 串、39/49 归位、40-47/100-107 背景、
+ * 1 bold/2 dim/3 italic/4 underline/7 inverse/9 strikethrough 与 22/23/24/27/29
+ * 分位归位、0 全复位）；非 SGR 序列（光标定位/OSC/传统式）与其余 C0/DEL
+ * 剥除（consumeEscapeSequence 单源 + sanitizeDisplayText 同律消毒——tab
+ * 展开两空格、CR 归一），plain 与 sanitizeDisplayText 产物**逐字节一致**
+ * （游程锚与渲染位消毒后 plain 恒对齐——锚漂移源根除）。无 SGR 行 runs 恒
+ * 空速径。截尾 malformed 序列吞到串尾（消费函数既有语义）。
+ */
+export function parseAnsiRuns(line: string): ParsedAnsiLine {
+  if (!line.includes(ESC)) return { plain: sanitizeDisplayText(line), runs: [] }; // 速径：零 ESC 零 SGR
+  let plain = '';
+  const runs: StyleRun[] = [];
+  let style: CellStyle = {}; // 当前累计样式（SGR 状态机——跨序列累积）
+  let runStart: number | null = null; // 当前着色段起点（null = 裸段——缺省样式不产游程）
+  const flush = (end: number): void => {
+    if (runStart !== null && runStart < end) runs.push({ start: runStart, end, style });
+    runStart = null;
+  };
+  let i = 0;
+  while (i < line.length) {
+    const code = line.charCodeAt(i);
+    if (code === 0x1b) {
+      const end = consumeEscapeSequence(line, i);
+      const seq = line.slice(i, end);
+      if (isSgrSequence(seq)) {
+        flush(plain.length); // 前段收口（含空段——连续 SGR 零宽不产游程）
+        style = applySgrParameters(seq, style);
+        runStart = isDefaultStyle(style) ? null : plain.length; // 复位到裸 = 回裸段
+      }
+      i = end; // SGR 与非 SGR 序列一律不入 plain（剥除）
+      continue;
+    }
+    // 裸字节消毒与 sanitizeDisplayText 同律（tab 展开/C0/DEL 剥/LF 保）
+    if (code === 0x09) plain += '  ';
+    else if (code === 0x0a) plain += '\n';
+    else if (code >= 0x20 && code !== 0x7f) plain += line[i]!;
+    i++;
+  }
+  flush(plain.length);
+  // 同式相邻并段（styleEquals && 端点连续——gridRowToStyled 同律）
+  const merged: StyleRun[] = [];
+  for (const run of runs) {
+    const last = merged[merged.length - 1];
+    if (last !== undefined && last.end === run.start && styleEquals(last.style, run.style)) {
+      merged[merged.length - 1] = { ...last, end: run.end };
+    } else {
+      merged.push(run);
+    }
+  }
+  return { plain, runs: merged };
+}
+
+/**
+ * SGR 参数族 → CellStyle 增量并入（挖掘 49 轮件 B 纯函数）：分号参数流逐位
+ * 并入（扩展色族 38/48 多参数一次消费）；CellStyle 无位的 SGR 码（闪烁等）
+ * 诚实跳过不映。码位换算与 colorSgrFg/colorSgrBg 序列化互逆（30+n ↔ n<8、
+ * 82+n ↔ 8-15——16 色环回）。
+ */
+function applySgrParameters(seq: string, base: CellStyle): CellStyle {
+  const params = seq
+    .slice(2, -1)
+    .split(';')
+    .map((p) => (p === '' ? 0 : Number(p))); // 空参数缺省 0（SGR 语义）
+  let style: CellStyle = base;
+  let k = 0;
+  while (k < params.length) {
+    const p = params[k]!;
+    if (p === 0)
+      style = {}; // 全复位
+    else if (p === 1) style = { ...style, bold: true };
+    else if (p === 2) style = { ...style, dim: true };
+    else if (p === 3) style = { ...style, italic: true };
+    else if (p === 4) style = { ...style, underline: true };
+    else if (p === 7) style = { ...style, inverse: true };
+    else if (p === 9) style = { ...style, strikethrough: true };
+    else if (p === 22)
+      style = omitStyleKeys(style, ['bold', 'dim']); // bold+dim 双归位（SGR 22 语义）
+    else if (p === 23) style = omitStyleKeys(style, ['italic']);
+    else if (p === 24) style = omitStyleKeys(style, ['underline']);
+    else if (p === 27) style = omitStyleKeys(style, ['inverse']);
+    else if (p === 29) style = omitStyleKeys(style, ['strikethrough']);
+    else if (p === 39)
+      style = omitStyleKeys(style, ['fg']); // 前景归缺省
+    else if (p === 49)
+      style = omitStyleKeys(style, ['bg']); // 背景归缺省
+    else if (p >= 30 && p <= 37) style = { ...style, fg: ansiColor(p - 30) };
+    else if (p >= 90 && p <= 97) style = { ...style, fg: ansiColor(p - 82) };
+    else if (p >= 40 && p <= 47) style = { ...style, bg: ansiColor(p - 40) };
+    else if (p >= 100 && p <= 107) style = { ...style, bg: ansiColor(p - 92) };
+    else if (p === 38 || p === 48) {
+      // 扩展色族：38;5;n / 38;2;r;g;b（48 同构背景位）——参数不足/超域
+      //（NaN/负/256 域外）malformed 跳 1 位（fail-loud 构造前置域判不炸）
+      const mode = params[k + 1];
+      const c256 = params[k + 2];
+      if (mode === 5 && c256 !== undefined && Number.isInteger(c256) && c256 >= 0 && c256 <= 255) {
+        const c = color256(c256);
+        style = p === 38 ? { ...style, fg: c } : { ...style, bg: c };
+        k += 3;
+        continue;
+      }
+      const r = params[k + 2];
+      const g = params[k + 3];
+      const b = params[k + 4];
+      const channelOk = (v: number | undefined): v is number =>
+        v !== undefined && Number.isInteger(v) && v >= 0 && v <= 255;
+      if (mode === 2 && channelOk(r) && channelOk(g) && channelOk(b)) {
+        const c = colorRgbOf(r, g, b);
+        style = p === 38 ? { ...style, fg: c } : { ...style, bg: c };
+        k += 5;
+        continue;
+      }
+    }
+    k++;
+  }
+  return style;
 }
 
 /**

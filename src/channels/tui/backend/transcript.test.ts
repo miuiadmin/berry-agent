@@ -2682,3 +2682,106 @@ describe('forkEditAnchorsOf 回溯锚单源（挖掘 36 轮件 8——session-re
     ]);
   });
 });
+
+describe('工具卡 ANSI 色彩保真铸卡（挖掘 49 轮件 B——cardBodyStyledOf 一次解析）', () => {
+  it('主锁：SGR 卡体铸卡携 bodyRuns + 渲染 FAIL 段 fg 红真值（修前整面单色必红）', () => {
+    const t = new LiveTranscript();
+    apply(t, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'grep', arguments: { pattern: 'x' } }]),
+    });
+    apply(t, { type: 'message_end', message: toolResultMsg('结论 \x1b[31mFAIL\x1b[0m ok', { toolCallId: 'tc1' }) });
+    apply(t, { type: 'agent_end', status: 'completed' });
+    const block = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(block.body).toEqual(['结论 FAIL ok']); // 存账净化（剥后 plain——零 ESC 字节）
+    // 铸卡一次解析：runs 按行旁挂（行席数组）——锚 UTF-16 对齐 plain
+    expect(block.bodyRuns).toEqual([[{ start: 3, end: 7, style: { fg: ansiColor(1) } }]]);
+    // 渲染链消费（renderBlockStyledLines 出口——展开档 FAIL 段红、尾段裸）
+    const lines = renderBlockStyledLines({ ...block, expanded: true }, 40, false);
+    const bodyRow = lines.find((l) => l.plain.includes('FAIL'))!;
+    expect(bodyRow).toBeDefined();
+    expect(bodyRow.runs).toContainEqual({ start: 3, end: 7, style: { fg: ansiColor(1) } });
+  });
+
+  it('三排除位铸卡锁：bash 与 edit diff 与 background 卡 bodyRuns 结构性缺席（回落单色）', () => {
+    // bash：exec 窗整窗单 DIM 无消费位（省解析）
+    const t1 = new LiveTranscript();
+    apply(t1, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'bash', arguments: { command: 'ls' } }]),
+    });
+    apply(t1, { type: 'message_end', message: toolResultMsg('\x1b[31mout\x1b[0m', { toolCallId: 'tc1' }) });
+    apply(t1, { type: 'agent_end', status: 'completed' });
+    const bashCard = t1.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(bashCard.bodyRuns).toBeUndefined();
+    // edit diff 档：patch 参数面保真不解析
+    const t2 = new LiveTranscript();
+    apply(t2, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'edit', arguments: { patch: '+新' } }]),
+    });
+    apply(t2, { type: 'message_end', message: toolResultMsg('已应用', { toolCallId: 'tc1' }) });
+    const editCard = t2.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(editCard.diff).toBe(true);
+    expect(editCard.bodyRuns).toBeUndefined();
+    // background 委派：卡体空无解析面
+    const t3 = new LiveTranscript();
+    apply(t3, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'agent', arguments: { prompt: 'x', background: true } }]),
+    });
+    apply(t3, { type: 'message_end', message: toolResultMsg('子代理「调研」已转后台运行', { toolCallId: 'tc1' }) });
+    const bgCard = t3.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(bgCard.body).toEqual([]);
+    expect(bgCard.bodyRuns).toBeUndefined();
+  });
+
+  it('组卡带色退出码头行解析：commands exitCode 剥后命中 + outputLines 码形首行剥除（修前 ESC 夹带必红——存账净化受益锁）', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_end', message: bashCallMsg('a', 'x') });
+    apply(t, {
+      type: 'message_end',
+      message: toolResultMsg('\x1b[31mExit code: 1\x1b[0m\nerr line', { toolCallId: 'a', isError: true }),
+    });
+    apply(t, { type: 'message_end', message: bashCallMsg('b', 'y') });
+    apply(t, { type: 'message_end', message: toolResultMsg('Exit code: 0', { toolCallId: 'b' }) });
+    apply(t, { type: 'message_end', message: bashCallMsg('c', 'z') });
+    apply(t, { type: 'message_end', message: toolResultMsg('Exit code: 0', { toolCallId: 'c' }) });
+    apply(t, { type: 'agent_end', status: 'completed' });
+    const cards = t.snapshot.filter((b) => b.kind === 'tool-card');
+    expect(cards).toHaveLength(1); // N = 3 ≥ 3 收口一张组卡
+    const group = cards[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    const g = group.group as Extract<ToolCardGroupData, { kind: 'exec' }>;
+    expect(g.kind).toBe('exec');
+    // 修前 ESC 夹带（\x1b[31mExit code: 1\x1b[0m）正则不中 → undefined 必红
+    expect(g.commands[0]!.exitCode).toBe(1);
+    // 码形首行剥除（带色头行剥后命中）——窗体零 ESC 残留
+    expect(g.commands[0]!.outputLines).toEqual(['err line']);
+  });
+});
+
+it('装配链行号透传锁：renderBlockStyledLines 出口 diffStartLines 在场（修前白名单漏传 = 主屏与回看器行号槽恒空白必红）', () => {
+  const t = new LiveTranscript();
+  apply(t, {
+    type: 'message_end',
+    message: assistantMsg('', [
+      { id: 'tc1', name: 'edit', arguments: { patch: '*** Update File: a.ts\n ctx\n-old\n+new' } },
+    ]),
+  });
+  apply(t, {
+    type: 'message_end',
+    message: toolResultMsg('已应用', {
+      toolCallId: 'tc1',
+      details: { operations: [{ op: 'update', path: '/x/a.ts', startLine: 7 }] },
+    }),
+  });
+  const card = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+  expect(card.diffStartLines).toEqual([7]); // 铸卡位在场（既有锁同律）
+  // 装配链出口（主屏 renderBlockLines 与回看器同管线）：段体行号槽 '7' 在场
+  // ——修前 renderBlockStyledLinesUncapped 白名单漏传 diffStartLines →
+  // startLine 缺席全空号（直调单测绿掩盖装配缺口——挖掘 14 轮谱同款）
+  const lines = renderBlockStyledLines({ ...card, expanded: true }, 60, false);
+  const row = lines.find((l) => l.plain.includes('ctx'));
+  expect(row).toBeDefined();
+  expect(row!.plain).toContain('7'); // ctx 行双计数器旧侧号（startLine 起）
+});

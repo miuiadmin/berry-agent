@@ -9,7 +9,7 @@
  * 1 发射展开 2 空格——构造位先消毒再测宽截断）。
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { colorRgb, stringWidth } from '../../engine/index.js';
+import { ansiColor, colorRgb, stringWidth } from '../../engine/index.js';
 import { DARK_PALETTE, DEFAULT_THEME, resolveTheme } from '../theme/index.js';
 import { registerToolRenderer } from '../../renderers.js';
 import { styledLineToAnsi } from '../backend/ansi-rows.js';
@@ -21,6 +21,7 @@ import {
   CARD_PREVIEW_LINES,
   capLongLine,
   cardBodyOf,
+  cardBodyStyledOf,
   DIFF_BODY_MAX_LINES,
   diffBodyOf,
   renderToolCardStyledLines,
@@ -1429,5 +1430,93 @@ describe('探索组卡（组级形——卡头 • 已探索 N 项 + 归并动�
     expect(lines[1 + CARD_BODY_HEAD_LINES]!.runs).toEqual([
       { start: 0, end: '⋯（中段已省 5 行）'.length, style: { dim: true } },
     ]);
+  });
+});
+
+describe('卡体 ANSI 色彩保真（挖掘 49 轮件 B——cardBodyStyledOf 铸卡一次解析）', () => {
+  it('渲染主锁：bodyRuns 在场时 SGR 段落 fg 真值（FAIL 红 + 尾段裸）——修前整面单色必红', () => {
+    const styled = cardBodyStyledOf('结论 \x1b[31mFAIL\x1b[0m ok');
+    expect(styled.lines).toEqual(['结论 FAIL ok']);
+    const lines = renderToolCardStyledLines(
+      card({ body: [...styled.lines], bodyRuns: styled.runs, expanded: true }),
+      40,
+    );
+    expect(lines[1]!.plain).toBe('结论 FAIL ok');
+    // FAIL 段（plain 锚 3..7）红 16 档真值；结论段与尾段裸（无 fg 游程）
+    expect(lines[1]!.runs).toEqual([{ start: 3, end: 7, style: { fg: ansiColor(1) } }]);
+  });
+
+  it('单行帽触发弃色：>2000 码点带色行截断改写 → runs 丢弃 null（锚失真防线）', () => {
+    const styled = cardBodyStyledOf('\x1b[31m' + 'x'.repeat(CARD_BODY_LINE_MAX_CODEPOINTS + 1) + '\x1b[0m');
+    expect(styled.lines).toHaveLength(1);
+    expect([...styled.lines[0]!]).toHaveLength(CARD_BODY_LINE_MAX_CODEPOINTS + 1); // 头 1000 + ⋯ + 尾 1000
+    expect(styled.runs).toEqual([null]); // 截断面弃色不丢字
+  });
+
+  it('行帽 200 保留行 runs 按行携带：头 100 内彩色行保真 + 省略标记行 null + 空游程行归 null', () => {
+    const lines = Array.from({ length: CARD_BODY_MAX_LINES + 30 }, (_, i) => (i === 0 ? '\x1b[32m绿\x1b[0m' : `L${i}`));
+    const styled = cardBodyStyledOf(lines.join('\n'));
+    expect(styled.lines).toHaveLength(CARD_BODY_MAX_LINES + 1); // 头 100 + 标记 + 尾 100
+    expect(styled.lines[0]).toBe('绿');
+    expect(styled.runs[0]).toEqual([{ start: 0, end: 1, style: { fg: ansiColor(2) } }]); // 保留行携原色
+    expect(styled.runs[CARD_BODY_HEAD_LINES]).toBe(null); // 省略标记行（宿主铸入无原色）
+    expect(styled.runs[styled.runs.length - 1]).toBe(null); // 无色行（空游程归 null——省内存同形）
+  });
+
+  it('护栏转写档 runs 整体丢弃：humanize 改写发生 → 行集变化全 null（弃色不丢字）', () => {
+    const guarded =
+      '\x1b[31mRED\x1b[0m\n\n[输出 63087 字节超 65536 字节上限，已保尾截断；全文外溢至 /tmp/tool-output-x-abc-1.txt（可用 read/grep 从外溢文件取段）]';
+    const styled = cardBodyStyledOf(guarded);
+    expect(styled.lines[0]).toBe('⋯ +1 行');
+    expect(styled.lines[1]).toBe('RED'); // plain 仍剥后保真
+    expect(styled.runs.every((r) => r === null)).toBe(true); // 转写发生 = 整体丢弃
+  });
+
+  it('超折宽行渲染位弃色：wrapText 折多视觉行 → 保锚判据不中 → 单色（诚实降级）', () => {
+    const src = '\x1b[31m' + 'x'.repeat(80) + '\x1b[0m';
+    const styled = cardBodyStyledOf(src);
+    expect(styled.runs[0]).not.toBe(null); // 铸卡位携色（80 码点界内）
+    const lines = renderToolCardStyledLines(
+      card({ body: [...styled.lines], bodyRuns: styled.runs, expanded: true }),
+      40,
+    );
+    expect(lines.length).toBe(3); // 卡头 + 2 视觉行（80 列折 40×2）
+    for (const line of lines.slice(1)) {
+      expect(line.runs.every((r) => r.style.fg === undefined)).toBe(true); // 弃色单色
+    }
+  });
+
+  it('bodyRuns 缺席回落单色（旧 durable 投影兼容——直灌 body 不携色零炸）', () => {
+    const lines = renderToolCardStyledLines(card({ body: ['\x1b[31mRED\x1b[0m'], expanded: true }), 40);
+    expect(lines[1]!.plain).toBe('RED'); // 渲染位 wrapText 内嵌 sanitize 仍剥（呈现面维持）
+    expect(lines[1]!.runs).toEqual([]); // 单色（席缺席结构性回落——零消费位改写）
+  });
+
+  it('折叠档 dim 并集：彩色行降亮度不丢色（addDim 并入——fg 维持 + dim 并置）', () => {
+    const styled = cardBodyStyledOf('\x1b[31mFAIL\x1b[0m ok');
+    const collapsed = renderToolCardStyledLines(card({ body: [...styled.lines], bodyRuns: styled.runs }), 40);
+    const bodyLine = collapsed[1]!;
+    expect(bodyLine.plain).toBe('FAIL ok');
+    expect(bodyLine.runs).toContainEqual({ start: 0, end: 4, style: { fg: ansiColor(1), dim: true } });
+  });
+
+  it('bash exec 窗结构性不消费 bodyRuns：直灌携色卡 → 窗体行零 fg（单 DIM 维持——零扰锁；卡头 bash 高亮 fg 是既有律不在此面）', () => {
+    const styled = cardBodyStyledOf('\x1b[31mFAIL\x1b[0m');
+    const win = renderToolCardStyledLines(
+      card({ name: 'bash', body: [...styled.lines], bodyRuns: styled.runs, expanded: true }),
+      40,
+    );
+    const bodyRow = win.find((line) => line.plain.includes('FAIL'))!;
+    expect(bodyRow).toBeDefined();
+    expect(bodyRow.runs.every((r) => r.style.fg === undefined)).toBe(true); // exec 窗体行整窗单 DIM
+  });
+
+  it('存账净化翻档锁：lines 零 ESC 字节（stripExitCodeHeadLine 对带色头行匹配可靠化）', () => {
+    const styled = cardBodyStyledOf('\x1b[31mExit code: 1\x1b[0m\nout line');
+    expect(styled.lines).toEqual(['Exit code: 1', 'out line']); // 剥后 plain 首行可正则命中
+    expect(styled.lines.join('\n')).not.toContain('\x1b');
+    // 无 ESC 输入与 cardBodyOf 逐字节一致（呈现面零漂移的基线形）
+    const plain = '普通\n多行\n结果';
+    expect([...cardBodyStyledOf(plain).lines]).toEqual([...cardBodyOf(plain)]);
   });
 });

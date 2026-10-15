@@ -3,7 +3,7 @@
  * 原语——2026-09-20 TUI 修复组 1 批 F2/F4 锁）。
  */
 import { describe, expect, it } from 'vitest';
-import { ansiColor, EMPTY_STYLE, stringWidth } from '../../engine/index.js';
+import { ansiColor, color256, colorRgbOf, EMPTY_STYLE, stringWidth } from '../../engine/index.js';
 import {
   buildSgr,
   capAnsiLine,
@@ -11,6 +11,7 @@ import {
   clampRuns,
   OSC8_CLOSE,
   osc8Open,
+  parseAnsiRuns,
   styledLineToAnsi,
   type StyledLine,
 } from './ansi-rows.js';
@@ -286,5 +287,93 @@ describe('buildSgr strikethrough（挖掘 35 轮 B8——SGR 9 首消费 todo-sn
   it('行级端到端：styledLineToAnsi 发射划线段并尾归零', () => {
     const line: StyledLine = { plain: 'ab', runs: [{ start: 0, end: 2, style: { dim: true, strikethrough: true } }] };
     expect(styledLineToAnsi(line)).toBe('\x1b[2;9mab\x1b[0m');
+  });
+});
+
+describe('parseAnsiRuns SGR 游程解析（挖掘 49 轮件 B——工具输出色彩保真铸卡单源）', () => {
+  it('16 档前景三形：基础 30-37 / 亮色 90-97 / 复位 0——游程锚 UTF-16 对齐 plain', () => {
+    // 基础族：SGR 31 → ansiColor(1)（码位换算律 p-30）
+    const red = parseAnsiRuns('ok \x1b[31mFAIL\x1b[0m tail');
+    expect(red.plain).toBe('ok FAIL tail');
+    expect(red.runs).toEqual([{ start: 3, end: 7, style: { fg: ansiColor(1) } }]);
+    // 亮色族：SGR 91 → ansiColor(9)（码位换算律 p-82）
+    const bright = parseAnsiRuns('\x1b[91mHOT\x1b[0m');
+    expect(bright.runs).toEqual([{ start: 0, end: 3, style: { fg: ansiColor(9) } }]);
+    // 复位后裸段：runs 只覆盖着色区间（锚精确——不含复位后文本）
+    const r2 = parseAnsiRuns('\x1b[32mA\x1b[0mB');
+    expect(r2.plain).toBe('AB');
+    expect(r2.runs).toEqual([{ start: 0, end: 1, style: { fg: ansiColor(2) } }]);
+  });
+
+  it('扩展色域两形：38;5;n → color256 与 38;2;r;g;b → colorRgbOf 真值构造', () => {
+    const c256 = parseAnsiRuns('\x1b[38;5;196mX\x1b[0m');
+    expect(c256.runs).toEqual([{ start: 0, end: 1, style: { fg: color256(196) } }]);
+    const rgb = parseAnsiRuns('\x1b[38;2;255;0;64mY\x1b[0m');
+    expect(rgb.runs).toEqual([{ start: 0, end: 1, style: { fg: colorRgbOf(255, 0, 64) } }]);
+    // 背景族同律：48;5;n（bg 位）
+    const bg = parseAnsiRuns('\x1b[48;5;17mZ\x1b[0m');
+    expect(bg.runs).toEqual([{ start: 0, end: 1, style: { bg: color256(17) } }]);
+  });
+
+  it('扩展色域域判：越界 256 索引不炸零色游程（malformed 诚实降级）', () => {
+    // 38;5;999 越界（>255）——序列仍是合法 SGR 形（m 是 final 整段消费），
+    // fail-loud 构造前置域判：不产生色游程、后续参数 5/999 逐位消费零炸
+    const out = parseAnsiRuns('\x1b[38;5;999mN\x1b[0m');
+    expect(out.plain).toBe('N');
+    expect(out.runs).toEqual([]);
+  });
+
+  it('样式位全族：bold 到 strikethrough 六位 + 22/24 分位归位 + 39/49 前背景归缺省', () => {
+    // 复合位单序列：1;4 → bold+underline 并存
+    const both = parseAnsiRuns('\x1b[1;4mX\x1b[0m');
+    expect(both.runs).toEqual([{ start: 0, end: 1, style: { bold: true, underline: true } }]);
+    // dim 并置 + 22 双归位（bold+dim 一并归缺省）
+    const dimThenReset = parseAnsiRuns('\x1b[1;2mA\x1b[22mB\x1b[0m');
+    expect(dimThenReset.plain).toBe('AB');
+    expect(dimThenReset.runs).toEqual([{ start: 0, end: 1, style: { bold: true, dim: true } }]);
+    // 39 前景归缺省（bg 维持）+ 49 背景归缺省
+    const fgReset = parseAnsiRuns('\x1b[31;44mA\x1b[39mB\x1b[0m');
+    expect(fgReset.runs).toEqual([
+      { start: 0, end: 1, style: { fg: ansiColor(1), bg: ansiColor(4) } },
+      { start: 1, end: 2, style: { bg: ansiColor(4) } },
+    ]);
+    // italic 3 + strikethrough 9 与分位归位 23/29
+    const deco = parseAnsiRuns('\x1b[3;9mA\x1b[23;29mB\x1b[0m');
+    expect(deco.runs).toEqual([{ start: 0, end: 1, style: { italic: true, strikethrough: true } }]);
+  });
+
+  it('空参数缺省 0：裸 ESC[m 即复位形', () => {
+    const bare = parseAnsiRuns('\x1b[31mA\x1b[mB');
+    expect(bare.plain).toBe('AB');
+    expect(bare.runs).toEqual([{ start: 0, end: 1, style: { fg: ansiColor(1) } }]);
+  });
+
+  it('非 SGR CSI 剥除：光标定位与清屏序列不扰色（SGR 之外的 escape 全剥）', () => {
+    // ESC[2J 清屏 + ESC[1;1H 定位 + SGR 31 交织——非 SGR 序列剥、SGR 生效
+    const mixed = parseAnsiRuns('\x1b[2J\x1b[1;1H\x1b[31mRED\x1b[0m\x1b[3;4H!');
+    expect(mixed.plain).toBe('RED!');
+    expect(mixed.runs).toEqual([{ start: 0, end: 3, style: { fg: ansiColor(1) } }]);
+  });
+
+  it('截尾 malformed 序列吞到串尾 + OSC 序列剥除（consumeEscapeSequence 同语义）', () => {
+    // SGR 无 final（'\x1b[31' 截尾）——吞到串尾不外泄半个序列
+    expect(parseAnsiRuns('A\x1b[31').plain).toBe('A');
+    // OSC 形（ESC]...BEL）剥除
+    expect(parseAnsiRuns('\x1b]0;title\x07X').plain).toBe('X');
+  });
+
+  it('无 ESC 速径：sanitizeDisplayText 同律消毒 + 空 runs', () => {
+    // tab 展开 2 空格（与 sanitizeDisplayText 缺省全域档同语义——锚恒对齐）
+    expect(parseAnsiRuns('a\tb')).toEqual({ plain: 'a  b', runs: [] });
+    // CR 剥除 / DEL 剥除 / LF 保留（行内无 LF——split 先行）
+    expect(parseAnsiRuns('a\r\x7fb')).toEqual({ plain: 'ab', runs: [] });
+    expect(parseAnsiRuns('纯文本')).toEqual({ plain: '纯文本', runs: [] });
+  });
+
+  it('同式相邻并段：端点连续同式游程合并（发射位零冗余 SGR）', () => {
+    // 两段同红相邻（31 复位 0 再 31——中间零字符）→ 并段单游程
+    const merged = parseAnsiRuns('\x1b[31mA\x1b[0m\x1b[31mB\x1b[0m');
+    expect(merged.plain).toBe('AB');
+    expect(merged.runs).toEqual([{ start: 0, end: 2, style: { fg: ansiColor(1) } }]);
   });
 });

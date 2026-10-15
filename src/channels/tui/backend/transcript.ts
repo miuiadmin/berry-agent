@@ -60,6 +60,7 @@ import { MarkdownDoc, type RowsSource } from '../markdown/markdown.js';
 import { renderThinkingStyledLines, type ThinkingView } from '../blocks/thinking.js';
 import {
   cardBodyOf,
+  cardBodyStyledOf,
   diffBodyOf,
   humanizeGuardedOutput,
   renderToolCardStyledLines,
@@ -139,6 +140,12 @@ export type TranscriptBlock =
       readonly brief: string;
       readonly status: ToolCardStatus;
       readonly body: readonly string[];
+      /**
+       * 卡体按行旁挂 ANSI 游程（挖掘 49 轮件 B）：与 body 等长对齐、null =
+       * 单色行；整席缺席（diff 档 / bash / background / 旧投影）= 单色回落。
+       * 铸入位 = buildToolCard 非 diff 非 background 非 bash 腿。
+       */
+      readonly bodyRuns?: readonly (readonly StyleRun[] | null)[];
       readonly diff: boolean;
       /**
        * diff 段行号源（07 §4.3 ⑥——edit 成功回执注入）：operations[].startLine
@@ -706,6 +713,11 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
       // （append-only 律——与 user 块上下空行包夹同构的单侧形，无条件前置保
       // 渲染纯函数性）；卡面染色由 tool-card 件出口统一施加（toolCardBg
       // ——键缺席恒零施加）
+      // 透传勘正（挖掘 49 轮件 B 装配缺口收口）：本白名单是主屏（main-screen
+      // renderBlockLines）与回看器（history-viewer）两径的唯一 tool-card 渲染
+      // 透传位——bodyRuns（本件色彩保真）与 diffStartLines（45 轮真行号——
+      // 修前漏传 = 主屏与回看器 edit 卡行号槽恒空白，直调单测绿掩盖装配链
+      // 缺口）两席补齐；后续 ToolCardView 扩字段须同步此白名单（扩面纪律）
       return withPad(
         [
           ...renderToolCardStyledLines(
@@ -714,7 +726,9 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
               brief: block.brief,
               status: block.status,
               body: block.body,
+              bodyRuns: block.bodyRuns,
               diff: block.diff,
+              diffStartLines: block.diffStartLines,
               expanded: block.expanded,
               theme: block.theme,
               durationMs: block.durationMs,
@@ -1264,10 +1278,11 @@ function exploreArgsOf(name: string, args: Record<string, unknown>): string[] {
 
 /**
  * 探索条目错误首行（嵌套诊断行数据源）：error 态取卡体首个非空行
- * （cardBodyOf 既有切行）；其余态/无文本 → undefined（缺席 = 无诊断行）。
+ * （cardBodyStyledOf 切行——49 轮件 B 剥后 plain，带 ESC 首行不再伪影入
+ * 诊断位）；其余态/无文本 → undefined（缺席 = 无诊断行）。
  */
 function errorFirstLineOf(message: Extract<AgentMessage, { role: 'toolResult' }>): string | undefined {
-  for (const line of cardBodyOf(textOf(message))) {
+  for (const line of cardBodyStyledOf(textOf(message)).lines) {
     if (line.trim() !== '') return line;
   }
   return undefined;
@@ -1282,10 +1297,12 @@ function toolResultStatus(message: Extract<AgentMessage, { role: 'toolResult' }>
 /**
  * exec 退出码解析（组卡命令条目消费）：bash 数据面卡体首行 `Exit code: N`
  * （null〔信号终止〕/错误族无码形 → undefined——词条退出码位缺席 = 无码形）。
- * 与 exec 单卡状态行（renderExecStatusLine）同数据面同解析式。
+ * 与 exec 单卡状态行（renderExecStatusLine）同数据面同解析式。49 轮件 B：
+ * cardBodyStyledOf 切行——带色头行（`\x1b[31mExit code: 1\x1b[0m` 形）剥后
+ * plain 正则可靠命中（修前 ESC 夹带不中 → 误判无码形）。
  */
 function parseExecExitCode(message: Extract<AgentMessage, { role: 'toolResult' }>): number | undefined {
-  const first = cardBodyOf(textOf(message))[0] ?? '';
+  const first = cardBodyStyledOf(textOf(message)).lines[0] ?? '';
   const m = /^Exit code: (\d+)$/.exec(first);
   return m !== null ? Number(m[1]) : undefined;
 }
@@ -1951,10 +1968,14 @@ export class LiveTranscript {
         command: typeof entry.call.arguments.command === 'string' ? entry.call.arguments.command : '',
         status,
         exitCode: parseExecExitCode(entry.message),
-        // 失败条目输出窗（挖掘 40 轮件 B）：cardBodyOf 单源过账——头尾 100+100
+        // 失败条目输出窗（挖掘 40 轮件 B）：cardBodyStyledOf 单源过账（49 轮
+        // 件 B——帽三同律 + 剥后 plain：ESC 序列不再伪影入窗）；头尾 100+100
         // 存账帽 + 2000 码点单行帽自动继承零新帽；首行 Exit code 码形剥除
-        // （退出码位已显码防双显——只剥纯码形，信号终止/超时无码形不剥）
-        ...(status !== 'success' ? { outputLines: stripExitCodeHeadLine(cardBodyOf(textOf(entry.message))) } : {}),
+        // （退出码位已显码防双显——只剥纯码形，信号终止/超时无码形不剥；
+        // 带色头行剥后正则可靠命中）
+        ...(status !== 'success'
+          ? { outputLines: stripExitCodeHeadLine(cardBodyStyledOf(textOf(entry.message)).lines) }
+          : {}),
       };
     });
     const status: ToolCardStatus = commands.some((c) => c.status === 'aborted')
@@ -2046,6 +2067,15 @@ export class LiveTranscript {
     // 模型面结果文本不动（回执是模型的委派知情位），用户面卡体零行（过程
     // 呈现归 JobPanel 运行行）；one-shot agent / 普通工具卡体照常
     const isBackgroundDelegation = call.name === 'agent' && call.arguments.background === true;
+    // 49 轮件 B：非 diff / 非 background / 非 bash 卡体走 cardBodyStyledOf 一次
+    // 解析——body 用 lines（无 ESC 输入与 cardBodyOf 逐字节一致；带 ESC 输入
+    // 存账净化——呈现面零漂移：渲染位 sanitize 同律）+ bodyRuns 按行旁挂
+    // SGR 游程（同源对齐，锚漂移结构性不可能）。三排除位 = diff 档 patch
+    // 参数面保真不解析 / background 体空无解析面 / bash exec 窗整窗单 DIM
+    // 无消费位（省解析）；插件腿由渲染结构自动缺席（pluginBody ?? 路优先
+    // ——bodyRuns 不进插件体）
+    const styledBody =
+      !isEditPatch && !isBackgroundDelegation && call.name !== 'bash' ? cardBodyStyledOf(bodyText) : undefined;
     // 状态行时长近似（UX 五问题批③——契约零扩的诚实近似）：toolResult 时戳
     // 减 assistant 请求时戳，含调度延迟（工具排队/审批等待计入——非纯执行
     // 时长）；钳非负（时钟回退防御）
@@ -2056,8 +2086,16 @@ export class LiveTranscript {
       brief: call.brief,
       status,
       // 48 轮件 A：diff 档分立帽（diffBodyOf 2000——中段可审阅；非 diff 档
-      // cardBodyOf 帽 200 三同律位不变）
-      body: isBackgroundDelegation ? [] : isEditPatch ? diffBodyOf(bodyText) : cardBodyOf(bodyText),
+      // cardBodyOf 帽 200 三同律位不变）；49 轮件 B：styledBody 在场 = lines
+      // 同源消费（bash 排除腿回落 cardBodyOf）
+      body: isBackgroundDelegation
+        ? []
+        : isEditPatch
+          ? diffBodyOf(bodyText)
+          : styledBody !== undefined
+            ? styledBody.lines
+            : cardBodyOf(bodyText),
+      ...(styledBody !== undefined ? { bodyRuns: styledBody.runs } : {}),
       diff: isEditPatch,
       ...(diffStartLines !== undefined ? { diffStartLines } : {}),
       expanded: this.toolCardsExpanded,
