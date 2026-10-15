@@ -107,6 +107,7 @@ import {
   type UpdateCheckDeps,
 } from './upgrade.js';
 import { createDefaultSpawnRunner } from './plugin-install.js';
+import { runDirectShellCommand } from './direct-shell.js';
 import type { HostRuntime } from './runtime.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
 import { MarketplaceTuiFace } from './marketplace-tui-face.js';
@@ -1661,6 +1662,15 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 直投（纯文本 user 件尾出全文投影——操控件/图片件跳过在驱动侧单源）；
       // 会话未开 = null（空弹诚实呈报同义）
       queuePopLast: (sessionId) => stack.driverOf(sessionId)?.popWaitingLast() ?? null,
+      // shell 直达执行柄（挖掘 47 轮件 B——`!` 前缀）：direct-shell 机制件闭包
+      //（spawn 无状态就地新建——update 检查腿同 :2058 形）；cwd = 聚焦工作区
+      // 锚（focusedWorkspaceRoot 第四消费位——现读非冻结）；notify 闭包前向
+      // 引 backend（调用时已初始化——startNewSession 同形）
+      runDirectShell: runDirectShellCommand({
+        spawn: createDefaultSpawnRunner(),
+        cwd: () => focusedWorkspaceRoot(),
+        notify: (text, opts) => backend.notify(text, opts),
+      }),
       // 审批决策折面数据源（挖掘 31 轮 [1]——onRepaint/openHistory 重建路）：
       // 谓词单源两路共用（直播腿订阅位同一 isUserApprovalDecision——过滤只此
       // 一处下筛，backend 收到的已是呈现子集）；窄形映射剥 fold 专属位

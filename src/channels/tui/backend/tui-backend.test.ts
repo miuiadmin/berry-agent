@@ -5175,6 +5175,95 @@ describe('TuiBackend ctrl+d 防误退两步序 + 档位模式循环键（2026-10
   });
 });
 
+describe('TuiBackend shell 直达（挖掘 47 轮件 B——07 §4.1 shell 直达条款：`!` 前缀）', () => {
+  it("'!' 起稿 footer 行1 模式槽换词 shell + danger 档；删 '!' 退态归位；行中 '!' 不触发", () => {
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, {
+      sessionId: SESSION,
+      footer: {
+        tiers: () => ({ mode: 'Auto', thinking: null, sandbox: '只读', sandboxDanger: false }),
+        cwdLabel: () => 'w',
+      },
+    });
+    backend.start();
+    expect(io.bytes).toContain('Auto'); // 基线（非 shell 态归 tiers）
+    io.reset();
+    io.emitInput('!git'); // 行首 '!' 即进态（派生态判据——打即进）
+    expect(io.bytes).toContain('shell'); // 模式槽换词（沙箱档词在 shell 直达态不适用——诚实呈现）
+    expect(io.bytes).not.toContain('Auto');
+    // danger 档断言（16 档降采实出 SGR + 词连缀——覆写漏置 danger 旗必红：
+    // 漏旗时模式词走 footerStyle 灰档 \x1b[90m，91 vs 90 一字符差即回归信号；
+    // MemoryTerminalIO 无色档参数恒 16 档，truecolor 38;2 形不可达）
+    expect(io.bytes).toContain('\x1b[91mshell');
+    io.reset();
+    io.emitInput('\x15'); // ctrl+u 清稿（删至行首——退态）
+    expect(io.bytes).not.toContain('shell');
+    expect(io.bytes).toContain('Auto'); // 归位（tiers 透传恢复）
+    io.reset();
+    io.emitInput('a!'); // 行中 '!' 非首——不触发
+    // 差分帧证未换词：换词必落帧（shellModeOn 翻转才 rebuildFooter——行1 重画），
+    // 未翻转则行1 零重画（'Auto' 在屏未变不重出）——'shell' 全帧缺席即证
+    expect(io.bytes).not.toContain('shell');
+  });
+
+  it("'!' 提交路由：剥前缀净命令走 seam + onSubmit 零达 + alt+enter 旗忽略同走", () => {
+    const commands: string[] = [];
+    const { io, calls, pump } = makeInteractive({ runDirectShell: (command) => commands.push(command) });
+    io.emitInput('!git status');
+    pump();
+    io.emitInput('\r');
+    pump();
+    expect(commands).toEqual(['git status']); // 剥 '!' 净命令
+    expect(calls.submitted).toEqual([]); // 不进模型消息（timeline 零污染）
+    io.emitInput('!  ls -la  ');
+    pump();
+    io.emitInput('\x1b[13;3u'); // alt+enter（kitty 形）——queueFollowUp 旗忽略，同走 bang 路由
+    pump();
+    expect(commands).toEqual(['git status', 'ls -la']); // 首尾空白剥净
+    expect(calls.submitted).toEqual([]);
+  });
+
+  it("裸 '!' 用法 fail-loud + seam 缺席诚实拒（不兜底进模型消息）", () => {
+    const { io, calls, pump } = makeInteractive(); // seam 缺席
+    io.emitInput('!');
+    pump();
+    io.emitInput('\r');
+    pump();
+    expect(io.bytes).toContain('! 后接命令'); // 用法 warn（/exit 带参同律）
+    expect(calls.submitted).toEqual([]);
+    io.bytes = '';
+    io.emitInput('!ls');
+    pump();
+    io.emitInput('\r');
+    pump();
+    expect(io.bytes).toContain('当前界面不支持 shell 直达'); // 诚实拒（/exit onQuit 缺席形同律）
+    expect(calls.submitted).toEqual([]); // 永不兜底 onSubmit
+  });
+
+  it('停机后提交静默丢弃（lifecycle 闸——onSubmit 同闸语义）', () => {
+    const commands: string[] = [];
+    const { io, backend, pump } = makeInteractive({ runDirectShell: (command) => commands.push(command) });
+    backend.stop();
+    io.emitInput('!ls');
+    pump();
+    io.emitInput('\r');
+    pump();
+    expect(commands).toEqual([]); // 停机静默丢弃
+    expect(io.bytes).not.toContain('不支持'); // 零通知（闸在 seam 判前——非诚实拒形）
+  });
+
+  it("ask 应答窗 '!...' 是应答非命令（调用序天然排除——回归锁）", async () => {
+    const commands: string[] = [];
+    const { io, backend, pump } = makeInteractive({ runDirectShell: (command) => commands.push(command) });
+    const p = backend.input('问？'); // 应答窗接管主编辑器
+    pump();
+    io.emitInput('!cmd\r'); // '!' 开头应答整串
+    pump();
+    await expect(p).resolves.toBe('!cmd');
+    expect(commands).toEqual([]); // bang 路由未达（ask 分支先行）
+  });
+});
+
 describe('TuiBackend Ctrl+X leader 前缀键系（2026-10-05 ZCode TUI 对标批 B4——07 §4.1 定形注）', () => {
   /** leader rig：footer 注入（提示位观测）+ 分支柄记录 */
   function leaderRig(options: Partial<TuiBackendOptions> = {}) {

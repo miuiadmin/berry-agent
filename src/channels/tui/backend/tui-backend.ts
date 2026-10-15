@@ -310,6 +310,14 @@ export interface TuiBackendOptions {
    */
   readonly queuePopLast?: (sessionId: string) => string | null;
   /**
+   * shell 直达执行柄（挖掘 47 轮件 B——07 §4.1 shell 直达条款）：`!` 起头
+   * 提交的路由去向（剥 `!` 后的命令串）；执行与回执归 host 装配
+   * （direct-shell 机制件——spawn/notify/cwd 全宿主域）。注入缺席 = 诚实拒
+   * （「当前界面不支持」warn——不兜底进模型消息）。判态路由在 backend、
+   * 执行面零 backend 触感（mechanism-policy 分离）。
+   */
+  readonly runDirectShell?: (command: string) => void;
+  /**
    * 审批决策折面数据源（挖掘 31 轮 [1]——回看/投影重建路决策行）：聚焦会话
    * durable 审批对 fold 投影（载体 = backend 闭包注入——UiBackend 公开面
    * openHistory 签名零改）；呈现谓词滤除（isUserApprovalDecision）在装配
@@ -1069,6 +1077,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly queueFor: ((sessionId: string) => readonly string[] | null | undefined) | undefined;
   /** 弹回排队末条数据源（47 轮件 A；缺席 = 功能关） */
   private readonly queuePopLast: ((sessionId: string) => string | null) | undefined;
+  /** shell 直达执行柄（47 轮件 B；缺席 = 诚实拒） */
+  private readonly runDirectShell: ((command: string) => void) | undefined;
   /** 审批决策折面数据源（挖掘 31 轮 [1]——onRepaint/openHistory 重建路共用） */
   private readonly approvalDecisionsSource: ((sessionId: string) => readonly ApprovalDecisionLineInput[]) | undefined;
   /** todo 快照读面（挖掘 35 轮 B8——直播腿/重建路共用） */
@@ -1271,6 +1281,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private footerSandbox: string | null = null;
   /** 行1 模式槽警示档缓存（tiers.sandboxDanger——YOLO error 色） */
   private footerModeDanger = false;
+  /**
+   * shell 直达态缓存（47 轮件 B——syncShellMode 翻转守卫）：modeDanger 是
+   * setFooter 快照值非供数器，态翻转必须触发 rebuildFooter（不能只活算
+   * instrumentSlots 词——色档位在 seg 快照）。
+   */
+  private shellModeOn = false;
   /** 行2 目录短名缓存（rebuildFooter 低频锚拉 cwdLabel 闭包） */
   private footerCwd = '';
   /** 行2 ⎇ 支名@短哈希缓存（refreshFooterGit 低频锚——'⎇ dev @a1b2c3d' 单源 buildFooterGitSuffix 拼形：⎇ 支名两侧空格 + @ 记形随单源 + 统计段命中追加） */
@@ -1497,6 +1513,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 教学提示首画锚（V-3 注⑦②）：构造期空稿闲态即期翻转 footerHint
     //（refreshFooter 先行走 hint-off 基线——editor 就位后此处收敛真态）
     this.syncFooterHint();
+    // shell 直达态首画锚（47 轮件 B——同位收敛：种子稿起头 `!` 构造期即态）
+    this.syncShellMode();
     // 补全三件（R6 批 10j 异步形）：provider 路由单源 → 弹层纯落位面 → 防抖
     // 调度器居中编舞。query 闭包 fire 时自取编辑器现态（防抖窗内连打取最新
     // 态）；schedule 注入缺席 = 立即发（同步测试语义——既有确定性测试零扰动）
@@ -1563,6 +1581,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.queueFor = options.queueFor;
     // 弹回排队末条（47 轮件 A）：注入缺席 = 功能关
     this.queuePopLast = options.queuePopLast;
+    // shell 直达（47 轮件 B）：注入缺席 = 诚实拒（/exit onQuit 缺席形同律）
+    this.runDirectShell = options.runDirectShell;
     // goal 持续态数据源（件 G）：缺席 = 两呈现位零扰动；归一 null/undefined
     // 返值为空数组（供数器恒返数组——类字段契约收窄，帧首拉取零再判）
     const goalSource = options.goalStatus;
@@ -2898,6 +2918,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         this.footerModeDanger = false;
       }
     }
+    // shell 直达态覆写（47 轮件 B——行1 模式槽换词 + danger 档）：`!` 命令绕过
+    // 模型与沙箱直达用户 shell——沙箱档词在 shell 直达态本不适用，换词是诚实
+    // 呈现非遮蔽（YOLO 警示色基建复用 footerModeDanger）
+    if (this.shellModeOn) {
+      this.footerMode = 'shell';
+      this.footerModeDanger = true;
+    }
     try {
       this.footerCwd = this.footerCwdLabel !== undefined ? this.footerCwdLabel() : '';
     } catch {
@@ -3153,6 +3180,28 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     else next = 'idle';
     if (next === this.footerHint) return;
     this.footerHint = next;
+    this.rebuildFooter();
+  }
+
+  /**
+   * shell 直达态门控对账（47 轮件 B——07 §4.1 shell 直达条款呈现面）：
+   * 期望态翻转才 rebuildFooter（同 syncFooterHint 谱——编辑器每键零重画；
+   * 态消费位 rebuildFooter 覆写读 shellModeOn）。判据派生态非存储态：
+   * 打 `!` 即进、删 `!` 即退（稿件文本判据无模式机）；应答窗/回搜态排除
+   *（应答非编辑、预览稿不闪词）。单锚 = handleEditorChange（syncFooterHint
+   * 邻位）——setText 全调用位经 editor-model 尾部无条件 notify() 收敛进
+   * onChange 对账路，稿件位翻转全覆盖（设计档单锚定谳）。
+   */
+  private syncShellMode(): void {
+    if (!this.footerEnabled) return;
+    const draft = this.editor.model.getText();
+    const next =
+      this.inputAsk === null &&
+      !this.editor.isSearchingHistory() &&
+      !this.editor.model.isEmpty() &&
+      draft.trimStart().startsWith('!');
+    if (next === this.shellModeOn) return;
+    this.shellModeOn = next;
     this.rebuildFooter();
   }
 
@@ -4066,6 +4115,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (this.maybeHandleLocalCommand(text)) {
       return;
     }
+    // shell 直达拦截（47 轮件 B——`!` 起头本地终局消费族：/exit 同律不穿透
+    // 不兜底进模型消息；分支序 = '!' 判先、停机闸后——与 onSubmit 闸同构，
+    // 闸在判据后只兜最终落点不前置吞后续 '/' 路由）
+    if (this.maybeHandleBangCommand(text)) {
+      return;
+    }
     if (text.startsWith('/') && this.dispatchCommand !== undefined) {
       this.dispatchCommand(text)
         .then((handled) => {
@@ -4139,6 +4194,34 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     return true;
   }
 
+  /**
+   * shell 直达拦截（挖掘 47 轮件 B——07 §4.1 shell 直达条款）：`!` 起头提交
+   * 剥前缀净命令走 runDirectShell seam（执行与回执归 host 装配——direct-shell
+   * 机制件）。分支序：①非 `!` 起头 → false 落后续路（'/' dispatch / onSubmit）；
+   * ②停机闸 → true 静默丢弃（onSubmit 同闸语义——终退不可复用）；③剥后空 →
+   * 用法 fail-loud（/exit 带参同律）；④seam 缺席 → 诚实拒（不虚报律——不兜底
+   * 进模型消息）；⑤执行。queueFollowUp 旗忽略（直跑无排队义——'!' 态
+   * alt+enter 同走本路由）；`!` 文不入 timeline、编辑器历史册照入（↑ 可回灌）。
+   * ask 应答窗由调用序天然排除（ask 分支先行——'!' 开头应答是应答）。
+   */
+  private maybeHandleBangCommand(text: string): boolean {
+    const trimmed = text.trim();
+    if (!trimmed.startsWith('!')) return false;
+    // 停机闸（在判据后——与 onSubmit 闸同构：闸只兜最终落点）
+    if (!this.running) return true;
+    const command = trimmed.slice(1).trim();
+    if (command === '') {
+      this.notify('! 后接命令——如 !git status', { level: 'warn' });
+      return true;
+    }
+    if (this.runDirectShell === undefined) {
+      this.notify('当前界面不支持 shell 直达（! 前缀）', { level: 'warn' });
+      return true;
+    }
+    this.runDirectShell(command);
+    return true;
+  }
+
   /** 编辑器内容变更：补全层重发查询（尾沿防抖——R6 批 10j）+ 固定区脏位 */
   private handleEditorChange(): void {
     // 补全门（挖掘 31 轮 [3]）：回搜态的 change 是预览/还原翻转（applySearchPreview
@@ -4148,6 +4231,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // ——若 touchFixed 在前，同步直出档会先落一帧旧 hint 态再落新态（应答窗
     // 开窗帧混入假键位残影）；注入调度档两请求虽合并无害，序仍以对账先行定形
     this.syncFooterHint(); // 教学提示门控对账（空稿翻转单源锚——一切稿件变更经此）
+    this.syncShellMode(); // shell 直达态对账（47 轮件 B——同谱单锚：一切稿件变更经此）
     // 等回声复位（非空稿 = 新键入意图）：提交流的抑制位不复位会永锁空态引导
     if (!this.editor.model.isEmpty()) this.awaitingEcho = false;
     this.syncEmptyGuide(); // 空态引导对账（稿件翻转锚——同 B2 序：对账先于触脏）
