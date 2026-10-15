@@ -16,7 +16,9 @@
  *   max(label 显示宽) + 2（全集基准滚动不挪列；右对齐制退役）、段右界帽
  *   ≤ 区域宽 70%、desc 段 dim（选中行整行 accent bold 覆盖 dim）；
  * - 键面：↑/↓ 循环换高亮、enter/tab 应用、escape 关本轮（后续输入再发新查
- *   重开；关层回调 onDismiss——backend 撤防抖窗作废在途，堵迟到 fire 重开
+ *   重开；**escape 粘滞**——件 A〔挖掘 46 轮〕：被拒 token 身份记忆，同
+ *   token 后续交付续关不重开、token 变更或消失断链清忆；关层回调
+ *   onDismiss——backend 撤防抖窗作废在途，堵迟到 fire 重开
  *   闪回——2026-09-20 TUI 视觉品质战役·组 2）；其余键不消费（穿透回
  *   Editor 继续输入——弹层随下次落位重算）；
  *   enter 的全量输入穿透律——token 已是高亮项全文时 enter 不消费（穿透提交，
@@ -62,6 +64,14 @@ export class AutocompletePopup implements Renderable {
   private windowStart = 0;
   private readonly model: EditorModel;
   /**
+   * 被拒 token 身份（件 A——挖掘 46 轮）：escape 关本轮时捕获，同线同
+   * 起点同全文三元组 = codex DismissedToken 的简化承载（berry token 行内
+   * 单层，{line, start} 即 occurrence 实用代理；text 全文相等蕴含 query
+   * 相等）。同 token 后续交付续关不重开；token 变更或消失（清空/换
+   * token——含 null 交付路径对拍不匹）断链清忆归正常路径。
+   */
+  private dismissed: { readonly line: number; readonly start: number; readonly text: string } | null = null;
+  /**
    * 选中行样式（整行 accent bold——主题派生，setTheme 重建；codex 形：
    * 弃 inverse 反色与 › 光标前缀符）
    */
@@ -97,9 +107,34 @@ export class AutocompletePopup implements Renderable {
 
   /** 结果落位（backend 防抖调度器 onResult 注入——无补全自然隐藏；高亮归零） */
   applyResult(result: AutocompleteResult | null): void {
+    // 交付门双臂（件 A——挖掘 46 轮）：被拒身份在场时先判 token 现势——
+    // 非 null 交付且光标 token 仍是被拒身份 → 丢弃交付（续关不闪回，
+    // codex dismissed 续关位）；token 已变或消失（null 交付对拍不匹，或
+    // 非 null 交付对拍不匹）→ 断链清忆归正常路径（codex token-gone 清忆
+    // 位对齐——null 收层是 berry 侧 token 消失的唯一落位信号）
+    if (this.dismissed !== null) {
+      const live = this.dismissedTokenLive();
+      if (result !== null && live) return; // 同 token 交付丢弃——弹层保持关
+      if (!live) this.dismissed = null; // 断链清忆（token 变更或消失）
+      // null 交付照落位（收层）——live 形保持记忆（token 仍在场，续关）
+    }
     this.result = result;
     this.activeIndex = 0;
     this.windowStart = 0;
+  }
+
+  /**
+   * 被拒身份现势对拍（件 A——挖掘 46 轮）：现取光标 token（tokenAtCursor
+   * 真源——「光标前 token」提取，交付时光标须落 token 尾界）与 dismissed
+   * 三元组全等判定。token 消失（null）即不匹。
+   */
+  private dismissedTokenLive(): boolean {
+    const d = this.dismissed;
+    if (d === null) return false;
+    const cursor = this.model.getCursor();
+    const line = this.model.getLines()[cursor.line] ?? '';
+    const token = tokenAtCursor(line, cursor.col);
+    return token !== null && cursor.line === d.line && token.start === d.start && token.text === d.text;
   }
 
   /** 量高：可见条目数（不可见 = 0——浮层不占布局；空结果占 1——空态行） */
@@ -227,7 +262,15 @@ export class AutocompletePopup implements Renderable {
       return true;
     }
     if (event.key === 'escape') {
-      this.applyResult(null); // 关本轮（后续输入再发新查重开）
+      // 被拒 token 身份捕获（件 A——挖掘 46 轮）：tokenAtCursor 现取光标
+      // token（与 codex current_prefixed_token_range 现取同源——非弹层存
+      // result 区间，防抖窗内输入已变更的陈旧态下取的是最新 token = 最新
+      // 拒绝）；光标无 token 不记（记忆无从锚定——旧记忆同步清除）
+      const cursor = this.model.getCursor();
+      const line = this.model.getLines()[cursor.line] ?? '';
+      const token = tokenAtCursor(line, cursor.col);
+      this.dismissed = token === null ? null : { line: cursor.line, start: token.start, text: token.text };
+      this.applyResult(null); // 关本轮（null 臂对拍刚捕获身份全等——记忆保持）
       // 关层联动通知：backend 撤防抖窗 + 作废在途——否则 kitty 轨 escape 即达
       // 即决后，窗内已武装的查询迟到 fire 会重开刚关的弹层（闪回）
       this.onDismiss?.();

@@ -384,3 +384,132 @@ describe('AutocompletePopup 空条目诚实反馈（空结果诚实行律）', (
     expect(dismissed).toBe(1); // 关层联动通知（backend 撤防抖窗——与有候选轮同契约）
   });
 });
+
+/* ---------------- escape 粘滞（件 A——挖掘 46 轮：dismissed token 记忆） ---------------- */
+
+describe('AutocompletePopup escape 粘滞（件 A——挖掘 46 轮）', () => {
+  it('escape 记忆同 token 交付——续关不重开（修前红：无记忆恒落位重开）', () => {
+    const model = new EditorModel();
+    model.setText('/h'); // 光标落尾——token 区间 [0,2)
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [{ label: '/help', replacement: '/help' }],
+      query: 'h',
+      replaceStart: 0,
+      replaceEnd: 2,
+    });
+    expect(popup.handleEvent(key('escape'))).toBe(true); // 拒——捕获身份 {line:0, start:0, text:'/h'}
+    expect(popup.visible).toBe(false);
+    // 同 token 后续交付（用户仍在该 token 上——backend 重查或迟到 fire 同形）
+    popup.applyResult({
+      items: [{ label: '/help', replacement: '/help' }],
+      query: 'h',
+      replaceStart: 0,
+      replaceEnd: 2,
+    });
+    expect(popup.visible).toBe(false); // 身份全等丢弃交付——续关不闪回
+  });
+
+  it('续打扩展 token 断链清忆——重开（codex 语义：query 变更即新意图）', () => {
+    const model = new EditorModel();
+    model.setText('/h');
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [{ label: '/help', replacement: '/help' }],
+      query: 'h',
+      replaceStart: 0,
+      replaceEnd: 2,
+    });
+    popup.handleEvent(key('escape')); // 记忆 {0, 0, '/h'}
+    model.setText('/he'); // 续打扩展（光标落尾 col 3）
+    popup.applyResult({
+      items: [{ label: '/help', replacement: '/help' }],
+      query: 'he',
+      replaceStart: 0,
+      replaceEnd: 3,
+    });
+    expect(popup.visible).toBe(true); // 身份不匹断链清忆——正常落位重开
+  });
+
+  it('清空后重打同形 token——首交付正常落位（token 消失 null 交付已断链清忆）', () => {
+    const model = new EditorModel();
+    model.setText('/h');
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [{ label: '/help', replacement: '/help' }],
+      query: 'h',
+      replaceStart: 0,
+      replaceEnd: 2,
+    });
+    popup.handleEvent(key('escape')); // 记忆在身
+    model.setText('');
+    popup.applyResult(null); // 生产链 token 消失形：backend handleEditorChange 重查发 null
+    model.setText('/h'); // 重打同形 token——新链
+    popup.applyResult({
+      items: [{ label: '/help', replacement: '/help' }],
+      query: 'h',
+      replaceStart: 0,
+      replaceEnd: 2,
+    });
+    expect(popup.visible).toBe(true); // null 交付已清忆——首交付正常落位
+  });
+
+  it('同长置换编辑（光标 token 不变）——同 token 交付续关（修前红：无记忆恒落位重开）', () => {
+    const model = new EditorModel();
+    model.setText('x /h'); // token 区间 [2,4)，光标落尾 col 4 恰在 token 界
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [{ label: '/help', replacement: '/help' }],
+      query: 'h',
+      replaceStart: 2,
+      replaceEnd: 4,
+    });
+    popup.handleEvent(key('escape')); // 记忆 {0, 2, '/h'}
+    // 同长置换（置换 col 0 的 x——start 不移；setText 光标落行尾 col 4 仍在 token 界）
+    model.setText('y /h');
+    popup.applyResult({
+      items: [{ label: '/help', replacement: '/help' }],
+      query: 'h',
+      replaceStart: 2,
+      replaceEnd: 4,
+    });
+    expect(popup.visible).toBe(false); // 光标 token 与被拒身份全等——续关
+  });
+
+  it('tab 路不受记忆影响——恒应用；弹层关闭后 tab 穿透回编辑器', () => {
+    const model = new EditorModel();
+    model.setText('/h');
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [{ label: '/help', replacement: '/help' }],
+      query: 'h',
+      replaceStart: 0,
+      replaceEnd: 2,
+    });
+    expect(popup.handleEvent(key('tab'))).toBe(true); // 正常轮 tab 恒应用（键面分离——记忆零涉）
+    expect(model.getText()).toBe('/help');
+    expect(popup.visible).toBe(false);
+    // 弹层关闭（escape 记忆在场）后：无弹层可应用——tab 穿透归编辑器
+    const model2 = new EditorModel();
+    model2.setText('/h');
+    const popup2 = new AutocompletePopup(model2);
+    popup2.applyResult({
+      items: [{ label: '/help', replacement: '/help' }],
+      query: 'h',
+      replaceStart: 0,
+      replaceEnd: 2,
+    });
+    popup2.handleEvent(key('escape'));
+    expect(popup2.handleEvent(key('tab'))).toBe(false); // 不在场不挡键
+  });
+
+  it('空态行 escape 也记身份——「无匹配」层同律续关（修前红：无记忆恒落位重开）', () => {
+    const model = new EditorModel();
+    model.setText('/zz'); // 打错前缀——空态行
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({ items: [], query: 'zz', replaceStart: 0, replaceEnd: 3 });
+    expect(popup.handleEvent(key('escape'))).toBe(true); // 空态层显式收层——身份同样捕获
+    popup.applyResult({ items: [], query: 'zz', replaceStart: 0, replaceEnd: 3 }); // 同 token 再查仍空
+    expect(popup.visible).toBe(false); // 空态层同律续关（被拒的是该 token 的补全——空非空无关）
+  });
+});
