@@ -19,6 +19,9 @@
  *   定值）unified→split 双栏（左旧右新、中缝 1 列、行号槽分栏各随、词级对
  *   行合并同屏行、孤立删/增单侧挂空），窄屏维持 unified；两形导航键与
  *   ⋮/… 省略位不变；
+ * - **组体 add/del 行行级 bg 色带**（挖掘 45 轮件 E——07 §4.1 2026-10-16
+ *   接档注）：unified 全行带 / split 半栏带中缝 1 列恒裸、ctx 与组头不施、
+ *   16 档降采缺席腿纯前景独行（双通道并行律）；
  * - 键面同副屏件族律（q / esc 返回、Ctrl+C 打断、Ctrl+D 先收屏再退）。
  */
 import type { CellBuffer, CellStyle, ColorValue, InputEvent, Region } from '../../engine/index.js';
@@ -467,15 +470,24 @@ export class DiffViewer implements OverlayContent {
     body: DiffBodyRow,
     numWidth: number,
   ): void {
-    buffer.writeText(row, col, index === this.cursor ? CURSOR_MARK : ' ');
+    // 行级全宽 bg 色带（件 E）：先铺整行底带再落文本——setCell 全量替换律下，
+    // 带内每个后写必须同携 bg 才不凿洞；行尾衬底（文本外余列）由底带自然
+    // 覆盖（工具卡 fillBg 尾腿 / history-viewer 逐格补底同效——BCE 同义）
+    const band = this.bandOf(body.kind);
+    if (band !== undefined) {
+      buffer.writeText(row, col, ' '.repeat(width), band);
+    }
+    buffer.writeText(row, col, index === this.cursor ? CURSOR_MARK : ' ', band);
     buffer.writeText(
       row,
       col + 1,
       `${lineSlot(body.oldLine, numWidth)} ${lineSlot(body.newLine, numWidth)}`,
-      HINT_STYLE,
+      // 槽 dim 与带合流；缺席腿（band undefined）恒等传 HINT_STYLE——不造新
+      // 对象（16 档腿 toBe identity 锁的硬约束）
+      band !== undefined ? { ...HINT_STYLE, ...band } : HINT_STYLE,
     );
     const start = col + 2 * numWidth + 2; // 前缀列（槽区 2W+1 起于 col+1）
-    this.renderLineContent(buffer, row, start, width - (2 * numWidth + 2), body);
+    this.renderLineContent(buffer, row, start, width - (2 * numWidth + 2), body, band);
   }
 
   /**
@@ -495,16 +507,34 @@ export class DiffViewer implements OverlayContent {
   ): void {
     const half = Math.floor((width - 1) / 2); // 左半 [col, col+half)，缝 1 列，右半 [col+half+1, col+width)
     const rightCol = col + half + 1;
-    buffer.writeText(row, col, index === this.cursor ? CURSOR_MARK : ' ');
+    // 双侧分立带（件 E）：左半 del 带 / 右半 add 带、中缝 1 列恒不铺
+    //（del 带 | 裸缝 | add 带的双带并置分隔位；文本写恒不越缝既有律）；
+    // 空挂半（孤增左 / 孤删右）无带（pair 侧 null → 本侧 band undefined）
+    const leftBand = pair.left !== null ? this.bandOf(pair.left.kind) : undefined;
+    const rightBand = pair.right !== null ? this.bandOf(pair.right.kind) : undefined;
+    if (leftBand !== undefined) buffer.writeText(row, col, ' '.repeat(half), leftBand);
+    if (rightBand !== undefined) buffer.writeText(row, rightCol, ' '.repeat(width - half - 1), rightBand);
+    // 光标位列随左半带（左空挂 = 无带）
+    buffer.writeText(row, col, index === this.cursor ? CURSOR_MARK : ' ', leftBand);
     if (pair.left !== null) {
-      buffer.writeText(row, col + 1, lineSlot(pair.left.oldLine, numWidth), HINT_STYLE);
+      buffer.writeText(
+        row,
+        col + 1,
+        lineSlot(pair.left.oldLine, numWidth),
+        leftBand !== undefined ? { ...HINT_STYLE, ...leftBand } : HINT_STYLE,
+      );
     }
     if (pair.right !== null) {
-      buffer.writeText(row, rightCol + 1, lineSlot(pair.right.newLine, numWidth), HINT_STYLE);
+      buffer.writeText(
+        row,
+        rightCol + 1,
+        lineSlot(pair.right.newLine, numWidth),
+        rightBand !== undefined ? { ...HINT_STYLE, ...rightBand } : HINT_STYLE,
+      );
     }
     const room = half - numWidth - 2; // 两侧同内容预算（前缀列起算——含前缀 1）
-    if (pair.left !== null) this.renderLineContent(buffer, row, col + numWidth + 2, room, pair.left);
-    if (pair.right !== null) this.renderLineContent(buffer, row, rightCol + numWidth + 2, room, pair.right);
+    if (pair.left !== null) this.renderLineContent(buffer, row, col + numWidth + 2, room, pair.left, leftBand);
+    if (pair.right !== null) this.renderLineContent(buffer, row, rightCol + numWidth + 2, room, pair.right, rightBand);
   }
 
   /**
@@ -512,13 +542,24 @@ export class DiffViewer implements OverlayContent {
    * 收口——unified 全宽窗 / split 半栏窗两消费面单源）：词级段族在场逐段写
    * （same 段裸、本侧变段着色——对行的异侧段不在此行），超宽段省略形收口
    * （… 记号随段既有着色、被切即行终——界面美化役①）；孤立行整行着色
-   * （ctx 裸）+ 超宽 ellipsize（0 宽守卫在源）。
+   * （ctx 裸）+ 超宽 ellipsize（0 宽守卫在源）。尾参 band（件 E）= 行级
+   * bg 色带——全部写点携 bg 合并（same 段洞补裸 bg 承底；bg 缺席腿纯前景
+   * 现状独行——双通道并行律）。
    */
-  private renderLineContent(buffer: CellBuffer, row: number, start: number, room: number, body: DiffBodyRow): void {
-    if (room <= 0) return; // 极窄窗（槽区占满）——内容位零预算不写
+  private renderLineContent(
+    buffer: CellBuffer,
+    row: number,
+    start: number,
+    room: number,
+    body: DiffBodyRow,
+    band?: CellStyle,
+  ): void {
+    if (room <= 0) return; // 极窄窗（槽区占满）——内容位零预算不写（带已由 caller pre-fill 铺就）
     const fg: ColorValue | undefined =
       body.kind === 'del' ? this.theme.diffRemoved : body.kind === 'add' ? this.theme.diffAdded : undefined;
-    const style = fg === undefined ? undefined : { fg };
+    const bg = band?.bg; // undefined = 无带腿（16 档降采）——纯前景现状
+    const style: CellStyle | undefined =
+      fg === undefined ? (bg === undefined ? undefined : { bg }) : bg === undefined ? { fg } : { fg, bg };
     const prefix = body.kind === 'del' ? '-' : body.kind === 'add' ? '+' : '';
     buffer.writeText(row, start, prefix, style);
     let c = start + 1;
@@ -533,22 +574,34 @@ export class DiffViewer implements OverlayContent {
         const piece = seg.text;
         const space = limit - c;
         if (stringWidth(piece) <= space) {
-          // 适装段整段写（着色语义不变——本侧变段红/绿、same 段裸）
-          buffer.writeText(row, c, piece, isChange ? style : undefined);
+          // 适装段整段写（着色语义不变——本侧变段红/绿带 bg 双通道、
+          // same 段洞补裸 bg 承底〔件 E——工具卡洞补同义〕、无带腿两形现状）
+          buffer.writeText(row, c, piece, isChange ? style : bg !== undefined ? { bg } : undefined);
           c += stringWidth(piece);
           continue;
         }
         // 超宽段省略形收口（界面美化役 2026-10-01 ①——diffAdded/diffRemoved
         // 前景色不变，仅截断点拼 … 记号且随本段既有着色——被切行与真实行尾
         // 可辨）；被切即行终——后续段不再写（防 … 记号后缀残段内容），整字
-        // 丢弃的残列留白
-        buffer.writeText(row, c, ellipsize(piece, space), isChange ? style : undefined);
+        // 丢弃的残列留白（带尾由 pre-fill 覆盖——截断点后余列恒衬底）
+        buffer.writeText(row, c, ellipsize(piece, space), isChange ? style : bg !== undefined ? { bg } : undefined);
         break;
       }
       return;
     }
     // 孤立行/上下文行：整行续写（前缀已落；ctx 裸——style undefined 即裸）
     buffer.writeText(row, c, ellipsize(body.text, limit - c), style);
+  }
+
+  /**
+   * 组体行 bg 色带样式（挖掘 45 轮件 E）：add/del 行施 diffAddedBg/
+   * diffRemovedBg（theme 双键——codex diff bg 静态定值，工具卡 diff 档同源
+   * 第二消费位）；ctx 行与 16 档降采缺席腿恒 undefined（bg 缺席不破前景
+   * 可读性——「双通道并行」律）。
+   */
+  private bandOf(kind: DiffBodyRow['kind']): CellStyle | undefined {
+    const bg = kind === 'add' ? this.theme.diffAddedBg : kind === 'del' ? this.theme.diffRemovedBg : undefined;
+    return bg === undefined ? undefined : { bg };
   }
 
   /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 翻组 → 移动键 → 退出 */

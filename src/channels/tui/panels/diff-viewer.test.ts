@@ -8,7 +8,7 @@ import type { InputEvent, KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid, DIM_STYLE } from '../../engine/index.js';
 import { DiffViewer, foldSessionDiff } from './diff-viewer.js';
 import type { DiffProjectionMessage, DiffViewerOptions } from './diff-viewer.js';
-import { DEFAULT_THEME } from '../theme/index.js';
+import { DARK_PALETTE, DEFAULT_THEME, LIGHT_PALETTE, resolveTheme } from '../theme/index.js';
 
 /** key 事件夹具 */
 const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
@@ -570,5 +570,151 @@ describe('DiffViewer 行号槽 + split 双栏（ZCode 对标批双件）', () =>
     expect(grid.getCell(2, 48)?.grapheme).toBe('…');
     expect(grid.getCell(2, 98)?.grapheme).toBe('…');
     expect(grid.getCell(2, 49)?.grapheme ?? ' ').toBe(' '); // 中缝列不越占
+  });
+});
+
+/* ---- 挖掘 45 轮件 E：组体行级 bg 色带（diffAddedBg/diffRemovedBg 副屏第二消费位——07 §4.1 2026-10-16 接档注） ---- */
+
+describe('DiffViewer 组体行 bg 色带（挖掘 45 轮件 E）', () => {
+  /** 读回一行（trimEnd） */
+  function readRow(grid: CellGrid, row: number, width: number): string {
+    let out = '';
+    for (let col = 0; col < width; col++) out += grid.getCell(row, col)?.grapheme ?? ' ';
+    return out.trimEnd();
+  }
+
+  /** 读某格 bg 色值（带断言 helper——undefined = 无带） */
+  const bgAt = (grid: CellGrid, row: number, col: number) => grid.getCell(row, col)?.style?.bg;
+
+  /** 双组夹具（docs/two.md 收起占屏行 1——展开 src/one.ts 后组头@2/ctx@3/del@4/add@5） */
+  const MESSAGES: readonly DiffProjectionMessage[] = [
+    assistant([editCall('t1', PATCH_A), editCall('t2', PATCH_B)]),
+    result('t1'),
+    result('t2'),
+  ];
+
+  /** truecolor 双板主题（R-3 键面三档锁已辖值域——此处只锁消费 wiring） */
+  const darkTrue = resolveTheme(DARK_PALETTE, 'truecolor');
+  const lightTrue = resolveTheme(LIGHT_PALETTE, 'truecolor');
+
+  function makeViewer(overrides: Partial<DiffViewerOptions> = {}) {
+    const onExit = vi.fn();
+    const viewer = new DiffViewer({
+      messages: MESSAGES,
+      theme: darkTrue,
+      sessionId: 'sess-x',
+      onExit,
+      ...overrides,
+    });
+    return { viewer, onExit };
+  }
+
+  /** 双组形展开 src/one.ts（down 到第二组头 + enter）→ paint */
+  function paintExpanded(viewer: DiffViewer, width: number) {
+    viewer.handleEvent(k('down')); // → src/one.ts 组头
+    viewer.handleEvent(k('enter')); // 展开
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    return grid;
+  }
+
+  it('unified 形 add 与 del 行施行级全宽 bg 色带——槽区与前缀与变段与行尾衬底四段全覆盖、ctx 行与组头无带（修前红）', () => {
+    const { viewer } = makeViewer();
+    const width = 64;
+    const grid = paintExpanded(viewer, width);
+    // del 行（屏行 4，槽 '2 1'）整行带四段全覆盖：光标位空格落带、槽区 dim 与
+    // bg 合流（新对象 toEqual）、前缀与变段 fg+bg 双通道、same 段洞补裸 bg、
+    // 行尾衬底（文本外余列由 pre-fill 底带覆盖）
+    expect(grid.getCell(4, 0)?.style).toEqual({ bg: darkTrue.diffRemovedBg });
+    expect(grid.getCell(4, 2)?.style).toEqual({ dim: true, bg: darkTrue.diffRemovedBg });
+    expect(grid.getCell(4, 4)?.style).toEqual({ fg: darkTrue.diffRemoved, bg: darkTrue.diffRemovedBg });
+    expect(grid.getCell(4, 5)?.style).toEqual({ fg: darkTrue.diffRemoved, bg: darkTrue.diffRemovedBg });
+    expect(grid.getCell(4, 9)?.style).toEqual({ bg: darkTrue.diffRemovedBg }); // same 段洞补
+    expect(bgAt(grid, 4, 40)).toBe(darkTrue.diffRemovedBg); // 行尾衬底
+    // add 行（屏行 5 首个 add——new 轨）：add 带
+    expect(bgAt(grid, 5, 40)).toBe(darkTrue.diffAddedBg);
+    // ctx 行（屏行 3）与组头（屏行 2）无带（codex DiffLineType::Context 同律）
+    expect(bgAt(grid, 3, 40)).toBeUndefined();
+    expect(bgAt(grid, 2, 40)).toBeUndefined();
+  });
+
+  it('split 双栏双色带——对行左半 del 带右半 add 带、中缝 1 列恒裸、孤增行单侧带、ctx split 行双半无带（修前红）', () => {
+    const { viewer } = makeViewer();
+    const width = 100;
+    viewer.measure(width); // 形随宽先行（100 ≥ 阈值 → split 行空间）
+    viewer.handleEvent(k('down'));
+    viewer.handleEvent(k('enter'));
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // 对行（屏行 4）：左半 del 带 [0,49)、缝 49 恒裸、右半 add 带 [50,100)
+    expect(bgAt(grid, 4, 10)).toBe(darkTrue.diffRemovedBg);
+    expect(bgAt(grid, 4, 48)).toBe(darkTrue.diffRemovedBg);
+    expect(bgAt(grid, 4, 49)).toBeUndefined(); // 中缝列不铺
+    expect(bgAt(grid, 4, 50)).toBe(darkTrue.diffAddedBg);
+    expect(bgAt(grid, 4, 90)).toBe(darkTrue.diffAddedBg);
+    // 孤增行（屏行 5 +extra 单右挂）：左半空挂无带、右半 add 带
+    expect(bgAt(grid, 5, 10)).toBeUndefined();
+    expect(bgAt(grid, 5, 60)).toBe(darkTrue.diffAddedBg);
+    // ctx split 行（屏行 3）双半无带
+    expect(bgAt(grid, 3, 10)).toBeUndefined();
+    expect(bgAt(grid, 3, 60)).toBeUndefined();
+  });
+
+  it('16 档缺席腿——DEFAULT_THEME 无带纯前景、槽 dim 恒等现状（identity 回归锁：缺席腿恒等传 HINT_STYLE 不造新对象）', () => {
+    const { viewer } = makeViewer({ theme: DEFAULT_THEME });
+    const width = 64;
+    const grid = paintExpanded(viewer, width);
+    expect(bgAt(grid, 4, 0)).toBeUndefined();
+    expect(bgAt(grid, 4, 40)).toBeUndefined();
+    // 槽区样式恒等 DIM_STYLE（与既有 470 行 toBe identity 锁同源——缺席腿
+    // 误造新对象即凿穿该锁）
+    expect(grid.getCell(4, 2)?.style).toBe(DIM_STYLE);
+  });
+
+  it('光标行钉随——› 标记落带上不凿洞（修前红）', () => {
+    const { viewer } = makeViewer();
+    const width = 64;
+    viewer.handleEvent(k('down'));
+    viewer.handleEvent(k('enter')); // 展开后光标钉组头（屏行 2）
+    viewer.handleEvent(k('down')); // → ctx（屏行 3）
+    viewer.handleEvent(k('down')); // → del 行（屏行 4）
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    expect(grid.getCell(4, 0)?.grapheme).toBe('›');
+    expect(grid.getCell(4, 0)?.style).toEqual({ bg: darkTrue.diffRemovedBg }); // 标记写携带不凿洞
+  });
+
+  it('light 板带值消费 wiring——del 行带 = 亮板 diffRemovedBg（修前红：非暗板专用）', () => {
+    const { viewer } = makeViewer({ theme: lightTrue });
+    const width = 64;
+    const grid = paintExpanded(viewer, width);
+    expect(bgAt(grid, 4, 40)).toBe(lightTrue.diffRemovedBg);
+    expect(bgAt(grid, 5, 40)).toBe(lightTrue.diffAddedBg);
+  });
+
+  it('超宽截断行带尾完整——… 收口后余列仍衬底（pre-fill 语义：截断点后无裸尾）', () => {
+    const patch = ['*** Begin Patch', '*** Update File: src/one.ts', `-old ${'x'.repeat(60)}`, '*** End Patch'].join(
+      '\n',
+    );
+    const { viewer } = makeViewer({ messages: [assistant([editCall('t1', patch)]), result('t1')] });
+    const width = 64;
+    viewer.handleEvent(k('enter')); // 展开唯一组（光标钉组头）→ del 行落屏行 2
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    expect(readRow(grid, 2, width).endsWith('…')).toBe(true);
+    for (let c = 5; c < width; c++) {
+      expect(bgAt(grid, 2, c)).toBe(darkTrue.diffRemovedBg); // 带连续性——截断点后余列恒衬底
+    }
+  });
+
+  it('极窄窗内容零预算——槽区占满时带仍整行（空内容带行：renderLineContent room 0 早退、pre-fill 已铺）', () => {
+    const patch = ['*** Begin Patch', '*** Update File: src/one.ts', '-x', '*** End Patch'].join('\n');
+    const { viewer } = makeViewer({ messages: [assistant([editCall('t1', patch)]), result('t1')] });
+    const width = 4;
+    viewer.handleEvent(k('enter')); // 展开唯一组 → del 行落屏行 2
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    expect(bgAt(grid, 2, 1)).toBe(darkTrue.diffRemovedBg);
+    expect(bgAt(grid, 2, 3)).toBe(darkTrue.diffRemovedBg);
   });
 });
