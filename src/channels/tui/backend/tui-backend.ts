@@ -2695,6 +2695,19 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * 直播腿回合收尾块追加（挖掘 43 轮件 A——agent_end completed 腿消费位）：
+   * recap 行从瞬时行迁 turn-recap 块载体（词面单源 runRecapLine 不动——只迁
+   * 载体）；appendApprovalDecisionLine 同形三步（块账入 present 链——缺
+   * enqueue 新块不入帧）。live-only 块——onRepaint 重建后诚实消失（transcript
+   * 块型律）。aborted 形不走本路（瞬时回执维持——回执非记账线，V-0 注⑥）。
+   */
+  private appendTurnRecapLine(label: string): void {
+    this.transcript.appendTurnRecap({ label });
+    this.enqueuePresent();
+    this.requestRender();
+  }
+
+  /**
    * 瞬时说明行入正文流（notify 与 ask 撤销说明行共用路——07 §4.3「曾在屏
    * 者由通道上撤销说明行」）：槽判定按**到达时刻**真相分流（2026-09-22 修复）
    * ——槽在场直推 slotTransients 让位（关槽帧排空，到达序保持），无槽入
@@ -4656,14 +4669,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       retryCount: this.runRetryCount,
       partialObserved: this.runStartedAt === null || this.runCountsPartial,
     });
-    // 全宽补齐（⑧）：门内纯线 = 全宽 ─；文案形 = 右缘 ─ 补至列宽（CJK 显示
-    // 宽算术——stringWidth；恰全宽经 appendTransientCapped 的 ANSI 感知收口
-    // 不截不折）
-    const columns = this.io.size().columns;
-    const line = recap === '' ? '─'.repeat(columns) : recap + '─'.repeat(Math.max(0, columns - stringWidth(recap)));
-    // 弱线色优先（V-3 注⑨②）：weakRule 在场整行混合现算弱线色、键缺席回退 DIM
-    const weakSgr = this.theme.weakRule !== undefined ? buildSgr({ fg: this.theme.weakRule }) : DIM_SGR;
-    this.appendTransientLine(`${weakSgr}${line}${SGR_RESET}`);
+    // 载体迁块（挖掘 43 轮件 A）：成功形 recap 走 turn-recap 块（live-only——
+    // 占帽、repaint 重建后诚实消失）；全宽补齐（⑧）与弱线双档（V-3 注⑨②）
+    // 移渲染位单源 turnRecapLine——resize 后按新宽重算，不再写时宽定格
+    //（label 空 = 纯线全宽 ─ 的渲染等价形）
+    this.appendTurnRecapLine(recap);
   }
 
   /**

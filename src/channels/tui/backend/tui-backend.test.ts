@@ -7488,6 +7488,57 @@ describe('TuiBackend appendAskDecisionLine（挖掘 36 轮 [2]——块账追加
   });
 });
 
+/* ---------------- 回合收尾块化（挖掘 43 轮件 A——completed 走 turn-recap 块路） ---------------- */
+
+describe('TuiBackend 回合收尾 recap 块化（挖掘 43 轮件 A——成功形瞬时行 → 块账载体）', () => {
+  it('completed → recap 块入帧：── 用时 … 词面在场（载体迁移零词面回退；修前红在 transcript 层——TS2339/union 穷尽）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} }); // 有工具——双零门开
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 65_000 }); // >60s 标签门开（runRecapLine 单源）
+    expect(stripAnsi(io.bytes)).toContain('── 用时 1m 05s'); // 块路同步直出即入帧（enqueuePresent + requestRender）
+  });
+
+  it('resize 后重画：recap 行按新几何重算收口（渲染时合成——块路重算语义，非写时定格）', () => {
+    const clock = new ManualClock();
+    const { io, backend } = makeBackend({ schedule: clock.schedule, cancelSchedule: clock.cancel });
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 65_000 });
+    io.bytes = '';
+    io.columns = 50;
+    io.emitResize();
+    clock.advance(75); // 尾随防抖窗到——handleResize 权威清点（41 轮件 I）；帧序含
+    // resize 前旧几何 flush 行（80 宽）与 resize 后重画行——断言锚**最终屏态**
+    //（末匹配）：修前瞬时路重放定格 80 宽、修后块路按新宽重算
+    const matches = [...stripAnsi(io.bytes).matchAll(/── 用时 1m 05s[^\n]*/g)];
+    expect(matches.length).toBeGreaterThan(0);
+    expect(stringWidth(matches.at(-1)![0])).toBeLessThanOrEqual(50); // 渲染腿 repeat(max(0, columns−宽))
+  });
+
+  it('双零回合零块：纯对话轮（无工具无重试）completed 不落收尾块（双零整行缺席判据留调用侧）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 65_000 });
+    expect(stripAnsi(io.bytes)).not.toContain('── 用时'); // 整行缺席与载体无关——门在 appendClosingLine 调用侧
+  });
+
+  it('aborted 仍走瞬时回执：⏹ 对话已取消在场、recap 词面缺席（回执非记账线——V-0 注⑥ 维持）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    emit(backend, { type: 'agent_end', status: 'aborted' });
+    expect(stripAnsi(io.bytes)).toContain('⏹ 对话已取消');
+    expect(stripAnsi(io.bytes)).not.toContain('── 用时');
+  });
+
+  it('onRepaint 后 recap 词面消失：live-only 呈现面（投影无源——块账重建缺席，同 ask-decision 律）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 65_000 });
+    expect(stripAnsi(io.bytes)).toContain('── 用时 1m 05s'); // 落帧前提
+    io.bytes = '';
+    backend.onRepaint(SESSION, [{ role: 'user', content: '投影问题', timestamp: 1 }], null);
+    expect(stripAnsi(io.bytes)).not.toContain('── 用时'); // 重建后不在场——turn-recap 无 durable 投影源
+  });
+});
+
 /* ---------------- todo 清单落史快照（挖掘 35 轮 B8）——直播腿锚消费 ---------------- */
 
 describe('TuiBackend todo 快照块直播腿（挖掘 35 轮 B8——tool_execution_end 锚）', () => {

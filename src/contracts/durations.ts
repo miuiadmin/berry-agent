@@ -97,9 +97,11 @@ const RUN_RECAP_TEXT_GATE_MS = 60_000;
 
 /**
  * run 收尾行整行（`── 段 · 段 ──` 段头段尾横线）：色壳与全宽补齐不归本件——
- * tui 侧 SGR 弱线色包壳 + 列宽 ─ 补齐在调用侧（appendTransientLine 纯文本路
- * 的 ANSI 感知收口），webui 侧无色直用（DOM 居中/hairline 呈现层）。段集空
- * 时返回空段头（调用侧双零判据已拦，此形仅防御）。
+ * tui 侧双载体分述（挖掘 43 轮件 A）：成功形走 turn-recap 块渲染路（弱线双档
+ * + 列宽 ─ 补齐在渲染位 turnRecapLine——渲染时合成随 resize 重算）、取消形
+ * 维持瞬时行路（SGR 包壳在调用侧 appendTransientLine 纯文本路）；webui 侧
+ * 无色直用（DOM 居中/hairline 呈现层）。段集空时返回空段头（调用侧双零判据
+ * 已拦，此形仅防御）。
  *
  * 文案标签门（⑧——挖掘 29 轮批 B 规范立法兑现）：durationMs 在场且 ≤60s →
  * 返回空串（无标签纯线——调用侧按载体落全宽线形：TUI ─×columns / webui

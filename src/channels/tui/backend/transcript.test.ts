@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { ansiColor, CellGrid, sanitizeDisplayText, stringWidth } from '../../engine/index.js';
+import { ansiColor, CellGrid, colorRgb, sanitizeDisplayText, stringWidth } from '../../engine/index.js';
 import type { TodoItem } from '../../types.js';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage, AssistantMessage } from '../../../contracts/index.js';
@@ -2376,6 +2376,82 @@ describe('LiveTranscript 问答落史行块（挖掘 36 轮 [2]——ask-decisio
       { ...assistantMsg('答'), seq: 1 },
     ] as never);
     expect(t.snapshot.some((b) => b.kind === 'ask-decision')).toBe(false);
+  });
+});
+
+/* ---------------- 回合收尾块（挖掘 43 轮件 A——turn-recap live-only 旁支） ---------------- */
+
+describe('LiveTranscript 回合收尾块（挖掘 43 轮件 A——turn-recap durable 化）', () => {
+  /** 收尾块速构（渲染面直锁——theme 可覆写锁弱线双档） */
+  const recapBlock = (label: string, theme = DEFAULT_THEME): TranscriptBlock => ({
+    kind: 'turn-recap',
+    label,
+    theme,
+  });
+
+  it('词面 + 右缘补齐 + 弱线双档色：label 形单行宽恰列宽、weakRule 在场 fg 单游程 / 缺席回退 DIM', () => {
+    // 修前红：union 无此 kind——switch 穷尽性红（无 default 的联合穷尽杠杆同 ask-decision）
+    const label = '── 用时 1m 05s · 工具 1';
+    const labeled = renderBlockStyledLines(recapBlock(label), 80, false);
+    expect(labeled).toHaveLength(1); // 一行制
+    expect(labeled[0]!.plain.startsWith(label)).toBe(true);
+    expect(stringWidth(labeled[0]!.plain)).toBe(80); // 右缘 ─ 补至列宽（appendClosingLine 逐字节同形——合成移渲染时刻）
+    expect(labeled[0]!.plain.slice(label.length)).toBe('─'.repeat(80 - stringWidth(label)));
+    // 弱线双档（V-3 注⑨② 收尾行同律）：weakRule 在场整行单游程 fg
+    const themed = renderBlockStyledLines(
+      recapBlock(label, { ...DEFAULT_THEME, weakRule: colorRgb('#44505a') }),
+      80,
+      false,
+    );
+    expect(themed[0]!.runs).toHaveLength(1);
+    expect(themed[0]!.runs[0]).toMatchObject({
+      start: 0,
+      end: themed[0]!.plain.length,
+      style: { fg: colorRgb('#44505a') },
+    });
+    // 缺席回退 DIM（DEFAULT_THEME = dark@16 双缺席——theme.test 明锁）
+    expect(labeled[0]!.runs[0]!.style.dim).toBe(true);
+  });
+
+  it('纯线形 + 随宽重算：label 空 = 全宽 ─；同块两宽两次渲染行宽随 columns（渲染时合成——resize 增益锁）', () => {
+    const bare = renderBlockStyledLines(recapBlock(''), 40, false);
+    expect(bare).toHaveLength(1);
+    expect(bare[0]!.plain).toBe('─'.repeat(40)); // 纯线全宽（≤60s 无标签档的等价形）
+    const block = recapBlock('── 用时 1m 05s');
+    expect(stringWidth(renderBlockStyledLines(block, 80, false)[0]!.plain)).toBe(80);
+    expect(stringWidth(renderBlockStyledLines(block, 40, false)[0]!.plain)).toBe(40); // 写时定格形不可能——每渲染按现 columns
+  });
+
+  it('超宽出口帽：label 宽 > 列宽时整字截断（简行族同律——capStyledLine 兜底）', () => {
+    const wide = renderBlockStyledLines(recapBlock('收尾'.repeat(20)), 30, false); // label 宽 40 > 30
+    expect(wide).toHaveLength(1);
+    expect(stringWidth(wide[0]!.plain)).toBeLessThanOrEqual(30);
+  });
+
+  it('直播腿：appendTurnRecap 入块账（尾块在场 + dialogueBlockCount 计入）+ 占帽同律（trimToCap 触发）', () => {
+    // 修前红：appendTurnRecap 未存在（TS2339）
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_end', message: assistantMsg('答') });
+    const before = dialogueBlockCount(t.snapshot);
+    t.appendTurnRecap({ label: '── 用时 1m 05s' });
+    expect(t.snapshot[t.snapshot.length - 1]).toMatchObject({ kind: 'turn-recap', label: '── 用时 1m 05s' });
+    expect(dialogueBlockCount(t.snapshot)).toBe(before + 1); // 块账在册——非瞬时行
+    // 占帽：饱和块账后再铸 → trimToCap 让位最旧（与 user/assistant 块同律不分叉）
+    for (let i = 0; i < TRANSCRIPT_BLOCK_CAP + 5; i++) apply(t, { type: 'message_end', message: userMsg(`消息 ${i}`) });
+    expect(t.blockCount).toBe(TRANSCRIPT_BLOCK_CAP);
+    expect(t.snapshot.some((b) => b.kind === 'turn-recap')).toBe(false); // FIFO 让位——收尾块不豁免
+  });
+
+  it('live-only 锁：loadProjection 投影重建后诚实消失（无 durable 源参——scrollback 是呈现缓存非事实源）', () => {
+    const t = new LiveTranscript();
+    t.appendTurnRecap({ label: '── 用时 1m 05s' });
+    expect(t.snapshot.some((b) => b.kind === 'turn-recap')).toBe(true);
+    // 回归锁：重建后块账不含 turn-recap 即绿（防后人误补 durable 化）
+    t.loadProjection([
+      { ...userMsg('问'), seq: 0 },
+      { ...assistantMsg('答'), seq: 1 },
+    ] as never);
+    expect(t.snapshot.some((b) => b.kind === 'turn-recap')).toBe(false);
   });
 });
 

@@ -256,6 +256,22 @@ export type TranscriptBlock =
       readonly theme: ResolvedTheme;
     }
   | {
+      /**
+       * 回合收尾记账线块（挖掘 43 轮件 A——29 轮批 B 瞬时行 durable 化）：
+       * agent_end completed 腿的 recap 行（runRecapLine 产物）从瞬时行迁块账
+       * 载体——**live-only 旁支**（同 ask-decision 律）：无 seq 归位锚、不进
+       * durable 投影源（agent_end 信号非投影源成员），onRepaint 重建后诚实
+       * 消失 = 语义（scrollback 是呈现缓存非事实源）。一行制：label + 右缘 ─
+       * 补至列宽（**渲染时合成**——resize 后按新宽重算，瞬时行按写时宽定格）；
+       * 样式弱线双档（weakRule 在场 fg 单游程 / 缺席回退 DIM——收尾行 V-3
+       * 注⑨② 同律）。
+       */
+      readonly kind: 'turn-recap';
+      /** recap 词面（runRecapLine 产物；空串 = 纯线形全宽 ─） */
+      readonly label: string;
+      readonly theme: ResolvedTheme;
+    }
+  | {
       readonly kind: 'streaming';
       /** 槽代次（每条 assistant message_start 递增——冻结账同一性判据） */
       readonly epoch: number;
@@ -419,6 +435,22 @@ function askDecisionLine(block: Extract<TranscriptBlock, { kind: 'ask-decision' 
     runs.push({ start, end: plain.length, style: Object.freeze({ fg: block.theme.accent }) });
   }
   return { plain, runs };
+}
+
+/**
+ * 回合收尾行词面单源（挖掘 43 轮件 A）：label + 右缘 ─ 补至列宽——与
+ * appendClosingLine 写时合成逐字节同形，但**合成移渲染时刻**（每渲染按现
+ * columns 重算，resize 后新宽收口——瞬时行按写时宽定格，本件的正确性增益）。
+ * label 空 = 纯线形全宽 ─（≤60s 无标签档的渲染等价形）。样式弱线双档：
+ * weakRule 在场整行单游程 fg（V-3 注⑨②）、缺席回退 DIM（error 块 CellStyle
+ * 先例同形）。超宽保护：label 已短串，极端窄（列宽 < label 宽）repeat 结果
+ * 0 行宽恰满——出口帽 capStyledLine 整字截断兜底（简行族同律）。
+ */
+function turnRecapLine(block: Extract<TranscriptBlock, { kind: 'turn-recap' }>, columns: number): StyledLine {
+  const plain = block.label + '─'.repeat(Math.max(0, columns - stringWidth(block.label)));
+  // 弱线双档：weakRule 在场混合现算弱线色、键缺席回退 DIM（SGR 2）
+  const style = block.theme.weakRule !== undefined ? Object.freeze({ fg: block.theme.weakRule }) : DIM_STYLE;
+  return { plain, runs: [{ start: 0, end: plain.length, style }] };
 }
 
 /** dim 样式（简行块的整行样式——SGR 2；注⑩：engine 正典单源） */
@@ -746,6 +778,10 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
       // capStyledLine 整字截断）+ 块前垫（R-1 制度行）；live-only 旁支
       //（重建后诚实消失——块型注释律）
       return withPad([askDecisionLine(block)], leadingGap);
+    case 'turn-recap':
+      // 回合收尾记账线（挖掘 43 轮件 A）：单行制 + 渲染时全宽补齐（resize 后
+      // 按新宽重算）+ 块前垫（R-1 制度行）；live-only 旁支（重建后诚实消失）
+      return withPad([turnRecapLine(block, columns)], leadingGap);
     case 'streaming': {
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
       // markdown 直推档走网格管线（bullet 槽同轴——与定稿 markdown 块逐行同形）；
@@ -1498,6 +1534,24 @@ export class LiveTranscript {
       outcome: entry.outcome,
       question: entry.question,
       ...(entry.answer !== undefined ? { answer: entry.answer } : {}),
+      theme: this.theme,
+    });
+    this.trimToCap();
+  }
+
+  /**
+   * 直播腿回合收尾块追加（挖掘 43 轮件 A——agent_end completed 腿消费位经
+   * backend 包装法 appendTurnRecapLine）：**live-only 旁支**——无 seq 归位
+   * 锚、不进 durable 投影源（agent_end 信号非投影源成员），onRepaint 投影
+   * 重建后本块诚实消失（scrollback 是呈现缓存非事实源——同 ask-decision
+   * 律，勿补 durable 化）。块账在册（计入 dialogueBlockCount、占 blockCap
+   * 帽）非瞬时行路；全宽补齐与弱线双档归渲染位单源（turnRecapLine——
+   * resize 后按新宽重算）。双零整行缺席判据（纯对话轮）留调用侧。
+   */
+  appendTurnRecap(entry: { label: string }): void {
+    this.blocks.push({
+      kind: 'turn-recap',
+      label: entry.label,
       theme: this.theme,
     });
     this.trimToCap();
