@@ -719,6 +719,22 @@ describe('TuiBackend 输入管线（自持——不经 Engine）', () => {
     expect(calls.submitted).toEqual([['s1', 'hi']]);
   });
 
+  it('超帽提交拒——error 瞬时行反馈 + onSubmit 零达 + 草稿保留（件 B——挖掘 46 轮装配锁）', () => {
+    const { io, calls, pump } = makeInteractive();
+    io.emitInput('x'.repeat((1 << 20) + 1)); // 单行大段（无换行不触发粘贴标记化）
+    pump();
+    io.emitInput('\r');
+    pump();
+    expect(calls.submitted).toEqual([]); // 帽拒不下发（onSubmitRejected→notify 装配位）
+    expect(io.bytes).toContain('输入超长'); // error 瞬时行（前缀断言——词面整句不断言）
+    // 草稿保留：再 enter 仍拒（稿件未清——复原语义在装配面成立）
+    io.bytes = '';
+    io.emitInput('\r');
+    pump();
+    expect(calls.submitted).toEqual([]);
+    expect(io.bytes).toContain('输入超长');
+  });
+
   it('stop：出屏模式串反序 + raw 复原 + 停后帧静默', () => {
     const { io, backend, pump } = makeInteractive();
     backend.stop();

@@ -80,12 +80,25 @@ export interface EditorOptions {
    * 持久回调自判跳写（双跳第二跳）。
    */
   onHistoryAdd?: (text: string, opts?: { sensitive?: boolean }) => void;
+  /**
+   * 提交被帽拒绝时的反馈回调（件 B——挖掘 46 轮）：帽值与实际码点数供
+   * 宿主提示行呈现（backend 接 notify error 瞬时行）。缺席 = 静默拒
+   * （纯逻辑件可裸构测）；拒绝时 onSubmit 不触发、草稿全量保留。
+   */
+  onSubmitRejected?: (info: { cap: number; actual: number }) => void;
 }
 
 /** 可打印字符键判（jump 待靶态的靶字符判据——无修饰或仅 shift） */
 function isPlainCharKey(e: KeyEvent): boolean {
   return e.key.length === 1 && !e.ctrl && !e.alt && !e.meta;
 }
+
+/**
+ * 提交输入帽（码点数——件 B 挖掘 46 轮）：展开全文（粘贴标记展开单源）
+ * 超 1<<20 拒交 + 宿主反馈 + 草稿保留。对齐 codex MAX_USER_INPUT_TEXT_CHARS
+ * （protocol/src/user_input.rs:8——chars 计数非字节，代理对计 1）。
+ */
+const MAX_SUBMIT_CHARS = 1 << 20;
 
 /**
  * 多行输入组件：状态归模型、呈现归视图、本件只做事件分发与装配面。
@@ -96,6 +109,8 @@ export class Editor implements Renderable {
   /** jump 待靶方向（null = 常态） */
   private jumpPending: 'forward' | 'backward' | null = null;
   private readonly onSubmit: ((text: string, opts?: EditorSubmitOptions) => void) | undefined;
+  /** 提交帽拒绝反馈钩（件 B——挖掘 46 轮；缺席 = 静默拒） */
+  private readonly onSubmitRejected: ((info: { cap: number; actual: number }) => void) | undefined;
   /** 翻页步幅（= 呈现帽——帽随 resize 重算时同步，见 setMaxVisibleLines） */
   private pageSize: number;
   private readonly keymap: Keymap;
@@ -104,6 +119,7 @@ export class Editor implements Renderable {
 
   constructor(options: EditorOptions = {}) {
     this.onSubmit = options.onSubmit;
+    this.onSubmitRejected = options.onSubmitRejected;
     this.pageSize = Math.max(1, options.maxVisibleLines ?? 8);
     this.keymap = options.keymap ?? new Keymap();
     this.onHistoryAdd = options.onHistoryAdd;
@@ -498,6 +514,17 @@ export class Editor implements Renderable {
    */
   private handleSubmit(opts?: EditorSubmitOptions): boolean {
     this.jumpPending = null;
+    // 提交帽（件 B——挖掘 46 轮）：帽判必在 model.submit() 前（submit 清稿+
+    // 返文一体——判后置则草稿已失，复原语义不成立）。计数对象 = 展开全文
+    // （粘贴标记展开单源）trim 后码点数（[...text].length——代理对计 1，
+    // 对齐 codex chars().count()）；trim 空串恒不过帽，纯空白稿照旧走
+    // submit+返回值过滤（空稿行为零改动——不新增 submit 前空判直返）
+    const expanded = this.model.getExpandedText().trim();
+    const actual = [...expanded].length;
+    if (actual > MAX_SUBMIT_CHARS) {
+      this.onSubmitRejected?.({ cap: MAX_SUBMIT_CHARS, actual });
+      return true; // enter 已消费（拒非吞键）——草稿全量保留可删改后再交
+    }
     const text = this.model.submit();
     if (text !== '') {
       // sensitive 模式位自动注入提交选项（应答车 sensitive 形的携带位）

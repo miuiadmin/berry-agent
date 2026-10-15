@@ -653,3 +653,86 @@ describe('Editor 历史回搜（ctrl+r——挖掘 31 轮 [3]）', () => {
     expect(editor.getText()).toBe('two'); // 采编后仍无粘贴痕迹
   });
 });
+
+/* ---------------- 提交帽（件 B——挖掘 46 轮：1 MiB 码点帽） ---------------- */
+
+describe('Editor 提交帽（件 B——挖掘 46 轮）', () => {
+  it('超帽拒交——onSubmit 零触发 + 草稿全量保留（修前红：无帽判照常提交清稿）', () => {
+    const submitted: string[] = [];
+    const rejected: Array<{ cap: number; actual: number }> = [];
+    const editor = new Editor({
+      onSubmit: (t) => submitted.push(t),
+      onSubmitRejected: (info) => rejected.push(info),
+    });
+    editor.model.setText('a'.repeat((1 << 20) + 1)); // 超帽 1 码点
+    expect(editor.handleEvent(key('enter'))).toBe(true); // enter 仍消费（拒非吞键）
+    expect(submitted).toEqual([]); // 不下发
+    expect(rejected).toEqual([{ cap: 1 << 20, actual: (1 << 20) + 1 }]); // 反馈回调参值
+    expect(editor.model.getText()).toBe('a'.repeat((1 << 20) + 1)); // 草稿全量保留
+  });
+
+  it('恰等帽通过——正常提交清稿（codex > 同向：超才拒）', () => {
+    const submitted: string[] = [];
+    const rejected: Array<{ cap: number; actual: number }> = [];
+    const editor = new Editor({
+      onSubmit: (t) => submitted.push(t),
+      onSubmitRejected: (info) => rejected.push(info),
+    });
+    editor.model.setText('a'.repeat(1 << 20));
+    editor.handleEvent(key('enter'));
+    expect(submitted).toEqual(['a'.repeat(1 << 20)]);
+    expect(editor.getText()).toBe('');
+    expect(rejected).toEqual([]);
+  });
+
+  it('码点计数——代理对文本按码点非 UTF-16（误实现检测锁：落码误用 .length 则红）', () => {
+    const submitted: string[] = [];
+    const editor = new Editor({ onSubmit: (t) => submitted.push(t) });
+    // '𝕏'（U+1D54F）两 UTF-16 单元：600000 码点 < 帽，但 string.length = 1200000 > 帽
+    const s = '𝕏'.repeat(600000);
+    expect(s.length).toBeGreaterThan(1 << 20); // 误用 .length 会在帽判被拒
+    editor.model.setText(s);
+    editor.handleEvent(key('enter'));
+    expect(submitted).toEqual([s]); // 码点计数通过提交
+  });
+
+  it('帽后删改再交——复原语义闭环（拒后编辑→提交通；修前红：第一步即被清稿）', () => {
+    const submitted: string[] = [];
+    const rejected: Array<{ cap: number; actual: number }> = [];
+    const editor = new Editor({
+      onSubmit: (t) => submitted.push(t),
+      onSubmitRejected: (info) => rejected.push(info),
+    });
+    editor.model.setText('a'.repeat((1 << 20) + 5));
+    editor.handleEvent(key('enter')); // 拒（草稿保留）
+    editor.model.setText('a'.repeat(1 << 20)); // 删至帽内（setText 等价代删改）
+    editor.handleEvent(key('enter'));
+    expect(rejected).toHaveLength(1); // 只拒过一次
+    expect(submitted).toEqual(['a'.repeat(1 << 20)]); // 删后全文提交通
+  });
+
+  it('回调缺席静默拒——裸构零异常（修前红：无帽判照常提交）', () => {
+    const submitted: string[] = [];
+    const editor = new Editor({ onSubmit: (t) => submitted.push(t) });
+    editor.model.setText('a'.repeat((1 << 20) + 1));
+    expect(() => editor.handleEvent(key('enter'))).not.toThrow();
+    expect(submitted).toEqual([]);
+    expect(editor.getText()).toBe('a'.repeat((1 << 20) + 1));
+  });
+
+  it('粘贴标记展开计入帽——expanded 单源（修前红：展开照常提交）', () => {
+    const submitted: string[] = [];
+    const rejected: Array<{ cap: number; actual: number }> = [];
+    const editor = new Editor({
+      onSubmit: (t) => submitted.push(t),
+      onSubmitRejected: (info) => rejected.push(info),
+    });
+    // 超阈粘贴（> 20 行）自动标记化：稿内只占标记行，展开 25×50000 + 24 换行 = 1250024 码点超帽
+    editor.model.insertPaste(Array.from({ length: 25 }, () => 'x'.repeat(50000)).join('\n'));
+    expect(editor.model.getText()).toContain('[paste #'); // 标记形在稿（未撑爆布局）
+    editor.handleEvent(key('enter'));
+    expect(submitted).toEqual([]); // 计展开后拒交
+    expect(rejected).toEqual([{ cap: 1 << 20, actual: 1250024 }]);
+    expect(editor.model.getText()).toContain('[paste #'); // 草稿（标记形）保留
+  });
+});

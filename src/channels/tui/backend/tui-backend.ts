@@ -1461,6 +1461,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.editor = new Editor({
       onSubmit: (text, opts) => this.handleSubmit(text, opts),
       onChange: () => this.handleEditorChange(),
+      // 提交帽拒绝反馈（件 B——挖掘 46 轮）：瞬时提示行 = 输入错误单源面
+      //（「命令异常」error 同位先例）——三段式含出路句（07 §4.4 律二）
+      onSubmitRejected: ({ cap, actual }) =>
+        this.notify(`输入超长：当前 ${actual.toLocaleString()} 字符，上限 ${cap.toLocaleString()} 字符——删短后再发送`, {
+          level: 'error',
+        }),
       maxVisibleLines: this.fixedEditorCap ?? editorHeightCap(this.io.size().rows),
       // 键位注册表注入（批 10k 遗漏修——此前缺注 = 用户覆盖对编辑器不生效，
       // Editor 自建缺省册与 backend 册两册分叉）；子编辑器（副屏搜索/导出行）
