@@ -53,9 +53,9 @@ function assistant(calls: readonly ReturnType<typeof editCall>[]): DiffProjectio
   return { type: 'assistant', toolCalls: calls };
 }
 
-/** toolResult 配对面夹具 */
-function result(toolCallId: string): DiffProjectionMessage {
-  return { type: 'toolResult', toolCallId };
+/** toolResult 配对面夹具（meta = 05 §1.1 审计位——edit 回执 operations 整律落账形） */
+function result(toolCallId: string, meta?: unknown): DiffProjectionMessage {
+  return { type: 'toolResult', toolCallId, ...(meta !== undefined ? { meta } : {}) };
 }
 
 const PATCH_A = `*** Begin Patch
@@ -83,8 +83,11 @@ describe('foldSessionDiff（投影聚合纯函数）', () => {
     expect(one.added).toBe(2);
     expect(one.removed).toBe(1);
     expect(one.orphan).toBe(false);
-    // 组体行 = ctx/del/add 三分类（meta 不入组体）
-    expect(one.lines.map((l) => l.kind)).toEqual(['ctx', 'del', 'add', 'add']);
+    // 组体行 = ctx/del/add 三分类（meta 不入组体）——件 D 起组体按段组织：
+    // 单 call 单文件段 = 单段（sections[0]），无 meta 回执 → startLine 缺席 null
+    expect(one.sections).toHaveLength(1);
+    expect(one.sections[0]!.startLine).toBeNull();
+    expect(one.sections[0]!.lines.map((l) => l.kind)).toEqual(['ctx', 'del', 'add', 'add']);
   });
 
   it('同文件多次 edit 计数累计、孤儿位 OR 累积（同键混排不另立分区）', () => {
@@ -716,5 +719,219 @@ describe('DiffViewer 组体行 bg 色带（挖掘 45 轮件 E）', () => {
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
     expect(bgAt(grid, 2, 1)).toBe(darkTrue.diffRemovedBg);
     expect(bgAt(grid, 2, 3)).toBe(darkTrue.diffRemovedBg);
+  });
+});
+
+/* ---- 挖掘 45 轮件 D：真行号（回执 meta → 真帧游标）+ 段间 ⋮ 分隔（codex diff_render.rs 同律） ---- */
+
+describe('DiffViewer 真行号与段间分隔（挖掘 45 轮件 D）', () => {
+  /** 读回一行（trimEnd——前导空格入期望串，与既有断言书写律一致） */
+  function readRow(grid: CellGrid, row: number, width: number): string {
+    let out = '';
+    for (let col = 0; col < width; col++) out += grid.getCell(row, col)?.grapheme ?? ' ';
+    return out.trimEnd();
+  }
+
+  /** 读回列段 [from, to)（split 双栏左右半几何断言——trimEnd 收口） */
+  function readSeg(grid: CellGrid, row: number, from: number, to: number): string {
+    let out = '';
+    for (let col = from; col < to; col++) out += grid.getCell(row, col)?.grapheme ?? ' ';
+    return out.trimEnd();
+  }
+
+  /** PATCH_A 的 edit 回执（operations 槽 0 = src/one.ts update，真帧起点 7） */
+  const META_A = { operations: [{ op: 'update', path: 'src/one.ts', startLine: 7 }] };
+
+  function makeViewer(messages: readonly DiffProjectionMessage[]) {
+    const onExit = vi.fn();
+    const viewer = new DiffViewer({ messages, theme: DEFAULT_THEME, sessionId: 'sess-x', onExit });
+    return { viewer, onExit };
+  }
+
+  /** 单组展开 paint（收起单组头光标钳 0——enter 即展开；组体起屏行 2） */
+  function paintExpanded(viewer: DiffViewer, width: number) {
+    viewer.handleEvent(k('enter'));
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    return grid;
+  }
+
+  it('update 段真帧游标自回执 startLine 起算（修前红：patch 相对帧 1,1 起）', () => {
+    const { viewer } = makeViewer([assistant([editCall('t1', PATCH_A)]), result('t1', META_A)]);
+    const grid = paintExpanded(viewer, 64);
+    // 双侧自 7 起算（codex old_range/new_range 双起同律）；行进律维持：
+    // ctx 双轨同进 / 对行双进 / 孤增新轨前进——W=1（组最大号 9）
+    expect(readRow(grid, 2, 64)).toBe(' 7 7  ctx line');
+    expect(readRow(grid, 3, 64)).toBe(' 8  -old line');
+    expect(readRow(grid, 4, 64)).toBe('   8+new line');
+    expect(readRow(grid, 5, 64)).toBe('   9+extra line');
+  });
+
+  it('段间 ⋮ 分隔行——同文件多段段界标记（槽区空、锚行位精确；组头 ⋮ 同字符不误伤）', () => {
+    // 同文件两 call：S1 真帧 7..9、S2 缺席（无 meta）续前段尾游标跨界续算
+    const messages = [
+      assistant([editCall('t1', PATCH_A)]),
+      result('t1', META_A),
+      assistant([editCall('t2', '*** Update File: src/one.ts\n-second old')]),
+      result('t2'),
+    ];
+    const { viewer } = makeViewer(messages);
+    const grid = paintExpanded(viewer, 64);
+    expect(readRow(grid, 2, 64)).toBe(' 7 7  ctx line');
+    expect(readRow(grid, 5, 64)).toBe('   9+extra line');
+    // gap 行：行号槽区整段空、⋮ 落内容列（col 2W+2=4）——精确行位断言
+    //（组头孤儿 ⋮ 亦用同字符，禁全局 not.toContain 语料陷阱）
+    expect(readRow(grid, 6, 64)).toBe('    ⋮');
+    // 缺席段续 S1 尾游标（S1 旧轨尾 8 → S2 删行 9）——诚实续算非重置
+    expect(readRow(grid, 7, 64)).toBe(' 9  -second old');
+  });
+
+  it('多文件回执段序对齐——operations 跨文件连续计（call 内段序 = 槽序）', () => {
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: src/one.ts',
+      ' ctx line',
+      '-old line',
+      '+new line',
+      '*** Update File: docs/two.md',
+      ' alpha',
+      '-beta',
+      '+gamma',
+      '*** End Patch',
+    ].join('\n');
+    const meta = {
+      operations: [
+        { op: 'update', path: 'src/one.ts', startLine: 7 },
+        { op: 'update', path: 'docs/two.md', startLine: 100 },
+      ],
+    };
+    const { viewer } = makeViewer([assistant([editCall('t1', patch)]), result('t1', meta)]);
+    const width = 64;
+    viewer.handleEvent(k('enter')); // 展开首组（字典序 docs/two.md 在前）——槽 1 真帧
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // docs 组（槽 1 → 100，W=3 位数自适应；null 槽 = W 空格——空槽区保位）
+    expect(readRow(grid, 2, width)).toBe(' 100 100  alpha');
+    expect(readRow(grid, 3, width)).toBe(' 101    -beta');
+    expect(readRow(grid, 4, width)).toBe('     101+gamma');
+    viewer.handleEvent(k('enter')); // 收起 docs
+    viewer.handleEvent(k('down')); // → src/one.ts 组头
+    viewer.handleEvent(k('enter')); // 展开——槽 0 真帧 7
+    const grid2 = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid2, { row: 0, col: 0, width, height: grid2.rows });
+    // docs 收起后仍占屏行 1（组头行）——src 组体起屏行 3
+    expect(readRow(grid2, 3, width)).toBe(' 7 7  ctx line');
+    expect(readRow(grid2, 4, width)).toBe(' 8  -old line');
+  });
+
+  it('add 段新轨自 1——非 update 段忽略 startLine 坏形（回执在场即新文件帧）', () => {
+    // A. 混组形（S1 update 真帧 + S2 Add File 同键）：add 槽带 startLine 99 坏形
+    // → 忽略、新轨自 1（非续 S1 新轨尾 9 → 10）
+    const messages = [
+      assistant([editCall('t1', PATCH_A)]),
+      result('t1', META_A),
+      assistant([editCall('t2', '*** Add File: src/one.ts\n+fresh line')]),
+      result('t2', { operations: [{ op: 'add', path: 'src/one.ts', startLine: 99 }] }),
+    ];
+    const { viewer } = makeViewer(messages);
+    const grid = paintExpanded(viewer, 64);
+    expect(readRow(grid, 6, 64)).toBe('    ⋮');
+    expect(readRow(grid, 7, 64)).toBe('   1+fresh line'); // 新轨自 1——99 坏形被裁
+    // B. 纯 add 组（新文件单段）：坏形同裁、行号即新文件行号 1..N
+    const { viewer: vb } = makeViewer([
+      assistant([editCall('t3', '*** Add File: fresh.md\n+# a\n+# b')]),
+      result('t3', { operations: [{ op: 'add', path: 'fresh.md', startLine: 99 }] }),
+    ]);
+    const gridB = paintExpanded(vb, 64);
+    expect(readRow(gridB, 2, 64)).toBe('   1+# a');
+    expect(readRow(gridB, 3, 64)).toBe('   2+# b');
+  });
+
+  it('回执缺席回退组内连续相对帧——无 meta 行号同现状 1,1 起（缺席律回归锁）', () => {
+    const { viewer } = makeViewer([assistant([editCall('t1', PATCH_A)]), result('t1')]);
+    const grid = paintExpanded(viewer, 64);
+    expect(readRow(grid, 2, 64)).toBe(' 1 1  ctx line');
+    expect(readRow(grid, 3, 64)).toBe(' 2  -old line');
+    expect(readRow(grid, 4, 64)).toBe('   2+new line');
+    expect(readRow(grid, 5, 64)).toBe('   3+extra line');
+  });
+
+  it('坏 meta 两档——整包弃用与槽级缺席均回退相对帧不伪号（回归锁）', () => {
+    // 整包弃用档：operations 非数组 → extractDiffStartLines 整体 undefined
+    const { viewer } = makeViewer([assistant([editCall('t1', PATCH_A)]), result('t1', { operations: 'oops' })]);
+    const grid = paintExpanded(viewer, 64);
+    expect(readRow(grid, 2, 64)).toBe(' 1 1  ctx line');
+    expect(readRow(grid, 3, 64)).toBe(' 2  -old line');
+    // 槽级缺席档：startLine 非数 → 该槽 undefined → 该段 null 回退（他段真帧由
+    // it 1 锁）——诚实缺席非伪号
+    const { viewer: v2 } = makeViewer([
+      assistant([editCall('t2', PATCH_A)]),
+      result('t2', { operations: [{ op: 'update', path: 'src/one.ts', startLine: 'seven' }] }),
+    ]);
+    const grid2 = paintExpanded(v2, 64);
+    expect(readRow(grid2, 2, 64)).toBe(' 1 1  ctx line');
+    expect(readRow(grid2, 4, 64)).toBe('   2+new line');
+  });
+
+  it('spacer 行 enter 回溯组头可展开态翻转——gap 行入行空间可导航（修前红）', () => {
+    const messages = [
+      assistant([editCall('t1', PATCH_A)]),
+      result('t1', META_A),
+      assistant([editCall('t2', '*** Update File: src/one.ts\n-second old')]),
+      result('t2'),
+    ];
+    const { viewer } = makeViewer(messages);
+    const width = 64;
+    viewer.handleEvent(k('enter')); // 展开（flat = 组头 + 6 组体行，gap 在 flat 5）
+    for (let i = 0; i < 5; i++) viewer.handleEvent(k('down')); // → gap 行（屏行 6）
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    expect(grid.getCell(6, 0)?.grapheme).toBe('›'); // 光标钉 gap 行
+    expect(readRow(grid, 6, width)).toBe('›   ⋮');
+    viewer.handleEvent(k('enter')); // gap 行 enter = 回溯组头 → 收起
+    const grid2 = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid2, { row: 0, col: 0, width, height: grid2.rows });
+    expect(readRow(grid2, 2, width)).toBe('↑↓ 移动 · enter 展开/收起 · q/esc 返回');
+  });
+
+  it('split 双栏 gap 行与真帧号宽自适应——⋮ 落左内容列、千位号宽 4 位（修前红）', () => {
+    const messages = [
+      assistant([editCall('t1', PATCH_A)]),
+      result('t1', { operations: [{ op: 'update', path: 'src/one.ts', startLine: 1234 }] }),
+      assistant([editCall('t2', '*** Update File: src/one.ts\n-tail old')]),
+      result('t2'),
+    ];
+    const { viewer } = makeViewer(messages);
+    const width = 100;
+    viewer.measure(width); // 形随宽先行（split 行空间）
+    viewer.handleEvent(k('enter')); // 展开——flat split = [组头, ctx, 对行, 孤增, gap, 孤删]
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // W=4（组最大号 1236）——真帧千位号宽自适应、内容预算收缩（split 槽与
+    // 前缀间有 1 未写空列 + ctx 体保前导空格——双空格叠未写列成三空格）
+    expect(readSeg(grid, 2, 0, 49)).toBe(' 1234   ctx line');
+    expect(readSeg(grid, 3, 0, 49)).toBe(' 1235 -old line');
+    expect(readSeg(grid, 3, 50, 100)).toBe(' 1235 +new line');
+    // gap 行（屏行 5）：⋮ 落左内容列（col numWidth+2=6）、右半空
+    expect(readSeg(grid, 5, 0, 49)).toBe('      ⋮');
+    expect(readSeg(grid, 5, 50, 100)).toBe('');
+    // 缺席段孤删行续前段尾（旧轨尾 1235 → 1236）
+    expect(readSeg(grid, 6, 0, 49)).toBe(' 1236 -tail old');
+  });
+
+  it('混排帧——段粒度分帧：多段真帧各自成帧（后段真帧重起双轨、回看亦然）', () => {
+    const messages = [
+      assistant([editCall('t1', PATCH_A)]),
+      result('t1', META_A),
+      // S2 真帧 3（< S1 尾 9——回看重起：双轨自 3 重算，非续 10）
+      assistant([editCall('t2', '*** Update File: src/one.ts\n ctx2\n-second old')]),
+      result('t2', { operations: [{ op: 'update', path: 'src/one.ts', startLine: 3 }] }),
+    ];
+    const { viewer } = makeViewer(messages);
+    const grid = paintExpanded(viewer, 64);
+    expect(readRow(grid, 5, 64)).toBe('   9+extra line'); // S1 真帧尾
+    expect(readRow(grid, 6, 64)).toBe('    ⋮');
+    expect(readRow(grid, 7, 64)).toBe(' 3 3  ctx2'); // S2 真帧重起（回看重起双轨）
+    expect(readRow(grid, 8, 64)).toBe(' 4  -second old');
   });
 });

@@ -58,6 +58,8 @@ export type ProjectedMessage =
       readonly arguments?: string;
       readonly output: string | readonly ContentBlock[];
       readonly isError: boolean;
+      /** 审计位透传（05 §1.1 meta——挖掘 45 轮件 D）：UI 消费面字段，不进模型上下文 */
+      readonly meta?: unknown;
     };
 
 /** fold 内部状态（open assistant 缓冲 + 未结算 tool/call 配对表 + 字符计数） */
@@ -155,6 +157,8 @@ export function stepFold(state: FoldState, event: SessionEvent): void {
         ...(call ? { arguments: call.arguments } : {}),
         output: data.content,
         isError: data.error !== undefined,
+        // 审计位透传（挖掘 45 轮件 D——缺席不带：旧日志零伪值）
+        ...(data.meta !== undefined ? { meta: data.meta } : {}),
       });
       return;
     }

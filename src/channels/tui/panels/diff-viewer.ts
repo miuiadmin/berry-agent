@@ -12,13 +12,18 @@
  * - **enter = 展开 / 收起光标组**（缺省全收起——总览语义）；空集（会话零
  *   edit）= 诚实空态行；
  * - **行号槽 + 宽屏 split 双栏**（2026-10-05 ZCode TUI 对标批——07 §4.1
- *   副屏族 diff-viewer 双件定形注）：diff 行前旧/新行号 dim 槽——patch 相对
- *   帧（数据源零 git 子进程、apply_patch 文法无 @@ 行号头，无文件绝对行号
- *   ——组体行序自算的唯一自洽帧），各循其轨（删行旧轨 / 增行新轨 / ctx 双
- *   轨同进）、位数按组最大轨号自适应；终端宽 ≥100 列（SPLIT_MIN_WIDTH 落码
+ *   副屏族 diff-viewer 双件定形注）：diff 行前旧/新行号 dim 槽——**真帧优先**
+ *   （挖掘 45 轮件 D：edit 回执 meta operations 携 startLine 则段自真帧起算、
+ *   add 段回执在场即新文件自 1）、**缺席回退 patch 相对帧**（旧日志/孤儿
+ *   toolCall 无 meta——组体行序自算的唯一自洽帧，缺席段续前段尾跨界续算），
+ *   各循其轨（删行旧轨 / 增行新轨 / ctx 双轨同进）、位数按组最大轨号自适应
+ *   （真帧可达百千位——宽度自号位）；终端宽 ≥100 列（SPLIT_MIN_WIDTH 落码
  *   定值）unified→split 双栏（左旧右新、中缝 1 列、行号槽分栏各随、词级对
  *   行合并同屏行、孤立删/增单侧挂空），窄屏维持 unified；两形导航键与
  *   ⋮/… 省略位不变；
+ * - **段间 ⋮ 分隔行**（挖掘 45 轮件 D）：同文件多段（多次 edit / 多文件段
+ *   指令）段间插 dim ⋮ 占位行（无带无槽、不占行号账——codex spacer 同形），
+ *   单段组零分隔行；
  * - **组体 add/del 行行级 bg 色带**（挖掘 45 轮件 E——07 §4.1 2026-10-16
  *   接档注）：unified 全行带 / split 半栏带中缝 1 列恒裸、ctx 与组头不施、
  *   16 档降采缺席腿纯前景独行（双通道并行律）；
@@ -34,6 +39,7 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { DIM_STYLE } from '../../engine/index.js';
 import { activeRowStyleOf, CURSOR_MARK as PANEL_CHROME_CURSOR_MARK, HEAD_MARKS } from './panel-chrome.js';
+import { extractDiffStartLines } from '../backend/transcript.js';
 
 /**
  * 投影工具调用最小面（foldSessionDiff 消费子集）：arguments = **原始未解析
@@ -57,9 +63,24 @@ export interface DiffProjectionMessage {
   readonly toolCalls?: readonly DiffProjectionToolCall[];
   /** toolResult 形在场：配对键 */
   readonly toolCallId?: string;
+  /** toolResult 形在场：审计位（05 §1.1 meta——挖掘 45 轮件 D，edit 回执 operations 真帧源） */
+  readonly meta?: unknown;
 }
 
-/** 文件分组（foldSessionDiff 产物——组体行按事件时间序累计） */
+/** 文件段（一次 call 对该文件的一段补丁——段界 = 文件段指令出现，不依行连续性） */
+export interface DiffFileSection {
+  /** 段体 patch 行（ctx/del/add 分类形——meta 段指令不入段体，组头已呈路径） */
+  readonly lines: readonly PatchLine[];
+  /**
+   * 段真帧起点（1-based 旧侧；null = 缺席回退组内连续相对帧）。update 段 =
+   * 回执 operations 槽 startLine（缺席/非数 → null——槽级诚实缺席）；add 段
+   * = 回执在场即新文件帧自 1（operations add 项不带 startLine，坏形忽略）；
+   * delete 段无行体恒 null。
+   */
+  readonly startLine: number | null;
+}
+
+/** 文件分组（foldSessionDiff 产物——组体按段组织、段序 = call 时间序） */
 export interface DiffFileGroup {
   /** 文件路径（apply_patch 文件段指令原文——字典序键） */
   readonly path: string;
@@ -69,8 +90,8 @@ export interface DiffFileGroup {
   readonly removed: number;
   /** 孤儿位（贡献本组的 edit toolCall 存在无 result 在飞形——⋮ 标记） */
   readonly orphan: boolean;
-  /** 组体 patch 行（ctx/del/add 分类形——meta 段指令不入组体，组头已呈路径） */
-  readonly lines: readonly PatchLine[];
+  /** 段集（同文件多次 edit = 多段——段间 ⋮ 分隔） */
+  readonly sections: readonly DiffFileSection[];
 }
 
 /** 文件段指令前缀三形（apply_patch 文法——tools 件真源，此处显示层判形） */
@@ -84,14 +105,19 @@ const FILE_DIRECTIVES = ['*** Update File:', '*** Add File:', '*** Delete File:'
  * 组序 = 路径字典序。
  */
 export function foldSessionDiff(messages: readonly DiffProjectionMessage[]): readonly DiffFileGroup[] {
-  // 配对面先行：有 result 的 toolCallId 全集（孤儿判据）
+  // 配对面先行：有 result 的 toolCallId 全集（孤儿判据）+ 审计位账（挖掘 45 轮
+  // 件 D——meta 键 toolCallId，真帧源）
   const answered = new Set<string>();
+  const metaByCall = new Map<string, unknown>();
   for (const message of messages) {
-    if (message.type === 'toolResult' && message.toolCallId !== undefined) answered.add(message.toolCallId);
+    if (message.type === 'toolResult' && message.toolCallId !== undefined) {
+      answered.add(message.toolCallId);
+      if (message.meta !== undefined) metaByCall.set(message.toolCallId, message.meta);
+    }
   }
   const groups = new Map<
     string,
-    { path: string; added: number; removed: number; orphan: boolean; lines: PatchLine[] }
+    { path: string; added: number; removed: number; orphan: boolean; sections: DiffFileSection[] }
   >();
   for (const message of messages) {
     if (message.type !== 'assistant') continue; // 用户/工具结果消息不产分组
@@ -109,29 +135,56 @@ export function foldSessionDiff(messages: readonly DiffProjectionMessage[]): rea
       const patch = (parsed as Record<string, unknown>).patch;
       if (typeof patch !== 'string') continue;
       const orphan = !answered.has(call.toolCallId);
-      let current: { added: number; removed: number; orphan: boolean; lines: PatchLine[] } | null = null;
+      // 回执真帧槽序列（工具卡同器单源——段序对齐风险归零；无 meta = 全程缺席）
+      const starts = extractDiffStartLines(metaByCall.get(call.toolCallId));
+      let currentGroup: {
+        path: string;
+        added: number;
+        removed: number;
+        orphan: boolean;
+        sections: DiffFileSection[];
+      } | null = null;
+      let currentSection: { lines: PatchLine[]; startLine: number | null } | null = null;
+      let sectionIndex = -1; // call 内段序（跨文件连续计——operations 槽序对齐）
       for (const line of parsePatchLines(patch)) {
         if (line.kind === 'meta') {
-          // 文件段指令 → 切组（字典序键 = 指令路径原文）；Begin/End 等其余 meta 不产组
+          // 文件段指令 → 切段（段界 = 指令出现即开新段，不依行连续性——同文件
+          // 同 call 两段指令按连续性归段会并段致 operations 槽位错位）；
+          // Begin/End 等其余 meta 不产段
           const directive = FILE_DIRECTIVES.find((prefix) => line.text.startsWith(prefix));
           if (directive === undefined) {
-            current = null; // 段外 meta（Begin/End）——后续体系行无组可归
+            currentGroup = null; // 段外 meta（Begin/End）——后续体系行无组可归
+            currentSection = null;
             continue;
           }
           const path = line.text.slice(directive.length).trim();
+          sectionIndex += 1;
           let group = groups.get(path);
           if (group === undefined) {
-            group = { path, added: 0, removed: 0, orphan: false, lines: [] };
+            group = { path, added: 0, removed: 0, orphan: false, sections: [] };
             groups.set(path, group);
           }
           group.orphan = group.orphan || orphan; // 孤儿位按贡献 OR 累积（同键混排）
-          current = group;
+          // 段真帧（消费侧按段指令裁）：update 段取回执槽 startLine（槽级缺席
+          // → null）；add 段回执在场即新文件帧自 1（operations add 项不带
+          // startLine，坏形忽略）；delete 段无行体恒 null
+          const slot = starts?.[sectionIndex];
+          const startLine =
+            directive === '*** Update File:' && typeof slot === 'number'
+              ? slot
+              : directive === '*** Add File:' && !orphan
+                ? 1
+                : null;
+          const section = { lines: [] as PatchLine[], startLine };
+          group.sections.push(section); // 段序 = call 时间序（事件序遍历自然序）
+          currentGroup = group;
+          currentSection = section;
           continue;
         }
-        if (current === null) continue; // 段首指令前的体系行（畸形防御）——不归组
-        current.lines.push(line);
-        if (line.kind === 'add') current.added += 1;
-        else if (line.kind === 'del') current.removed += 1;
+        if (currentSection === null || currentGroup === null) continue; // 段首指令前的体系行（畸形防御）——不归组
+        currentSection.lines.push(line);
+        if (line.kind === 'add') currentGroup.added += 1;
+        else if (line.kind === 'del') currentGroup.removed += 1;
       }
     }
   }
@@ -140,59 +193,79 @@ export function foldSessionDiff(messages: readonly DiffProjectionMessage[]): rea
 
 /** 组体呈现行（词级对行展开后——del/add 行带 DiffSeg 段族则同段裸变段着色） */
 interface DiffBodyRow {
-  readonly kind: 'del' | 'add' | 'ctx';
+  readonly kind: 'del' | 'add' | 'ctx' | 'gap';
   readonly text: string;
-  /** 词级段族（相邻 del+add 对行——null = 孤立行整行着色） */
+  /** 词级段族（相邻 del+add 对行——null = 孤立行整行着色 / gap 行无段） */
   readonly segs: readonly DiffSeg[] | null;
-  /** 旧轨行号（ctx/del 在场——patch 相对帧：组内 ctx+del 序前进） */
+  /** 旧轨行号（ctx/del 在场——真帧优先、缺席段相对帧续算；gap 恒 null） */
   readonly oldLine: number | null;
-  /** 新轨行号（ctx/add 在场——patch 相对帧：组内 ctx+add 序前进） */
+  /** 新轨行号（ctx/add 在场——真帧优先、缺席段相对帧续算；gap 恒 null） */
   readonly newLine: number | null;
 }
 
-/** 组体行 → 呈现行（tool-card renderDiffBodyLines 同律：1 删 1 增相邻对走词级）+ 行号轨记账 */
-function bodyRowsOf(lines: readonly PatchLine[]): readonly DiffBodyRow[] {
+/**
+ * 组体呈现行（段界分隔 + 真帧游标——挖掘 45 轮件 D）：同组多段段间插 gap 行
+ * （dim ⋮——codex diff_render.rs spacer 同形）；段有真帧（startLine 非 null）
+ * 则双轨自真帧重起（update 段双侧同起 / add 段新轨自 1），缺席段续前段尾
+ * 游标跨界续算——全程无真帧的组 = 组内连续 patch 相对帧（旧日志/孤儿零回归）；
+ * 段内行进律维持（tool-card renderDiffBodyLines 同律：1 删 1 增相邻对走词级
+ * + 各循其轨）+ 行号轨记账。
+ */
+function bodyRowsOf(sections: readonly DiffFileSection[]): readonly DiffBodyRow[] {
   const rows: DiffBodyRow[] = [];
-  // 行号轨游标（patch 相对帧）：旧轨 = ctx+del 前进、新轨 = ctx+add 前进
-  //（组内累计——同文件多次 edit 的组体行按事件时间序连续记账）
+  // 行号轨游标（跨段连续账）：旧轨 = ctx+del 前进、新轨 = ctx+add 前进——
+  // 真帧段自 startLine 重起，缺席段续前段尾（组内跨界续算）
   let oldLine = 0;
   let newLine = 0;
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i]!;
-    if (line.kind === 'meta') {
-      i += 1; // 防御位：组体不应含 meta（fold 切组时已分流）——畸形输入跳过不炸
-      continue;
+  for (let s = 0; s < sections.length; s++) {
+    const section = sections[s]!;
+    if (s > 0) {
+      // 段间分隔行（首段前不插——codex is_first_hunk 同闸）
+      rows.push({ kind: 'gap', text: '⋮', segs: null, oldLine: null, newLine: null });
     }
-    // 构造位消毒先行（2026-09-21 第六役修复组 2——S2 宽度账族，tool-card
-    // renderWordDiffPair/renderSinglePatchLine 同律单源）：patch 体是模型生成
-    // 真源码——CRLF 行尾 \r 计宽 1 落格 0（宽度模型分歧）、ESC 序列的可打印
-    // 载荷照写落屏。词元切分与测宽截断都以消毒后文本为基（sanitize 先于
-    // diffWords——段几何与落格账一致）。
-    if (line.kind === 'del' && lines[i + 1]?.kind === 'add') {
-      // 相邻对：词级 intra-line（R4 单源——两行共享段族，各取本侧变段着色）
-      const delBody = sanitizeLineText(line.text);
-      const addBody = sanitizeLineText(lines[i + 1]!.text);
-      const segs = diffWords(delBody, addBody);
-      oldLine += 1; // 删行旧轨前进
-      newLine += 1; // 对行增侧新轨前进（记账与 push 同序——轨号即行位）
-      rows.push({ kind: 'del', text: delBody, segs, oldLine, newLine: null });
-      rows.push({ kind: 'add', text: addBody, segs, oldLine: null, newLine });
-      i += 2;
-      continue;
+    if (section.startLine !== null) {
+      // 真帧重起（startLine 1-based → 游标先减一）：本段首行落 startLine
+      oldLine = section.startLine - 1;
+      newLine = section.startLine - 1;
     }
-    if (line.kind === 'ctx') {
-      oldLine += 1; // 上下文行双轨同进
-      newLine += 1;
-      rows.push({ kind: 'ctx', text: sanitizeLineText(line.text), segs: null, oldLine, newLine });
-    } else if (line.kind === 'del') {
-      oldLine += 1; // 孤立删行旧轨前进
-      rows.push({ kind: 'del', text: sanitizeLineText(line.text), segs: null, oldLine, newLine: null });
-    } else {
-      newLine += 1; // 孤立增行新轨前进
-      rows.push({ kind: 'add', text: sanitizeLineText(line.text), segs: null, oldLine: null, newLine });
+    const lines = section.lines;
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i]!;
+      if (line.kind === 'meta') {
+        i += 1; // 防御位：段体不应含 meta（fold 切段时已分流）——畸形输入跳过不炸
+        continue;
+      }
+      // 构造位消毒先行（2026-09-21 第六役修复组 2——S2 宽度账族，tool-card
+      // renderWordDiffPair/renderSinglePatchLine 同律单源）：patch 体是模型生成
+      // 真源码——CRLF 行尾 \r 计宽 1 落格 0（宽度模型分歧）、ESC 序列的可打印
+      // 载荷照写落屏。词元切分与测宽截断都以消毒后文本为基（sanitize 先于
+      // diffWords——段几何与落格账一致）。
+      if (line.kind === 'del' && lines[i + 1]?.kind === 'add') {
+        // 相邻对：词级 intra-line（R4 单源——两行共享段族，各取本侧变段着色）
+        const delBody = sanitizeLineText(line.text);
+        const addBody = sanitizeLineText(lines[i + 1]!.text);
+        const segs = diffWords(delBody, addBody);
+        oldLine += 1; // 删行旧轨前进
+        newLine += 1; // 对行增侧新轨前进（记账与 push 同序——轨号即行位）
+        rows.push({ kind: 'del', text: delBody, segs, oldLine, newLine: null });
+        rows.push({ kind: 'add', text: addBody, segs, oldLine: null, newLine });
+        i += 2;
+        continue;
+      }
+      if (line.kind === 'ctx') {
+        oldLine += 1; // 上下文行双轨同进
+        newLine += 1;
+        rows.push({ kind: 'ctx', text: sanitizeLineText(line.text), segs: null, oldLine, newLine });
+      } else if (line.kind === 'del') {
+        oldLine += 1; // 孤立删行旧轨前进
+        rows.push({ kind: 'del', text: sanitizeLineText(line.text), segs: null, oldLine, newLine: null });
+      } else {
+        newLine += 1; // 孤立增行新轨前进
+        rows.push({ kind: 'add', text: sanitizeLineText(line.text), segs: null, oldLine: null, newLine });
+      }
+      i += 1;
     }
-    i += 1;
   }
   return rows;
 }
@@ -202,18 +275,19 @@ function lineSlot(line: number | null, width: number): string {
   return line === null ? ' '.repeat(width) : String(line).padStart(width);
 }
 
-/** 组行号槽宽（位数自适应——组内两轨最大号位数；空组下限 1） */
-function numWidthOf(group: DiffFileGroup): number {
-  let oldCount = 0;
-  let newCount = 0;
-  for (const line of group.lines) {
-    if (line.kind === 'ctx') {
-      oldCount += 1;
-      newCount += 1;
-    } else if (line.kind === 'del') oldCount += 1;
-    else if (line.kind === 'add') newCount += 1;
+/**
+ * 行号槽宽（位数自适应——rows 中两轨最大号位数；空组下限 1）。真帧后行号可
+ * 达百千位（回执 startLine）——宽度自号位非自段长（挖掘 45 轮件 D 起
+ * numWidthOf 组行计数版退役），超宽时内容预算收缩。
+ */
+function numWidthOfRows(rows: readonly DiffBodyRow[]): number {
+  let max = 0;
+  for (const row of rows) {
+    if (row.kind === 'gap') continue; // 段间分隔行无行号
+    if (row.oldLine !== null && row.oldLine > max) max = row.oldLine;
+    if (row.newLine !== null && row.newLine > max) max = row.newLine;
   }
-  return Math.max(1, String(Math.max(oldCount, newCount)).length);
+  return Math.max(1, String(max).length);
 }
 
 /** split 双栏行（左旧右新——null = 该侧无内容：孤立删挂右空、孤立增挂左空） */
@@ -232,6 +306,13 @@ function splitRowsOf(rows: readonly DiffBodyRow[]): readonly SplitPair[] {
   let i = 0;
   while (i < rows.length) {
     const row = rows[i]!;
+    if (row.kind === 'gap') {
+      // 段间分隔行：双侧挂空占位（renderSplit 全空 ⇔ gap 分支——不变式：
+      // 非 gap 行每 pair 至少一侧非空）
+      pairs.push({ left: null, right: null });
+      i += 1;
+      continue;
+    }
     if (row.kind === 'del' && row.segs !== null && rows[i + 1]?.kind === 'add') {
       pairs.push({ left: row, right: rows[i + 1]! });
       i += 2;
@@ -354,8 +435,8 @@ export class DiffViewer implements OverlayContent {
     for (const group of this.groups) {
       rows.push({ kind: 'head', group });
       if (!this.expanded.has(group.path)) continue;
-      const bodyRows = bodyRowsOf(group.lines);
-      const numWidth = numWidthOf(group);
+      const bodyRows = bodyRowsOf(group.sections);
+      const numWidth = numWidthOfRows(bodyRows);
       // split 形：对行合并同屏行（行空间收缩）；unified 形：组体逐行
       if (split) {
         for (const pair of splitRowsOf(bodyRows)) rows.push({ kind: 'split', pair, numWidth });
@@ -470,6 +551,13 @@ export class DiffViewer implements OverlayContent {
     body: DiffBodyRow,
     numWidth: number,
   ): void {
+    if (body.kind === 'gap') {
+      // 段间分隔行（挖掘 45 轮件 D）：无带无槽——光标位 + 前缀列 dim ⋮
+      //（codex diff_render.rs spacer 同形——跨段省略位不占行号账）
+      buffer.writeText(row, col, index === this.cursor ? CURSOR_MARK : ' ');
+      buffer.writeText(row, col + 2 * numWidth + 2, '⋮', HINT_STYLE);
+      return;
+    }
     // 行级全宽 bg 色带（件 E）：先铺整行底带再落文本——setCell 全量替换律下，
     // 带内每个后写必须同携 bg 才不凿洞；行尾衬底（文本外余列）由底带自然
     // 覆盖（工具卡 fillBg 尾腿 / history-viewer 逐格补底同效——BCE 同义）
@@ -507,6 +595,14 @@ export class DiffViewer implements OverlayContent {
   ): void {
     const half = Math.floor((width - 1) / 2); // 左半 [col, col+half)，缝 1 列，右半 [col+half+1, col+width)
     const rightCol = col + half + 1;
+    if (pair.left === null && pair.right === null) {
+      // 段间分隔行（全空 ⇔ gap——splitRowsOf 不变式：非 gap 行每 pair 至少
+      // 一侧非空）：双侧无带无槽，光标位 + 左半内容列 dim ⋮（与 unified ⋮
+      // 同符号同 dim——split 形段界不换记号）
+      buffer.writeText(row, col, index === this.cursor ? CURSOR_MARK : ' ');
+      buffer.writeText(row, col + numWidth + 2, '⋮', HINT_STYLE);
+      return;
+    }
     // 双侧分立带（件 E）：左半 del 带 / 右半 add 带、中缝 1 列恒不铺
     //（del 带 | 裸缝 | add 带的双带并置分隔位；文本写恒不越缝既有律）；
     // 空挂半（孤增左 / 孤删右）无带（pair 侧 null → 本侧 band undefined）
@@ -596,7 +692,7 @@ export class DiffViewer implements OverlayContent {
   /**
    * 组体行 bg 色带样式（挖掘 45 轮件 E）：add/del 行施 diffAddedBg/
    * diffRemovedBg（theme 双键——codex diff bg 静态定值，工具卡 diff 档同源
-   * 第二消费位）；ctx 行与 16 档降采缺席腿恒 undefined（bg 缺席不破前景
+   * 第二消费位）；ctx/gap 行与 16 档降采缺席腿恒 undefined（bg 缺席不破前景
    * 可读性——「双通道并行」律）。
    */
   private bandOf(kind: DiffBodyRow['kind']): CellStyle | undefined {

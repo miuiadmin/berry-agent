@@ -155,6 +155,9 @@ export function reseedTimeline(projection: readonly ProjectedMessage[], timeOf: 
               : (projected.output as ToolResultMessage['content']),
           isError: projected.isError,
           timestamp: timeOf(projected.seq),
+          // 审计位对称还原（挖掘 45 轮件 D）：投影 meta → details——repaint 后
+          // 工具卡行号与 /diff 真帧对称存续；缺席不带（旧日志零伪值）
+          ...(projected.meta !== undefined ? { details: projected.meta } : {}),
         });
         break;
       }

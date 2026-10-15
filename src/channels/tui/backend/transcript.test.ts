@@ -427,6 +427,30 @@ describe('LiveTranscript 投影重建与帽', () => {
     });
   });
 
+  it('repaint 路工具卡行号对称存续（挖掘 45 轮件 D——投影带 details → diffStartLines 在场）', () => {
+    // 链路锁：reseed 从投影 meta 还原 details（reseed.test 对称 it 的红锚）→
+    // loadProjection 透传 buildToolCard → extractDiffStartLines 取值——repaint
+    // 后工具卡 diff 行号与直播路同源在场
+    const t = new LiveTranscript();
+    t.loadProjection([
+      userMsg('改一下'),
+      assistantMsg('', [
+        {
+          id: 'tcE',
+          name: 'edit',
+          arguments: { patch: '*** Begin Patch\n*** Update File: a.ts\n-old\n+new\n*** End Patch' },
+        },
+      ]),
+      toolResultMsg('补丁已应用（1 个操作）：', {
+        toolCallId: 'tcE',
+        details: { operations: [{ op: 'update', path: 'a.ts', startLine: 7 }] },
+      }),
+    ]);
+    const card = t.snapshot.find((b) => b.kind === 'tool-card') as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(card.diff).toBe(true);
+    expect(card.diffStartLines).toEqual([7]); // 工具卡行号在场——details 消费链契约锁
+  });
+
   it('loadProjection 自定义角色宽容跳过', () => {
     const t = new LiveTranscript();
     t.loadProjection([{ role: 'memory/recall', content: { q: 1 }, timestamp: 1 }, userMsg('问题')]);

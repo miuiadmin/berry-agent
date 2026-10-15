@@ -701,6 +701,15 @@ describe('faux 发起工具面组合根穿线（批 C A1——bash/edit 真执�
     expect(toolResults[1]).toMatchObject({ toolCallId: 't-r1' });
     expect(toolResults[2]).toMatchObject({ toolCallId: 't-e3' });
     expect(toolResults[2]).not.toHaveProperty('error'); // 成功结果不带 error 键（缺席非 false）
+    // 审计位整律落账（挖掘 45 轮件 D——真装配锁）：details → tool/result meta
+    // 不限 edit——read 概要 {path,bytes,truncated} 同入；edit update 件携
+    // operations.startLine（/diff 副屏真帧与 repaint 工具卡行号的唯一源）
+    expect(toolResults[1]).toMatchObject({
+      meta: { path: expect.any(String), bytes: expect.any(Number), truncated: false },
+    });
+    expect(toolResults[2]).toMatchObject({
+      meta: { operations: [{ op: 'update', path: expect.any(String), startLine: expect.any(Number) }] },
+    });
     expect(backend.requests).toHaveLength(0); // 三工具调用全免问（fs 前缀 + 整名两族条目各命中）
     // 终态：更新后内容在盘（old 已被替换）
     const finalContent = readFileSync(join(ws, 'e2.txt'), 'utf8');

@@ -78,6 +78,32 @@ describe('stepFold 消息折叠语义', () => {
     expect(u.source).toBe('channel:webui');
   });
 
+  it('tool/result 投影透传 meta 审计位，缺席不带', () => {
+    // 在场：meta（05 §1.1 预留审计位——details 整律落账）深等透传
+    const state = createFoldState();
+    stepFold(state, evt(0, 'assistant/message', { content: [] }));
+    stepFold(state, evt(1, 'tool/call', { toolCallId: 'm1', name: 'edit', arguments: '{}' }));
+    stepFold(
+      state,
+      evt(2, 'tool/result', {
+        toolCallId: 'm1',
+        content: 'ok',
+        meta: { operations: [{ op: 'update', path: 'src/one.ts', startLine: 7 }] },
+      }),
+    );
+    const withMeta = state.messages[1]!;
+    if (withMeta.type !== 'toolResult') throw new Error('形状错');
+    expect(withMeta.meta).toEqual({ operations: [{ op: 'update', path: 'src/one.ts', startLine: 7 }] });
+    // 缺席：无 meta → 键缺席非伪 undefined 值槽（消费位 'meta' in 判据兼容）
+    const state2 = createFoldState();
+    stepFold(state2, evt(0, 'assistant/message', { content: [] }));
+    stepFold(state2, evt(1, 'tool/call', { toolCallId: 'm2', name: 'read', arguments: '{}' }));
+    stepFold(state2, evt(2, 'tool/result', { toolCallId: 'm2', content: '文件内容' }));
+    const withoutMeta = state2.messages[1]!;
+    if (withoutMeta.type !== 'toolResult') throw new Error('形状错');
+    expect('meta' in withoutMeta).toBe(false);
+  });
+
   it('结构/log-only 事件不产消息（fold 判定输入 ≠ 模型历史）', () => {
     const state = createFoldState();
     stepFold(state, evt(0, 'turn/start'));

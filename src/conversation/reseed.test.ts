@@ -80,6 +80,38 @@ describe('reseedTimeline 三态转换', () => {
     expect((messages[1] as { content: unknown[] }).content).toEqual([{ type: 'text', text: '多块' }]);
   });
 
+  it('toolResult：meta 还原 details，缺席不带（挖掘 45 轮件 D——repaint 后行号对称存续）', () => {
+    const projection: ProjectedMessage[] = [
+      {
+        type: 'toolResult',
+        seq: 4,
+        toolCallId: 'c1',
+        toolName: 'edit',
+        output: '补丁已应用（1 个操作）：',
+        isError: false,
+        meta: { operations: [{ op: 'update', path: 'src/one.ts', startLine: 7 }] },
+      },
+      {
+        type: 'toolResult',
+        seq: 5,
+        toolCallId: 'c2',
+        toolName: 'read',
+        output: 'x',
+        isError: false,
+      },
+    ];
+    const messages = reseedTimeline(projection, timeMap({ 4: 400, 5: 500 }));
+    // 审计位对称还原：投影 meta → ToolResultMessage.details（transcript 工具卡
+    // buildToolCard 读 details 取 diffStartLines——repaint 路行号在场的唯一源）
+    const [first, second] = messages as Array<{ role: string; details?: unknown }>;
+    if (first === undefined || second === undefined) throw new Error('投影两条应还原两条');
+    const withMeta = first;
+    const withoutMeta = second;
+    expect(withMeta.details).toEqual({ operations: [{ op: 'update', path: 'src/one.ts', startLine: 7 }] });
+    expect(withoutMeta.details).toBeUndefined();
+    expect('details' in withoutMeta).toBe(false); // 缺席不带（键缺席非 undefined 值槽）
+  });
+
   it('消息序保真（user → assistant → toolResult 交错原样）', () => {
     const projection: ProjectedMessage[] = [
       { type: 'user', seq: 0, content: 'q' },

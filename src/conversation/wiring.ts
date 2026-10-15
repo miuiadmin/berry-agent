@@ -258,6 +258,11 @@ export class DurableWiring {
         toolCallId: result.toolCallId,
         content: result.content,
         ...(result.isError ? { error: true } : {}),
+        // 审计位落账（挖掘 45 轮件 D——05 §1.1 预留 meta 兑现）：details 整律
+        // 透传（凡工具给 details 皆入——不限 edit；read 概要同入），不做工具
+        // 白名单（「哪些算审计明细」的裁决不散进 wiring——机制/策略分离）；
+        // 不进模型上下文（模型可见白名单外，05 §3.1 两单分立定谳）
+        ...(result.details !== undefined ? { meta: result.details } : {}),
       });
       return;
     }

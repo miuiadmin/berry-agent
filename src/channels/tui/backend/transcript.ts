@@ -2089,9 +2089,11 @@ export class LiveTranscript {
  * 序同源对齐（同一 patch 体两侧解析，段序一致），update 段取 startLine、
  * add/delete 段 undefined 占位。防御：details 非法形（operations 非数组/项非
  * 对象/startLine 非数）整席缺席返回 undefined——渲染面以 undefined 判「行号
- * 不可知」走空槽腿（诚实缺席，不造伪号）。
+ * 不可知」走空槽腿（诚实缺席，不造伪号）。导出（挖掘 45 轮件 D）：/diff
+ * 副屏（diff-viewer）同器单源复用——两侧段解析天然同器，「回执序 = 补丁段
+ * 序」不可能分歧。
  */
-function extractDiffStartLines(details: unknown): ReadonlyArray<number | undefined> | undefined {
+export function extractDiffStartLines(details: unknown): ReadonlyArray<number | undefined> | undefined {
   if (typeof details !== 'object' || details === null) return undefined;
   const operations = (details as { operations?: unknown }).operations;
   if (!Array.isArray(operations) || operations.length === 0) return undefined;
