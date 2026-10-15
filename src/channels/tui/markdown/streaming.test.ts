@@ -72,6 +72,23 @@ describe('StreamingMarkdown 流式直推', () => {
     });
   });
 
+  it('md 围栏表格解包流式帧（挖掘 40 轮件 C）：开栏帧 open code 恒不稳 → 闭栏帧（尾随换行）翻 table', () => {
+    const s = new StreamingMarkdown();
+    // 帧1：开栏半截——闭栏缺席条件①不中，照旧 open code（尾块恒不稳——高亮冻结判据）
+    s.update('```md\n| a | b |\n| --- | --- |\n| 1 | 2 |');
+    expect(s.stableLineCount(40)).toBe(0);
+    const openRows = rowsOf(s, 40);
+    // 帧2：闭栏 + 尾随换行——四条件齐解包，code 块翻转 table（blockEquals
+    // 失配重排承接）；table 不在单行终态稳定集（数据行连续律可延伸）——
+    // 尾块恒不稳，稳定面止于 table 前（本例无前缀块 = 0）
+    s.update('```md\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```\n');
+    expect(s.stableLineCount(40)).toBe(0);
+    expect(s.stableLineCount(40)).toBeLessThan(s.measure(40));
+    // 行集与同文直构全等（同管线律）+ 与开栏帧不同（code→table 翻转实证）
+    expect(rowsOf(s, 40)).toEqual(rowsOf(MarkdownDoc.of('```md\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```\n'), 40));
+    expect(rowsOf(s, 40)).not.toEqual(openRows);
+  });
+
   it('稳定面三形之闭栏代码 + 尾随换行：闭栏行已终，追加必为新块 → 全稳', () => {
     const s = new StreamingMarkdown();
     s.update('段\n\n```ts\nconst x = 1;\n```\n'); // 尾随换行前提——免检形见下

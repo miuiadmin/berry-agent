@@ -254,7 +254,6 @@ describe('parseMarkdown 块解析', () => {
   it('异字符围栏不互闭（``` 体内 ~~~ 行不闭反栏——marker 首字符单源）', () => {
     expect(parseMarkdown('```\n~~~\n```')).toEqual([{ type: 'code', lines: ['~~~'], language: undefined }]);
   });
-
   it('引用连续行归块（行内解析入块）', () => {
     const blocks = parseMarkdown('> 引用一\n> 引用 *二*\n\n正文');
     expect(blocks[0]).toEqual({
@@ -309,6 +308,70 @@ describe('parseMarkdown 块解析', () => {
     expect(blocks).toHaveLength(2);
     expect(blocks[0]).toMatchObject({ type: 'table' });
     expect(blocks[1]).toEqual({ type: 'paragraph', spans: [{ text: '正文' }] });
+  });
+});
+
+describe('md 围栏表格解包（挖掘 40 轮件 C——四条件判据，07 §4.1 引擎节件 6 Markdown 件）', () => {
+  it('主红·四条件齐（md 键 + 闭栏在文内 + 体内表格对 + 闭栏有尾随）→ 删栏解包成 table', () => {
+    // 修前红锚：围栏语言零分支——整块走 code（block-rows MARKDOWN_SPEC 单色管道文本）
+    expect(parseMarkdown('```md\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```\n')).toEqual([
+      {
+        type: 'table',
+        header: [[{ text: 'a' }], [{ text: 'b' }]],
+        rows: [[[{ text: '1' }], [{ text: '2' }]]], // 一行两 cell（GFM 行×列形）
+        align: [null, null],
+      },
+    ]);
+  });
+
+  it('条件②回退：md 围栏无相邻定界对 → 照旧 code（竖线行与非定界行交错不解包）', () => {
+    expect(parseMarkdown('```md\n| a |\njust prose\n| b |\n```\n')).toEqual([
+      { type: 'code', lines: ['| a |', 'just prose', '| b |'], language: 'md' },
+    ]);
+  });
+
+  it('条件②回退：非 md 围栏含表格照旧 code（```rust + 定界对——高亮域归高亮）', () => {
+    expect(parseMarkdown('```rust\n| a | b |\n| --- | --- |\n```\n')).toEqual([
+      { type: 'code', lines: ['| a | b |', '| --- | --- |'], language: 'rust' },
+    ]);
+  });
+
+  it('条件②大小写不敏感：```Markdown 解包同律（info 首词 toLowerCase）', () => {
+    expect(parseMarkdown('```Markdown\n| a |\n| --- |\n```\n')[0]).toMatchObject({ type: 'table' });
+  });
+
+  it('条件①回退：未闭栏开栏期照旧 open code（流式半截形——闭栏缺席不解包）', () => {
+    expect(parseMarkdown('```md\n| a | b |\n| --- | --- |\n')).toEqual([
+      // 尾换 split 出的末空串行同入体（未闭围栏收至文末防御——既有语义）
+      { type: 'code', lines: ['| a | b |', '| --- | --- |', ''], language: 'md', open: true },
+    ]);
+  });
+
+  it('条件④保守漏解：闭栏即文末无尾随换行 → 照旧 code（瞬态帧防粘字翻开栏致冻结面回缩）', () => {
+    // 冷读闸 major 修法：闭栏行须后随换行或另有内容——末元素空串（有尾换）对照解包
+    expect(parseMarkdown('```md\n| a |\n| --- |\n```')).toEqual([
+      { type: 'code', lines: ['| a |', '| --- |'], language: 'md' },
+    ]);
+    // 同文闭栏后另有内容（哪怕空行）→ 条件④过、解包成立
+    expect(parseMarkdown('```md\n| a |\n| --- |\n```\ntail')[0]).toMatchObject({ type: 'table' });
+  });
+
+  it('混合体解包：md 围栏内标题 + 段落 + 表格 → 体行裸入多块序', () => {
+    const blocks = parseMarkdown('```md\n# 标题\n\n散文段\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```\n');
+    expect(blocks.map((b) => b.type)).toEqual(['heading', 'paragraph', 'table']);
+  });
+
+  it('删行邻接合并三形照 GFM 常规律锁现状（冷读闸 minor 3——删行后邻接行即原文相邻语义）', () => {
+    // 形②开栏侧：前文管道行 + 体内首行恰为定界行（体内另持完整对使解包成立）→ 前文行吸成表头
+    const headAbsorb = parseMarkdown('| x |\n```md\n| --- |\n| a |\n| --- |\n```\n');
+    expect(headAbsorb[0]).toMatchObject({ type: 'table', header: [[{ text: 'x' }]] });
+    // 形①闭栏侧：闭栏后紧邻管道行吸成表格数据行（解包删闭栏后紧邻）
+    const tailAbsorb = parseMarkdown('```md\n| a |\n| --- |\n```\n| b |');
+    expect(tailAbsorb[0]).toMatchObject({ type: 'table' });
+    expect((tailAbsorb[0] as { rows: unknown[][] }).rows).toHaveLength(1); // | b | 吸入
+    // 形③段落侧：前文散文行与体内首散文行并段（软换行折叠）
+    const paraMerge = parseMarkdown('前文散文\n```md\n体内散文\n| a |\n| --- |\n```\n');
+    expect(paraMerge[0]).toMatchObject({ type: 'paragraph', spans: [{ text: '前文散文 体内散文' }] });
   });
 });
 

@@ -34,6 +34,11 @@ const WEAK_THEME = resolveTheme(
 );
 
 describe('blockRows 表格渲染（V-3 注⑨④ codex 双线制）', () => {
+  it('md 围栏解包后走真表格双线形（挖掘 40 轮件 C——修前 codeRows MARKDOWN_SPEC 单色管道文本）', () => {
+    const rows = blockRows(first('```md\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```\n'), 20, DEFAULT_THEME);
+    expect(texts(rows)).toEqual([' a    b', '━━━━━━━━━━', ' 1    2']);
+  });
+
   it('双线形：表头行 + ━ 重线 + 数据行（全框退役——┌┐└┘┬┴┼├┤│ 零在场）', () => {
     const rows = blockRows(first('| a | b |\n| :- | -: |\n| 1 | 2 |'), 20, DEFAULT_THEME);
     const lines = texts(rows);

@@ -104,12 +104,95 @@ function isTableSeparator(line: string): boolean {
   return t.includes('|') && t.includes('-') && TABLE_SEP_RE.test(t);
 }
 
+/** md/markdown 围栏语言键字面二键集（解包判据——不走 ALIASES：高亮域≠解析变换域，防别名扩充静默放宽解包） */
+const MD_FENCE_LANGS = new Set(['md', 'markdown']);
+
+/**
+ * 体内是否含相邻「含竖线行 + 定界行」对（解包条件③）：空行重置配对
+ * （codex previous_line 同律）——体内任意表格段命中即真（宽形非仅首块）；
+ * 定界行自身不作后续配对前驱（表头位必是含竖线的数据形行）。
+ */
+function containsTablePair(body: readonly string[]): boolean {
+  let prevPipe = false;
+  for (const raw of body) {
+    const t = raw.trim();
+    if (t === '') {
+      prevPipe = false; // 空行断配对
+      continue;
+    }
+    if (isTableSeparator(t)) {
+      if (prevPipe) return true; // 表头行紧邻定界行——表格段成立
+      prevPipe = false;
+      continue;
+    }
+    prevPipe = t.includes('|');
+  }
+  return false;
+}
+
+/**
+ * md 围栏表格解包预扫 pass（挖掘 40 轮件 C——07 §4.1 引擎节件 6 Markdown
+ * 件分句）：LLM 惯以 ```md/```markdown 围栏包管道表格，不解包则整块走
+ * code 分支单色呈现（codex unwrap_markdown_fences 对标）。**四条件齐才删
+ * 开/闭栏两行**、体行裸入主循环自然多块化（标题/段落/表格）：
+ * ① 闭栏在文内（未闭栏原样零改动——流式半截期照旧 code）；
+ * ② 语言键命中字面二键集（FENCE_RE info 首词小写）；
+ * ③ 体内含相邻「含竖线行 + 定界行」对（判据复用表格分支单源）；
+ * ④ **闭栏行非文末无尾换的末行**——闭栏行须后随换行或另有内容（防
+ *    「闭栏即文末」瞬态帧解包后、粘字帧续写翻开栏致流式稳定面回缩已冻
+ *    行改写；代价 = 终文恰以围栏收尾无尾换的保守漏解、续写到位即翻转
+ *    ——对 codex 端-of-input 保守姿态的有意收窄）。
+ * 任一不中照旧围栏（回退）；全无解包时返原数组引用（零改动快径——
+ * 前缀块缓存/块比对零扰动）。删行后邻接行即原文相邻语义，一切合并形照
+ * GFM 常规律（codex 同语义，不插空行防发明内容）。
+ */
+export function unwrapMarkdownTableFences(lines: readonly string[]): string[] {
+  const out: string[] = [];
+  let changed = false;
+  let i = 0;
+  while (i < lines.length) {
+    const fence = FENCE_RE.exec(lines[i]!.trim());
+    if (fence === null) {
+      out.push(lines[i]!);
+      i++;
+      continue;
+    }
+    // 找配对闭栏（同字符等长以上——主循环闭栏判据单源复用）
+    const marker = fence[1]!;
+    let j = i + 1;
+    while (j < lines.length && !closesFence(lines[j]!, marker)) j++;
+    const body = lines.slice(i + 1, j);
+    // 四条件逐判（任一不中原样保留围栏块——开/体/闭全推 out）
+    const keep = (): void => {
+      out.push(lines[i]!, ...body);
+      if (j < lines.length) out.push(lines[j]!);
+    };
+    if (
+      j >= lines.length || // ① 闭栏缺席（文末防御——流式半截照旧 code）
+      j === lines.length - 1 || // ④ 闭栏即末元素 = 文末无尾换（split 形：有尾换则末元素是空串）
+      !MD_FENCE_LANGS.has((fence[2] ?? '').toLowerCase()) || // ② 语言键字面二键集
+      !containsTablePair(body) // ③ 体内相邻表格对
+    ) {
+      keep();
+      i = j + 1;
+      continue;
+    }
+    // 解包：删开/闭栏两行、体行裸入（主循环自然多块化）
+    out.push(...body);
+    changed = true;
+    i = j + 1;
+  }
+  return changed ? out : (lines as string[]);
+}
+
 /**
  * 块解析：全文 → 块序列。CRLF/CR 统一 LF；未闭围栏收至文末（防御——
  * 流式半截文本换装前的定稿才进本件，但防御不依赖调用方）。
  */
 export function parseMarkdown(text: string): MarkdownBlock[] {
-  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  // md 围栏表格解包预扫（挖掘 40 轮件 C——四条件判据见 unwrapMarkdownTableFences
+  // 分句；单点收口本位：streaming 增量与 MarkdownDoc 构造两路自动同律）
+  const lines = unwrapMarkdownTableFences(text.replace(/\r\n?/g, '\n').split('\n'));
   const blocks: MarkdownBlock[] = [];
   let paragraph: string[] = [];
   const flushParagraph = (): void => {
