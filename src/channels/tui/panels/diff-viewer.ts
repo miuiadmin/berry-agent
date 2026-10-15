@@ -464,6 +464,9 @@ export class DiffViewer implements OverlayContent {
     // 在 height=2 强立 1 行内容，首内容行先写后又被底行覆写留残段
     const viewHeight = Math.max(0, region.height - 2);
     this.viewportHeight = viewHeight;
+    // 底行滚动位标（48 轮件 B——codex scroll_percentage_visible 同义滚动进度
+    // 比）：else 分支内 rows 在场时现算（零第二账）；height=2 / 空集缺席
+    let bottomPercent: number | null = null;
     if (viewHeight > 0) {
       if (this.groups.length === 0) {
         // 空集诚实空态行（零 git 子进程——数据源注记随行）
@@ -477,6 +480,10 @@ export class DiffViewer implements OverlayContent {
         const rows = this.flatRows();
         this.clampCursor(rows.length);
         this.clampOffset(rows.length);
+        // 滚动进度比：顶 0% / 尾贴窗底 100% / 短清单（maxOffset=0 不滚）恒 100
+        //（percent 形免疫后续 flatRows 行粒度变迁——07 §4.1 48 轮件 B 条款）
+        const maxOffset = Math.max(0, rows.length - viewHeight);
+        bottomPercent = Math.min(100, maxOffset === 0 ? 100 : Math.floor((this.offset / maxOffset) * 100));
         for (let i = 0; i < viewHeight; i++) {
           const index = this.offset + i;
           if (index >= rows.length) break;
@@ -495,7 +502,17 @@ export class DiffViewer implements OverlayContent {
       region.row + region.height - 1,
       region.col,
       fitLine(
-        this.groups.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 展开/收起', 'q/esc 返回'),
+        // 位标拼 hintLine 头参（左段）——右缘不立第二写位（fitLine 整行单源
+        // 坍缩：右缘位标恰在截断首 victims——拼前免丢）；空集纯 'q/esc'、
+        // height=2（bottomPercent 缺席）纯三段教学位
+        this.groups.length === 0
+          ? 'q/esc 返回'
+          : hintLine(
+              ...(bottomPercent !== null ? [`${bottomPercent}%`] : []),
+              '↑↓ 移动',
+              'enter 展开/收起',
+              'q/esc 返回',
+            ),
         region.width,
       ),
       HINT_STYLE,

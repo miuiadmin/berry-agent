@@ -177,7 +177,7 @@ describe('DiffViewer 副屏件', () => {
     expect(row2).toContain('+2');
     expect(row2).toContain('-1');
     // 组体不呈现（缺省全收起——总览语义）
-    expect(readRow(grid, 3, width)).toBe('↑↓ 移动 · enter 展开/收起 · q/esc 返回');
+    expect(readRow(grid, 3, width)).toBe('100% · ↑↓ 移动 · enter 展开/收起 · q/esc 返回');
   });
 
   it('组头右段预算（第五役 G8——极窄窗计数段整段丢弃）：起列不负、行首不覆写、左段 … 收口', () => {
@@ -248,7 +248,7 @@ describe('DiffViewer 副屏件', () => {
     viewer.handleEvent(k('enter')); // 收起
     const grid2 = new CellGrid(width, viewer.measure(width));
     viewer.render(grid2, { row: 0, col: 0, width, height: grid2.rows });
-    expect(readRow(grid2, 3, width)).toBe('↑↓ 移动 · enter 展开/收起 · q/esc 返回');
+    expect(readRow(grid2, 3, width)).toBe('100% · ↑↓ 移动 · enter 展开/收起 · q/esc 返回');
   });
 
   it('组体行上 enter 回溯所在组（组头/组体同判）', () => {
@@ -260,7 +260,43 @@ describe('DiffViewer 副屏件', () => {
     viewer.handleEvent(k('enter')); // 组体 enter = 收起同组
     const grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 3, width)).toBe('↑↓ 移动 · enter 展开/收起 · q/esc 返回'); // 已收起
+    expect(readRow(grid, 3, width)).toBe('100% · ↑↓ 移动 · enter 展开/收起 · q/esc 返回'); // 已收起
+  });
+
+  it('底行滚动位置指示（48 轮件 B——codex percent 同义滚动进度比）：顶 0 与中段值变与尾 100', () => {
+    // 单文件 44 行组体长清单 + 固定小 height 渲染（非 measure 全高惯例形——
+    // 全高恒短清单 100% 锁不住滚动；viewHeight=10 < rows 45 滚动账真实成立）
+    const bigPatch = `*** Update File: src/big.ts\n${Array.from({ length: 44 }, (_, i) => `+big-${i}`).join('\n')}`;
+    const onExit = vi.fn();
+    const viewer = new DiffViewer({
+      messages: [assistant([editCall('t1', bigPatch)]), result('t1')],
+      theme: DEFAULT_THEME,
+      sessionId: 'sess-x',
+      onExit,
+    });
+    const width = 64;
+    const height = 12; // viewHeight = 10；rows = 1 组头 + 44 组体 = 45（maxOffset 35）
+    viewer.handleEvent(k('enter')); // 展开光标组（初光标 = 组头行 0）
+    const readBottom = () => {
+      const grid = new CellGrid(width, height);
+      viewer.render(grid, { row: 0, col: 0, width, height });
+      return readRow(grid, height - 1, width);
+    };
+    viewer.handleEvent(k('home')); // 光标回组头——offset 夹回 0
+    expect(readBottom()).toBe('0% · ↑↓ 移动 · enter 展开/收起 · q/esc 返回');
+    viewer.handleEvent(k('pagedown')); // 光标 0→10 → 光标驱动 offset 1
+    viewer.handleEvent(k('pagedown')); // 光标 10→20 → offset 11 → floor(11/35×100)=31
+    expect(readBottom()).toBe('31% · ↑↓ 移动 · enter 展开/收起 · q/esc 返回');
+    viewer.handleEvent(k('end')); // 光标尾行 → offset 压至 maxOffset 35
+    expect(readBottom()).toBe('100% · ↑↓ 移动 · enter 展开/收起 · q/esc 返回');
+  });
+
+  it('height=2 形位标缺席（viewHeight=0 零内容行无位置语义——底行纯教学位）', () => {
+    const { viewer } = makeViewer();
+    const width = 64;
+    const grid = new CellGrid(width, 2);
+    viewer.render(grid, { row: 0, col: 0, width, height: 2 });
+    expect(readRow(grid, 1, width)).toBe('↑↓ 移动 · enter 展开/收起 · q/esc 返回');
   });
 
   it('空集（零 edit）= 诚实空态行（零 git 语义注记）', () => {
@@ -549,7 +585,7 @@ describe('DiffViewer 行号槽 + split 双栏（ZCode 对标批双件）', () =>
     viewer.handleEvent(k('enter')); // 组体行 enter = 回溯收组（导航键面不变）
     const grid2 = paint();
     expect(readRow(grid2, 1, width)).toContain('src/one.ts'); // 收起——仅组头
-    expect(readRow(grid2, 2, width)).toBe('↑↓ 移动 · enter 展开/收起 · q/esc 返回');
+    expect(readRow(grid2, 2, width)).toBe('100% · ↑↓ 移动 · enter 展开/收起 · q/esc 返回');
   });
 
   it('split 半栏超宽 … 收口：两侧各自半栏预算内截断 + 中缝不越（… 省略位两形同律）', () => {
@@ -891,7 +927,7 @@ describe('DiffViewer 真行号与段间分隔（挖掘 45 轮件 D）', () => {
     viewer.handleEvent(k('enter')); // gap 行 enter = 回溯组头 → 收起
     const grid2 = new CellGrid(width, viewer.measure(width));
     viewer.render(grid2, { row: 0, col: 0, width, height: grid2.rows });
-    expect(readRow(grid2, 2, width)).toBe('↑↓ 移动 · enter 展开/收起 · q/esc 返回');
+    expect(readRow(grid2, 2, width)).toBe('100% · ↑↓ 移动 · enter 展开/收起 · q/esc 返回');
   });
 
   it('split 双栏 gap 行与真帧号宽自适应——⋮ 落左内容列、千位号宽 4 位（修前红）', () => {
