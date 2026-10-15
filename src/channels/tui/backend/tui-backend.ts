@@ -192,6 +192,35 @@ export interface TuiLocalCommand {
   readonly run: () => void;
 }
 
+/** 进程信号 seam（挖掘 41 轮件 III——ctrl+z SIGTSTP 真挂起可测注入面） */
+export interface ProcessSignalsSeam {
+  /** 平台名（win32 守卫判据——SIGTSTP 非 Windows 语义，键消费不生效） */
+  readonly platform: string;
+  /** 本进程 pid（自发 SIGTSTP——self-pid 不轰进程组，exec 工具子进程续跑） */
+  readonly pid: number;
+  /** 发信号（自发合法——ISIG 只辖内核代产生；tmux 内 SIGTSTP 由 tmux 转发 leaf 同形） */
+  kill(pid: number, signal: string): void;
+  /** 订阅信号（返退订——SIGCONT 单次消费纪律的收柄面） */
+  on(signal: string, cb: () => void): () => void;
+}
+
+/**
+ * 进程信号 seam 缺省真身（真 process 最小面封装——41 轮件 III）：测试注入
+ * MemorySignals 收账（MemoryTerminalIO 测试面零真进程纪律——externalEditor
+ * seam 同例）。
+ */
+function makeProcessSignals(): ProcessSignalsSeam {
+  return {
+    platform: process.platform,
+    pid: process.pid,
+    kill: (pid, signal) => process.kill(pid, signal as NodeJS.Signals),
+    on: (signal, cb) => {
+      process.on(signal, cb);
+      return () => process.removeListener(signal, cb);
+    },
+  };
+}
+
 /** 后端构造选项 */
 export interface TuiBackendOptions {
   /** 当前交互会话位（提交/打断柄的 sessionId 机器位——装配焦点联动可改） */
@@ -308,6 +337,13 @@ export interface TuiBackendOptions {
    * 只读档 + 10s 超时 kill + stdout trim 归一在封装内）。
    */
   readonly gitQuery?: GitQuery;
+  /**
+   * 进程信号 seam（挖掘 41 轮件 III——ctrl+z SIGTSTP 真挂起）：platform /
+   * pid / kill / on 最小面，缺省真 process 封装（makeProcessSignals 工厂）；
+   * 测试注入受控桩收账（MemoryTerminalIO 测试面零真进程纪律——externalEditor
+   * seam 同例）。
+   */
+  readonly processSignals?: ProcessSignalsSeam;
   /**
    * 本地原生剪贴板执行器（挖掘 40 轮件 A——copyToClipboard 第⓪层原生腿）：
    * 平台矩阵计划 + 文本 → 'ok' | 'failed'。**缺席 = 原生腿整体缺席**——
@@ -910,6 +946,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 挂起位（suspendMain 置位：渲染请求安全 no-op 闸 + 输入已卸订） */
   private suspendedMain = false;
   /**
+   * shell 真挂起位（挖掘 41 轮件 III）：suspendToShell 置位——suspendedMain
+   * 的「因」注记位（副屏换防与 shell 交出两「因」分立），SIGCONT 路由判据
+   * （单次消费——resumeFromShell 首行清位 + 退订）。
+   */
+  private shellSuspended = false;
+  /** SIGCONT 订阅退订柄（懒注册首挂时挂、复起/终退单次收） */
+  private unsubSigcont: (() => void) | null = null;
+  /**
    * 外编编舞在飞位（挖掘 31 轮 [9]）：ctrl+g 异步挂起期同键再按零响应
    * （防重入——resumeMain 复起前第二击会叠挂起编舞）；编舞收口 finally
    * 复位（执行器 reject 一切归 failed 分诊不破闸）。
@@ -1282,6 +1326,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly gitQuery: GitQuery | undefined;
   /** 原生剪贴板执行器注入（挖掘 40 轮件 A——第⓪层腿；undefined = 腿缺席零行为变） */
   private readonly nativeClipboardSpawn: NativeClipboardSpawn | undefined;
+  /** 进程信号 seam（挖掘 41 轮件 III——真挂起 SIGTSTP/SIGCONT；缺省真 process 封装） */
+  private readonly processSignals: ProcessSignalsSeam;
 
   constructor(io: TerminalIO, options: TuiBackendOptions = {}) {
     this.io = io;
@@ -1298,6 +1344,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.gitQuery = options.gitQuery;
     // 原生剪贴板腿 seam（40 轮件 A）：同律缺席不造真身——生产装配显式传真身
     this.nativeClipboardSpawn = options.nativeClipboardSpawn;
+    // 进程信号 seam（41 轮件 III）：缺省真 process 封装（真挂起生产路——
+    // 自发 SIGTSTP + SIGCONT 订阅）；测试注入受控桩
+    this.processSignals = options.processSignals ?? makeProcessSignals();
     this.onHelpShortcut = options.onHelpShortcut;
     this.onLeaderBranch = options.onLeaderBranch;
     this.dispatchCommand = options.dispatchCommand;
@@ -1594,6 +1643,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.autocompleteCompleter.cancel(); // 补全在途全收（停机后零迟到交付）
     this.osc.restore(); // 件 7：复原两写点（title 基线 + 进度清零）+ 保活停针（名册语义）
     this.disarmExitRestore?.();
+    // SIGCONT 订阅收柄（41 轮件 III——挂起态直接终退的双杀险兜底：先退订再
+    // 终退，shell fg 恢复信号不再路由进已停 backend；shellSuspended 旗随终
+    // 退失义不须清位）
+    this.unsubSigcont?.();
+    this.unsubSigcont = null;
     this.io.pause();
     // 终退无条件复 raw 先验（挂起期不再复——换防恒 raw 律见 suspendMain 注；
     // 从挂起态直接终退亦须交还，条件位随换防批删除）
@@ -1796,6 +1850,58 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /* ---------------- 副屏装配面（批 10f-4 特性腿——件 8 /history；mm 批 /memory 并席） ---------------- */
+
+  /**
+   * 真挂起回 shell（挖掘 41 轮件 III——ctrl+z SIGTSTP 交终端给 shell；codex
+   * job_control 对标）：复用 suspendMain 换防底座（出屏 + 卸订 + 瞬时行转账 +
+   * 定时器全收 + 硬退钩换挂起档）+ 分立差异面（openExternalEditor 同法先例）：
+   * DECSTBM 复原（suspendMain 不写 margins——不清则挂起期 shell 输出受限滚动
+   * 区）→ drainInput 前排（raw 期连打字节排空——复 cooked 后不回灌 shell）→
+   * raw 复先验（交终端给 shell：换防恒 raw 律的例外射程，cooked 态 shell 自理
+   * 回显/作业控制）→ SIGCONT 先注册后自发 SIGTSTP（kill 阻塞即态——无持久
+   * suspended 布尔；self-pid 不轰进程组，exec 工具子进程续跑输出走管道不写
+   * tty，codex 组式 kill 的组语义差异留注）。挂起期 exit 由 armSuspendExitRestore
+   * 档兜底（raw(false) + DECSTBM 复原即终退编舞——恰合已出屏态）。
+   *
+   * async：drainInput 尾部 io.pause 后落（不 await 会留 swallow 双监听窗）；
+   * routeEvent fire-and-forget 调用。win32 早退（SIGTSTP 非 Windows 语义——
+   * 键消费不生效）；副屏期主 backend 输入订阅已卸 ctrl+z 天然不辖（Engine
+   * 独立键面——另件拍板残账）。
+   */
+  async suspendToShell(): Promise<void> {
+    if (this.processSignals.platform === 'win32') return;
+    if (!this.running || this.suspendedMain || this.shellSuspended) return; // 幂等 + 非运行/副屏态防御
+    this.suspendMain(); // 换防底座（LEAVE_MAIN 出屏 + 瞬时行转账 + 定时器收 + 挂起档 exit 钩）
+    // DECSTBM 复原 + 光标落底（stop 终退同款写——margins 清则 shell 输出全区滚动）
+    const { rows } = this.io.size();
+    this.io.write(SCROLL_REGION_RESET + cup(rows - 1, 0));
+    await this.drainInput(); // raw 期在途字节排空（挂起交出前排——终退 closer 同源舞）
+    this.io.setRawMode(this.priorRaw); // 交终端给 shell（例外射程——openExternalEditor 同款）
+    this.shellSuspended = true;
+    // SIGCONT 先注册后自杀（复起路由——单次消费旗 + 退订柄双保险）
+    this.unsubSigcont = this.processSignals.on('SIGCONT', () => void this.resumeFromShell());
+    this.processSignals.kill(this.processSignals.pid, 'SIGTSTP');
+  }
+
+  /**
+   * shell 复起（SIGCONT handler 入口——fg 作业恢复；codex resume 对标）：旗
+   * 守卫单次消费（shellSuspended 清 + SIGCONT 退订——codex resume_pending
+   * take 同义）→ drainInput 复排（挂起期 shell 回显/误击字节——tcflush 同
+   * 义）→ resumeMain 整复用（raw 先于 ENTER_MAIN 进屏序律 + 全帧重画几何真
+   * 值重取〔挂起期零 resize 事件、shell 全屏程序改过尺寸也吸收〕+ 瞬时行
+   * 补吐）。**无 CPR 探测**（codex 分立点）：codex 保 inline 视口需 ESC[6n
+   * 对位，berry 重画首写清屏+归位绝对锚（CLEAR_SCREEN 含归位），挂起期
+   * shell 输出滚入 scrollback、复起重画绝对重锚——探测零必要（decoder
+   * CSI R 显式吞现状保持）。async：drainInput pause 尾落（同 suspend 侧）。
+   */
+  private async resumeFromShell(): Promise<void> {
+    if (!this.shellSuspended) return; // 单次消费旗（迟到/双发防御）
+    this.shellSuspended = false;
+    this.unsubSigcont?.();
+    this.unsubSigcont = null;
+    await this.drainInput(); // 挂起期误击字节排空（不回灌 handleInput）
+    this.resumeMain(); // 换防底座对称复位（全帧重画含清屏——件 I purge 语义辖 repaint 一致）
+  }
 
   /**
    * 开副屏回看器（UiBackend 可选能力面实装——通道核 /history 命令到达扇出）：
@@ -3577,6 +3683,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.onQuit?.();
           return;
         }
+      }
+      // 真挂起（挖掘 41 轮件 III）：ctrl+z SIGTSTP 交终端给 shell——SIGCONT
+      // 复起（fire-and-forget 异步链，handler 内 resumeFromShell）。win32
+      // 键消费不生效（suspendToShell 平台守卫早退）；浮层在场不拦——挂起
+      // 编舞先出屏，复起重画浮层按行集重建（与 resize 同形）
+      if (this.keymap.actionMatches(ev, 'global.suspend')) {
+        void this.suspendToShell();
+        return;
       }
     }
     // 主屏 overlay 栈吃键即返——补帧对齐副屏路（mp-5 家族修同形）：SelectPanel

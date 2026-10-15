@@ -46,6 +46,11 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
   // keyText() 首键显示单源返回 escape（提示文案「按 ESC 取消对话」）。
   { id: 'global.interrupt', scope: 'global', label: '中断当前 run', keys: ['escape', 'ctrl+c'], overridable: false },
   { id: 'global.quit', scope: 'global', label: '退出（空框时）', keys: ['ctrl+d'], overridable: false },
+  // 真挂起（挖掘 41 轮件 III 增册至 39——ctrl+z SIGTSTP 交终端给 shell：
+  // 换防底座 + priorRaw 复原 + 自发 SIGTSTP，SIGCONT 单次消费驱动
+  // resumeMain；win32 早退键不生效——SIGTSTP 非 Windows 语义。不可覆盖
+  // 安全位族（与 interrupt/quit 同族——挂起是会话生命线交互））
+  { id: 'global.suspend', scope: 'global', label: '挂起回 shell（ctrl+z）', keys: ['ctrl+z'], overridable: false },
   // 模型循环（挂账解挂批 2026-09-15——ctrl+p 轮换会话模型；层③.5 应用动作路）
   {
     id: 'global.model-cycle',

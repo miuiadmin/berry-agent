@@ -23,7 +23,7 @@ import { join } from 'node:path';
 import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
 import { ansiColor, colorRgb, stringWidth } from '../../engine/index.js';
 import type { TodoItem } from '../../types.js';
-import { TuiBackend, wireForkEdit, type TuiBackendOptions } from './tui-backend.js';
+import { TuiBackend, wireForkEdit, type ProcessSignalsSeam, type TuiBackendOptions } from './tui-backend.js';
 import type { GitQuery, GitQueryResult } from '../status/branch-stats.js';
 import { LEADER_WINDOW_MS } from '../keys/leader.js';
 import { SELECTION_CAP_BYTES } from '../history/history-viewer.js';
@@ -7207,6 +7207,122 @@ describe('TuiBackend 外部编辑器（挖掘 31 轮 [9]——ctrl+g 挂起交�
     io.emitInput('\r');
     pump();
     expect(calls.submitted[0]?.[1]).toBe(body);
+  });
+});
+
+describe('TuiBackend 真挂起回 shell（挖掘 41 轮件 III——ctrl+z SIGTSTP / SIGCONT 复起）', () => {
+  /** 信号收账桩（MemoryTerminalIO 测试面零真进程纪律——externalEditor 桩同例） */
+  class MemorySignals implements ProcessSignalsSeam {
+    readonly kills: Array<[number, string]> = [];
+    private readonly contListeners: Array<() => void> = [];
+    readonly pid = 4242;
+    constructor(readonly platform: string = 'darwin') {}
+    kill(pid: number, signal: string): void {
+      this.kills.push([pid, signal]);
+      // 注入桩不阻塞（真进程此刻停在 SIGTSTP）——「挂起态」由测试显式
+      // emitCont()（shell fg 恢复）驱动复起路
+    }
+    on(signal: string, cb: () => void): () => void {
+      if (signal !== 'SIGCONT') return () => {};
+      this.contListeners.push(cb);
+      return () => {
+        const i = this.contListeners.indexOf(cb);
+        if (i >= 0) this.contListeners.splice(i, 1);
+      };
+    }
+    /** 测试注入：shell fg 恢复信号 */
+    emitCont(): void {
+      for (const cb of [...this.contListeners]) cb();
+    }
+  }
+
+  /** 挂起/复起链的 drainInput 闲窗驱动（advance + 双微任务排干——26 轮 drain 锁同法） */
+  const settle = async (clock: ReturnType<typeof makeInteractive>['clock']): Promise<void> => {
+    for (let elapsed = 0; elapsed < 2000; elapsed += 10) {
+      clock.advance(10);
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+  };
+
+  it('ctrl+z 挂起编舞：LEAVE_MAIN → DECSTBM 复原写 → 排空 → raw(priorRaw) → kill(SIGTSTP)（ops 交错序 + 修前红锚）', async () => {
+    const signals = new MemorySignals();
+    const { io, clock } = makeInteractive({ processSignals: signals });
+    io.reset();
+    io.emitInput('\x1a'); // ctrl+z（C0：0x1a = z-0x60）
+    await settle(clock);
+    // 修前红锚：改前 routeEvent 四层全不命中——ctrl+z 静默丢、kills 恒空
+    expect(signals.kills).toEqual([[signals.pid, 'SIGTSTP']]); // self-pid 自发恰一发
+    // ops 交错序：出屏写 → DECSTBM 复原写 → raw 复先验（排空与 pause/resume
+    // 不入 ops——write/raw 交错即编排真源）
+    expect(io.ops).toEqual(['write', 'write', 'raw:false']);
+    // 帧内容：帧0 出屏串 + 帧1 DECSTBM 复原 + 光标落底（stop 终退同款写）
+    expect(io.frames[0]).toContain('\x1b[<u'); // LEAVE_MAIN（kitty 弹栈）
+    expect(io.frames[1]).toContain('\x1b[r'); // SCROLL_REGION_RESET
+    // 挂起稳态流不悬 paused（drain 尾收平——冷读清偿 P3 生产坑锁）
+    expect(io.pauseCount).toBe(io.resumeCount);
+  });
+
+  it('SIGCONT 复起：raw(true) 先于进屏写（进屏序律）+ 清屏重画 + 输入路回归 + 单次消费', async () => {
+    const signals = new MemorySignals();
+    const { io, clock } = makeInteractive({ processSignals: signals });
+    io.emitInput('\x1a');
+    await settle(clock);
+    expect(signals.kills).toHaveLength(1); // 挂起态在场
+    io.reset(); // 复起段独立收账
+    signals.emitCont(); // shell fg 恢复（SIGCONT）
+    await settle(clock);
+    // 进屏序律（resumeMain 注同源）：raw 先于 ENTER_MAIN 写出——应答不落
+    // 内核 ECHO 窗；ops 首位 raw:true、其后的 write 才是进屏串
+    expect(io.ops[0]).toBe('raw:true');
+    expect(io.ops.indexOf('raw:true')).toBeLessThan(io.ops.indexOf('write'));
+    expect(io.bytes).toContain('\x1b[?2004h'); // ENTER_MAIN（粘贴开——进屏族）
+    // 全帧重画含清屏（挂起期 shell 输出滚 scrollback、复起绝对重锚）
+    expect(io.bytes).toContain('\x1b[2J\x1b[H');
+    // 输入路回归：复起后键入进稿（处理器重装证）
+    io.emitInput('hi');
+    clock.advance(1);
+    expect(io.bytes).toContain('hi');
+    // 终态放流恰一次（pause/resume 对称 + 复起 resumeMain 放流——不留 paused）
+    expect(io.resumeCount).toBe(io.pauseCount + 1);
+    // 单次消费：迟到/二次 SIGCONT 零动作（旗守卫——frames 冻结）
+    const frames = io.frames.length;
+    signals.emitCont();
+    clock.advance(1);
+    expect(io.frames.length).toBe(frames);
+    expect(signals.kills).toHaveLength(1); // 复起不再自发信号
+  });
+
+  it('win32 守卫：ctrl+z 零挂起编舞零 kill（SIGTSTP 非 Windows 语义——键消费不生效）', async () => {
+    const signals = new MemorySignals('win32');
+    const { io, clock } = makeInteractive({ processSignals: signals });
+    const rawTail = io.rawModeHistory.length;
+    io.reset();
+    io.emitInput('\x1a');
+    await settle(clock);
+    expect(signals.kills).toEqual([]);
+    // 挂起编舞特征整体缺席（键触发的常规 UI 帧〔escape 窗/固定区帧〕合法
+    // 在场不在此断——只锁出屏/raw 翻转/DECSTBM 三特征）
+    expect(io.bytes).not.toContain('\x1b[<u'); // 无 LEAVE_MAIN（kitty 弹栈）
+    expect(io.bytes).not.toContain('\x1b[r'); // 无 DECSTBM 复原
+    expect(io.rawModeHistory.slice(rawTail)).toEqual([]); // 无 raw 翻转
+    // 键透传编辑器形（ctrl+z 非编辑器绑定 → 终局丢弃）——零状态残留
+    io.emitInput('x');
+    clock.advance(1);
+    expect(io.bytes).toContain('x'); // 后续键入照常
+  });
+
+  it('挂起态直接 stop 终退：SIGCONT 订阅收柄（双杀险兜底）——fg 恢复信号零路由', async () => {
+    const signals = new MemorySignals();
+    const { io, backend, clock } = makeInteractive({ processSignals: signals });
+    io.emitInput('\x1a');
+    await settle(clock);
+    expect(signals.kills).toHaveLength(1);
+    backend.stop(); // 挂起态终退（shell 下 kill berry 形）——先退订再终退
+    io.reset();
+    signals.emitCont(); // 迟到 fg 恢复——已退订零路由
+    await settle(clock);
+    expect(io.ops).toEqual([]); // 复起编舞零触发（已停 backend 不再写屏）
   });
 });
 
