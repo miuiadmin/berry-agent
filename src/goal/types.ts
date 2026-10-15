@@ -207,3 +207,24 @@ export interface WakeDecision {
   /** 裁决后的 goal 行快照（停滞硬停等带内状态变化回读面） */
   readonly goal: GoalRow;
 }
+
+/**
+ * goal 持续态相位（件 G——TUI 呈现判据单源）：running = 正常（含挂钟行
+ * 迟到窗 fail-open 与预算唤醒在飞窗）；budget-paused = 预算停靠
+ * （parkedForBudget 在册）；stalled = 挂钟行停摆（停滞硬停 / 唤醒路尽——
+ * jobEnabled === false）。
+ */
+export type GoalRuntimePhase = 'running' | 'budget-paused' | 'stalled';
+
+/**
+ * goal 持续态快照行（件 G——宿主 TUI 供数）：budgetUsed 口径同 goal list
+ * 预算式（本会话条数 + 后台代跑折叠条数）；budgetCap null = 无帽（呈现层
+ * 预算段缺席——无段不显律）。
+ */
+export interface GoalRuntimeStatus {
+  readonly id: string;
+  readonly objective: string;
+  readonly phase: GoalRuntimePhase;
+  readonly budgetUsed: number;
+  readonly budgetCap: number | null;
+}

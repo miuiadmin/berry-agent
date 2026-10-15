@@ -1647,6 +1647,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         running: () => jobRows.running(),
         list: () => jobRows.list(),
       },
+      // goal 持续态供数（件 G——footer 态词 + JobPanel goal 段同源单闭包；
+      // runtimeStatuses 读面 = goal list 同一投影第八法；goal 件缺席 = 诚实
+      // 缺席，两呈现位零扰动——jobsSource 同判位形）
+      ...(goalFace !== undefined ? { goalStatus: () => goalFace.service.runtimeStatuses() } : {}),
       // 排队常驻面板数据源（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向接
       // 线排队常驻面板翻档注）：driver 只读队列观察 peekWaiting 直投（预览
       // 串折叠在驱动侧单源——本层零折叠知识）；会话未开 = null（面板退场，

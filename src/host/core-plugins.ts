@@ -1535,17 +1535,29 @@ export function startSchedulerClock(
 
 /**
  * 'goal' 服务面 service 腿宿主投影形（03 §10.5 s 批补注②——provide 投影律）：
- * 宿主消费面白名单七法（六法 + list——2026-10-01 A-6 扩键，消费位见下注）。
- * 写动词（approve/activate/complete/abandon/park 族）
- * **不进投影**——人面命令（/goal）与模型工具（goal_update/todo）在 goal 件
- * 内闭包消费全量 GoalService（danger 件 dangerFace 从不 provide 先例同律）。
+ * 宿主消费面白名单八法（六法 + list + runtimeStatuses——2026-10-01 A-6 扩键、
+ * 2026-10-16 件 G 扩键，消费位见下注）。写动词（approve/activate/complete/
+ * abandon/park 族）**不进投影**——人面命令（/goal）与模型工具
+ * （goal_update/todo）在 goal 件内闭包消费全量 GoalService（danger 件
+ * dangerFace 从不 provide 先例同律）。runtimeStatuses = 宿主 TUI goal 持续态
+ * 供数（件 G——footer 态词 + JobPanel goal 段；读动词进投影）。唤醒编舞
+ * markWakeInFlight/clearWakeInFlight 两编排法不进投影——core-plugins 唤醒链
+ * 持 service 真身直调（unparkForBudget 域同律）。
  */
 // （'list' 消费位 = 宿主 TUI /goal show|wake|approve|abandon 尾参 goal id
 // 活体补全——tui-entry goalRows 注入经 scope 'goal' 面取；wf_3c8b00b8 A-6
-// 扩键 + abandon 开面批随迁）
+// 扩键 + abandon 开面批随迁；'runtimeStatuses' 消费位 = tui-entry goalStatus
+// 注入〔件 G〕）
 export type GoalHostServiceFace = Pick<
   GoalService,
-  'wake' | 'goalScopeFor' | 'depositFor' | 'recordTurn' | 'attachGoalJobsFace' | 'detachGoalJobsFace' | 'list'
+  | 'wake'
+  | 'goalScopeFor'
+  | 'depositFor'
+  | 'recordTurn'
+  | 'attachGoalJobsFace'
+  | 'detachGoalJobsFace'
+  | 'list'
+  | 'runtimeStatuses'
 >;
 
 /**
@@ -1793,6 +1805,10 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         }
         service.unparkForBudget(goalId); // service 侧登记同笔摘（再停靠时复登记）
         if (stack === undefined) return; // 测试替身形无提交面——durable 停靠在，人工道 /goal wake
+        // 唤醒在飞位（件 G）：unpark 已摘停靠登记、挂钟行仍停摆——submit 窗
+        // （可达数分钟）内相位判据须 running 非 stalled（编舞直调不进投影
+        // 白名单——unparkForBudget 域同律）；收口三路 clear + reviveClock 自清
+        service.markWakeInFlight(goalId);
         // 车道随起跑方声明位单源（04 §5 机器注入轮枚举扩——第四役）：goal 挂钟
         // 唤醒轮（budget-extended 广播）是机器注入轮，submit 恒置 backgroundLane
         // ——桥接 llm/usage 记账进后台日池（修前恒 foreground，日池对 goal 唤醒
@@ -1810,6 +1826,8 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
           // paused 词幂等 append + 内存登记复入），广播 entry 复挂待下一电平
           // 翻真再唤醒。生产 appendPaused 真身幂等开驱动（assembly
           // goalSession 位）——下一轮唤醒即有驱动可 submit，自愈收敛不空转。
+          // 件 G：在飞位先清——重落失败形相位呈现 stalled 须以清位为前提
+          service.clearWakeInFlight(goalId);
           void parkGoalForBudget(goalId).catch((err: unknown) => {
             warn(
               `[goal] 自动唤醒后重新停靠失败（人工道 /goal wake 仍在）：${err instanceof Error ? err.message : String(err)}`,
@@ -1829,12 +1847,14 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
             // 挂钟行保持 disabled + 摘登记 + warn 人工路径（issue 面同律）
             if (receipt.status === 'wake-refused') {
               service.unparkForBudget(goalId);
+              service.clearWakeInFlight(goalId); // 件 G：唤醒路尽——stalled 呈现即此语义
               // F1 收编：直写改走件内 warn 出口（logger + notify 双发——自动唤醒
               // 路尽语义不变，只换呈现路）
               warn(`[goal] 连续后台唤醒达上限（连续 3 次）：goal「${goalId}」停自动唤醒——/goal wake 手动复位或提额`);
               return;
             }
-            // 正常收口：复活挂钟行（下轮 due 经 §12 唤醒判定链自然重入）
+            // 正常收口：复活挂钟行（下轮 due 经 §12 唤醒判定链自然重入）；
+            // reviveClock 内部自清在飞位（件 G——清之防残位）
             await service.reviveClock(goalId);
           })
           .catch((err: unknown) => {
@@ -1843,6 +1863,7 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
             // 崩溃编舞 exit(1) 杀整个 daemon（在飞会话连坐——坏词形每次预算
             // 唤醒都崩）。warn 走件内 warn 出口（logger + notify 双发——停靠
             // 已摘，人工道 /goal wake 同唤醒失败形）
+            service.clearWakeInFlight(goalId); // 件 G：唤醒链拒绝——同 stalled 语义
             warn(`[goal] 广播唤醒轮失败：${err instanceof Error ? err.message : String(err)}`);
           });
       };
@@ -1983,7 +2004,7 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
       });
 
       // provide 投影律（03 §10.5 s 批补注②——danger 先例同律）：service 腿按
-      // 宿主消费面白名单运行时投影（七法——非仅类型收窄）；写动词
+      // 宿主消费面白名单运行时投影（八法——非仅类型收窄）；写动词
       // （approve/activate/complete/abandon/park 族）不进投影——人面 /goal 与
       // 模型工具 goal_update/todo 在本件闭包消费全量 service，插件道 tryGet
       // 只见投影（写动词的插件可连性就此闭合——ΔA⇏ΔC 判据面执法）
@@ -1996,6 +2017,8 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         detachGoalJobsFace: () => service.detachGoalJobsFace(),
         // 读动词（goal id 活体补全消费位——A-6；写动词仍不进投影执法面不变）
         list: () => service.list(),
+        // 读动词（件 G——宿主 TUI goal 持续态供数：tui-entry goalStatus 注入取面）
+        runtimeStatuses: () => service.runtimeStatuses(),
       };
       context.provide('goal', {
         service: hostServiceFace,

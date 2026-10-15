@@ -37,11 +37,39 @@ const KIND_MARKS: Readonly<Record<JobKind, string>> = Object.freeze({
 });
 
 /**
+ * goal 面板行载荷（件 G——挖掘 45 轮：host 装配从 goal 域注入；与 host 侧
+ * GoalRuntimeStatus 结构兼容的独立声明——词面独立律，channels 零业务
+ * import，GoalJobsFace 两席窄面先例同律）。budgetCap null = 无帽（预算段
+ * 缺席——无段不显律，retry 零重试同律）。
+ */
+export interface GoalPanelRow {
+  readonly id: string;
+  readonly objective: string;
+  /** 三相：running 运行 / budget-paused 预算暂停 / stalled 停滞暂停 */
+  readonly phase: 'running' | 'budget-paused' | 'stalled';
+  /** 预算已用（本会话条数 + 后台代跑折叠条数——goal list 预算式同口径） */
+  readonly budgetUsed: number;
+  readonly budgetCap: number | null;
+}
+
+/** goal 段帽（持续背景态非活活动——帽 2 溢出指路 goal 命令，job 段帽 5 分职） */
+const GOAL_MAX_ROWS = 2;
+
+/** goal 相位记号（◇ 运行相——领域记号另册不入 job kind ◆■○ 集；⏸ 暂停两相同符——符号册预算停靠保留位兑现） */
+const GOAL_MARKS: Readonly<Record<GoalPanelRow['phase'], string>> = Object.freeze({
+  running: '◇',
+  'budget-paused': '⏸',
+  stalled: '⏸',
+});
+
+/**
  * 后台任务面板：running 快照 → 固定区行段（清板即零行——布局自洽）。
  * 光标态（批6 问题②）：激活后 › 记 + accent 在选行；行集收缩时夹取。
  */
 export class JobPanel implements Renderable {
   private entries: readonly JobEntry[] = [];
+  /** goal 持续段行集（件 G——帧首供给整体替换，与 job entries 分立两供给面） */
+  private goalRows: readonly GoalPanelRow[] = [];
   /** 本地钟（时长计算基准——注入位测试确定性，件内零自驱时钟） */
   private readonly now: () => number;
   /** 光标位（null = 光标态未激活——alt+↑/↓ 首按激活置 0） */
@@ -73,10 +101,26 @@ export class JobPanel implements Renderable {
     this.clampCursor();
   }
 
-  /** 量高：清板 0；帽内行数 + 溢出行（溢出行 dim 收尾） */
+  /**
+   * goal 持续段帧首供给（件 G——update 同族整体替换；null/undefined/空表同义
+   * 清段）。**光标域不动**——clampCursor 只辖 job entries，goal 行不入光标域
+   * （呈现投影非可操作实体）。
+   */
+  updateGoals(rows: readonly GoalPanelRow[] | null | undefined): void {
+    this.goalRows = rows ?? [];
+  }
+
+  /** 量高：jobs 段（清板 0；帽内行数 + 溢出行）+ goal 段（帽 2 + 溢出行） */
   measure(_width: number): number {
-    if (this.entries.length === 0) return 0;
-    return Math.min(this.entries.length, MAX_ROWS) + (this.entries.length > MAX_ROWS ? 1 : 0);
+    const jobsHeight =
+      this.entries.length === 0
+        ? 0
+        : Math.min(this.entries.length, MAX_ROWS) + (this.entries.length > MAX_ROWS ? 1 : 0);
+    const goalsHeight =
+      this.goalRows.length === 0
+        ? 0
+        : Math.min(this.goalRows.length, GOAL_MAX_ROWS) + (this.goalRows.length > GOAL_MAX_ROWS ? 1 : 0);
+    return jobsHeight + goalsHeight;
   }
 
   /** 行集在场观测（键路由消费——空段不劫 alt+↑/↓，编辑器既有键零让位） */
@@ -120,9 +164,11 @@ export class JobPanel implements Renderable {
     return true;
   }
 
-  /** 落位：每行 `{图标} {名} · {时长}[ · 重试 ×N]`（光标期在选行 › 记 + accent）；溢出行收尾 */
+  /** 落位：job 段每行 `{图标} {名} · {时长}[ · 重试 ×N]`（光标期在选行 › 记 + accent）+ 溢出行；goal 段 `{记号} 目标 {名} · 预算 {used}/{cap}[ · 暂停尾词]` 殿后 */
   render(buffer: CellBuffer, region: Region): void {
-    if (region.height <= 0 || this.entries.length === 0) return;
+    // 早退闸（件 G 松改）：两段行集全空才整帧退——jobs 空而 goals 在场时
+    // goal 段仍渲染（修前闸只判 entries 会把该形整帧吞掉）
+    if (region.height <= 0 || (this.entries.length === 0 && this.goalRows.length === 0)) return;
     // 段内夹取（todo-panel 同律）：分配到的段高可低于 measure 原值（低段
     // 「缩」形）——可见行数按段高容量收，Renderable 契约只写自己区域内。
     // 段高压缩到与可见数同高时让出一行给溢出行（诚实指路优于多看一行——
@@ -159,11 +205,39 @@ export class JobPanel implements Renderable {
     });
     // 溢出行对截断几何诚实：+ N 更多 = 帽/段高外未显行数（指路 /jobs 全量）；
     // ellipsize 收口（条目行同律——窄窗裸直写硬截断无省略号）
+    let used = visibleCount;
     if (overflow > 0) {
       buffer.writeText(
-        region.row + visibleCount,
+        region.row + used,
         region.col,
         ellipsize(`+ ${overflow} 更多 · /jobs 查看`, region.width),
+        DIM_STYLE,
+      );
+      used += 1;
+    }
+    // goal 持续段殿后（件 G）：jobs 段完整在前（活活动先、持续背景后——光标
+    // 域连续性不被 goal 行打断）；goal 行不入光标域（恒零光标列，selected 恒
+    // 假）。低段高挤压同 jobs 段律：段高与可见数同高时让一行给溢出行。
+    let goalUsed = region.height - used;
+    if (goalUsed <= 0) return;
+    let goalVisible = Math.min(this.goalRows.length, GOAL_MAX_ROWS, goalUsed);
+    const goalOverflow = this.goalRows.length - goalVisible;
+    if (goalOverflow > 0 && goalVisible === goalUsed) {
+      goalVisible -= 1;
+    }
+    for (const goal of this.goalRows.slice(0, goalVisible)) {
+      // 预算段（无帽缺席——无段不显律）+ 暂停相尾词（运行相无尾词）
+      const budgetSeg = goal.budgetCap !== null ? ` · 预算 ${goal.budgetUsed}/${goal.budgetCap}` : '';
+      const pauseSeg = goal.phase === 'budget-paused' ? ' · 预算暂停' : goal.phase === 'stalled' ? ' · 停滞暂停' : '';
+      const content = ellipsize(`目标 ${goal.objective}${budgetSeg}${pauseSeg}`, region.width - 2);
+      buffer.writeText(region.row + used, region.col, `${GOAL_MARKS[goal.phase]} ${content}`);
+      used += 1;
+    }
+    if (goalOverflow > 0) {
+      buffer.writeText(
+        region.row + used,
+        region.col,
+        ellipsize(`+ ${goalOverflow} 目标 · /goal 查看`, region.width),
         DIM_STYLE,
       );
     }

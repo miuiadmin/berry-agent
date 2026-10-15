@@ -968,3 +968,90 @@ describe('reparkForBoot（L4-1 boot 重挂登记——04 §5 停靠登记 daemon
     expectCodeSync(() => service.reparkForBoot('ghost'), 'GOAL_NOT_FOUND');
   });
 });
+
+describe('runtimeStatuses（件 G——持续态快照读面：三相判据 + 帧读缓存 + 唤醒窗修复）', () => {
+  it('运行相判据——无停靠且挂钟行启用返 running；objective 与预算字段透传', async () => {
+    const { service, face } = openService();
+    await service.attachGoalJobsFace(face); // register 建行翻 jobEnabled true
+    const goal = await service.activate({
+      sessionId: 's1',
+      objective: '修 README',
+      schedule: 'x',
+      budgetMessagesCap: 10,
+    });
+    service.recordTurn(goal.id); // 本会话条数 1
+    expect(service.runtimeStatuses()).toEqual([
+      { id: goal.id, objective: '修 README', phase: 'running', budgetUsed: 1, budgetCap: 10 },
+    ]);
+  });
+
+  it('预算停靠相——parkForBudget 后即 budget-paused（停靠判据先于挂钟行停摆判据）', async () => {
+    const { service, face } = openService();
+    await service.attachGoalJobsFace(face);
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x', budgetMessagesCap: 3 });
+    await service.parkForBudget(goal.id); // disable 落 + 停靠登记
+    expect(service.runtimeStatuses()[0]).toMatchObject({ id: goal.id, phase: 'budget-paused' });
+  });
+
+  it('停滞相——挂钟行停摆返 stalled（jobsFace 桩 disable 后；无停靠登记形）', async () => {
+    const { service, face } = openService();
+    await service.attachGoalJobsFace(face);
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    await face.disable(goal.id); // 停滞硬停等价形——挂钟行翻停摆
+    expect(service.runtimeStatuses()[0]).toMatchObject({ id: goal.id, phase: 'stalled' });
+  });
+
+  it('终态退场——completed 与 abandoned 行不进清单；建行与终态清账同拍失效缓存', async () => {
+    const { service, session } = openService({
+      statMap: { '/ws/out.txt': { exists: true, size: 10 } },
+    });
+    const a = await service.activate({ sessionId: 's1', objective: '写文档', schedule: 'x' });
+    expect(service.runtimeStatuses()).toHaveLength(1); // 预热缓存
+    session.push('s1', 'todo/write', {
+      items: [{ status: 'completed', content: '产出', noFollowUp: true, gate: { kind: 'files', paths: ['out.txt'] } }],
+    });
+    await service.complete(a.id, '已产出');
+    expect(service.runtimeStatuses()).toEqual([]); // 终态清账失效缓存（非陈旧 [a]）
+    const b = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    expect(service.runtimeStatuses()).toHaveLength(1); // 建行同拍失效（缓存热下新行即现）
+    await service.abandon(b.id, '不要了');
+    expect(service.runtimeStatuses()).toEqual([]);
+  });
+
+  it('无帽形——budgetCap null 透传；used 口径含后台代跑折叠（本会话 + 折叠同遍和）', async () => {
+    const { service } = openService();
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' }); // 无帽
+    expect(service.runtimeStatuses()[0]).toMatchObject({ budgetUsed: 0, budgetCap: null }); // 预热缓存
+    service.recordTurn(goal.id); // 本会话条数 1
+    expect(service.runtimeStatuses()[0]).toMatchObject({ budgetUsed: 1, budgetCap: null }); // 记账失效缓存
+    service.foldDelegation(goal.id, 2); // 后台代跑折叠 2
+    expect(service.runtimeStatuses()[0]).toMatchObject({ budgetUsed: 3, budgetCap: null }); // 折叠腿同拍失效
+  });
+
+  it('缓存失效与唤醒窗修复全链——停靠相、在飞位 running、清位 stalled、reviveClock 复位 running', async () => {
+    const { service, face } = openService();
+    await service.attachGoalJobsFace(face);
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    expect(service.runtimeStatuses()[0]).toMatchObject({ phase: 'running' }); // 挂钟行启用
+    await service.parkForBudget(goal.id); // 停靠：disable 落 + 登记翻真
+    expect(service.runtimeStatuses()[0]).toMatchObject({ phase: 'budget-paused' });
+    // 件侧唤醒编舞镜像（core-plugins budget-extended 路）：摘登记 → 标在飞 →
+    // submit 窗（可达数分钟）→ 收口清位 + reviveClock
+    service.unparkForBudget(goal.id);
+    service.markWakeInFlight(goal.id);
+    // 唤醒窗修复锁：窗内停靠不在册 + 挂钟行 disabled——无在飞位则判据③误中
+    // stalled；在飞位使 ② 先中 running（挂钟行 disabled 是「下轮不响」事实，
+    // 非「goal 没在跑」）
+    expect(service.runtimeStatuses()[0]).toMatchObject({ phase: 'running' });
+    service.clearWakeInFlight(goal.id);
+    expect(service.runtimeStatuses()[0]).toMatchObject({ phase: 'stalled' }); // 唤醒路尽形（wake-refused 同语义）
+    await service.reviveClock(goal.id); // enable 落 + 内部自清在飞位
+    expect(service.runtimeStatuses()[0]).toMatchObject({ phase: 'running' }); // 判据④同果——bust 链锁
+  });
+
+  it('挂钟行迟到窗 fail-open——face 未 attach 时返 running（无行不冒充停摆）', async () => {
+    const { service } = openService(); // 不 attach——jobEnabled 无键 = 无挂钟行
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    expect(service.runtimeStatuses()[0]).toMatchObject({ id: goal.id, phase: 'running' });
+  });
+});

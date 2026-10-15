@@ -122,6 +122,16 @@ function fakeService(
     async reviveClock() {
       /* 测试不触 */
     },
+    runtimeStatuses() {
+      // 件 G 持续态读面——命令面零消费，桩占位（测试不触）
+      return [];
+    },
+    markWakeInFlight() {
+      /* 测试不触 */
+    },
+    clearWakeInFlight() {
+      /* 测试不触 */
+    },
     goalScopeFor(sessionId) {
       const active = rows.find((r) => r.sessionId === sessionId && r.status === 'active');
       return active === undefined ? undefined : { goalId: active.id, activatedSeq: active.activatedSeq };

@@ -22,6 +22,8 @@ import { foldGoalTodos, openGoalItems, progressFingerprint } from './fold.js';
 import { evaluateGoalGates, type GoalGateDeps } from './gates.js';
 import type {
   CommandGateStatus,
+  GoalRuntimePhase,
+  GoalRuntimeStatus,
   GoalRow,
   GoalSessionFace,
   GoalSummarizerFace,
@@ -166,6 +168,22 @@ export interface GoalService {
    * 复活，不复位计数不落 wake 归因）。
    */
   reviveClock(goalId: string): Promise<void>;
+  /**
+   * goal 持续态快照（件 G——宿主 TUI 供数；读动词）。仅 active 行；相位判据
+   * 单源 phaseOf：预算停靠在册 → budget-paused；唤醒在飞 → running（预算
+   * 唤醒窗修复）；挂钟行停摆 → stalled；余形 running（jobsFace 迟到窗
+   * fail-open——boot 扫描 reparkForBoot 先于 attach 时停靠判据先行，不失真）。
+   * 帧读缓存（SQL 不进渲染帧）；写路同拍 bust（清单见 bustRuntimeCache 注）。
+   */
+  runtimeStatuses(): readonly GoalRuntimeStatus[];
+  /**
+   * 唤醒在飞登记（件 G——预算唤醒窗编舞直调，不进宿主投影白名单）：
+   * core-plugins budget-extended 唤醒路 submit 前标位、收口清位——窗内
+   * 停靠不在册 + 挂钟行停摆，无此位 phaseOf 误判 stalled。幂等。
+   */
+  markWakeInFlight(goalId: string): void;
+  /** 唤醒在飞登记摘除（件 G——markWakeInFlight 对称面；幂等） */
+  clearWakeInFlight(goalId: string): void;
   /**
    * 轮间沉淀读面（04 §3.7——批 #99 驱动 goalDeposit 供给）：同步返回缓存
    * 文本（缓存冷 = 确定性回退立即承载），指纹变化时后台单发刷新（fire-
@@ -399,6 +417,15 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
   const depositInFlight = new Set<string>();
   /** 预算停靠登记（u-3——04 §5 定形注③：parkForBudget 幂等判据 + 件侧唤醒收口现判面；进程内存位——durable 事实由挂钟行 disabled + 会话词承载，daemon 猝死后冷启动经挂钟停摆自然呈现） */
   const parkedForBudget = new Set<string>();
+  /**
+   * 唤醒在飞登记（件 G——预算唤醒窗相位修复）：unpark → submit → 收口窗
+   * （可达数分钟）内停靠不在册 + 挂钟行停摆，无此位 phaseOf 误判 stalled
+   * （挂钟行停摆是「下轮不响」事实非「goal 没在跑」）。编舞 core-plugins
+   * 持 service 真身直调 mark/clear；reviveClock 收口自清。
+   */
+  const wakeInFlight = new Set<string>();
+  /** 持续态快照帧读缓存（件 G——SQL 不进渲染帧；写路同拍 bust） */
+  let runtimeStatusCache: readonly GoalRuntimeStatus[] | null = null;
 
   /**
    * 终态回调（五篇研究批 A——06 §4 第三腿）：complete/abandon 迁移落库后
@@ -454,6 +481,33 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
     return { allowed: true, reason: 'ok' as const };
   };
 
+  /**
+   * 持续态缓存失效（件 G——写路同拍 bust）。bust 点真源清单（新写路必随加）：
+   * activate（建行/回卷撤行）、resume（重锚+复活挂钟）、complete/abandon
+   * （终态清账）、wake manual 道（摘停靠+复活挂钟）与停滞硬停道（停摆挂钟）、
+   * recordTurn/foldDelegation（used 变位）、parkForBudget/unparkForBudget/
+   * reparkForBoot（停靠登记三面）、reviveClock（复活+自清在飞位）、
+   * markWakeInFlight/clearWakeInFlight（在飞位两面）、detachGoalJobsFace
+   * （③ 判据读面整体撤位）。
+   */
+  const bustRuntimeCache = (): void => {
+    runtimeStatusCache = null;
+  };
+
+  /**
+   * 三相判据单源（件 G——测试直锚，判据只此一函数）。判据序：① 停靠在册 →
+   * budget-paused；② 唤醒在飞 → running（预算唤醒轮在飞——窗内挂钟行停摆
+   * 是「下轮不响」事实非「goal 没在跑」）；③ 挂钟行停摆 → stalled（停滞
+   * 硬停/唤醒路尽——jobEnabled === false）；④ running（face 缺席/无行 =
+   * 迟到窗 fail-open，不冒充停摆）。
+   */
+  const phaseOf = (id: string): GoalRuntimePhase => {
+    if (parkedForBudget.has(id)) return 'budget-paused';
+    if (wakeInFlight.has(id)) return 'running';
+    if (jobsFace?.jobEnabled(id) === false) return 'stalled';
+    return 'running';
+  };
+
   const service: GoalService = {
     async activate(req) {
       const bytes = Buffer.byteLength(req.objective, 'utf8');
@@ -493,10 +547,12 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         endingNote: null,
       };
       dao.insert(goal);
+      bustRuntimeCache(); // 件 G 持续态缓存失效（建行）
       try {
         await registerClock(goal);
       } catch (err) {
         dao.remove(goal.id); // 注册失败回卷建行（不半态——goal 行与挂钟行同笔生死）
+        bustRuntimeCache(); // 件 G 持续态缓存失效（回卷撤行）
         throw err;
       }
       return dao.get(goal.id)!;
@@ -531,7 +587,9 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         },
         now(),
       );
+      bustRuntimeCache(); // 件 G 持续态缓存失效（重锚）
       await jobsFace?.enable(goalId); // 复活挂钟（停滞硬停后 resume 同律）
+      bustRuntimeCache(); // 件 G 持续态缓存失效（挂钟行复活——③ 判据翻转）
       return dao.get(goalId)!;
     },
 
@@ -587,7 +645,9 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       }
       dao.update(goalId, { status: 'completed', endedAt: now(), endingNote: evidence }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
+      wakeInFlight.delete(goalId); // 终态清在飞位（件 G——死键不驻留，防残位）
       clearDepositEntries(goalId); // 终态清沉淀缓存与在飞位（sweep10 laneE 件4——死键不驻留）
+      bustRuntimeCache(); // 件 G 持续态缓存失效（终态退场）
       // 终态同笔停摆（行留史）——防御吞（第三腿同律：迁移已落库，停摆腿炸
       // 不回滚终态不阻第三腿，warn 留痕人工收口）
       try {
@@ -607,7 +667,9 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       }
       dao.update(goalId, { status: 'abandoned', endedAt: now(), endingNote: reason ?? 'abandoned' }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
+      wakeInFlight.delete(goalId); // 终态清在飞位（件 G——死键不驻留，防残位）
       clearDepositEntries(goalId); // 终态清沉淀缓存与在飞位（sweep10 laneE 件4——死键不驻留）
+      bustRuntimeCache(); // 件 G 持续态缓存失效（终态退场）
       // 终态同笔摘钟（03 §10.5 第十一轮收官呈拍批定形②——GoalJobsFace.remove
       // 生产消费位首次接线）：abandon 删挂钟行而非 disable 停摆——放弃态无复活
       // 语义（enable 复活链只辖停滞硬停/停靠-唤醒两态，终态复活无门系本件
@@ -655,6 +717,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
             `goal 手动唤醒定时恢复失败（防御吞——唤醒已落库）：${error instanceof Error ? error.message : String(error)}`,
           );
         }
+        bustRuntimeCache(); // 件 G 持续态缓存失效（摘停靠 + 挂钟行复活——成功/吞炸两路同拍）
         dao.insertWake(goalId, now(), 'manual', opts.attribution, fingerprint, progressed);
         const fresh = dao.get(goalId)!;
         return { landed: true, reason: 'ok', message: `手动唤醒已执行（无进展计数已清零）`, goal: fresh };
@@ -680,6 +743,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
             `goal 停滞硬停定时暂停失败（防御吞——停滞计数已落库）：${error instanceof Error ? error.message : String(error)}`,
           );
         }
+        bustRuntimeCache(); // 件 G 持续态缓存失效（停滞硬停——③ 判据翻转 stalled）
         warn(`[goal] 停滞硬停：goal「${goalId}」连续 ${stallStreak} 轮唤醒无进展——定时已暂停（/goal wake 可复位重跑）`);
         return {
           landed: false,
@@ -744,6 +808,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       // 窗扫供给；缺省 1 兼容旧单笔调用形）
       const used = row.budgetMessagesUsed + Math.max(1, Math.floor(opts?.messages ?? 1));
       dao.update(goalId, { budgetMessagesUsed: used, ...(opts?.userInitiated ? { wakeStreak: 0 } : {}) }, now());
+      bustRuntimeCache(); // 件 G 持续态缓存失效（used 变位）
       const folded = row.budgetFoldedUnits;
       return {
         braked: row.budgetMessagesCap !== null && used + folded >= row.budgetMessagesCap,
@@ -756,6 +821,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       const row = dao.get(goalId);
       if (!row) throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在（foldDelegation 幽灵 id 零行守卫）`);
       dao.update(goalId, { budgetFoldedUnits: row.budgetFoldedUnits + Math.max(0, Math.floor(units)) }, now());
+      bustRuntimeCache(); // 件 G 持续态缓存失效（used 变位——折叠腿）
     },
 
     budgetExceeded(goalId) {
@@ -772,6 +838,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       // 幂等判据：已停靠 no-op（复验/记账/池检三触发位竞速时首笔落全、余笔蒸发）
       if (parkedForBudget.has(goalId)) return true;
       parkedForBudget.add(goalId);
+      bustRuntimeCache(); // 件 G 持续态缓存失效（停靠登记翻真——① 判据先行）
       // 挂钟行 disable（起停载体——行留史、广播恢复时 enable 复活；无行 = 静默
       // no-op 既有律）。防御吞（C6 同族）：停靠登记已落，disable 炸吞 warn 后
       // 落词照走（半停靠不回滚——广播唤醒道与 /goal wake 人工道皆可收口）。
@@ -796,6 +863,33 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
 
     unparkForBudget(goalId) {
       parkedForBudget.delete(goalId);
+      bustRuntimeCache(); // 件 G 持续态缓存失效（停靠摘除）
+    },
+
+    runtimeStatuses() {
+      // 帧读缓存（件 G——SQL 不进渲染帧；写路同拍 bust 见 bustRuntimeCache 注）
+      if (runtimeStatusCache !== null) return runtimeStatusCache;
+      runtimeStatusCache = dao
+        .list()
+        .filter((row) => row.status === 'active')
+        .map((row) => ({
+          id: row.id,
+          objective: row.objective,
+          phase: phaseOf(row.id),
+          budgetUsed: row.budgetMessagesUsed + row.budgetFoldedUnits,
+          budgetCap: row.budgetMessagesCap,
+        }));
+      return runtimeStatusCache;
+    },
+
+    markWakeInFlight(goalId) {
+      wakeInFlight.add(goalId); // 幂等（Set 复加同果）
+      bustRuntimeCache(); // 件 G 持续态缓存失效（在飞位翻真）
+    },
+
+    clearWakeInFlight(goalId) {
+      wakeInFlight.delete(goalId); // 幂等（缺席删同果）
+      bustRuntimeCache(); // 件 G 持续态缓存失效（在飞位摘除）
     },
 
     reparkForBoot(goalId) {
@@ -811,6 +905,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       // 不 disable（三级判据已验挂钟行 enabled=0；重复 disable 为无害但按
       // 「不重复落词不重复 disable」定谳省略）
       parkedForBudget.add(goalId);
+      bustRuntimeCache(); // 件 G 持续态缓存失效（boot 重挂登记翻真）
       return true;
     },
 
@@ -831,6 +926,10 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
           `goal 定时恢复失败（防御吞——手动复位道 /goal wake 仍在）：${error instanceof Error ? error.message : String(error)}`,
         );
       }
+      // 件 G：正常收口自清在飞位（挂钟行复活后 ③ 不中 ④ running——清与不清
+      // 同果，清之防残位）；成功/吞炸两路同拍失效缓存
+      wakeInFlight.delete(goalId);
+      bustRuntimeCache();
     },
 
     depositFor(sessionId) {
@@ -892,6 +991,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
 
     detachGoalJobsFace() {
       jobsFace = null; // effect 可逆回卷（后续注册再暂存——双序对称）
+      bustRuntimeCache(); // 件 G 持续态缓存失效（③ 判据读面整体撤位——stalled 归 running）
     },
   };
 

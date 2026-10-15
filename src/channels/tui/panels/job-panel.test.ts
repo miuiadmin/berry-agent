@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { CellGrid, ansiColor } from '../../engine/index.js';
 import type { JobEntry, JobStatus } from '../../../contracts/index.js';
 import { DEFAULT_THEME } from '../theme/index.js';
-import { JobPanel } from './job-panel.js';
+import { JobPanel, type GoalPanelRow } from './job-panel.js';
 
 const WIDTH = 40;
 const NOW = 1_065_000; // 定值钟——时长确定性（起跑后 65s = 1m 05s）
@@ -274,5 +274,85 @@ describe('JobPanel 溢出行窄窗收口', () => {
     panel.render(grid, { row: 0, col: 0, width, height: grid.rows });
     // '+ 2 更多 · /jobs 查看' 22 列 → 12 列帽：11 列整字 + '…'（修前红锚：'+ 2 更多 · /j' 硬切无 …）
     expect(readRow(grid, 5, width)).toBe('+ 2 更多 · …');
+  });
+});
+
+/* ---------------- goal 持续段（件 G——挖掘 45 轮：◇ 运行相 / ⏸ 暂停相） ---------------- */
+
+describe('JobPanel goal 持续段（件 G）', () => {
+  /** goal 行夹具（镜像 job 夹具形——phase 与预算两字段按例换档） */
+  function goalRow(overrides: Partial<GoalPanelRow> = {}): GoalPanelRow {
+    return { id: 'g-1', objective: '修 README', phase: 'running', budgetUsed: 3, budgetCap: 10, ...overrides };
+  }
+
+  it('运行相行形 `◇ 目标 {名} · 预算 {used}/{cap}`；jobs 段完整在前（活活动先、持续背景后）', () => {
+    const panel = makePanel();
+    panel.update([job('job-1')]);
+    panel.updateGoals([goalRow()]);
+    const grid = renderPanel(panel);
+    expect(readRow(grid, 0)).toBe('◆ 任务 job-1 · 1m 05s');
+    expect(readRow(grid, 1)).toBe('◇ 目标 修 README · 预算 3/10');
+  });
+
+  it('暂停相两档——⏸ 记号 + 尾词分档（预算暂停 / 停滞暂停）；运行相无尾词（无段不显律）', () => {
+    const panel = makePanel();
+    panel.updateGoals([
+      goalRow({ id: 'g-1', phase: 'budget-paused' }),
+      goalRow({ id: 'g-2', objective: '写周报', phase: 'stalled', budgetUsed: 5, budgetCap: 8 }),
+    ]);
+    const grid = renderPanel(panel);
+    expect(readRow(grid, 0)).toBe('⏸ 目标 修 README · 预算 3/10 · 预算暂停');
+    expect(readRow(grid, 1)).toBe('⏸ 目标 写周报 · 预算 5/8 · 停滞暂停');
+  });
+
+  it('无帽形——预算段缺席（budgetCap null 无段不显，不显「预算 3/null」假段）', () => {
+    const panel = makePanel();
+    panel.updateGoals([goalRow({ budgetCap: null })]);
+    expect(readRow(renderPanel(panel), 0)).toBe('◇ 目标 修 README');
+  });
+
+  it('段帽 2 行 + 溢出行「+ N 目标 · /goal 查看」（dim——jobs 溢出行同款）', () => {
+    const panel = makePanel();
+    panel.updateGoals([
+      goalRow({ id: 'g-1' }),
+      goalRow({ id: 'g-2', objective: '写周报' }),
+      goalRow({ id: 'g-3', objective: '跑测试' }),
+    ]);
+    expect(panel.measure(WIDTH)).toBe(3); // 段帽 2 + 溢出行
+    const grid = renderPanel(panel);
+    expect(readRow(grid, 0)).toContain('修 README'); // 帽内两行在场
+    expect(readRow(grid, 1)).toContain('写周报');
+    expect(readRow(grid, 2)).toBe('+ 1 目标 · /goal 查看');
+    expect(grid.getCell(2, 0)?.style?.dim).toBe(true);
+  });
+
+  it('goal 行不入光标域——夹取止于 job 末行、goal 行恒无 › 记（呈现投影非可操作实体）', () => {
+    const panel = makePanel();
+    panel.update([job('job-1'), job('job-2')]);
+    panel.updateGoals([goalRow({ id: 'g-1' })]);
+    panel.moveCursor(1); // 首按激活置 0
+    panel.moveCursor(99); // 大 delta——夹到 job-2（goal 行在 jobs 段之外不可选）
+    expect(panel.selectedId).toBe('job-2');
+    const grid = renderPanel(panel);
+    expect(readRow(grid, 1)).toContain('›'); // 在选记落在 job-2
+    expect(readRow(grid, 2)).toBe('◇ 目标 修 README · 预算 3/10'); // goal 行零光标记
+  });
+
+  it('updateGoals 空数组清段——measure 回落 job 段原值（帧间可逆）', () => {
+    const panel = makePanel();
+    panel.update([job('job-1')]);
+    panel.updateGoals([goalRow()]);
+    expect(panel.measure(WIDTH)).toBe(2);
+    panel.updateGoals([]);
+    expect(panel.measure(WIDTH)).toBe(1);
+    expect(readRow(renderPanel(panel), 0)).toBe('◆ 任务 job-1 · 1m 05s');
+  });
+
+  it('jobs 空而 goals 在场——早退闸松改后 goal 段仍渲染（修前红：entries 空整帧吞、量高不含 goal 段）', () => {
+    const panel = makePanel();
+    panel.updateGoals([goalRow()]); // 无 job 条目、仅 goal 段
+    expect(panel.measure(WIDTH)).toBe(1);
+    const grid = renderPanel(panel);
+    expect(readRow(grid, 0)).toBe('◇ 目标 修 README · 预算 3/10');
   });
 });

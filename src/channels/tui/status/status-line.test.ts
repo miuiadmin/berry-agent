@@ -262,3 +262,76 @@ describe('StatusLine 行2 环境栈（V-4 注⑪③——目录/短 id/⎇/沙�
     expect(out.endsWith('…')).toBe(true);
   });
 });
+
+/* ---------------- goal 态词首槽（件 G——挖掘 45 轮：行2 首位恒保） ---------------- */
+
+describe('StatusLine goal 态词（件 G）', () => {
+  it('首槽前置——goal 词居行2 首位、目录槽顺延', () => {
+    const line = new StatusLine();
+    line.setFooter(seg({ goalState: () => ({ word: '目标运行中', attention: false }) }));
+    const grid = renderStack(line, 80); // 全形 75 列 ≤ 80
+    expect(readRow(grid, 1, 80)).toBe('目标运行中 · berry-agent · sess-aaaa · ⎇ main@abc1234 · 工作区写 · ? 快捷键');
+  });
+
+  it('供数器返 null 零扰动——旧槽序与坍缩行为不变', () => {
+    const line = new StatusLine();
+    line.setFooter(seg({ goalState: () => null }));
+    expect(readRow(renderStack(line, 80), 1, 80)).toBe(
+      'berry-agent · sess-aaaa · ⎇ main@abc1234 · 工作区写 · ? 快捷键',
+    );
+    // 坍缩梯旧序（教学先丢）——goal 缺席下逐档与既有锁一致
+    expect(readRow(renderStack(line, 58), 1, 58)).not.toContain('? 快捷键');
+    expect(readRow(renderStack(line, 46), 1, 46)).toContain('⎇ main@abc1234');
+  });
+
+  it('坍缩梯窄宽——goal 词恒保且目录退居可丢位（安全信息最后保真）', () => {
+    const line = new StatusLine();
+    line.setFooter(seg({ goalState: () => ({ word: '目标运行中', attention: false }) }));
+    // w=35：全形 75 → 右起丢教学/沙箱/⎇/短 id → 24 列收敛
+    expect(readRow(renderStack(line, 35), 1, 35)).toBe('目标运行中 · berry-agent');
+    // w=15：目录再丢——goal 词独存恒保（承行1 模式词恒保律）
+    expect(readRow(renderStack(line, 15), 1, 15)).toBe('目标运行中');
+  });
+
+  it('暂停词独存超宽——整段收口分支警示色不丢（attention 扩判据）', () => {
+    const line = new StatusLine();
+    line.setFooter(
+      seg({
+        instruments: () => [],
+        goalState: () => ({ word: '目标暂停 · 预算到上限', attention: true }),
+      }),
+    );
+    // 行2 收敛到 goal 词独存（21 列）仍超 w=12 预算 → ellipsize 收口 + 警示色
+    // 保真（修前红锚：整段超预算分支只认 modeDanger——attention 形样式丢）
+    const grid = renderStack(line, 12);
+    const out = readRow(grid, 1, 12);
+    expect(out.startsWith('目标')).toBe(true);
+    expect(out.endsWith('…')).toBe(true);
+    expect(grid.getCell(1, 0)?.style?.fg).toBe(DEFAULT_THEME.error);
+  });
+
+  it('暂停相首槽警示色——attention 位首槽 error 语义（承 modeDanger 律）；运行相回落正文前景', () => {
+    const line = new StatusLine();
+    line.setFooter(
+      seg({
+        instruments: () => [],
+        goalState: () => ({ word: '目标暂停 · 预算到上限', attention: true }),
+      }),
+    );
+    const grid = renderStack(line, 40); // 21 + 3 + 11 = 35 ≤ 40——goal 词与目录槽并存
+    expect(readRow(grid, 1, 40)).toBe('目标暂停 · 预算到上限 · berry-agent');
+    expect(grid.getCell(1, 0)?.style?.fg).toBe(DEFAULT_THEME.error); // 首槽警示
+    expect(grid.getCell(1, 24)?.style?.fg).toBe(DEFAULT_THEME.secondary); // 目录槽（col 21+3 起）次文键
+    // 运行相 attention false——首槽回落次文键（两行同机制：行1 modeDanger=false
+    // 模式槽同归 secondary——writeSlots 多槽路恒有样式，无 undefined 态）
+    const calm = new StatusLine();
+    calm.setFooter(seg({ instruments: () => [], goalState: () => ({ word: '目标运行中', attention: false }) }));
+    expect(renderStack(calm, 40).getCell(1, 0)?.style?.fg).toBe(DEFAULT_THEME.secondary);
+  });
+
+  it('measure 计入——goal 词在场行2 高 2（环境槽全空仍承载）', () => {
+    const line = new StatusLine();
+    line.setFooter(seg({ env: () => [], hint: '', goalState: () => ({ word: '目标运行中', attention: false }) }));
+    expect(line.measure(80)).toBe(2);
+  });
+});

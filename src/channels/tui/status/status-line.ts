@@ -3,13 +3,15 @@
  *
  * - **三行栈（注⑪①——用户口述定序）**：行1 = 仪表栈（模式/思考/模型/累计/
  *   速度/上下文——供数器渲染期 pull）+ 尾注让位（⑨ 右对齐右缘垫 1，在场即
- *   自右起挤占仪表槽——与坍缩梯⑧同向衔接）；行2 = 环境栈（目录/短 id/⎇
- *   支名@短哈希/沙箱原词 + 教学提示 dim——同源两表示：行1 模式词换词〔MODE_
- *   SHORT〕行2 沙箱原词〔SANDBOX_MODE_SHORT〕）；行3 = JobPanel（renderFixed
- *   段八迁最底行——件内零涉）。
+ *   自右起挤占仪表槽——与坍缩梯⑧同向衔接）；行2 = 环境栈（goal 态词首槽
+ *   〔件 G——在场恒保位承行1 模式词律，暂停相首槽警示色承 danger 律〕/
+ *   目录/短 id/⎇ 支名@短哈希/沙箱原词 + 教学提示 dim——同源两表示：行1
+ *   模式词换词〔MODE_SHORT〕行2 沙箱原词〔SANDBOX_MODE_SHORT〕）；行3 =
+ *   JobPanel（renderFixed 段八迁最底行——件内零涉）。
  * - **窄宽坍缩梯（注⑪⑧——右起丢）**：行2 教学先丢（承 V-3 律）→ 沙箱 → ⎇
  *   → 短 id → 目录（目录 ellipsize 兜底——fitFooter 整字截断律退役让位；
- *   数据全空 = 整行退场零高度）；行1 上下文 → 速度 → 累计 → 模型 → 思考 →
+ *   goal 态词在场时目录退居可丢位——安全信息最后保真同律）；数据全空 =
+ *   整行退场零高度；行1 上下文 → 速度 → 累计 → 模型 → 思考 →
  *   **模式词恒保**（rung4 承袭——安全信息最后保真，ellipsize 容忍）。
  *   量高与宽度无关（宽度不驱退场——防行跳动）。
  * - 模式槽 danger 档（YOLO）→ error 语义键（承 danger 打头安全律）；其余
@@ -43,6 +45,12 @@ export interface FooterSegments {
   readonly hint: string;
   /** 模式词 danger 档（YOLO 警示色——行1 恒保位样式判据） */
   readonly modeDanger: boolean;
+  /**
+   * goal 态词供数器（件 G——行2 首槽；null = 无 goal 态零占位旧槽序）：
+   * word = 态词、attention = 暂停相警示位（首槽 error 语义色——承
+   * modeDanger 律）。缺席（goal 件未装载）同 null 零扰动。
+   */
+  readonly goalState?: () => { readonly word: string; readonly attention: boolean } | null;
 }
 
 /** 槽间连接符（' · '——3 显示列；样式随前一槽） */
@@ -90,10 +98,12 @@ export class StatusLine implements Renderable {
     this.dangerStyle = Object.freeze({ fg: theme.error });
   }
 
-  /** 量高：footer 缺席/行2 数据全空 = 1；行2 任一环境槽或教学在场 = 2（宽度无关） */
+  /** 量高：footer 缺席/行2 数据全空 = 1；行2 任一环境槽、教学或 goal 态词在场 = 2（宽度无关） */
   measure(_width: number): number {
     if (this.seg === null) return 1;
-    return pullSafe(this.seg.env).length > 0 || this.seg.hint !== '' ? 2 : 1;
+    return pullSafe(this.seg.env).length > 0 || this.seg.hint !== '' || (this.goalSafe(this.seg)?.word ?? '') !== ''
+      ? 2
+      : 1;
   }
 
   /** 落位：footer 缺席 = 旧形（闲态文案居左）；在场 = 行1 仪表 + 尾注 + 行2 环境 */
@@ -126,18 +136,38 @@ export class StatusLine implements Renderable {
     // —— 行2：环境栈（数据全空 = 整行退场——measure 已承诺高度不含此行）——
     if (region.height < 2) return;
     const envSlots = pullSafe(seg.env);
-    if (envSlots.length === 0 && seg.hint === '') return;
-    const row2 = seg.hint !== '' ? [...envSlots, seg.hint] : [...envSlots];
+    const goal = this.goalSafe(seg);
+    if (envSlots.length === 0 && seg.hint === '' && goal === null) return;
+    // goal 态词居首（件 G——恒保位承行1 模式词律；goal 在场时目录退居可丢位
+    // ——极窄宽下让位，安全信息最后保真同律）
+    const row2 =
+      goal !== null
+        ? [goal.word, ...envSlots, ...(seg.hint !== '' ? [seg.hint] : [])]
+        : seg.hint !== ''
+          ? [...envSlots, seg.hint]
+          : [...envSlots];
     // 坍缩梯⑧：右起丢（教学先丢〔末位〕→ 沙箱 → ⎇ → 短 id）；目录（首位）
-    // 永不丢——独存超宽走 ellipsize 兜底（fitFooter 整字截断律退役让位）
+    // 永不丢——独存超宽走 ellipsize 兜底（fitFooter 整字截断律退役让位）；
+    // goal 在场时目录退居可丢位（首槽恒保——右起丢只到 length > 1）
     while (row2.length > 1 && joinedWidth(row2) > w) row2.pop();
-    this.writeSlots(buffer, region.row + 1, region.col, row2, w, false, seg.hint);
+    this.writeSlots(buffer, region.row + 1, region.col, row2, w, goal !== null && goal.attention, seg.hint);
+  }
+
+  /** goal 态词安全拉取（件 G——fail-open null：供数器缺席/异常/返 null 归无态零占位旧槽序） */
+  private goalSafe(seg: FooterSegments): { readonly word: string; readonly attention: boolean } | null {
+    if (seg.goalState === undefined) return null;
+    try {
+      return seg.goalState() ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /**
-   * 槽列写出（逐槽定位——样式随槽：首槽 modeDanger 时 error / 教学槽 dim /
+   * 槽列写出（逐槽定位——样式随槽：首槽 firstAttention 时 error / 教学槽 dim /
    * 其余 secondary；连接符样式随前一槽）。超预算整段 ellipsize（模式词恒保
-   * 形与目录兜底共用此路）。
+   * 形与目录兜底共用此路——独存腿警示色认 firstAttention：行1 承 modeDanger、
+   * 行2 承 goal 暂停相，两行同机制各自供位）。
    */
   private writeSlots(
     buffer: CellBuffer,
@@ -145,21 +175,21 @@ export class StatusLine implements Renderable {
     col: number,
     slots: readonly string[],
     budget: number,
-    modeDanger: boolean,
+    firstAttention?: boolean,
     hint?: string,
   ): void {
     if (slots.length === 0) return;
     const sepW = stringWidth(SEGMENT_SEP);
-    // 整段超预算（模式词独存/目录独存形）：ellipsize 收口整段单样式写出
+    // 整段超预算（模式词独存/目录独存/goal 态词独存形）：ellipsize 收口整段单样式写出
     if (joinedWidth(slots) > budget) {
-      const style = modeDanger && slots.length === 1 ? this.dangerStyle : this.footerStyle;
+      const style = firstAttention && slots.length === 1 ? this.dangerStyle : this.footerStyle;
       buffer.writeText(row, col, ellipsize(slots.join(SEGMENT_SEP), budget), style);
       return;
     }
     let at = col;
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i]!;
-      const style = slot === hint ? this.hintStyle : i === 0 && modeDanger ? this.dangerStyle : this.footerStyle;
+      const style = slot === hint ? this.hintStyle : i === 0 && firstAttention ? this.dangerStyle : this.footerStyle;
       buffer.writeText(row, at, slot, style);
       at += stringWidth(slot);
       if (i < slots.length - 1) {

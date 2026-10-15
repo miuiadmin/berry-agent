@@ -115,7 +115,7 @@ import { TaskStatusLine } from '../status/task-status-line.js';
 import { createStreamingTokenEstimator } from '../status/streaming-token-estimator.js';
 import { TodoPanel } from '../panels/todo-panel.js';
 import { ToolProgressPanel } from '../panels/tool-progress-panel.js';
-import { JobPanel } from '../panels/job-panel.js';
+import { JobPanel, type GoalPanelRow } from '../panels/job-panel.js';
 import { JobsViewer } from '../panels/jobs-viewer.js';
 import type { JobEntry } from '../../../contracts/index.js';
 import {
@@ -487,6 +487,12 @@ export interface TuiBackendOptions {
      */
     readonly gitRoot?: () => string;
   };
+  /**
+   * goal 持续态数据源（件 G——挖掘 45 轮）：注入缺席 = 段缺席零变化（footer
+   * 态词与 JobPanel goal 段两消费面同判此位）；在场时帧首拉取持续态行集
+   * （供数器恒返数组，null/undefined 归一空）。
+   */
+  readonly goalStatus?: () => readonly GoalPanelRow[] | null | undefined;
   /**
    * 流式帧字节帽（批 10h R1 perf 护栏）：缺省 STREAM_FRAME_BYTE_CAP 定值
    * 256KB（只拦病理性整档重排——常态帧为视口量级）。注入面 = 测试语义
@@ -1054,7 +1060,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly approvalDecisionsSource: ((sessionId: string) => readonly ApprovalDecisionLineInput[]) | undefined;
   /** todo 快照读面（挖掘 35 轮 B8——直播腿/重建路共用） */
   private readonly todoSnapshotsSource: ((sessionId: string) => readonly TodoSnapshotLineInput[]) | undefined;
-  /** 排队面板最新在队预览串（帧首拉取缓存——renderFixed 单次读源） */
+  /**
+   * goal 持续态数据源（件 G）：注入缺席 = 段缺席零变化（footer 态词与
+   * JobPanel goal 段两消费面同判此位）；在场时帧首拉取持续态行集。
+   */
+  private readonly goalStatus: (() => readonly GoalPanelRow[]) | undefined;
+  /** goal 持续段最新行集（帧首拉取缓存——footer 供数器与 JobPanel 单次读源） */
+  private goalRowsCache: readonly GoalPanelRow[] = [];
+  /**
+   * 排队面板最新在队预览串（帧首拉取缓存——renderFixed 单次读源）
+   */
   private queuePreviews: readonly string[] = [];
   /** 当前 turn 的 assistant 消息用量暂存（turn_end 累加——件 6 等价性条款） */
   private pendingUsage: Usage | null = null;
@@ -1522,6 +1537,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.jobsSource = options.jobs;
     // 排队常驻面板（2026-10-05 ZCode TUI 对标批）：queueFor 注入缺席 = 段缺席零变化
     this.queueFor = options.queueFor;
+    // goal 持续态数据源（件 G）：缺席 = 两呈现位零扰动；归一 null/undefined
+    // 返值为空数组（供数器恒返数组——类字段契约收窄，帧首拉取零再判）
+    const goalSource = options.goalStatus;
+    this.goalStatus = goalSource !== undefined ? () => goalSource() ?? [] : undefined;
     // 审批决策折面数据源（挖掘 31 轮 [1]）：缺席 = 重建路零决策行（直播腿不受影响）
     this.approvalDecisionsSource = options.approvalDecisionsOf;
     // todo 快照读面（挖掘 35 轮 B8）：缺席 = 快照块零变化（两路同判此位）
@@ -2868,6 +2887,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
               ? FOOTER_HINT_BUSY_TEXT
               : '',
       modeDanger: this.footerModeDanger,
+      // goal 态词供数器（件 G——行2 首槽）：读帧首缓存（goalRowsCache——SQL
+      // 不进渲染帧同律），goalStatus 注入缺席 = 恒 null 零占位旧槽序
+      goalState: () => this.goalFooterWord(this.goalRowsCache),
     });
     this.touchFixed();
   }
@@ -2959,6 +2981,27 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (this.footerGitSuffix !== '') slots.push(this.footerGitSuffix);
     if (this.footerSandbox !== null) slots.push(this.footerSandbox);
     return slots;
+  }
+
+  /**
+   * footer goal 态词聚合（件 G——§3.10 词面拍板表单源）：空行集 null（零
+   * 占位旧槽序）；相位优先序 budget-paused > stalled > running（任一暂停
+   * 即警示——整组 footer 只担相位不含账，账在面板行尾任务分职）；多目标
+   * 缀 ` · N 项`。attention = 暂停两相 true（首槽警示色——承行1 模式词
+   * danger 色律）。
+   */
+  private goalFooterWord(rows: readonly GoalPanelRow[]): { word: string; attention: boolean } | null {
+    if (rows.length === 0) return null;
+    let paused = false;
+    let stalled = false;
+    for (const row of rows) {
+      if (row.phase === 'budget-paused') paused = true;
+      else if (row.phase === 'stalled') stalled = true;
+    }
+    // 相位词（优先序 budget-paused > stalled > running）+ 多目标项数缀
+    const base = paused ? '目标暂停 · 预算到上限' : stalled ? '目标暂停 · 连续无进展' : '目标运行中';
+    const word = rows.length > 1 ? `${base} · ${rows.length} 项` : base;
+    return { word, attention: paused || stalled };
   }
 
   /**
@@ -4965,6 +5008,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 拉（注入缺席零扰动）；帧频 O(n) 滤除终态——注册表帽 256 量级无害。
     // settle 推送锚另在 refreshJobs 公开面（闲态零帧源的即时收敛路）
     if (this.jobsSource !== undefined) this.jobPanel.update(this.jobsSource.running());
+    // goal 持续态帧首拉取（件 G——单点单读，footer 供数器与 JobPanel 两消费
+    // 面共帧缓存；闭包抛错 fail-open 空数组——pullSafe 同律不反噬渲染路）
+    if (this.goalStatus !== undefined) {
+      try {
+        this.goalRowsCache = this.goalStatus() ?? [];
+      } catch {
+        this.goalRowsCache = [];
+      }
+      this.jobPanel.updateGoals(this.goalRowsCache);
+    }
     // 排队面板帧首拉取（2026-10-05 ZCode TUI 对标批——07 §4.1 装配向接线排队
     // 常驻面板翻档注）：queueFor 注入在场才拉、聚焦会话（todoFor 同形——
     // this.sessionId 由 onRepaint 维护聚焦位）；入列/消费增删即时刷新锚 =
