@@ -27,6 +27,7 @@ import type {
   UiSelectChoice,
   UiSessionDeleteResult,
 } from './types.js';
+import { resolve } from 'node:path';
 import { BaseError } from '../contracts/index.js';
 import { CommandRegistry } from './commands.js';
 import { AskQueue } from './ask-queue.js';
@@ -251,35 +252,6 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
   // 直达）；注入缺席保持纯 focus 查看器（零行为变）〕
   if (opts.sessions !== undefined) {
     const fetchSessions = opts.sessions;
-    const selectSession = (sessionId: string) => {
-      if (opts.resumeSession !== undefined) {
-        // 副屏 onSelect 是用户面不是异常面：注入闭包非 async（生产形在读面预检
-        // 同步抛 PERSIST_DATA_CORRUPT）与异步 reject 都就地折 error notify——
-        // 直穿会沿 onSelect→alt-screen→engine 成 uncaughtException 杀整个 TUI；
-        // false 回执（会话不在场）焦点不动 + warn 诚实拒（true 才走 focus——
-        // 与 /resume 文本路回执路由同律）；focus 本身拒绝（拉投影失败）同折
-        // 「切焦失败」——void 弃接会让 rejection 逃出成 unhandledRejection
-        try {
-          void opts
-            .resumeSession(sessionId)
-            .then((ok) => {
-              if (ok)
-                void registry.focus(sessionId).catch((err: unknown) => {
-                  uiCore.notify(`切换会话失败：${foldErrorText(err)}`, { level: 'error' });
-                });
-              else uiCore.notify(`会话不存在：${sessionId}——输入 /sessions 查看会话列表`, { level: 'warn' });
-            })
-            .catch((err: unknown) => {
-              uiCore.notify(`续接失败：${foldErrorText(err)}`, { level: 'error' });
-            });
-        } catch (err) {
-          uiCore.notify(`续接失败：${foldErrorText(err)}`, { level: 'error' });
-        }
-      } else
-        void registry.focus(sessionId).catch((err: unknown) => {
-          uiCore.notify(`切换会话失败：${foldErrorText(err)}`, { level: 'error' }); // 纯 focus 查看器路同防
-        });
-    };
     // 删除回调 wrapper（05 §2.5 会话删除编排定形注①——deleteSession 注入在场
     // 即接 picker 删除键回调，缺席 = undefined 键无效零行为变）：回执三态路由
     // 归核——deleted 成功回执 / busy warn 指路等待或先打断 / missing warn
@@ -317,6 +289,72 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
         // 尾段预览懒加载闭包（挖掘 35 轮 B5——注入在场才透传，缺席 undefined
         // 键无效零行为变；异步回执归呈现件缓存不经核路由）
         const preview = opts.sessionPreview;
+        // 选定回调（核内铸，定义在 handler 内——挖掘 39 轮件 III 勘正：清单
+        // 绑定在本 handler 的 fetchSessions 之后（原定义在 register 块外闭包
+        // 捕不到清单），跨工作区告知须查清单 workspaceRoot/title，两行 find
+        // 与呈现同源零竞态）；registry.focus() 既有权威路（未注册会话 focus
+        // 视同注册——焦点即活跃声明）
+        // 〔2026-09-30 选定回调升级：resumeSession 注入在场时 = open+focus
+        // （选定即续接可写）；注入缺席保持纯 focus 查看器（零行为变）。
+        // 副屏 onSelect 是用户面不是异常面：注入闭包非 async（生产形在读面
+        // 预检同步抛 PERSIST_DATA_CORRUPT）与异步 reject 都就地折 error
+        // notify——直穿会沿 onSelect→alt-screen→engine 成
+        // uncaughtException 杀整个 TUI；false 回执（会话不在场）焦点不动 +
+        // warn 诚实拒（true 才走 focus——与 /resume 文本路回执路由同律）；
+        // focus 本身拒绝（拉投影失败）同折「切焦失败」——void 弃接会让
+        // rejection 逃出成 unhandledRejection〕
+        // 〔挖掘 39 轮件 III——跨工作区切焦告知：chosen/prevRoot 须在 focus
+        // 调用前捕获（registry.focus 入口 await 前同步置位 currentFocus——
+        // resolve 后读 registry.focusedId 恒新焦点，「事后比对」判据恒假）；
+        // focus 成功回调内两路同挂告知〕
+        const selectSession = (sessionId: string) => {
+          const chosen = sessions.find((s) => s.id === sessionId);
+          const prevRoot = sessions.find((s) => s.id === registry.focusedId)?.workspaceRoot;
+          // 跨工作区切焦告知（两路同挂）：双侧根在场且 path.resolve 归一后
+          // 不等才发（@ 引用与命令以新工作区为根——用户预期锚定；尾斜杠/
+          // 相对形经 resolve 归一同库不误报）；同库零噪音；任一缺席诚实不
+          // 发（清单截断窗外会话根不可知——宁缺勿谎）；题严格同 picker
+          // 词汇（title 非 undefined 且非空串，否则「（无题）」）
+          const notifyCrossWorkspace = (): void => {
+            if (chosen === undefined) return;
+            const root = chosen.workspaceRoot;
+            if (root === undefined || prevRoot === undefined) return;
+            if (resolve(root) === resolve(prevRoot)) return;
+            const title = chosen.title !== undefined && chosen.title !== '' ? chosen.title : '（无题）';
+            uiCore.notify(`已切到『${title}』——工作区 ${root}，@ 引用与命令将以该工作区为根`);
+          };
+          if (opts.resumeSession !== undefined) {
+            try {
+              void opts
+                .resumeSession(sessionId)
+                .then((ok) => {
+                  if (ok)
+                    void registry
+                      .focus(sessionId)
+                      .then(() => {
+                        notifyCrossWorkspace(); // 续接路同挂（成功位才告知）
+                      })
+                      .catch((err: unknown) => {
+                        uiCore.notify(`切换会话失败：${foldErrorText(err)}`, { level: 'error' });
+                      });
+                  else uiCore.notify(`会话不存在：${sessionId}——输入 /sessions 查看会话列表`, { level: 'warn' });
+                })
+                .catch((err: unknown) => {
+                  uiCore.notify(`续接失败：${foldErrorText(err)}`, { level: 'error' });
+                });
+            } catch (err) {
+              uiCore.notify(`续接失败：${foldErrorText(err)}`, { level: 'error' });
+            }
+          } else
+            void registry
+              .focus(sessionId)
+              .then(() => {
+                notifyCrossWorkspace(); // 纯 focus 查看器路同挂
+              })
+              .catch((err: unknown) => {
+                uiCore.notify(`切换会话失败：${foldErrorText(err)}`, { level: 'error' }); // 同防
+              });
+        };
         let opened = false;
         for (const b of allBackends()) {
           if (b.openSessions?.(sessions, selectSession, total, deleteSessionWithReceipt, preview) === true)

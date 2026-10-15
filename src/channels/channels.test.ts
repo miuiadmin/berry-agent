@@ -938,6 +938,95 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     await s2.dispatchCommand('/sessions');
     expect(b2.sessionsOpens[0]!.onPreview).toBeUndefined();
   });
+
+  // —— 跨工作区切焦告知（挖掘 39 轮件 III——选定回调两路同挂：双侧根在场
+  // 且 resolve 归一后不等才发；chosen/prevRoot 均 focus 调用前捕获——focus
+  // 入口 await 前同步置位新焦点，事后读恒新值判据恒假）——
+  /** 跨库清单（workspaceRoot/title 齐——件 III 告知判据供数面） */
+  const wsList = [
+    { id: 'a1', title: '题一', workspaceRoot: '/w/alpha', updatedAt: 2, active: true },
+    { id: 'b2', title: '题二', workspaceRoot: '/w/beta', updatedAt: 1, active: false },
+    { id: 'b3', workspaceRoot: '/w/beta/', updatedAt: 0, active: false }, // 同库尾斜杠变体（resolve 归一锁）+ 无题
+  ];
+  /** onSelect 后 notify 在 focus 的 .then 内（异步链）——微任务冲净再断言 */
+  const settle = async (): Promise<void> => {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  };
+
+  it('跨工作区选定：notify 告知新根（@ 引用与命令以新工作区为根——用户预期锚定）', async () => {
+    const s = createChannels({ sessions: async () => wsList });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true); // 已开不降级（notify 断言纯净面）
+    s.addBackend(b.backend);
+    s.registerSession('a1');
+    await s.focus('a1'); // 旧焦点 = 库 alpha
+    await s.dispatchCommand('/sessions');
+    b.sessionsOpens[0]!.onSelect('b2');
+    await settle();
+    expect(s.focusedId).toBe('b2');
+    expect(b.notified).toEqual([
+      { message: expect.stringContaining('已切到『题二』——工作区 /w/beta'), level: undefined },
+    ]);
+  });
+
+  it('同库选定（尾斜杠变体）：resolve 归一后同根零噪音', async () => {
+    const s = createChannels({ sessions: async () => wsList });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true); // 已开不降级（notify 断言纯净面）
+    s.addBackend(b.backend);
+    s.registerSession('b2');
+    await s.focus('b2');
+    await s.dispatchCommand('/sessions');
+    b.sessionsOpens[0]!.onSelect('b3'); // /w/beta/ 对 /w/beta——尾斜杠归一同库
+    await settle();
+    expect(b.notified).toEqual([]); // 同库零噪音
+  });
+
+  it('根缺席诚实不发（旧焦点不在清单——双侧在场才判，宁缺勿谎）', async () => {
+    const s = createChannels({ sessions: async () => wsList });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true); // 已开不降级（notify 断言纯净面）
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions'); // 无旧焦点（清单外）——prevRoot 缺席
+    b.sessionsOpens[0]!.onSelect('b2');
+    await settle();
+    expect(b.notified).toEqual([]);
+  });
+
+  it('无题形：题严格同 picker 词汇（（无题）占位）', async () => {
+    const s = createChannels({ sessions: async () => wsList });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true); // 已开不降级（notify 断言纯净面）
+    s.addBackend(b.backend);
+    s.registerSession('a1');
+    await s.focus('a1');
+    await s.dispatchCommand('/sessions');
+    b.sessionsOpens[0]!.onSelect('b3'); // 无题会话
+    await settle();
+    expect(b.notified).toEqual([
+      { message: expect.stringContaining('已切到『（无题）』——工作区 /w/beta/'), level: undefined },
+    ]);
+  });
+
+  it('resumeSession 续接路同挂：open+focus 成功位后告知（两路同挂律）', async () => {
+    const s = createChannels({
+      sessions: async () => wsList,
+      resumeSession: async () => true,
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true); // 已开不降级（notify 断言纯净面）
+    s.addBackend(b.backend);
+    s.registerSession('a1');
+    await s.focus('a1');
+    await s.dispatchCommand('/sessions');
+    b.sessionsOpens[0]!.onSelect('b2');
+    await settle();
+    await settle(); // resume 回执 → focus → then 告知（双层异步链）
+    expect(s.focusedId).toBe('b2');
+    expect(b.notified).toEqual([
+      { message: expect.stringContaining('已切到『题二』——工作区 /w/beta'), level: undefined },
+    ]);
+  });
 });
 
 describe('/rename 命令面（07 §4.1 2026-09-30 会话管理命令批——renameSession 注入在场即注册；核透传原始名、三态回执路由）', () => {
