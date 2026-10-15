@@ -38,7 +38,13 @@ import {
   TuiBackend,
 } from '../channels/index.js';
 import type { AskSettledNotice, AutocompleteItem, TerminalIO } from '../channels/index.js';
-import { ASK_SETTLED_EVENT, createDefaultGitQuery, gitHeadCompactLabel, readGitHead } from '../channels/index.js';
+import {
+  ASK_SETTLED_EVENT,
+  createDefaultGitQuery,
+  createDefaultNativeClipboardSpawn,
+  gitHeadCompactLabel,
+  readGitHead,
+} from '../channels/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import {
   APPROVAL_SETTLED_EVENT,
@@ -1774,6 +1780,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // ⎇ 槽统计腿真身（挖掘 39 轮件 II——+N/−M 异步只读查询；生产显式
       // 开——backend seam 缺省缺席保测试基线零真进程）
       gitQuery: createDefaultGitQuery(),
+      // 原生剪贴板腿真身（挖掘 40 轮件 A——非 SSH 本地会话 pbcopy/wl-copy/
+      // xclip/clip.exe 首选；生产显式开——backend seam 缺省缺席保测试基线
+      // 零真进程，失败落穿 OSC 52 三层终端介导原序）
+      nativeClipboardSpawn: createDefaultNativeClipboardSpawn(),
       // `?` 闲态教学键柄（V-3 注⑦④——text 路分诊）：与 /help 命令同一开屏
       // 本体（上 openHelpPanel 闭包）；backend 空稿闲态门控后回调（层③.7）
       onHelpShortcut: () => openHelpPanel(),

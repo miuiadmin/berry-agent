@@ -1243,19 +1243,27 @@ describe('runTuiEntry 装配序', () => {
   // lastResponse 注入 + leader c 分支 + dispatchAnchored + TUI
   // writeClipboard 四装配面任一拆线则本测红——单测假注入绿不可代） ──
   it('ctrl+x c 真装配：一轮完成后 leader 分支 → /copy dispatch → io 收 OSC 52 序列（载荷 base64(faux 回复)）', async () => {
-    const t = await rigEntry(rigDir('entry-copy-a-data-'), rigDir('entry-copy-a-ws-'));
-    t.io.send('hi\r'); // 一轮对话（faux 回复 'ok'）
-    await until(() => stripAnsi(t.io.output).includes('ok')); // 回复上屏（run settle）
-    await tick(); // settle 后静置（arm 门需闲态）
-    t.io.output = '';
-    t.io.send('\x18'); // ctrl+x——leader arm（空稿闲态五闸开）
-    t.io.send('c'); // copy 分支字母
-    // 端到端链：分支柄 onLeaderBranch('copy') → dispatchAnchored('/copy') →
-    // channels.dispatchCommand → lastResponse 注入（投影末条 'ok'）→
-    // TuiBackend.writeClipboard → OSC 52 序列落 io
-    await until(() => t.io.output.includes(`\x1b]52;c;${Buffer.from('ok', 'utf8').toString('base64')}\x07`));
-    t.io.send('\x04');
-    expect(await t.entry).toBe(0);
+    // 件 A（挖掘 40 轮）后真装配原生腿首选——darwin 开发机 pbcopy 真跑早退、
+    // OSC 52 不落 io 使本锁红。本锁意图=四装配面链通，锁终端介导腿形：
+    // stub SSH env 强制跳原生（SSH 判定先于平台矩阵——平台无关可移植）
+    vi.stubEnv('SSH_TTY', '/dev/pts/9');
+    try {
+      const t = await rigEntry(rigDir('entry-copy-a-data-'), rigDir('entry-copy-a-ws-'));
+      t.io.send('hi\r'); // 一轮对话（faux 回复 'ok'）
+      await until(() => stripAnsi(t.io.output).includes('ok')); // 回复上屏（run settle）
+      await tick(); // settle 后静置（arm 门需闲态）
+      t.io.output = '';
+      t.io.send('\x18'); // ctrl+x——leader arm（空稿闲态五闸开）
+      t.io.send('c'); // copy 分支字母
+      // 端到端链：分支柄 onLeaderBranch('copy') → dispatchAnchored('/copy') →
+      // channels.dispatchCommand → lastResponse 注入（投影末条 'ok'）→
+      // TuiBackend.writeClipboard → OSC 52 序列落 io
+      await until(() => t.io.output.includes(`\x1b]52;c;${Buffer.from('ok', 'utf8').toString('base64')}\x07`));
+      t.io.send('\x04');
+      expect(await t.entry).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

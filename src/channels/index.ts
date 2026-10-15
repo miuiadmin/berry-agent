@@ -86,6 +86,8 @@ export { readGitHead, gitHeadCompactLabel } from './tui/status/footer.js';
 export type { GitHeadInfo } from './tui/status/footer.js';
 // ⎇ 槽统计腿真身工厂（挖掘 39 轮件 II——host 装配注入；纯函数族测试直测不经此）
 export { createDefaultGitQuery } from './tui/status/branch-stats.js';
+// 原生剪贴板腿真身工厂（挖掘 40 轮件 A——host 装配注入；计划纯函数/桩面测试直测不经此）
+export { createDefaultNativeClipboardSpawn } from './tui/backend/native-clipboard.js';
 // 高度帽公式（R3 批 10j 引入；第六轮批 D2 起 host 装配注入已撤——backend 构造期/resize 现值单源；本转发位留 SDK 公开面）
 export { editorHeightCap } from './tui/index.js';
 // fuzzy 子序列过滤（R6 批 10j——host 命令名补全源消费）

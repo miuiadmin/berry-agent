@@ -5465,6 +5465,105 @@ describe('TuiBackend copyToClipboard 分诊（挖掘 38 轮件 A——tmux 三�
   });
 });
 
+describe('TuiBackend copyToClipboard 第⓪层原生腿（挖掘 40 轮件 A——SSH 判定 + 平台矩阵首选，07 §4.1 件 8 括注第⓪层）', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** 平台矩阵命中期望命令（矩阵外平台 null——测试环境不涉，防误配护栏） */
+  const expectedNativeCommand = (): string | null =>
+    process.platform === 'darwin'
+      ? 'pbcopy'
+      : process.platform === 'linux'
+        ? 'wl-copy'
+        : process.platform === 'win32'
+          ? 'clip.exe'
+          : null;
+
+  /** 清 SSH 痕迹 + linux 配显示服键（平台矩阵命中形的 env 前置） */
+  const stubNativeEnv = (): void => {
+    vi.stubEnv('SSH_TTY', undefined); // 删键（SSH 会话内跑测试不误判跳原生）
+    vi.stubEnv('SSH_CONNECTION', undefined);
+    vi.stubEnv('TMUX', undefined); // 落穿位 = 裸 OSC 52（早退对比可见）
+    if (process.platform === 'linux') vi.stubEnv('WAYLAND_DISPLAY', 'wayland-0'); // darwin 不读显示服键
+  };
+
+  it('真修前红·非 SSH 本地会话：原生腿首选早退——OSC 52 零写 + 桩收到平台矩阵计划', () => {
+    stubNativeEnv();
+    const expected = expectedNativeCommand();
+    if (expected === null) return; // 矩阵外平台腿缺席恒落穿——本测试环境不涉
+    const calls: string[] = [];
+    const { io, backend, pump } = makeInteractive({
+      nativeClipboardSpawn: (plan) => {
+        calls.push(plan.command);
+        return 'ok';
+      },
+    });
+    const r = backend.writeClipboard('s1', 'hi');
+    pump();
+    expect(r).toEqual({ status: 'written' }); // 回执两腿归一（written 值中立零新态）
+    expect(calls).toEqual([expected]); // 修前红①：无腿桩零调用
+    expect(io.bytes).not.toContain('\x1b]52;'); // 修前红②：修前原生腿缺席落穿必含裸 OSC 52
+  });
+
+  it('SSH 会话（SSH_TTY 在场）：跳原生直走终端介导——桩零调用 + 裸 OSC 52 在场', () => {
+    vi.stubEnv('SSH_TTY', '/dev/pts/0'); // 原生剪贴板属本地机不可达——判定先于平台
+    vi.stubEnv('TMUX', undefined);
+    if (process.platform === 'linux') vi.stubEnv('WAYLAND_DISPLAY', 'wayland-0'); // 矩阵命中但 SSH 优先
+    const calls: string[] = [];
+    const { io, backend, pump } = makeInteractive({
+      nativeClipboardSpawn: (plan) => {
+        calls.push(plan.command);
+        return 'ok';
+      },
+    });
+    backend.writeClipboard('s1', 'hi');
+    pump();
+    expect(calls).toHaveLength(0); // 零原生调用
+    expect(io.bytes).toContain('\x1b]52;'); // 落穿终端介导
+  });
+
+  it('原生腿失败落穿：桩 failed → 裸 OSC 52 在场（三层原序不动作终腿——失败不静默）', () => {
+    stubNativeEnv();
+    if (expectedNativeCommand() === null) return;
+    const { io, backend, pump } = makeInteractive({
+      nativeClipboardSpawn: () => 'failed', // 子进程面确认失败（如 ENOENT/非 0 退出）
+    });
+    backend.writeClipboard('s1', 'hi');
+    pump();
+    expect(io.bytes).toContain('\x1b]52;'); // 落穿不吞
+  });
+
+  it('失败落穿三层完整：failed + TMUX 在 + set-clipboard on → tmux load-buffer 原序照走', () => {
+    vi.stubEnv('SSH_TTY', undefined);
+    vi.stubEnv('SSH_CONNECTION', undefined);
+    vi.stubEnv('TMUX', '/tmp/tmux-0,123,0');
+    if (process.platform === 'linux') vi.stubEnv('WAYLAND_DISPLAY', 'wayland-0');
+    if (expectedNativeCommand() === null) return;
+    const spawnCalls: Array<{ args: string[]; input?: string }> = [];
+    const { backend } = makeInteractive({
+      nativeClipboardSpawn: () => 'failed',
+      tmuxSpawn: (args, input) => {
+        spawnCalls.push({ args: [...args], input });
+        return { status: 0, stdout: args[0] === 'show-options' ? 'on' : '' };
+      },
+    });
+    backend.writeClipboard('s1', 'hi');
+    expect(spawnCalls).toEqual([
+      { args: ['show-options', '-gv', 'set-clipboard'], input: undefined },
+      { args: ['load-buffer', '-w', '-'], input: 'hi' }, // 落穿后三层原序完整可走
+    ]);
+  });
+
+  it('seam 缺席：计划可算但执行腿缺席——裸 OSC 52 落穿（测试基线零真进程律；38 轮首锁同态承接）', () => {
+    stubNativeEnv();
+    const { io, backend, pump } = makeInteractive({}); // 不注入 nativeClipboardSpawn
+    backend.writeClipboard('s1', 'hi');
+    pump();
+    expect(io.bytes).toContain('\x1b]52;'); // 无论矩阵命中否——执行腿缺席即落穿
+  });
+});
+
 describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②——极小终端固定区溢出）', () => {
   /** 极小形载荷：8 条 todo（量高 7 = 帽 6 + 溢出行）+ footer 注入（状态行常驻段可观测） */
   const manyTodos = Array.from({ length: 8 }, (_, i) => ({ status: 'pending' as const, content: `任务零${i}` }));

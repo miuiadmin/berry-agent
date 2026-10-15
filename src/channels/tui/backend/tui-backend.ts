@@ -150,6 +150,7 @@ import { CallsViewer } from '../panels/calls-viewer.js';
 import { formatCount, formatTokensCompact, formatTokensPerSecond, UsageViewer } from '../panels/usage-viewer.js';
 import { gitHeadSuffix, readGitHead, type GitHeadInfo } from '../status/footer.js';
 import { computeBranchStats, type GitQuery } from '../status/branch-stats.js';
+import { planNativeClipboard, type NativeClipboardSpawn } from './native-clipboard.js';
 import { StatusViewer, type StatusPanelData } from '../panels/status-viewer.js';
 import { DebugViewer, type DebugPanelData } from '../panels/debug-viewer.js';
 import { GuideViewer, type GuidePanelData } from '../panels/guide-viewer.js';
@@ -307,6 +308,14 @@ export interface TuiBackendOptions {
    * 只读档 + 10s 超时 kill + stdout trim 归一在封装内）。
    */
   readonly gitQuery?: GitQuery;
+  /**
+   * 本地原生剪贴板执行器（挖掘 40 轮件 A——copyToClipboard 第⓪层原生腿）：
+   * 平台矩阵计划 + 文本 → 'ok' | 'failed'。**缺席 = 原生腿整体缺席**——
+   * 分诊直落三层终端介导原序零行为变（测试基线零真进程纪律；生产装配
+   * 显式传 createDefaultNativeClipboardSpawn() 真身——wl-copy detach 形
+   * 与确认形分派在封装内）。
+   */
+  readonly nativeClipboardSpawn?: NativeClipboardSpawn;
   /**
    * 持久化史透传（B1——07 §4.1 呈现面件 2 定形注⑦种写双路）：seed = 启动
    * 种子（host 装配根构造期一次 recentTexts〔启动锚根〕满灌——编辑器内存
@@ -1257,6 +1266,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly landedTransientCap: number;
   /** git 只读查询注入（挖掘 39 轮件 II——⎇ 槽统计腿；undefined = 腿缺席零行为变） */
   private readonly gitQuery: GitQuery | undefined;
+  /** 原生剪贴板执行器注入（挖掘 40 轮件 A——第⓪层腿；undefined = 腿缺席零行为变） */
+  private readonly nativeClipboardSpawn: NativeClipboardSpawn | undefined;
 
   constructor(io: TerminalIO, options: TuiBackendOptions = {}) {
     this.io = io;
@@ -1271,6 +1282,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.tmuxSpawn = options.tmuxSpawn ?? defaultTmuxSpawn;
     // 统计腿 seam（39 轮件 II）：缺席不造真身——测试基线零真进程；生产装配显式传
     this.gitQuery = options.gitQuery;
+    // 原生剪贴板腿 seam（40 轮件 A）：同律缺席不造真身——生产装配显式传真身
+    this.nativeClipboardSpawn = options.nativeClipboardSpawn;
     this.onHelpShortcut = options.onHelpShortcut;
     this.onLeaderBranch = options.onLeaderBranch;
     this.dispatchCommand = options.dispatchCommand;
@@ -1963,7 +1976,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 剪贴板写出分诊单源（挖掘 38 轮件 A——tmux 三层分诊，07 §4.1 件 8 细则）：
+   * 剪贴板写出分诊单源（挖掘 38 轮件 A——tmux 三层分诊，07 §4.1 件 8 细则；
+   * 挖掘 40 轮件 A 增第⓪层原生腿）：
+   * ⓪ 非 SSH 本地会话且平台矩阵命中（darwin→pbcopy / linux+WAYLAND→
+   *    wl-copy / linux+X11→xclip / win32→clip.exe）且 seam 在场 → 原生
+   *    子进程腿首选、'ok' 即早退（SSH 会话原生剪贴板属本地机不可达——
+   *    判定先于平台；缺席/失败落穿下述三层，三层原序不动作终腿）；
    * ① TMUX env 缺席（**调时读现值**——externalEditor 同律，中途进/出 tmux
    *    即时生效）→ 裸 OSC 52 直写（现行为不变）；
    * ② TMUX 在场 → 预检 set-clipboard（on/external）→ `tmux load-buffer -w -`
@@ -1971,10 +1989,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    *    同样 exit 0 但不转发，故必预检防静默吞）；
    * ③ off/预检失败/load-buffer 失败 → DCS 包裹形 OSC 52 直穿 tmux 至外层
    *    终端（外层支持 OSC 52 即成）。
-   * 三层皆尽力写出无反馈（外层终端支持性不可探测——件 8 语义）。三消费位
-   * （/history 选区、openMemory 选区、writeClipboard）单源。
+   * 终端介导三层皆尽力写出无反馈（外层终端支持性不可探测——件 8 语义）；
+   * 第⓪层子进程面有确认（'ok'/'failed'）但失败亦只落穿不报——writeClipboard
+   * 回执语义两腿归一。三消费位（/history 选区、openMemory 选区、
+   * writeClipboard）单源。
    */
   private copyToClipboard(text: string): void {
+    // 第⓪层（40 轮件 A）——原生腿首选：SSH 判定与平台矩阵在计划函数内
+    // （env 调时读现值）；seam 缺席 = 腿缺席（计划可算不执行——测试基线
+    // 零真进程），任一不中落穿三层终端介导原序
+    const nativePlan = planNativeClipboard(process.env);
+    if (
+      nativePlan !== null &&
+      this.nativeClipboardSpawn !== undefined &&
+      this.nativeClipboardSpawn(nativePlan, text) === 'ok'
+    ) {
+      return; // 原生子进程面已写出——不再终端介导
+    }
     if (process.env.TMUX === undefined) {
       this.io.write(buildOsc52Copy(text));
       return;
