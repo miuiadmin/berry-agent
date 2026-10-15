@@ -310,10 +310,10 @@ describe('卡体两档与存账帽', () => {
   });
 });
 
-describe('edit diff 档（⑥ 行几何与 bg 双通道——R-5 件 C）', () => {
+describe('edit diff 档（⑥ 行几何与 bg 双通道——R-5 件 C；路径 a.zz = 未知扩展名零语法——39 轮件 I 现状锁）', () => {
   const patch = [
     '*** Begin Patch',
-    '*** Update File: a.ts',
+    '*** Update File: a.zz',
     ' const same = 1;',
     '-const old = 2;',
     '+const new = 3;',
@@ -338,7 +338,7 @@ describe('edit diff 档（⑥ 行几何与 bg 双通道——R-5 件 C）', () =
   it('卡头：• dim + 动词 bold + 路径 + 计数括号（+N 绿/−M 红/括号默认色）', () => {
     const lines = renderToolCardStyledLines(diffCard(), 80);
     // 单文件 update：动词 Edited + 路径 + (+1 −2)；Begin/End meta 行退役不呈现
-    expect(lines[0]!.plain).toBe('• Edited a.ts (+1 −2)');
+    expect(lines[0]!.plain).toBe('• Edited a.zz (+1 −2)');
     expect(lines[0]!.runs).toEqual([
       { start: 0, end: 2, style: { dim: true } }, // '• '
       { start: 2, end: 8, style: { bold: true } }, // 'Edited'
@@ -355,7 +355,7 @@ describe('edit diff 档（⑥ 行几何与 bg 双通道——R-5 件 C）', () =
     expect(lines[2]!.plain).toBe('    3 -const old = 2;');
     expect(lines[3]!.plain).toBe('    3 +const new = 3;');
     expect(lines[4]!.plain).toBe('    4 -孤行删除');
-    expect(lines[1]!.runs).toEqual([]); // ctx 行裸
+    expect(lines[1]!.runs).toEqual([]); // ctx 行裸（未知扩展名零语法——39 轮件 I 维持现状）
   });
 
   it('bg 双通道：del/add 行 fillBg 色带 + 文本 extent 内 runs 并 bg', () => {
@@ -520,6 +520,73 @@ describe('edit diff 档（⑥ 行几何与 bg 双通道——R-5 件 C）', () =
     expect(lines[0]!.plain).toBe(' ✓ 编辑文件(patch)');
     expect(lines[1]!.plain).toBe('-旧一行');
     expect(lines[2]!.plain).toBe('+新一行');
+  });
+});
+
+/* ------- 挖掘 39 轮件 I：diff 段体语法着色（languageForPath→词法器单源） ------- */
+
+describe('edit diff 档段体语法着色（挖掘 39 轮件 I——codex diff_render 对标）', () => {
+  /** truecolor 板（bg 键在场）+ .ts 补丁（路径扩展名命中 ALIASES） */
+  const themeTc = resolveTheme(DARK_PALETTE, 'truecolor');
+  const synCard = (over: Partial<ToolCardView> = {}): ToolCardView =>
+    card({
+      name: 'edit',
+      brief: '(patch)',
+      diff: true,
+      expanded: true,
+      diffStartLines: [2],
+      theme: themeTc,
+      ...over,
+    });
+
+  it('ctx 行语法色在场：.ts 段 ctx 行 keyword 游程（修前红——ctx 恒裸 runs 恒 []）', () => {
+    const patch = ['*** Begin Patch', '*** Update File: a.ts', ' const same = 1;', '*** End Patch'].join('\n');
+    const lines = renderToolCardStyledLines(synCard({ body: patch.split('\n') }), 80);
+    expect(lines[1]!.plain).toBe('    2  const same = 1;');
+    // 'const' keyword → codeKeyword fg 游程（前缀 7 平移：内容列 [7,12)）
+    expect(lines[1]!.runs.some((r) => r.style.fg === themeTc.codeKeyword)).toBe(true);
+  });
+
+  it('词级对锚段：del 行 same 段语法+dim / add 行语法无 dim / 变段维持 diff 色（修前红——锚段恒裸）', () => {
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: a.ts',
+      '-const old = 2;',
+      '+const new = 3;',
+      '*** End Patch',
+    ].join('\n');
+    const lines = renderToolCardStyledLines(synCard({ body: patch.split('\n') }), 80);
+    // del 行：same 段 'const ' 语法 keyword 叠 dim（codex overlay 同律）
+    expect(lines[1]!.runs.some((r) => r.style.fg === themeTc.codeKeyword && r.style.dim === true)).toBe(true);
+    // del 行变段 'old'/'2;' 维持 diffRemoved（R4 语义优先——语法不进变段）
+    expect(lines[1]!.runs.some((r) => r.style.fg === themeTc.diffRemoved)).toBe(true);
+    // add 行：same 段语法无 dim + 变段 diffAdded 维持
+    expect(lines[2]!.runs.some((r) => r.style.fg === themeTc.codeKeyword && r.style.dim !== true)).toBe(true);
+    expect(lines[2]!.runs.some((r) => r.style.fg === themeTc.diffAdded)).toBe(true);
+  });
+
+  it('未知扩展名（.zz）与无扩展名：整段零行为变（锚段恒裸现状——纯 diff 色形）', () => {
+    const zz = ['*** Begin Patch', '*** Update File: a.zz', '-const old = 2;', '+const new = 3;', '*** End Patch'].join(
+      '\n',
+    );
+    const lines = renderToolCardStyledLines(synCard({ body: zz.split('\n') }), 80);
+    // 未知扩展名：锚段零语法游程（变段 diff 色维持——纯现状形）
+    expect(lines[1]!.runs.every((r) => r.style.fg !== themeTc.codeKeyword)).toBe(true);
+    expect(lines[1]!.runs.some((r) => r.style.fg === themeTc.diffRemoved)).toBe(true);
+    const bare = ['*** Begin Patch', '*** Update File: Makefile', '-x', '*** End Patch'].join('\n');
+    const bareLines = renderToolCardStyledLines(synCard({ body: bare.split('\n') }), 80);
+    // 无扩展名孤行整行红维持（languageForPath 缺席零行为变）
+    expect(bareLines[1]!.runs).toEqual([
+      { start: 0, end: 8, style: { fg: themeTc.diffRemoved, bg: themeTc.diffRemovedBg } },
+    ]);
+  });
+
+  it('块注释续行裸（单行 tokenize 局限在案锁——carry 态不入卡面单行路）', () => {
+    const patch = ['*** Begin Patch', '*** Update File: a.ts', ' /* 注释头', '  * 续体行', '*** End Patch'].join('\n');
+    const lines = renderToolCardStyledLines(synCard({ body: patch.split('\n') }), 80);
+    // 首行块注释开场 → comment 色；续体行单行 tokenize 无 carry → 裸（局限锁）
+    expect(lines[1]!.runs.some((r) => r.style.fg === themeTc.codeComment)).toBe(true);
+    expect(lines[2]!.runs).toEqual([]);
   });
 });
 

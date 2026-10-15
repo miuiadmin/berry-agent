@@ -30,6 +30,7 @@ const ALIASES: Readonly<Record<string, LanguageSpec>> = {
   ts: TS_SPEC,
   tsx: TS_SPEC,
   typescript: TS_SPEC,
+  mts: TS_SPEC,
   js: JS_SPEC,
   jsx: JS_SPEC,
   javascript: JS_SPEC,
@@ -61,6 +62,7 @@ const ALIASES: Readonly<Record<string, LanguageSpec>> = {
   scss: CSS_SPEC,
   less: CSS_SPEC,
   html: HTML_SPEC,
+  htm: HTML_SPEC,
   xml: HTML_SPEC,
   svg: HTML_SPEC,
 };
@@ -74,4 +76,19 @@ export function highlight(code: string, language: string | undefined): Highlight
   if (language === undefined) return null;
   const spec = ALIASES[language.trim().toLowerCase()];
   return spec === undefined ? null : tokenize(code, spec);
+}
+
+/**
+ * 路径 → 高亮语言名（挖掘 39 轮件 I——diff 段体语法着色入口）：末点扩展名
+ * 小写**直查 ALIASES**（键域本混容扩展名键——tsx/mjs/cjs/py/sh/yml/rs 在册；
+ * 命中即返回键名本身作 language 形，一跳零新表）。无点/首点隐藏文件形/未知
+ * 扩展名返 undefined——消费方诚实退现状零行为变（不发明半高亮）。
+ */
+export function languageForPath(path: string): string | undefined {
+  const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  const base = path.slice(slash + 1);
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return undefined; // 无扩展名 / 首点形（.gitignore 族）缺席
+  const ext = base.slice(dot + 1).toLowerCase();
+  return ALIASES[ext] === undefined ? undefined : ext;
 }

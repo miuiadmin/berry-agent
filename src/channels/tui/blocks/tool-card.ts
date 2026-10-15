@@ -65,7 +65,7 @@ import {
 } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import { capStyledLine, clampRuns, type StyledLine, type StyleRun } from '../backend/ansi-rows.js';
-import { highlight, tokenStyle } from '../markdown/highlight/index.js';
+import { highlight, languageForPath, tokenStyle } from '../markdown/highlight/index.js';
 import { diffWords, parsePatchSections, type PatchSection } from './word-diff.js';
 import { lookupToolRenderer, type RendererLine, type ToolRenderResultInput } from '../../renderers.js';
 import { toolFaceZh } from '../../../contracts/index.js';
@@ -482,12 +482,13 @@ function stripShellWrapper(command: string): string {
 }
 
 /**
- * 单行命令 → 词法高亮游程（markdown 高亮件复用——token 串接恒等原文，游程
+ * 单行 → 词法高亮游程（markdown 高亮件复用——token 串接恒等原文，游程
  * 进位 = token 文本长；plain token 无游程 = 裸段）。offset = 前缀字符位平移。
+ * 语言参数化（挖掘 39 轮件 I）——bash 卡头与 diff 段体两消费同源。
  */
-function commandRuns(line: string, offset: number, theme: Readonly<ResolvedTheme>): StyleRun[] {
-  const tokens = highlight(line, 'bash');
-  if (tokens === null) return []; // 覆盖语言外诚实退单色（bash 表在册实践上不达）
+function syntaxRuns(line: string, language: string, offset: number, theme: Readonly<ResolvedTheme>): StyleRun[] {
+  const tokens = highlight(line, language);
+  if (tokens === null) return []; // 语言表外诚实退单色
   const runs: StyleRun[] = [];
   let cursor = offset;
   for (const token of tokens) {
@@ -497,6 +498,11 @@ function commandRuns(line: string, offset: number, theme: Readonly<ResolvedTheme
     cursor += token.text.length;
   }
   return runs;
+}
+
+/** bash 卡头高亮 = syntaxRuns bash 薄壳（挖掘 39 轮件 I 并源——行为零变） */
+function commandRuns(line: string, offset: number, theme: Readonly<ResolvedTheme>): StyleRun[] {
+  return syntaxRuns(line, 'bash', offset, theme);
 }
 
 /**
@@ -1052,6 +1058,12 @@ function renderDiffSectionLines(
  * 〔失败/回执缺席〕全空号——诚实缺席非伪号）。1 删 1 增相邻对走词级
  * intra-line 高亮（R4 主形态维持）；孤立删/增整行红/绿（R4 前景律——含
  * 号槽/符号列整行着色）；ctx 裸。tab 4 档消毒先行。
+ *
+ * 挖掘 39 轮件 I——段体语法着色：段路径扩展名经 languageForPath 命中即
+ * ctx 行升语法色游程、词级对锚段（same）取语法游程交集（del 行叠 dim）
+ * ——变段 diff 色与孤立行整行红绿**不动**（R4 语义优先）；未知扩展名/
+ * 无扩展名整段零行为变。单行 tokenize 态局限在案（多行注释/跨行字符串
+ * 续行裸——carry 态不入卡面单行路）。
  */
 function renderDiffSectionBodyLines(
   section: PatchSection,
@@ -1060,6 +1072,8 @@ function renderDiffSectionBodyLines(
   startLine: number | undefined,
 ): StyledLine[] {
   if (section.kind === 'delete') return []; // 纯删除段无行体（只有卡头/段头）
+  // 语法语言（路径扩展名单源解析；缺席 = 整段语法腿缺席零行为变）
+  const lang = languageForPath(section.path);
   // 行号计数器：update 双侧同起 startLine；add 段新侧自 1（旧侧不在场）
   let oldNo: number | undefined = section.kind === 'update' ? startLine : undefined;
   let newNo: number | undefined = section.kind === 'add' ? 1 : startLine;
@@ -1087,7 +1101,8 @@ function renderDiffSectionBodyLines(
   while (i < rows.length) {
     const row = rows[i]!;
     if (row.kind === 'del' && rows[i + 1]?.kind === 'add') {
-      // 词级对（R4 主形态）：del 行 + add 行各带号与 bg，变字段段着色锚段裸
+      // 词级对（R4 主形态）：del 行 + add 行各带号与 bg，变字段段着色锚段
+      // 语法交集（39 轮件 I：lang 缺席腿 = 纯 diff 色现状形）
       const add = rows[i + 1]!;
       const delText = sanitizeLineText(row.text, DIFF_TAB_WIDTH);
       const addText = sanitizeLineText(add.text, DIFF_TAB_WIDTH);
@@ -1100,7 +1115,7 @@ function renderDiffSectionBodyLines(
           gutterWidth,
           columns,
           theme,
-          segRuns(segs, 'del', theme.diffRemoved, 0),
+          wordPairRuns(segs, 'del', theme.diffRemoved, delText, lang, theme),
           false,
         ),
       );
@@ -1112,16 +1127,18 @@ function renderDiffSectionBodyLines(
           gutterWidth,
           columns,
           theme,
-          segRuns(segs, 'add', theme.diffAdded, 0),
+          wordPairRuns(segs, 'add', theme.diffAdded, addText, lang, theme),
           false,
         ),
       );
       i += 2;
       continue;
     }
-    // 孤立行整行红/绿（含号槽/符号列——R4 整行前景律）；ctx 裸（无色无 bg）
+    // 孤立行整行红/绿（含号槽/符号列——R4 整行前景律维持不动）；ctx 行语法
+    // 色（39 轮件 I；lang 缺席裸——现状形）
     const text = sanitizeLineText(row.text, DIFF_TAB_WIDTH);
     const fg = row.kind === 'del' ? theme.diffRemoved : row.kind === 'add' ? theme.diffAdded : undefined;
+    const runs = fg !== undefined ? wholeRun(text, { fg }) : lang === undefined ? [] : syntaxRuns(text, lang, 0, theme);
     lines.push(
       ...diffRowStyledLines(
         row.kind,
@@ -1130,8 +1147,8 @@ function renderDiffSectionBodyLines(
         gutterWidth,
         columns,
         theme,
-        fg === undefined ? [] : wholeRun(text, { fg }),
-        fg !== undefined, // 整行着色旗（前缀段并入 fg——词级对行前缀恒裸）
+        runs,
+        fg !== undefined, // 整行着色旗（前缀段并入 fg——词级对/ctx 行前缀恒裸）
       ),
     );
     i++;
@@ -1229,25 +1246,37 @@ function mapRunsOntoSegment(runs: readonly StyleRun[], segStart: number, segEnd:
   return out;
 }
 
-/** 段族 → 游程（目标类段着色、其余裸；offset = 前缀字符位平移） */
-/**
- * 段族 → 游程（目标类段着色、其余裸；offset = 前缀字符位平移）。进位只算
- * 本行在场的段（same + 目标类）——异侧段（del 行的 add 段）不在本行文本里，
- * 游标不随之推进（推进即行几何漂移）。
- */
-function segRuns(
+/** 段族 → 游程（挖掘 39 轮件 I 翻档）：目标类段 = diff 色整段（R4 语义优先
+ *  ——语法色不进变段）；锚段（same）= 行语法游程与段区间交集（坐标系同以
+ *  行内容串起点——进位只算本行在场的段〔same + 目标类〕，异侧段不在本行文
+ *  本里游标不推进；lang 缺席 = 锚段裸纯 diff 色现状形）。del 行锚段语法色
+ *  叠 dim（codex 同律：删行内容列语法色 + overlay dim；add 行无 dim）。 */
+function wordPairRuns(
   segs: readonly { kind: 'same' | 'del' | 'add'; text: string }[],
   kind: 'del' | 'add',
-  fg: CellStyle['fg'],
-  offset: number,
+  diffFg: CellStyle['fg'],
+  lineText: string,
+  lang: string | undefined,
+  theme: Readonly<ResolvedTheme>,
 ): StyleRun[] {
+  // 语法游程单算（same 段交集取用；lang 缺席零 tokenize 零游程）
+  const synRuns = lang === undefined ? [] : syntaxRuns(lineText, lang, 0, theme);
   const runs: StyleRun[] = [];
-  let cursor = offset;
+  let cursor = 0;
   for (const seg of segs) {
     if (seg.kind === kind) {
-      runs.push({ start: cursor, end: cursor + seg.text.length, style: { fg } });
+      // 目标类段：diff 色整段（空段零游程）
+      if (seg.text !== '') runs.push({ start: cursor, end: cursor + seg.text.length, style: { fg: diffFg } });
       cursor += seg.text.length;
     } else if (seg.kind === 'same') {
+      // 锚段：语法游程区间交集（del 行叠 dim——overlay 同律）
+      for (const run of synRuns) {
+        const start = Math.max(run.start, cursor);
+        const end = Math.min(run.end, cursor + seg.text.length);
+        if (start < end) {
+          runs.push(kind === 'del' ? { start, end, style: { fg: run.style.fg, dim: true } } : run);
+        }
+      }
       cursor += seg.text.length; // 锚段在场——进位
     }
   }

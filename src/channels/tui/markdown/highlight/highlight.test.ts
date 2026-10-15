@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_THEME } from '../../theme/index.js';
-import { highlight, tokenize, tokenStyle } from './index.js';
+import { highlight, languageForPath, tokenize, tokenStyle } from './index.js';
 import { JS_SPEC, PYTHON_SPEC, TS_SPEC, YAML_SPEC } from './languages.js';
 
 /** 精确文本找 token（非 plain 类断言用——plain 有弥合不在此断言） */
@@ -137,5 +137,25 @@ describe('highlight 自研高亮器', () => {
     expect(tokenStyle('comment', DEFAULT_THEME)).toEqual({ fg: DEFAULT_THEME.codeComment });
     expect(tokenStyle('number', DEFAULT_THEME)).toEqual({ fg: DEFAULT_THEME.codeNumber });
     expect(tokenStyle('function', DEFAULT_THEME)).toEqual({ fg: DEFAULT_THEME.codeFunction });
+  });
+
+  /* 挖掘 39 轮件 I：languageForPath 路径扩展名直查（ALIASES 一跳零新表） */
+
+  it('languageForPath：扩展名小写直查 ALIASES 命中即键名（含 mts/htm 补键与大写归一）', () => {
+    expect(languageForPath('src/a.ts')).toBe('ts');
+    expect(languageForPath('comp.tsx')).toBe('tsx');
+    expect(languageForPath('x.mts')).toBe('mts'); // 39 轮补键
+    expect(languageForPath('page.htm')).toBe('htm'); // 39 轮补键
+    expect(languageForPath('Script.PY')).toBe('py'); // 大写归一
+    expect(languageForPath('dir.zzz')).toBeUndefined(); // 未知扩展名缺席
+    expect(languageForPath('noext')).toBeUndefined(); // 无扩展名缺席
+    expect(languageForPath('.gitignore')).toBeUndefined(); // 首点隐藏文件形缺席
+    expect(languageForPath('C:\\x\\a.rs')).toBe('rs'); // 反斜杠分隔符
+  });
+
+  it('languageForPath 返回键可直接作 highlight 语言形（一跳闭环）', () => {
+    const lang = languageForPath('a.mts');
+    expect(lang).toBe('mts');
+    expect(highlight('const x = 1;', lang)).not.toBeNull(); // mts → TS_SPEC 在册
   });
 });
