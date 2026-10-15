@@ -89,6 +89,14 @@ export const CR = '\r';
 export const LF = '\n';
 /** 清全屏 + 光标归位（repaint 路） */
 export const CLEAR_SCREEN = `${ESC}[2J${ESC}[H`;
+/**
+ * 重画清屏（41 轮件 I——repaint 清 scrollback）：DECSTBM 复原→2J→H→3J 单写。
+ * `\x1b[r` 前置防滚动区在身时 E3 行为分叉；3J（xterm E3 扩展——不识终端自
+ * 忽略，退化双卷无害）擦 scrollback：重画 = 权威重建 ⇒ scrollback 镜像最新
+ * 重建（旧宽残卷交错消除）。`\x1b[2J\x1b[H` 连续子串保持——toContain 族断
+ * 言零破。start 首画不清 scrollback（用户入场前史不销毁——恒走 CLEAR_SCREEN）。
+ */
+export const REPAINT_PURGE_CLEAR = `${ESC}[r${CLEAR_SCREEN}${ESC}[3J`;
 /** 设滚动区 DECSTBM（1 基行号——底部固定区留区外） */
 export function setScrollRegion(bottomRow1Based: number): string {
   return `${ESC}[1;${bottomRow1Based}r`;

@@ -515,15 +515,34 @@ describe('TuiBackend notify / repaint / resize', () => {
   });
 
   it('resize 自订阅：emitResize → 清屏 + 新几何滚动区 + 重画', () => {
-    const { io, backend } = makeBackend();
+    const clock = new ManualClock();
+    const { io, backend } = makeBackend({ schedule: clock.schedule, cancelSchedule: clock.cancel });
     emit(backend, { type: 'message_end', message: { role: 'user', content: '内容', timestamp: 1 } });
     io.columns = 40;
     io.rows = 6;
     io.bytes = '';
     io.emitResize();
+    clock.advance(75); // 尾随防抖窗到（41 轮件 I）——handleResize 汇流末次事件
     expect(io.bytes).toContain('\x1b[2J\x1b[H');
     expect(io.bytes).toContain('\x1b[1;3r'); // 6 行 - 固定区 2（状态 1 + 编辑器 1——V-0 注③ 框退役）- R-1 间隔 1 = DECSTBM 1..3
     expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m内容\n'); // 行集重画
+  });
+
+  it('【件 I 修前红】resize 尾随防抖：拖拽连发窗内零写出、75ms 后恰一次清屏重画（末次几何）', () => {
+    const clock = new ManualClock();
+    const { io, backend } = makeBackend({ schedule: clock.schedule, cancelSchedule: clock.cancel });
+    emit(backend, { type: 'message_end', message: { role: 'user', content: '内容', timestamp: 1 } });
+    io.bytes = '';
+    io.columns = 40;
+    io.emitResize();
+    io.columns = 20;
+    io.emitResize();
+    // 修前红：零防抖同步直呼——首事件即全量重画（bytes 非空）
+    expect(io.bytes).toBe('');
+    clock.advance(75);
+    const clears = io.bytes.split('\x1b[2J\x1b[H').length - 1;
+    expect(clears).toBe(1); // 拖拽窗内两事件只认末次——恰一次清屏重画（修前红：两次）
+    expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m内容\n'); // 行集按末次几何重画
   });
 
   /* ---- 已落屏瞬时行跨权威重建保全（e2e /resume 竞窗根因——三面对称锁） ---- */
@@ -552,10 +571,13 @@ describe('TuiBackend notify / repaint / resize', () => {
   });
 
   it('已落屏瞬时行跨 resize 保全（权威重建三面之一——缩窗重画后补吐 + 新宽收口）', () => {
-    const { io, backend } = makeBackend();
+    const clock = new ManualClock();
+    const { io, backend } = makeBackend({ schedule: clock.schedule, cancelSchedule: clock.cancel });
     backend.notify('已续接：e2ehist');
+    clock.advance(1); // 合并帧落屏（已落帧前提——notify 经 pendingOps 请帧）
     io.bytes = '';
     io.emitResize();
+    clock.advance(75); // 防抖窗到 → handleResize 权威清点（41 轮件 I 尾随窗）
     expect(io.bytes).toContain('已续接：e2ehist'); // 修前红：resize 重画抹屏无补吐
   });
 
@@ -1320,8 +1342,12 @@ describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面�
    * 帧，帧内文本序即屏上行序；取末帧做 indexOf 比较才忠实锁「谁在上谁在
    * 下」。
    */
-  const lastFullFrame = (io: { frames: readonly string[]; emitResize(): void }): string => {
-    io.emitResize(); // handleResize 同步直呼（不走 schedule）——clear + 全量重画帧即时落账
+  const lastFullFrame = (
+    io: { frames: readonly string[]; emitResize(): void },
+    flushResizeDebounce: () => void,
+  ): string => {
+    io.emitResize(); // resize 路 75ms 尾随防抖（41 轮件 I）——flushResize 推窗到点触发全量重画帧
+    flushResizeDebounce();
     // 全量重画 = 末个清屏帧（\x1b[2J）起的整段写出（后续 region/cup/行写出/
     // 归位尾帧同属一次重画编舞）——拼接后文本序即屏上行序
     let clearIdx = -1;
@@ -1335,12 +1361,12 @@ describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面�
   };
 
   it('confirm 面板呈现于编辑器下方（修前红：屏顶浮层先于编辑器）', async () => {
-    const { io, backend, pump } = makeInteractive();
+    const { io, backend, clock, pump } = makeInteractive();
     io.emitInput('a');
     pump(); // 聚焦 › 在场——首帧全量铺屏
     const p = backend.confirm('下方确认？');
     pump();
-    const frame = lastFullFrame(io);
+    const frame = lastFullFrame(io, () => clock.advance(75));
     const prompt = frame.indexOf('›');
     const panel = frame.indexOf('下方确认');
     expect(prompt).toBeGreaterThanOrEqual(0); // 编辑器在屏（全量帧含 ›）
@@ -1352,12 +1378,12 @@ describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面�
   });
 
   it('askApproval 面板呈现于编辑器下方（修前红：屏顶）', async () => {
-    const { io, backend, pump } = makeInteractive(undefined, 14); // 审批面板 5 行并陈需高窗
+    const { io, backend, clock, pump } = makeInteractive(undefined, 14); // 审批面板 5 行并陈需高窗
     io.emitInput('a');
     pump();
     const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
     pump();
-    const frame = lastFullFrame(io);
+    const frame = lastFullFrame(io, () => clock.advance(75));
     expect(frame.indexOf('›')).toBeGreaterThanOrEqual(0);
     expect(frame.indexOf('⚙ 写入文件')).toBeGreaterThanOrEqual(0); // 面板标题（V-0 注⑤动词位）
     expect(frame.indexOf('›')).toBeLessThan(frame.indexOf('⚙ 写入文件')); // 修前红
@@ -1367,12 +1393,12 @@ describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面�
   });
 
   it('input-ask 提示行迁编辑器下方（修前红：编辑器上方段）', async () => {
-    const { io, backend, pump } = makeInteractive();
+    const { io, backend, clock, pump } = makeInteractive();
     io.emitInput('a');
     pump();
     const p = backend.input('下方问？');
     pump();
-    const frame = lastFullFrame(io);
+    const frame = lastFullFrame(io, () => clock.advance(75));
     expect(frame.indexOf('›')).toBeGreaterThanOrEqual(0);
     expect(frame.indexOf('? 下方问？')).toBeGreaterThanOrEqual(0); // 提示行在场
     expect(frame.indexOf('›')).toBeLessThan(frame.indexOf('? 下方问？')); // 修前红
@@ -1390,7 +1416,7 @@ describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面�
     });
     io.emitInput('/he');
     clock.advance(AUTOCOMPLETE_DEBOUNCE_MS + 1); // 防抖窗到——查询落层弹层在场
-    const frame = lastFullFrame(io);
+    const frame = lastFullFrame(io, () => clock.advance(75));
     // 编辑器行锚 = 聚焦 › 提示符转义形（bold + 空格 + reset——R-6 翻档后
     // 聚焦 › 恒 bold 默认前景）；弹层 label 行 2 空格前缀（光标符已退役）
     // 不含 › 字符——› 字符全域唯 composer 提示符位
@@ -1705,8 +1731,8 @@ describe('TuiBackend 渲染合并与 tick 自驱', () => {
     const rig = makeInteractive();
     rig.backend.notify('resize 前窗内通知', { level: 'info' });
     expect(rig.io.bytes).toBe(''); // 合并窗持有——未落帧零写出
-    rig.io.emitResize(); // 权威清点路（handleResize）
-    rig.pump();
+    rig.io.emitResize(); // 权威清点路（handleResize——75ms 尾随防抖后置，41 轮件 I）
+    rig.clock.advance(75); // 防抖窗到：窗内帧先落 notify 再权威清点抢救（已落账面）
     expect(rig.io.bytes).toContain('resize 前窗内通知'); // 修前红：清点丢弃——行永失
 
     // onRepaint 同律（切焦权威重建路）
@@ -4343,9 +4369,10 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
     t += 400;
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(2000)) }); // 供数层照常收账（显示帧零写出——持旧同内容行级差分零写）
     io.bytes = '';
-    // 取证走 resize 全量重画帧：持旧值与上帧同内容——增量帧零写出不可断（零
-    // 写出 ≠ 显示持旧），全量帧显示值整帧可见
-    io.emitResize();
+    // 取证走状态行整行重写帧（41 轮件 I 后 resize 路带 75ms 尾随防抖——同
+    // 步直出档取证改走 setStatus 触发行重写，语义同前：持旧值与上帧同内容
+    // ——增量帧零写出不可断（零写出 ≠ 显示持旧），行重写帧显示值整行可见）
+    backend.setStatus(SESSION, '取证');
     expect(io.bytes).toContain('50 tok/s'); // 显示持旧（修前红：无节流 → '208 tok/s' 在场、'50' 缺席）
     expect(io.bytes).not.toContain('208 tok/s'); // 供数值不进显示（节流位 = 呈现层显示缓存）
     // 推过节流窗（≥500ms 自首帧起算）：600 tokens / 2.5s = 240 tok/s 刷新
@@ -5570,17 +5597,22 @@ describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②
 
   it('rows 缩至 5：低段（todo）先缩至 1 行——状态行钉屏底 + 编辑器下限在场 + 无越屏定位（V-0 注③ 框退役释放 2 行预算——整段隐形上移更小屏）', () => {
     const io = new MemoryTerminalIO(COLS, 12); // 先宽后窄：宽形（12 行）无截断全量进画，让 todo 7 行先进场
+    const clock = new ManualClock();
     const backend = new TuiBackend(io, {
       sessionId: SESSION,
+      schedule: clock.schedule,
+      cancelSchedule: clock.cancel,
       footer: { tiers: () => ({ mode: null, thinking: null, sandbox: '只读' }) },
       todoFor: () => manyTodos,
     });
     backend.start();
     // todo 进场锚点：tool_execution_end（refreshTodo 三时点之二——tool 未开档 end 无行，纯 todo 形）
     emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
+    clock.advance(1); // 宽形中间帧先落（41 轮件 I 防抖后帧延迟——不带此步则积压帧以旧几何混入断言窗）
     io.bytes = ''; // 宽形中间帧不计——聚焦缩窗后的全量重画帧
     io.rows = 5;
     io.emitResize(); // 极小形：截断目标 = 固定区总高 ≤ 视口 - 1 = 4（正文滚动区至少 1 行）
+    clock.advance(75); // 尾随防抖窗到（41 轮件 I）——全量重画帧落账
     // 截断后固定区 = todo 1 + 编辑器下限 1 + 状态行 2 = 4（V-4 注⑪ 笔3 三行栈——
     // env 在场量高 2：仪表行空保留 + 环境行短 id/沙箱原词；框退役后编辑器省
     // 2 行——低段从「整段隐」升为「缩 1 行」；段内梯缩至首条摘要行）
@@ -5594,16 +5626,21 @@ describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②
 
   it('rows 缩至 8：低段先缩不隐——todo 收到 1 行 + 正文滚动区非退化', () => {
     const io = new MemoryTerminalIO(COLS, 12); // 同上先宽（12 行全量 11 ≤ 预算 11 无截断）后窄
+    const clock = new ManualClock();
     const backend = new TuiBackend(io, {
       sessionId: SESSION,
+      schedule: clock.schedule,
+      cancelSchedule: clock.cancel,
       footer: { tiers: () => ({ mode: null, thinking: null, sandbox: '只读' }) },
       todoFor: () => manyTodos,
     });
     backend.start();
     emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
+    clock.advance(1); // 宽形中间帧先落（同上——防抖后帧延迟）
     io.bytes = '';
     io.rows = 8;
     io.emitResize(); // 预算 7：todo 缩 1 + 编辑器 1 + 状态行 2 = 4 ≤ 7——「先缩后隐」之缩形
+    clock.advance(75); // 尾随防抖窗到（41 轮件 I）
     expect(io.bytes).toContain('任务零0'); // todo 缩到 1 行——首条在场（段在场）
     expect(io.bytes).not.toContain('任务零1'); // 缩掉的不虚报（修前 6 条全量进画）
     // 固定区总高 4（V-0 注③ 框退役编辑器 1 + V-4 注⑪ 状态行 2）→ 滚动区底 = 8 - 4 - R-1 间隔 1 = 3（修前总高 11 → 退化 [1;1r + 越屏定位）
@@ -5613,7 +5650,12 @@ describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②
 
   it('【sweep23-件1 修前红→回归锁】长稿极小视口收缩目标夹帽：垫行不借道内容地板保位——固定区不超屏（修前陈货守卫整段不写）', () => {
     const io = new MemoryTerminalIO(COLS, 7); // 编辑器帽 = max(5, floor(7×0.3)) = 5
-    const backend = new TuiBackend(io, { sessionId: SESSION });
+    const clock = new ManualClock();
+    const backend = new TuiBackend(io, {
+      sessionId: SESSION,
+      schedule: clock.schedule,
+      cancelSchedule: clock.cancel,
+    });
     backend.start();
     // 10 行稿（kitty CSI u 形 ctrl+j = editor.new-line 缺省键；裸 \x0a 在解码
     // 器归 enter 提交——不可用）：裸内容 10 > 帽 5——超帽部分本就不可呈现
@@ -5628,6 +5670,7 @@ describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②
     });
     io.bytes = ''; // 打字中间帧不计——聚焦全量重画帧取证
     io.emitResize();
+    clock.advance(75); // 尾随防抖窗到（41 轮件 I）——窗内积压帧先落、全量重画帧随后
     expect(io.bytes).toContain('↑ 5 更多'); // 编辑器在场 + 内容窗恰帽内 5 行（修前：整段缺席）
     expect(io.bytes).toContain('\x1b[1;1r'); // 滚动区 1 行非退化（固定区 6 = 编辑器 5 + 状态 1 ≤ 预算 6）
   });

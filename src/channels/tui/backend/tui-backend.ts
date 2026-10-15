@@ -540,6 +540,13 @@ const THEME_CHANGE_DISABLE = '\x1b[?2031l';
 const DEFAULT_FPS_CAP = 60;
 
 /**
+ * resize 尾随防抖窗（41 轮件 I——codex 同值 75ms）：SIGWINCH 风暴（拖拽期连
+ * 发）窗内只认末次事件——纯尾随重置（窗内新事件重开窗，已到期未执行的也顺
+ * 延）。权威重建全量重画成本高，逐事件同步重画即旧宽/新宽双卷交错的成因之一。
+ */
+const RESIZE_DEBOUNCE_MS = 75;
+
+/**
  * tmux 子进程缺省真身（件 A 分诊 seam）：spawnSync 阻塞形（复制是用户显式
  * 动作、tmux 子进程毫秒级——codex 同阻塞形）；**stdout trim 归一在此**
  * （spawnSync 输出带尾随换行——'external\n'/'off\n'，分诊比较裸值）。
@@ -886,6 +893,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private leaderHintHandle: unknown = null;
   private unsubInput: (() => void) | null = null;
   private unsubResize: (() => void) | null = null;
+  /**
+   * resize 防抖定时器柄（41 轮件 I）：onResize 回调不再同步直呼 handleResize
+   * ——经 scheduleResizeRepaint 尾随防抖（75ms 窗内只认末次）；走 scheduleFn
+   * seam（注入钟 rig 以 clock.advance 自然驱动）。挂起期 timer 到点 →
+   * handleResize 挂起闸早退零写出（几何真值由复起重取吸收——无害悬挂）。
+   */
+  private resizeDebounceHandle: unknown = null;
   private running = false;
   /** 起动过位（lifecycle 的 idle / disposed 分权——一次性事实，start 幂等位之外） */
   private startedOnce = false;
@@ -1537,7 +1551,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.enqueuePresent();
       this.requestRender();
     }
-    this.unsubResize = this.io.onResize(() => this.handleResize());
+    this.unsubResize = this.io.onResize(() => this.scheduleResizeRepaint());
     // 动效门（挖掘 35 轮 B2+B4）：禁用形 tick 定时器不摆——忙态零 80ms 自
     // 重排（态变/供数变才触重绘，慢 SSH/前庭静止回退）
     if (this.scheduleFn !== null && this.animationsEnabled) this.armTick();
@@ -1566,6 +1580,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.unsubInput = null;
     this.unsubResize?.();
     this.unsubResize = null;
+    if (this.resizeDebounceHandle !== null) {
+      // resize 防抖柄收口（41 轮件 I）：终退后 timer 到点即 handleResize 空
+      // 转（running 闸外再写出）——显式取消
+      this.cancelFn(this.resizeDebounceHandle);
+      this.resizeDebounceHandle = null;
+    }
     this.cancelTimer('frame');
     this.cancelTimer('tick');
     this.cancelTimer('escape');
@@ -3121,6 +3141,22 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     return (tokens * 1000) / elapsedMs;
   }
 
+  /**
+   * resize 尾随防抖（41 轮件 I）：onResize 回调经 75ms 尾随重置窗汇流——SIGWINCH
+   * 风暴（拖拽期连发）只认末次事件后执行 handleResize（窗内新事件重开窗）。
+   * 走 scheduleFn seam（照 drainInput :1606 先例——注入钟 rig 以
+   * clock.advance(75) 自然驱动，缺省真 setTimeout）；handleResize 非事件路
+   * （resumeMain 直呼）不受辖。
+   */
+  private scheduleResizeRepaint(): void {
+    const schedule = this.scheduleFn ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+    if (this.resizeDebounceHandle !== null) this.cancelFn(this.resizeDebounceHandle);
+    this.resizeDebounceHandle = schedule(() => {
+      this.resizeDebounceHandle = null;
+      this.handleResize();
+    }, RESIZE_DEBOUNCE_MS);
+  }
+
   /** resize 编舞：几何重取 + 主屏全量重画 + 固定区按新几何重建（权威重建不走队列） */
   handleResize(): void {
     if (this.suspendedMain) return; // 挂起闸：停屏期零写出（此刻写出污染在场副屏）——几何真值由复起全帧重画重取吸收
@@ -3683,8 +3719,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /**
    * 思考块会话级开关（ctrl+t 批 10i）：transcript 翻态改写已落账块 +
-   * screen.repaint 全量重渲（2J 清屏不清 scrollback——已交滚回的旧行物理
-   * 不可回改，屏幕面与模型账立即一致；冻结账随 repaint 重置后按新态重建）。
+   * screen.repaint 全量重渲（41 轮件 I 起 repaint 清屏走 REPAINT_PURGE_CLEAR
+   * 连 scrollback 一并清——重画 = 权威重建 ⇒ scrollback 镜像最新重建，屏幕
+   * 面与模型账立即一致；冻结账随 repaint 重置后按新态重建）。
    */
   private toggleThinking(): void {
     this.transcript.toggleThinking();

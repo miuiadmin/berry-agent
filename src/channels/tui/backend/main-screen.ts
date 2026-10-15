@@ -4,7 +4,11 @@
  * 物理形态（与副屏全屏网格分立、共用 cell/diff/width 基座——07 篇定形）：
  * - **DECSTBM 滚动区**承载正文（顶行到固定区上方）：区底写满自动滚、
  *   滚出视口整行交终端原生 scrollback（历史真相在 durable 事件日志，行集
- *   是帽内最近段的内存上限语义）；
+ *   是帽内最近段的内存上限语义）；**repaint = 权威重建**（41 轮件 I）——
+ *   清屏走 REPAINT_PURGE_CLEAR（r+2J+H+3J）连 scrollback 一并清：旧内容
+ *   （含旧宽残卷）不参与重建、scrollback 镜像最新重建；超帽 trimmed 前史
+ *   唯一物理载体（scrollback）随 purge 消失——以全量重建帧首 dim 垫行补偿
+ *   告知（present B 段）；start 首画不清（用户入场前史不销毁）；
  * - **固定区钉屏底**（区外行不被滚动卷入、绝对位可知）：输入框 + 状态行，
  *   行级差分重画（变行整行重写、未变行零写出——擦除只走 EL 禁空格填充）；
  * - **正文块直写**：块 → 行序列化 → 追加写（追加不回改——直播路「消息事件
@@ -38,6 +42,7 @@
  */
 import { CellGrid, type TerminalIO } from '../../engine/index.js';
 import {
+  buildSgr,
   CLEAR_SCREEN,
   CR,
   cud,
@@ -45,6 +50,7 @@ import {
   EL_TO_EOL,
   LF,
   renderFixedRegionDiff,
+  REPAINT_PURGE_CLEAR,
   setScrollRegion,
   SGR_RESET,
   cup,
@@ -194,11 +200,23 @@ export class MainScreen {
     if (newAbsolute > this.writtenAbsolute) {
       let skip = this.frozenSlotLines;
       const start = Math.max(0, this.writtenAbsolute - blocksOffset);
+      // trimmed 垫行（41 轮件 I）：全量重建帧（自保留窗首块起写 = start 0）且
+      // 确有裁块前史时，正文首块前先写一行 dim 提示——purge 后 scrollback 镜像
+      // 最新重建，超帽 trimmed 前史（原唯一物理载体）以告知位补偿；增量帧
+      // （start > 0——触帽后每新块帧）不垫防重复刷屏。提示行经 writeLine 同路
+      // （区底 LF 触滚入 scrollback 成为重发卷首行），行内相对账（durableEndRow
+      // 等）由 writeLine 自然承接
+      const trimmedNotice = blocksOffset > 0 && start === 0;
+      if (trimmedNotice) {
+        this.writeLine(`${buildSgr({ dim: true })}── 前史已省 ${blocksOffset} 块 · /history 查看全量 ──${SGR_RESET}`);
+      }
       for (let i = start; i < durableCount; i++) {
         // R-1 首块豁免位：绝对首块（行集首块且无裁块前缀）top:0 无块前垫——
         // 其余块每块前垫 1 素空行（豁免判据跨帧稳定：append-only 下已写块不
-        // 重写、trim 只增 blocksOffset 不改在屏首块豁免态）
-        for (const line of renderBlockLines(blocks[i]!, this.columns, !(i === 0 && blocksOffset === 0))) {
+        // 重写、trim 只增 blocksOffset 不改在屏首块豁免态）；垫行帧例外位：
+        // 提示行自身即分隔——其后首块（i === start）不垫空行
+        const firstPad = trimmedNotice ? i > start : !(i === 0 && blocksOffset === 0);
+        for (const line of renderBlockLines(blocks[i]!, this.columns, firstPad)) {
           if (skip > 0) {
             skip--;
             continue;
@@ -406,7 +424,9 @@ export class MainScreen {
 
   /**
    * repaint（焦点切换）：清屏 + 行集全量重写（投影即真相——scrollback 旧内容
-   * 不参与）。绝对位账重置为本帧 blocksOffset（全量重写后账尾 = 行集末块）。
+   * 不参与）。清屏走 REPAINT_PURGE_CLEAR（41 轮件 I）连 scrollback 一并清
+   * ——重画 = 权威重建 ⇒ scrollback 镜像最新重建；start 首画不清（恒
+   * CLEAR_SCREEN）。绝对位账重置为本帧 blocksOffset（全量重写后账尾 = 行集末块）。
    */
   repaint(blocks: readonly TranscriptBlock[], blocksOffset = 0): void {
     this.writtenAbsolute = blocksOffset;
@@ -417,7 +437,7 @@ export class MainScreen {
     this.guideRows = 0; // 空态引导账随清屏失效（emptyGuide 态位存续——present 按态重画）
     this.guideSig = '';
     this.prevFixed = null; // 差分基准随清屏失效（2026-09-17 收官批）：清屏抹掉屏上固定区而模型 grid 不变——基准不失效则同值 diff 零写出、屏恒空白（tmux e2e 抓获启动抹屏形：会话注册即 repaint 空 transcript + 调用方 renderFixed 同值 grid 再 diff；resize 同高度形同洞）
-    this.io.write(CLEAR_SCREEN);
+    this.io.write(REPAINT_PURGE_CLEAR);
     this.applyScrollRegion();
     this.present(blocks, blocksOffset);
   }

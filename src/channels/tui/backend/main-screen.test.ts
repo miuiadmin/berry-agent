@@ -562,6 +562,47 @@ describe('MainScreen 块账绝对位与越界防御（批 10k 遗漏修）', () 
     expect(io.bytes).not.toContain('\x1b[0m' + 'A');
   });
 
+  /* ---- 41 轮件 I：repaint 清 scrollback（purge）+ trimmed 垫行 ---- */
+
+  it('【件 I 修前红】repaint 清 scrollback：r+2J+H+3J 单写（重画=权威重建——scrollback 镜像最新重建）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    io.bytes = '';
+    screen.repaint([userBlock('内容')]);
+    // 修前红：CLEAR_SCREEN（2J+H）不清 scrollback——无 r 前置无 3J 尾随
+    expect(io.bytes).toContain('\x1b[r\x1b[2J\x1b[H\x1b[3J');
+  });
+
+  it('【件 I 修前红】repaint 携 blocksOffset>0：全量重建帧首垫 dim 提示行（trimmed 补偿告知）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    io.bytes = '';
+    screen.repaint([userBlock('B'), userBlock('C')], 2); // 全量重建帧（账重置 → start=0）+ 两块裁前史
+    // 修前红：超帽 trimmed 前史唯一物理载体是 scrollback（purge 已清）——无补偿告知
+    expect(io.bytes).toContain('── 前史已省 2 块 · /history 查看全量 ──');
+    expect(io.bytes).toContain('\x1b[2m── 前史已省 2 块'); // dim 形（buildSgr dim 位——弱化非正文语义）
+    // 提示行自身即分隔：其后首块剥通用外垫（R-1 豁免位延伸）——user 块内包
+    // 夹空行是块内行保留——恰一空行间隔非两空行（外垫未剥形 = 外素垫 + 内
+    // 包夹双空行）
+    expect(io.bytes).toContain('──\x1b[0m\n\r\n\r\x1b[1;2m› \x1b[0mB');
+    expect(io.bytes).not.toContain('──\x1b[0m\n\r\n\r\n\r\x1b[1;2m› \x1b[0mB');
+  });
+
+  it('【件 I 防回归守卫】增量帧（start>0）与无裁块帧不垫提示行', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    screen.present([userBlock('A'), userBlock('B'), userBlock('C')], 0);
+    io.bytes = '';
+    // 触帽 trim 形：前缀裁一块 + 尾增新块——start=2 增量帧只写新块（防每新块帧重复刷屏）
+    screen.present([userBlock('B'), userBlock('C'), userBlock('D')], 1);
+    expect(io.bytes).not.toContain('前史已省');
+    expect(io.bytes).toContain('\x1b[1;2m› \x1b[0mD'); // 新块照写（对照 trim 语义锁）
+    // 无裁块全量重建帧：offset=0 恒不垫（blocksOffset>0 是垫行前提）
+    io.bytes = '';
+    screen.repaint([userBlock('A')], 0);
+    expect(io.bytes).not.toContain('前史已省');
+  });
+
   it('固定区超屏（总高 > 行数）零负行定位——baseRow 钳 0（畸形几何防御位）', () => {
     const { io, screen } = makeScreen();
     screen.start();
