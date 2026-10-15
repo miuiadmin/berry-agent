@@ -60,6 +60,7 @@ import { MarkdownDoc, type RowsSource } from '../markdown/markdown.js';
 import { renderThinkingStyledLines, type ThinkingView } from '../blocks/thinking.js';
 import {
   cardBodyOf,
+  diffBodyOf,
   humanizeGuardedOutput,
   renderToolCardStyledLines,
   sanitizeLineText,
@@ -2054,7 +2055,9 @@ export class LiveTranscript {
       name: call.name,
       brief: call.brief,
       status,
-      body: isBackgroundDelegation ? [] : cardBodyOf(bodyText),
+      // 48 轮件 A：diff 档分立帽（diffBodyOf 2000——中段可审阅；非 diff 档
+      // cardBodyOf 帽 200 三同律位不变）
+      body: isBackgroundDelegation ? [] : isEditPatch ? diffBodyOf(bodyText) : cardBodyOf(bodyText),
       diff: isEditPatch,
       ...(diffStartLines !== undefined ? { diffStartLines } : {}),
       expanded: this.toolCardsExpanded,

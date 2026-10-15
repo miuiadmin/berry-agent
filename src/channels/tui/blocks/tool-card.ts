@@ -287,6 +287,36 @@ export function cardBodyOf(text: string): readonly string[] {
 }
 
 /**
+ * diff 档卡体存账行帽（挖掘 48 轮件 A——07 §191 翻档）：edit patch 体行帽
+ * 2000 分立（头 1000 + 省略标记 + 尾 1000），cardBodyOf 主位与三同律位维持
+ * 帽 200。动因 = 超帽 patch 中段在存账层永久不可见（ctrl+o 展开只渲染帽内
+ * 存账行——/diff 副屏虽全量，主屏滚动回看审不到中段）；2000 档宽松 10 倍
+ * （审阅价值面）同时保住行集内存与帧面有界（诚实降级维持标记措辞单源）。
+ */
+export const DIFF_BODY_MAX_LINES = 2000;
+
+/** diff 档卡体存账窗头/尾配额（各半——头 1000 + 省略标记 + 尾 1000；标记帽外不计同律） */
+export const DIFF_BODY_HEAD_LINES = DIFF_BODY_MAX_LINES / 2;
+export const DIFF_BODY_TAIL_LINES = DIFF_BODY_MAX_LINES - DIFF_BODY_HEAD_LINES;
+
+/**
+ * edit patch 体 → 存账行（48 轮件 A——diff 档分立帽 2000）。**不走
+ * humanizeGuardedOutput**：护栏注记转写是 exec 输出面语义，patch 是模型
+ * 参数面——保真原样（病态无前缀 ctx 行以「[输出」起头命中 ^ 锚时不剥不
+ * 转写，较修前更正确）；单行帽 capLongLine 维持（二层保险语义不破）。
+ */
+export function diffBodyOf(text: string): readonly string[] {
+  const lines = text.split('\n').map(capLongLine);
+  if (lines.length <= DIFF_BODY_MAX_LINES) return lines;
+  const dropped = lines.length - DIFF_BODY_MAX_LINES;
+  return [
+    ...lines.slice(0, DIFF_BODY_HEAD_LINES),
+    cardBodyOmissionMarker(dropped),
+    ...lines.slice(-DIFF_BODY_TAIL_LINES),
+  ];
+}
+
+/**
  * 工具卡 → 带样式行集。卡头行恒在场且**恒受屏宽帽**（2026-09-20 TUI 修复组
  * 1 批 F6——超长名/简述整行截断 capStyledLine，游程同步钳制）。
  *

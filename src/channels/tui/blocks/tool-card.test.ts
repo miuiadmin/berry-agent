@@ -21,6 +21,8 @@ import {
   CARD_PREVIEW_LINES,
   capLongLine,
   cardBodyOf,
+  DIFF_BODY_MAX_LINES,
+  diffBodyOf,
   renderToolCardStyledLines,
   type ExploringGroupEntry,
   type ToolCardView,
@@ -307,6 +309,51 @@ describe('卡体两档与存账帽', () => {
     const guarded =
       'a\n\n[输出 63087 字节超 65536 字节上限，已保尾截断；全文外溢至 /tmp/tool-output-x-abc-1.txt（可用 read/grep 从外溢文件取段）]\n';
     expect(cardBodyOf(guarded)).toEqual(['⋯ +2 行', 'a', '']);
+  });
+
+  it('diffBodyOf 帽内原样：300 行 patch 全量在账无省略标记（48 轮件 A——中段可审阅）', () => {
+    const patch = Array.from({ length: 300 }, (_, i) => `+line-${i}`).join('\n');
+    const body = diffBodyOf(patch);
+    expect(body).toHaveLength(300); // 修前 cardBodyOf 帽 200 → 201 行含标记（必红）
+    expect(body.join('\n')).not.toContain('中段已省');
+    expect(body[150]).toBe('+line-150'); // 中段行在账
+  });
+
+  it('diffBodyOf 帽值锁死 2000：2100 行三段切（头 1000 + 中段已省 100 行 + 尾 1000）', () => {
+    expect(DIFF_BODY_MAX_LINES).toBe(2000); // 帽值锁（direct-shell 帽值锁同形）
+    const patch = Array.from({ length: 2100 }, (_, i) => `+L${i}`).join('\n');
+    const body = diffBodyOf(patch);
+    expect(body).toHaveLength(2001); // 头 1000 + 标记 + 尾 1000（标记帽外不计同律）
+    expect(body[0]).toBe('+L0');
+    expect(body[999]).toBe('+L999'); // 头配额末行
+    expect(body[1000]).toBe('⋯（中段已省 100 行）'); // 标记措辞单源 cardBodyOmissionMarker
+    expect(body[1001]).toBe('+L1100'); // 尾配额首行
+    expect(body[2000]).toBe('+L2099'); // 尾行保住
+  });
+
+  it('diffBodyOf 单行帽维持：超 2000 码点行行内截断（capLongLine 同律——二层保险不破）', () => {
+    const body = diffBodyOf('x'.repeat(65536));
+    expect(body).toHaveLength(1);
+    expect([...body[0]!].length).toBeLessThanOrEqual(CARD_BODY_LINE_MAX_CODEPOINTS + 1); // 头 1000 + ⋯ + 尾 1000
+  });
+
+  it('diffBodyOf 不走护栏注记转写：patch 参数面原样保真（GUARD_NOTE 命中形不剥）', () => {
+    // 病态形：模型编辑 berry-agent 自身仓库且 ctx 空格漏写时注记串以「[输出」
+    // 起头可命中 ^ 锚——参数面保真（不剥不前置 ⋯ +N 行）是新行为较修前更正确的语义
+    const guarded = 'tail-a\ntail-b\n[输出 63087 字节超 65536 字节上限，已保尾截断；全文外溢至 /tmp/tool-output-x]';
+    const body = diffBodyOf(guarded);
+    expect(body.join('\n')).toContain('[输出'); // 原样保留（cardBodyOf 路会剥——护栏注记锁对照）
+    expect(body[0]).toBe('tail-a'); // 无前置转写标记
+  });
+
+  it('300 行 diff 卡展开档中段行可见（48 轮件 A 主锁——存账全量则展开全量渲染）', () => {
+    const patch = Array.from({ length: 300 }, (_, i) => `+line-${i}`).join('\n');
+    const lines = renderToolCardStyledLines(
+      card({ name: 'edit', diff: true, body: [...diffBodyOf(patch)], expanded: true }),
+      40,
+    );
+    // 展开档全量渲染既有律——第 150 行内容必须在帧（修前存账帽 200 中段不可见必红）
+    expect(lines.some((l) => l.plain.includes('line-150'))).toBe(true);
   });
 });
 

@@ -1032,6 +1032,21 @@ describe('LiveTranscript 工具卡配对账（批 10i R4——直播路）', () 
     expect(card.status).toBe('success');
   });
 
+  it('edit 卡 diff 档存账帽 2000 分立：300 行 patch 全量在账（48 轮件 A——中段可审阅）', () => {
+    const t = new LiveTranscript();
+    const patch = Array.from({ length: 300 }, (_, i) => `+line-${i}`).join('\n');
+    apply(t, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'edit', arguments: { patch } }]),
+    });
+    apply(t, { type: 'message_end', message: toolResultMsg('已应用', { toolCallId: 'tc1' }) });
+    const card = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(card.diff).toBe(true);
+    expect(card.body).toHaveLength(300); // 修前 cardBodyOf 帽 200 → 201 行（必红）
+    expect(card.body.join('\n')).not.toContain('中段已省');
+    expect(card.body[150]).toBe('+line-150'); // 中段行入存账（ctrl+o 展开可审）
+  });
+
   it('edit diffStartLines 注卡：成功回执 operations 段序提取（update 注/add 不注；⑥ 行号源）', () => {
     const t = new LiveTranscript();
     apply(t, {
