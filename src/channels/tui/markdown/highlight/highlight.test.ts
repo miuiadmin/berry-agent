@@ -7,7 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_THEME } from '../../theme/index.js';
-import { highlight, languageForPath, tokenize, tokenStyle } from './index.js';
+import { highlight, languageForPath, tokenize, tokenizeLine, tokenStyle } from './index.js';
+import type { CarryState, HighlightToken } from './index.js';
 import { JS_SPEC, PYTHON_SPEC, TS_SPEC, YAML_SPEC } from './languages.js';
 
 /** 精确文本找 token（非 plain 类断言用——plain 有弥合不在此断言） */
@@ -157,5 +158,39 @@ describe('highlight 自研高亮器', () => {
     const lang = languageForPath('a.mts');
     expect(lang).toBe('mts');
     expect(highlight('const x = 1;', lang)).not.toBeNull(); // mts → TS_SPEC 在册
+  });
+
+  /* 挖掘 41 轮件 II：tokenizeLine 增量单行入口（开栏代码块逐行续算） */
+
+  it('【件 II】tokenizeLine 逐行 fold ≡ tokenize 全量（对拍锁——含块注释/三引号跨行承载链）', () => {
+    // 跨行承载语料（TS 块注释跨行 + Python 三引号串跨行 + 空行/注释边界）
+    const langs: readonly (readonly [string, string, typeof TS_SPEC | typeof PYTHON_SPEC])[] = [
+      ['ts', '/* 跨行\n注释未闭\n仍开 */ const x = 1; // 尾注', TS_SPEC],
+      ['ts', 'const a = 1;\n\n/* 中段注释 */\nfoo(`t`)', TS_SPEC],
+      ['python', 's = """三引号\n跨行串"""\ndef f():\n    return None', PYTHON_SPEC],
+      ['python', 'x = 1\n# 行注释\ndoc = """未闭', PYTHON_SPEC],
+    ];
+    for (const [language, code, spec] of langs) {
+      const whole = tokenize(code, spec);
+      // 逐行 fold：carry 链传递 + '\n' plain 弥合（tokenize 外层同律）
+      const folded: HighlightToken[] = [];
+      let carry: CarryState | null = null;
+      const lines = code.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const r = tokenizeLine(lines[i]!, spec, carry);
+        carry = r.carryOut;
+        const withNl: HighlightToken[] = [...r.tokens];
+        if (i < lines.length - 1) withNl.push({ type: 'plain', text: '\n' });
+        for (const t of withNl) {
+          const last = folded.at(-1);
+          if (last !== undefined && last.type === t.type)
+            folded[folded.length - 1] = { type: t.type, text: last.text + t.text };
+          else folded.push({ ...t });
+        }
+      }
+      expect(folded, `语言 ${language} 逐行 fold 应与全量 tokenize 同产`).toEqual(whole);
+      // 串接恒等原文律双面（fold 腿同守零丢字）
+      expect(folded.map((t) => t.text).join('')).toBe(code);
+    }
   });
 });

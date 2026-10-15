@@ -193,10 +193,15 @@ describe('blockRows 代码块高亮', () => {
     expect(flat.find((c) => c.grapheme === 'x')?.style?.fg).toBeUndefined(); // plain 不着色
   });
 
-  it('开栏期退单色（未闭不高亮——防样式回翻闪烁；无收尾行）', () => {
+  it('【件 II 修前红→双面锁】开栏期增量高亮：已知语言开栏行着色（同词法器单源）+ 未知语言仍诚实退单色', () => {
     const rows = blockRows(first('```ts\nconst x = 1;'), 40, DEFAULT_THEME);
-    expect(texts(rows)).toEqual(['const x = 1;']); // 开栏不加收尾——闭栏帧才高亮
-    for (const cell of rows[0]!) expect(cell.style?.fg).toBeUndefined();
+    expect(texts(rows)).toEqual(['const x = 1;']); // 开栏不加收尾
+    // 修前红：开栏恒单色——fg 全 undefined；增量高亮后 const 段首字着 keyword 色
+    expect(rows[0]!.find((c) => c.grapheme === 'c')?.style?.fg).toBe(DEFAULT_THEME.codeKeyword);
+    expect(rows[0]!.find((c) => c.grapheme === 'x')?.style?.fg).toBeUndefined(); // plain 不着色
+    // 另一面：未知语言开栏退单色（不发明半高亮）——两渲染同测试序（账键分派）
+    const plain = blockRows(first('```txt\nconst x = 1;'), 40, DEFAULT_THEME);
+    for (const cell of plain[0]!) expect(cell.style?.fg).toBeUndefined();
   });
 
   it('未知语言退单色（诚实不发明半高亮）', () => {
@@ -285,5 +290,53 @@ describe('blockRows 代码块增量承接（渲染热路径 D4——尾块 open 
     const carried = blockRows(first(g2), 30, DEFAULT_THEME);
     const fresh = blockRows(first(g2), 30, DEFAULT_THEME);
     expect(carried).toEqual(fresh); // 空行 + 超长截断（R-3 不折行）+ CJK 承接后零漂移
+  });
+
+  /* 挖掘 41 轮件 II：开栏增量高亮（tokenizeLine 逐行续算）入 D4 承接账 */
+
+  it('【件 II】spec/theme 入承接账键：同宽同前缀换语言/换主题帧不互承（防回归守卫）', () => {
+    // 语言键：ts 账铺在前（const = keyword），随后同宽同前缀的 py 开栏帧——
+    // spec 失配须全量重算。py 词表无 const → plain 不着色；若 spec 不入键，
+    // py 前缀行引用复用 ts 着色行 → 'c' 染 codeKeyword（红锚位）
+    blockRows(first('```ts\nconst x = 1;'), 40, DEFAULT_THEME);
+    const py = blockRows(first('```py\nconst x = 1;'), 40, DEFAULT_THEME);
+    expect(texts(py)).toEqual(['const x = 1;']);
+    expect(py[0]!.find((c) => c.grapheme === 'c')?.style?.fg).toBeUndefined();
+    // 主题键：DEFAULT 账铺在前，随后 WEAK_THEME 帧——theme 失配全量重算，
+    // 着色随新主题（若 theme 不入键 → 前缀行复用旧主题着色，fg ≠ WEAK 键）
+    blockRows(first('```ts\nconst x = 1;'), 40, DEFAULT_THEME);
+    const swapped = blockRows(first('```ts\nconst x = 1;\nmore'), 40, WEAK_THEME);
+    expect(swapped[0]!.find((c) => c.grapheme === 'c')?.style?.fg).toBe(WEAK_THEME.codeKeyword);
+  });
+
+  it('【件 II】跨行承载语料增量对拍：追加/缩量/复长/中行分歧 ≡ 全量直算（carry 续算）', () => {
+    // 跨行构造语料（TS 块注释跨行 + Python 三引号串跨行）——分歧行起 carry
+    // 从账面续算，四形（追加/缩量/回长/中改）与 fresh 全量直算逐格一致
+    const frame = (lang: string, lines: string[]) => first('```' + lang + '\n' + lines.join('\n'));
+    const canon = (lang: string, lines: string[]) => blockRows(frame(lang, lines), 40, DEFAULT_THEME);
+    // TS 块注释跨行链：追加
+    blockRows(frame('ts', ['/* a', 'b */', 'const x = 1;']), 40, DEFAULT_THEME);
+    expect(canon('ts', ['/* a', 'b */', 'const x = 1;', 'more'])).toEqual(
+      blockRows(frame('ts', ['/* a', 'b */', 'const x = 1;', 'more']), 40, DEFAULT_THEME),
+    );
+    // 缩量（截去尾行——注释链前段保留）
+    expect(canon('ts', ['/* a', 'b */'])).toEqual(blockRows(frame('ts', ['/* a', 'b */']), 40, DEFAULT_THEME));
+    // 复长（缩量后再长出不同尾）
+    expect(canon('ts', ['/* a', 'b */', 'let y = 2;'])).toEqual(
+      blockRows(frame('ts', ['/* a', 'b */', 'let y = 2;']), 40, DEFAULT_THEME),
+    );
+    // 中行改写（闭点挪走 → 后续行仍注释态——carry 续算不丢字的主位形）
+    blockRows(frame('ts', ['/* a', 'b */', 'x']), 40, DEFAULT_THEME);
+    expect(canon('ts', ['/* a', 'XXX', 'x'])).toEqual(blockRows(frame('ts', ['/* a', 'XXX', 'x']), 40, DEFAULT_THEME));
+    // Python 三引号串跨行链同法（追加 + 行内闭点）
+    blockRows(frame('py', ['s = """a', 'b']), 40, DEFAULT_THEME);
+    expect(canon('py', ['s = """a', 'b', 'c""" + 1'])).toEqual(
+      blockRows(frame('py', ['s = """a', 'b', 'c""" + 1']), 40, DEFAULT_THEME),
+    );
+    // 跨行注释段逐行着色 sanity：块注释三行全 comment 色（续算后段不回 plain）
+    const seg = canon('ts', ['/* a', 'b */', 'const x = 1;']);
+    expect(seg[0]!.every((cell) => cell.style?.fg === DEFAULT_THEME.codeComment)).toBe(true);
+    expect(seg[1]!.every((cell) => cell.style?.fg === DEFAULT_THEME.codeComment)).toBe(true);
+    expect(seg[2]!.find((c) => c.grapheme === 'c')?.style?.fg).toBe(DEFAULT_THEME.codeKeyword);
   });
 });

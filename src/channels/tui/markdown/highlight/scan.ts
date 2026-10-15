@@ -75,6 +75,9 @@ interface Carry {
   readonly end: string;
 }
 
+/** 跨行承载态公开型（41 轮件 II——增量逐行消费方〔开栏代码块〕外持续算用） */
+export type CarryState = Carry;
+
 /** sticky 正则定位执行（lastIndex 由调用方归零——无共享态残留） */
 function stickyMatch(re: RegExp, at: string): string | null {
   re.lastIndex = 0;
@@ -83,9 +86,17 @@ function stickyMatch(re: RegExp, at: string): string | null {
 }
 
 /**
- * 词法扫描主入口：代码全文 → token 流（串接恒等原文）。
+ * 单行词法扫描（41 轮件 II——增量高亮单元）：一行 + 入参 carry 续算 → 该行
+ * token 序列 + 行尾 carry。判据序与 tokenize 全量路同源单函数（抽取自原
+ * tokenize 行循环体——行为零变），闭栏全量与开栏增量同 transducer 同产即
+ * 恒同保证的单源。相邻同类弥合只在行内（跨行合并本就不发生——唯一跨行
+ * plain+plain 由 tokenize 外层的 '\n' 弥合承担）。
  */
-export function tokenize(code: string, spec: LanguageSpec): HighlightToken[] {
+export function tokenizeLine(
+  line: string,
+  spec: LanguageSpec,
+  carryIn: CarryState | null,
+): { tokens: HighlightToken[]; carryOut: CarryState | null } {
   const tokens: HighlightToken[] = [];
   const push = (type: HighlightToken['type'], text: string): void => {
     if (text === '') return;
@@ -98,139 +109,165 @@ export function tokenize(code: string, spec: LanguageSpec): HighlightToken[] {
     tokens.push({ type, text });
   };
 
+  let carry = carryIn;
+  let i = 0;
+  // 跨行承载先行：找闭定界——命中回常规扫描，未闭整行入类
+  if (carry !== null) {
+    const end = line.indexOf(carry.end);
+    if (end === -1) {
+      push(carry.type, line);
+      i = line.length;
+    } else {
+      push(carry.type, line.slice(0, end + carry.end.length));
+      i = end + carry.end.length;
+      carry = null;
+    }
+  }
+  let atLineStart = true;
+  while (i < line.length) {
+    const rest = line.slice(i);
+    // 行首结构前缀（markdown 标题/引用/列表标记——前导空白归 plain）
+    if (atLineStart && spec.linePrefixKeyword) {
+      const m = PREFIX_RE.exec(rest);
+      if (m !== null) {
+        const marker = m[1]!;
+        push('plain', rest.slice(0, m[0].length - marker.length));
+        push('keyword', marker);
+        i += m[0].length;
+        atLineStart = false;
+        continue;
+      }
+    }
+    atLineStart = false;
+    // 行注释：余行整段收
+    let matched = false;
+    for (const opener of spec.lineComment) {
+      if (rest.startsWith(opener)) {
+        push('comment', rest);
+        i = line.length;
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+    // 块注释：同行闭则段内收，未闭 carry 跨行
+    for (const [open, close] of spec.blockComment) {
+      if (rest.startsWith(open)) {
+        const end = rest.indexOf(close, open.length);
+        if (end === -1) {
+          push('comment', rest);
+          carry = { type: 'comment', end: close };
+          i = line.length;
+        } else {
+          push('comment', rest.slice(0, end + close.length));
+          i += end + close.length;
+        }
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+    // 三引号串（先于单引号——''' 含 ' 前缀撞车）
+    for (const quote of spec.tripleQuotes) {
+      if (rest.startsWith(quote)) {
+        const end = rest.indexOf(quote, quote.length);
+        if (end === -1) {
+          push('string', rest);
+          carry = { type: 'string', end: quote };
+          i = line.length;
+        } else {
+          push('string', rest.slice(0, end + quote.length));
+          i += end + quote.length;
+        }
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+    // 单行字符串：转义承纳；未闭吃行尾不跨行
+    for (const quote of spec.stringQuotes) {
+      if (rest.startsWith(quote)) {
+        let j = quote.length;
+        let closed = false;
+        while (j < rest.length) {
+          if (rest[j] === '\\') {
+            j += 2;
+            continue;
+          }
+          if (rest.startsWith(quote, j)) {
+            j += quote.length;
+            closed = true;
+            break;
+          }
+          j++;
+        }
+        push('string', closed ? rest.slice(0, j) : rest);
+        i += closed ? j : rest.length;
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+    // 数字
+    const num = stickyMatch(NUMBER_RE, rest);
+    if (num !== null) {
+      push('number', num);
+      i += num.length;
+      continue;
+    }
+    // 标识符：关键字 → 键位 → 函数名 → plain 三判
+    const name = stickyMatch(IDENT_RE, rest);
+    if (name !== null) {
+      const probe = spec.ci ? name.toLowerCase() : name;
+      const after = rest.slice(name.length);
+      if (spec.keywords.has(probe)) push('keyword', name);
+      else if (spec.identColonKey && after.startsWith(':')) push('keyword', name);
+      else if (spec.functionCall && /^\s*\(/.test(after)) push('function', name);
+      else push('plain', name);
+      i += name.length;
+      continue;
+    }
+    // 空白游程批量吞（省逐字符 plain 碎片）
+    const ws = stickyMatch(WS_RE, rest);
+    if (ws !== null) {
+      push('plain', ws);
+      i += ws.length;
+      continue;
+    }
+    push('plain', rest[0]!);
+    i += 1;
+  }
+  return { tokens, carryOut: carry };
+}
+
+/**
+ * 词法扫描主入口：代码全文 → token 流（串接恒等原文）。
+ * 瘦 fold 形（41 轮件 II 抽取后）：行切分循环壳 + 非末行 '\n' plain 弥合 +
+ * 逐行 tokenizeLine 追加（跨行相邻同类弥合由本层承担——与抽取前行为零变，
+ * highlight.test.ts 全套即行为锁）。
+ */
+export function tokenize(code: string, spec: LanguageSpec): HighlightToken[] {
+  const tokens: HighlightToken[] = [];
+  const append = (type: HighlightToken['type'], text: string): void => {
+    if (text === '') return;
+    const last = tokens.length > 0 ? tokens[tokens.length - 1]! : undefined;
+    // 相邻同类弥合（行尾 plain + '\n' + 次行首 plain 同段等原单循环形）
+    if (last !== undefined && last.type === type) {
+      tokens[tokens.length - 1] = { type, text: last.text + text };
+      return;
+    }
+    tokens.push({ type, text });
+  };
+
   const lines = code.split('\n');
-  let carry: Carry | null = null;
+  let carry: CarryState | null = null;
   for (let ln = 0; ln < lines.length; ln++) {
     const line = lines[ln]!;
-    let i = 0;
-    // 跨行承载先行：找闭定界——命中回常规扫描，未闭整行入类
-    if (carry !== null) {
-      const end = line.indexOf(carry.end);
-      if (end === -1) {
-        push(carry.type, line);
-        i = line.length;
-      } else {
-        push(carry.type, line.slice(0, end + carry.end.length));
-        i = end + carry.end.length;
-        carry = null;
-      }
-    }
-    let atLineStart = true;
-    while (i < line.length) {
-      const rest = line.slice(i);
-      // 行首结构前缀（markdown 标题/引用/列表标记——前导空白归 plain）
-      if (atLineStart && spec.linePrefixKeyword) {
-        const m = PREFIX_RE.exec(rest);
-        if (m !== null) {
-          const marker = m[1]!;
-          push('plain', rest.slice(0, m[0].length - marker.length));
-          push('keyword', marker);
-          i += m[0].length;
-          atLineStart = false;
-          continue;
-        }
-      }
-      atLineStart = false;
-      // 行注释：余行整段收
-      let matched = false;
-      for (const opener of spec.lineComment) {
-        if (rest.startsWith(opener)) {
-          push('comment', rest);
-          i = line.length;
-          matched = true;
-          break;
-        }
-      }
-      if (matched) continue;
-      // 块注释：同行闭则段内收，未闭 carry 跨行
-      for (const [open, close] of spec.blockComment) {
-        if (rest.startsWith(open)) {
-          const end = rest.indexOf(close, open.length);
-          if (end === -1) {
-            push('comment', rest);
-            carry = { type: 'comment', end: close };
-            i = line.length;
-          } else {
-            push('comment', rest.slice(0, end + close.length));
-            i += end + close.length;
-          }
-          matched = true;
-          break;
-        }
-      }
-      if (matched) continue;
-      // 三引号串（先于单引号——''' 含 ' 前缀撞车）
-      for (const quote of spec.tripleQuotes) {
-        if (rest.startsWith(quote)) {
-          const end = rest.indexOf(quote, quote.length);
-          if (end === -1) {
-            push('string', rest);
-            carry = { type: 'string', end: quote };
-            i = line.length;
-          } else {
-            push('string', rest.slice(0, end + quote.length));
-            i += end + quote.length;
-          }
-          matched = true;
-          break;
-        }
-      }
-      if (matched) continue;
-      // 单行字符串：转义承纳；未闭吃行尾不跨行
-      for (const quote of spec.stringQuotes) {
-        if (rest.startsWith(quote)) {
-          let j = quote.length;
-          let closed = false;
-          while (j < rest.length) {
-            if (rest[j] === '\\') {
-              j += 2;
-              continue;
-            }
-            if (rest.startsWith(quote, j)) {
-              j += quote.length;
-              closed = true;
-              break;
-            }
-            j++;
-          }
-          push('string', closed ? rest.slice(0, j) : rest);
-          i += closed ? j : rest.length;
-          matched = true;
-          break;
-        }
-      }
-      if (matched) continue;
-      // 数字
-      const num = stickyMatch(NUMBER_RE, rest);
-      if (num !== null) {
-        push('number', num);
-        i += num.length;
-        continue;
-      }
-      // 标识符：关键字 → 键位 → 函数名 → plain 三判
-      const name = stickyMatch(IDENT_RE, rest);
-      if (name !== null) {
-        const probe = spec.ci ? name.toLowerCase() : name;
-        const after = rest.slice(name.length);
-        if (spec.keywords.has(probe)) push('keyword', name);
-        else if (spec.identColonKey && after.startsWith(':')) push('keyword', name);
-        else if (spec.functionCall && /^\s*\(/.test(after)) push('function', name);
-        else push('plain', name);
-        i += name.length;
-        continue;
-      }
-      // 空白游程批量吞（省逐字符 plain 碎片）
-      const ws = stickyMatch(WS_RE, rest);
-      if (ws !== null) {
-        push('plain', ws);
-        i += ws.length;
-        continue;
-      }
-      push('plain', rest[0]!);
-      i += 1;
-    }
+    const r = tokenizeLine(line, spec, carry);
+    carry = r.carryOut;
+    for (const token of r.tokens) append(token.type, token.text);
     // 行界弥合（末行无换行——串接恒等原文律）
-    if (ln < lines.length - 1) push('plain', '\n');
+    if (ln < lines.length - 1) append('plain', '\n');
   }
   return tokens;
 }

@@ -2,9 +2,11 @@
  * Markdown 块布局分派件（批 10h 自 markdown.ts 拆出——块型 → 渲染行集）。
  *
  * 新增面（R1 批 10h）：GFM 表格（codex 双线制 + 自适应列宽 + 等分帽 +
- * weakRule 优先线色 + 逐列对齐 + 单元格级折行——V-3 注⑨④）；闭栏代码块自研
- * 高亮（五类 token → 主题键族；开栏/未知语言诚实退单色——未闭不高亮防样式
- * 回翻闪烁）。
+ * weakRule 优先线色 + 逐列对齐 + 单元格级折行——V-3 注⑨④）；代码块自研
+ * 高亮（五类 token → 主题键族）：闭栏全量重排 + **开栏增量高亮**（41 轮
+ * 件 II——tokenizeLine 逐行续算同词法器单源；codex 开栏即高亮对标）；
+ * 未知语言（开栏/闭栏同判据）诚实退单色。开栏防闪烁律的残理由 = 流式粘字
+ * 回翻（streaming 件 tailSafe），样式回翻已随增量高亮消失。
  *
  * 观感定值（2026-10-10 R-3 观感翻档——codex markdown 渲染同构，规范 07
  * §4.3 ⑨；2026-10-01 界面美化役批 §⑥ 全项重定值承此）：标题 = 字面 #
@@ -18,7 +20,8 @@
 import { ellipsize, graphemeWidth, sanitizeDisplayText, splitGraphemes, type CellStyle } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import type { MarkdownBlock } from './blocks.js';
-import { highlight, tokenStyle } from './highlight/index.js';
+import { highlight, resolveSpec, tokenizeLine, tokenStyle } from './highlight/index.js';
+import type { CarryState, LanguageSpec } from './highlight/index.js';
 import { DIM_STYLE, layoutSpans, prefixCells, spansWidth, type StylePart, type StyledGrapheme } from './layout.js';
 
 /** 表格列最小宽（三连定界形下限） */
@@ -152,26 +155,37 @@ function tableRows(
  * lines.length（blocks.ts）恒不相等 → MarkdownDoc 块级缓存每帧 miss →
  * 每帧对全量源行逐行重算呈现（尾块越长每帧白算越多）。
  *
- * 修法：呈现按源行独立——行产出只依赖（该行文本, bodyWidth），不随后续
- * 行增长变化，故按源行粒度承接（R-3 裸文本形下每源行恰一视觉行，账目
- * 与源行 1:1）：
- * - 命中判据（内容键）= 记账 bodyWidth 相同 + 源行前缀逐行全等——跨块对象
- *   成立（capPartsLine 纯函数确定性：同键同产出，引用复用即字节等价）；
+ * 修法：呈现按源行独立——行产出只依赖（该行文本, bodyWidth, spec, theme,
+ * 前行词法承载态），不随后续行增长变化，故按源行粒度承接（R-3 裸文本形
+ * 下每源行恰一视觉行，账目与源行 1:1）：
+ * - 命中判据（内容键）= 记账 bodyWidth / spec / theme 相同 + 源行前缀逐行
+ *   全等——跨块对象成立（tokenizeLine + capPartsLine 纯函数确定性：同键
+ *   同产出，引用复用即字节等价）。41 轮件 II 键扩四维：spec / theme 入键
+ *   （语言表与主题均为单例引用比对；theme 对标 codex theme_revision）；
  * - 前缀行呈现结果按**引用复用**（零重算零分配——与 MarkdownDoc.fromBlocks
  *   块级承接同律的引用复用），自分歧行起增量重算（缩量/中行改写同样自
- *   分歧行起重算，不丢字不错位）；
+ *   分歧行起重算，不丢字不错位；词法承载链 per-line 入账——transducer 纯
+ *   左到右：前缀行全等即承载链前缀全等，分歧行从账面承载态续算天然正确，
+ *   免全量重算）；
  * - 闭栏帧**不读不写**本账（闭栏 = 整体高亮重排全量重算——产出形与开栏
- *   单色不同，互承即污染样式回翻）；换宽帧 bodyWidth 键失配自然全量重算；
+ *   单色不同，互承即污染样式回翻）；换宽/换语言/换主题帧键失配自然全量
+ *   重算；
  * - 单条目记账：开栏围栏必吃到文末 → 每文档至多一个开栏块；多文档交错
  *   渲染时键失配仅退化为全量重算（性能回退、无正确性风险）。
  */
 interface CodeFoldCarry {
   /** 记账时的代码体可用宽（R-3 裸文本形 = 全宽；换宽失配键） */
   readonly bodyWidth: number;
+  /** 记账时的语言表引用（null = 未知语言单色腿；spec 为 languages.ts 模块级单例——引用比对即语言同一性；41 轮件 II 入键） */
+  readonly spec: LanguageSpec | null;
+  /** 记账时的主题引用（对标 codex theme_revision——失配退全量重算无正确性风险；41 轮件 II 入键） */
+  readonly theme: Readonly<ResolvedTheme>;
   /** 记账时的源行文本（前缀比对键——slice 防外側改写） */
   readonly lines: readonly string[];
   /** 每源行呈现产出的视觉行组（R-3 恰单行——引用复用单元；外层账本不可改写，内层行集账面约定只读） */
   readonly rowsByLine: readonly StyledGrapheme[][][];
+  /** 每源行行尾词法承载态（carries[i] = 行 i 扫后 carry，行 i+1 续算入参；41 轮件 II 入账） */
+  readonly carries: readonly (CarryState | null)[];
 }
 
 /** 模块级单条目承接账（上次开栏路径呈现结果；闭栏路径不触碰） */
@@ -208,25 +222,40 @@ function capPartsLine(parts: readonly StylePart[], width: number): StyledGraphem
 /**
  * 开栏单源行呈现 → 单视觉行（R-3 裸文本形：无 │ 前缀、不折行截断——
  * D4 承接的增量单元每帧只对新增/分歧行调用，前缀行引用复用不经本函数；
- * 每源行恰一行故承接账 rowsByLine 与源行 1:1）。
+ * 每源行恰一行故承接账 rowsByLine 与源行 1:1）。parts 由调用方构造：
+ * 已知语言 = tokenizeLine 单行 token 产出映射（plain→undefined、余四类
+ * tokenStyle——与闭栏产出映射同一单源）；未知语言 = 整行单段无样式。
  */
-function foldOpenCodeLine(line: string, width: number): StyledGrapheme[][] {
-  return [capPartsLine([{ text: line, style: undefined }], width)];
+function foldOpenCodeLine(parts: readonly StylePart[], width: number): StyledGrapheme[][] {
+  return [capPartsLine(parts, width)];
 }
 
-/** 代码块 → 渲染行集（闭栏 + 已知语言走五类高亮；开栏/未知退单色——R-3
- * 裸文本形：无 │ 沟线、无语言标签收尾、超宽不折行截断每源行单视觉行） */
+/** 代码块 → 渲染行集（闭栏 + 已知语言走五类高亮全量重排；开栏已知语言
+ * 增量高亮〔41 轮件 II〕、开栏未知语言退单色——R-3 裸文本形：无 │ 沟线、
+ * 无语言标签收尾、超宽不折行截断每源行单视觉行） */
 function codeRows(
   block: Extract<MarkdownBlock, { type: 'code' }>,
   width: number,
   theme: Readonly<ResolvedTheme>,
 ): StyledGrapheme[][] {
   const bodyWidth = Math.max(1, width);
-  // 开栏路径（流式半截尾块）：逐源行增量承接（D4）——见 codeFoldCarry 头注
+  // 开栏路径（流式半截尾块）：逐源行增量承接（D4）+ 已知语言增量高亮
+  //（41 轮件 II——tokenizeLine 单行续算，与闭栏同词法器单源；codex 开栏
+  // 即高亮对标）——见 codeFoldCarry 头注。未知语言 spec = null 走整行单色
+  // 腿（resolveSpec 同闭栏同一判据——诚实不发明半高亮）
   if (block.open === true) {
-    const prev = codeFoldCarry !== null && codeFoldCarry.bodyWidth === bodyWidth ? codeFoldCarry : null;
+    const spec = resolveSpec(block.language);
+    const prev =
+      codeFoldCarry !== null &&
+      codeFoldCarry.bodyWidth === bodyWidth &&
+      codeFoldCarry.spec === spec &&
+      codeFoldCarry.theme === theme
+        ? codeFoldCarry
+        : null;
     // 前缀比对：与账目逐源行文本全等比对，首个分歧行前全部命中（纯增长
-    // 热路 = O(前缀行数) 字符串引用比对 + O(新增行) 截断呈现）
+    // 热路 = O(前缀行数) 字符串引用比对 + O(新增行) 词法+截断呈现）。词法
+    // 承载链纯左到右：前缀行全等（同 spec）即各前行尾承载态与账面全等
+    // ——前缀行呈现引用复用合法（同键同产出）
     let reuse = 0;
     if (prev !== null) {
       const maxReuse = Math.min(prev.lines.length, block.lines.length);
@@ -234,22 +263,40 @@ function codeRows(
     }
     const rows: StyledGrapheme[][] = [];
     const rowsByLine: StyledGrapheme[][][] = [];
+    const carries: (CarryState | null)[] = [];
     if (prev !== null) {
       for (let i = 0; i < reuse; i++) {
         // 前缀行呈现结果引用直入——零重算零分配（消费面只读不改行数组）
         const carried = prev.rowsByLine[i]!;
         rows.push(...carried);
         rowsByLine.push(carried);
+        carries.push(prev.carries[i]!);
       }
     }
+    // 分歧行起词法续算：承接段末位承载态作首行入参（无承接 = null 从零起）
+    let carry: CarryState | null = reuse > 0 && prev !== null ? (prev.carries[reuse - 1] ?? null) : null;
     for (let i = reuse; i < block.lines.length; i++) {
-      // 分歧行起增量呈现（含纯增长的新增行——每帧只算新增/分歧行）
-      const lineRows = foldOpenCodeLine(block.lines[i] ?? '', bodyWidth);
+      const line = block.lines[i] ?? '';
+      let parts: StylePart[];
+      if (spec === null) {
+        // 未知语言：整行单段单色（每行独立——carry 恒 null）
+        parts = [{ text: line, style: undefined }];
+      } else {
+        // 已知语言：单行词法续算 + 产出映射（plain→undefined 与闭栏同源）
+        const r = tokenizeLine(line, spec, carry);
+        carry = r.carryOut;
+        parts = r.tokens.map((token) => ({
+          text: token.text,
+          style: token.type === 'plain' ? undefined : tokenStyle(token.type, theme),
+        }));
+      }
+      const lineRows = foldOpenCodeLine(parts, bodyWidth);
       rows.push(...lineRows);
       rowsByLine.push(lineRows);
+      carries.push(carry);
     }
     // 写回新账：承接段引用直入 + 新算段（下帧前缀比对的键与值）
-    codeFoldCarry = { bodyWidth, lines: block.lines.slice(), rowsByLine };
+    codeFoldCarry = { bodyWidth, spec, theme, lines: block.lines.slice(), rowsByLine, carries };
     return rows;
   }
   // 闭栏路径：整体高亮重排（每原文行的样式段序列——token 按换行位切块

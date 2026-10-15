@@ -1,9 +1,11 @@
 /**
  * 高亮件聚合出口（07 §4.1 R1——批 10h）。
  *
- * `highlight(code, language)` 唯一入口：语言别名归一 → 数据表 → tokenize。
- * 未知语言返 **null**（消费方诚实退单色——不发明半高亮）。围栏**开栏期不
- * 高亮**（闭栏才进本件——流式防闪烁律在消费方 markdown 件）。
+ * `highlight(code, language)` 全量入口 + `tokenizeLine(line, spec, carryIn)`
+ * 增量单行入口（41 轮件 II——开栏代码块逐行续算；同 transducer 单源）。
+ * 未知语言 `resolveSpec` 返 **null**（消费方诚实退单色——不发明半高亮）。
+ * 围栏开栏期经 tokenizeLine 增量高亮（闭栏才走 highlight 全量——流式防
+ * 闪烁律在消费方 markdown 件）。
  */
 import { tokenize } from './scan.js';
 import type { HighlightToken, LanguageSpec } from './scan.js';
@@ -22,8 +24,8 @@ import {
   YAML_SPEC,
 } from './languages.js';
 
-export type { HighlightToken, LanguageSpec, TokenType } from './scan.js';
-export { tokenize, tokenStyle } from './scan.js';
+export type { CarryState, HighlightToken, LanguageSpec, TokenType } from './scan.js';
+export { tokenize, tokenizeLine, tokenStyle } from './scan.js';
 
 /** 别名 → 语言表（键 = 小写归一形；表本体 languages.ts 单源） */
 const ALIASES: Readonly<Record<string, LanguageSpec>> = {
@@ -68,14 +70,22 @@ const ALIASES: Readonly<Record<string, LanguageSpec>> = {
 };
 
 /**
- * 代码 → token 流（未知语言 null——退单色判据）。
+ * 语言名/别名归一 → 语言表（未知语言 null——退单色判据）。
  *
- * 语言形归一：去空白 + 小写（` ` `` ```ts ``、`TypeScript` 同达）。
+ * 41 轮件 II 起公开：开栏增量消费方（block-rows 开栏路）与全量 highlight
+ * 同一归一单源。归一形：去空白 + 小写（` ` `` ```ts ``、`TypeScript` 同达）。
+ */
+export function resolveSpec(language: string | undefined): LanguageSpec | null {
+  if (language === undefined) return null;
+  return ALIASES[language.trim().toLowerCase()] ?? null;
+}
+
+/**
+ * 代码 → token 流（未知语言 null——退单色判据；闭栏全量路）。
  */
 export function highlight(code: string, language: string | undefined): HighlightToken[] | null {
-  if (language === undefined) return null;
-  const spec = ALIASES[language.trim().toLowerCase()];
-  return spec === undefined ? null : tokenize(code, spec);
+  const spec = resolveSpec(language);
+  return spec === null ? null : tokenize(code, spec);
 }
 
 /**
