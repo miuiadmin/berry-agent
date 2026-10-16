@@ -269,6 +269,66 @@ describe('parseMarkdown 块解析', () => {
     expect(parseMarkdown('___')[0]).toEqual({ type: 'hr' });
   });
 
+  // —— setext 标题（挖掘 51 轮件 B——段落下划线行铸 heading；修前红锚族：下划
+  // 线行按段落文本呈现、标题层级语义丢失）——
+  it('setext 两形：段落 + = 行翻 H1 / - 行翻 H2（修前红：现产出 paragraph 字面「标题 ====」）', () => {
+    expect(parseMarkdown('标题\n====')).toEqual([{ type: 'heading', level: 1, spans: [{ text: '标题' }] }]);
+    expect(parseMarkdown('标题\n----')).toEqual([{ type: 'heading', level: 2, spans: [{ text: '标题' }] }]);
+  });
+
+  it('setext 多内容行段落折叠（软换行 join 空格——flushParagraph 同式）', () => {
+    expect(parseMarkdown('首行\n次行\n---')).toEqual([{ type: 'heading', level: 2, spans: [{ text: '首行 次行' }] }]);
+  });
+
+  it('setext 单横线短下划线同翻 H2（CommonMark setext 下划线无最短长——语义钉）', () => {
+    expect(parseMarkdown('段落\n-')).toEqual([{ type: 'heading', level: 2, spans: [{ text: '段落' }] }]);
+    expect(parseMarkdown('段落\n--')).toEqual([{ type: 'heading', level: 2, spans: [{ text: '段落' }] }]);
+  });
+
+  it('段落缺席边界：独立 --- 仍 hr（现状行为锁——位次分界：段落在场优先 setext）；==== 缺席按字面段落呈现', () => {
+    expect(parseMarkdown('---')[0]).toEqual({ type: 'hr' });
+    expect(parseMarkdown('====')).toEqual([{ type: 'paragraph', spans: [{ text: '====' }] }]);
+  });
+
+  it('空行隔断：下划线行与段落间空行 = 段落已 flush、setext 不成立（下划线入新段字面呈现）', () => {
+    expect(parseMarkdown('段落\n\n====')).toEqual([
+      { type: 'paragraph', spans: [{ text: '段落' }] },
+      { type: 'paragraph', spans: [{ text: '====' }] },
+    ]);
+  });
+
+  it('ATX 与 setext 混合文前后序', () => {
+    const blocks = parseMarkdown('# ATX\n\nsetext 题\n===\n\n尾段');
+    expect(blocks).toEqual([
+      { type: 'heading', level: 1, spans: [{ text: 'ATX' }] },
+      { type: 'heading', level: 1, spans: [{ text: 'setext 题' }] },
+      { type: 'paragraph', spans: [{ text: '尾段' }] },
+    ]);
+  });
+
+  it('管道表邻接形翻变：| a | + --- + | b | → heading L2 + 段落（位次前移必然后果——防未来表格修复误回退）；真表格形不受扰', () => {
+    // 邻接形：| a | 含竖线但次行 --- 无竖线非定界 → 表格不成立入段缓冲 → setext 接管
+    expect(parseMarkdown('| a |\n---\n| b |')).toEqual([
+      { type: 'heading', level: 2, spans: [{ text: '| a |' }] },
+      { type: 'paragraph', spans: [{ text: '| b |' }] },
+    ]);
+    // 真表格：表头行在表格分支整对消费（当前行先过 setext 判非下划线不中）
+    const table = parseMarkdown('a | b\n--- | ---\n1 | 2');
+    expect(table).toHaveLength(1);
+    expect(table[0]).toMatchObject({ type: 'table' });
+  });
+
+  it('setext 流式分帧对拍：段落帧产 paragraph 块、追加 = 行帧翻 heading（增量路块型翻变自然承接）', () => {
+    expect(parseMarkdown('段落')).toEqual([{ type: 'paragraph', spans: [{ text: '段落' }] }]);
+    expect(parseMarkdown('段落\n====')).toEqual([{ type: 'heading', level: 1, spans: [{ text: '段落' }] }]);
+  });
+
+  it('引用内 setext 同生效（42 轮件 C 子块化红利——递归重入天然同律）', () => {
+    expect(parseMarkdown('> 引用题\n> ====')).toEqual([
+      { type: 'quote', children: [{ type: 'heading', level: 1, spans: [{ text: '引用题' }] }] },
+    ]);
+  });
+
   it('CRLF / CR 统一 LF', () => {
     expect(parseMarkdown('a\r\nb\rc')).toEqual([{ type: 'paragraph', spans: [{ text: 'a b c' }] }]);
   });

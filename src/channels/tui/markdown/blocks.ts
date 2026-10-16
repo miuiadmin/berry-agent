@@ -70,6 +70,13 @@ export type MarkdownBlock =
 const FENCE_RE = /^(`{3,}|~{3,})[ \t]*([^`\s]*).*$/;
 /** 标题行（# 1-6 个 + 空格） */
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
+
+/**
+ * setext 下划线行（挖掘 51 轮件 B——=+/-+ 纯串）：段落已累积内容行时使
+ * 段落整体翻标题（'='→H1 / '-'→H2，CommonMark setext 律）；单横线短下划
+ * 线同翻 H2（setext 下划线无最短长）。
+ */
+const SETEXT_RE = /^(=+|-+)$/;
 /** 水平线（同字符 ≥3、容忍符间空格） */
 const HR_RE = /^(?:[-*_])(?:\s*[-*_]){2,}$/;
 /** 列表项（前导缩进 + 无序符或有序序号符 + 空格 + 内容） */
@@ -244,6 +251,22 @@ export function parseMarkdown(text: string): MarkdownBlock[] {
     if (heading !== null) {
       flushParagraph();
       blocks.push({ type: 'heading', level: heading[1]!.length, spans: parseInline(heading[2]!) });
+      i++;
+      continue;
+    }
+    // setext 标题（挖掘 51 轮件 B）：段落已累积 ≥1 内容行 + 当前行纯 =/- 下划线
+    // → 段落整体翻标题（'='→1 / '-'→2）；下划线行消费不入段。**位次在 HR 分支
+    // 前即天然分界**：段落在场优先 setext（'---' 跟段落 = setext 2），段落缺席
+    // （独立 '---'）仍 hr。段内软换行折叠 join(' ')——同 flushParagraph 同式
+    //（拦截式铸 heading 位无法复用 flushParagraph——软折叠策略若变两处同笔改）
+    const setext = SETEXT_RE.exec(line.trim());
+    if (setext !== null && paragraph.length > 0) {
+      blocks.push({
+        type: 'heading',
+        level: setext[1]![0] === '=' ? 1 : 2,
+        spans: parseInline(paragraph.join(' ')),
+      });
+      paragraph = [];
       i++;
       continue;
     }
