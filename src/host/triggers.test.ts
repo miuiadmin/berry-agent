@@ -1,6 +1,6 @@
 /**
- * host/triggers 注册表测试（03 §2.2 行 108 第十一动词 + §2.7 冲突律 + §4.6 开门制；
- * C 批 C-2 注册面笔 + C-3 starter 笔）。
+ * host/triggers 注册表测试（03 §2.2 行 120 第十一动词 + §2.7 冲突律 + §4.6 开门制；
+ * C 批 C-2 注册面笔 + C-3 starter 笔 + ⑦trigger 起会回执笔）。
  *
  * 注册面 = 纯逻辑（getOpens/makeStarter 双闭包注入替身——三闸执法序/一次性
  * 交接/回滚与注销器守卫）；starter 真身 = 假栈 + 真 Job 注册表（受理帽执法与
@@ -43,8 +43,11 @@ function assemble(initialOpens?: readonly string[]) {
     getOpens: () => opens, // 全插件同源（本件测试域——分插件读取属装配面）
     makeStarter: (pluginId, name) => {
       factoryCalls.push({ pluginId, name });
+      // 注册面测试不涉回执——替身恒 undefined（TriggerStarter 签名随 ⑦trigger
+      // 腿增起会回执，void 返回不可赋值故显式 return undefined）
       return (spec) => {
         starterSpecs.push(spec);
+        return undefined;
       };
     },
   });
@@ -74,7 +77,7 @@ function expectCode(fn: () => unknown, code: string): void {
   }
 }
 
-describe('触发器注册表（triggers——03 §2.2 行 108/§2.7/§4.6）', () => {
+describe('触发器注册表（triggers——03 §2.2 行 120/§2.7/§4.6）', () => {
   it('合法注册：落册 + makeStarter 以 (pluginId, name) 造 starter + def.fire 一次性交接', () => {
     const t = assemble(['triggers.start-run']);
     t.registry.register('acme', defOf('acme/daily-digest', t.firedStarters));
@@ -170,11 +173,12 @@ interface FakeCreateInit {
 
 /**
  * 假栈（TriggerStackFace 替身）：create/submit 入参全记录；submit 回执 Promise
- * 由测试手动结算（终态映射逐档驱动）；submitUndefined 档模拟驱动缺席。每会话
- * 配一枚假驱动（abort 计数——stop→interrupt 桥的到达证据面）。manager.retire
- * 调用全记录（五役 d2-1——run 终态 retire 收口的断言面）。
+ * 由测试手动结算（终态映射逐档驱动）；submitUndefined 档模拟驱动缺席、
+ * createThrows 档模拟起会失败（manager.create 抛错——起会回执「失败不掷」腿）。
+ * 每会话配一枚假驱动（abort 计数——stop→interrupt 桥的到达证据面）。
+ * manager.retire 调用全记录（五役 d2-1——run 终态 retire 收口的断言面）。
  */
-function makeFakeStack(mode: { submitUndefined?: boolean } = {}) {
+function makeFakeStack(mode: { submitUndefined?: boolean; createThrows?: boolean } = {}) {
   const creates: FakeCreateInit[] = [];
   const submits: Array<{ sessionId: string; text: string; source?: string; backgroundLane?: boolean }> = [];
   const resolvers: Array<(result: SubmitResult) => void> = [];
@@ -185,6 +189,8 @@ function makeFakeStack(mode: { submitUndefined?: boolean } = {}) {
   const stack: TriggerStackFace = {
     manager: {
       create(init: FakeCreateInit = {}) {
+        // createThrows 档：起会即抛（starter 编舞起会失败腿的驱动面）
+        if (mode.createThrows === true) throw new Error('假栈：create 拒绝');
         creates.push(init);
         const driver = { abortCount: 0 };
         drivers.push(driver);
@@ -484,6 +490,109 @@ describe('starter 真身（createTriggerStarterFactory——C 批 C-3 编舞序�
   });
 });
 
+/* ---------------- 起会回执（⑦trigger 腿——03 §2.2 行 120 TriggerStarter 签名增起会回执） ---------------- */
+
+describe('起会回执（⑦trigger 腿——03 §2.2 行 120：受理成功同步返回 { sessionId }，拒/失败路径 undefined）', () => {
+  it('真装配全链回锚：register → def.fire 交接真 starter → 回执恰 { sessionId } 一字段且 = 所起会话 id（逐 fire 逐锚）', () => {
+    const t = assembleStarter(['triggers.start-run']);
+    // 真装配形（assembly.ts 装配根同构）：注册表与 starter 工厂接线后，
+    // def.fire 交接的即真 starter——插件侧自起会话锚一步直回（⑦笔「三跳
+    // 绕行不可接受」的正道消费面：IM 绑定/续控/订阅读尾答皆持此锚）
+    let handed: TriggerStarter | undefined;
+    const registry = new TriggerRegistry({ getOpens: () => t.opens, makeStarter: t.makeStarter });
+    registry.register('acme', {
+      name: 'acme/daily',
+      description: '回执腿',
+      fire: (starter) => {
+        handed = starter;
+      },
+    });
+    expect(handed).toBeTypeOf('function'); // 注册成功即一次性交接
+    const receipt = handed!({ prompt: '跑' });
+    // 受理成功（起会真起后）同步回执——恰 sessionId 一字段（最小形锁：余
+    // 字段悬决留⑤/⑦后续批同源定名，本腿不预裁不铸位——修前红锚：修前
+    // starter 返回 void，undefined 与本期望不等）
+    expect(receipt).toEqual({ sessionId: 's-1' });
+    // 回执锚 = 首条输入提交目标准会话（会话身份锚——非 Job 名非触发器名）
+    expect(t.fake.submits[0]!.sessionId).toBe(receipt!.sessionId);
+    // 逐 fire 逐锚：并发 fire 各回各锚（同插件并发可区分——立法理由的反面锁）
+    const second = handed!({ prompt: '再跑' });
+    expect(second).toEqual({ sessionId: 's-2' });
+  });
+
+  it('拒档三形不掷成功回执：fire 复检拒 / prompt 坏形 / jobKind 谱系拒——均 undefined + 零起会', () => {
+    const t = assembleStarter(['triggers.start-run']);
+    // ① fire 复检拒（/reload 撤位模拟——开门可收回）
+    t.opens.clear();
+    expect(t.makeStarter('acme', 'acme/daily')({ prompt: '跑' })).toBeUndefined();
+    t.opens.add('triggers.start-run');
+    // ② spec 坏形（运行期传参防御）
+    expect(t.makeStarter('acme', 'acme/daily')({ prompt: '' })).toBeUndefined();
+    // ③ jobKind 谱系拒（宿主预登记 kind 复用即拒——五役 d3-1）
+    expect(t.makeStarter('acme', 'acme/daily')({ prompt: '跑', jobKind: 'subagent' })).toBeUndefined();
+    // 拒档零起会：undefined 非失败回执——不掷锚即无会话可锚
+    expect(t.fake.creates).toEqual([]);
+  });
+
+  it('受理失败两形 undefined：显式 jobKind 未登记（JOB_KIND_UNKNOWN）/ 帽满（JOB_LIMIT_REACHED）', () => {
+    const t = assembleStarter(['triggers.start-run']);
+    // ① 未登记 kind——词汇闸拒（受理失败）
+    expect(t.makeStarter('acme', 'acme/daily')({ prompt: '跑', jobKind: 'issue' })).toBeUndefined();
+    // ② 帽满：4 在飞后第 5 次 JOB_LIMIT_REACHED（前四受理成功回 s-1..s-4 锚）
+    for (let i = 0; i < TRIGGER_JOB_PARALLEL_LIMIT; i++) {
+      t.makeStarter('acme', 'acme/daily')({ prompt: `跑${i}` });
+    }
+    expect(t.makeStarter('acme', 'acme/daily')({ prompt: '第5次' })).toBeUndefined();
+    expect(t.fake.creates).toHaveLength(TRIGGER_JOB_PARALLEL_LIMIT); // 帽满零孤儿
+  });
+
+  it('起会失败（manager.create 抛错）→ undefined + Job 落 failed（回执不掷、终态交代）', async () => {
+    const fake = makeFakeStack({ createThrows: true });
+    const settled: JobSettledEvent[] = [];
+    const jobs = createJobRegistry({
+      emit: (e) => {
+        settled.push(e);
+      },
+    });
+    jobs.registerKind('trigger');
+    const starter = createTriggerStarterFactory({
+      stack: fake.stack,
+      jobs,
+      getOpens: () => new Set(['triggers.start-run']),
+      workspaceRoot: () => '/ws',
+      warn: () => undefined,
+    })('acme', 'acme/daily');
+    expect(starter({ prompt: '跑' })).toBeUndefined(); // 无会话即无锚可掷
+    await flush();
+    expect(settled[0]!.entry.terminal).toMatchObject({ status: 'failed' });
+    expect(settled[0]!.entry.terminal?.detail).toContain('起会失败');
+  });
+
+  it('提交缺席（驱动 undefined）→ undefined + Job failed + retire（死锚不外掷——会话即收口）', async () => {
+    const fake = makeFakeStack({ submitUndefined: true });
+    const settled: JobSettledEvent[] = [];
+    const jobs = createJobRegistry({
+      emit: (e) => {
+        settled.push(e);
+      },
+    });
+    jobs.registerKind('trigger');
+    const starter = createTriggerStarterFactory({
+      stack: fake.stack,
+      jobs,
+      getOpens: () => new Set(['triggers.start-run']),
+      workspaceRoot: () => '/ws',
+      warn: () => undefined,
+    })('acme', 'acme/daily');
+    expect(starter({ prompt: '跑' })).toBeUndefined();
+    await flush();
+    expect(settled[0]!.entry.terminal).toMatchObject({ status: 'failed' });
+    // 会话已 retire——此路径 sessionId 若外掷即死锚（回执与 retire 收口同步
+    // 不掷，插件侧无失效锚可误绑）
+    expect(fake.retires).toEqual(['s-1']);
+  });
+});
+
 /* ---------------- 车道兑现（真栈——04 §5 车道兑现笔射程勘正 + 四役补笔） ---------------- */
 
 /** 临时目录族（真盘真库形） */
@@ -551,7 +660,10 @@ describe('starter 车道兑现（真栈——trigger 起跑 run 恒 background �
     })('acme', 'acme/daily');
 
     faux.setResponses([() => laneMetered(30, 12)]);
-    starter({ prompt: '跑日报', title: '车道锁' });
+    // 起会回执（⑦trigger 腿修前红锚之二）：受理成功同步回锚 { sessionId }——
+    // 真栈侧与 durable 会话行 id 对账即「回执 = 所起会话」的实锤
+    const receipt = starter({ prompt: '跑日报', title: '车道锁' });
+    expect(receipt).toBeDefined();
     // run 真起 + Job 终态映射链走完（settled 即 submit 回执已结算——桥接笔已落）
     await laneUntil(() => jobs.running().length === 0);
     expect(settled).toHaveLength(1);
@@ -563,6 +675,8 @@ describe('starter 车道兑现（真栈——trigger 起跑 run 恒 background �
     await rt.persistence.flush();
     const row = stack.manager.list({}).find((r) => r.origin === 'trigger');
     expect(row).toBeDefined();
+    // 回执锚 = durable 会话行 id（真栈对账——非内存替身自证）
+    expect(receipt!.sessionId).toBe(row!.id);
     const page = rt.persistence.store.queryEvents({
       sessionId: row!.id,
       types: ['llm/usage'],

@@ -743,7 +743,7 @@ describe('提示词段注册表（prompt-sections——03 §2.5/§2.7）', () =>
   });
 });
 
-describe('触发器注册面（ctx.triggers——03 §2.2 行 108 第十一动词，C 批 C-2）', () => {
+describe('触发器注册面（ctx.triggers——03 §2.2 行 120 第十一动词，C 批 C-2）', () => {
   it('triggers.register 委派真源（pluginId 注入 + 注销器透传摘册）', () => {
     const { handle, triggers } = assemble();
     const off = handle.ctx.triggers.register({

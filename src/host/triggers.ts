@@ -1,5 +1,5 @@
 /**
- * host/triggers — 触发器注册面（03 §2.2 行 108 ctx.triggers.register 第十一动词
+ * host/triggers — 触发器注册面（03 §2.2 行 120 ctx.triggers.register 第十一动词
  * + §2.7 触发器行冲突律 + §4.6 开门制；2026-09-07 触发器面 C 批 C-2 注册面笔
  * + C-3 starter 笔）。
  *
@@ -17,7 +17,7 @@
  *    字母数字连字符〕且域前缀 == 本插件 id，core: 件去前缀取 name 段比对
  *    ——防跨插件冒名，registerSection 同法）。
  *  - **starter 一次性交接**：注册成功即回调 `def.fire(starter)` 注入起会闭包
- *    （03 §2.2 行 108 定形注记——重装载经重注册重新注入，旧 starter 因 fire
+ *    （03 §2.2 行 120 定形注记——重装载经重注册重新注入，旧 starter 因 fire
  *    复检悬空失效不悬空越权）。
  *  - **starter 真身工厂**（createTriggerStarterFactory——装配根注入窄依赖面
  *    造 `(pluginId, name) => starter`）：fire 复检（活体开门收回）→ spec 轻校验
@@ -28,7 +28,7 @@
  *    显式 jobKind 未登记 JOB_KIND_UNKNOWN，不起会不留孤儿）→ 起无头会话
  *    （origin 'trigger' + source `plugin:<id>` 归因 + per-fresh-session 模型
  *    载体 + backgroundLane 恒置〔04 §5 车道兑现笔——trigger run 是后台编排，
- *    记账进后台日池〕）→ 回执三终态映射 Job 终态（completed→completed / aborted→killed /
+ *    记账进后台日池〕）→ run 结算回执三终态映射 Job 终态（completed→completed / aborted→killed /
  *    failed→failed；injected/wake-refused = run 未起落 failed）；起会成功后
  *    的一切终态路径统一 retire（05 §7 retire 律补员笔——五役 d2-1：
  *    fresh-per-fire 每会终态摘活体登记，records Map 无界驻留收口）。**starter
@@ -37,7 +37,7 @@
  *
  * 审计实况（2026-09-11 勘正——原注两处挂账均已飞）：capability/used 逐次
  * 审计已随 U3 落码批接线（audit_events 载体在场——assembly createAuditFace
- * 单写者；v1 归因面另经事件流 source=`plugin:<id>` 闭集可查——03 §2.2 行 108
+ * 单写者；v1 归因面另经事件流 source=`plugin:<id>` 闭集可查——03 §2.2 行 120
  * 定形注记）；JobHandle.stop→interrupt 桥接与插件卸载 closeOwner(pluginId)
  * 收口均已随 Job 消费面批兑现（04 §10 定形：onStop 协作中止路由 + 卸载接线位
  * = plugin-unload closer——本文件两桥腿 = starter 注册 onStop 路由到起会
@@ -51,7 +51,7 @@ import type { OpenedSession, SessionManager, SubmitOptions, SubmitResult } from 
 import type { JobHandle, JobRegistry } from '../subagent/index.js';
 import type { Disposer } from '../context/index.js';
 
-/** 起会参数（starter 单参——03 §2.2 行 108 starter(spec) 签名定形） */
+/** 起会参数（starter 单参——03 §2.2 行 120 starter(spec) 签名定形） */
 export interface TriggerStartSpec {
   /** 起会提示（无头会话首条 UserMessage 输入——source=`plugin:<id>` 归因） */
   readonly prompt: string;
@@ -69,10 +69,29 @@ export interface TriggerStartSpec {
   readonly jobKind?: JobKind;
 }
 
-/** starter 闭包签名（注入 def.fire 的一次性交接物——真身随 C-3 装配批实装） */
-export type TriggerStarter = (spec: TriggerStartSpec) => void;
+/**
+ * 起会回执（⑦trigger 腿——2026-10-16 硬伤处置第三批：03 §2.2 行 120 ⑦规范笔
+ * TriggerStarter 签名增起会回执）：受理成功（起会真起后）同步返回——恰
+ * `sessionId` 一字段锚形（无头会话的续控/观测/绑定锚；插件自起会话一步直回，
+ * 免「跨会话枚举 → origin 归因过滤 → 反猜对号」三跳绕行——同插件并发 fire
+ * 即不可区分、竞态误绑结构性不可消，受理方即起会方直回是最小充分契约）。
+ * 回执只锚会话身份不承诺 run 结果——run 终态经事件流（按 sessionId 订阅）
+ * 可观测；余字段（job 锚位等起会凭据）悬决留⑤/⑦后续批同源定名，本笔不铸。
+ */
+export interface TriggerStartReceipt {
+  /** 所起无头会话 id（提交受理成功即刻有效——IM 绑定/续控/订阅读尾答三消费锚） */
+  readonly sessionId: string;
+}
 
-/** 触发器 def 三件形（ctx.triggers.register 单参——03 §2.2 行 108） */
+/**
+ * starter 闭包签名（注入 def.fire 的一次性交接物——真身随 C-3 装配批实装）。
+ * 返回起会回执（03 §2.2 行 120 ⑦规范笔）：受理成功（起会真起后）同步返回
+ * `{ sessionId }` 锚形；拒/失败路径返回 undefined（不掷成功回执）——
+ * 「starter 永不 throw」既有律不变，拒与失败一律 warn 可观测 + Job 终态收口。
+ */
+export type TriggerStarter = (spec: TriggerStartSpec) => TriggerStartReceipt | undefined;
+
+/** 触发器 def 三件形（ctx.triggers.register 单参——03 §2.2 行 120） */
 export interface TriggerDef {
   /** 触发器名（域名两段式 `域前缀/名`——域前缀须等于本插件 id，core: 件去前缀比对） */
   readonly name: string;
@@ -176,7 +195,7 @@ export class TriggerRegistry {
 
 /* ---------------- starter 真身（C-3 装配批——起无头会话 + Job 托管编舞） ---------------- */
 
-/** trigger kind 缺省并行帽（03 §2.2 行 108 定形注记——host 装配期自登 kind + 帽 4） */
+/** trigger kind 缺省并行帽（03 §2.2 行 120 定形注记——host 装配期自登 kind + 帽 4） */
 export const TRIGGER_JOB_PARALLEL_LIMIT = 4;
 
 /** 对话栈结构面（starter 消费的窄面——测试替身免建全栈） */
@@ -225,8 +244,10 @@ export interface TriggerStarterDeps {
  * 编舞序（受理先行的对称收口——任何一步失败都让 Job 落终态，不留 running
  * 悬空条目）：fire 复检（core: 豁免，拒 = warn + return）→ spec 轻校验 →
  * Job 受理（先过帽再起会）→ 起会（origin 'trigger'）→ 提交（source
- * `plugin:<id>`）→ 回执三终态映射 Job 终态。回执腿 fire-and-forget：starter
- * 同步返回，run 终态经 JobSettledEvent 活体通知可观测。
+ * `plugin:<id>`）→ run 结算回执三终态映射 Job 终态。run 结算腿 fire-and-forget：
+ * starter 同步返回**起会回执**（03 §2.2 行 120 ⑦trigger 腿——受理成功恰
+ * `{ sessionId }` 一字段锚形，run 结果不入回执；拒/失败路径 undefined 不掷
+ * 成功回执），run 终态经 JobSettledEvent 活体通知可观测。
  */
 export function createTriggerStarterFactory(
   deps: TriggerStarterDeps,
@@ -316,12 +337,14 @@ export function createTriggerStarterFactory(
       // 起会成功后的终态路径①：驱动缺席早退位同收口（05 §7 retire 律——幂等）
       deps.stack.manager.retire(sessionId);
       deps.warn(`触发器 ${name} 提交失败：会话驱动缺席（插件 ${pluginId}）`);
+      // 起会回执不掷（undefined——会话已 retire，外掷 sessionId 即死锚；
+      // 失败路径经 Job 终态 + warn 交代，不给插件失效锚）
       return;
     }
     // —— capability/used 逐次落账（05 §1.1——triggers.start-run 腿，C 批挂账
     // U3-5 兑现）：run 真起才算使用；core: 豁免门检照记（豁免免的是门不是账）
     deps.onCapabilityUsed?.(pluginId, name);
-    // —— 回执 → Job 终态映射（aborted→killed 承 Job 终态词——SubagentStopReason
+    // —— run 结算回执 → Job 终态映射（aborted→killed 承 Job 终态词——SubagentStopReason
     // 同映射；injected/wake-refused 两收执 = run 未起，落 failed 交代去向）；
     // 尾部 .finally 统一 retire = 起会成功后的终态路径②（一切回执腿全覆盖：
     // completed/aborted/failed/injected/wake-refused/异常腿——05 §7 retire 律
@@ -356,5 +379,10 @@ export function createTriggerStarterFactory(
       .finally(() => {
         deps.stack.manager.retire(sessionId);
       });
+    // —— 起会回执（03 §2.2 行 120 ⑦trigger 腿——受理成功〔起会真起 + 首条输入
+    //    提交受理〕同步回锚）：恰 sessionId 一字段（回执只锚会话身份，run 结果
+    //    不入回执——上方 run 结算腿 fire-and-forget 自行收口）；拒/失败路径已
+    //    全部提前 return undefined（不掷成功回执）
+    return { sessionId };
   };
 }
