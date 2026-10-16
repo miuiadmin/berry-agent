@@ -214,6 +214,8 @@ const HARNESS_ABSENT_WITH_REASON: Readonly<Record<string, string>> = {
   jobs: 'Job 收口面（04 §10）——假宿主无 Job 注册表',
   secrets: '插件凭证面（c-3 凭证代管）——假宿主无凭证 store 与 core:credentials 席',
   sessionsControl: '跨会话操控受理器（e4-3）——假宿主零会话',
+  sessionStartReplay:
+    'session_start 补播腿活体会话册取值器（03 §2.4 补播腿——2026-10-16 硬伤处置第三批·②落码笔）——假宿主零会话（无 conversation stack/manager 活体，会话册恒空：注入恒等价于缺席零补播）',
   crossDoors: 'doors 段活体取值器（03 §4.6）——假宿主门检只吃行 opens',
   compaction: '压缩席位容器（U4-3）——假宿主无 conversation stack',
   sdkRoutes: '插件道路由受理器（U5-2）——假宿主无 core:sdk 件席',

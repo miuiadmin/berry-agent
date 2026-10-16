@@ -10,7 +10,10 @@
  * 会话关闭收口 seam（六役 CL-C ④——onSessionClosed retire/dispose 两路同发）+
  * listActive 尾键判据三语义（cs-D1——currentSessionId 判据 v1：首次入册序 /
  * 幂等复开不移尾 / 删后重开新尾插）+ fork 洪水闸（05 §5.1 fork 位对齐条款：
- * veto 判后 acquire / vetoed 不占名额 / create 不辖 / 假钟推窗恢复）。
+ * veto 判后 acquire / vetoed 不占名额 / create 不辖 / 假钟推窗恢复）+
+ * session_start 主动腿（03 §2.4 主表行——adopt 共尾 fire-and-forget：三入口
+ * 逐笔 origin 五值直传 + 首发无 replay 位 + 幂等 open 零重发 + 监听腿异常
+ * 隔离不回卷 + fork 否决零发射；2026-10-16 硬伤处置第三批·②落码笔）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -492,6 +495,83 @@ describe('SessionManager fork 封印 TOCTOU 复查（02 §5.3 drain 窗不变式
     // 零回填：已清空 records 不得有新会话塞回（fork rejects 拿不到新 id——
     // listActive 空 = isOpen(新 id)===false 的全集形断言）
     expect(manager.listActive()).toEqual([]);
+  });
+});
+
+/* ---------------- session_start 主动腿（03 §2.4 主表行——2026-10-16 硬伤处置第三批·②落码笔） ---------------- */
+
+describe('SessionManager session_start 主动腿（03 §2.4——adopt 共尾发射：三入口逐笔 + 首发无 replay 位）', () => {
+  it('三入口逐笔发射，origin = SessionOrigin 五值直传零映射：create 缺省 conversation / create 显式 delegation·trigger 透传 / open 复续直传库行 origin（trigger·import 双铺）/ fork 恒 fork', async () => {
+    const dispatch = new EventDispatch();
+    const { manager } = makeManager(dispatch);
+    const seen: Array<{ sessionId: string; origin: string; replay?: boolean }> = [];
+    dispatch.on(
+      'session_start',
+      (data) => void seen.push(data as { sessionId: string; origin: string; replay?: boolean }),
+    );
+    // create 缺省腿：'conversation'（init.origin ?? 'conversation'）
+    const created = manager.create();
+    // create 显式腿：origin 形参透传（五值闭集谱可达——delegation/trigger 同形）
+    const delegated = manager.create({ origin: 'delegation' });
+    const triggered = manager.create({ origin: 'trigger' });
+    // open 复续腿：库行 origin 直传（裸 persistence 铺无头会话行——重启复续
+    // 语义，row 原值到达载荷）。trigger·import 双铺〔2026-10-16 硬伤处置第三
+    // 批·p2-sessionstart清偿——冷读闸 finding 1：原仅 trigger 代表形、'import'
+    // 值全仓零触达，「五值直传」声称与断言面差 1/5；import 与 trigger 同为
+    // open 复续腿 row.origin 直传（同形参零映射——非假绿风险，纯断言完备对齐），
+    // 补铺后五值断言面逐值在场〕
+    const bare = persistence.createSession({ origin: 'trigger' });
+    bare.append('turn/start', {});
+    await persistence.flush();
+    const resumed = manager.open(bare.sessionId);
+    const bareImport = persistence.createSession({ origin: 'import' });
+    bareImport.append('turn/start', {});
+    await persistence.flush();
+    const resumedImport = manager.open(bareImport.sessionId);
+    // fork 腿：恒 'fork'（adopt 实参字面量）
+    const forked = await manager.fork(created.sessionId);
+    expect(forked.status).toBe('forked');
+    if (forked.status !== 'forked') return;
+    // 载荷逐笔锁：sessionId 逐入口对号 + origin 五值谱逐值在场 + 首发无 replay 位
+    expect(seen).toEqual([
+      { sessionId: created.sessionId, origin: 'conversation' },
+      { sessionId: delegated.sessionId, origin: 'delegation' },
+      { sessionId: triggered.sessionId, origin: 'trigger' },
+      { sessionId: resumed.sessionId, origin: 'trigger' },
+      { sessionId: resumedImport.sessionId, origin: 'import' },
+      { sessionId: forked.sessionId, origin: 'fork' },
+    ]);
+  });
+
+  it('幂等 open 不重发（单焦点早退不经 adopt——恰一笔）+ 监听腿异常不回卷 adopt（emit 隔离：OpenedSession 照常返回、健康腿照常收执）', () => {
+    // 隔离腿静音（断言面在健康腿——坏腿异常去向 onListenerError 是 EventDispatch 既有律）
+    const dispatch = new EventDispatch({ onListenerError: () => undefined });
+    const { manager } = makeManager(dispatch);
+    const healthy: string[] = [];
+    dispatch.on('session_start', () => {
+      throw new Error('坏插件腿——不得回卷会话编舞');
+    });
+    dispatch.on('session_start', (data) => void healthy.push((data as { sessionId: string }).sessionId));
+    const opened = manager.create(); // 坏腿在场：会话照常建立、回执照常返回
+    expect(opened.origin).toBe('conversation');
+    expect(manager.open(opened.sessionId).driver).toBe(opened.driver); // 幂等复开零发射
+    expect(healthy).toEqual([opened.sessionId]); // 恰一笔（坏腿炸不夺健康腿——隔离律）
+  });
+
+  it('fork 否决路径零发射（vetoed 短路在 adopt 之前——不铸新会话即不广播）', async () => {
+    const dispatch = new EventDispatch();
+    const { manager } = makeManager(dispatch);
+    const seen: string[] = [];
+    dispatch.on('session_start', (data) => void seen.push((data as { sessionId: string }).sessionId));
+    dispatch.onWaterfall<SessionBeforeForkInput>('session_before_fork', (value, next) => {
+      value.veto = { reason: '策略拒——不铸新会话' };
+      return next(value);
+    });
+    const source = manager.create();
+    seen.length = 0; // 源会话建立笔不计
+    const outcome = await manager.fork(source.sessionId);
+    expect(outcome.status).toBe('vetoed');
+    expect(seen).toEqual([]); // 否决短路在前：无 adopt 即无 session_start
   });
 });
 

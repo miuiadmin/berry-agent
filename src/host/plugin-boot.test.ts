@@ -580,6 +580,132 @@ describe('生命周期事件（§2.4 生命周期组——收口批量补发）'
   });
 });
 
+describe('session_start 补播腿（03 §2.4 主表行补播腿——2026-10-16 硬伤处置第三批·②落码笔）', () => {
+  it('晚装载补播：装载收口后对在册既存会话逐会话补发 replay:true（入册序）+ 补播恒居 composition/reloaded 之后', async () => {
+    const log: string[] = [];
+    const replays: Array<{ sessionId: string; origin: string; replay?: boolean }> = [];
+    const observer: CorePluginReference = {
+      name: 'observer',
+      apply: async (ctx) => {
+        const c = ctx as { on: (name: string, handler: (data: unknown) => unknown) => () => void };
+        c.on('composition/reloaded', () => void log.push('composition/reloaded'));
+        c.on('session_start', (data) => {
+          const payload = data as { sessionId: string; origin: string; replay?: boolean };
+          void log.push(`session_start:${payload.sessionId}`);
+          void replays.push(payload);
+        });
+      },
+    };
+    // 在册既存会话替身（活体会话册投影形——入册序两行）
+    const active = [
+      { sessionId: 's-existing-1', origin: 'fork' },
+      { sessionId: 's-existing-2', origin: 'conversation' },
+    ] as const;
+    const { options } = rigBoot('/data', {
+      corePlugins: [observer],
+      fs: memoryFs(),
+      sessionStartReplay: () => active,
+    });
+    await bootPlugins(options);
+    // 补播逐会话、入册序、replay:true、origin 原值直传（补播不新造值）
+    expect(replays).toEqual([
+      { sessionId: 's-existing-1', origin: 'fork', replay: true },
+      { sessionId: 's-existing-2', origin: 'conversation', replay: true },
+    ]);
+    // 收口序钉死：plugin/activated 族 → composition/reloaded → session_start 补播循环
+    expect(log).toEqual(['composition/reloaded', 'session_start:s-existing-1', 'session_start:s-existing-2']);
+  });
+
+  it('boot 册空零补播 + 取值器缺席零补播（诚实缺席——直测形/诊断形；boot 冷起在册近零的生产语义同形）', async () => {
+    const seen: string[] = [];
+    const observer: CorePluginReference = {
+      name: 'observer',
+      apply: async (ctx) => {
+        (ctx as { on: (name: string, handler: (data: unknown) => unknown) => () => void }).on(
+          'session_start',
+          (data) => void seen.push((data as { sessionId: string }).sessionId),
+        );
+      },
+    };
+    // 册空形：取值器在、活体会话册空
+    const { options } = rigBoot('/data', { corePlugins: [observer], fs: memoryFs(), sessionStartReplay: () => [] });
+    await bootPlugins(options);
+    expect(seen).toEqual([]);
+    // 缺席形：取值器不注入（诊断形/测试替身——诚实缺席律）
+    const absent = rigBoot('/data', { corePlugins: [observer], fs: memoryFs() });
+    await bootPlugins(absent.options);
+    expect(seen).toEqual([]);
+  });
+
+  it('重复装载补播重发：每轮装载收口都补发（boot 与 /reload 换代同律——主表「重装载行补发」）+ replay:true 恒携（消费方幂等区分位）', async () => {
+    const active = [{ sessionId: 's-live', origin: 'conversation' as const }];
+    const seen: Array<{ sessionId: string; origin?: string; replay?: boolean }> = [];
+    const mkObserver = (): CorePluginReference => ({
+      name: 'observer',
+      apply: async (ctx) => {
+        (ctx as { on: (name: string, handler: (data: unknown) => unknown) => () => void }).on(
+          'session_start',
+          (data) => void seen.push(data as { sessionId: string; replay?: boolean }),
+        );
+      },
+    });
+    // 两轮装载（boot 装载序 + /reload 换代形——各 rig 各听者，同 active 册投影）
+    await bootPlugins(
+      rigBoot('/data', { corePlugins: [mkObserver()], fs: memoryFs(), sessionStartReplay: () => active }).options,
+    );
+    await bootPlugins(
+      rigBoot('/data', { corePlugins: [mkObserver()], fs: memoryFs(), sessionStartReplay: () => active }).options,
+    );
+    // 每轮恰一笔补播、origin 原值直传 + replay:true 恒携（首发形结构性不在此
+    // 腿出现——主动腿归 SessionManager adopt，见 sessions.test.ts）
+    expect(seen).toEqual([
+      { sessionId: 's-live', origin: 'conversation', replay: true },
+      { sessionId: 's-live', origin: 'conversation', replay: true },
+    ]);
+  });
+
+  it('同 dispatch 重复装载词注册幂等（一词两册装配序律——第二轮 hookWords 预注册过滤跳过不炸 EVENT_DUPLICATE）', async () => {
+    const noop: CorePluginReference = { name: 'noop', apply: async () => undefined };
+    const { options } = rigBoot('/data', {
+      corePlugins: [noop],
+      fs: memoryFs(),
+      sessionStartReplay: () => [{ sessionId: 's', origin: 'conversation' }],
+    });
+    await expect(bootPlugins(options)).resolves.toBeDefined();
+    await expect(bootPlugins(options)).resolves.toBeDefined(); // 二轮装载不炸（幂等过滤）
+    expect(options.dispatch.isRegistered('session_start')).toBe(true);
+  });
+
+  it('失败面：补播循环中监听腿异常不阻断余会话（emit 隔离——隔离腿上报后余会话照常走完）', async () => {
+    const healthy: string[] = [];
+    const observer: CorePluginReference = {
+      name: 'observer',
+      apply: async (ctx) => {
+        (ctx as { on: (name: string, handler: (data: unknown) => unknown) => () => void }).on(
+          'session_start',
+          (data) => {
+            if ((data as { sessionId: string }).sessionId === 's-broken') {
+              throw new Error('坏插件腿——不阻断补播循环');
+            }
+            void healthy.push((data as { sessionId: string }).sessionId);
+          },
+        );
+      },
+    };
+    const active = [
+      { sessionId: 's-broken', origin: 'conversation' },
+      { sessionId: 's-after', origin: 'trigger' },
+    ] as const;
+    const { options } = rigBoot('/data', {
+      corePlugins: [observer],
+      fs: memoryFs(),
+      sessionStartReplay: () => active,
+    });
+    await bootPlugins(options); // 坏腿异常不外溢：bootPlugins 正常收口
+    expect(healthy).toEqual(['s-after']); // 余会话照常走完
+  });
+});
+
 describe('secrets 面装配（c-3——03 §2.2 第十面 fork 级绑定 + 席位门）', () => {
   /** 内存凭证窄面替身（assembly 真源 = persistence.store 凭证投影——面形同构） */
   function memorySecretsStore() {

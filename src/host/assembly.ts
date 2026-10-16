@@ -1098,6 +1098,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           // 进程级 doors 段活体取值器（开门制扩展批 2026-09-09——observe-cross
           // 专属分立判定位消费：订阅 all 档门检行 opens ∥ doors 并判）
           crossDoors: () => readDoorsSegmentLive(dataDir),
+          // session_start 补播腿活体会话册取值器（03 §2.4 主表行补播腿——
+          // 2026-10-16 硬伤处置第三批·②落码笔）：真身 = manager 活体投影
+          // listActive()（入册序单源——records Map 迭代序）；装载收口对在册
+          // 既存会话补发 replay:true（boot 时点近零属常态、/reload 换代全册补）
+          sessionStartReplay: () => stack.manager.listActive(),
           // 压缩席位容器（U4-3——ctx.get("compaction") fork 绑定位）：真身 =
           // conversation-stack 装配的 createCompactionSlots 单真身（服务三 seam
           // 中 getConfig/getProvider 两容器位已在 stack 内接线；此处逐插件

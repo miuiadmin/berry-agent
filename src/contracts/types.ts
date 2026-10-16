@@ -144,6 +144,11 @@ export type TurnEndReason =
  * starter 起的无头会话——首 turn 非人触，2026-09-07 触发器面 C 批落码扩词；
  * 05 §9 sessions.origin 与 03 §2.4 session_start 载荷三处闭集同笔）。无插件
  * 域——会话直归 agent（05 §0 会话归属模型）。
+ *
+ * 〔2026-10-16 硬伤处置第三批·②落码笔——session_start 载荷 origin 逐入口
+ * 映射定谳 (a)：主表行对齐本闭集五值直传零映射（adopt origin 形参即本型；
+ * initial/resume 合成形弃用——resumed 形参属 adopt 内部判据不入载荷），三处
+ * 闭集同笔声称自此成立〕
  */
 export type SessionOrigin = 'conversation' | 'delegation' | 'import' | 'fork' | 'trigger';
 

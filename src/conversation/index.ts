@@ -126,5 +126,6 @@ export type {
   OpenedSession,
   SessionBeforeForkInput,
   SessionManagerOptions,
+  SessionStartInput,
 } from './sessions.js';
 export { SESSION_HOOK_NAMES, SessionManager } from './sessions.js';

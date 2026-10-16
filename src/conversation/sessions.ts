@@ -39,8 +39,30 @@ import type { SessionLog } from '../session/index.js';
 import type { AgentEventSink } from '../agent/index.js';
 import type { ConversationDriver } from './driver.js';
 
-/** 会话编排钩子词汇（03 主表在册——本面消费的 waterfall 事件名单源） */
-export const SESSION_HOOK_NAMES = ['session_before_fork'] as const;
+/**
+ * 会话编排钩子词汇（03 主表在册——本面自举注册的事件名单源）：
+ *  - session_before_fork：waterfall 形（本面消费——否决位校验）；
+ *  - session_start：emit 形只观察钩子（本面发射——adopt 共尾首发；装载
+ *    收口补播腿在 host 装载面，载荷同形携 replay:true）。
+ */
+export const SESSION_HOOK_NAMES = ['session_before_fork', 'session_start'] as const;
+
+/**
+ * session_start 载荷（03 §2.4 主表行——emit 形只观察）：
+ *  - origin = SessionOrigin 五值直传零映射（定谳 (a)——2026-10-16 硬伤处置
+ *    第三批·②落码笔：主表行对齐 contracts SessionOrigin 闭集，不铸
+ *    initial/resume 合成形；首发与补播同一载荷形）；
+ *  - replay 位仅在装载收口补播腿携带（true——消费方幂等区分首发/补播）；
+ *    adopt 共尾首发恒无此位（结构上可辨识「非补播」）。
+ */
+export interface SessionStartInput {
+  /** 新建/复续/分叉入册的会话 */
+  readonly sessionId: string;
+  /** 入册血缘（SessionOrigin 五值直传——create 缺省 conversation、fork 恒 fork、open 直传库行） */
+  readonly origin: SessionOrigin;
+  /** 补播位（仅装载收口补播腿携带 true；首发无此键） */
+  readonly replay?: true;
+}
 
 /**
  * session_before_fork 载荷（waterfall 形——监听器可校验种子边界）：
@@ -650,6 +672,11 @@ export class SessionManager {
       origin,
       ...(log.workspaceRoot !== undefined ? { workspaceRoot: log.workspaceRoot } : {}),
     });
+    // session_start 主动腿首发（03 §2.4 主表行——create/open/fork 共尾恒发一笔；
+    // 定谳 (a)：origin 形参即 SessionOrigin 五值直传零映射。emit 为异步面而
+    // adopt 同步——fire-and-forget 不回卷编排序；监听腿异常经 onListenerError
+    // 隔离（只观察钩子）；幂等 open 单焦点早退不经 adopt 故不重发）
+    void this.dispatch.emit('session_start', { sessionId: log.sessionId, origin });
     return { sessionId: log.sessionId, driver, origin };
   }
 }

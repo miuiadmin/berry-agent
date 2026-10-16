@@ -59,7 +59,7 @@ import type { SecretsFaceOptions } from '../credentials/index.js';
 import type { OAuthFlowRegistry } from '../credentials/index.js';
 // 跨会话操控受理器（e4-3——sessions-control fork 绑定；host→conversation 边在册）
 import { bindControlForPlugin, SESSIONS_CONTROL_SERVICE } from '../conversation/index.js';
-import type { SessionsControlFace } from '../conversation/index.js';
+import type { SessionsControlFace, SessionStartInput } from '../conversation/index.js';
 // sessions 受理面 fork 绑定（ag 批 cs-D2——03 §4.5 定形注：共享根 provision 形态废止）
 import { bindSessionsForPlugin } from './sessions-face.js';
 import type { SessionsFace } from './sessions-face.js';
@@ -324,6 +324,18 @@ export interface PluginBootOptions {
    * 订阅只吃行 opens（分立判定位 doors 支路恒空——诊断形/测试替身）。
    */
   readonly crossDoors?: () => ReadonlySet<string>;
+  /**
+   * session_start 补播腿活体会话册取值器（03 §2.4 主表行补播腿——2026-10-16
+   * 硬伤处置第三批·②落码笔）：真身 = conversation-stack 装配的
+   * stack.manager.listActive()（assembly 注入；活体投影单源——入册序）。
+   * 装载收口（composition/reloaded 之后）对在册既存会话逐笔补发
+   * session_start 携 replay:true——晚装载/重装载行补偿（boot 时点在册近零
+   * 属常态零补播；/reload 换代时点全册补发）。单行装载（install/mount）系
+   * 盘态编辑非在程装载、生效需 /reload——装载收口两时点结构性覆盖全部在程
+   * 装载面，无另立补发位（03 §2.4 清偿笔销账条件②定谳）。缺席 = 零补播
+   * （诚实缺席律：测试替身形/:memory: 诊断形）。
+   */
+  readonly sessionStartReplay?: () => readonly SessionStartInput[];
   /**
    * 压缩席位容器（U4-3——03 §2.2 第十二面 compaction 服务面）：真身 =
    * conversation-stack 装配的 createCompactionSlots 单真身（stack.
@@ -966,6 +978,20 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     failed: failedAll.map((f) => f.id),
     skipped: loaded.skipped.map((s) => s.id),
   });
+  // session_start 补播腿（03 §2.4 主表行——2026-10-16 硬伤处置第三批·②落码笔）：
+  // 装载收口对在册既存会话逐笔补发，恒居 composition/reloaded 之后（04 §6 补笔①
+  // 钉序——插件先见全装载收口账、再见会话补播）。origin 原值直传（SessionOrigin
+  // 五值——主表行闭集，补播不新造值）；replay:true 恒携（消费方幂等区分首发）。
+  // 单会话监听腿异常经 emit 隔离不阻断余会话（03 §2.4 补笔②失败面）；取值器
+  // 缺席/册空 = 零补播（诚实缺席律）。逐笔 await：补播面入册序全序送达
+  for (const session of options.sessionStartReplay?.() ?? []) {
+    await options.dispatch.emit('session_start', {
+      sessionId: session.sessionId,
+      origin: session.origin,
+      replay: true,
+    });
+  }
+
 
   // ⑨ closer：apply disposer LIFO 后 fork 逆序 dispose（drain 序 = 注册序）；
   //    Job 归属围栏收口腿（Job 消费面批桥二）在 disposer 回卷后对 activated
