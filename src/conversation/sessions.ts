@@ -255,6 +255,14 @@ export class SessionManager {
     return this.persistence.listSessions(options);
   }
 
+  /** 会话清单游标分页（挖掘 51 轮件 A——切换器超窗老会话可达；旧 list 保留） */
+  listPage(options: { workspaceRoot?: string; limit?: number; cursor?: string } = {}): {
+    rows: SessionRow[];
+    nextCursor: string | null;
+  } {
+    return this.persistence.listSessionsPage(options);
+  }
+
   /** 会话全量计数（B2 截断披露单源——list 默认 100 窗，超窗披露的总数真源） */
   countSessions(): number {
     return this.persistence.countSessions();

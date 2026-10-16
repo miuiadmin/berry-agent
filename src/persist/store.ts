@@ -927,6 +927,49 @@ export class Store implements WriteTarget {
     return (this.stmt('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n;
   }
 
+  /**
+   * 会话清单游标分页（挖掘 51 轮件 A——切换器超窗老会话可达；07 §4.1 R7
+   * 分页注）：复合序 `updated_at DESC, id DESC`（同刻并列 id 决序——两页同序
+   * 是游标防跨页重复/跳行的前提，**首拉腿与续页腿同复合序**）；续页谓词 =
+   * 行值比较降序形 `(updated_at, id) < (?, ?)`（queryEvents 升序行值谓词
+   * `:858` 的降序镜像）；多取 1 行探针判 hasMore（loadEventsPage 同构），
+   * 末页诚实 null。cursor 串自持 `${updatedAt}:${id}` 透明形（解析
+   * lastIndexOf 切两段——id 尾段无冒号；坏令牌 fail-loud）。
+   * 旧 listSessions 原样保留（CLI/obs/webui/serve/SDK 消费面零动）。
+   */
+  listSessionsPage(options: { workspaceRoot?: string; limit?: number; cursor?: string } = {}): {
+    rows: SessionRow[];
+    nextCursor: string | null;
+  } {
+    this.ensureOpen();
+    const limit = options.limit ?? 100;
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (options.workspaceRoot !== undefined) {
+      clauses.push('workspace_root = ?');
+      params.push(options.workspaceRoot);
+    }
+    if (options.cursor !== undefined) {
+      // 游标 = 上一页末行 (updated_at, id)——行值比较续页（降序镜像）
+      const [updatedAt, id] = decodeSessionsCursor(options.cursor);
+      clauses.push('(updated_at, id) < (?, ?)');
+      params.push(updatedAt, id);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.stmt(
+      `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq
+       FROM sessions ${where} ORDER BY updated_at DESC, id DESC LIMIT ?`,
+    ).all(...params, limit + 1) as RawSessionRow[];
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
+    return {
+      rows: page.map(parseSessionRow),
+      // nextCursor 取探针前末行（多取行留给下一页不跳行）
+      nextCursor: hasMore && last ? `${last.updated_at}:${last.id}` : null,
+    };
+  }
+
   /** 会话登记先行落行（空种子形态——last_seq=-1 无事件语义，与游标起点一致；
    *  有事件走写路径。0 是「seq 0 已落」——空档若记 0，首事件 seq 0 会被连续性
    *  断言当跳号拒写，恰成毒丸） */
@@ -1483,4 +1526,20 @@ function decodeCursor(cursor: string): [number, string, number] {
   } catch {
     throw new BaseError('PERSIST_DATA_CORRUPT', `queryEvents 游标不可解码：${cursor.slice(0, 32)}…`);
   }
+}
+
+// ── 会话分页游标解码（listSessionsPage 令牌——自持 `updatedAt:id` 透明形）──
+
+/** 会话分页游标解码（lastIndexOf 切两段——id 尾段无冒号；坏令牌 fail-loud，
+ *  decodeCursor 同律） */
+function decodeSessionsCursor(cursor: string): [number, string] {
+  const idx = cursor.lastIndexOf(':');
+  const bad = (): never => {
+    throw new BaseError('PERSIST_DATA_CORRUPT', `会话分页游标不可解码：${cursor.slice(0, 32)}…`);
+  };
+  if (idx <= 0) bad();
+  const ts = Number(cursor.slice(0, idx));
+  const id = cursor.slice(idx + 1);
+  if (!Number.isFinite(ts) || id.length === 0) bad();
+  return [ts, id];
 }

@@ -841,7 +841,7 @@
       "since": "1.0",
       "desc": "通道后端接口（通道核的呈现消费面）",
       "kind": "interface",
-      "sig": "917d479cdb67f53f"
+      "sig": "4b27665326744ec8"
     },
     {
       "symbol": "UiCallLedger",

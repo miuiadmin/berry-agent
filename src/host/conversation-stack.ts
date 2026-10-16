@@ -1134,22 +1134,23 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // /memory 注册位（06 §7——mm 批）：库座在位即注册（persistence 在场 ⇒
     // memory 件将装载；件缺席形由命令 handler 的 notify 降级提示诚实兜底）
     memory: true,
-    // /sessions 清单注入（07 §4.1 R7 批 10k）：manager 全量行 + 活跃位投影
-    // （最新在前——切换器装配序；listActive 空集时全 inactive 如实呈现）
-    sessions: () => {
+    // /sessions 清单注入（07 §4.1 R7 批 10k）：manager 分页行 + 活跃位投影
+    // （复合序 updated_at DESC, id DESC 单源——listPage ORDER BY 定序，装配位
+    // 不再 sort；listActive 空集时全 inactive 如实呈现；挖掘 51 轮件 A 分页形）
+    sessions: (cursor) => {
       const active = new Set(manager.listActive().map((entry) => entry.sessionId));
-      return Promise.resolve(
-        [...manager.list({})]
-          .sort((a, b) => b.updatedAt - a.updatedAt)
-          .map((row) => ({
-            id: row.id,
-            // 读路合并单源（05 §9 v13 分家③）：显式题优先、首问快照兜底
-            title: sessionDisplayTitleOf(row),
-            workspaceRoot: row.workspaceRoot,
-            updatedAt: row.updatedAt,
-            active: active.has(row.id),
-          })),
-      );
+      const page = manager.listPage(cursor !== undefined ? { cursor } : {});
+      return Promise.resolve({
+        rows: page.rows.map((row) => ({
+          id: row.id,
+          // 读路合并单源（05 §9 v13 分家③）：显式题优先、首问快照兜底
+          title: sessionDisplayTitleOf(row),
+          workspaceRoot: row.workspaceRoot,
+          updatedAt: row.updatedAt,
+          active: active.has(row.id),
+        })),
+        nextCursor: page.nextCursor,
+      });
     },
     // /sessions 总数注入（B2 截断披露）：manager.list 默认 100 窗，超窗时
     // 切换器头行注记「N/M（仅显示最近）」——总数独立单源不随窗走

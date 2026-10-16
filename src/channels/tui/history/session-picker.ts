@@ -89,6 +89,20 @@ export interface SessionPickerOptions {
    */
   readonly initialCursor?: number;
   /**
+   * 续页拉闭包（挖掘 51 轮件 A——注入在场才有分页行为，缺席 = 静态窗零分页
+   * 〔onDelete 同律〕；只接续页 cursor 恒有值）。异步回执归本面板 append +
+   * requestRepaint 请帧（不经通道核路由——onPreview 同族）。
+   */
+  readonly onLoadMore?: (cursor: string) => Promise<{
+    rows: readonly UiSessionSummary[];
+    nextCursor: string | null;
+  }>;
+  /**
+   * 首拉续页位（挖掘 51 轮件 A——首拉 nextCursor 直达：null = 已是最早页零
+   * 占位；更名注：initialCursor 已名光标复原位故此参定名 moreCursor 防撞）。
+   */
+  readonly moreCursor?: string | null;
+  /**
    * 异步请帧（删除回执落位后重画——面板不自驱重画；装配接 altHost
    * requestRepaint）。同步键路（视图切换/取消）由引擎事件后重画承载。
    */
@@ -115,6 +129,8 @@ const WHEEL_LINES = 3;
 const WARN_MARK = '⚠';
 /** 尾段预览条数帽（挖掘 35 轮 B5——不足帽如实 N 条） */
 const PREVIEW_CAP = 6;
+/** 近底预取阈值（挖掘 51 轮件 A——视口距底 ≤N 行触发续页拉；codex LOAD_NEAR_THRESHOLD 同值，改裁为视口距底形〔更早预取〕） */
+const LOAD_NEAR_THRESHOLD = 5;
 /** 预览缓存态（呈现即缓存——三占位态与成功态同账） */
 type PreviewState =
   | { readonly status: 'loading' }
@@ -220,6 +236,15 @@ export class SessionPicker implements OverlayContent {
    * 单源换源，不裂第二账
    */
   private searchQuery: string | null = null;
+  /** 续页拉闭包（挖掘 51 轮件 A——缺席 = 静态窗零分页零占位） */
+  private readonly onLoadMore:
+    ((cursor: string) => Promise<{ rows: readonly UiSessionSummary[]; nextCursor: string | null }>) | undefined;
+  /** 续页位（null = 已到最早；onLoadMore 缺席时恒 null——双保险单源） */
+  private moreCursor: string | null = null;
+  /** 续页拉单飞锁（在飞回执落位前不重发——ensurePreviewOfCursor 同族） */
+  private loadingMore = false;
+  /** 曾发起续页拉（null 终态「已到最早」占位的在场判据——初值 null 零占位不虚报） */
+  private loadAttempted = false;
 
   constructor(options: SessionPickerOptions) {
     this.sessions = [...options.sessions]; // 可变副本（就地滤行——不回写调用方数组）
@@ -235,6 +260,10 @@ export class SessionPicker implements OverlayContent {
     // offset 从不写 cursor，界内恒定靠各变更位自守——超界直赋破不变量（enter/
     // tab 的 visible[cursor]!.id 直取即越界炸）；空表夹 0（home 同族））
     this.cursor = Math.min(Math.max(options.initialCursor ?? 0, 0), Math.max(this.sessions.length - 1, 0));
+    // 分页接线（挖掘 51 轮件 A）：注入在场才持有续页位（缺席恒 null——双保险，
+    // moreCursor 误传不点燃分页）
+    this.onLoadMore = options.onLoadMore;
+    this.moreCursor = options.onLoadMore !== undefined ? (options.moreCursor ?? null) : null;
     this.requestRepaint = options.requestRepaint;
     this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
     this.nowMs = options.nowMs ?? Date.now();
@@ -245,8 +274,10 @@ export class SessionPicker implements OverlayContent {
     void width;
     if (this.view === 'confirm') return 5;
     // 清单行数换源 visible（挖掘 43 轮件 C——过滤态量高随匹配收缩；空匹配
-    // max(1,·) 保持单行占位不塌行）
+    // max(1,·) 保持单行占位不塌行）；占位行 = 清单视口下方固定行恒 1 高
+    // （挖掘 51 轮件 A——三态词面变不增高）
     let height = 1 + Math.max(1, this.visibleSessions().length) + 1;
+    if (this.placeholderInUse()) height += 1;
     if (this.previewAreaInUse()) height += 1 + this.previewContentHeight();
     return height;
   }
@@ -262,6 +293,49 @@ export class SessionPicker implements OverlayContent {
     const query = this.searchQuery.trim().toLowerCase();
     if (query === '') return this.sessions;
     return this.sessions.filter((session) => matchesQuery(session, query));
+  }
+
+  /** 占位行在场判据（挖掘 51 轮件 A——注入在场 + 三态任一：在飞/有续页/曾拉到终态；初值全否零占位不虚报） */
+  private placeholderInUse(): boolean {
+    return this.onLoadMore !== undefined && (this.loadingMore || this.moreCursor !== null || this.loadAttempted);
+  }
+
+  /**
+   * 近底续页拉（挖掘 51 轮件 A——导航变更位后判：视口距底 ≤5 行〔codex
+   * LOAD_NEAR_THRESHOLD 同值改裁为视口距底形——与光标位无关，全显窗恒
+   * 触发即提前预取〕；非搜索态〔过滤表是窗内子集，全表分页与过滤正交〕+
+   * 单飞锁 + 续页位非空）。回执 append 去重按 id 双保险（游标序防重为主、
+   * id 集为兜底）+ moreCursor 更新 + requestRepaint 请帧；异常静默回占位
+   * （续页位不动可重试——面板无 notify 面，用户面错误折面走下次拉取）。
+   * 挂点：moveCursor/home/end 尾（滚轮/↑↓/PgUp/PgDn 全经 moveCursor）。
+   */
+  private maybeLoadMore(): void {
+    if (this.onLoadMore === undefined || this.moreCursor === null || this.loadingMore) return;
+    if (this.searchQuery !== null) return; // 搜索态不触发（过滤表是窗内子集）
+    const visible = this.visibleSessions();
+    if (visible.length === 0) return;
+    if (visible.length - (this.offset + this.viewportHeight) > LOAD_NEAR_THRESHOLD) return;
+    this.loadingMore = true;
+    const cursor = this.moreCursor;
+    this.onLoadMore(cursor).then(
+      (page) => {
+        this.loadingMore = false;
+        this.loadAttempted = true;
+        // append 去重按 id（双保险——游标序两页同序防重为主，构造/删除竞窗兜底）
+        const known = new Set(this.sessions.map((s) => s.id));
+        for (const row of page.rows) if (!known.has(row.id)) this.sessions.push(row);
+        this.moreCursor = page.nextCursor;
+        // 行集变长 maxOffset 变大——offset 恒仍在界（夹取幂等）；光标不动
+        this.clampOffset();
+        this.requestRepaint?.();
+      },
+      () => {
+        this.loadingMore = false;
+        this.loadAttempted = true;
+        // 续页位不动（可重试）——占位回「↓ 加载更早…」形
+        this.requestRepaint?.();
+      },
+    );
   }
 
   /** 预览区在用判据（展开态 + 注入在场 + 非空过滤表——三键守卫单源〔挖掘 43 轮件 C：visible 换源〕） */
@@ -291,10 +365,12 @@ export class SessionPicker implements OverlayContent {
       return;
     }
     // 头行：全量已呈现原形；总数超清单长 → N/M + 仅显示最近（B2 截断披露——
-    // 清单默认 100 窗，超窗不注记即「所见即全量」的静默谎）；搜索态 →
-    // N/M 匹配 + query（挖掘 43 轮件 C——截断披露 totalCount 与匹配计数两数
-    // 并存〔denom = totalCount ?? 全表长〕；query 空驻留形尾段空——「匹配 · 」
-    // 后零字，不写「显示 / 尾段」防与 N/M 分隔符 '/' 混淆）
+    // 清单默认 100 窗，超窗不注记即「所见即全量」的静默谎）；分页在场去
+    // 「（仅显示最近）」尾注（挖掘 51 轮件 A——更早经续页拉可达，截断谎句
+    // 摘除、N/M 总数披露保真）；搜索态 → N/M 匹配 + query（挖掘 43 轮件 C
+    // ——截断披露 totalCount 与匹配计数两数并存〔denom = totalCount ?? 全表
+    // 长〕；query 空驻留形尾段空——「匹配 · 」后零字，不写「显示 / 尾段」
+    // 防与 N/M 分隔符 '/' 混淆）
     const visible = this.visibleSessions();
     const n = visible.length;
     const head =
@@ -303,7 +379,9 @@ export class SessionPicker implements OverlayContent {
         : this.searchQuery !== null
           ? `${HEAD_MARKS.session} 会话切换 · ${n}/${this.totalCount ?? this.sessions.length} 匹配 · ${this.searchQuery}`
           : this.totalCount !== undefined && this.totalCount > n
-            ? `${HEAD_MARKS.session} 会话切换 · ${n}/${this.totalCount} 会话（仅显示最近）`
+            ? this.onLoadMore !== undefined
+              ? `${HEAD_MARKS.session} 会话切换 · ${n}/${this.totalCount} 会话`
+              : `${HEAD_MARKS.session} 会话切换 · ${n}/${this.totalCount} 会话（仅显示最近）`
             : `${HEAD_MARKS.session} 会话切换 · ${n} 会话`;
     // 非条目行（头行/空态行/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5——raw
     // writeText 窄窗硬截断无提示；条目行走 fitRowSegments 双段）
@@ -311,9 +389,11 @@ export class SessionPicker implements OverlayContent {
     // 守卫族语义（height=2 → 零内容行只头行+底行）：下限 0——旧 Math.max(1,·)
     // 在 height=2 强立 1 行内容，首内容行先写后又被底行覆写留残段
     // 预览区在用：底行上方预留（空行 + 内容行）——清单视口相应让位（清单是
-    // 选择主体，矮窗预览区先被行预算截断）
+    // 选择主体，矮窗预览区先被行预算截断）；占位行（挖掘 51 轮件 A）同从
+    // 预算扣——矮窗让位序：预览区先让（既有）→ 占位行后让（清单行优先）
     const previewArea = this.previewAreaInUse() ? 1 + this.previewContentHeight() : 0;
-    const viewHeight = Math.max(0, region.height - 2 - previewArea);
+    const placeholderArea = this.placeholderInUse() ? 1 : 0;
+    const viewHeight = Math.max(0, region.height - 2 - previewArea - placeholderArea);
     this.viewportHeight = viewHeight;
     this.clampOffset();
     if (viewHeight > 0) {
@@ -335,8 +415,21 @@ export class SessionPicker implements OverlayContent {
         }
       }
     }
+    // 占位行（挖掘 51 轮件 A——清单视口正下方固定行，不随滚动〔虚拟尾行需
+    // 扩 clampOffset 才可达，固定行位零交互〕；三态词面：在飞「加载中…」/
+    // 有续页「↓ 加载更早…」/ 终态「已到最早」——dim 同 hint 族）
+    if (placeholderArea > 0) {
+      const placeholder = this.loadingMore ? '加载中…' : this.moreCursor !== null ? '↓ 加载更早…' : '已到最早';
+      buffer.writeText(region.row + 1 + viewHeight, region.col, fitLine(placeholder, region.width), HINT_STYLE);
+    }
     if (previewArea > 0)
-      this.renderPreview(buffer, region.row + 1 + viewHeight, region.col, region.width, region.height - 2 - viewHeight);
+      this.renderPreview(
+        buffer,
+        region.row + 1 + viewHeight + placeholderArea,
+        region.col,
+        region.width,
+        region.height - 2 - viewHeight - placeholderArea,
+      );
     // 底行提示（键面如实——缺席保持原形不虚报）：搜索态分档（挖掘 43 轮件 C
     //——q/d 归输入让位不注记、「q/esc 返回」段让位〔q 已非退出键〕；空匹配
     // 导航/enter/tab 段让位〔门零动作不虚报〕）
@@ -554,12 +647,14 @@ export class SessionPicker implements OverlayContent {
           this.cursor = 0;
           this.clampOffset();
           if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
+          this.maybeLoadMore();
           return true;
         }
         if (isPlainKey(k, 'end')) {
           this.cursor = visible.length - 1;
           this.clampOffset();
           if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
+          this.maybeLoadMore();
           return true;
         }
         if (isPlainKey(k, 'enter')) {
@@ -781,11 +876,12 @@ export class SessionPicker implements OverlayContent {
     );
   }
 
-  /** 光标移动（单步环绕/大步夹取——挖掘 35 轮 B6 分立律；移动后光标恒可见；展开态预览区光标行联动；表长随 visible 单源〔挖掘 43 轮件 C〕） */
+  /** 光标移动（单步环绕/大步夹取——挖掘 35 轮 B6 分立律；移动后光标恒可见；展开态预览区光标行联动；表长随 visible 单源〔挖掘 43 轮件 C〕；近底续页拉挂点〔挖掘 51 轮件 A——滚轮/PgUp/PgDn 同经此路〕） */
   private moveCursor(delta: number): void {
     this.cursor = stepCursorWrap(this.cursor, delta, this.visibleSessions().length);
     this.clampOffset();
     if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
+    this.maybeLoadMore();
   }
 
   /** 视口夹取：光标行恒在窗内（下溢提窗 / 上溢压窗） */

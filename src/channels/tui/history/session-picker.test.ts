@@ -54,7 +54,7 @@ function readRow(grid: CellGrid, rowNumber: number, width: number): string {
   return out.trimEnd();
 }
 
-/** 装配便捷（全回调 vi 记录；extra = Options 可选位覆写——截断披露/删除注入/开史注入/光标复原/相对钟腿用） */
+/** 装配便捷（全回调 vi 记录；extra = Options 可选位覆写——截断披露/删除注入/开史注入/光标复原/分页注入/相对钟腿用） */
 function makePicker(
   sessions: readonly UiSessionSummary[],
   extra: {
@@ -63,6 +63,11 @@ function makePicker(
     onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>;
     onOpenHistory?: (sessionId: string, cursorAt: number) => void;
     initialCursor?: number;
+    onLoadMore?: (cursor: string) => Promise<{
+      rows: readonly UiSessionSummary[];
+      nextCursor: string | null;
+    }>;
+    moreCursor?: string | null;
     requestRepaint?: () => void;
     nowMs?: number;
   } = {},
@@ -1035,5 +1040,130 @@ describe('SessionPicker ' + "'o'" + ' 开史（挖掘 50 轮件 C）', () => {
     const search = paintAll(withOpen.picker, 70, 8);
     expect(search).toContain('输入过滤');
     expect(search).not.toContain('o 开史');
+  });
+});
+
+// ── 分页加载面（挖掘 51 轮件 A——近底续页拉 + 占位行三态；注入缺席零分页零占位）──
+describe('SessionPicker 分页加载（续页拉）', () => {
+  /** 12 行集（视口 7 于 60×10——头底各 1 + 占位 1；距底 12-7=5 恰达阈值） */
+  const many = Array.from({ length: 12 }, (_, i) => row({ id: `pg-${i}-00000000`, title: `会话${i}` }));
+
+  /** 手控续页回执 rig（deferred——rows/nextCursor 由测试注入落位） */
+  function deferredPage() {
+    let settle!: (page: { rows: readonly UiSessionSummary[]; nextCursor: string | null }) => void;
+    const calls: string[] = [];
+    const promise = new Promise<{ rows: readonly UiSessionSummary[]; nextCursor: string | null }>((resolve) => {
+      settle = resolve;
+    });
+    return {
+      calls,
+      onLoadMore: (cursor: string) => {
+        calls.push(cursor);
+        return promise;
+      },
+      settle,
+    };
+  }
+
+  /** 定视口渲染（60×10——viewportHeight 回写 7：头 1 + 清单视口 + 占位 1 + 底 1） */
+  const paintViewport = (picker: SessionPicker): string => {
+    const grid = new CellGrid(60, 10);
+    picker.render(grid, { row: 0, col: 0, width: 60, height: 10 });
+    const lines: string[] = [];
+    for (let r = 0; r < 10; r++) {
+      let out = '';
+      for (let c = 0; c < 60; c++) out += grid.getCell(r, c)?.grapheme ?? ' ';
+      lines.push(out.trimEnd());
+    }
+    return lines.join('\n');
+  };
+
+  it('近底触发：视口距底 ≤5 任一导航键发 onLoadMore（cursor 实参 = 首拉续页位）+ 量高恒 +1', () => {
+    const rig = deferredPage();
+    const { picker } = makePicker(many, { onLoadMore: rig.onLoadMore, moreCursor: 'c-first' });
+    expect(picker.measure(60)).toBe(1 + 12 + 1 + 1); // 头 + 全量清单 + 占位 + 底（分页在场恒 1 行）
+    paintViewport(picker); // viewportHeight 回写（首键判据的窗口账）
+    picker.handleEvent(k('down'));
+    expect(rig.calls).toEqual(['c-first']); // 正向断言（注入缺席时恒未被调——修前红锚）
+  });
+
+  it('占位三态：有续页「↓ 加载更早…」→ 在飞「加载中…」→ 终态「已到最早」', async () => {
+    const rig = deferredPage();
+    const repaint = vi.fn();
+    const { picker } = makePicker(many, { onLoadMore: rig.onLoadMore, moreCursor: 'c1', requestRepaint: repaint });
+    expect(paintViewport(picker)).toContain('↓ 加载更早…');
+    picker.handleEvent(k('down')); // 触发（在飞）
+    expect(rig.calls).toEqual(['c1']);
+    expect(paintViewport(picker)).toContain('加载中…');
+    rig.settle({ rows: [], nextCursor: null }); // 空页终态
+    await Promise.resolve(); // 异步落位微任务冲刷（.then 链）
+    await Promise.resolve();
+    const text = paintViewport(picker);
+    expect(text).toContain('已到最早');
+    expect(text).not.toContain('↓ 加载更早…');
+    expect(repaint).toHaveBeenCalled(); // 回执落位请帧
+  });
+
+  it('回执 append 去重（既有 id 不双入）+ moreCursor 更新后二次触发走新位', async () => {
+    const rig = deferredPage();
+    const { picker } = makePicker(many, { onLoadMore: rig.onLoadMore, moreCursor: 'c1' });
+    paintViewport(picker);
+    picker.handleEvent(k('down'));
+    rig.settle({
+      rows: [many[0]!, row({ id: 'pg-new-00000000', title: '新页行' })], // 首行重复 + 一新行
+      nextCursor: 'c2',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    const text = paintViewport(picker);
+    expect(text).toContain('13 会话'); // 12 - 0（去重后只加 1 新行）= 13（头行 N 随 visible 涨）
+    expect(text).toContain('↓ 加载更早…'); // 续页位 c2 仍在
+    picker.handleEvent(k('down')); // 距底 13-7=6 > 阈值——不触发（阈值门诚实）
+    expect(rig.calls).toEqual(['c1']);
+    picker.handleEvent(k('end')); // 滚到底（距底 0）——二次触发走新位
+    expect(rig.calls).toEqual(['c1', 'c2']);
+  });
+
+  it('在飞单飞锁：回执落位前再按键不双发', () => {
+    const rig = deferredPage();
+    const { picker } = makePicker(many, { onLoadMore: rig.onLoadMore, moreCursor: 'c1' });
+    paintViewport(picker);
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('down')); // 在飞再按键
+    picker.handleEvent(k('end'));
+    expect(rig.calls).toEqual(['c1']);
+  });
+
+  it('搜索态不触发（过滤表是窗内子集——全表分页与过滤正交）', () => {
+    const rig = deferredPage();
+    const { picker } = makePicker(many, { onLoadMore: rig.onLoadMore, moreCursor: 'c1' });
+    paintViewport(picker);
+    picker.handleEvent(k('/')); // 进搜索态（query 空 = 全匹配形）
+    picker.handleEvent(k('down')); // 导航仍效走过滤表——经 moveCursor 但搜索态门挡
+    picker.handleEvent(k('end'));
+    expect(rig.calls).toEqual([]);
+  });
+
+  it('注入缺席零占位零触发（现状锁）+ 头行截断尾注保留', () => {
+    const { picker } = makePicker(many, { totalCount: 20 });
+    expect(picker.measure(60)).toBe(1 + 12 + 1); // 无占位行（现状原高）
+    const text = paintViewport(picker);
+    expect(text).not.toContain('加载更早');
+    expect(text).not.toContain('已到最早');
+    expect(text).toContain('12/20 会话（仅显示最近）'); // B2 注记保留（注入缺席律）
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('end'));
+  });
+
+  it('分页在场头行去截断尾注（更早可达——N/M 披露保真、谎句摘除）', () => {
+    const rig = deferredPage();
+    const { picker } = makePicker(many, {
+      onLoadMore: rig.onLoadMore,
+      moreCursor: 'c1',
+      totalCount: 20,
+    });
+    const text = paintViewport(picker);
+    expect(text).toContain('12/20 会话');
+    expect(text).not.toContain('仅显示最近');
   });
 });

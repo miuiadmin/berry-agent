@@ -378,6 +378,15 @@ export class Persistence {
     return this.store.listSessions(options);
   }
 
+  /** 会话清单游标分页透传（挖掘 51 轮件 A——切换器超窗老会话可达；旧法保留） */
+  listSessionsPage(options: { workspaceRoot?: string; limit?: number; cursor?: string } = {}): {
+    rows: SessionRow[];
+    nextCursor: string | null;
+  } {
+    this.ensureOpen();
+    return this.store.listSessionsPage(options);
+  }
+
   /** 会话全量计数（B2 截断披露单源——store 同名透传） */
   countSessions(): number {
     return this.store.countSessions();

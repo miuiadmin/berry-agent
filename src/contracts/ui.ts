@@ -185,6 +185,22 @@ export interface UiBackend<TProjection> {
     onOpenHistory?: (sessionId: string, cursorAt: number) => void,
     /** 光标复原位（挖掘 50 轮件 C——'o' 开史退出复原切换器时重开传入；缺省 0） */
     initialCursor?: number,
+    /**
+     * 续页拉闭包（挖掘 51 轮件 A——切换器近底自动加载更早的数据源：注入
+     * 在场才有分页行为，缺席 = 静态窗零分页〔onDelete 同律〕；只接续页
+     * cursor 恒有值——首拉由命令 handler 承担）。异步回执归呈现件（append
+     * + requestRepaint 请帧——回执不落通道核）。
+     */
+    onLoadMore?: (cursor: string) => Promise<{
+      rows: readonly UiSessionSummary[];
+      nextCursor: string | null;
+    }>,
+    /**
+     * 首拉续页位（挖掘 51 轮件 A——首拉 nextCursor 直达呈现件：null = 已是
+     * 最早页零占位；更名注：第七参已名 initialCursor〔光标复原位〕故此参
+     * 定名 moreCursor 防撞）。
+     */
+    moreCursor?: string | null,
   ): boolean;
   /**
    * 开副屏用量面板（07 §4.1 R7 批 10k `/usage` 命令的呈现面——数据源 =

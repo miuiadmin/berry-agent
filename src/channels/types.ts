@@ -163,8 +163,15 @@ export interface ChannelsOptions<TProjection> {
    * 在场即注册、缺席不注册不虚报）。真源 = 拉会话清单 → 扇出后端
    * openSessions；选定回调在核内铸（registry.focus() 既有权威路——未注册
    * 会话 focus 视同注册，焦点即活跃声明）。
+   *
+   * 游标分页形（挖掘 51 轮件 A）：cursor 缺席 = 首拉腿；有值 = 续页腿
+   * （复合序 updated_at DESC, id DESC——同序两腿防跨页重复）。返形
+   * rows + nextCursor（null = 已到最早）；注入缺席 = 静态窗零分页。
    */
-  readonly sessions?: () => Promise<readonly UiSessionSummary[]>;
+  readonly sessions?: (cursor?: string) => Promise<{
+    rows: readonly UiSessionSummary[];
+    nextCursor: string | null;
+  }>;
   /**
    * 会话全量总数注入（B2 截断披露——清单注入有默认 100 窗，总数独立单源：
    * 超窗时切换器头行注记「N/M（仅显示最近）」；缺席 = 不披露〔与清单长度

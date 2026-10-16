@@ -282,7 +282,12 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     commands.register(
       'sessions',
       async () => {
-        const sessions = await fetchSessions();
+        // 首拉（挖掘 51 轮件 A 分页形）：rows 直承既有清单消费（selectSession
+        // /两扇出位零动），nextCursor 快照经第九参直达呈现件；续页拉 = 注入
+        // 直通（cursor 参数位与注入签名天然对齐）
+        const first = await fetchSessions();
+        const sessions = first.rows;
+        const onLoadMore = fetchSessions;
         // B2 截断披露：总数注入在场即取（超窗时切换器头行注记）；缺席回退
         // 清单长度（= 全量已呈现，头行原形）
         const total = (await opts.sessionsTotal?.()) ?? sessions.length;
@@ -380,6 +385,8 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
                           preview,
                           openHistoryAt,
                           cursorAt,
+                          onLoadMore,
+                          first.nextCursor,
                         );
                     };
                     for (const b of allBackends()) b.openHistory?.(id, messages, undefined, reopen);
@@ -391,7 +398,17 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
         let opened = false;
         for (const b of allBackends()) {
           if (
-            b.openSessions?.(sessions, selectSession, total, deleteSessionWithReceipt, preview, openHistoryAt) === true
+            b.openSessions?.(
+              sessions,
+              selectSession,
+              total,
+              deleteSessionWithReceipt,
+              preview,
+              openHistoryAt,
+              undefined,
+              onLoadMore,
+              first.nextCursor,
+            ) === true
           )
             opened = true;
         }

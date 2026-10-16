@@ -74,6 +74,11 @@ function fakeBackend(
     onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>;
     onOpenHistory?: (sessionId: string, cursorAt: number) => void;
     initialCursor?: number;
+    onLoadMore?: (cursor: string) => Promise<{
+      rows: readonly unknown[];
+      nextCursor: string | null;
+    }>;
+    moreCursor?: string | null;
   }[] = [];
   let sessionsOpenReturn = false;
   const usageOpens: { sessionId: string; summary: unknown }[] = [];
@@ -136,8 +141,23 @@ function fakeBackend(
             onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>,
             onOpenHistory?: (sessionId: string, cursorAt: number) => void,
             initialCursor?: number,
+            onLoadMore?: (cursor: string) => Promise<{
+              rows: readonly never[];
+              nextCursor: string | null;
+            }>,
+            moreCursor?: string | null,
           ) => {
-            sessionsOpens.push({ sessions, onSelect, totalCount, onDelete, onPreview, onOpenHistory, initialCursor });
+            sessionsOpens.push({
+              sessions,
+              onSelect,
+              totalCount,
+              onDelete,
+              onPreview,
+              onOpenHistory,
+              initialCursor,
+              onLoadMore,
+              moreCursor,
+            });
             return sessionsOpenReturn;
           },
           openUsage: (sessionId: string, summary: never) => {
@@ -807,9 +827,11 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     { id: 's2', title: '乙', updatedAt: 1, active: false },
     { id: 's1', updatedAt: 2, active: true },
   ];
+  // 分页形注入 fixture（挖掘 51 轮件 A）：单页全集 + nextCursor null（已到最早）
+  const fetchList = async () => ({ rows: list, nextCursor: null as string | null });
 
   it('sessions 注入在场：注册 + 分发拉清单扇出 openSessions（返 true 零 notify）', async () => {
-    const s = createChannels({ sessions: async () => list });
+    const s = createChannels({ sessions: fetchList });
     const b1 = fakeBackend('tui', {}, true);
     b1.setSessionsOpen(true);
     const b2 = fakeBackend('web'); // 无副屏钩——缺席零义务
@@ -823,14 +845,14 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
   });
 
   it('sessionsTotal 注入在场：总数第三参透传；缺席回退清单长度（B2 截断披露——不虚报全量）', async () => {
-    const s = createChannels({ sessions: async () => list, sessionsTotal: async () => 150 });
+    const s = createChannels({ sessions: fetchList, sessionsTotal: async () => 150 });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true);
     s.addBackend(b.backend);
     await s.dispatchCommand('/sessions');
     expect(b.sessionsOpens[0]!.totalCount).toBe(150); // 全量总数原样透传（超窗切换器头行注记）
     // 缺席腿：不注入 sessionsTotal → 回退清单长度（= 全量已呈现，头行原形）
-    const s2 = createChannels({ sessions: async () => list });
+    const s2 = createChannels({ sessions: fetchList });
     const b2 = fakeBackend('tui', {}, true);
     b2.setSessionsOpen(true);
     s2.addBackend(b2.backend);
@@ -839,7 +861,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
   });
 
   it('选定回调 = registry.focus 权威路（未注册会话视同注册——焦点即活跃声明）', async () => {
-    const s = createChannels({ sessions: async () => list });
+    const s = createChannels({ sessions: fetchList });
     const b = fakeBackend('tui', {}, true);
     s.addBackend(b.backend);
     s.registerSession('s1');
@@ -850,7 +872,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
   });
 
   it('全体 falsy：notify warn 降级提示（不静默假装已开）', async () => {
-    const s = createChannels({ sessions: async () => list });
+    const s = createChannels({ sessions: fetchList });
     const b = fakeBackend('web'); // 无钩后端
     s.addBackend(b.backend);
     expect(await s.dispatchCommand('/sessions')).toBe(true);
@@ -870,7 +892,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
   // 注入在场即接 picker 删除回调，缺席 = 键无效零行为变；回执三态路由归核 wrapper）——
   it('deleteSession 注入在场：第四参 onDelete 透传后端（注入在场即接键行为）', async () => {
     const s = createChannels({
-      sessions: async () => list,
+      sessions: fetchList,
       deleteSession: async () => ({ status: 'deleted' as const }),
     });
     const b = fakeBackend('tui', {}, true);
@@ -881,7 +903,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
   });
 
   it('deleteSession 注入缺席：第四参 undefined（键无效零行为变——不虚报）', async () => {
-    const s = createChannels({ sessions: async () => list });
+    const s = createChannels({ sessions: fetchList });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true);
     s.addBackend(b.backend);
@@ -897,7 +919,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     ];
     for (const { status, level, text } of cases) {
       const s = createChannels({
-        sessions: async () => list,
+        sessions: fetchList,
         deleteSession: async () => ({ status }),
       });
       const b = fakeBackend('tui', {}, true);
@@ -912,7 +934,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
 
   it('删除回调异常就地折 error notify 不直穿（直穿沿 onSelect 链成 uncaughtException 杀 TUI——selectSession 同律）', async () => {
     const s = createChannels({
-      sessions: async () => list,
+      sessions: fetchList,
       deleteSession: async () => {
         throw new Error('库炸了');
       },
@@ -933,7 +955,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     const onPreview = async (sessionId: string): Promise<readonly UiSessionPreviewLine[]> => [
       { speaker: 'user', text: sessionId },
     ];
-    const s = createChannels({ sessions: async () => list, sessionPreview: onPreview });
+    const s = createChannels({ sessions: fetchList, sessionPreview: onPreview });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true);
     s.addBackend(b.backend);
@@ -941,7 +963,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     expect(b.sessionsOpens[0]!.onPreview).toBe(onPreview); // 闭包原样透传（非包装副本）
     await expect(b.sessionsOpens[0]!.onPreview!('s1')).resolves.toEqual([{ speaker: 'user', text: 's1' }]);
     // 缺席腿：不注入 sessionPreview → 第五参 undefined（面板 tab 键无效零行为变）
-    const s2 = createChannels({ sessions: async () => list });
+    const s2 = createChannels({ sessions: fetchList });
     const b2 = fakeBackend('tui', {}, true);
     b2.setSessionsOpen(true);
     s2.addBackend(b2.backend);
@@ -958,13 +980,15 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     { id: 'b2', title: '题二', workspaceRoot: '/w/beta', updatedAt: 1, active: false },
     { id: 'b3', workspaceRoot: '/w/beta/', updatedAt: 0, active: false }, // 同库尾斜杠变体（resolve 归一锁）+ 无题
   ];
+  // 分页形注入 fixture（挖掘 51 轮件 A）——fetchList 同形
+  const fetchWsList = async () => ({ rows: wsList, nextCursor: null as string | null });
   /** onSelect 后 notify 在 focus 的 .then 内（异步链）——微任务冲净再断言 */
   const settle = async (): Promise<void> => {
     await new Promise<void>((resolve) => setImmediate(resolve));
   };
 
   it('跨工作区选定：notify 告知新根（@ 引用与命令以新工作区为根——用户预期锚定）', async () => {
-    const s = createChannels({ sessions: async () => wsList });
+    const s = createChannels({ sessions: fetchWsList });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true); // 已开不降级（notify 断言纯净面）
     s.addBackend(b.backend);
@@ -980,7 +1004,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
   });
 
   it('同库选定（尾斜杠变体）：resolve 归一后同根零噪音', async () => {
-    const s = createChannels({ sessions: async () => wsList });
+    const s = createChannels({ sessions: fetchWsList });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true); // 已开不降级（notify 断言纯净面）
     s.addBackend(b.backend);
@@ -993,7 +1017,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
   });
 
   it('根缺席诚实不发（旧焦点不在清单——双侧在场才判，宁缺勿谎）', async () => {
-    const s = createChannels({ sessions: async () => wsList });
+    const s = createChannels({ sessions: fetchWsList });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true); // 已开不降级（notify 断言纯净面）
     s.addBackend(b.backend);
@@ -1004,7 +1028,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
   });
 
   it('无题形：题严格同 picker 词汇（（无题）占位）', async () => {
-    const s = createChannels({ sessions: async () => wsList });
+    const s = createChannels({ sessions: fetchWsList });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true); // 已开不降级（notify 断言纯净面）
     s.addBackend(b.backend);
@@ -1020,7 +1044,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
 
   it('resumeSession 续接路同挂：open+focus 成功位后告知（两路同挂律）', async () => {
     const s = createChannels({
-      sessions: async () => wsList,
+      sessions: fetchWsList,
       resumeSession: async () => true,
     });
     const b = fakeBackend('tui', {}, true);
@@ -1042,7 +1066,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
   // 拉投影开回看器；键面退出 reopen 重发 openSessions 带光标复原位）——
   it('history 注入在场：第六参铸闭包——任意 id 拉投影扇出 openHistory 带 reopen（onForkEdit 诚实缺席）；reopen 重发 openSessions 带 cursorAt 且链自续', async () => {
     const s = createChannels({
-      sessions: async () => list,
+      sessions: fetchList,
       history: async (id) => [{ role: 'user', content: id }],
     });
     const b = fakeBackend('tui', {}, true);
@@ -1067,8 +1091,39 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     expect(b.sessionsOpens[1]!.onOpenHistory).toBe(open); // 链自续——复原后 'o' 仍可用
   });
 
+  // —— 分页两参扇出（挖掘 51 轮件 A——首开与 reopen 两扇出位同带；正向断言
+  // 修前红锚：旧代码扇出零第八/九参 = undefined 恒红）——
+  it('分页两参扇出：第八参 onLoadMore 为 Function + 第九参 moreCursor 首拉值；续页拉 cursor 透传真拉；reopen 重发同带两参', async () => {
+    const cursors: string[] = [];
+    const fetchPage = async (cursor?: string) => {
+      cursors.push(cursor ?? '(first)');
+      return { rows: list, nextCursor: 'next-1' as string | null };
+    };
+    const s = createChannels({ sessions: fetchPage, history: async (id) => [{ role: 'user', content: id }] });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    expect(cursors).toEqual(['(first)']); // 首拉腿（cursor 缺席）
+    const open = b.sessionsOpens[0]!;
+    expect(open.onLoadMore).toBeInstanceOf(Function); // 修前红锚：旧扇出零此参
+    expect(open.moreCursor).toBe('next-1'); // 修前红锚：首拉续页位直达
+    // 续页拉：cursor 实参透传真拉（注入签名天然对齐）
+    const page = await open.onLoadMore!('next-1');
+    expect(page).toEqual({ rows: list, nextCursor: 'next-1' });
+    expect(cursors).toEqual(['(first)', 'next-1']);
+    // reopen 重发同带两参（'o' 开史退出复原后分页活——漏带即复原后分页死键）
+    open.onOpenHistory!('s2', 0);
+    await Promise.resolve();
+    await Promise.resolve();
+    const reopen = b.historyOpens[b.historyOpens.length - 1]!.reopen as () => void;
+    reopen();
+    expect(b.sessionsOpens[1]!.onLoadMore).toBeInstanceOf(Function);
+    expect(b.sessionsOpens[1]!.moreCursor).toBe('next-1');
+  });
+
   it('history 注入缺席：第六参 undefined（o 键无效零行为变——不虚报）；拉取失败折 error notify 不直穿', async () => {
-    const s = createChannels({ sessions: async () => list });
+    const s = createChannels({ sessions: fetchList });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true);
     s.addBackend(b.backend);
@@ -1078,7 +1133,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     // 杀 TUI——selectSession 同律防）
     let rejectFetch!: (err: Error) => void;
     const s2 = createChannels({
-      sessions: async () => list,
+      sessions: fetchList,
       history: () =>
         new Promise<readonly unknown[]>((_resolve, reject) => {
           rejectFetch = reject;
@@ -1204,6 +1259,8 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     { id: 's2', title: '乙', updatedAt: 1, active: false },
     { id: 's1', updatedAt: 2, active: true },
   ];
+  // 分页形注入 fixture（挖掘 51 轮件 A）——同 /sessions describe 形
+  const fetchList = async () => ({ rows: list, nextCursor: null as string | null });
 
   /** 续接注入记录 rig（calls 收 id；returnValue 编程 open 成败） */
   function resumeRig(returnValue: boolean) {
@@ -1263,7 +1320,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
 
   it('无参：复用 /sessions 扇出（清单+副屏零新造）', async () => {
     const rig = resumeRig(true);
-    const s = createChannels({ resumeSession: rig.resumeSession, sessions: async () => list });
+    const s = createChannels({ resumeSession: rig.resumeSession, sessions: fetchList });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true);
     s.addBackend(b.backend);
@@ -1274,7 +1331,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
 
   it('/sessions 选定回调升级：resumeSession 在场 → open+focus（选定即续接可写）', async () => {
     const rig = resumeRig(true);
-    const s = createChannels({ resumeSession: rig.resumeSession, sessions: async () => list });
+    const s = createChannels({ resumeSession: rig.resumeSession, sessions: fetchList });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true);
     s.addBackend(b.backend);
@@ -1287,7 +1344,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
 
   it('resumeSession 缺席：/sessions 选定回调保持纯 focus（零行为变）', async () => {
     const rig = resumeRig(true);
-    const s = createChannels({ sessions: async () => list }); // 无 resume 注入
+    const s = createChannels({ sessions: fetchList }); // 无 resume 注入
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true);
     s.addBackend(b.backend);
@@ -1303,7 +1360,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     // 会杀整个 TUI；选定回调须就地折 error notify（命令面是用户面不是异常面）
     const calls: string[] = [];
     const s = createChannels({
-      sessions: async () => list,
+      sessions: fetchList,
       resumeSession: (sessionId: string): Promise<boolean> => {
         calls.push(sessionId);
         throw new BaseError('PERSIST_DATA_CORRUPT', '会话库损坏');
@@ -1322,7 +1379,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
 
   it('选定回调注入拒绝态（异步 reject）：折 notify 不成 unhandledRejection', async () => {
     const s = createChannels({
-      sessions: async () => list,
+      sessions: fetchList,
       resumeSession: async () => {
         throw new BaseError('PERSIST_DATA_CORRUPT', '会话库损坏');
       },
@@ -1340,7 +1397,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
   it('选定回调抛非 Error 值（裸串）：String 保底折叠不虚标', async () => {
     // instanceof Error 双腿之保底腿——裸值/裸串走 String()，不许因折叠改形而丢信息
     const s = createChannels({
-      sessions: async () => list,
+      sessions: fetchList,
       resumeSession: () => {
         throw '读面预检裸串';
       },
@@ -1355,7 +1412,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
 
   it('选定回调抛 BaseError：码直呈折 notify（修前红位：Error 腿只折 message 丢码——wf_db273e73 seam-P2）', async () => {
     const s = createChannels({
-      sessions: async () => list,
+      sessions: fetchList,
       resumeSession: () => {
         throw new BaseError('PERSIST_DATA_CORRUPT', '会话库损坏');
       },
@@ -1373,7 +1430,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     // 修前红位：`if (ok) void registry.focus(...)` 弃接——focus 拒绝（拉投影失败）
     // 沿 void 逃出成 unhandledRejection；用户面须诚实回执（续接已成功、切焦失败）
     const s = createChannels({
-      sessions: async () => list,
+      sessions: fetchList,
       resumeSession: async () => true,
       fetchProjection: () => Promise.reject(new BaseError('PERSIST_DATA_CORRUPT', '会话库损坏')),
     });
@@ -1389,7 +1446,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
   it('选定回调纯 focus 路（resume 缺席）focus 拒绝：折「切焦失败」notify 不成 unhandledRejection', async () => {
     // 修前红位：`else void registry.focus(...)` 同一弃接洞——查看器路同防
     const s = createChannels({
-      sessions: async () => list,
+      sessions: fetchList,
       fetchProjection: () => Promise.reject(new BaseError('PERSIST_DATA_CORRUPT', '会话库损坏')),
     });
     const b = fakeBackend('tui', {}, true);
@@ -1403,7 +1460,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
 
   it('选定回调 false 回执：焦点不动 + warn 诚实拒（true 才走 focus——契约对齐文本路）', async () => {
     const rig = resumeRig(false);
-    const s = createChannels({ resumeSession: rig.resumeSession, sessions: async () => list });
+    const s = createChannels({ resumeSession: rig.resumeSession, sessions: fetchList });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true);
     s.addBackend(b.backend);

@@ -2107,6 +2107,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>,
     onOpenHistory?: (sessionId: string, cursorAt: number) => void,
     initialCursor?: number,
+    onLoadMore?: (cursor: string) => Promise<{
+      rows: readonly UiSessionSummary[];
+      nextCursor: string | null;
+    }>,
+    moreCursor?: string | null,
   ): boolean {
     if (this.altHandle !== null) return false;
     const handle = this.altHost.open(
@@ -2133,6 +2138,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
             }
           : {}),
         ...(initialCursor !== undefined ? { initialCursor } : {}),
+        // 续页拉对（挖掘 51 轮件 A——两参同现形：注入缺席零分页零占位）
+        ...(onLoadMore !== undefined ? { onLoadMore, moreCursor: moreCursor ?? null } : {}),
         requestRepaint: () => this.altHost.requestRepaint(),
         theme: this.theme,
       }),

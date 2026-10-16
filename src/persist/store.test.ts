@@ -468,6 +468,58 @@ describe('sessions 行面', () => {
     expect(s.listSessions()[0]!.id).toBe('sa2');
   });
 
+  // ── listSessionsPage 游标分页（挖掘 51 轮件 A——切换器超窗老会话可达）──
+  // 五行集：sa(3000) / 同刻 2000 sb+sb2 / 同刻 1000 sc+sz——复合序
+  // updated_at DESC, id DESC 全序 = sa → sb2 → sb → sz → sc
+  const pageStore = (name: string): ReturnType<typeof open> => {
+    let clock = 1_000;
+    const s = open({ dbPath: join(dir, name), clock: () => clock });
+    s.writeEvents(writesFor('sc', makeEvents('c1')));
+    s.writeEvents(writesFor('sz', makeEvents('z1')));
+    clock = 2_000;
+    s.writeEvents(writesFor('sb', makeEvents('b1')));
+    s.writeEvents(writesFor('sb2', makeEvents('b2')));
+    clock = 3_000;
+    s.writeEvents(writesFor('sa', makeEvents('a1')));
+    return s;
+  };
+
+  it('listSessionsPage 三页游走 + 同刻并列 id 决序 + 末页诚实 null', () => {
+    const s = pageStore('page.db');
+    // 页1（首拉腿——cursor 缺席同复合序）：同刻 2000 组 id desc 先 sb2 后 sb
+    const p1 = s.listSessionsPage({ limit: 2 });
+    expect(p1.rows.map((r) => r.id)).toEqual(['sa', 'sb2']);
+    expect(p1.nextCursor).toBe('2000:sb2');
+    // 页2（续页腿——行值谓词 (updated_at, id) < (2000, sb2)）
+    const p2 = s.listSessionsPage({ limit: 2, cursor: p1.nextCursor! });
+    expect(p2.rows.map((r) => r.id)).toEqual(['sb', 'sz']);
+    expect(p2.nextCursor).toBe('1000:sz');
+    // 页3（末页——探针不足诚实 null，无跨页重复无跳行）
+    const p3 = s.listSessionsPage({ limit: 2, cursor: p2.nextCursor! });
+    expect(p3.rows.map((r) => r.id)).toEqual(['sc']);
+    expect(p3.nextCursor).toBeNull();
+  });
+
+  it('listSessionsPage workspaceRoot 过滤腿 + limit 缺省 100 + 坏游标 fail-loud', () => {
+    const s = open({ dbPath: join(dir, 'page-ws.db') });
+    const regA: SessionRegistration = { ...REG, workspaceRoot: '/ws/a' };
+    const regB: SessionRegistration = { ...REG, workspaceRoot: '/ws/b' };
+    s.writeEvents(writesFor('wa', makeEvents('a1'), regA));
+    s.writeEvents(writesFor('wb', makeEvents('b1'), regB));
+    // 过滤腿：ws/a 只见 wa
+    const filtered = s.listSessionsPage({ workspaceRoot: '/ws/a' });
+    expect(filtered.rows.map((r) => r.id)).toEqual(['wa']);
+    expect(filtered.nextCursor).toBeNull();
+    // 过滤 + 续页组合：cursor 越界（早于全部行）→ 空页诚实 null
+    const beyond = s.listSessionsPage({ workspaceRoot: '/ws/a', cursor: '500:xx' });
+    expect(beyond.rows).toEqual([]);
+    expect(beyond.nextCursor).toBeNull();
+    // limit 缺省 100（探针形不变——2 行集全呈现）
+    expect(s.listSessionsPage().rows).toHaveLength(2);
+    // 坏游标 fail-loud（decodeSessionsCursor——无冒号形拒解）
+    expect(() => s.listSessionsPage({ cursor: 'garbage' })).toThrow(/游标不可解码/);
+  });
+
   it('countSessions 全量计数（不受清单 limit 窗影响——B2 截断披露单源）', () => {
     let clock = 1_000;
     const s = open({ dbPath: join(dir, 'count.db'), clock: () => clock });
