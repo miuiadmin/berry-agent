@@ -900,7 +900,7 @@ describe('LiveTranscript 思考流式前缀与定稿换装（批 10i R1）', () 
     ]);
     const replayed = t.snapshot.find((b) => b.kind === 'thinking') as Extract<TranscriptBlock, { kind: 'thinking' }>;
     expect(replayed.durationMs).toBeUndefined();
-    expect(renderBlockStyledLines(replayed, 60, false)[0]!.plain).toBe('思考（ctrl+t 展开）'); // R-1 豁免位
+    expect(renderBlockStyledLines(replayed, 60, false)[0]!.plain).toBe('思考 · 先想（ctrl+t 展开）'); // R-1 豁免位 + 件 C 内容首行预览（修前红实证——60 列预算 38 预览在场）
   });
 
   it('thinkingSettled 判据：纯思考期（无文本块）恒未定；末思考在末文本后翻回 false（保守形）', () => {
@@ -1456,7 +1456,9 @@ describe('renderDocLines 直转携 href（OSC-8 链元数据贯通主屏管线�
       toggleHint: 'ctrl+t',
     };
     const lines = renderThinkingStyledLines(view, 40, thinkingDoc);
-    const line = lines.find((l) => l.plain.includes('链'));
+    // 件 C 后标签行（首行）嵌内容首行预览可含体文——本 it 锁体行链接游程，
+    // find 限体行集（slice(1)）防预览行抢先命中
+    const line = lines.slice(1).find((l) => l.plain.includes('链'));
     expect(line).toBeDefined();
     const run = line!.runs.find((r) => line!.plain.slice(r.start, r.end) === '链');
     expect(run?.href).toBe('https://a.com/th');

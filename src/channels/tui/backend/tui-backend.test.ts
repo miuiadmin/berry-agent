@@ -6615,7 +6615,14 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
       partial: mixedSnapshot(['**解析用户意图**'], ['你好']),
     });
     expect(stripAnsi(io.bytes)).toContain('生成中');
-    expect(stripAnsi(io.bytes)).not.toContain('解析用户意图');
+    // 件 C 后 settled 折叠思考标签行合法携内容预览（「解析用户意图」在
+    // transcript 区在场——用户可知所思）；活头退场断言收窄至状态行：含
+    // 「生成中」的行不得再携思考头
+    expect(
+      stripAnsi(io.bytes)
+        .split(/\r?\n/)
+        .some((l) => l.includes('生成中') && l.includes('解析用户意图')),
+    ).toBe(false);
     // thinking 重入新段（interleaved 形——text 后再 thinking，mixedSnapshot 序表达不了须内联）→ 换段清头重建（块界律——旧头不残留）
     io.bytes = '';
     emit(backend, {

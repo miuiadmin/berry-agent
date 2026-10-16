@@ -7,12 +7,17 @@
  * 粗体在单色面仍有层级信息）。R-4（Codex 样式复刻批）：思考行扩 dim 增补位
  * ——标签与体行 dim+italic 同构（斜体与 thinkingText 键维持、键不退役）。
  *
- * 标签三档（V-0 注④计量人读律——`✻ 思考 N 字` 字符计量退役）：流式档
- * `思考中…（ctrl+t 展开）`（进行中无计量——字数不再逐帧变）；定稿档
- * `思考 · 4s（ctrl+t 展开）`（时长 = TUI 消费端本地钟——thinking 首增量
- * 到达 → settled，注入钟 now() 可测；与 run 级 durationMs（A-3 结算账）
- * 口径分立——冷读闸注）；repaint/历史形无钟账 → `思考（ctrl+t 展开）`
- * （诚实缺席不虚构时长）。
+ * 标签三档（V-0 注④计量人读律——`✻ 思考 N 字` 字符计量退役；件 C
+ * 〔2026-10-16 用户三反馈〕三档嵌内容首行预览——「已思考」行可知所思）：
+ * 流式档 `思考中 · {preview}（ctrl+t 展开）`（进行中无计量——字数不再
+ * 逐帧变；原尾省略号随预览退役——与截断省略号语义相撞）；定稿档
+ * `思考 · 4s · {preview}（ctrl+t 展开）`（时长 = TUI 消费端本地钟——
+ * thinking 首增量到达 → settled，注入钟 now() 可测；与 run 级 durationMs
+ * （A-3 结算账）口径分立——冷读闸注）；repaint/历史形无钟账 →
+ * `思考 · {preview}（ctrl+t 展开）`（时长诚实缺席不虚构、内容不缺席）；
+ * 预览缺席（columns 缺席 ∨ 预算 ≤0 ∨ 空文）退化回无预览形逐字零回归
+ * （流式省略号随缺席归位）。标签行两档（折叠全量/展开头行）同一函数
+ * 同词面（展开态体行全量在场、头行预览冗余无害）。
  *
  * 纯函数：同一 (text, expanded, phase, durationMs, columns, theme, hint, doc)
  * 恒同行集——流式槽前缀行与定稿 thinking 块**同一函数两用**（换装跳行不漂移
@@ -20,7 +25,7 @@
  * ——挖掘 36 轮〔5〕，流式槽传 StreamingMarkdown 增量件、定稿块持
  * MarkdownDoc——缺席则内部即时构档）。
  */
-import { type CellStyle } from '../../engine/index.js';
+import { ellipsize, sanitizeDisplayText, stringWidth, type CellStyle } from '../../engine/index.js';
 import { MarkdownDoc, type RowsSource } from '../markdown/markdown.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import { docRowToStyledLine, type StyleRun, type StyledLine } from '../backend/ansi-rows.js';
@@ -32,7 +37,7 @@ export interface ThinkingView {
   readonly text: string;
   /** 展开态（会话级开关的快照——渲染纯函数化，态归 transcript） */
   readonly expanded: boolean;
-  /** 标签档（注④：流式 `思考中…` / 定稿携时长——settled 后槽内即转定稿档） */
+  /** 标签档（注④：流式 `思考中` / 定稿携时长——settled 后槽内即转定稿档；件 C 三档可嵌内容预览——见 thinkingLabelText） */
   readonly phase: 'streaming' | 'settled';
   /** 思考段时长 ms（settled 档呈现位；缺席 = repaint 历史形无钟账——诚实缺席） */
   readonly durationMs?: number;
@@ -41,11 +46,76 @@ export interface ThinkingView {
   readonly toggleHint: string;
 }
 
-/** 思考标签行（单行——折叠档全量 + 展开档首行；时长 = 本地钟整秒档单源） */
-export function thinkingLabelText(view: ThinkingView, action: '展开' | '收起'): string {
+/** 预览分隔段（` · `——3 列；与 footer 仪表槽连接符同形） */
+const PREVIEW_SEPARATOR = ' · ';
+
+/**
+ * 思考内容首行预览（件 C——2026-10-16 用户三反馈：「已思考」行可知所思；
+ * codex ReasoningSummaryCell 折叠态内容可见先例族）：首非空行 → 剥
+ * markdown 记号（`**` 对/行首 `#+` 标题/反引号对/`[文](址)` 链接对——呈现
+ * 文不呈现址）→ sanitizeDisplayText 消毒（ESC 序列整段/C0 剥除——呈现面
+ * 单源）+ 空白折叠单空格（单行几何律——段内换行已由取首行消解）→
+ * ellipsize 预算宽截断（显示宽整字不产半字）。budget ≤ 0 返 ''（预览缺席
+ * ——词面退化回无预览形）。纯函数导出（测试直锁）。
+ */
+export function thinkingPreviewText(text: string, budget: number): string {
+  if (budget <= 0) return '';
+  // 首非空行（跨行思考取首段——多思考块合并形首块首行即此；后文不进预览）
+  let first = '';
+  for (const line of text.split('\n')) {
+    if (line.trim() !== '') {
+      first = line;
+      break;
+    }
+  }
+  if (first === '') return ''; // 空文/纯空白 = 预览缺席
+  const stripped = first
+    .replace(/\*\*(.+?)\*\*/g, '$1') // 粗体对
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // 链接对（呈现文不呈现址）
+    .replace(/^#+\s*/, '') // 行首标题记号（含前导空白）
+    .replace(/`([^`]*)`/g, '$1'); // 行内码反引号对
+  const preview = sanitizeDisplayText(stripped)
+    .replace(/\s+/g, ' ') // 空白折叠单空格（tab 展开后一并归一）
+    .trim();
+  if (preview === '') return ''; // 剥记号+消毒后空（首行纯记号/控制字符）——缺席
+  return ellipsize(preview, budget);
+}
+
+/**
+ * 预览嵌位（件 C 内部件）：词面 = `prefix · {preview}hint`——预览嵌在态词
+ * 与键名提示段之间（hint 恒居尾）；预算 = 列宽 − **新词面**非预览段显示宽
+ * （prefix + hint）− 分隔段宽 3（冷读闸 MINOR-C1——按新词面精确计，不按含
+ * 退役省略号的原词面）；columns 缺席（直呼面两参形）/预算 ≤0/空文三态
+ * 预览缺席 → fallback 词面逐字零回归。
+ */
+function withPreview(
+  text: string,
+  prefix: string,
+  hint: string,
+  columns: number | undefined,
+  fallback: string,
+): string {
+  if (columns === undefined) return fallback;
+  const budget = columns - stringWidth(prefix) - stringWidth(hint) - stringWidth(PREVIEW_SEPARATOR);
+  const preview = thinkingPreviewText(text, budget);
+  if (preview === '') return fallback;
+  return `${prefix}${PREVIEW_SEPARATOR}${preview}${hint}`;
+}
+
+/**
+ * 思考标签行（单行——折叠档全量 + 展开档首行；时长 = 本地钟整秒档单源）。
+ * 件 C：columns 在场且预览预算有余时嵌内容首行预览（词面见头注三档）。
+ */
+export function thinkingLabelText(view: ThinkingView, action: '展开' | '收起', columns?: number): string {
   const hint = `（${view.toggleHint} ${action}）`;
-  if (view.phase === 'streaming') return `思考中…${hint}`;
-  return view.durationMs !== undefined ? `思考 · ${formatElapsedCompact(view.durationMs)}${hint}` : `思考${hint}`;
+  if (view.phase === 'streaming') {
+    // 流式档：预览在场去原尾省略号（与预览截断省略号语义撞）；缺席省略号归位
+    return withPreview(view.text, '思考中', hint, columns, `思考中…${hint}`);
+  }
+  // 定稿档：本地钟时长；repaint/历史形无钟账诚实缺席（不虚构时长）——两形
+  // 的预览嵌位对称（prefix 态词、hint 同构）
+  const prefix = view.durationMs !== undefined ? `思考 · ${formatElapsedCompact(view.durationMs)}` : '思考';
+  return withPreview(view.text, prefix, hint, columns, `${prefix}${hint}`);
 }
 
 /**
@@ -56,7 +126,7 @@ export function thinkingLabelText(view: ThinkingView, action: '展开' | '收起
 export function renderThinkingStyledLines(view: ThinkingView, columns: number, doc?: RowsSource | null): StyledLine[] {
   if (view.text === '') return [];
   const thinkStyle: CellStyle = { fg: view.theme.thinkingText, italic: true, dim: true }; // dim = R-4 增补位（体行改妆 spread 承载）
-  const label = thinkingLabelText(view, view.expanded ? '收起' : '展开');
+  const label = thinkingLabelText(view, view.expanded ? '收起' : '展开', columns); // 件 C：columns 透传（transcript 三消费位零改）
   const labelLine: StyledLine = {
     plain: label,
     runs: [{ start: 0, end: label.length, style: thinkStyle }],
