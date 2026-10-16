@@ -162,6 +162,12 @@ Writing your own: a plugin is a manifest plus one entry file — see the
 [plugin development guide](./docs/plugin-development.md) (Chinese) and the
 [examples](./examples) shipped in the repository.
 
+Third-party ecosystem, honestly stated: the npm keyword `berry-agent-plugin`
+is the discovery key — no third-party plugins yet, intentionally waiting for
+API-governance ignition at the first stable release. Any repo with a
+marketplace catalog can aggregate distribution, and this repository's own
+`examples/` ships one you can try with `berry marketplace add ./examples`.
+
 ## Programmatic access
 
 - **HTTP** — `berry serve` starts a resident host with the Web UI and a

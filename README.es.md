@@ -163,6 +163,13 @@ Escribe el tuyo: un plugin es un manifiesto más un archivo de entrada — consu
 [guía de desarrollo de plugins](./docs/plugin-development.md) (en chino) y los
 [ejemplos](./examples) incluidos en el repositorio.
 
+Ecosistema de terceros, con honestidad: la keyword de npm `berry-agent-plugin`
+es la clave de descubrimiento — aún no hay plugins de terceros: la admisión espera
+deliberadamente el encendido del gobierno de API en el primer lanzamiento estable.
+Cualquier repositorio con un catálogo de marketplace puede agregar distribución, y
+el `examples/` de este repositorio incluye uno que puedes probar con
+`berry marketplace add ./examples`.
+
 ## Acceso programático
 
 - **HTTP** — `berry serve` arranca un host residente con la interfaz web y

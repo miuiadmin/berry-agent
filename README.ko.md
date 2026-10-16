@@ -155,6 +155,12 @@ alpha.1에서 업그레이드한 사용자: bin 이름이 `berry`로 바뀌었�
 [플러그인 개발 가이드](./docs/plugin-development.md)(중국어)와 저장소에 포함된
 [examples](./examples)를 참고하세요.
 
+서드파티 생태계, 솔직하게: npm 키워드 `berry-agent-plugin`이 검색 키입니다 — 아직
+서드파티 플러그인은 없으며, 첫 정식 버전의 API 거버넌스 점화를 의도적으로 기다리는
+중입니다. 마켓플레이스 카탈로그가 있는 어떤 저장소든 배포를 집약할 수 있으며, 이
+저장소의 `examples/`에도 카탈로그 하나가 포함되어 있어 `berry marketplace add
+./examples`로 바로 사용해 볼 수 있습니다.
+
 ## 자동화 연동
 
 - **HTTP** — `berry serve`는 웹 UI와 버전 관리되는 Bearer 인증 `/v1/*`

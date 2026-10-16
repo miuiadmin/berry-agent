@@ -1,0 +1,19 @@
+{
+  "name": "berry-agent-examples",
+  "description": "berry-agent 官方插件模板两形——本地市场目录（local 源零网络试跑）",
+  "owner": {
+    "name": "miuiadmin"
+  },
+  "plugins": [
+    {
+      "name": "minimal-code-plugin",
+      "description": "最小代码插件模板——entry 指向入口文件，注册 /example-hello 命令",
+      "source": "./minimal-code-plugin"
+    },
+    {
+      "name": "pure-skill-pack",
+      "description": "纯技能包模板——skills 目录声明、无 entry 零码装载",
+      "source": "./pure-skill-pack"
+    }
+  ]
+}

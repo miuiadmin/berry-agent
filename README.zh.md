@@ -141,6 +141,10 @@ provider 生态变量供给，如 `ANTHROPIC_API_KEY`；或 TUI 内 `/setup` 向
 写你自己的插件：一份 manifest 加一个入口文件——见
 [插件开发指南](./docs/plugin-development.md)与仓库随附的 [examples](./examples)。
 
+第三方生态，如实陈述：npm keyword `berry-agent-plugin` 即发现键——尚无第三方件，
+有意等待首个正式版的 API 治理点火。任一含市场 catalog 的仓库即可聚合分发；
+本仓 `examples/` 自带一份，`berry marketplace add ./examples` 即可试用。
+
 ## 自动化接入
 
 - **HTTP**——`berry serve` 起常驻宿主：Web 界面 + 版本化、Bearer 鉴权的

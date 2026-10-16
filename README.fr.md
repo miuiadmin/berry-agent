@@ -163,6 +163,13 @@ désactivé individuellement — `core:issue` ne se charge qu'une fois configur�
 [guide de développement de plugins](./docs/plugin-development.md) (en chinois) et les
 [exemples](./examples) livrés dans le dépôt.
 
+Écosystème tiers, en toute honnêteté : le mot-clé npm `berry-agent-plugin` est la
+clé de découverte — aucun plugin tiers pour l'instant, l'accueil attend
+volontairement l'allumage de la gouvernance d'API à la première version stable.
+Tout dépôt doté d'un catalogue marketplace peut agréger la distribution, et le
+`examples/` de ce dépôt en contient un à essayer via `berry marketplace add
+./examples`.
+
 ## Accès programmatique
 
 - **HTTP** — `berry serve` démarre un hôte résident avec l'interface web et

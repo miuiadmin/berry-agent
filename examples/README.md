@@ -22,6 +22,22 @@ berry --plugin-file ./examples/pure-skill-pack
 enabled.yaml 与装机账本零落盘）；正式装机走 `berry plugins install
 local:<绝对路径>`。
 
+## 市场目录试跑（local 源）
+
+本目录自带一份市场 catalog（`.claude-plugin/marketplace.json`——两模板件
+双条目），可零网络走完 local 源市场全链：
+
+```bash
+berry marketplace add ./examples                        # 添加本地市场源
+berry marketplace discover                              # 条目聚合呈现（name@market 寻址形）
+berry marketplace install minimal-code-plugin@berry-agent-examples  # 经市场装机
+```
+
+marketplace install 恒走既有 plugins install 四件套——只装不启，启用仍走
+`berry plugins mount <id>`（两件装机 id 即各自 package.json 名：
+`berry-agent-example-minimal-code` / `berry-agent-example-pure-skill`；
+词法见仓库文档 usage.md「marketplace 市场聚合」节）。
+
 更多面（工具/凭证/HTTP 路由/跨会话操控/配置声明/测试与发布……）见仓库文档
 `docs/plugin-development.md`（npm 包不随附 docs/ 目录——该文档在 GitHub 仓库）：
 <https://github.com/miuiadmin/berry-agent/blob/main/docs/plugin-development.md>
