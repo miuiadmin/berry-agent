@@ -449,7 +449,7 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
     name: 'edit',
     effect: 'write',
     description:
-      '按 apply_patch 补丁格式编辑文件（一次补丁可改多文件：Update File / Add File / Delete File；同文件多段按序生效）。Update/Delete 的目标必须先 read 过；全部校验通过后才落盘（顺序应用，非原子）。只接受 UTF-8 文件。',
+      '按 apply_patch 补丁格式编辑文件（一次补丁可改多文件：Update File / Add File / Delete File；同文件多段按序生效）。Update 段头后可携 *** Move to: 目标路径（更新并改名——目标必须不在场，Move to 段须为该文件链末段）。Update/Delete 的目标必须先 read 过；全部校验通过后才落盘（顺序应用，非原子）。只接受 UTF-8 文件。',
     parameters: Type.Object({
       patch: Type.String({
         description:
@@ -469,6 +469,14 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
       // 只是同键并链做阶段一链式核算，落盘与回执序 = 补丁序〔04 §7「补丁序
       // 即应用序」〕；TUI diff 档 diffStartLines 按段序索引对齐消费）
       const targets = new Map<string, Array<{ op: PatchOperation; abs: string; index: number }>>();
+      /**
+       * Move to 目标账（挖掘 53 轮件 A——04 §7 定形注）：键 = 源 canonical，
+       * 值 = { abs 用户拼写, canonical dest 定键 }。链尾强制保证每链至多一条
+       * （moveTo 段须为链末段），键唯一成立。
+       */
+      const moveDests = new Map<string, { abs: string; canonical: string }>();
+      /** dest 定键查重账（dest 集合自重拒——两条链同 dest = 双写竞态，拒） */
+      const destKeys = new Set<string>();
       for (const [index, op] of ops.entries()) {
         const abs = resolveTarget(op.path);
         const canonical = await assertWritable(abs, toolCtx.sessionId);
@@ -480,133 +488,228 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
         const segments = targets.get(canonical);
         if (segments === undefined) targets.set(canonical, [{ op, abs, index }]);
         else segments.push({ op, abs, index }); // 同键后段尾插——段链内序 = 补丁子序
+        // Move to dest 逐文件同律（fence + 读保护判——写 dest = 隐式覆盖，敏
+        // 感件面与 add/delete 保护判同理）+ 集合自重拒（链外判安全：纯补丁内
+        // 知识，不涉盘态）
+        if (op.kind === 'update' && op.moveTo !== undefined) {
+          const destAbs = resolveTarget(op.moveTo);
+          const destCanonical = await assertWritable(destAbs, toolCtx.sessionId);
+          rejectProtectedReadPath(destCanonical, protectedReadFiles);
+          if (destKeys.has(destCanonical)) {
+            throw new BaseError(
+              'FS_PATCH_FAILED',
+              `[FS_PATCH_FAILED] *** Move to: 目标 ${destAbs} 被多个文件段指定（重命名目标须唯一）`,
+            );
+          }
+          destKeys.add(destCanonical);
+          moveDests.set(canonical, { abs: destAbs, canonical: destCanonical });
+        }
+      }
+      // dest ∈ 补丁源键集拒：目标同时是本补丁源文件 = move/delete 链纠缠
+      //（dest 侧收产物而源键链又对同一物做增删——语义矛盾面，一律拒）
+      for (const dest of moveDests.values()) {
+        if (targets.has(dest.canonical)) {
+          throw new BaseError(
+            'FS_PATCH_FAILED',
+            `[FS_PATCH_FAILED] *** Move to: 目标 ${dest.abs} 同时是本补丁的源文件（重命名目标不可入补丁源键集）`,
+          );
+        }
+      }
+      // 链尾强制：moveTo 段须为同 canonical 键链末段——其后同键段在场 =「move
+      // 后段重建旧文件」双存形（dest 已写、旧路径被后续段重建——一盘两份），
+      // 阶段一即拒（链外判安全：纯补丁结构知识）
+      for (const segments of targets.values()) {
+        const moveIdx = segments.findIndex((s) => s.op.kind === 'update' && s.op.moveTo !== undefined);
+        if (moveIdx >= 0 && moveIdx !== segments.length - 1) {
+          throw new BaseError(
+            'FS_PATCH_FAILED',
+            `[FS_PATCH_FAILED] *** Update File: ${segments[moveIdx]!.op.path} 的 Move to 段之后不允许同文件后续段（Move to 段须为链末段）`,
+          );
+        }
       }
       // 两阶段全段入链：阶段一的读-CAS-算内容与阶段二的顺序落盘在同一互
-      // 斥段内（阶段间窗口的并发写会让「已校验内容」过期——全段互斥才闭合）
-      return serializeWrites([...targets.keys()], async () => {
-        /** 阶段一产物：通过全部校验、目标内容已就绪的待应用操作（总段数计——回执计数源） */
-        const planned: Array<{
-          op: PatchOperation;
-          abs: string;
-          canonical: string;
-          index: number;
-          content?: string;
-          startLine?: number;
-        }> = [];
-        for (const [canonical, segments] of targets) {
-          // 盘上真态只查一次（阶段一零落盘——组内全程不变）；首段守卫（未读
-          // 拒 / CAS 指纹 / Add 在场拒）以此为准
-          const current = await currentVersion(canonical);
-          const currentRef = current === undefined ? undefined : { version: current };
-          /**
-           * 同文件段链内容态（04 §7 定形注——同文件多段按序生效）：首段以盘
-           * 上真态为准（既有守卫全量照跑——与单段补丁完全同口径）；后段一律
-           * 在前段产物上继续应用（等价「前段已真实落盘」后紧随执行后段——内
-           * 容知识由本补丁前段自身建立，不重跑观察守卫）。exists=false 表示
-           * 已被本补丁前段删除——后段对不在场目标的更新/再删在阶段一即拒
-           * （FS_PATCH_FAILED），不进半途落盘窗。
-           */
-          let staged: { exists: boolean; content?: string } | undefined;
-          for (const { op, abs, index } of segments) {
-            if (op.kind === 'update') {
-              // 内容源分派：首段 = 盘上守卫读；后段 = 前段产物（按序链式）
-              let text: string;
-              if (staged === undefined) {
-                // 编辑守卫：必须已读（present）且指纹一致；内容在阶段一就算好
-                //（定位失败前置暴露——不留到半途落盘才发现）
-                requireObservedForEdit(observed.get(abs), currentRef);
-                // 前置读同 read 口径严格 UTF-8 + open-handle 守卫（04 §7 定形④⑤
-                //——隐式读同过 inode 判：防补丁路径硬链/换靶读到敏感件）；非
-                // UTF-8 一律拒改（防转码回写毁档）；改写通道 = read 后 write 全文
-                // 替换（按 UTF-8 落盘）
-                const raw = await readGuarded(canonical);
-                text = decodeUtf8Strict(raw);
-              } else {
-                if (!staged.exists) {
-                  throw new BaseError(
-                    'FS_PATCH_FAILED',
-                    `[FS_PATCH_FAILED] *** Update File: ${abs} 目标已被本补丁前段删除——按序语义下无法继续更新（请移除该段或调整段序）`,
-                  );
-                }
-                text = staged.content!;
-              }
-              const { content, startLine } = applyUpdateLines(abs, text, op.lines);
-              staged = { exists: true, content };
-              // startLine 随段注记（⑥ diff 行号源——TUI 档消费，见阶段二注释）
-              planned.push({ op, abs, canonical, index, content, startLine });
-            } else if (op.kind === 'add') {
-              if (staged === undefined) {
-                if (currentRef !== undefined) {
-                  throw new BaseError(
-                    'FS_PATCH_FAILED',
-                    `[FS_PATCH_FAILED] *** Add File: ${abs} 目标已存在——修改已有文件请用 Update File`,
-                  );
-                }
-              } else if (staged.exists) {
-                // 前段已创建/更新该文件——Add 的「不在场」前提已破（镜像盘上
-                // 在场拒：同补丁内不可重复 Add）
-                throw new BaseError(
-                  'FS_PATCH_FAILED',
-                  `[FS_PATCH_FAILED] *** Add File: ${abs} 目标已被本补丁前段创建/更新——同补丁内不可重复 Add`,
-                );
-              }
-              const content = addLinesToContent(op.lines);
-              staged = { exists: true, content };
-              planned.push({ op, abs, canonical, index, content });
-            } else {
-              // 删除守卫与 update 同款：首段删之前必须读过（知道删的是什
-              // 么）；后段只查段链在场性——重复删在阶段一即拒
-              if (staged === undefined) {
-                requireObservedForEdit(observed.get(abs), currentRef);
-              } else if (!staged.exists) {
-                throw new BaseError(
-                  'FS_PATCH_FAILED',
-                  `[FS_PATCH_FAILED] *** Delete File: ${abs} 目标已被本补丁前段删除——无法重复删除`,
-                );
-              }
-              staged = { exists: false };
-              planned.push({ op, abs, canonical, index });
+      // 斥段内（阶段间窗口的并发写会让「已校验内容」过期——全段互斥才闭合）。
+      // 链键并集：源键全集 + dest 定键（dest 物理写同入互斥链——dest 键缺席
+      // 会让并发写 dest 绕过互斥）
+      return serializeWrites(
+        [...targets.keys(), ...new Set([...moveDests.values()].map((d) => d.canonical))],
+        async () => {
+          /** 阶段一产物：通过全部校验、目标内容已就绪的待应用操作（总段数计——回执计数源） */
+          const planned: Array<{
+            op: PatchOperation;
+            abs: string;
+            canonical: string;
+            index: number;
+            content?: string;
+            startLine?: number;
+            moveDest?: { abs: string; canonical: string };
+          }> = [];
+          // Move to dest 盘上在场核（阶段一）：重命名语义 =「写新删旧」而非
+          // 覆盖——dest 已在场即拒（覆盖已有文件请走显式 Update；互斥段内查
+          // 才可靠——链外查有窗）
+          for (const dest of moveDests.values()) {
+            if ((await currentVersion(dest.canonical)) !== undefined) {
+              throw new BaseError(
+                'FS_PATCH_FAILED',
+                `[FS_PATCH_FAILED] *** Move to: 目标 ${dest.abs} 已在盘上（重命名目标必须不在场——改已有文件请用 Update File）`,
+              );
             }
           }
-        }
-        /* 阶段二：顺序应用（无回滚——语义错误已在阶段一全部暴露，只剩物理
+          for (const [canonical, segments] of targets) {
+            // 盘上真态只查一次（阶段一零落盘——组内全程不变）；首段守卫（未读
+            // 拒 / CAS 指纹 / Add 在场拒）以此为准
+            const current = await currentVersion(canonical);
+            const currentRef = current === undefined ? undefined : { version: current };
+            /**
+             * 同文件段链内容态（04 §7 定形注——同文件多段按序生效）：首段以盘
+             * 上真态为准（既有守卫全量照跑——与单段补丁完全同口径）；后段一律
+             * 在前段产物上继续应用（等价「前段已真实落盘」后紧随执行后段——内
+             * 容知识由本补丁前段自身建立，不重跑观察守卫）。exists=false 表示
+             * 已被本补丁前段删除——后段对不在场目标的更新/再删在阶段一即拒
+             * （FS_PATCH_FAILED），不进半途落盘窗。
+             */
+            let staged: { exists: boolean; content?: string } | undefined;
+            for (const { op, abs, index } of segments) {
+              if (op.kind === 'update') {
+                // 内容源分派：首段 = 盘上守卫读；后段 = 前段产物（按序链式）
+                let text: string;
+                if (staged === undefined) {
+                  // 编辑守卫：必须已读（present）且指纹一致；内容在阶段一就算好
+                  //（定位失败前置暴露——不留到半途落盘才发现）
+                  requireObservedForEdit(observed.get(abs), currentRef);
+                  // 前置读同 read 口径严格 UTF-8 + open-handle 守卫（04 §7 定形④⑤
+                  //——隐式读同过 inode 判：防补丁路径硬链/换靶读到敏感件）；非
+                  // UTF-8 一律拒改（防转码回写毁档）；改写通道 = read 后 write 全文
+                  // 替换（按 UTF-8 落盘）
+                  const raw = await readGuarded(canonical);
+                  text = decodeUtf8Strict(raw);
+                } else {
+                  if (!staged.exists) {
+                    throw new BaseError(
+                      'FS_PATCH_FAILED',
+                      `[FS_PATCH_FAILED] *** Update File: ${abs} 目标已被本补丁前段删除——按序语义下无法继续更新（请移除该段或调整段序）`,
+                    );
+                  }
+                  text = staged.content!;
+                }
+                // 纯移段（moveTo 在场空行流）：内容不动、dest 收原文——跳过滑窗
+                // 定位；带行流 moveTo = 正常定位替换后 dest 收产物（一段出）
+                const applied =
+                  op.lines.length === 0 && op.moveTo !== undefined
+                    ? { content: text, startLine: undefined }
+                    : applyUpdateLines(abs, text, op.lines);
+                staged = { exists: true, content: applied.content };
+                // startLine 随段注记（⑥ diff 行号源——TUI 档消费，见阶段二注释）
+                planned.push({
+                  op,
+                  abs,
+                  canonical,
+                  index,
+                  content: applied.content,
+                  startLine: applied.startLine,
+                  moveDest: op.moveTo !== undefined ? moveDests.get(canonical) : undefined,
+                });
+              } else if (op.kind === 'add') {
+                if (staged === undefined) {
+                  if (currentRef !== undefined) {
+                    throw new BaseError(
+                      'FS_PATCH_FAILED',
+                      `[FS_PATCH_FAILED] *** Add File: ${abs} 目标已存在——修改已有文件请用 Update File`,
+                    );
+                  }
+                } else if (staged.exists) {
+                  // 前段已创建/更新该文件——Add 的「不在场」前提已破（镜像盘上
+                  // 在场拒：同补丁内不可重复 Add）
+                  throw new BaseError(
+                    'FS_PATCH_FAILED',
+                    `[FS_PATCH_FAILED] *** Add File: ${abs} 目标已被本补丁前段创建/更新——同补丁内不可重复 Add`,
+                  );
+                }
+                const content = addLinesToContent(op.lines);
+                staged = { exists: true, content };
+                planned.push({ op, abs, canonical, index, content });
+              } else {
+                // 删除守卫与 update 同款：首段删之前必须读过（知道删的是什
+                // 么）；后段只查段链在场性——重复删在阶段一即拒
+                if (staged === undefined) {
+                  requireObservedForEdit(observed.get(abs), currentRef);
+                } else if (!staged.exists) {
+                  throw new BaseError(
+                    'FS_PATCH_FAILED',
+                    `[FS_PATCH_FAILED] *** Delete File: ${abs} 目标已被本补丁前段删除——无法重复删除`,
+                  );
+                }
+                staged = { exists: false };
+                planned.push({ op, abs, canonical, index });
+              }
+            }
+          }
+          /* 阶段二：顺序应用（无回滚——语义错误已在阶段一全部暴露，只剩物理
            写失败；物理写走 canonical，观察回填走用户拼写——与 write 同口
            径；同文件多段逐段落盘〔中间态短暂可见——与跨文件顺序应用同一
            非原子语义声明〕，末段即终态，回计按总段数报） */
-        const summary: string[] = [];
-        /**
-         * 结构化操作账（消费面 = TUI diff 档行号源 + 后续诊断注入等按 op 分型
-         * 的面）。update 段注 startLine（1-based 旧侧起点——07 §4.3 ⑥：apply_
-         * patch 文法无 @@ hunk 头，行号唯一诚实源 = 定位滑窗匹配位）；add 段
-         * 行号自 1 自明不注、delete 段无行体不注。
-         */
-        const operations: Array<{ op: string; path: string; startLine?: number }> = [];
-        // 补丁段序迭代（index 排序——分组并链只服务阶段一链式核算；阶段二
-        // 落盘序与回执序回归补丁序，TUI diff 档按段索引对齐 startLine）
-        for (const item of [...planned].sort((a, b) => a.index - b.index)) {
-          // 段内漂移重验：每个物理写（writeFile/rm）前逐项重验——与物理写
-          // 零 await 相接，多文件补丁不因前项耗时给后项留窗
-          await assertTargetStable(item.abs, item.canonical);
-          if (item.op.kind === 'delete') {
-            await rm(item.canonical);
-            summary.push(`deleted ${item.op.path}`);
-            operations.push({ op: 'delete', path: item.canonical });
-            continue;
+          const summary: string[] = [];
+          /**
+           * 结构化操作账（消费面 = TUI diff 档行号源 + 后续诊断注入等按 op 分型
+           * 的面）。update 段注 startLine（1-based 旧侧起点——07 §4.3 ⑥：apply_
+           * patch 文法无 @@ hunk 头，行号唯一诚实源 = 定位滑窗匹配位）；add 段
+           * 行号自 1 自明不注、delete 段无行体不注。movePath 仅 Move to 段注入
+           * （槽位对齐契约——TUI diff 档按段索引消费，纯移段无 startLine）。
+           */
+          const operations: Array<{ op: string; path: string; startLine?: number; movePath?: string }> = [];
+          // 补丁段序迭代（index 排序——分组并链只服务阶段一链式核算；阶段二
+          // 落盘序与回执序回归补丁序，TUI diff 档按段索引对齐 startLine）
+          for (const item of [...planned].sort((a, b) => a.index - b.index)) {
+            // 段内漂移重验：每个物理写（writeFile/rm）前逐项重验——与物理写
+            // 零 await 相接，多文件补丁不因前项耗时给后项留窗
+            await assertTargetStable(item.abs, item.canonical);
+            if (item.moveDest !== undefined && item.op.kind === 'update') {
+              // Move to 段（update 专属——add/delete 无 moveTo）：dest 写前双验
+              //（漂移重验同律 + last 在场核——核完紧贴物理写），随后「写 dest →
+              // 删旧路径 → dest 观察回填（用户拼写——与 write 同口径）」三连。
+              // 旧路径观察不清理：rm 后 present 观察悬空，后续 edit 旧路径撞
+              // FS_VERSION_CONFLICT fail-closed（与 delete 段同语义——04 §7）
+              await assertTargetStable(item.moveDest.abs, item.moveDest.canonical);
+              if ((await currentVersion(item.moveDest.canonical)) !== undefined) {
+                throw new BaseError(
+                  'FS_PATCH_FAILED',
+                  `[FS_PATCH_FAILED] *** Move to: 目标 ${item.moveDest.abs} 已在盘上（写前重验拒绝——请重新执行）`,
+                );
+              }
+              await writeFile(item.moveDest.canonical, item.content!, 'utf8');
+              await rm(item.canonical);
+              const destAfter = await currentVersion(item.moveDest.canonical);
+              if (destAfter !== undefined) observed.observePresent(item.moveDest.abs, destAfter);
+              summary.push(`renamed ${item.op.path} → ${item.op.moveTo}`);
+              operations.push({
+                op: 'update',
+                path: item.canonical,
+                startLine: item.startLine,
+                movePath: item.moveDest.canonical,
+              });
+              continue;
+            }
+            if (item.op.kind === 'delete') {
+              await rm(item.canonical);
+              summary.push(`deleted ${item.op.path}`);
+              operations.push({ op: 'delete', path: item.canonical });
+              continue;
+            }
+            await writeFile(item.canonical, item.content!, 'utf8');
+            const after = await currentVersion(item.canonical);
+            if (after !== undefined) observed.observePresent(item.abs, after);
+            summary.push(`${item.op.kind === 'add' ? 'added' : 'updated'} ${item.op.path}`);
+            operations.push(
+              item.op.kind === 'update'
+                ? { op: 'update', path: item.canonical, startLine: item.startLine }
+                : { op: item.op.kind, path: item.canonical },
+            );
           }
-          await writeFile(item.canonical, item.content!, 'utf8');
-          const after = await currentVersion(item.canonical);
-          if (after !== undefined) observed.observePresent(item.abs, after);
-          summary.push(`${item.op.kind === 'add' ? 'added' : 'updated'} ${item.op.path}`);
-          operations.push(
-            item.op.kind === 'update'
-              ? { op: 'update', path: item.canonical, startLine: item.startLine }
-              : { op: item.op.kind, path: item.canonical },
-          );
-        }
-        return textResult(`补丁已应用（${summary.length} 个操作）：\n${summary.join('\n')}`, {
-          operations,
-        });
-      });
+          return textResult(`补丁已应用（${summary.length} 个操作）：\n${summary.join('\n')}`, {
+            operations,
+          });
+        },
+      );
     },
   };
 

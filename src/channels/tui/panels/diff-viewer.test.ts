@@ -152,6 +152,42 @@ describe('foldSessionDiff（投影聚合纯函数）', () => {
     const groups = foldSessionDiff([assistant([editCall('t1', `orphan line\n+stray`)]), result('t1')]);
     expect(groups).toEqual([]); // 无文件段指令 = 零组
   });
+
+  it('Move to 带行流段不切段不丢行（53 轮件 A——修前红锚：Move to meta 曾置空组丢段行）', () => {
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: src/old.ts',
+      '*** Move to: src/new.ts',
+      ' ctx line',
+      '-old line',
+      '+new line',
+      '*** End Patch',
+    ].join('\n');
+    const groups = foldSessionDiff([assistant([editCall('t1', patch)]), result('t1')]);
+    expect(groups).toHaveLength(1);
+    const group = groups[0]!;
+    // 组键 = 旧路径（排序键不变式）；movePath = 重命名目标
+    expect(group.path).toBe('src/old.ts');
+    expect(group.movePath).toBe('src/new.ts');
+    // 修前红锚：Move to 行曾把 currentGroup/currentSection 置空——段体三行全丢
+    expect(group.added).toBe(1);
+    expect(group.removed).toBe(1);
+    expect(group.sections[0]!.lines.map((l) => l.kind)).toEqual(['ctx', 'del', 'add']);
+  });
+
+  it('Move to 纯移段：单段零行体（added/removed 皆 0、movePath 在场）', () => {
+    const patch = ['*** Begin Patch', '*** Update File: src/old.ts', '*** Move to: src/new.ts', '*** End Patch'].join(
+      '\n',
+    );
+    const groups = foldSessionDiff([assistant([editCall('t1', patch)]), result('t1')]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.path).toBe('src/old.ts');
+    expect(groups[0]!.movePath).toBe('src/new.ts');
+    expect(groups[0]!.added).toBe(0);
+    expect(groups[0]!.removed).toBe(0);
+    expect(groups[0]!.sections).toHaveLength(1);
+    expect(groups[0]!.sections[0]!.lines).toEqual([]);
+  });
 });
 
 describe('DiffViewer 副屏件', () => {

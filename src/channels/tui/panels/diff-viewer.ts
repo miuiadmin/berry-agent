@@ -83,8 +83,10 @@ export interface DiffFileSection {
 
 /** 文件分组（foldSessionDiff 产物——组体按段组织、段序 = call 时间序） */
 export interface DiffFileGroup {
-  /** 文件路径（apply_patch 文件段指令原文——字典序键） */
+  /** 文件路径（apply_patch 文件段指令原文——字典序键；Move to 组 = 旧路径） */
   readonly path: string;
+  /** Move to 重命名目标（53 轮件 A——组头呈 `旧 → 新`；缺席 = 非移组） */
+  readonly movePath?: string;
   /** 增行计数（多次 edit 累计——'+' 体系行） */
   readonly added: number;
   /** 删行计数（多次 edit 累计——'-' 体系行） */
@@ -97,6 +99,9 @@ export interface DiffFileGroup {
 
 /** 文件段指令前缀三形（apply_patch 文法——tools 件真源，此处显示层判形） */
 const FILE_DIRECTIVES = ['*** Update File:', '*** Add File:', '*** Delete File:'] as const;
+
+/** Move to 子指令前缀（段内修饰位——不切段不置空，挂当前组 movePath） */
+const MOVE_TO_PREFIX = '*** Move to:';
 
 /**
  * 投影消息 → 文件分组（纯函数——装配/测试双消费）：assistant 消息 toolCalls
@@ -118,7 +123,7 @@ export function foldSessionDiff(messages: readonly DiffProjectionMessage[]): rea
   }
   const groups = new Map<
     string,
-    { path: string; added: number; removed: number; orphan: boolean; sections: DiffFileSection[] }
+    { path: string; movePath?: string; added: number; removed: number; orphan: boolean; sections: DiffFileSection[] }
   >();
   for (const message of messages) {
     if (message.type !== 'assistant') continue; // 用户/工具结果消息不产分组
@@ -140,6 +145,7 @@ export function foldSessionDiff(messages: readonly DiffProjectionMessage[]): rea
       const starts = extractDiffStartLines(metaByCall.get(call.toolCallId));
       let currentGroup: {
         path: string;
+        movePath?: string;
         added: number;
         removed: number;
         orphan: boolean;
@@ -149,6 +155,14 @@ export function foldSessionDiff(messages: readonly DiffProjectionMessage[]): rea
       let sectionIndex = -1; // call 内段序（跨文件连续计——operations 槽序对齐）
       for (const line of parsePatchLines(patch)) {
         if (line.kind === 'meta') {
+          // Move to 子指令（53 轮件 A）：段内修饰位——不切段不置空（置空会丢
+          // 后续段体行），挂当前组 movePath（工具侧文法限 update 段头后；显示
+          // 层防御式收：段外出现剥除）；组键维持旧路径（排序键不变式）
+          if (line.text.startsWith(MOVE_TO_PREFIX)) {
+            const movePath = line.text.slice(MOVE_TO_PREFIX.length).trim();
+            if (currentGroup !== null && movePath !== '') currentGroup.movePath = movePath;
+            continue;
+          }
           // 文件段指令 → 切段（段界 = 指令出现即开新段，不依行连续性——同文件
           // 同 call 两段指令按连续性归段会并段致 operations 槽位错位）；
           // Begin/End 等其余 meta 不产段
@@ -647,7 +661,8 @@ export class DiffViewer implements OverlayContent {
     group: DiffFileGroup,
   ): void {
     const expanded = this.expanded.has(group.path);
-    const left = `${index === this.cursor ? CURSOR_MARK : ' '} ${expanded ? EXPANDED_MARK : COLLAPSED_MARK} ${group.path}${group.orphan ? '  ⋮ 进行中' : ''}`;
+    const pathText = group.movePath !== undefined ? `${group.path} → ${group.movePath}` : group.path;
+    const left = `${index === this.cursor ? CURSOR_MARK : ' '} ${expanded ? EXPANDED_MARK : COLLAPSED_MARK} ${pathText}${group.orphan ? '  ⋮ 进行中' : ''}`;
     // 右段三游程：+N（diffAdded）/ -M（diffRemoved）——计数着色即语义着色。
     // 右段预算（第五役 G8——fitRowSegments 单源的形态学例外注记）：三游程
     // 双色计数段非单串右段，不能整段走 row-segments 单源，本位等价收紧——

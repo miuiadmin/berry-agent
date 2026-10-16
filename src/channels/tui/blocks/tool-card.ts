@@ -1134,24 +1134,39 @@ function sectionRemoved(section: PatchSection): number {
 
 /**
  * diff 卡头行（成功卡专用形）：`• ` dim + 动词 bold + 路径 + `(+N −M)` 计数
- * 括号。单文件动词随段（Added/Deleted/Edited）+ 路径在头（无段头）；多文件
+ * 括号。单文件动词随段（Added/Deleted/Edited）+ 路径在头（无段头）；Move to
+ * 段路径呈 `旧 → 新`（53 轮件 A），纯移段（无行流）动词 Renamed 且无计数
+ * 括号（delete 同律——无行体无计数）、带行流移段 Edited + 计数照旧。多文件
  * `Edited N files` + 总计数（N = 去重路径数——同文件多段罕见形按路径数计）。
- * delete 段无行体 → 无计数括号（无行体无计数——诚实）。
  */
 function renderDiffHeaderLine(sections: readonly PatchSection[], columns: number, theme: ResolvedTheme): StyledLine {
+  /** 纯移段判据（moveTo 在场且零行流——只改名不改内容） */
+  const isPureMove = (section: PatchSection): boolean =>
+    section.kind === 'update' && section.moveTo !== undefined && section.lines.length === 0;
   const verbOf = (section: PatchSection): string =>
-    section.kind === 'add' ? 'Added' : section.kind === 'delete' ? 'Deleted' : 'Edited';
+    section.kind === 'add'
+      ? 'Added'
+      : section.kind === 'delete'
+        ? 'Deleted'
+        : isPureMove(section)
+          ? 'Renamed'
+          : 'Edited';
+  /** 段路径呈现（Move to 段 = `旧 → 新`——moveTo 缺席原样） */
+  const pathOf = (section: PatchSection): string =>
+    section.moveTo !== undefined ? `${section.path} → ${section.moveTo}` : section.path;
+  /** 计数括号判据：delete 段与纯移段无行体 → 无计数（诚实——无行体无计数） */
+  const hasCounts = (section: PatchSection): boolean => section.kind !== 'delete' && !isPureMove(section);
   let plain: string;
   let runs: StyleRun[];
   if (sections.length === 1) {
     const section = sections[0]!;
     const verb = verbOf(section);
-    plain = `• ${verb} ${sanitizeLineText(section.path)}`;
+    plain = `• ${verb} ${sanitizeLineText(pathOf(section))}`;
     runs = [
       { start: 0, end: 2, style: DIM_STYLE }, // '• '
       { start: 2, end: 2 + verb.length, style: { bold: true } }, // 动词段
     ];
-    if (section.kind !== 'delete') {
+    if (hasCounts(section)) {
       const counts = diffCountRuns(sectionAdded(section), sectionRemoved(section), theme);
       const base = plain.length + 1;
       plain += ` ${counts.text}`;
@@ -1174,11 +1189,17 @@ function renderDiffHeaderLine(sections: readonly PatchSection[], columns: number
   return capStyledLine({ plain, runs }, columns);
 }
 
-/** 多文件段头行：`  └ ` dim + 路径裸 + 计数红绿（delete 段无计数括号）；前缀引 exec 窗常量单源（挖掘 29 轮件 3） */
+/**
+ * 多文件段头行：`  └ ` dim + 路径裸 + 计数红绿（delete 段与纯移段无计数括
+ * 号——无行体无计数）；Move to 段路径呈 `旧 → 新`；前缀引 exec 窗常量单源
+ * （挖掘 29 轮件 3）
+ */
 function renderDiffSectionHeaderLine(section: PatchSection, columns: number, theme: ResolvedTheme): StyledLine {
-  let plain = `${EXEC_WINDOW_PREFIX}${sanitizeLineText(section.path)}`;
+  const pathText = section.moveTo !== undefined ? `${section.path} → ${section.moveTo}` : section.path;
+  let plain = `${EXEC_WINDOW_PREFIX}${sanitizeLineText(pathText)}`;
   const runs: StyleRun[] = [{ start: 0, end: EXEC_WINDOW_PREFIX.length, style: DIM_STYLE }]; // '  └ ' dim 前缀
-  if (section.kind !== 'delete') {
+  const pureMove = section.kind === 'update' && section.moveTo !== undefined && section.lines.length === 0;
+  if (section.kind !== 'delete' && !pureMove) {
     const counts = diffCountRuns(sectionAdded(section), sectionRemoved(section), theme);
     const base = plain.length + 1;
     plain += ` ${counts.text}`;
@@ -1226,8 +1247,9 @@ function renderDiffSectionBodyLines(
   startLine: number | undefined,
 ): StyledLine[] {
   if (section.kind === 'delete') return []; // 纯删除段无行体（只有卡头/段头）
-  // 语法语言（路径扩展名单源解析；缺席 = 整段语法腿缺席零行为变）
-  const lang = languageForPath(section.path);
+  // 语法语言（路径扩展名单源解析；Move to 段取 dest 扩展名——内容将存于
+  // dest，语言面随新落点；缺席 = 整段语法腿缺席零行为变）
+  const lang = languageForPath(section.moveTo ?? section.path);
   // 行号计数器：update 双侧同起 startLine；add 段新侧自 1（旧侧不在场）
   let oldNo: number | undefined = section.kind === 'update' ? startLine : undefined;
   let newNo: number | undefined = section.kind === 'add' ? 1 : startLine;

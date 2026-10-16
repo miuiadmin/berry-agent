@@ -14,6 +14,11 @@
  *   *** Delete File: old.txt
  *   *** End Patch
  *
+ * 重命名形（Move to 子指令——挖掘 53 轮件 A，04 §7 定形注）：Update File 段
+ * 头后、行流开始前可携带 `*** Move to: <path>`，语义 = 更新并改名（dest 收
+ * 应用后内容、旧路径删除）。仅 Update 段合法、每段至多一次；moveTo 在场时
+ * 空行流合法（纯移段）。带行流 Move to = 「改内容并改名」一段出。
+ *
  * 语义声明（照实文档化，非缺陷）：跨文件顺序应用、**非原子**、无回滚——中
  * 途失败停在失败处（已应用文件保留）。fs 工具族在应用前**全部文件先过
  * CAS + fence 校验、全部补丁先解析算内容**，把「半途而废」窗口压到最小
@@ -24,8 +29,11 @@ import { BaseError } from '../contracts/index.js';
 
 /** 补丁操作（解析产物）：Update 携带行流，应用时按序匹配定位 */
 export type PatchOperation =
-  /** 更新已有文件：行流 = 上下文/删除/新增行序列，逐段顺序匹配替换 */
-  | { kind: 'update'; path: string; lines: PatchLine[] }
+  /**
+   * 更新已有文件：行流 = 上下文/删除/新增行序列，逐段顺序匹配替换；
+   * moveTo 在场 = 更新后改名（dest 收产物、旧路径删除——纯移段 = 空行流）
+   */
+  | { kind: 'update'; path: string; lines: PatchLine[]; moveTo?: string }
   /** 新建文件：行流应为全 added */
   | { kind: 'add'; path: string; lines: PatchLine[] }
   /** 删除文件 */
@@ -70,7 +78,8 @@ export function parseApplyPatch(text: string): PatchOperation[] {
     if (current.kind === 'add' && current.lines.length === 0) {
       throw patchError(`*** Add File: ${current.path} 无内容行（新增文件至少一行 "+"）`);
     }
-    if (current.kind === 'update' && current.lines.length === 0) {
+    if (current.kind === 'update' && current.lines.length === 0 && current.moveTo === undefined) {
+      // 空行流唯一放宽位 = moveTo 在场（纯移段——只改名不改内容）
       throw patchError(`*** Update File: ${current.path} 无行（更新至少一行上下文/增删）`);
     }
     ops.push(current);
@@ -81,9 +90,27 @@ export function parseApplyPatch(text: string): PatchOperation[] {
   for (let i = 1; i < lines.length - 1; i++) {
     const raw = lines[i]!;
     if (raw.startsWith('*** ')) {
+      const directive = raw.slice(4).trim();
+      // Move to 子指令：段内修饰位（不收束当前段、不构成文件操作段）
+      if (directive.startsWith('Move to:')) {
+        if (current === undefined || current.kind !== 'update') {
+          throw patchError(`第 ${i + 1} 行 "*** Move to:" 仅在 Update File 段内合法`);
+        }
+        if (current.lines.length > 0) {
+          throw patchError(`第 ${i + 1} 行 "*** Move to:" 必须位于段头后、行流开始前`);
+        }
+        if (current.moveTo !== undefined) {
+          throw patchError(`第 ${i + 1} 行 "*** Move to:" 每段至多一次`);
+        }
+        const movePath = directive.slice('Move to:'.length).trim();
+        if (movePath === '') {
+          throw patchError(`第 ${i + 1} 行 "*** Move to:" 路径为空`);
+        }
+        current.moveTo = movePath;
+        continue;
+      }
       // 段指令：收束上一段、开新段
       finishCurrent();
-      const directive = raw.slice(4).trim();
       if (directive.startsWith('Update File:')) {
         current = { kind: 'update', path: directive.slice('Update File:'.length).trim(), lines: [] };
       } else if (directive.startsWith('Add File:')) {

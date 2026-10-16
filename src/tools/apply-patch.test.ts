@@ -118,6 +118,86 @@ describe('parseApplyPatch（解析面）', () => {
       '多余',
     );
   });
+
+  it('Move to 纯移段（无行流）解析为带 moveTo 的 update 段', () => {
+    const ops = parseApplyPatch(
+      ['*** Begin Patch', '*** Update File: a.ts', '*** Move to: b.ts', '*** End Patch'].join('\n'),
+    );
+    expect(ops).toEqual([{ kind: 'update', path: 'a.ts', moveTo: 'b.ts', lines: [] }]);
+  });
+
+  it('Move to 带行流段：位序=段头后行流前，moveTo 与行流并存', () => {
+    const ops = parseApplyPatch(
+      ['*** Begin Patch', '*** Update File: a.ts', '*** Move to: b.ts', ' ctx', '-old', '+new', '*** End Patch'].join(
+        '\n',
+      ),
+    );
+    expect(ops).toEqual([
+      {
+        kind: 'update',
+        path: 'a.ts',
+        moveTo: 'b.ts',
+        lines: [
+          { tag: 'context', text: 'ctx' },
+          { tag: 'removed', text: 'old' },
+          { tag: 'added', text: 'new' },
+        ],
+      },
+    ]);
+  });
+
+  it('Move to 路径 trim 收（首尾空白剥除）', () => {
+    const ops = parseApplyPatch(
+      ['*** Begin Patch', '*** Update File: a.ts', '*** Move to:   b.ts  ', '*** End Patch'].join('\n'),
+    );
+    expect(ops).toEqual([{ kind: 'update', path: 'a.ts', moveTo: 'b.ts', lines: [] }]);
+  });
+
+  it('行流开始后出现 Move to → 拒（位序=段头后行流前）', () => {
+    expectPatchError(
+      () =>
+        parseApplyPatch(
+          ['*** Begin Patch', '*** Update File: a.ts', ' ctx', '*** Move to: b.ts', '*** End Patch'].join('\n'),
+        ),
+      '行流开始前',
+    );
+  });
+
+  it('同段二次 Move to → 拒（每段至多一次）', () => {
+    expectPatchError(
+      () =>
+        parseApplyPatch(
+          ['*** Begin Patch', '*** Update File: a.ts', '*** Move to: b.ts', '*** Move to: c.ts', '*** End Patch'].join(
+            '\n',
+          ),
+        ),
+      '至多一次',
+    );
+  });
+
+  it('非 Update 段内 Move to → 拒（Add/Delete/段前三形）', () => {
+    expectPatchError(
+      () => parseApplyPatch(['*** Begin Patch', '*** Add File: x', '*** Move to: y', '+z', '*** End Patch'].join('\n')),
+      '仅在 Update File 段内',
+    );
+    expectPatchError(
+      () => parseApplyPatch(['*** Begin Patch', '*** Delete File: x', '*** Move to: y', '*** End Patch'].join('\n')),
+      '仅在 Update File 段内',
+    );
+    expectPatchError(() => parseApplyPatch('*** Begin Patch\n*** Move to: y\n*** End Patch'), '仅在 Update File 段内');
+  });
+
+  it('Move to 空路径（trim 后空）→ 拒', () => {
+    expectPatchError(
+      () =>
+        parseApplyPatch(['*** Begin Patch', '*** Update File: a.ts', '*** Move to:   ', '*** End Patch'].join('\n')),
+      '路径为空',
+    );
+  });
+
+  it('无 Move to 的 Update 空行流仍拒（contract-first 锁——空行流校验唯一放宽位=moveTo 在场）', () => {
+    expectPatchError(() => parseApplyPatch('*** Begin Patch\n*** Update File: x\n*** End Patch'), '无行');
+  });
 });
 
 describe('applyUpdateLines（Update 定位与应用——⑥ 行号源：返回 { content, startLine }）', () => {

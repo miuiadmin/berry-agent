@@ -541,6 +541,33 @@ describe('edit diff 档（⑥ 行几何与 bg 双通道——R-5 件 C；路径 
     expect(delLines).toHaveLength(1); // 纯删除卡只有卡头行
   });
 
+  it('Move to 段卡头（53 轮件 A）：纯移段 Renamed + 旧 → 新 无计数；带行流段 Edited + 箭头 + 计数', () => {
+    const pureMove = ['*** Begin Patch', '*** Update File: old.ts', '*** Move to: new.ts', '*** End Patch'].join('\n');
+    const pureLines = renderToolCardStyledLines(diffCard({ body: pureMove.split('\n') }), 80);
+    // 纯移段：动词 Renamed、路径呈 `旧 → 新`、无行体无计数括号（delete 同律）
+    expect(pureLines[0]!.plain).toBe('• Renamed old.ts → new.ts');
+    expect(pureLines[0]!.runs).toEqual([
+      { start: 0, end: 2, style: { dim: true } }, // '• '
+      { start: 2, end: 9, style: { bold: true } }, // 'Renamed'
+    ]);
+    expect(pureLines).toHaveLength(1); // 纯移卡只有卡头行（零行体）
+    const withLines = [
+      '*** Begin Patch',
+      '*** Update File: old.ts',
+      '*** Move to: new.ts',
+      ' ctx',
+      '-old',
+      '+new',
+      '*** End Patch',
+    ].join('\n');
+    const withLinesResult = renderToolCardStyledLines(
+      diffCard({ body: withLines.split('\n'), diffStartLines: [1] }),
+      80,
+    );
+    // 带行流移段：动词 Edited、路径呈箭头形、计数括号照旧
+    expect(withLinesResult[0]!.plain).toBe('• Edited old.ts → new.ts (+1 −1)');
+  });
+
   it('超宽硬折行：内容列硬切 + 续行对齐内容列 + 游程跨折行边界保留（整字截断退役）', () => {
     const long = ['*** Begin Patch', '*** Update File: w.ts', '-' + 'a'.repeat(15), '*** End Patch'].join('\n');
     const lines = renderToolCardStyledLines(diffCard({ body: long.split('\n'), diffStartLines: [1] }), 20);

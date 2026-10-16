@@ -174,6 +174,15 @@ describe('carve-out 硬拒', () => {
     expect(rig.asks).toHaveLength(0);
   });
 
+  it('Move to 段的 dest 同入写集：dest 命中 carve-out → 整调用硬拒（53 轮件 A——dest 物理写不可漏审批面）', async () => {
+    const rig = makeRig();
+    const result = await rig.run(EDIT, {
+      patch: ['*** Begin Patch', '*** Update File: ok.txt', '*** Move to: .git/evil', '*** End Patch'].join('\n'),
+    });
+    expect(result.blocked).toBe(true);
+    expect(rig.asks).toHaveLength(0);
+  });
+
   it('glob 先展开再遮罩：装行前存在的文件被遮罩、装行后新建的不追溯', async () => {
     const rig = makeRig({
       beforeInstall: () => writeFileSync(join(ws, 'before.env'), 'X=1\n'), // 展开时刻在场

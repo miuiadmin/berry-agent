@@ -327,6 +327,130 @@ describe('edit（apply_patch 两阶段：全检后写）', () => {
     rig.observed.observePresent(abs, `${s.size}:${s.mtimeMs}`);
     await expectCode(exec('edit', { patch: patchOf('*** Update File: legacy.txt', '-1', '+2') }), 'FS_DECODE_NON_UTF8');
   });
+
+  it('Move to 纯移段：dest 收原内容、旧路径删除、回执注 movePath 无 startLine、summary renamed', async () => {
+    await exec('write', { path: 'a.ts', content: 'hello\n' });
+    await exec('read', { path: 'a.ts' });
+    const result = await exec('edit', { patch: patchOf('*** Update File: a.ts', '*** Move to: b.ts') });
+    expect(await readFile(join(root, 'b.ts'), 'utf8')).toBe('hello\n');
+    await expect(readFile(join(root, 'a.ts'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(firstText(result)).toContain('renamed a.ts → b.ts');
+    const real = await realpath(root);
+    expect(result.details).toEqual({
+      operations: [{ op: 'update', path: join(real, 'a.ts'), movePath: join(real, 'b.ts') }],
+    });
+  });
+
+  it('Move to 带行流段：改内容并改名一段出（startLine 与 movePath 并存）', async () => {
+    await exec('write', { path: 'a.ts', content: 'x\nkeep\n' });
+    await exec('read', { path: 'a.ts' });
+    const result = await exec('edit', {
+      patch: patchOf('*** Update File: a.ts', '*** Move to: b.ts', '-x', '+X', ' keep'),
+    });
+    expect(await readFile(join(root, 'b.ts'), 'utf8')).toBe('X\nkeep\n');
+    await expect(readFile(join(root, 'a.ts'))).rejects.toMatchObject({ code: 'ENOENT' });
+    const real = await realpath(root);
+    expect(result.details).toEqual({
+      operations: [{ op: 'update', path: join(real, 'a.ts'), startLine: 1, movePath: join(real, 'b.ts') }],
+    });
+  });
+
+  it('Move to 纯移段未读源 → FS_NOT_OBSERVED（纯移段同过首段守卫）', async () => {
+    await writeFile(join(root, 'unread-move.ts'), 'x\n', 'utf8'); // 直写盘绕过观察
+    await expectCode(
+      exec('edit', { patch: patchOf('*** Update File: unread-move.ts', '*** Move to: b.ts') }),
+      'FS_NOT_OBSERVED',
+    );
+    // 零落盘：源原样、dest 未造
+    expect(await readFile(join(root, 'unread-move.ts'), 'utf8')).toBe('x\n');
+    await expect(readFile(join(root, 'b.ts'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('Move to 目标已在盘上 → FS_PATCH_FAILED 阶段一拒且零落盘', async () => {
+    await exec('write', { path: 'a.ts', content: 'one\n' });
+    await exec('read', { path: 'a.ts' });
+    await exec('write', { path: 'b.ts', content: 'occupied\n' });
+    await expectCode(exec('edit', { patch: patchOf('*** Update File: a.ts', '*** Move to: b.ts') }), 'FS_PATCH_FAILED');
+    expect(await readFile(join(root, 'a.ts'), 'utf8')).toBe('one\n');
+    expect(await readFile(join(root, 'b.ts'), 'utf8')).toBe('occupied\n');
+  });
+
+  it('Move to 目标同时是本补丁源文件 → FS_PATCH_FAILED（dest 不入源键集——链纠缠拒）', async () => {
+    await exec('write', { path: 'a.ts', content: 'one\n' });
+    await exec('write', { path: 'b.ts', content: 'two\n' });
+    await exec('read', { path: 'a.ts' });
+    await exec('read', { path: 'b.ts' });
+    await expectCode(
+      exec('edit', {
+        patch: patchOf('*** Update File: a.ts', '*** Move to: b.ts', '*** Update File: b.ts', '-two', '+TWO'),
+      }),
+      'FS_PATCH_FAILED',
+    );
+    expect(await readFile(join(root, 'a.ts'), 'utf8')).toBe('one\n');
+    expect(await readFile(join(root, 'b.ts'), 'utf8')).toBe('two\n');
+  });
+
+  it('两条链 Move to 同一目标 → FS_PATCH_FAILED（dest 集合自重拒）', async () => {
+    await exec('write', { path: 'a.ts', content: 'one\n' });
+    await exec('write', { path: 'c.ts', content: 'two\n' });
+    await exec('read', { path: 'a.ts' });
+    await exec('read', { path: 'c.ts' });
+    await expectCode(
+      exec('edit', {
+        patch: patchOf('*** Update File: a.ts', '*** Move to: b.ts', '*** Update File: c.ts', '*** Move to: ./b.ts'),
+      }),
+      'FS_PATCH_FAILED',
+    );
+    expect(await readFile(join(root, 'a.ts'), 'utf8')).toBe('one\n');
+    expect(await readFile(join(root, 'c.ts'), 'utf8')).toBe('two\n');
+    await expect(readFile(join(root, 'b.ts'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('Move to 段后同文件后续段 → FS_PATCH_FAILED（链尾强制——杜绝 move 后段重建旧文件双存形）', async () => {
+    await exec('write', { path: 'a.ts', content: 'x\ny\n' });
+    await exec('read', { path: 'a.ts' });
+    await expectCode(
+      exec('edit', {
+        patch: patchOf('*** Update File: a.ts', '*** Move to: b.ts', '*** Update File: a.ts', '-y', '+Y'),
+      }),
+      'FS_PATCH_FAILED',
+    );
+    // 阶段一拒 → 盘上零变更（旧路径在场、dest 未造）
+    expect(await readFile(join(root, 'a.ts'), 'utf8')).toBe('x\ny\n');
+    await expect(readFile(join(root, 'b.ts'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('Move to 目标根外 → FS_OUTSIDE_WRITABLE_ROOTS（dest 逐文件 fence）', async () => {
+    await exec('write', { path: 'a.ts', content: 'one\n' });
+    await exec('read', { path: 'a.ts' });
+    await expectCode(
+      exec('edit', { patch: patchOf('*** Update File: a.ts', `*** Move to: ${join(outside, 'esc.ts')}`) }),
+      'FS_OUTSIDE_WRITABLE_ROOTS',
+    );
+    expect(await readFile(join(root, 'a.ts'), 'utf8')).toBe('one\n');
+  });
+
+  it('Move to 后旧路径观察脏账 fail-closed：再 edit 旧路径 → FS_VERSION_CONFLICT', async () => {
+    await exec('write', { path: 'a.ts', content: 'hello\n' });
+    await exec('read', { path: 'a.ts' });
+    await exec('edit', { patch: patchOf('*** Update File: a.ts', '*** Move to: b.ts') });
+    // 旧观察仍记 present(旧指纹) 而盘上已无 a.ts → fail-closed 拒（不清账——
+    // 与 delete 段同语义）
+    await expectCode(
+      exec('edit', { patch: patchOf('*** Update File: a.ts', '-hello', '+bye') }),
+      'FS_VERSION_CONFLICT',
+    );
+  });
+
+  it('Move to 写后回填：dest 观察以用户拼写登记——紧随 edit dest 免重读过 CAS', async () => {
+    await exec('write', { path: 'a.ts', content: 'hello\n' });
+    await exec('read', { path: 'a.ts' });
+    await exec('edit', { patch: patchOf('*** Update File: a.ts', '*** Move to: b.ts') });
+    // observePresent(destAbs) 已回填刚写版本——紧随 edit 无须再 read
+    const result = await exec('edit', { patch: patchOf('*** Update File: b.ts', '-hello', '+world') });
+    expect(firstText(result)).toContain('updated b.ts');
+    expect(await readFile(join(root, 'b.ts'), 'utf8')).toBe('world\n');
+  });
 });
 
 describe('ls（目录列举——不登记观察）', () => {

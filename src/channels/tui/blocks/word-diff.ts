@@ -117,18 +117,25 @@ export function parsePatchLines(patch: string): readonly PatchLine[] {
 export interface PatchSection {
   readonly kind: 'update' | 'add' | 'delete';
   readonly path: string;
+  /** Move to 重命名目标（53 轮件 A——update 段专属修饰位；缺席 = 非移段） */
+  readonly moveTo?: string;
   readonly lines: readonly PatchLine[];
 }
 
 /** 文件段头指令形（`*** Update File: path` 族——路径剥指令前缀取尾段） */
 const SECTION_HEAD_RE = /^\*\*\* (Update|Add|Delete) File: (.*)$/;
 
+/** Move to 子指令形（`*** Move to: path`——update 段重命名目标，段内修饰位） */
+const MOVE_TO_RE = /^\*\*\* Move to: (.*)$/;
+
 /**
  * apply_patch 体解析为文件段列表（⑥ diff 档行几何消费——显示层段结构化）：
  * `*** Update/Add/Delete File: <路径>` 开段，`*** Begin/End Patch` 及未识别
- * meta 行剥除；段头前的悬空行防御剥除（文法外形）。空结果 = 非段形（渲染面
- * 回落 plain 体——不装 diff 几何）。ctx 行保留 parsePatchLines 原样 text
- * （含文法前导空格——符号列语义位由渲染位剥）。
+ * meta 行剥除；`*** Move to: <路径>` 挂当前段（moveTo 位——工具侧文法已限
+ * update 段头后行流前，显示层防御式收：段头前出现剥除）。段头前的悬空行
+ * 防御剥除（文法外形）。空结果 = 非段形（渲染面回落 plain 体——不装 diff
+ * 几何）。ctx 行保留 parsePatchLines 原样 text（含文法前导空格——符号列语
+ * 义位由渲染位剥）。
  */
 export function parsePatchSections(patch: string): readonly PatchSection[] {
   const sections: PatchSection[] = [];
@@ -138,8 +145,15 @@ export function parsePatchSections(patch: string): readonly PatchSection[] {
       if (head !== null) {
         const kind = head[1] === 'Update' ? 'update' : head[1] === 'Add' ? 'add' : 'delete';
         sections.push({ kind, path: head[2]!, lines: [] });
+        continue;
       }
-      continue; // Begin/End Patch 与未识别 meta 剥除
+      const moveTo = MOVE_TO_RE.exec(line.text);
+      if (moveTo !== null && sections.length > 0) {
+        // 挂当前段 moveTo 位（spread 保 readonly——与行流追加同款替换形）
+        const current = sections[sections.length - 1]!;
+        sections[sections.length - 1] = { ...current, moveTo: moveTo[1]!.trim() };
+      }
+      continue; // Begin/End Patch、段头前 Move to 与未识别 meta 剥除
     }
     if (sections.length === 0) continue; // 段头前悬空行（文法外防御）剥除
     const current = sections[sections.length - 1]!;

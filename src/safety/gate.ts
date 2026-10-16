@@ -138,11 +138,14 @@ function extractWritePaths(toolName: string, args: Record<string, unknown>): str
     return typeof args.path === 'string' ? [args.path] : [];
   }
   if (toolName === 'edit') {
-    // edit 工具：apply_patch 补丁文本（多文件操作段，逐段提取路径）；
-    // 补丁格式错不在本行的管辖面——放行给 edit 工具自身报 FS_PATCH_FAILED
+    // edit 工具：apply_patch 补丁文本（多文件操作段，逐段提取路径）；Move to
+    // 段的 dest 同入写集（写 dest 是物理写——审批/沙箱面不可漏）；补丁格式
+    // 错不在本行的管辖面——放行给 edit 工具自身报 FS_PATCH_FAILED
     const patch = typeof args.patch === 'string' ? args.patch : '';
     try {
-      return parseApplyPatch(patch).map((op) => op.path);
+      return parseApplyPatch(patch).flatMap((op) =>
+        op.kind === 'update' && op.moveTo !== undefined ? [op.path, op.moveTo] : [op.path],
+      );
     } catch {
       return [];
     }
