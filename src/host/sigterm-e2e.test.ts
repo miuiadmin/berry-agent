@@ -42,7 +42,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { Persistence } from '../persist/persistence.js';
-import { SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
+import { SESSION_ARCHIVED_AT_MIGRATION, SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
 
 /* ---------------- tsx 真子进程基建（kill-recovery.test.ts 同族） ---------------- */
 
@@ -91,10 +91,12 @@ const cfg = JSON.parse(process.argv[process.argv.length - 1]);
 // 自报 pid（首行协议）——tsx 以孙进程形态跑本脚本，父进程直杀 child.pid
 // 只能杀到 tsx 包装层，TERM 目标必须是这里自报的真身
 process.stdout.write('PID:' + process.pid + '\\n');
-const { Persistence, SESSION_ARCHIVE_MIGRATION } = await import(process.env.SIGTERM_E2E_PERSISTENCE_PATH);
+const { Persistence, SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION } = await import(
+  process.env.SIGTERM_E2E_PERSISTENCE_PATH,
+);
 const { installSignalChoreography } = await import(process.env.SIGTERM_E2E_SIGNALS_PATH);
 // writeTuple 硬依赖 v13 专列（05 §9）——子库基线带链（真生产入口带宿主链尾同 head）
-const persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION] }); // env 梯子 → BERRY_AGENT_DATA_DIR 下 sessions.db
+const persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION] }); // env 梯子 → BERRY_AGENT_DATA_DIR 下 sessions.db
 const log = persistence.createSession({ origin: 'conversation', workspaceRoot: '/sigterm-e2e' });
 process.stdout.write('SID:' + log.sessionId + '\\n');
 // 优雅窗让位位：SIGTERM 后写循环静默停（竞态兜底见整环 try/catch）
@@ -285,7 +287,7 @@ describe('SIGTERM 优雅退出（真子进程 + 生产信号编舞 + 真库重�
     delete process.env.BERRY_AGENT_DB_PATH;
     let persistence: Persistence | undefined;
     try {
-      persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION] }); // 优雅关库后重开——干净库（无 WAL 残卷自愈负担）；子库已被子进程升 v13——链同 head（writeTuple 硬依赖专列〔05 §9〕）
+      persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION] }); // 优雅关库后重开——干净库（无 WAL 残卷自愈负担）；子库已被子进程升 v13——链同 head（writeTuple 硬依赖专列〔05 §9〕）
       expect(persistence.hasSession(sessionId)).toBe(true);
 
       // 快照即拍即拷：events() 回的是活体数组引用——不拷贝则断言基准漂移

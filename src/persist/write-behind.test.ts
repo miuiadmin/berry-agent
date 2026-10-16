@@ -10,7 +10,7 @@ import { BaseError, type SessionEvent } from '../contracts/index.js';
 import { SessionLog } from '../session/index.js';
 import { ephemeralSecretKey } from './secret-box.js';
 import { Persistence } from './persistence.js';
-import { SESSION_ARCHIVE_MIGRATION } from './store.js';
+import { SESSION_ARCHIVED_AT_MIGRATION, SESSION_ARCHIVE_MIGRATION } from './store.js';
 import type { EventWrite, IncidentEntry, SessionRegistration, WriteTarget } from './store.js';
 import { WriteBehind, type WriteBehindOptions } from './write-behind.js';
 
@@ -406,7 +406,7 @@ describe('关库终态（件D1 ②层——close 后晚到事件折观测不重�
       dbPath: ':memory:',
       secretKey: ephemeralSecretKey(),
       onLateWriteFailure: (err) => lateFailures.push(err),
-      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
       // 退避快进（熔断三连败不真等墙钟——测试位旋钮）
       writeBehind: { sleep: async () => {}, backoffBaseMs: 1 },
     });
@@ -438,7 +438,7 @@ describe('关库终态（件D1 ②层——close 后晚到事件折观测不重�
       dbPath: ':memory:',
       secretKey: ephemeralSecretKey(),
       onLateWriteFailure: (err) => lateFailures.push(err),
-      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
       // 退避压缩（修前红的耗尽腿快进——重抛在红证里以未捕获拒绝形呈现）
       writeBehind: { sleep: async () => {}, backoffBaseMs: 1 },
     });

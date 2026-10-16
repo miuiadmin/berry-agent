@@ -14,7 +14,7 @@ import type { SessionEvent } from '../contracts/index.js';
 import { recoverClosers } from '../session/index.js';
 import { ephemeralSecretKey } from './secret-box.js';
 import { Persistence } from './persistence.js';
-import { SESSION_ARCHIVE_MIGRATION, sessionDisplayTitleOf } from './store.js';
+import { SESSION_ARCHIVED_AT_MIGRATION, SESSION_ARCHIVE_MIGRATION, sessionDisplayTitleOf } from './store.js';
 
 /** 断言抛指定码 */
 function expectCode(fn: () => unknown, code: string): void {
@@ -46,7 +46,7 @@ function open(options: { dbPath?: string } = {}): Persistence {
     dbPath: options.dbPath ?? join(dir, 'main.db'),
     dataDir: join(dir, 'data'),
     secretKey: ephemeralSecretKey(),
-    migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+    migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）；v15 归档位随链
   });
   ps.push(p);
   return p;
@@ -89,7 +89,7 @@ describe('会话创建与装载', () => {
       dbPath: path,
       dataDir: join(dir, 'data'),
       secretKey: ephemeralSecretKey(),
-      migrations: [SESSION_ARCHIVE_MIGRATION],
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
     });
     ps.push(a);
     const log = a.createSession({ origin: 'conversation' });
@@ -99,7 +99,7 @@ describe('会话创建与装载', () => {
       dbPath: path,
       dataDir: join(dir, 'data'),
       secretKey: ephemeralSecretKey(),
-      migrations: [SESSION_ARCHIVE_MIGRATION],
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
     });
     ps.push(b);
     const loaded = b.loadSession(log.sessionId);
@@ -237,7 +237,7 @@ describe('删除与退出序', () => {
       dbPath: path,
       dataDir: join(dir, 'data'),
       secretKey: ephemeralSecretKey(),
-      migrations: [SESSION_ARCHIVE_MIGRATION],
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
     });
     ps.push(p);
     const log = p.createSession({ origin: 'conversation' });
@@ -249,7 +249,7 @@ describe('删除与退出序', () => {
       dbPath: path,
       dataDir: join(dir, 'data'),
       secretKey: ephemeralSecretKey(),
-      migrations: [SESSION_ARCHIVE_MIGRATION],
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
     });
     ps.push(b);
     expect(b.store.loadEvents(log.sessionId)).toHaveLength(2);
@@ -262,7 +262,7 @@ describe('loadSession 读前屏障（05 §5.0 2026-10-04 注——retire→reope
       dbPath: join(dir, 'barrier.db'),
       dataDir: join(dir, 'data'),
       secretKey: ephemeralSecretKey(),
-      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）；v15 归档位随链
       // 退避快进（修前红的写序违约三连败不真等墙钟——测试位旋钮）
       writeBehind: { sleep: async () => {}, backoffBaseMs: 1 },
     });
@@ -315,7 +315,7 @@ describe('透传面', () => {
       dbPath: join(dir, 'passthrough.db'),
       dataDir: join(dir, 'data'),
       secretKey: ephemeralSecretKey(),
-      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）；v15 归档位随链
       clock: () => clock,
     });
     ps.push(p);
@@ -352,6 +352,35 @@ describe('透传面', () => {
     expect(p.stageSessionTitle('no-such-id', 'x')).toBe(false);
     expect(p.stageSessionTitle(log.sessionId, '新题')).toBe(true);
     expect(p.store.getSessionRow(log.sessionId)?.title).toBe('新题');
+  });
+
+  it('archiveSession 三态：archived/unarchived 位翻 + missing（53 轮件 B——位翻非删行零 flush）', async () => {
+    let clock = 5_000;
+    const p = Persistence.open({
+      dbPath: join(dir, 'archive.db'),
+      dataDir: join(dir, 'data-a'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
+      clock: () => clock,
+    });
+    ps.push(p);
+    const log = p.createSession({ origin: 'conversation', workspaceRoot: '/ws/arch' });
+    oneTurn(log, '归档面');
+    await p.flush();
+    const updatedBefore = p.store.getSessionRow(log.sessionId)!.updatedAt;
+    // 归档：置位返 'archived'——行在、updated_at 不动（位翻不触写批推进）
+    clock = 9_999;
+    expect(p.archiveSession(log.sessionId, true)).toBe('archived');
+    const row = p.store.getSessionRow(log.sessionId)!;
+    expect(row.archivedAt).toBe(9_999);
+    expect(row.updatedAt).toBe(updatedBefore);
+    expect(p.listSessions({ view: 'archived' }).map((r) => r.id)).toEqual([log.sessionId]);
+    // 恢复：位翻回 NULL 返 'unarchived'
+    expect(p.archiveSession(log.sessionId, false)).toBe('unarchived');
+    expect(p.store.getSessionRow(log.sessionId)!.archivedAt).toBeUndefined();
+    expect(p.listSessions({ view: 'archived' })).toEqual([]);
+    // 缺 id 诚实 'missing'
+    expect(p.archiveSession('no-such-id', true)).toBe('missing');
   });
 });
 
@@ -396,7 +425,7 @@ describe('durable 事件活体镜像（onDurableEvent——03 §146 发射位，
       dbPath: join(dir, 'mirror.db'),
       dataDir: join(dir, 'data'),
       secretKey: ephemeralSecretKey(),
-      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）；v15 归档位随链
       onDurableEvent,
     });
     ps.push(p);

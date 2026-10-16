@@ -16,6 +16,7 @@ import type {
   UiCallLedger,
   UiClipboardResult,
   UiSessionDeleteResult,
+  UiSessionArchiveResult,
   UiSessionPreviewLine,
 } from './types.js';
 import type { AgentEvent } from '../agent/index.js';
@@ -79,6 +80,12 @@ function fakeBackend(
       nextCursor: string | null;
     }>;
     moreCursor?: string | null;
+    onArchive?: (sessionId: string, archive: boolean) => Promise<UiSessionArchiveResult>;
+    onSwitchView?: (view: 'active' | 'archived') => Promise<{
+      rows: readonly unknown[];
+      nextCursor: string | null;
+      total: number;
+    }>;
   }[] = [];
   let sessionsOpenReturn = false;
   const usageOpens: { sessionId: string; summary: unknown }[] = [];
@@ -146,6 +153,12 @@ function fakeBackend(
               nextCursor: string | null;
             }>,
             moreCursor?: string | null,
+            onArchive?: (sessionId: string, archive: boolean) => Promise<UiSessionArchiveResult>,
+            onSwitchView?: (view: 'active' | 'archived') => Promise<{
+              rows: readonly never[];
+              nextCursor: string | null;
+              total: number;
+            }>,
           ) => {
             sessionsOpens.push({
               sessions,
@@ -157,6 +170,8 @@ function fakeBackend(
               initialCursor,
               onLoadMore,
               moreCursor,
+              onArchive,
+              onSwitchView,
             });
             return sessionsOpenReturn;
           },
@@ -1092,11 +1107,12 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
   });
 
   // —— 分页两参扇出（挖掘 51 轮件 A——首开与 reopen 两扇出位同带；正向断言
-  // 修前红锚：旧代码扇出零第八/九参 = undefined 恒红）——
-  it('分页两参扇出：第八参 onLoadMore 为 Function + 第九参 moreCursor 首拉值；续页拉 cursor 透传真拉；reopen 重发同带两参', async () => {
-    const cursors: string[] = [];
-    const fetchPage = async (cursor?: string) => {
-      cursors.push(cursor ?? '(first)');
+  // 修前红锚：旧代码扇出零第八/九参 = undefined 恒红；53 轮件 B 起 moreCursor
+  // 服务层包装 token 单形 v:<view>:<storeCursor>，续页拉剥标记还原真拉）——
+  it('分页两参扇出：第八参 onLoadMore 为 Function + 第九参 moreCursor 首拉值（token 包装形）；续页拉剥标记还原 (view, storeCursor) 真拉；reopen 重发同带两参', async () => {
+    const pulls: Array<[string, string | undefined]> = [];
+    const fetchPage = async (cursor?: string, view?: 'active' | 'archived' | 'all') => {
+      pulls.push([cursor ?? '(first)', view]);
       return { rows: list, nextCursor: 'next-1' as string | null };
     };
     const s = createChannels({ sessions: fetchPage, history: async (id) => [{ role: 'user', content: id }] });
@@ -1104,14 +1120,17 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     b.setSessionsOpen(true);
     s.addBackend(b.backend);
     await s.dispatchCommand('/sessions');
-    expect(cursors).toEqual(['(first)']); // 首拉腿（cursor 缺席）
+    expect(pulls).toEqual([['(first)', undefined]]); // 首拉腿（cursor 缺席；view 缺省=装配侧钉）
     const open = b.sessionsOpens[0]!;
     expect(open.onLoadMore).toBeInstanceOf(Function); // 修前红锚：旧扇出零此参
-    expect(open.moreCursor).toBe('next-1'); // 修前红锚：首拉续页位直达
-    // 续页拉：cursor 实参透传真拉（注入签名天然对齐）
-    const page = await open.onLoadMore!('next-1');
-    expect(page).toEqual({ rows: list, nextCursor: 'next-1' });
-    expect(cursors).toEqual(['(first)', 'next-1']);
+    expect(open.moreCursor).toBe('v:active:next-1'); // 53 轮件 B：token 单形包装（首开恒活跃视图）
+    // 续页拉：剥标记还原 (view, storeCursor)——store cursor 原样真拉 + view 随 token 还原
+    const page = await open.onLoadMore!('v:active:next-1');
+    expect(page).toEqual({ rows: list, nextCursor: 'v:active:next-1' }); // 回执 nextCursor 同视图再包装
+    expect(pulls).toEqual([
+      ['(first)', undefined],
+      ['next-1', 'active'],
+    ]);
     // reopen 重发同带两参（'o' 开史退出复原后分页活——漏带即复原后分页死键）
     open.onOpenHistory!('s2', 0);
     await Promise.resolve();
@@ -1119,7 +1138,88 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     const reopen = b.historyOpens[b.historyOpens.length - 1]!.reopen as () => void;
     reopen();
     expect(b.sessionsOpens[1]!.onLoadMore).toBeInstanceOf(Function);
-    expect(b.sessionsOpens[1]!.moreCursor).toBe('next-1');
+    expect(b.sessionsOpens[1]!.moreCursor).toBe('v:active:next-1');
+  });
+
+  // —— 归档/视图切换三参扇出（53 轮件 B——onArchive wrapper 三态路由 +
+  // onSwitchView 自合成同源 + 坏 token 宽容回落；正向断言修前红锚：旧代码
+  // 扇出零第 10/11 参 = undefined 恒红）——
+  it('归档与视图切换扇出：archiveSession 注入在场即第十参 wrapper（missing→warn、成功静默、异常折 error）；onSwitchView 第十一参自合成（同 sessions 注入真拉 + 视图域 total + token 包装）；两注入缺席两参 undefined', async () => {
+    const archived: Array<[string, boolean]> = [];
+    const s = createChannels({
+      sessions: async (cursor?: string, view?: 'active' | 'archived' | 'all') => ({
+        rows: view === 'archived' ? list.slice(0, 1) : list,
+        nextCursor: cursor === undefined ? ('more:' as string | null) : null,
+      }),
+      sessionsTotal: async () => 42,
+      archiveSession: async (id: string, archive: boolean) => {
+        archived.push([id, archive]);
+        return archive ? { status: 'archived' as const } : { status: 'missing' as const };
+      },
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    const open = b.sessionsOpens[0]!;
+    // 修前红锚：第十/十一参在位（注入在场）
+    expect(open.onArchive).toBeInstanceOf(Function);
+    expect(open.onSwitchView).toBeInstanceOf(Function);
+    // 归档成功：静默（零 notify——就地滤行归呈现件）+ 回执原样透传
+    const ok = await open.onArchive!('s1', true);
+    expect(ok).toEqual({ status: 'archived' });
+    expect(archived).toEqual([['s1', true]]);
+    expect(b.notified).toEqual([]);
+    // missing：warn 诚实拒 + 回执透传（picker 留行不滤）
+    const miss = await open.onArchive!('s2', false);
+    expect(miss).toEqual({ status: 'missing' });
+    expect(b.notified).toEqual([{ message: expect.stringContaining('会话不存在'), level: 'warn' }]);
+    b.notified.length = 0;
+    // 视图切换：同 sessions 注入真拉（首拉腿 view=archived）+ total 视图域 + token 包装
+    const switched = await open.onSwitchView!('archived');
+    expect(switched).toEqual({ rows: list.slice(0, 1), nextCursor: 'v:archived:more:', total: 42 });
+    // 注入缺席形：archiveSession 缺席 → 第十参 undefined（键无效零行为变）
+    const s2 = createChannels({ sessions: fetchList });
+    const b2 = fakeBackend('tui', {}, true);
+    b2.setSessionsOpen(true);
+    s2.addBackend(b2.backend);
+    await s2.dispatchCommand('/sessions');
+    expect(b2.sessionsOpens[0]!.onArchive).toBeUndefined();
+    expect(b2.sessionsOpens[0]!.onSwitchView).toBeInstanceOf(Function); // sessions 注入在场即自合成——不依赖 archiveSession
+  });
+
+  it('归档回调异常折 error notify 不直穿（回执折 missing——沿 picker 链不成 uncaughtException）', async () => {
+    const s = createChannels({
+      sessions: fetchList,
+      archiveSession: () => Promise.reject(new Error('库炸了')),
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    const receipt = await b.sessionsOpens[0]!.onArchive!('s1', true);
+    expect(receipt).toEqual({ status: 'missing' });
+    expect(b.notified).toEqual([{ message: expect.stringContaining('归档失败'), level: 'error' }]);
+  });
+
+  it('坏 token 宽容回落：非 v: 前缀/坏 view 段视作 active 视图原样 cursor 真拉', async () => {
+    const pulls: string[] = [];
+    const s = createChannels({
+      sessions: async (cursor?: string) => {
+        pulls.push(cursor ?? '(first)');
+        return { rows: list, nextCursor: null as string | null };
+      },
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    const open = b.sessionsOpens[0]!;
+    // 非 v: 前缀（旧形/坏形）→ active 视图原样透传
+    await open.onLoadMore!('raw-cursor');
+    // v: 前缀但 view 段坏 → 同宽容（整串原样透传）
+    await open.onLoadMore!('v:bogus:x:y');
+    expect(pulls).toEqual(['(first)', 'raw-cursor', 'v:bogus:x:y']);
   });
 
   it('history 注入缺席：第六参 undefined（o 键无效零行为变——不虚报）；拉取失败折 error notify 不直穿', async () => {

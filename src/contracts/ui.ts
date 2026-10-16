@@ -201,6 +201,25 @@ export interface UiBackend<TProjection> {
      * 定名 moreCursor 防撞）。
      */
     moreCursor?: string | null,
+    /**
+     * 归档回调（53 轮件 B 'a' 键——光标行会话归档/恢复位翻的数据源闭包：
+     * 注入在场才有键行为，缺席 = 键无效零行为变〔onDelete 同律〕；archive
+     * 方向位 true=归档 false=恢复）。免确认就地滤行归呈现件；回执三态路由
+     * 归通道核 wrapper（missing → warn notify）。
+     */
+    onArchive?: (sessionId: string, archive: boolean) => Promise<UiSessionArchiveResult>,
+    /**
+     * 视图切换闭包（53 轮件 B 's' 键——active/archived 两视图切换的整页数据
+     * 源：注入在场才有切换键行为，缺席 = 键无效零行为变）。回执行集整页替换
+     * + nextCursor（token 单形经核包装）+ total（视图域总数——B2 截断披露
+     * 「清单与总数同过滤」律的视图化延伸：归档视图头行 N/M 同诚实）归呈现
+     * 件（清搜索态 + 光标归零）。
+     */
+    onSwitchView?: (view: UiSessionListView) => Promise<{
+      rows: readonly UiSessionSummary[];
+      nextCursor: string | null;
+      total: number;
+    }>,
   ): boolean;
   /**
    * 开副屏用量面板（07 §4.1 R7 批 10k `/usage` 命令的呈现面——数据源 =
@@ -259,6 +278,22 @@ export type UiClipboardResult =
  */
 export type UiSessionDeleteResult =
   { readonly status: 'deleted' } | { readonly status: 'busy' } | { readonly status: 'missing' };
+
+/**
+ * `/sessions` 归档回执三态（53 轮件 B——05 §9 archived_at 专列兑现注；归档
+ * 纯视图性拍板：无 busy 守卫、位翻非删行）：archived = 已归档 / unarchived
+ * = 已恢复（两态按目标态命名）/ missing = id 缺席诚实 miss。编排真身 =
+ * persistence 归档位翻（呈现契约面回执形与编排侧回执同构——contracts 不
+ * 依赖 persist 是分层刻意的，UiSessionDeleteResult 自持律同族）。
+ */
+export type UiSessionArchiveResult =
+  { readonly status: 'archived' } | { readonly status: 'unarchived' } | { readonly status: 'missing' };
+
+/**
+ * `/sessions` 视图两态（53 轮件 B 's' 键——active=活跃 / archived=已归档；
+ * all 不入呈现面：切换器永远处于两视图之一）。
+ */
+export type UiSessionListView = 'active' | 'archived';
 
 /**
  * 回退点选择器条目（批3 `/rewind` 副屏载荷——插件域 manifestLine 成品行）。

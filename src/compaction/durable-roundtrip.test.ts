@@ -30,7 +30,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ephemeralSecretKey, Persistence, SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
+import {
+  ephemeralSecretKey,
+  Persistence,
+  SESSION_ARCHIVED_AT_MIGRATION,
+  SESSION_ARCHIVE_MIGRATION,
+} from '../persist/index.js';
 import { deriveMessages, type ProjectedMessage, type SessionLog } from '../session/index.js';
 import { SUMMARY_PREFIX } from './policy.js';
 import { createCompactionService } from './service.js';
@@ -62,7 +67,7 @@ function openPersistence(dbPath: string, secretKey: Buffer): Persistence {
     dbPath,
     dataDir: join(dir, 'data'),
     secretKey,
-    migrations: [SESSION_ARCHIVE_MIGRATION],
+    migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
   });
   opened.push(p);
   return p;

@@ -18,6 +18,13 @@
  *   esc·q 取消；回执 busy/missing 留确认视图呈就地状态行（notify 副屏期
  *   走停屏缓冲——面板须自带呈现），deleted 就地滤行回清单（刷新重拉最小
  *   形）；注入缺席 'd' 键无效零行为变；
+ * - **归档与视图切换**（53 轮件 B——05 §9 archived_at 专列兑现）：'a'
+ *   （key/text 双轨）当前视图向位翻（active 归档 / archived 恢复）免确认
+ *   就地滤行 + totalCount 恒 −1〔行离当前视图——视图域总数两向统一〕+
+ *   cursor clamp；'s'（双轨·visible 门外空表可达）两视图互切（行集整页
+ *   替换 + 视图域 total + 清搜索态 + cursor 归零）；归档视图 enter=恢复
+ *   （不切焦不收屏；onArchive 缺席回落切焦）；归档视图 'o' 不效（M1 裁
+ *   ——reopen 只携带活跃快照）；两注入缺席零行为变（'d' 同律）。
  * - **尾段预览**（挖掘 35 轮 B5——「（无题）」会话成片不可辨的对位）：
  *   onPreview 注入在场时 tab 展开键（toggle——按键才拉非自动加载；缺席
  *   键无效零行为变〔'd' 删除键同律〕）；展开态清单下方预览区（空行分隔
@@ -44,7 +51,13 @@ import { basename } from 'node:path';
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
-import type { UiSessionDeleteResult, UiSessionPreviewLine, UiSessionSummary } from '../../../contracts/index.js';
+import type {
+  UiSessionArchiveResult,
+  UiSessionDeleteResult,
+  UiSessionListView,
+  UiSessionPreviewLine,
+  UiSessionSummary,
+} from '../../../contracts/index.js';
 import { hintLine } from '../keys/hint.js';
 import { foldErrorText } from '../../service.js';
 import { DIM_STYLE } from '../../engine/index.js';
@@ -102,6 +115,23 @@ export interface SessionPickerOptions {
    * 占位；更名注：initialCursor 已名光标复原位故此参定名 moreCursor 防撞）。
    */
   readonly moreCursor?: string | null;
+  /**
+   * 归档回调（53 轮件 B——注入在场 'a' 键有效〔免确认就地滤行〕，缺席键
+   * 无效零行为变〔onDelete 同律〕）。回执三态路由归通道核 wrapper（missing
+   * → warn）；成功位行离当前视图——面板就地滤行 + cursor clamp + total
+   * −1 调账。归档视图 enter 同柄（恢复向——onArchive 在场时替代切焦）。
+   */
+  readonly onArchive?: (sessionId: string, archive: boolean) => Promise<UiSessionArchiveResult>;
+  /**
+   * 视图切换闭包（53 轮件 B——注入在场 's' 键有效〔active/archived 两视图
+   * 切换〕，缺席键无效零行为变）。回执行集整页替换 + 视图域 total +
+   * nextCursor（token 单形经核包装）归本面板；空表仍可切（归档行可达）。
+   */
+  readonly onSwitchView?: (view: UiSessionListView) => Promise<{
+    rows: readonly UiSessionSummary[];
+    nextCursor: string | null;
+    total: number;
+  }>;
   /**
    * 异步请帧（删除回执落位后重画——面板不自驱重画；装配接 altHost
    * requestRepaint）。同步键路（视图切换/取消）由引擎事件后重画承载。
@@ -245,6 +275,24 @@ export class SessionPicker implements OverlayContent {
   private loadingMore = false;
   /** 曾发起续页拉（null 终态「已到最早」占位的在场判据——初值 null 零占位不虚报） */
   private loadAttempted = false;
+  /** 归档回调存柄（53 轮件 B——缺席 'a' 键无效 + 归档视图 enter 回落切焦） */
+  private readonly onArchive: ((sessionId: string, archive: boolean) => Promise<UiSessionArchiveResult>) | undefined;
+  /** 视图切换闭包存柄（53 轮件 B——缺席 's' 键无效） */
+  private readonly onSwitchView:
+    | ((view: UiSessionListView) => Promise<{
+        rows: readonly UiSessionSummary[];
+        nextCursor: string | null;
+        total: number;
+      }>)
+    | undefined;
+  /**
+   * 数据视图（53 轮件 B——active 活跃 / archived 已归档；与 view 布局名
+   * 〔list/confirm〕分立两账：布局说「画哪个屏」，本位说「清单是哪个域」）。
+   * 缺省 active——装配首开恒活跃视图。
+   */
+  private sessionView: UiSessionListView = 'active';
+  /** 归档/恢复单飞锁（回执落位前重复 'a'/enter 恢复吞——deleteInFlight 同族） */
+  private archiveInFlight = false;
 
   constructor(options: SessionPickerOptions) {
     this.sessions = [...options.sessions]; // 可变副本（就地滤行——不回写调用方数组）
@@ -264,6 +312,10 @@ export class SessionPicker implements OverlayContent {
     // moreCursor 误传不点燃分页）
     this.onLoadMore = options.onLoadMore;
     this.moreCursor = options.onLoadMore !== undefined ? (options.moreCursor ?? null) : null;
+    // 归档接线（53 轮件 B）：两闭包缺席零行为变（'a'/'s'/归档视图 enter 全部
+    // 回落既有键面——onDelete 同律）
+    this.onArchive = options.onArchive;
+    this.onSwitchView = options.onSwitchView;
     this.requestRepaint = options.requestRepaint;
     this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
     this.nowMs = options.nowMs ?? Date.now();
@@ -370,19 +422,21 @@ export class SessionPicker implements OverlayContent {
     // 摘除、N/M 总数披露保真）；搜索态 → N/M 匹配 + query（挖掘 43 轮件 C
     // ——截断披露 totalCount 与匹配计数两数并存〔denom = totalCount ?? 全表
     // 长〕；query 空驻留形尾段空——「匹配 · 」后零字，不写「显示 / 尾段」
-    // 防与 N/M 分隔符 '/' 混淆）
+    // 防与 N/M 分隔符 '/' 混淆）；归档视图 → 头行「（已归档）」注记（53 轮
+    // 件 B——行集归属视图可辨，两视图头行同构只差注记）
+    const viewNote = this.sessionView === 'archived' ? '（已归档）' : '';
     const visible = this.visibleSessions();
     const n = visible.length;
     const head =
       this.sessions.length === 0
-        ? `${HEAD_MARKS.session} 会话切换 · 无会话`
+        ? `${HEAD_MARKS.session} 会话切换${viewNote} · 无会话`
         : this.searchQuery !== null
-          ? `${HEAD_MARKS.session} 会话切换 · ${n}/${this.totalCount ?? this.sessions.length} 匹配 · ${this.searchQuery}`
+          ? `${HEAD_MARKS.session} 会话切换${viewNote} · ${n}/${this.totalCount ?? this.sessions.length} 匹配 · ${this.searchQuery}`
           : this.totalCount !== undefined && this.totalCount > n
             ? this.onLoadMore !== undefined
-              ? `${HEAD_MARKS.session} 会话切换 · ${n}/${this.totalCount} 会话`
-              : `${HEAD_MARKS.session} 会话切换 · ${n}/${this.totalCount} 会话（仅显示最近）`
-            : `${HEAD_MARKS.session} 会话切换 · ${n} 会话`;
+              ? `${HEAD_MARKS.session} 会话切换${viewNote} · ${n}/${this.totalCount} 会话`
+              : `${HEAD_MARKS.session} 会话切换${viewNote} · ${n}/${this.totalCount} 会话（仅显示最近）`
+            : `${HEAD_MARKS.session} 会话切换${viewNote} · ${n} 会话`;
     // 非条目行（头行/空态行/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5——raw
     // writeText 窄窗硬截断无提示；条目行走 fitRowSegments 双段）
     buffer.writeText(region.row, region.col, fitLine(head, region.width));
@@ -431,31 +485,36 @@ export class SessionPicker implements OverlayContent {
         region.height - 2 - viewHeight - placeholderArea,
       );
     // 底行提示（键面如实——缺席保持原形不虚报）：搜索态分档（挖掘 43 轮件 C
-    //——q/d 归输入让位不注记、「q/esc 返回」段让位〔q 已非退出键〕；空匹配
-    // 导航/enter/tab 段让位〔门零动作不虚报〕）
+    //——q/d/'/'/a/s 归输入让位不注记、「q/esc 返回」段让位〔q 已非退出键〕；
+    // 空匹配导航/enter/tab 段让位〔门零动作不虚报〕）；enter 段视图分档（53
+    // 轮件 B——归档视图 + onArchive 在场 = 恢复语义；缺席回落切焦如实保持
+    // 「enter 切换」）；归档视图 'o 开史' 段摘除（键位不效不虚报）；空表档
+    // 视图切换段注入在场才入（空表 's' 仍效——归档行可达）
+    const enterLabel = this.sessionView === 'archived' && this.onArchive !== undefined ? 'enter 恢复' : 'enter 切换';
+    const switchLabel = this.sessionView === 'active' ? 's 归档视图' : 's 活跃视图';
     const bottomHint =
       this.sessions.length === 0
-        ? 'q/esc 返回'
+        ? this.onSwitchView !== undefined
+          ? hintLine(switchLabel, 'q/esc 返回')
+          : 'q/esc 返回'
         : this.searchQuery !== null
           ? visible.length === 0
             ? hintLine('输入过滤', 'esc 清搜索')
             : this.onPreview !== undefined
-              ? hintLine(
-                  '输入过滤',
-                  '↑↓ 移动',
-                  'enter 切换',
-                  this.previewOpen ? 'tab 收预览' : 'tab 预览',
-                  'esc 清搜索',
-                )
-              : hintLine('输入过滤', '↑↓ 移动', 'enter 切换', 'esc 清搜索')
+              ? hintLine('输入过滤', '↑↓ 移动', enterLabel, this.previewOpen ? 'tab 收预览' : 'tab 预览', 'esc 清搜索')
+              : hintLine('输入过滤', '↑↓ 移动', enterLabel, 'esc 清搜索')
           : (() => {
               // 非搜索态段收集（挖掘 50 轮件 C——段族化：'o 开史' 段注入在场才
               // 入，段序 'd 删除' 后 'q/esc 返回' 前〔窄窗 fitLine 尾段让位截断
-              // ——退出键面排末位最后丢〕；原四组合静态链等价重构零行为变）
-              const segments = ['↑↓ 移动', 'enter 切换'];
+              // ——退出键面排末位最后丢〕；原四组合静态链等价重构零行为变）；
+              // 53 轮件 B 段族化扩员——'a 归档/恢复'（onArchive 在场）+ 's 视图'
+              // （onSwitchView 在场）+ enter 段视图分档 + 归档视图 'o 开史' 摘除
+              const segments = ['↑↓ 移动', enterLabel];
               if (this.onPreview !== undefined) segments.push(this.previewOpen ? 'tab 收预览' : 'tab 预览');
+              if (this.onArchive !== undefined) segments.push(this.sessionView === 'active' ? 'a 归档' : 'a 恢复');
               if (this.onDelete !== undefined) segments.push('d 删除');
-              if (this.onOpenHistory !== undefined) segments.push('o 开史');
+              if (this.onOpenHistory !== undefined && this.sessionView === 'active') segments.push('o 开史');
+              if (this.onSwitchView !== undefined) segments.push(switchLabel);
               segments.push('q/esc 返回');
               return hintLine(...segments);
             })();
@@ -658,6 +717,14 @@ export class SessionPicker implements OverlayContent {
           return true;
         }
         if (isPlainKey(k, 'enter')) {
+          // 归档视图 enter = 恢复向（53 轮件 B——onArchive 在场时位翻恢复〔同
+          // 'a' 滤行路〕，不 onSelect 不收屏〔恢复后行离归档视图，切焦归用户
+          // 回活跃视图再选〕；缺席回落既有切焦路〔M1 裁：reopen 只携带活跃快
+          // 照，归档会话经恢复归队——面板如实呈现切焦结果〕）
+          if (this.sessionView === 'archived' && this.onArchive !== undefined) {
+            this.archiveAtCursor(false);
+            return true;
+          }
           const chosen = visible[this.cursor]!;
           this.exit(); // 先收副屏（切焦 repaint 异步到达——收屏与重画两序皆收敛）
           this.onSelect(chosen.id);
@@ -670,6 +737,14 @@ export class SessionPicker implements OverlayContent {
           this.cursor = 0;
           this.clampOffset();
           if (this.previewAreaInUse()) this.ensurePreviewOfCursor();
+          return true;
+        }
+        // 'a' = 归档/恢复键（53 轮件 B——注入在场才有效：当前视图向位翻〔active
+        // 视图归档 / archived 视图恢复〕，免确认就地滤行——位翻非删行纯视图
+        // 可逆，'d' 破坏性确认族不适用；缺席吞而不动作〔'd' 同律〕；搜索态归
+        // 输入不可达）
+        if (isPlainKey(k, 'a')) {
+          this.archiveAtCursor(this.sessionView === 'active');
           return true;
         }
         // 'd' = 删除键（05 §2.5 定形注①——注入在场才有效：进确认视图；缺席
@@ -694,6 +769,13 @@ export class SessionPicker implements OverlayContent {
           }
           return true;
         }
+      }
+      // 's' = 视图切换键（53 轮件 B——注入在场才有效：active/archived 两视图
+      // 互切；**块外 = 空表可达**〔归档视图可能有行而活跃视图空表——切视图是
+      // 空表下唯一可达归档行的路〕；缺席吞而不动作）
+      if (isPlainKey(k, 's')) {
+        this.switchView();
+        return true;
       }
       if (isPlainKey(k, 'escape') || isPlainKey(k, 'q')) {
         this.exit();
@@ -721,6 +803,16 @@ export class SessionPicker implements OverlayContent {
         if (this.view === 'list') this.openConfirm();
         return true;
       }
+      // kitty text 轨 'a'/'s' 同律（53 轮件 B——双轨收键；搜索态已在上方
+      // appendQuery 分支提前 return 归输入，两键归输入不可达）
+      if (event.text === 'a') {
+        if (this.view === 'list') this.archiveAtCursor(this.sessionView === 'active');
+        return true;
+      }
+      if (event.text === 's') {
+        if (this.view === 'list') this.switchView();
+        return true;
+      }
       if (event.text === 'o') {
         // kitty text 轨 'o' 同律（挖掘 50 轮件 C——双轨收键；搜索态已在上方
         // appendQuery 分支提前 return 归输入，'o' 归输入不可达）
@@ -745,13 +837,94 @@ export class SessionPicker implements OverlayContent {
   /**
    * 开史动作（挖掘 50 轮件 C——注入缺席/空表/已退出零动作〔openConfirm 同形
    * 自守卫〕；行源 = visible 单源；id + 当时光标位双参上浮——光标位供退出
-   * 复原切换器用）。
+   * 复原切换器用）。归档视图不效（53 轮件 B——M1 裁：reopen 只携带活跃快照，
+   * 归档会话的史窗无从开——门放方法内 key/text 两轨同守）。
    */
   private openHistoryAtCursor(): void {
     if (this.onOpenHistory === undefined || this.exited) return;
+    if (this.sessionView === 'archived') return;
     const visible = this.visibleSessions();
     if (visible.length === 0) return;
     this.onOpenHistory(visible[this.cursor]!.id, this.cursor);
+  }
+
+  /**
+   * 归档/恢复光标行（53 轮件 B——archive 向位由调用侧视图定：active 视图
+   * true=归档 / archived 视图 false=恢复；归档视图 enter 恢复同柄）。成功位
+   * 行离当前视图——就地滤行 + totalCount **恒 −1** 调账〔totalCount 语义 =
+   * 当前视图域总数，归档/恢复两向统一是「行离视图」非 ±1 方向位——归档视图
+   * 恢复即归档域 −1〕+ 光标显式夹取〔构造位同律：render 路 clampOffset 只
+   * 夹 offset 从不写 cursor〕+ 预览缓存清该 id + 近底续页补拉；missing/异常
+   * 行不动（missing warn 归通道核 wrapper 路由——面板无 notify 面）。单飞锁
+   * 防双击（deleteInFlight 同族）。
+   */
+  private archiveAtCursor(archive: boolean): void {
+    if (this.onArchive === undefined || this.exited || this.archiveInFlight) return;
+    const visible = this.visibleSessions();
+    if (visible.length === 0) return;
+    const target = visible[this.cursor]!;
+    this.archiveInFlight = true;
+    this.onArchive(target.id, archive).then(
+      (result) => {
+        this.archiveInFlight = false;
+        if (result.status === 'missing') {
+          // 行不动（他处已删等竞窗——用户下次刷新面自愈，免谎滤）
+          this.requestRepaint?.();
+          return;
+        }
+        // 成功位：行离当前视图（archived/unarchived 同路）——sessions 副本内
+        // id 滤除，搜索态过滤表经 visibleSessions 单源自然跟随
+        const at = this.sessions.findIndex((s) => s.id === target.id);
+        if (at >= 0) this.sessions.splice(at, 1);
+        if (this.totalCount !== undefined) this.totalCount = Math.max(0, this.totalCount - 1);
+        // 光标夹取（滤行后表变短；空表归 0——home 同族）
+        this.cursor = Math.min(this.cursor, Math.max(this.visibleSessions().length - 1, 0));
+        this.clampOffset();
+        this.previewCache.delete(target.id);
+        this.maybeLoadMore();
+        this.requestRepaint?.();
+      },
+      () => {
+        // 异常吞行不动（错误折面已由通道核 wrapper 折 notify 呈现——面板不重复）
+        this.archiveInFlight = false;
+        this.requestRepaint?.();
+      },
+    );
+  }
+
+  /**
+   * 视图切换（53 轮件 B——active/archived 两视图互切）。成功位视图位翻 +
+   * 行集**整页替换**〔非 append——两视图行集互斥〕+ totalCount=回执 total
+   * 〔「清单与总数同过滤」律的视图化延伸——归档视图头行 N/M 的 M 若仍是活跃
+   * 域总数即谎〕+ moreCursor=回执 nextCursor（token 单形经核包装）+
+   * loadAttempted 置位〔回执即一次拉——终态占位「已到最早」判据如实〕+ 清
+   * 搜索态 + cursor 归零 + 预览缓存清（跨视图陈值不复用）；异常吞回原视图
+   * （sessionView 不动可重试——onLoadMore「异常静默」同族）。空表可切（调用
+   * 位在 visible 门外——归档行可达的唯一路）。
+   */
+  private switchView(): void {
+    if (this.onSwitchView === undefined || this.exited) return;
+    const next: UiSessionListView = this.sessionView === 'active' ? 'archived' : 'active';
+    this.onSwitchView(next).then(
+      (page) => {
+        this.sessionView = next;
+        // 行集整替（sessions 是可变副本——length 清零重填，字段 readonly 不换柄）
+        this.sessions.length = 0;
+        for (const row of page.rows) this.sessions.push(row);
+        this.totalCount = page.total;
+        this.moreCursor = page.nextCursor;
+        this.loadAttempted = true;
+        this.searchQuery = null;
+        this.cursor = 0;
+        this.clampOffset();
+        this.previewCache.clear();
+        this.requestRepaint?.();
+      },
+      () => {
+        // 异常吞回原视图（视图位不动——用户重按可重试）
+        this.requestRepaint?.();
+      },
+    );
   }
 
   /**

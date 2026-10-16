@@ -43,7 +43,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { Persistence } from './persistence.js';
-import { SESSION_ARCHIVE_MIGRATION } from './store.js';
+import { SESSION_ARCHIVED_AT_MIGRATION, SESSION_ARCHIVE_MIGRATION } from './store.js';
 import { deriveMessages, recoverClosers, TOOL_OUTCOME_UNKNOWN } from '../session/index.js';
 
 /* ---------------- tsx 真子进程基建（engine-restore.pty.test.ts 同族） ---------------- */
@@ -92,9 +92,11 @@ const cfg = JSON.parse(process.argv[process.argv.length - 1]);
 // 自报 pid（首行协议）——tsx 以孙进程形态跑本脚本，父进程直杀 child.pid
 // 只能杀到 tsx 包装层，击杀目标必须是这里自报的真身
 process.stdout.write('PID:' + process.pid + '\\n');
-const { Persistence, SESSION_ARCHIVE_MIGRATION } = await import(process.env.KILL_RECOVERY_PERSISTENCE_PATH);
+const { Persistence, SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION } = await import(
+  process.env.KILL_RECOVERY_PERSISTENCE_PATH,
+);
 // writeTuple 硬依赖 v13 专列（05 §9）——子库基线带链（真生产入口带宿主链尾同 head）
-const persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION] }); // env 梯子 → BERRY_AGENT_DATA_DIR 下 sessions.db（生产恢复同路径）
+const persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION] }); // env 梯子 → BERRY_AGENT_DATA_DIR 下 sessions.db（生产恢复同路径）
 const log = persistence.createSession({ origin: 'conversation', workspaceRoot: '/kill-recovery' });
 process.stdout.write('SID:' + log.sessionId + '\\n');
 for (let i = 0; i < cfg.total; i++) {
@@ -268,7 +270,7 @@ describe('kill -9 进程级恢复（真子进程 + 生产恢复路径重开）',
     let persistence: Persistence | undefined;
     try {
       // ① 重开不抛（WAL 残卷自愈——SIGKILL 后 -wal/-shm 残留由 openStore 门禁序自动恢复）
-      persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION] }); // writeTuple 硬依赖 v13 专列（05 §9）
+      persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION] }); // writeTuple 硬依赖 v13 专列（05 §9）
       expect(persistence.hasSession(sessionId)).toBe(true);
 
       // ②③④ loadSession 恢复重放（loadEvents heal 语义随行）：前缀干净、seq 连续、内容保真。
@@ -319,8 +321,10 @@ describe('kill -9 进程级恢复（真子进程 + 生产恢复路径重开）',
 const TOOL_PHASE_SCRIPT = `// cfg 经末位 argv 注入（JSON 串）：总迭代数
 const cfg = JSON.parse(process.argv[process.argv.length - 1]);
 process.stdout.write('PID:' + process.pid + '\\n');
-const { Persistence, SESSION_ARCHIVE_MIGRATION } = await import(process.env.KILL_RECOVERY_PERSISTENCE_PATH);
-const persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION] }); // writeTuple 硬依赖 v13 专列
+const { Persistence, SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION } = await import(
+  process.env.KILL_RECOVERY_PERSISTENCE_PATH,
+);
+const persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION] }); // writeTuple 硬依赖 v13 专列
 const log = persistence.createSession({ origin: 'conversation', workspaceRoot: '/kill-recovery-tool-phase' });
 process.stdout.write('SID:' + log.sessionId + '\\n');
 for (let i = 0; i < cfg.total; i++) {
@@ -389,7 +393,7 @@ describe('kill -9 工具在飞相位（孤儿 tool/call → open 合成 closer �
     delete process.env.BERRY_AGENT_DB_PATH;
     let persistence: Persistence | undefined;
     try {
-      persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION] }); // writeTuple 硬依赖 v13 专列（05 §9）
+      persistence = Persistence.open({ migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION] }); // writeTuple 硬依赖 v13 专列（05 §9）
       const loaded = persistence.loadSession(sessionId);
       const events = [...loaded.log.events()];
 

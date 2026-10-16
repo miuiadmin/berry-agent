@@ -31,6 +31,8 @@ export type {
   UiRewindPreview,
   UiRewindActions,
   UiSessionDeleteResult,
+  UiSessionArchiveResult,
+  UiSessionListView,
   UiForkEditAnchor,
   UiForkBeforeMessageResult,
   UiForkEditReceipt,
@@ -43,7 +45,13 @@ export type { ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.j
 
 // 本面内用的契约类型（R7 批 10k——ChannelsOptions 两注入位的载荷形；re-export
 // 块不进本文件作用域，值用须显式 import）
-import type { UiSessionSummary, UiUsageSummary, UiCallLedger, UiSessionPreviewLine } from '../contracts/index.js';
+import type {
+  UiSessionSummary,
+  UiUsageSummary,
+  UiCallLedger,
+  UiSessionPreviewLine,
+  UiSessionArchiveResult,
+} from '../contracts/index.js';
 import type { UiSessionDeleteResult } from '../contracts/index.js';
 import type { UiForkBeforeMessageResult } from '../contracts/index.js';
 
@@ -167,17 +175,26 @@ export interface ChannelsOptions<TProjection> {
    * 游标分页形（挖掘 51 轮件 A）：cursor 缺席 = 首拉腿；有值 = 续页腿
    * （复合序 updated_at DESC, id DESC——同序两腿防跨页重复）。返形
    * rows + nextCursor（null = 已到最早）；注入缺席 = 静态窗零分页。
+   *
+   * 视图第二参（53 轮件 B）：view 缺省 = 注入侧缺省（TUI 装配钉
+   * 'active'——清单与总数同过滤）；'active'/'archived' 两视图各自过滤
+   * 归档位。视图域与游标分页域正交（同视图内续页）。
    */
-  readonly sessions?: (cursor?: string) => Promise<{
+  readonly sessions?: (
+    cursor?: string,
+    view?: 'active' | 'archived' | 'all',
+  ) => Promise<{
     rows: readonly UiSessionSummary[];
     nextCursor: string | null;
   }>;
   /**
    * 会话全量总数注入（B2 截断披露——清单注入有默认 100 窗，总数独立单源：
    * 超窗时切换器头行注记「N/M（仅显示最近）」；缺席 = 不披露〔与清单长度
-   * 同〕，与 sessions 注入同装配层成对出现）。
+   * 同〕，与 sessions 注入同装配层成对出现）。view 参数（53 轮件 B）与清单
+   * 同过滤——「清单与总数同过滤」律；缺省 = 注入侧缺省（TUI 装配钉
+   * 'active'）。
    */
-  readonly sessionsTotal?: () => Promise<number>;
+  readonly sessionsTotal?: (view?: 'active' | 'archived' | 'all') => Promise<number>;
   /**
    * 会话用量聚合注入（07 §4.1 R7 批 10k `/usage`——注册面律同上）：数据源
    * = 件 6 同数据源（message.usage）但独立聚合——会话全 run 累计，非复用
@@ -219,6 +236,14 @@ export interface ChannelsOptions<TProjection> {
    * 消费位 = `/sessions` 面板删除键回调（picker onDelete——缺席键无效）。
    */
   readonly deleteSession?: (sessionId: string) => Promise<UiSessionDeleteResult>;
+  /**
+   * 会话归档位翻注入（53 轮件 B 'a' 键——注入模板同 deleteSession「注入在场
+   * 即接键回调、缺席 = 键无效零行为变」）。机器路 = persistence.archiveSession
+   * 位翻（装配侧薄透传——归档纯视图性：无 busy 守卫、驱动不拆）。回执三态
+   * 归核统一路由（archived/unarchived 静默——就地滤行归呈现件；missing →
+   * warn 诚实拒）。消费位 = `/sessions` 面板归档键回调（picker onArchive）。
+   */
+  readonly archiveSession?: (sessionId: string, archive: boolean) => Promise<UiSessionArchiveResult>;
   /**
    * 会话尾段预览注入（挖掘 35 轮 B5 `/sessions` 切换器展开键——注册面律
    * 同 sessions 族：注入在场才有键行为，缺席 = 键无效零行为变）。真源 =

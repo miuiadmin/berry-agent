@@ -7,7 +7,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid, stringWidth } from '../../engine/index.js';
-import type { UiSessionDeleteResult, UiSessionPreviewLine, UiSessionSummary } from '../../../contracts/index.js';
+import type {
+  UiSessionArchiveResult,
+  UiSessionDeleteResult,
+  UiSessionPreviewLine,
+  UiSessionSummary,
+} from '../../../contracts/index.js';
 import { SessionPicker } from './session-picker.js';
 import { formatRelativeStamp } from './session-picker.js';
 
@@ -54,7 +59,7 @@ function readRow(grid: CellGrid, rowNumber: number, width: number): string {
   return out.trimEnd();
 }
 
-/** 装配便捷（全回调 vi 记录；extra = Options 可选位覆写——截断披露/删除注入/开史注入/光标复原/分页注入/相对钟腿用） */
+/** 装配便捷（全回调 vi 记录；extra = Options 可选位覆写——截断披露/删除注入/开史注入/光标复原/分页注入/归档注入/相对钟腿用） */
 function makePicker(
   sessions: readonly UiSessionSummary[],
   extra: {
@@ -68,6 +73,12 @@ function makePicker(
       nextCursor: string | null;
     }>;
     moreCursor?: string | null;
+    onArchive?: (sessionId: string, archive: boolean) => Promise<UiSessionArchiveResult>;
+    onSwitchView?: (view: 'active' | 'archived') => Promise<{
+      rows: readonly UiSessionSummary[];
+      nextCursor: string | null;
+      total: number;
+    }>;
     requestRepaint?: () => void;
     nowMs?: number;
   } = {},
@@ -1165,5 +1176,299 @@ describe('SessionPicker 分页加载（续页拉）', () => {
     const text = paintViewport(picker);
     expect(text).toContain('12/20 会话');
     expect(text).not.toContain('仅显示最近');
+  });
+});
+
+describe('SessionPicker 归档与视图切换（53 轮件 B——位翻非删行、归档纯视图性）', () => {
+  /** 三行集（甲乙丙——就地滤行断言用） */
+  const three = [
+    row({ id: 'ar-a-00000000', title: '甲' }),
+    row({ id: 'ar-b-00000000', title: '乙' }),
+    row({ id: 'ar-c-00000000', title: '丙' }),
+  ];
+  /** 已归档行集（归档视图行） */
+  const archivedRows = [row({ id: 'ar-x-00000000', title: '旧档' }), row({ id: 'ar-y-00000000', title: '老档' })];
+
+  /** 全屏读（本 describe 内单源） */
+  function paint(picker: SessionPicker, width = 70, height = 10): string {
+    const grid = new CellGrid(width, height);
+    picker.render(grid, { row: 0, col: 0, width, height });
+    const lines: string[] = [];
+    for (let r = 0; r < height; r++) {
+      let out = '';
+      for (let c = 0; c < width; c++) out += grid.getCell(r, c)?.grapheme ?? ' ';
+      lines.push(out.trimEnd());
+    }
+    return lines.join('\n');
+  }
+
+  /** 手控归档回执 rig（deferred——status 由测试注入落位） */
+  function deferredArchive() {
+    let settle!: (status: UiSessionArchiveResult) => void;
+    const calls: Array<[string, boolean]> = [];
+    const promise = new Promise<UiSessionArchiveResult>((resolve) => {
+      settle = resolve;
+    });
+    return {
+      calls,
+      onArchive: (sessionId: string, archive: boolean) => {
+        calls.push([sessionId, archive]);
+        return promise;
+      },
+      settle,
+    };
+  }
+
+  /** 手控视图切换 rig */
+  function deferredSwitch(rows: readonly UiSessionSummary[], total: number, nextCursor: string | null = null) {
+    let settle!: () => void;
+    const calls: string[] = [];
+    const promise = new Promise<{ rows: readonly UiSessionSummary[]; nextCursor: string | null; total: number }>(
+      (resolve) => {
+        settle = () => resolve({ rows, nextCursor, total });
+      },
+    );
+    return {
+      calls,
+      onSwitchView: (view: 'active' | 'archived') => {
+        calls.push(view);
+        return promise;
+      },
+      settle,
+    };
+  }
+
+  it("'a' 归档光标行（key 轨）：成功就地滤行 + totalCount −1 调账 + 请帧；免确认（'d' 确认视图族对照）", async () => {
+    const rig = deferredArchive();
+    const repaint = vi.fn();
+    // totalCount 超清单长（M>N 恒走 N/M 披露形——调账经 M 位可断言；M==N
+    // 原形「N 会话」无区分度）+ 分页在场档（真装配恒在场——截断尾注让位）
+    const { picker } = makePicker(three, {
+      onArchive: rig.onArchive,
+      totalCount: 5,
+      requestRepaint: repaint,
+      onLoadMore: () => Promise.resolve({ rows: [], nextCursor: null }),
+      moreCursor: null,
+    });
+    picker.handleEvent(k('down')); // 光标 1（乙）
+    expect(picker.handleEvent(k('a'))).toBe(true);
+    expect(rig.calls).toEqual([['ar-b-00000000', true]]); // 修前红锚：'a' 键零动作
+    rig.settle({ status: 'archived' });
+    await Promise.resolve();
+    await Promise.resolve();
+    const text = paint(picker);
+    expect(text).not.toContain('乙'); // 就地滤行
+    expect(text).toContain('甲');
+    expect(text).toContain('丙');
+    expect(text).toContain('2/4 会话'); // totalCount 本地 −1 调账（5−1——M 位直读）
+    expect(repaint).toHaveBeenCalled();
+  });
+
+  it("kitty text 轨 'a' 同律（双轨收键）；光标夹取：滤行后 cursor clamp 到余表", async () => {
+    const rig = deferredArchive();
+    const { picker, onSelect } = makePicker(three, { onArchive: rig.onArchive });
+    picker.handleEvent(k('end')); // 光标 2（丙——末行）
+    picker.handleEvent({ kind: 'text', text: 'a' } as never);
+    expect(rig.calls).toEqual([['ar-c-00000000', true]]);
+    rig.settle({ status: 'archived' });
+    await Promise.resolve();
+    await Promise.resolve();
+    // 末行滤除后光标 clamp 到新末行（乙）——enter 取 clamp 后行
+    picker.handleEvent(k('enter'));
+    expect(onSelect).toHaveBeenCalledWith('ar-b-00000000');
+  });
+
+  it("'a' 在飞单飞锁：回执落位前重复 'a' 吞（不双发）", () => {
+    const rig = deferredArchive();
+    const { picker } = makePicker(three, { onArchive: rig.onArchive });
+    picker.handleEvent(k('a'));
+    picker.handleEvent(k('a'));
+    expect(rig.calls).toHaveLength(1);
+  });
+
+  it('missing 回执：行不动（warn 归核路由——面板只守行不动）', async () => {
+    const rig = deferredArchive();
+    const { picker } = makePicker(three, { onArchive: rig.onArchive });
+    picker.handleEvent(k('a'));
+    rig.settle({ status: 'missing' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(paint(picker)).toContain('甲');
+    expect(paint(picker)).toContain('乙');
+  });
+
+  it("归档回调异常防御：吞不炸面板（行不动）；onArchive 注入缺席 'a' 吞零动作", async () => {
+    const failing = vi.fn(() => Promise.reject(new Error('库炸了')));
+    const { picker } = makePicker(three, { onArchive: failing });
+    expect(picker.handleEvent(k('a'))).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(paint(picker)).toContain('甲'); // 行不动面板不炸
+    const bare = makePicker(three);
+    expect(bare.picker.handleEvent(k('a'))).toBe(true); // 缺席吞（不炸）
+  });
+
+  it("'s' 视图切换：行集整替 + total 更新 + 头行「已归档」注记 + cursor 归零；搜索态 's' 归输入让位；text 轨同律", async () => {
+    const rig = deferredSwitch(archivedRows, 7);
+    const { picker } = makePicker(three, {
+      onSwitchView: rig.onSwitchView,
+      totalCount: 3,
+      onLoadMore: () => Promise.resolve({ rows: [], nextCursor: null }),
+      moreCursor: null,
+    });
+    picker.handleEvent(k('down')); // 光标 1
+    expect(picker.handleEvent(k('s'))).toBe(true);
+    expect(rig.calls).toEqual(['archived']); // 修前红锚：'s' 键零动作
+    rig.settle();
+    await Promise.resolve();
+    await Promise.resolve();
+    const text = paint(picker);
+    expect(text).toContain('已归档'); // 头行注记
+    expect(text).toContain('旧档');
+    expect(text).toContain('老档');
+    expect(text).not.toContain('甲'); // 行集整替
+    expect(text).toContain('2/7 会话'); // 视图域 total（截断披露如实）
+    // cursor 归零：光标 › 落归档视图首行（旧档）
+    expect(text.split('\n').some((l) => l.includes('›') && l.includes('旧档'))).toBe(true);
+    // 搜索态 's' 归输入让位（43 轮 q/d/'/' 让位律扩员——非切换键）
+    picker.handleEvent(k('/'));
+    picker.handleEvent(k('s'));
+    expect(rig.calls).toEqual(['archived']); // 未触发第二次切换
+    expect(paint(picker)).toContain('匹配 · s'); // 's' 归输入（过滤词进头行）
+    // esc 清搜索后 text 轨 's' 同律切回（kitty 双轨收键；stub 回执复用如实
+    // 呈现——行集整替语义已由 key 轨首段锁，此处锁触发与视图位翻）
+    picker.handleEvent(k('escape'));
+    picker.handleEvent({ kind: 'text', text: 's' } as never);
+    expect(rig.calls).toEqual(['archived', 'active']);
+    await Promise.resolve();
+    await Promise.resolve();
+    const back = paint(picker);
+    expect(back).not.toContain('（已归档）'); // 视图位翻回（注记随视图）
+    expect(back).toContain('s 归档视图'); // hint 段词随视图位（active 向）
+  });
+
+  it('归档视图内：a = 恢复（archive=false + 滤行 + total −1）+ enter = 恢复（不 onSelect 不收屏）', async () => {
+    const rig = deferredArchive();
+    const sw = deferredSwitch(archivedRows, 3);
+    const { picker, onSelect, onExit } = makePicker(three, {
+      onArchive: rig.onArchive,
+      onSwitchView: sw.onSwitchView,
+      totalCount: 3,
+      onLoadMore: () => Promise.resolve({ rows: [], nextCursor: null }),
+      moreCursor: null,
+    });
+    picker.handleEvent(k('s'));
+    sw.settle();
+    await Promise.resolve();
+    await Promise.resolve();
+    // 归档视图 'a' = 恢复
+    picker.handleEvent(k('a'));
+    expect(rig.calls).toEqual([['ar-x-00000000', false]]);
+    rig.settle({ status: 'unarchived' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(paint(picker)).not.toContain('旧档'); // 恢复即滤行（离归档视图）
+    expect(paint(picker)).toContain('老档');
+    expect(paint(picker)).toContain('1/2 会话'); // 行离当前视图恒 −1（归档域 total 3−1）
+    // 归档视图 enter = 恢复（免确认；面板保持开）
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it('归档视图 enter = 恢复（onArchive 在场时；不 onSelect），缺席回落 onSelect 切焦', async () => {
+    const rig = deferredArchive();
+    const sw = deferredSwitch(archivedRows, 2);
+    const { picker, onSelect } = makePicker(three, {
+      onArchive: rig.onArchive,
+      onSwitchView: sw.onSwitchView,
+    });
+    picker.handleEvent(k('s'));
+    sw.settle();
+    await Promise.resolve();
+    await Promise.resolve();
+    picker.handleEvent(k('enter'));
+    expect(rig.calls).toEqual([['ar-x-00000000', false]]); // enter 恢复向（非 onSelect）
+    expect(onSelect).not.toHaveBeenCalled();
+    rig.settle({ status: 'unarchived' });
+    await Promise.resolve();
+    await Promise.resolve();
+    // 缺席回落：无 onArchive 注入的归档视图 enter 走 onSelect
+    const sw2 = deferredSwitch(archivedRows, 2);
+    const bare = makePicker(three, { onSwitchView: sw2.onSwitchView });
+    bare.picker.handleEvent(k('s'));
+    sw2.settle();
+    await Promise.resolve();
+    await Promise.resolve();
+    bare.picker.handleEvent(k('enter'));
+    expect(bare.onSelect).toHaveBeenCalledWith('ar-x-00000000');
+  });
+
+  it("归档视图 'o' 不效（M1 裁——reopen 只携带活跃快照）；hint 分档如实（'enter 恢复'/'a 恢复'/'s 活跃视图' 注记、'o 开史' 段摘除）", async () => {
+    const openHistory = vi.fn();
+    const rig = deferredArchive();
+    const sw = deferredSwitch(archivedRows, 2);
+    const { picker } = makePicker(three, {
+      onArchive: rig.onArchive,
+      onSwitchView: sw.onSwitchView,
+      onOpenHistory: openHistory,
+    });
+    picker.handleEvent(k('s'));
+    sw.settle();
+    await Promise.resolve();
+    await Promise.resolve();
+    picker.handleEvent(k('o'));
+    expect(openHistory).not.toHaveBeenCalled(); // 归档视图 'o' 不效
+    const text = paint(picker);
+    expect(text).toContain('enter 恢复');
+    expect(text).toContain('a 恢复');
+    expect(text).toContain('s 活跃视图');
+    expect(text).not.toContain('o 开史');
+  });
+
+  it("hint 注记（活跃视图）：'a 归档'/'s 归档视图' 注记（注入在场）；两注入缺席不注记不虚报", () => {
+    const rig = deferredArchive();
+    const sw = deferredSwitch(archivedRows, 2);
+    const { picker } = makePicker(three, { onArchive: rig.onArchive, onSwitchView: sw.onSwitchView });
+    const text = paint(picker);
+    expect(text).toContain('a 归档');
+    expect(text).toContain('s 归档视图');
+    expect(text).toContain('enter 切换'); // 活跃视图 enter 语义不变
+    const bare = makePicker(three);
+    const bareText = paint(bare.picker);
+    expect(bareText).not.toContain('a 归档');
+    expect(bareText).not.toContain('s 归档视图');
+  });
+
+  it('空表可切视图：活跃空表 ' + "'s' 仍效（归档行可达）；归档空表 hint 含切回段", async () => {
+    const sw = deferredSwitch(archivedRows, 2);
+    const { picker } = makePicker([], { onSwitchView: sw.onSwitchView });
+    expect(picker.handleEvent(k('s'))).toBe(true); // 空表 's' 仍效（可见门外的视图键）
+    sw.settle();
+    await Promise.resolve();
+    await Promise.resolve();
+    const text = paint(picker);
+    expect(text).toContain('旧档'); // 归档行到达
+    // 归档空表（切到空归档视图）：hint 含 's 活跃视图' 切回段
+    const swEmpty = deferredSwitch([], 0);
+    const p2 = makePicker(three, { onSwitchView: swEmpty.onSwitchView });
+    p2.picker.handleEvent(k('s'));
+    swEmpty.settle();
+    await Promise.resolve();
+    await Promise.resolve();
+    const text2 = paint(p2.picker);
+    expect(text2).toContain('已归档');
+    expect(text2).toContain('无会话');
+    expect(text2).toContain('s 活跃视图');
+  });
+
+  it('视图切换异常防御：吞不炸面板（行集不动回原视图）', async () => {
+    const failing = vi.fn(() => Promise.reject(new Error('库炸了')));
+    const { picker } = makePicker(three, { onSwitchView: failing });
+    picker.handleEvent(k('s'));
+    await Promise.resolve();
+    await Promise.resolve();
+    const text = paint(picker);
+    expect(text).toContain('甲'); // 行集不动
+    expect(text).not.toContain('已归档'); // 视图未切
   });
 });

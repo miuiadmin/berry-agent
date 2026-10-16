@@ -2921,13 +2921,51 @@ describe('分项目输入历史面装配（B1——05 §9 input_history / 07 §4
     expect(assembly.ok).toBe(true);
     if (assembly.ok) {
       try {
-        // v14 表在库（HOST_MIGRATION_TAIL 聚合——链头推进到 14）
-        expect(assembly.runtime.persistence.store.connection.pragma('user_version', { simple: true })).toBe(14);
+        // v14 表在库（HOST_MIGRATION_TAIL 聚合——链头随尾推进：v15 归档位入链后 15）
+        expect(assembly.runtime.persistence.store.connection.pragma('user_version', { simple: true })).toBe(15);
         // 柄可用：record 往返 + trim 去重闸 + recentTexts 读序（persist 件单测
         // 已全覆盖——此处锁装配位：face 与 runtime 同库句柄接线）
         expect(assembly.inputHistory.record({ workspaceRoot: '/ws/x', sessionId: 's1', text: ' hi ' })).toBe(true);
         expect(assembly.inputHistory.record({ workspaceRoot: '/ws/x', text: 'hi' })).toBe(false); // trim 同文去重
         expect(assembly.inputHistory.recentTexts('/ws/x')).toEqual(['hi']);
+      } finally {
+        await assembly.runtime.shutdown();
+      }
+    }
+  });
+});
+
+describe('会话归档位装配（53 轮件 B——05 §9 archived_at 专列兑现注）', () => {
+  it('archived_at 列经 HOST_MIGRATION_TAIL 建就：setSessionArchived 位翻往返 + 缺 id false（装配根单源）', async () => {
+    const dir = tmpDir('host-asm-arch-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    expect(assembly.ok).toBe(true);
+    if (assembly.ok) {
+      try {
+        // v15 列在库（HOST_MIGRATION_TAIL 聚合尾位——位翻非删行零 flush）
+        const store = assembly.runtime.persistence.store;
+        expect(store.setSessionArchived('no-such', 1)).toBe(false); // 缺 id 恒 false
+        const sid = 's-arch';
+        store.registerSessionRow(sid, {
+          origin: 'conversation',
+          parentId: undefined,
+          seedLength: 0,
+          workspaceRoot: '/ws/arch',
+          title: undefined,
+        });
+        expect(store.listSessions({ view: 'active' })).toContainEqual(expect.objectContaining({ id: 's-arch' }));
+        expect(store.setSessionArchived('s-arch', 111)).toBe(true);
+        expect(store.listSessions({ view: 'active' })).toEqual([]);
+        expect(store.listSessions({ view: 'archived' })).toContainEqual(
+          expect.objectContaining({ id: 's-arch', archivedAt: 111 }),
+        );
+        expect(store.setSessionArchived('s-arch', null)).toBe(true); // 恢复 = 位翻回 NULL
+        expect(store.listSessions({ view: 'archived' })).toEqual([]);
       } finally {
         await assembly.runtime.shutdown();
       }

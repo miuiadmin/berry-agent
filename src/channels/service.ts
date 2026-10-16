@@ -26,6 +26,9 @@ import type {
   UiInputOptions,
   UiSelectChoice,
   UiSessionDeleteResult,
+  UiSessionArchiveResult,
+  UiSessionListView,
+  UiSessionSummary,
 } from './types.js';
 import { resolve } from 'node:path';
 import { BaseError } from '../contracts/index.js';
@@ -252,6 +255,21 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
   // 直达）；注入缺席保持纯 focus 查看器（零行为变）〕
   if (opts.sessions !== undefined) {
     const fetchSessions = opts.sessions;
+    // ── cursor token 单形（53 轮件 B）`v:<view>:<storeCursor>`：所有
+    // openSessions 出参 cursor 服务层包装、onLoadMore/onSwitchView 剥标记
+    // 还原 (view, storeCursor) 再真拉——服务层无态，reopen/'o' 复原位重发
+    // 只携包装形（视图信息随 token 自持），跨视图续页竞窗结构性免疫。坏形
+    // 宽容回落 active 原样透传（store 侧 decode 坏令牌自有 fail-loud）。
+    const wrapCursor = (view: 'active' | 'archived', storeCursor: string | null): string | null =>
+      storeCursor === null ? null : `v:${view}:${storeCursor}`;
+    const unwrapCursor = (wrapped: string): { view: 'active' | 'archived'; storeCursor: string } => {
+      if (!wrapped.startsWith('v:')) return { view: 'active', storeCursor: wrapped };
+      const rest = wrapped.slice(2);
+      const colon = rest.indexOf(':'); // view 段闭集无冒号；storeCursor 自持 updatedAt:id 形
+      const view = colon < 0 ? '' : rest.slice(0, colon);
+      if (view !== 'active' && view !== 'archived') return { view: 'active', storeCursor: wrapped };
+      return { view, storeCursor: rest.slice(colon + 1) };
+    };
     // 删除回调 wrapper（05 §2.5 会话删除编排定形注①——deleteSession 注入在场
     // 即接 picker 删除键回调，缺席 = undefined 键无效零行为变）：回执三态路由
     // 归核——deleted 成功回执 / busy warn 指路等待或先打断 / missing warn
@@ -279,15 +297,56 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
               },
             )
         : undefined;
+    // 归档回调 wrapper（53 轮件 B——archiveSession 注入在场即接 picker 'a'
+    // 键回调，缺席 = undefined 键无效零行为变；回执路由律同 onDelete）：
+    // archived/unarchived 静默（成功不噪音——就地滤行归呈现件），missing
+    // warn 诚实拒；异常就地折 error notify（直穿同律杀 TUI）
+    const archiveSession = opts.archiveSession;
+    const archiveWithReceipt =
+      archiveSession !== undefined
+        ? (sessionId: string, archive: boolean): Promise<UiSessionArchiveResult> =>
+            archiveSession(sessionId, archive).then(
+              (result) => {
+                if (result.status === 'missing') {
+                  uiCore.notify(`会话不存在：${sessionId}`, { level: 'warn' });
+                }
+                return result; // 回执原样透传（picker 消费——missing 留行不滤）
+              },
+              (err: unknown) => {
+                uiCore.notify(`归档失败：${foldErrorText(err)}`, { level: 'error' });
+                return { status: 'missing' };
+              },
+            )
+        : undefined;
     commands.register(
       'sessions',
       async () => {
         // 首拉（挖掘 51 轮件 A 分页形）：rows 直承既有清单消费（selectSession
-        // /两扇出位零动），nextCursor 快照经第九参直达呈现件；续页拉 = 注入
-        // 直通（cursor 参数位与注入签名天然对齐）
+        // /两扇出位零动），nextCursor 快照经第九参直达呈现件（53 轮件 B 起
+        // token 单形包装——首开恒活跃视图，装配侧 wrapper 钉 'active'）
         const first = await fetchSessions();
         const sessions = first.rows;
-        const onLoadMore = fetchSessions;
+        // 续页拉 wrapper（53 轮件 B——注入不再直通）：剥标记还原
+        // (view, storeCursor) 同视图真拉，nextCursor 以同视图再包装出
+        const onLoadMore = (
+          cursor: string,
+        ): Promise<{ rows: readonly UiSessionSummary[]; nextCursor: string | null }> => {
+          const { view, storeCursor } = unwrapCursor(cursor);
+          return fetchSessions(storeCursor, view).then((page) => ({
+            rows: page.rows,
+            nextCursor: wrapCursor(view, page.nextCursor),
+          }));
+        };
+        // 视图切换闭包（53 轮件 B 's' 键——sessions 注入自合成）：整页真拉 +
+        // 视图域总数（B2「清单与总数同过滤」律的视图化延伸）
+        const onSwitchView = (
+          view: UiSessionListView,
+        ): Promise<{ rows: readonly UiSessionSummary[]; nextCursor: string | null; total: number }> =>
+          fetchSessions(undefined, view).then(async (page) => ({
+            rows: page.rows,
+            nextCursor: wrapCursor(view, page.nextCursor),
+            total: (await opts.sessionsTotal?.(view)) ?? page.rows.length,
+          }));
         // B2 截断披露：总数注入在场即取（超窗时切换器头行注记）；缺席回退
         // 清单长度（= 全量已呈现，头行原形）
         const total = (await opts.sessionsTotal?.()) ?? sessions.length;
@@ -386,7 +445,9 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
                           openHistoryAt,
                           cursorAt,
                           onLoadMore,
-                          first.nextCursor,
+                          wrapCursor('active', first.nextCursor),
+                          archiveWithReceipt,
+                          onSwitchView,
                         );
                     };
                     for (const b of allBackends()) b.openHistory?.(id, messages, undefined, reopen);
@@ -407,7 +468,9 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
               openHistoryAt,
               undefined,
               onLoadMore,
-              first.nextCursor,
+              wrapCursor('active', first.nextCursor),
+              archiveWithReceipt,
+              onSwitchView,
             ) === true
           )
             opened = true;

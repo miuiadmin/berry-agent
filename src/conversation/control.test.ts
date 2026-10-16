@@ -16,7 +16,7 @@ import type { AssistantMessage, Message } from '../contracts/index.js';
 import { isStandardMessage } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import { ephemeralSecretKey } from '../persist/secret-box.js';
-import { SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
+import { SESSION_ARCHIVED_AT_MIGRATION, SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
 import { Persistence } from '../persist/persistence.js';
 import { ConversationDriver } from './driver.js';
 import type { DriverFactory } from './sessions.js';
@@ -48,7 +48,7 @@ beforeEach(() => {
     dbPath: join(dir, 'main.db'),
     dataDir: join(dir, 'data'),
     secretKey: ephemeralSecretKey(),
-    migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+    migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
   });
 });
 

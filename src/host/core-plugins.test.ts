@@ -44,7 +44,12 @@ import { ISSUE_PARKED_REGISTRY_KEY } from '../issue/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../memory/index.js';
 import type { ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../obs/index.js';
-import { MEMORY_DB_PATH, Persistence, SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
+import {
+  MEMORY_DB_PATH,
+  Persistence,
+  SESSION_ARCHIVE_MIGRATION,
+  SESSION_ARCHIVED_AT_MIGRATION,
+} from '../persist/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
 import { createSdkHttpFace } from '../sdk/index.js';
 import type { SdkHttpFaceHandle } from '../sdk/index.js';
@@ -325,13 +330,15 @@ async function bootReparkRig(options: {
   dirs.push(dataDir);
   const persistence = Persistence.open({
     dbPath: MEMORY_DB_PATH,
-    // SESSION_ARCHIVE_MIGRATION v13：sessions writeTuple 硬依赖专列（rig 建
-    // 持久会话必经——MEMORY_MIGRATIONS 族不含本条）
+    // SESSION_ARCHIVE_MIGRATION v13 + SESSION_ARCHIVED_AT_MIGRATION v15：
+    // sessions writeTuple/archived_at 位翻硬依赖专列（rig 建持久会话必经
+    // ——MEMORY_MIGRATIONS 族不含本两条）
     migrations: [
       SCHEDULER_MIGRATION,
       GOAL_MIGRATION,
       GOAL_APPROVAL_MIGRATION,
       SESSION_ARCHIVE_MIGRATION,
+      SESSION_ARCHIVED_AT_MIGRATION,
       ...MEMORY_MIGRATIONS,
     ],
   });
@@ -445,7 +452,7 @@ async function issueParkRig(options: {
   dirs.push(dataDir);
   const persistence = Persistence.open({
     dbPath: MEMORY_DB_PATH,
-    migrations: [SCHEDULER_MIGRATION, SESSION_ARCHIVE_MIGRATION, ...MEMORY_MIGRATIONS],
+    migrations: [SCHEDULER_MIGRATION, SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION, ...MEMORY_MIGRATIONS],
   });
   // 逐行建持久会话（尾词落库 + flush）+ 预植停靠登记行（store_state 真实承载）
   const parkedRows: IssueParkedRow[] = [];

@@ -30,7 +30,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Engine, MemoryTerminalIO, type Renderable } from '../channels/engine/index.js';
 import { TuiBackend } from '../channels/tui/index.js';
 import type { SessionEvent } from '../contracts/index.js';
-import { openStore, SESSION_ARCHIVE_MIGRATION, type Store } from '../persist/index.js';
+import { openStore, SESSION_ARCHIVED_AT_MIGRATION, SESSION_ARCHIVE_MIGRATION, type Store } from '../persist/index.js';
 import { createObsService, type ObsService } from '../obs/index.js';
 
 /* ---------------- 帽值（码面定值——07 §4.1 回填落点） ---------------- */
@@ -97,7 +97,7 @@ function bootAmbient(dir: string, withObs: boolean, opts: { refreshMs: number; c
     dataDir: dir,
     dbPath: join(dir, 'sessions.db'),
     warn: () => {},
-    migrations: [SESSION_ARCHIVE_MIGRATION],
+    migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
   });
   const obs = withObs
     ? createObsService({

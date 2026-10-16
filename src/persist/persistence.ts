@@ -103,6 +103,8 @@ export class Persistence {
   private readonly onDurableEvent: (payload: { sessionId: string; event: SessionEvent }) => void;
   /** 已打开会话的登记快照（onAppend 闭包捕获用——首登身份，与 sessions 行首登同源） */
   private readonly registrations = new Map<string, SessionRegistration>();
+  /** 时钟注入存柄（53 轮件 B——archiveSession 归档时刻取同源 clock） */
+  private readonly clock: () => number;
   private closed = false;
 
   private constructor(
@@ -110,11 +112,13 @@ export class Persistence {
     writeBehind: WriteBehind,
     warn: (message: string) => void,
     onDurableEvent: (payload: { sessionId: string; event: SessionEvent }) => void,
+    clock: () => number,
   ) {
     this.store = store;
     this.writeBehind = writeBehind;
     this.warn = warn;
     this.onDurableEvent = onDurableEvent;
+    this.clock = clock;
   }
 
   /**
@@ -139,7 +143,13 @@ export class Persistence {
       onLateWriteFailure: options.onLateWriteFailure,
       ...options.writeBehind,
     });
-    return new Persistence(store, writeBehind, warn, options.onDurableEvent ?? (() => undefined));
+    return new Persistence(
+      store,
+      writeBehind,
+      warn,
+      options.onDurableEvent ?? (() => undefined),
+      options.clock ?? (() => Date.now()),
+    );
   }
 
   private ensureOpen(): void {
@@ -373,13 +383,22 @@ export class Persistence {
   }
 
   /** 会话列表透传（「按 cwd 取最新会话」选取面） */
-  listSessions(options: { workspaceRoot?: string; limit?: number } = {}): SessionRow[] {
+  listSessions(
+    options: { workspaceRoot?: string; limit?: number; view?: 'active' | 'archived' | 'all' } = {},
+  ): SessionRow[] {
     this.ensureOpen();
     return this.store.listSessions(options);
   }
 
   /** 会话清单游标分页透传（挖掘 51 轮件 A——切换器超窗老会话可达；旧法保留） */
-  listSessionsPage(options: { workspaceRoot?: string; limit?: number; cursor?: string } = {}): {
+  listSessionsPage(
+    options: {
+      workspaceRoot?: string;
+      limit?: number;
+      cursor?: string;
+      view?: 'active' | 'archived' | 'all';
+    } = {},
+  ): {
     rows: SessionRow[];
     nextCursor: string | null;
   } {
@@ -388,8 +407,22 @@ export class Persistence {
   }
 
   /** 会话全量计数（B2 截断披露单源——store 同名透传） */
-  countSessions(): number {
-    return this.store.countSessions();
+  countSessions(options: { view?: 'active' | 'archived' | 'all' } = {}): number {
+    return this.store.countSessions(options);
+  }
+
+  /**
+   * 会话归档位翻（53 轮件 B——05 §9 archived_at 专列兑现注）：位翻非删行、
+   * 零 flush（不触 write-behind——归档纯视图性，行主数据零变更）；归档时刻
+   * 取注入 clock（同 registrations 落行时钟）。三态：'archived' / 'unarchived'
+   * （位翻成功——按目标态命名）/ 'missing'（id 缺席诚实 miss）。
+   */
+  archiveSession(sessionId: string, archive: boolean): 'archived' | 'unarchived' | 'missing' {
+    this.ensureOpen();
+    const at = archive ? this.clock() : null;
+    const flipped = this.store.setSessionArchived(sessionId, at);
+    if (!flipped) return 'missing';
+    return archive ? 'archived' : 'unarchived';
   }
 
   /**

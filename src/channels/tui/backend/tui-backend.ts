@@ -79,6 +79,8 @@ import type {
   UiInputOptions,
   UiSelectChoice,
   UiSessionDeleteResult,
+  UiSessionArchiveResult,
+  UiSessionListView,
   UiSessionPreviewLine,
   UiSessionSummary,
   UiUsageSummary,
@@ -2153,7 +2155,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * ——透传前包装即收形：先同步 closeAlt 收切换器再入回调链，竞窗结构性
    * 消解）。initialCursor = 光标复原位（'o' 开史退出复原时重开传入）。
    * 已在副屏 / 主屏不在 running 返 false（核侧 notify 降级）。打断柄锚当前
-   * 交互会话位（切焦前语义）。
+   * 交互会话位（切焦前语义）。onArchive = 归档回调（53 轮件 B 'a' 键——通道
+   * 核 wrapper 透传，注入缺席 undefined 键无效）；onSwitchView = 视图切换
+   * 闭包（53 轮件 B 's' 键——sessions 注入自合成同源，回执带视图域 total）。
    */
   openSessions(
     sessions: readonly UiSessionSummary[],
@@ -2168,6 +2172,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       nextCursor: string | null;
     }>,
     moreCursor?: string | null,
+    onArchive?: (sessionId: string, archive: boolean) => Promise<UiSessionArchiveResult>,
+    onSwitchView?: (view: UiSessionListView) => Promise<{
+      rows: readonly UiSessionSummary[];
+      nextCursor: string | null;
+      total: number;
+    }>,
   ): boolean {
     if (this.altHandle !== null) return false;
     const handle = this.altHost.open(
@@ -2196,6 +2206,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         ...(initialCursor !== undefined ? { initialCursor } : {}),
         // 续页拉对（挖掘 51 轮件 A——两参同现形：注入缺席零分页零占位）
         ...(onLoadMore !== undefined ? { onLoadMore, moreCursor: moreCursor ?? null } : {}),
+        // 归档/视图切换（53 轮件 B——注入缺席键无效零行为变，onDelete 同律）
+        ...(onArchive !== undefined ? { onArchive } : {}),
+        ...(onSwitchView !== undefined ? { onSwitchView } : {}),
         requestRepaint: () => this.altHost.requestRepaint(),
         theme: this.theme,
       }),

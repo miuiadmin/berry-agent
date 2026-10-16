@@ -20,6 +20,7 @@ import { ephemeralSecretKey } from './secret-box.js';
 import type { MigrationSpec } from './migrations.js';
 import {
   FIRST_QUESTION_SUMMARY_MAX_CHARS,
+  SESSION_ARCHIVED_AT_MIGRATION,
   SESSION_ARCHIVE_MIGRATION,
   clampTitleText,
   firstQuestionSummaryOf,
@@ -147,7 +148,7 @@ function open(options: {
     dbPath: options.dbPath,
     dataDir: join(dir, 'data'),
     secretKey: ephemeralSecretKey(),
-    migrations: options.migrations ?? [SESSION_ARCHIVE_MIGRATION],
+    migrations: options.migrations ?? [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
     warn: options.warn,
     clock: options.clock,
   });
@@ -231,15 +232,16 @@ describe('开库门禁序（05 §6.4/§6.5）', () => {
   it('全新库豁免迁移前备份（十六役补扫 N10）：带链首开零 .bak 残留零误导 warn，迁移链照跑', () => {
     const path = join(dir, 'fresh-chain.db');
     const warns: string[] = [];
-    // 全新库 + 迁移链首开 = 生产形（bootstrap 置 v1 → v1 < head=13）
-    const store = open({ dbPath: path, warn: (m) => warns.push(m) }); // 缺省链 = SESSION_ARCHIVE_MIGRATION v13
-    expect(store.headVersion).toBe(13);
-    // 迁移链照跑（豁免仅及备份与 warn）：user_version 到 head + v13 专列建就
-    expect(store.connection.pragma('user_version', { simple: true })).toBe(13);
+    // 全新库 + 迁移链首开 = 生产形（bootstrap 置 v1 → v1 < head=15）
+    const store = open({ dbPath: path, warn: (m) => warns.push(m) }); // 缺省链 = v13 档案两列 + v15 归档位
+    expect(store.headVersion).toBe(15);
+    // 迁移链照跑（豁免仅及备份与 warn）：user_version 到 head + v13/v15 专列建就
+    expect(store.connection.pragma('user_version', { simple: true })).toBe(15);
     const cols = store.connection.prepare(`SELECT name FROM pragma_table_info('sessions')`).all() as {
       name: string;
     }[];
     expect(cols.map((c) => c.name)).toContain('first_question_summary');
+    expect(cols.map((c) => c.name)).toContain('archived_at');
     // 零 .bak-v1 残留 + 零「迁移前备份」warn——刚建链的库无用户数据可备份
     expect(existsSync(`${path}.bak-v1`)).toBe(false);
     expect(warns.some((m) => m.includes('迁移前备份'))).toBe(false);
@@ -530,6 +532,71 @@ describe('sessions 行面', () => {
     // 修前红：countSessions 缺席——清单窗截 2 行而全量计数应 3（截断披露的真源）
     expect(s.listSessions({ limit: 2 })).toHaveLength(2);
     expect(s.countSessions()).toBe(3);
+  });
+
+  // ── 会话归档面（53 轮件 B——v15 archived_at 专列 + 视图过滤 + 位翻非删行）──
+
+  it('setSessionArchived 位翻非删行：archivedAt 落列/清位、updated_at 不动、缺 id 诚实 false', () => {
+    let clock = 1_000;
+    const s = open({ dbPath: join(dir, 'arch.db'), clock: () => clock });
+    s.writeEvents(writesFor('sa1', makeEvents('a')));
+    clock = 2_000;
+    s.writeEvents(writesFor('sa2', makeEvents('b')));
+    const updatedBefore = s.getSessionRow('sa1')!.updatedAt;
+    // 归档：位落（时间戳入列）
+    expect(s.setSessionArchived('sa1', 9_000)).toBe(true);
+    expect(s.getSessionRow('sa1')!.archivedAt).toBe(9_000);
+    // 位翻不触 updated_at（归档纯视图性——清单序不因归档跳动）
+    expect(s.getSessionRow('sa1')!.updatedAt).toBe(updatedBefore);
+    // 未归档行 archivedAt 缺席
+    expect(s.getSessionRow('sa2')!.archivedAt).toBeUndefined();
+    // 恢复：位清（NULL = 活跃）
+    expect(s.setSessionArchived('sa1', null)).toBe(true);
+    expect(s.getSessionRow('sa1')!.archivedAt).toBeUndefined();
+    // 缺 id 诚实 false（不造行）
+    expect(s.setSessionArchived('s-ghost', 9_000)).toBe(false);
+  });
+
+  it('view 三态过滤：active/archived/all——listSessions/listSessionsPage/countSessions 同过滤，缺省 all 零行为变', () => {
+    let clock = 1_000;
+    const s = open({ dbPath: join(dir, 'view.db'), clock: () => clock });
+    for (const id of ['va', 'vb', 'vc']) {
+      clock += 1_000;
+      s.writeEvents(writesFor(id, makeEvents(`${id}-ev`)));
+    }
+    s.setSessionArchived('vb', 9_000);
+    // active：只见未归档
+    expect(s.listSessions({ view: 'active' }).map((r) => r.id)).toEqual(['vc', 'va']);
+    // archived：只见归档
+    expect(s.listSessions({ view: 'archived' }).map((r) => r.id)).toEqual(['vb']);
+    // all（缺省同形）：全量——既有消费面（CLI/webui/SDK/obs）零行为变
+    expect(s.listSessions().map((r) => r.id)).toEqual(['vc', 'vb', 'va']);
+    expect(s.listSessions({ view: 'all' }).map((r) => r.id)).toEqual(['vc', 'vb', 'va']);
+    // 计数同过滤（TUI 清单与总数同视图——分母一致）
+    expect(s.countSessions({ view: 'active' })).toBe(2);
+    expect(s.countSessions({ view: 'archived' })).toBe(1);
+    expect(s.countSessions()).toBe(3);
+    // 分页同过滤
+    expect(s.listSessionsPage({ view: 'archived' }).rows.map((r) => r.id)).toEqual(['vb']);
+    expect(s.listSessionsPage({ view: 'active', limit: 1 }).rows.map((r) => r.id)).toEqual(['vc']);
+  });
+
+  it('listSessionsPage view 腿与游标分页正交：archived 视图分页不漏不重', () => {
+    let clock = 1_000;
+    const s = open({ dbPath: join(dir, 'view-page.db'), clock: () => clock });
+    for (const id of ['p1', 'p2', 'p3', 'p4']) {
+      clock += 1_000;
+      s.writeEvents(writesFor(id, makeEvents(`${id}-ev`)));
+    }
+    s.setSessionArchived('p2', 9_000);
+    s.setSessionArchived('p4', 9_000);
+    // active 全序 = p3 → p1；分页（limit 1）走两页不漏不重
+    const a1 = s.listSessionsPage({ view: 'active', limit: 1 });
+    expect(a1.rows.map((r) => r.id)).toEqual(['p3']);
+    expect(a1.nextCursor).not.toBeNull();
+    const a2 = s.listSessionsPage({ view: 'active', limit: 1, cursor: a1.nextCursor! });
+    expect(a2.rows.map((r) => r.id)).toEqual(['p1']);
+    expect(a2.nextCursor).toBeNull(); // active 域尽——不越视图借行
   });
 
   it('deleteSession 三删同事务（events/fts/行）', () => {

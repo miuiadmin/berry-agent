@@ -30,7 +30,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
 import { Persistence } from './persistence.js';
-import { SESSION_ARCHIVE_MIGRATION } from './store.js';
+import { SESSION_ARCHIVED_AT_MIGRATION, SESSION_ARCHIVE_MIGRATION } from './store.js';
 
 /* ---------------- 平台闸（mac + hdiutil 在场才真跑） ---------------- */
 
@@ -103,7 +103,11 @@ maybeDescribe('ENOSPC 真注入（hdiutil 2MB 卷写满）', () => {
 
     // ── 阶段一：真库写满（生产路径 Persistence + write-behind）──
     // writeTuple 硬依赖 v13 专列（05 §9）——测试库基线带链
-    const persistence = Persistence.open({ dbPath, dataDir: mountDir, migrations: [SESSION_ARCHIVE_MIGRATION] });
+    const persistence = Persistence.open({
+      dbPath,
+      dataDir: mountDir,
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
+    });
     const log = persistence.createSession({ origin: 'conversation', workspaceRoot: '/enospc' });
     const sessionId = log.sessionId;
     // 48KiB/笔载荷（60KiB 内容帽内）：events 行 + FTS 行双份 ≈ 96KiB/笔，
@@ -146,7 +150,11 @@ maybeDescribe('ENOSPC 真注入（hdiutil 2MB 卷写满）', () => {
     // ── 阶段二：卸卷重挂 → 库可开可读（报错不腐蚀）──
     remountVolume(workDir, mountDir);
     // 同上——writeTuple 硬依赖 v13 专列
-    const reopened = Persistence.open({ dbPath, dataDir: mountDir, migrations: [SESSION_ARCHIVE_MIGRATION] });
+    const reopened = Persistence.open({
+      dbPath,
+      dataDir: mountDir,
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
+    });
     try {
       expect(reopened.hasSession(sessionId)).toBe(true);
       const loaded = reopened.loadSession(sessionId);

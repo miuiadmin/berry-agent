@@ -11,6 +11,7 @@ import {
   ephemeralSecretKey,
   openStore,
   SESSION_ARCHIVE_MIGRATION,
+  SESSION_ARCHIVED_AT_MIGRATION,
   type SessionRegistration,
   type Store,
 } from '../persist/index.js';
@@ -56,7 +57,7 @@ function setup(ownerKeys?: readonly string[]): { dao: MemoryDao; tools: ToolDefi
     dataDir: dir,
     secretKey: ephemeralSecretKey(),
     // writeTuple 硬依赖 v13 专列（05 §9）——memory 链尾追加会话档案迁移
-    migrations: [...MEMORY_MIGRATIONS, SESSION_ARCHIVE_MIGRATION],
+    migrations: [...MEMORY_MIGRATIONS, SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
   });
   const dao = createMemoryDao({
     db: store.sqlite(),

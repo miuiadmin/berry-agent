@@ -21,7 +21,7 @@ import { isStandardMessage } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import { SessionSpawnLimiter, type SessionLog } from '../session/index.js';
 import { ephemeralSecretKey } from '../persist/secret-box.js';
-import { SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
+import { SESSION_ARCHIVED_AT_MIGRATION, SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
 import { Persistence } from '../persist/persistence.js';
 import { SessionManager } from './sessions.js';
 import type { DriverFactory, SessionBeforeForkInput } from './sessions.js';
@@ -38,7 +38,7 @@ beforeEach(() => {
     dbPath: join(dir, 'main.db'),
     dataDir: join(dir, 'data'),
     secretKey: ephemeralSecretKey(),
-    migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+    migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
   });
 });
 
@@ -290,7 +290,7 @@ describe('SessionManager fork', () => {
       dbPath: join(anchorDir, 'main.db'),
       dataDir: join(anchorDir, 'data'),
       secretKey: ephemeralSecretKey(),
-      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
+      migrations: [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
       clock: () => tick,
     });
     try {
@@ -509,6 +509,43 @@ describe('SessionManager search', () => {
     expect(hits).toEqual([ev.seq]);
     // 不命中词回空
     expect(await manager.search(opened.sessionId, 'zzz-not-there')).toEqual([]);
+  });
+});
+
+describe('SessionManager 归档位翻（53 轮件 B——纯视图性拍板：无 busy 守卫，活会话可归档）', () => {
+  it('archiveSession 三态透传 + list 视图过滤：活会话归档不拆驱动、恢复不自动续写', async () => {
+    const { manager } = makeManager();
+    const opened = manager.create();
+    closedTurn(opened.driver.session, '归档一轮');
+    await persistence.flush();
+    // 活体可归档（纯视图性——驱动不拆、登记不动）
+    expect(manager.archiveSession(opened.sessionId, true)).toBe('archived');
+    expect(manager.isOpen(opened.sessionId)).toBe(true); // 驱动仍在
+    expect(manager.list({ view: 'active' }).map((r) => r.id)).not.toContain(opened.sessionId);
+    expect(manager.list({ view: 'archived' }).map((r) => r.id)).toContain(opened.sessionId);
+    expect(manager.list().map((r) => r.id)).toContain(opened.sessionId); // 缺省 all 零行为变
+    // 恢复：位翻回，不自动续写（驱动在册即活体，续写编排归 caller）
+    expect(manager.archiveSession(opened.sessionId, false)).toBe('unarchived');
+    expect(manager.list({ view: 'active' }).map((r) => r.id)).toContain(opened.sessionId);
+    // 缺 id 诚实 missing
+    expect(manager.archiveSession('no-such', true)).toBe('missing');
+  });
+
+  it('listPage 视图分页 + countSessions 视图计数透传', async () => {
+    const { manager } = makeManager();
+    const a = manager.create();
+    closedTurn(a.driver.session, 'a');
+    const b = manager.create();
+    closedTurn(b.driver.session, 'b');
+    await persistence.flush();
+    expect(manager.archiveSession(a.sessionId, true)).toBe('archived');
+    const page = manager.listPage({ view: 'active' });
+    expect(page.rows.map((r) => r.id)).toEqual([b.sessionId]);
+    expect(page.nextCursor).toBeNull();
+    expect(manager.listPage({ view: 'archived' }).rows.map((r) => r.id)).toEqual([a.sessionId]);
+    expect(manager.countSessions({ view: 'active' })).toBe(1);
+    expect(manager.countSessions({ view: 'archived' })).toBe(1);
+    expect(manager.countSessions()).toBe(2); // 缺省 all
   });
 });
 

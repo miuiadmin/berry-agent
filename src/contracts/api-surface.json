@@ -841,7 +841,7 @@
       "since": "1.0",
       "desc": "通道后端接口（通道核的呈现消费面）",
       "kind": "interface",
-      "sig": "4b27665326744ec8"
+      "sig": "88842cd7b2b6cc4f"
     },
     {
       "symbol": "UiCallLedger",
@@ -961,6 +961,15 @@
       "sig": "b0b22829e52dcdd2"
     },
     {
+      "symbol": "UiSessionArchiveResult",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "`/sessions` 归档回执三态（53 轮件 B——05 §9 archived_at 专列兑现注；归档纯视图性拍板：无 busy 守卫、位翻非删行）：archived = 已归档 / unarchived = 已恢复（两态按目标态命名）/ missing = id 缺席诚实 miss",
+      "kind": "type",
+      "sig": "087e24f03b37e593"
+    },
+    {
       "symbol": "UiSessionDeleteResult",
       "module": "berry-agent",
       "tier": "stable",
@@ -968,6 +977,15 @@
       "desc": "`/sessions` 删除回执三态（05 §2.5 会话删除编排定形注②——编排真身 = 会话管理器删除动词：busy 守卫拒删 → 呈现面收口 → 登记拆除 → 物理三删 → 授予回收 → 焦点处置）",
       "kind": "type",
       "sig": "f0c1ce6d7b4b6086"
+    },
+    {
+      "symbol": "UiSessionListView",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "`/sessions` 视图两态（53 轮件 B 's' 键——active=活跃 / archived=已归档； all 不入呈现面：切换器永远处于两视图之一）",
+      "kind": "type",
+      "sig": "042977b2ddadfa44"
     },
     {
       "symbol": "UiSessionPreviewLine",

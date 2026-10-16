@@ -1187,10 +1187,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     memory: true,
     // /sessions 清单注入（07 §4.1 R7 批 10k）：manager 分页行 + 活跃位投影
     // （复合序 updated_at DESC, id DESC 单源——listPage ORDER BY 定序，装配位
-    // 不再 sort；listActive 空集时全 inactive 如实呈现；挖掘 51 轮件 A 分页形）
-    sessions: (cursor) => {
+    // 不再 sort；listActive 空集时全 inactive 如实呈现；挖掘 51 轮件 A 分页形）。
+    // 53 轮件 B：TUI 装配显式钉活跃视图（view ?? 'active'——清单与总数同
+    // 过滤；视图域与游标分页域正交，同视图内续页）
+    sessions: (cursor, view) => {
+      const effectiveView = view ?? 'active';
       const active = new Set(manager.listActive().map((entry) => entry.sessionId));
-      const page = manager.listPage(cursor !== undefined ? { cursor } : {});
+      const page = manager.listPage(cursor !== undefined ? { cursor, view: effectiveView } : { view: effectiveView });
       return Promise.resolve({
         rows: page.rows.map((row) => ({
           id: row.id,
@@ -1204,8 +1207,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       });
     },
     // /sessions 总数注入（B2 截断披露）：manager.list 默认 100 窗，超窗时
-    // 切换器头行注记「N/M（仅显示最近）」——总数独立单源不随窗走
-    sessionsTotal: () => Promise.resolve(manager.countSessions()),
+    // 切换器头行注记「N/M（仅显示最近）」——总数独立单源不随窗走；53 轮件 B
+    // 视图参数同过滤（缺省同钉 'active'——与清单注入同一钉位）
+    sessionsTotal: (view) => Promise.resolve(manager.countSessions({ view: view ?? 'active' })),
     // /usage 数据源注入（R7——同 projectionOf 双事实源纪律：驱动活体优先，
     // 未开回库装载；fold 口径 = 全 run 累计含被遮蔽 retry）
     usage: (sessionId) => {
@@ -1254,6 +1258,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // 收口→登记拆除→物理三删→授予回收→焦点处置——seam 接线见 manager 构造
     // 位）；回执三态路由归通道核 wrapper（/sessions 面板删除键消费）
     deleteSession: (sessionId) => manager.deleteSession(sessionId),
+    // 会话归档位翻注入（53 轮件 B 'a' 键）：manager.archiveSession 位翻真身
+    // （位翻非删行、归档纯视图性——无 busy 守卫驱动不拆）；回执三态路由归
+    // 通道核 wrapper（archived/unarchived 静默就地滤行、missing warn）
+    archiveSession: (sessionId, archive) => Promise.resolve({ status: manager.archiveSession(sessionId, archive) }),
     // 回溯编辑机器路注入（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork）：
     // manager.fork 显式 upToSeq 形——fork 边界 = beforeSeq−1 含位（所选消息不
     // 进新会话、原文回填重编辑；05 §5.1 钩子 veto 判后/洪水闸 + 04 §1 封印位

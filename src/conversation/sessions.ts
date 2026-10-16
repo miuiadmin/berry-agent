@@ -250,22 +250,38 @@ export class SessionManager {
     ]);
   }
 
-  /** 会话列表（「按 cwd 取最新」选取面透传） */
-  list(options: { workspaceRoot?: string; limit?: number } = {}): SessionRow[] {
+  /** 会话列表（「按 cwd 取最新」选取面透传；view 三态缺省 all——53 轮件 B） */
+  list(options: { workspaceRoot?: string; limit?: number; view?: 'active' | 'archived' | 'all' } = {}): SessionRow[] {
     return this.persistence.listSessions(options);
   }
 
-  /** 会话清单游标分页（挖掘 51 轮件 A——切换器超窗老会话可达；旧 list 保留） */
-  listPage(options: { workspaceRoot?: string; limit?: number; cursor?: string } = {}): {
+  /** 会话清单游标分页（挖掘 51 轮件 A——切换器超窗老会话可达；旧 list 保留；view 同透） */
+  listPage(
+    options: {
+      workspaceRoot?: string;
+      limit?: number;
+      cursor?: string;
+      view?: 'active' | 'archived' | 'all';
+    } = {},
+  ): {
     rows: SessionRow[];
     nextCursor: string | null;
   } {
     return this.persistence.listSessionsPage(options);
   }
 
-  /** 会话全量计数（B2 截断披露单源——list 默认 100 窗，超窗披露的总数真源） */
-  countSessions(): number {
-    return this.persistence.countSessions();
+  /** 会话全量计数（B2 截断披露单源——list 默认 100 窗，超窗披露的总数真源；view 同透） */
+  countSessions(options: { view?: 'active' | 'archived' | 'all' } = {}): number {
+    return this.persistence.countSessions(options);
+  }
+
+  /**
+   * 会话归档位翻透传（53 轮件 B——05 §9 archived_at；归档纯视图性拍板）：
+   * 无 busy 守卫、活会话可归档（驱动不拆、登记不动——本管理器零编排）；
+   * 续写不自动恢复（恢复与续写归 caller 编排）。三态同 persistence 面。
+   */
+  archiveSession(sessionId: string, archive: boolean): 'archived' | 'unarchived' | 'missing' {
+    return this.persistence.archiveSession(sessionId, archive);
   }
 
   /**

@@ -96,6 +96,8 @@ export interface SessionRow {
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly lastSeq: number;
+  /** 归档时刻（53 轮件 B——v15 专列；undefined = 活跃；位翻非删行） */
+  readonly archivedAt: number | undefined;
 }
 
 /** store_state 读形态 */
@@ -187,6 +189,21 @@ export const SESSION_ARCHIVE_MIGRATION: MigrationSpec = {
   sql: `
     ALTER TABLE sessions ADD COLUMN first_question_summary TEXT;
     ALTER TABLE sessions ADD COLUMN model_summary TEXT;
+  `,
+};
+
+/**
+ * sessions 归档位迁移项（53 轮件 B——05 §9 archived_at 专列兑现注，v15）：
+ * `archived_at`（INTEGER——NULL = 活跃；位翻非删行，归档纯视图性）。与 v13
+ * SESSION_ARCHIVE_MIGRATION（首问快照两列）撞名分立故全名 ARCHIVED_AT。
+ * 同律：只经迁移加列、正典 DDL 有意不折（新库首启 bootstrap 后逐跑迁移链，
+ * DDL 折列会撞 duplicate column name）。
+ */
+export const SESSION_ARCHIVED_AT_MIGRATION: MigrationSpec = {
+  version: 15,
+  name: 'session-archived-at',
+  sql: `
+    ALTER TABLE sessions ADD COLUMN archived_at INTEGER;
   `,
 };
 
@@ -893,38 +910,54 @@ export class Store implements WriteTarget {
 
   // ── sessions 行面 ──────────────────────────────────────────────────────────
 
+  /** 会话视图谓词（53 轮件 B——归档纯视图性：位翻非删行，清单按视图过滤；
+   *  'all' = 无谓词（缺省同形——既有消费面零行为变），'active' = 未归档，
+   *  'archived' = 已归档） */
+  private static viewClause(view: 'active' | 'archived' | 'all' | undefined): string | undefined {
+    if (view === 'active') return 'archived_at IS NULL';
+    if (view === 'archived') return 'archived_at IS NOT NULL';
+    return undefined; // 'all' / 缺省——无过滤
+  }
+
   /** 会话行查询（loadSession 的登记信息源） */
   getSessionRow(sessionId: string): SessionRow | undefined {
     this.ensureOpen();
     const row = this.stmt(
-      `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq
+      `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq, archived_at
        FROM sessions WHERE id = ?`,
     ).get(sessionId) as RawSessionRow | undefined;
     return row ? parseSessionRow(row) : undefined;
   }
 
-  /** 会话列表（updated_at 倒序；workspaceRoot 过滤 = 「按 cwd 取最新会话」选取面） */
-  listSessions(options: { workspaceRoot?: string; limit?: number } = {}): SessionRow[] {
+  /** 会话列表（updated_at 倒序；workspaceRoot 过滤 = 「按 cwd 取最新会话」选取面；
+   *  view 视图过滤缺省 all——既有消费面零行为变） */
+  listSessions(
+    options: { workspaceRoot?: string; limit?: number; view?: 'active' | 'archived' | 'all' } = {},
+  ): SessionRow[] {
     this.ensureOpen();
     const limit = options.limit ?? 100;
+    const viewSql = Store.viewClause(options.view);
     const rows =
       options.workspaceRoot !== undefined
         ? (this.stmt(
-            `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq
-             FROM sessions WHERE workspace_root = ? ORDER BY updated_at DESC LIMIT ?`,
+            `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq, archived_at
+             FROM sessions WHERE workspace_root = ? ${viewSql ? `AND ${viewSql}` : ''} ORDER BY updated_at DESC LIMIT ?`,
           ).all(options.workspaceRoot, limit) as RawSessionRow[])
         : (this.stmt(
-            `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq
-             FROM sessions ORDER BY updated_at DESC LIMIT ?`,
+            `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq, archived_at
+             FROM sessions ${viewSql ? `WHERE ${viewSql}` : ''} ORDER BY updated_at DESC LIMIT ?`,
           ).all(limit) as RawSessionRow[]);
     return rows.map(parseSessionRow);
   }
 
   /** 会话全量计数（B2 截断披露单源——不受 listSessions limit 窗影响；
-   *  清单消费位〔切换器/CLI/webui〕据此向用户披露「所见非全量」） */
-  countSessions(): number {
+   *  清单消费位〔切换器/CLI/webui〕据此向用户披露「所见非全量」；view 视图
+   *  过滤缺省 all——TUI 清单与总数同视图〔分母一致〕） */
+  countSessions(options: { view?: 'active' | 'archived' | 'all' } = {}): number {
     this.ensureOpen();
-    return (this.stmt('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n;
+    const viewSql = Store.viewClause(options.view);
+    return (this.stmt(`SELECT COUNT(*) AS n FROM sessions ${viewSql ? `WHERE ${viewSql}` : ''}`).get() as { n: number })
+      .n;
   }
 
   /**
@@ -935,9 +968,13 @@ export class Store implements WriteTarget {
    * `:858` 的降序镜像）；多取 1 行探针判 hasMore（loadEventsPage 同构），
    * 末页诚实 null。cursor 串自持 `${updatedAt}:${id}` 透明形（解析
    * lastIndexOf 切两段——id 尾段无冒号；坏令牌 fail-loud）。
+   * view 视图过滤（53 轮件 B）与游标谓词同 WHERE 合取——分页域=视图域，
+   * 不越视图借行；缺省 all 零行为变。
    * 旧 listSessions 原样保留（CLI/obs/webui/serve/SDK 消费面零动）。
    */
-  listSessionsPage(options: { workspaceRoot?: string; limit?: number; cursor?: string } = {}): {
+  listSessionsPage(
+    options: { workspaceRoot?: string; limit?: number; cursor?: string; view?: 'active' | 'archived' | 'all' } = {},
+  ): {
     rows: SessionRow[];
     nextCursor: string | null;
   } {
@@ -949,6 +986,8 @@ export class Store implements WriteTarget {
       clauses.push('workspace_root = ?');
       params.push(options.workspaceRoot);
     }
+    const viewSql = Store.viewClause(options.view);
+    if (viewSql !== undefined) clauses.push(viewSql);
     if (options.cursor !== undefined) {
       // 游标 = 上一页末行 (updated_at, id)——行值比较续页（降序镜像）
       const [updatedAt, id] = decodeSessionsCursor(options.cursor);
@@ -957,7 +996,7 @@ export class Store implements WriteTarget {
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.stmt(
-      `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq
+      `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq, archived_at
        FROM sessions ${where} ORDER BY updated_at DESC, id DESC LIMIT ?`,
     ).all(...params, limit + 1) as RawSessionRow[];
     const hasMore = rows.length > limit;
@@ -968,6 +1007,17 @@ export class Store implements WriteTarget {
       // nextCursor 取探针前末行（多取行留给下一页不跳行）
       nextCursor: hasMore && last ? `${last.updated_at}:${last.id}` : null,
     };
+  }
+
+  /**
+   * 归档位翻（53 轮件 B——05 §9 archived_at 兑现）：at = 归档时刻（位落）/
+   * null = 恢复（位清）。位翻非删行——**不触 updated_at**（归档纯视图性：
+   * 清单序不因归档跳动）、零事件写（归档不产日志行）。返回位翻命中
+   * （false = id 缺席——诚实不造行）。
+   */
+  setSessionArchived(sessionId: string, at: number | null): boolean {
+    this.ensureOpen();
+    return this.stmt(`UPDATE sessions SET archived_at = ? WHERE id = ?`).run(at, sessionId).changes > 0;
   }
 
   /** 会话登记先行落行（空种子形态——last_seq=-1 无事件语义，与游标起点一致；
@@ -1341,6 +1391,7 @@ interface RawSessionRow {
   created_at: number;
   updated_at: number;
   last_seq: number;
+  archived_at: number | null;
 }
 
 interface RawStoreStateRow {
@@ -1404,6 +1455,7 @@ function parseSessionRow(row: RawSessionRow): SessionRow {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastSeq: row.last_seq,
+    archivedAt: row.archived_at ?? undefined,
   };
 }
 

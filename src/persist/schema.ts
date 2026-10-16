@@ -39,8 +39,9 @@ CREATE INDEX idx_events_type ON events(type);
 
 -- ── sessions：会话登记行（血缘三元组 + 工作区选取键；无归属列——会话直归
 --    agent，05 §0；行由 write-behind 首写登记，血缘首登为准不回改）────────────
---    档案两列 first_question_summary / model_summary **有意不折入本 DDL**：经
---    v13 迁移加列（store.ts SESSION_ARCHIVE_MIGRATION——ALTER ADD COLUMN 首例），
+--    档案两列 first_question_summary / model_summary 与归档位 archived_at
+--    **有意不折入本 DDL**：经 v13/v15 迁移加列（store.ts SESSION_ARCHIVE_
+--    MIGRATION / SESSION_ARCHIVED_AT_MIGRATION——ALTER ADD COLUMN 族），
 --    bootstrap 置 user_version=1 后新旧库同路逐跑迁移链获得；DDL 折列则新库
 --    首启撞 duplicate column name（05 §9 专列兑现注）。
 CREATE TABLE sessions (
