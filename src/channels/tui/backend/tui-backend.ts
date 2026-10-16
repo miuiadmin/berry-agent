@@ -581,8 +581,8 @@ export function wireForkEdit(
   };
 }
 
-/** 主屏形进屏模式串：粘贴开 + 焦点开（1004——notify-osc9）+ kitty 推栈（disambiguate 最小位）+ 探测哨兵（无光标藏无 1049——与 Engine 全屏形分立） */
-const ENTER_MAIN = '\x1b[?2004h' + '\x1b[?1004h' + '\x1b[>1u' + '\x1b[?u' + '\x1b[c';
+/** 主屏形进屏模式串：粘贴开 + 焦点开（1004——notify-osc9）+ kitty 推栈（disambiguate+REPORT_ALTERNATE_KEYS 位并 >5u——52 轮件 C）+ 探测哨兵（无光标藏无 1049——与 Engine 全屏形分立） */
+const ENTER_MAIN = '\x1b[?2004h' + '\x1b[?1004h' + '\x1b[>5u' + '\x1b[?u' + '\x1b[c';
 /** 出屏模式串（与进屏严格对称反序——单源常量；1004 位对称收口） */
 const LEAVE_MAIN = '\x1b[<u' + '\x1b[?1004l' + '\x1b[?2004l';
 /**

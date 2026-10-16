@@ -82,7 +82,7 @@ function rig(screen?: 'inline' | 'alt-screen'): {
   return { engine, io, clock, inputs, root };
 }
 
-const ENTER_INLINE = '\x1b[?25l\x1b[?2004h\x1b[?1004h\x1b[>1u\x1b[?u\x1b[c';
+const ENTER_INLINE = '\x1b[?25l\x1b[?2004h\x1b[?1004h\x1b[>5u\x1b[?u\x1b[c';
 const LEAVE_INLINE = '\x1b[<u\x1b[?1004l\x1b[?2004l\x1b[?25h';
 const ENTER_ALT = '\x1b[?1049h' + ENTER_INLINE + '\x1b[?1002h\x1b[?1006h'; // + 鼠标准入（mu-2）
 const LEAVE_ALT = '\x1b[?1006l\x1b[?1002l' + LEAVE_INLINE + '\x1b[?1049l'; // 鼠标关停前置（对称反序）

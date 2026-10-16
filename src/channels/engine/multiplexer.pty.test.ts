@@ -433,7 +433,7 @@ describe('多路复用器真环境包裹行为锁：screen 腿（本机真跑）
       // 吞没外证：引擎的 kitty 推送（CSI > 1 u）与探测（CSI ? u）在外层流零
       // 出现——screen 不透传未知 CSI 给真终端（降级的另一半：外层真 kitty 终
       // 端也接不到探测，无应答可回）
-      expect(count(out, '\x1b[>1u')).toBe(0);
+      expect(count(out, '\x1b[>5u')).toBe(0);
       expect(count(out, '\x1b[?u')).toBe(0);
     },
   );

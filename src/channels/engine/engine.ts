@@ -50,7 +50,7 @@ const ENTER_COMMON =
   '\x1b[?25l' + // 光标藏（帧尾按声明落位再显）
   '\x1b[?2004h' + // bracketed paste 开（粘贴严格处理）
   '\x1b[?1004h' + // 焦点应答开（挖掘 36 轮 notify-osc9——CSI I/O 上抛 onFocus）
-  '\x1b[>1u' + // kitty 键盘协议推栈：disambiguate 最小位（Esc/alt/ctrl 无歧义化）
+  '\x1b[>5u' + // kitty 键盘协议推栈：disambiguate(1)+REPORT_ALTERNATE_KEYS(4) 位并（52 轮件 C——非美布局快捷键 base 归一）
   '\x1b[?u' + // kitty 探测：查询当前增强位
   '\x1b[c'; // DA1 探测哨兵（应答先到无 kitty 应答 = legacy）
 

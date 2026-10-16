@@ -812,6 +812,25 @@ export class InputDecoder {
       this.dispatchImeText(text);
       return;
     }
+    // alternate keys 第三子域归一（挖掘 52 轮件 C——>5u 位并 1|4 的消费面）：
+    // 推栈带 REPORT_ALTERNATE_KEYS 后 CSI u 首子域呈 key:shifted:base 三段
+    // （shifted==key 时第二段空——真实形如 '1103::97'）。非美布局（AZERTY/
+    // 俄布局等）ctrl/alt/meta+字母快捷键的键面是本地布局字面、动作册绑定在
+    // base 布局——按 base 码点归一才能命中。三闸判据：① 修饰限快捷键族
+    // （ctrl/alt/meta 至少其一——shift-only 不走：shift 意图本就在大写位、
+    // AZERTY 数字键走 base 反错）；② base 码点整数且在可打印域
+    // [0x20,0x10FFFF]（畸形视同缺席诚实回落非吞）；③ kittyKeyName 归一名
+    // 须单字符（27 escape 等功能键名回落布局键面）。不中全闸回落 emitKey
+    // 布局键面（现状零变）。
+    const baseCp = keyParts.length > 2 ? Number(keyParts[2]) : NaN;
+    const shortcutMods = mods.ctrl || mods.alt || mods.meta;
+    if (shortcutMods && Number.isInteger(baseCp) && baseCp >= 0x20 && baseCp <= 0x10ffff) {
+      const baseName = this.kittyKeyName(baseCp);
+      if (baseName !== undefined && baseName.length === 1) {
+        this.emitKey(baseName, mods, phase);
+        return;
+      }
+    }
     this.emitKey(keyName, mods, phase);
   }
 

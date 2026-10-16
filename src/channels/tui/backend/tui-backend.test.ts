@@ -124,7 +124,7 @@ describe('TuiBackend 契约面', () => {
     const { io } = makeBackend();
     // 主屏形模式串：粘贴开 + kitty 推栈——无 1049 备屏、无光标藏（与全屏形分立）
     expect(io.bytes).toContain('\x1b[?2004h');
-    expect(io.bytes).toContain('\x1b[>1u');
+    expect(io.bytes).toContain('\x1b[>5u');
     expect(io.bytes).not.toContain('\x1b[?1049h');
     expect(io.bytes).not.toContain('\x1b[?25l');
     expect(io.bytes).toContain('\x1b[2J\x1b[H');
@@ -2405,9 +2405,9 @@ describe('TuiBackend 终端外显（件 7）', () => {
 
 /** 主屏形出 / 进屏模式串（tui-backend 单源常量的字节真源——对称反序互证锚） */
 const MAIN_LEAVE = '\x1b[<u\x1b[?1004l\x1b[?2004l';
-const MAIN_ENTER = '\x1b[?2004h\x1b[?1004h\x1b[>1u\x1b[?u\x1b[c';
+const MAIN_ENTER = '\x1b[?2004h\x1b[?1004h\x1b[>5u\x1b[?u\x1b[c';
 /** 副屏 Engine 进出屏字节（集成测试序锚） */
-const ALT_ENTER = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[?1004h\x1b[>1u\x1b[?u\x1b[c\x1b[?1002h\x1b[?1006h'; // 鼠标准入尾随（mu-2）+ 焦点应答位（notify-osc9）
+const ALT_ENTER = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[?1004h\x1b[>5u\x1b[?u\x1b[c\x1b[?1002h\x1b[?1006h'; // 鼠标准入尾随（mu-2）+ 焦点应答位（notify-osc9）+ 推栈 >5u（52 轮件 C）
 const ALT_LEAVE = '\x1b[?1006l\x1b[?1002l\x1b[<u\x1b[?1004l\x1b[?2004l\x1b[?25h\x1b[?1049l'; // 鼠标关停前置（对称反序）+ 焦点位对称收口
 
 /** 副屏内容替身（集成测试——写文 + 事件终局吞掉） */
@@ -5878,7 +5878,7 @@ describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②
 /**
  * 剥 ANSI 序列后的显示宽（fx2-A 断言锚）：SGR/OSC 零宽（终端把 ESC 序列当
  * 控制不占列）——与物理行落屏宽同算术。CSI 参数/中间字节类含 <>=（kitty
- * 键盘推栈 \x1b[>1u 等私营形零宽同剥）。
+ * 键盘推栈 \x1b[>5u 等私营形零宽同剥〔52 轮件 C 位并注〕。
  */
 function displayWidth(text: string): number {
   return stringWidth(text.replace(/\x1b\[[0-9;?<>=]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, ''));

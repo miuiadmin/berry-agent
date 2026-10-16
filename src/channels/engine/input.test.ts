@@ -369,6 +369,38 @@ describe('kitty 轨：CSI u 全形', () => {
     expect(run(['\x1b[97u'])).toEqual([key('a')]);
     expect(run(['\x1b[0;;20013u'])).toEqual([ime('中', true)]); // keyCode 0 保留合法
   });
+
+  // ── alternate keys 第三子域消费腿（挖掘 52 轮件 C——>5u 位并 1|4 的消费面）──
+  // 真实形第二子域留空（shifted==key 时 kitty 协议空段——split 得 ['1103','','97']）；
+  // 归一判据三闸 = ctrl/alt/meta 修饰在场 + base 码点整数界内 + kittyKeyName 单字符。
+  it('base 归一：ctrl+非美布局键按 base layout 归一（AZERTY/俄布局 ctrl+a 实形）', () => {
+    // 修前红实证位：1103='я' 布局面、base 97='a'——修前消费腿缺位报 'я'、
+    // 非美布局快捷键全数错键（动作册 ctrl+字母绑定面全失灵）
+    expect(run(['\x1b[1103::97;5u'])).toEqual([key('a', { ctrl: true })]); // 5 = 1+ctrl4
+    expect(run(['\x1b[1103::97;9u'])).toEqual([key('a', { meta: true })]); // 9 = 1+super8
+    expect(run(['\x1b[1103::97;3u'])).toEqual([key('a', { alt: true })]); // 3 = 1+alt2
+  });
+
+  it('shift-only 不走 base 归一（shift 意图在大写位——AZERTY 数字键不误触）', () => {
+    // 行为锁：shift+я 报布局键面 'я'（shift 无归一义——kittyKeyName 归一只服务
+    // 快捷键修饰族；shift+数字在 AZERTY 是数字本体，走 base 会反着错）
+    expect(run(['\x1b[1103::97;2u'])).toEqual([key('я', { shift: true })]);
+  });
+
+  it('第三子域缺席零变（终端未报 alternate——现状行为锁）', () => {
+    expect(run(['\x1b[1103;5u'])).toEqual([key('я', { ctrl: true })]);
+  });
+
+  it('base 名非单字符不归一（27 escape 等功能键名——回落布局键面）', () => {
+    expect(run(['\x1b[1103::27;5u'])).toEqual([key('я', { ctrl: true })]); // 'escape' 多字符——不走
+  });
+
+  it('base 码点畸形视同缺席（非整数/越界/低于可打印域——诚实回落非吞）', () => {
+    expect(run(['\x1b[1103::-1;5u'])).toEqual([key('я', { ctrl: true })]);
+    expect(run(['\x1b[1103::97.5;5u'])).toEqual([key('я', { ctrl: true })]);
+    expect(run(['\x1b[1103::1114112;5u'])).toEqual([key('я', { ctrl: true })]);
+    expect(run(['\x1b[1103::19;5u'])).toEqual([key('я', { ctrl: true })]); // 19 低于 0x20 控制域
+  });
 });
 
 describe('IME 组字态机（前缀增长检测 + 单发提交零延迟）', () => {
