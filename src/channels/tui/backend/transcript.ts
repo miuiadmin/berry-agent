@@ -347,7 +347,7 @@ export interface AskDecisionLineInput {
  * 状态翻转/内容改才落。直播腿与投影 flush 两路同用本函数（同一闸结果）。
  */
 export function todoSignature(items: readonly TodoItem[]): string {
-  return items.map((item) => `${item.status} ${item.content}`).join('\n');
+  return items.map((item) => `${item.status}\x00${item.content}`).join('\n');
 }
 
 /**
