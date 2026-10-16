@@ -1397,6 +1397,8 @@ describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面�
     return io.frames.slice(clearIdx + 1).join('');
   };
 
+  // confirm 不随件 B 审批迁底栈带（用户仅点名审批——07 §4.3 2026-10-16 批注：
+  // 「问问题」族维持编辑器下方现位）：本 it 即 confirm 应答段现位锁
   it('confirm 面板呈现于编辑器下方（修前红：屏顶浮层先于编辑器）', async () => {
     const { io, backend, clock, pump } = makeInteractive();
     io.emitInput('a');
@@ -1414,8 +1416,20 @@ describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面�
     await expect(p).resolves.toBe(true);
   });
 
-  it('askApproval 面板呈现于编辑器下方（修前红：屏顶）', async () => {
-    const { io, backend, clock, pump } = makeInteractive(undefined, 14); // 审批面板 5 行并陈需高窗
+  it('askApproval 面板迁底栈带：footer 状态行之后、与 JobPanel 同带（件 B 修前红：编辑器下方应答段）', async () => {
+    // rig 注 footer（行1 仪表首槽 'Auto'——底栈带行序锚）；16 行窗：编辑器 3 +
+    // 审批面板 ~8 + footer 两行并陈需高窗
+    const { io, backend, clock, pump } = makeInteractive(
+      {
+        footer: {
+          tiers: () => ({ mode: 'Auto', thinking: '思考高', sandbox: '工作区写', sandboxDanger: false }),
+          sessionSpent: () => 500,
+          modelLabel: 'zai/glm-4.7',
+          cwdLabel: () => 'berry-agent',
+        },
+      },
+      16,
+    );
     io.emitInput('a');
     pump();
     const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
@@ -1423,7 +1437,13 @@ describe('TuiBackend 应答段底部迁移（07 §4.3 呈现位翻档——面�
     const frame = lastFullFrame(io, () => clock.advance(75));
     expect(frame.indexOf('›')).toBeGreaterThanOrEqual(0);
     expect(frame.indexOf('⚙ 写入文件')).toBeGreaterThanOrEqual(0); // 面板标题（V-0 注⑤动词位）
-    expect(frame.indexOf('›')).toBeLessThan(frame.indexOf('⚙ 写入文件')); // 修前红
+    expect(frame.indexOf('Auto')).toBeGreaterThanOrEqual(0); // footer 行1 仪表首槽（rig 注入——行序锚）
+    // 编辑器仍在面板上方（对话本体序不变——迁位不越编辑器）
+    expect(frame.indexOf('›')).toBeLessThan(frame.indexOf('⚙ 写入文件'));
+    // 修前红：审批面板现渲染于段六（编辑器下方应答段）先于 footer；迁位后钉
+    // 底栈带段八之一.五——footer 状态行之后、JobPanel 之前（用户令「跟子代理
+    // 是一个区域的」；拼接序即屏上行序——indexOf 比较即行序比较）
+    expect(frame.indexOf('⚙ 写入文件')).toBeGreaterThan(frame.indexOf('Auto'));
     io.emitInput('\r');
     pump();
     await expect(p).resolves.toBe('approve');

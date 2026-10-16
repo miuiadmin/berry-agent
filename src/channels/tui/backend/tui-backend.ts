@@ -21,11 +21,13 @@
  *   面板 → 编辑器（动态量高 + 光标声明——setFixed 声明位落 cup）→ 补全弹层
  *   （2026-10-10 Codex 样式复刻批 R-6 弹出位翻档——自编辑器上方迁编辑器
  *   下方，段五.四；梯末位牺牲序不变）→ **应答段**（input-ask 提示行
- *   + overlay 面板栈〔审批/confirm/select 浮层——自屏顶迁编辑器下方，与
- *   footer/子 Agent 同区域；栈序叠放，锚定自由定位路已整域清退〔fx2-D +
+ *   + overlay 面板栈常规组〔confirm/select 浮层——自屏顶迁编辑器下方；
+ *   审批面板已随件 B〔2026-10-16 用户三反馈〕再迁底栈带〔段八之一.五〕；
+ *   栈序叠放，锚定自由定位路已整域清退〔fx2-D +
  *   第五役 F3 一刀清〕；视口帽收口 fx2-B；占焦模态律与键路由不变——呈现
  *   位迁移非交互语义迁移〕，在场才占行）→ 工具进度面板（件 5——与状态行
- *   分职互补相邻）→ 状态行底栏三行栈（行1 仪表 + 行2 环境，1-2 行）→ 后台
+ *   分职互补相邻）→ 状态行底栏三行栈（行1 仪表 + 行2 环境，1-2 行）→
+ *   审批组（件 B——ApprovalPanel 呈现带，与 JobPanel 同带相邻）→ 后台
  *   任务面板（注⑪① 行3——迁最底行）；
  * - **渲染合并**：调度注入后 op 队列合并（连续 present 留末次、transient
  *   到达序保持、固定区脏位重建一帧一次）+ fps 帽 60 + tick 80ms 自重排
@@ -185,7 +187,7 @@ import { SetupWizardPanel } from '../panels/setup-wizard.js';
 import { HEAD_MARKS } from '../panels/panel-chrome.js';
 import type { WizardPrompter } from '../../wizard-prompter.js';
 import { MemoryViewer, type MemoryViewerDataDeps } from '../memory/memory-viewer.js';
-import { ConfirmPanel, SelectPanel, type ViewportCapAware } from '../overlay/select-confirm.js';
+import { ApprovalPanel, ConfirmPanel, SelectPanel, type ViewportCapAware } from '../overlay/select-confirm.js';
 import { AutocompletePopup } from '../autocomplete/popup.js';
 import { CombinedAutocompleteProvider, type AutocompleteSources } from '../autocomplete/autocomplete.js';
 import { AutocompleteCompleter } from '../autocomplete/async.js';
@@ -3735,6 +3737,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 归通道核 settleApprovalAlways——本件只呈现与回值）。signal abort 收口
    * 'cancel' 保守值 + 撤销说明行（文案「审批」区分于 input/confirm/select
    * 三件——07 §4.3 撤销面）。
+   *
+   * 件 B（2026-10-16 用户三反馈）：构造位用 ApprovalPanel 呈现带标记
+   * （SelectPanel 零逻辑子类）——renderFixed 据此把审批面板分组迁底栈带
+   * （footer 之后、JobPanel 之前）；confirm/select 不随标维持应答段现位。
    */
   askApproval(_sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer> {
     // _sessionId：会话归属位随批 13b-3 后端面签名携带——TUI 呈现不消费（单屏
@@ -3752,7 +3758,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         request.toolName !== undefined
           ? `${HEAD_MARKS.tool} ${toolFaceZh(request.toolName)}：${request.summary}`
           : request.summary;
-      const panel = new SelectPanel({
+      const panel = new ApprovalPanel({
         title,
         options: [
           { value: 'approve', label: '批准' },
@@ -5308,12 +5314,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * （件 12——编辑器正上方）→ 排队常驻面板 → 编辑器（动态量高；聚焦态 = 无
    * overlay 占焦）→ 补全弹层（R-6 弹出位翻档——自编辑器上方迁编辑器下方，
    * 段五.四；fixed-budget 梯不动〔popup 仍梯末位——牺牲序不变〕）→
-   * **应答段**（input-ask 提示行 + overlay 面板栈——审批/confirm/select
-   * 浮层自固定区顶部段迁编辑器下方，与 footer/子 Agent 同区域；在场才占行、
+   * **应答段**（input-ask 提示行 + overlay 面板栈常规组——confirm/select
+   * 浮层自固定区顶部段迁编辑器下方；件 B〔2026-10-16 用户三反馈〕审批面板
+   * 再迁底栈带〔段八之一.五〕、应答段收缩为常规组；在场才占行、
    * 入恒保底族〔段内超帽走 fx2-B 滚动窗——不整段隐没〕；占焦模态律与键
    * 路由不变——呈现位迁移非交互语义迁移，键路由按 stack.size 判定与渲染
    * 位零耦合）→ 工具进度面板（件 5——与状态行分职互补相邻）→ 状态行底栏
-   * 三行栈（行1 仪表 + 行2 环境——1-2 行，注⑪①）→ 后台任务面板（注⑪①
+   * 三行栈（行1 仪表 + 行2 环境——1-2 行，注⑪①）→ **审批组**（件 B——
+   * ApprovalPanel 呈现带：footer 之后、JobPanel 之前钉位，用户令「跟子代理
+   * 是一个区域的」）→ 后台任务面板（注⑪①
    * 行3——迁最底行，V-1 漂移补列）。编辑光标经 EditorView setCursor 声明 →
    * MainScreen.setFixed 声明位落 cup。
    *
@@ -5395,8 +5404,19 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         askRows -
         editorFloor,
     );
-    const overlayHeights = this.measureOverlayStack(contents, columns, overlayCap);
-    const overlaySum = overlayHeights.reduce((sum, h) => sum + h, 0);
+    // 审批组与常规组分带测量（件 B——2026-10-16 用户三反馈：审批面板迁底栈
+    // 带，renderFixed 渲染位分两组、量高仍入 overlay 预算单源）：审批组先量
+    // 占满帽、常规组以残余帽再量——两组之和 ≤ overlayCap，「梯总额 + 三外挂
+    // 腿恒 ≤ 截断预算」不变式与修前逐层测量同界保持。ask 单槽律
+    // （openAskLayer askLayerOwner 判占）保证两组至多一组非空——
+    // measureOverlayStack 的 unawareAbove 跨组保留语义在分组形不可达（冷读
+    // 闸 MINOR-B1 注记钉边界；未来多面板并陈须回审）
+    const approvalContents = contents.filter((c): c is ApprovalPanel => c instanceof ApprovalPanel);
+    const regularContents = contents.filter((c) => !(c instanceof ApprovalPanel));
+    const approvalHeights = this.measureOverlayStack(approvalContents, columns, overlayCap);
+    const approvalSum = approvalHeights.reduce((sum, h) => sum + h, 0);
+    const overlayHeights = this.measureOverlayStack(regularContents, columns, Math.max(0, overlayCap - approvalSum));
+    const overlaySum = approvalSum + overlayHeights.reduce((sum, h) => sum + h, 0);
     const taskRows =
       taskPresent && overlaySum + askRows + editorFloor + 1 + statusWanted <= fixedBudgetRows(this.io.size().rows)
         ? 1
@@ -5536,13 +5556,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       row += 1;
     }
 
-    // 段六：overlay 段（应答面板栈——2026-10-08 D 件自屏顶迁编辑器下方应答
-    // 段：审批/confirm/select 浮层与 footer/子 Agent 同区域；栈序自上而下
-    // 叠放、量高已按视口帽收口——fx2-B/D 注；占焦模态律与键路由不变〔按
-    // stack.size 判定，与渲染位零耦合〕）
-    for (let i = 0; i < contents.length; i++) {
+    // 段六：overlay 段（应答面板栈常规组——confirm/select 浮层；2026-10-08
+    // D 件自屏顶迁编辑器下方应答段，件 B〔2026-10-16 用户三反馈〕审批面板
+    // 再迁底栈带〔段八之一.五〕、本段收缩为常规组；栈序自上而下叠放、量高
+    // 已按视口帽收口——fx2-B/D 注；占焦模态律与键路由不变〔按 stack.size
+    // 判定，与渲染位零耦合〕）
+    for (let i = 0; i < regularContents.length; i++) {
       const height = overlayHeights[i]!;
-      contents[i]!.render(grid, { row, col: 0, width: columns, height });
+      regularContents[i]!.render(grid, { row, col: 0, width: columns, height });
       row += height;
     }
 
@@ -5556,6 +5577,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 行2 环境；量高 1-2 经 budget.status——极小终端行2 让位可 1）
     this.statusLine.render(grid, { row, col: 0, width: columns, height: budget.status });
     row += budget.status;
+
+    // 段八之一.五：审批组（件 B——2026-10-16 用户三反馈：审批 ask 应答面板
+    // 自段六应答段迁底栈带，footer 之后、JobPanel 之前钉位——用户令「输入
+    // 框底部的那个区域，就跟子代理是一个区域的」；confirm/select 与 ask
+    // 提示行不随迁〔段六现位维持〕。量高已分组测量入 overlay 预算单源
+    // 〔恒保底族——量高 0 极小终端形与 fx2-B 不变式同界〕；占焦模态律与键
+    // 路由零改〔按 stack.size 判定，与渲染位零耦合〕）
+    for (let i = 0; i < approvalContents.length; i++) {
+      const height = approvalHeights[i]!;
+      approvalContents[i]!.render(grid, { row, col: 0, width: columns, height });
+      row += height;
+    }
 
     // 段八之二：后台任务面板（注⑪① 行3——迁最底行：running 快照紧凑面板
     // 在状态行之下钉屏底；清板即零行；截断隐 = 零高度；段内低段高容量收口

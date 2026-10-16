@@ -1,5 +1,7 @@
 /**
- * 一次性问答面板两枚（07 §4.3）：select / confirm 的主屏浮层实装。
+ * 一次性问答面板族（07 §4.3）：select / confirm 的主屏浮层实装 +
+ * ApprovalPanel 呈现带标记（件 B——2026-10-16 用户三反馈：审批迁底栈带的
+ * 分组判据零逻辑子类，见文末）。
  *
  * - select：↑/↓ 移动高亮（循环）、pagedown/pageup/home/end 翻页直达（钳首末
  *   不循环）、Enter 选定、Esc 取消收 ''（与撤销面保守值同语义）；
@@ -406,3 +408,15 @@ export class ConfirmPanel implements Renderable {
     this.onFinish?.(confirmed);
   }
 }
+
+/**
+ * 审批面板呈现带标记（件 B——2026-10-16 用户三反馈：07 §4.3 呈现位再翻档）：
+ * SelectPanel 零逻辑子类——行为/键面/量高全承父类，唯类型标记供 renderFixed
+ * 分组判据（instanceof 审批组 vs 常规组，类型级判据零运行时开销）。用户令
+ * 「不要放在输入框下面，要放在输入框底部……输入框底部的那个区域，就跟
+ * 子代理是一个区域的」——审批 ask 应答面板自编辑器下方应答段迁底栈带
+ * （footer 之后、JobPanel 之前）；confirm/select 面板与 ask 提示行不随迁
+ * （用户仅点名审批）。占焦模态律/键路由零改（呈现位迁移非交互语义
+ * 迁移）。
+ */
+export class ApprovalPanel extends SelectPanel {}
