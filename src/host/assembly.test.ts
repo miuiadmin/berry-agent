@@ -34,6 +34,7 @@ import { readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import { SETTINGS_BASENAME } from './settings-store.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
+import { canonicalWorkspaceRoot } from '../context/index.js';
 import { createAuditFace } from '../persist/index.js';
 import { openCheckpointStore } from '../checkpoint/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
@@ -408,6 +409,67 @@ describe('assembleHostStack 成功档', () => {
       }
       // 修前红锚：装配根零注入 → gitSummaryProvider 恒缺席 → git 行永缺席
       expect(text).toMatch(/- git: \S+/);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('grantsFence 装配环接线锁（①段一 grants 入账——冷读闸清偿）：磁盘行 grants 经真装配入账 grantsOf + plugin/grants 审计笔', async () => {
+    // grantsFence 是 grants 腿在真装配路径（assembleHostStack → runBoot 闭包 →
+    // bootPlugins）的唯一接线位；组合根单测（plugin-grants.test.ts）恒自带
+    // grantsFence 直调 bootPlugins——装配环若漏传（删接线行/重构丢参），
+    // 诚实缺席律整腿静默（不记账、grantsOf 恒 undefined）且其余测试面照绿
+    // （「单测假注入绿掩盖装配缺口」谱——C-1/ASM-1 同族，真装配 e2e 锁律）。
+    const dir = tmpDir('host-asm-grants-');
+    // 装机树磁盘行三件套：package.json 声明 grants 申请面（skills 即声明载荷
+    // ——纯声明包零码装载）+ enabled.yaml 启用行 + ledger 安装账
+    const pluginDir = join(dir, 'plugins', 'node_modules', 'acme-grants-wire');
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(
+      join(pluginDir, 'package.json'),
+      JSON.stringify({
+        name: 'acme-grants-wire',
+        version: '1.0.0',
+        berryAgent: { skills: ['demo-skill'], grants: { writableRoots: ['./assets'] } },
+      }),
+    );
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins:\n  - id: acme-grants-wire\n');
+    writeFileSync(
+      join(dir, 'plugins', 'ledger.json'),
+      JSON.stringify({ 'acme-grants-wire': { installPath: 'plugins/node_modules/acme-grants-wire' } }),
+    );
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 行获装载（拒载零记账——先锚定 activated 在场）
+      expect(assembly.boot.report.failed).toEqual([]);
+      expect(assembly.boot.report.activated.map((a) => a.id)).toContain('acme-grants-wire');
+      // 在程视图精确形（在场信号主断言）：fence workspace 锚根与测试同取
+      // canonicalWorkspaceRoot 单源；boot 解析档缺省 workspace-write →
+      // './assets' 锚定解析落 workspace 根内交集非空。接线删行 → 本断言红
+      // （grantsOf 恒 undefined——诚实缺席律的静默面在此被锁死）
+      const fenceWorkspace = canonicalWorkspaceRoot();
+      expect(assembly.boot.grantsOf('acme-grants-wire')).toEqual({
+        pluginId: 'acme-grants-wire',
+        anchor: 'workspace',
+        roots: [join(fenceWorkspace, 'assets')],
+      });
+      // durable 审计流同源同值：plugin/grants 首记恰一笔（pluginId 定域——
+      // 断言按 id 定域同既有审计测试律）；接线删行 → 零笔同红
+      const pens = createAuditFace(assembly.runtime.persistence.store.sqlite())
+        .listRecent()
+        .filter((row) => row.type === 'plugin/grants' && row.data['pluginId'] === 'acme-grants-wire');
+      expect(pens).toHaveLength(1);
+      expect(pens[0]!.data).toEqual({
+        pluginId: 'acme-grants-wire',
+        anchor: 'workspace',
+        roots: [join(fenceWorkspace, 'assets')],
+      });
     } finally {
       await assembly.runtime.shutdown();
     }

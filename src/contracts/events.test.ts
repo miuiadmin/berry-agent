@@ -11,7 +11,7 @@ import {
 } from './index.js';
 
 describe('事件词汇注册表', () => {
-  it('核心 36 词全注册（05 篇 §1.1 表格全列——逐词点名；compaction 三词 2026-09-06 纵切批增补、session/thinking-level 2026-09-06 遗漏审计批回填、plugin/opens·capability/used 2026-09-08 U3 落码批入册〔开门制两审计词——载体 = 进程级 audit_events 审计流非会话流，入册值 = 核心词身份双闸〕、compaction/fallback 2026-09-09 U4 落码批入册〔回落三律第 3 律审计词〕、生命周期五词 2026-09-09 audit 落账批入册〔plugin/installed·mounted·unmounted·toggled·updated——05 §1.1 生命周期归因面；uninstall 词已随装机面落码批先行落 audit_events 载体——六词同面〕、doors/updated 2026-09-09 开门制扩展批入册〔05 §1.1 行 72——doors 段进程级开门位授予面切换事实，boot diff 幂等同 plugin/opens 律〕、hook/registered·kv/written 2026-09-09 T9 案一批入册〔常规行为归因两词——钩子受理账 + 键值写历史；前者发射位在 ctx.on 受理壳成功尾、后者词先锚定而发射位随 ctx.sessions 受理制写面批（规范已裁代码未落）〕、preset/applied 2026-09-11 审批分档批 ap-3 入册〔05 §1.1 权限预设切换审计词——载体 = audit_events；写点 = TUI /approval preset 执行尾恰一笔、CLI --preset 逐次形零审计〕、session/paused 2026-09-11 无人值守深化批 u-3 入册〔04 §5 停靠升格定形注②——会话停靠词；载体 = 会话流；fold 语义 = 尾条即停靠；恢复不设对称词〕、credentials/changed 2026-09-11 ix-4 补注册〔c-1 规范立词而注册表漏行——/plugins config 表单腿 e2e 走真装配 audit 词汇闸 fail-loud 抓出；05 §1.1 行 74 勘正注同笔〕、compaction/skip 2026-09-13 obs-b 压缩判据观测批入册〔05 §1.1 五门 skip 词 + §2.1 判序定形注——fire 而被门挡才落、below 恒不落；载体 = 会话流；写入者 = 宿主 compaction 件〕、session/model 2026-10-16 挖掘 52 轮件 B 入册〔05 §1.1 档位族第三员——sandbox/mode·session/thinking-level 同形；模型切换 durable 化的落账词〕）', () => {
+  it('核心 39 词全注册（05 篇 §1.1 表格全列——逐词点名；compaction 三词 2026-09-06 纵切批增补、session/thinking-level 2026-09-06 遗漏审计批回填、plugin/opens·capability/used 2026-09-08 U3 落码批入册〔开门制两审计词——载体 = 进程级 audit_events 审计流非会话流，入册值 = 核心词身份双闸〕、compaction/fallback 2026-09-09 U4 落码批入册〔回落三律第 3 律审计词〕、生命周期五词 2026-09-09 audit 落账批入册〔plugin/installed·mounted·unmounted·toggled·updated——05 §1.1 生命周期归因面；uninstall 词已随装机面落码批先行落 audit_events 载体——六词同面〕、doors/updated 2026-09-09 开门制扩展批入册〔05 §1.1 行 72——doors 段进程级开门位授予面切换事实，boot diff 幂等同 plugin/opens 律〕、hook/registered·kv/written 2026-09-09 T9 案一批入册〔常规行为归因两词——钩子受理账 + 键值写历史；前者发射位在 ctx.on 受理壳成功尾、后者词先锚定而发射位随 ctx.sessions 受理制写面批（规范已裁代码未落）〕、preset/applied 2026-09-11 审批分档批 ap-3 入册〔05 §1.1 权限预设切换审计词——载体 = audit_events；写点 = TUI /approval preset 执行尾恰一笔、CLI --preset 逐次形零审计〕、session/paused 2026-09-11 无人值守深化批 u-3 入册〔04 §5 停靠升格定形注②——会话停靠词；载体 = 会话流；fold 语义 = 尾条即停靠；恢复不设对称词〕、credentials/changed 2026-09-11 ix-4 补注册〔c-1 规范立词而注册表漏行——/plugins config 表单腿 e2e 走真装配 audit 词汇闸 fail-loud 抓出；05 §1.1 行 74 勘正注同笔〕、compaction/skip 2026-09-13 obs-b 压缩判据观测批入册〔05 §1.1 五门 skip 词 + §2.1 判序定形注——fire 而被门挡才落、below 恒不落；载体 = 会话流；写入者 = 宿主 compaction 件〕、session/model 2026-10-16 挖掘 52 轮件 B 入册〔05 §1.1 档位族第三员——sandbox/mode·session/thinking-level 同形；模型切换 durable 化的落账词〕、session/notice 2026-10-16 挖掘 53 轮件 C 入册〔05 §1.1 会话级宿主通知 durable 化——升级提示首例；核心词 37〕、marketplace/sources 2026-10-16 硬伤处置第三批·⑤辅件B笔入册〔05 §1.1 铸族注升格——marketplace 源添加 provenance 审计词；载体 = 进程级 audit_events；写点 = 源管理命令面 add 成功尾恰一笔、失败路径零落账、装源不挂 door；核心词 38〕、plugin/grants 2026-10-16 硬伤处置第三批·①段一笔入册〔05 §1.1 行 80——grants 装载深校验+交集入账审计词；销 12a 欠账；载体 = audit_events；写点 = boot 装载序深校验+选锚求交尾与审计流尾 diff 幂等——有变才落、锚切换/根变落新条、交集变空落 [] 收口；拒载行零审计；核心词 39〕）', () => {
     const expected = [
       'turn/start',
       'turn/end',
@@ -50,6 +50,8 @@ describe('事件词汇注册表', () => {
       'kv/written',
       'preset/applied',
       'credentials/changed',
+      'marketplace/sources',
+      'plugin/grants',
     ];
     expect([...CORE_EVENT_TYPE_NAMES].sort()).toEqual([...expected].sort());
     for (const type of expected) expect(isKnownEventType(type)).toBe(true);
@@ -82,6 +84,14 @@ describe('事件词汇注册表', () => {
     expect(getEventTypeMeta('hook/registered')?.category).toBe('log-only');
     expect(getEventTypeMeta('kv/written')?.owner).toBe('host');
     expect(getEventTypeMeta('kv/written')?.category).toBe('log-only');
+    // ⑤辅件B笔审计词：写入者 = host 源管理命令面（audit 流单写者律——add
+    // 成功尾恰一笔）；类别 log-only（audit_events 载体）
+    expect(getEventTypeMeta('marketplace/sources')?.owner).toBe('host');
+    expect(getEventTypeMeta('marketplace/sources')?.category).toBe('log-only');
+    // ①段一笔审计词：写入者 = host 装配根装载序（audit 流单写者律——boot
+    // 装载序深校验+选锚求交尾 diff）；类别 log-only（audit_events 载体）
+    expect(getEventTypeMeta('plugin/grants')?.owner).toBe('host');
+    expect(getEventTypeMeta('plugin/grants')?.category).toBe('log-only');
   });
 
   it('核心词全部不 ignorable（读侧必须认识）', () => {

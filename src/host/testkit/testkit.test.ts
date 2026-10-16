@@ -216,6 +216,8 @@ const HARNESS_ABSENT_WITH_REASON: Readonly<Record<string, string>> = {
   sessionsControl: '跨会话操控受理器（e4-3）——假宿主零会话',
   sessionStartReplay:
     'session_start 补播腿活体会话册取值器（03 §2.4 补播腿——2026-10-16 硬伤处置第三批·②落码笔）——假宿主零会话（无 conversation stack/manager 活体，会话册恒空：注入恒等价于缺席零补播）',
+  grantsFence:
+    'grants 装载账 fence 快照输入（05 §1.1——2026-10-16 硬伤处置第三批·①段一）——假宿主无 workspace/fence 解析面，缺席 = grants 腿整体静默（诚实缺席律：:memory: 诊断形/测试替身）',
   crossDoors: 'doors 段活体取值器（03 §4.6）——假宿主门检只吃行 opens',
   compaction: '压缩席位容器（U4-3）——假宿主无 conversation stack',
   sdkRoutes: '插件道路由受理器（U5-2）——假宿主无 core:sdk 件席',

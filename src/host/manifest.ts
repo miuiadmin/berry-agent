@@ -34,7 +34,7 @@ export interface PluginManifest {
   readonly version?: string;
   /** 入口文件（相对包根；缺席时走入口解析序——见 entryPlan） */
   readonly entry?: string;
-  /** grants 申请面（§4 单维 writableRoots；深校验随装载器批——本笔浅校验形状） */
+  /** grants 申请面（§4 单维 writableRoots；四拒深校验已随 ①段一落装载序〔plugin-boot 合成腿〕——本面维持形状浅校验单源） */
   readonly grants?: Readonly<Record<string, unknown>>;
   /** 宿主侧默认配置值（启用行 config 缺席时的整值回落——schema/值分键后值单源；secret 型键明文值拒载） */
   readonly config?: unknown;
@@ -219,7 +219,7 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
     return shapeFail(`berryAgent.entry 须为非空字符串（插件 ${id}）`);
   }
 
-  // grants：须对象（深校验 writableRoots 形随装载器批——本笔浅校验）
+  // grants：须对象（writableRoots 四拒深校验已随 ①段一落装载序——本笔形状浅校验）
   if (manifest['grants'] !== undefined) {
     const grants = manifest['grants'];
     if (typeof grants !== 'object' || grants === null || Array.isArray(grants)) {
@@ -389,7 +389,9 @@ export interface EnabledRow {
   /**
    * 高危面开门授予位（03 §4.6 批 U1 增位）：值域 = USER_GRANTABLE_CAPABILITIES
    * 名单单源（行校验拒绝式执法）；缺席 = 全默认关；撤位 + 重装载即收回。
-   * 「用户授予」载体的第一形态——grants 三方交集授予维的执法数据源。
+   * 高危能力维授予载体（opens 声明即授予）；grants 写根维授予载体 = 启用行
+   * 在场（两维分立——03 §4.2 双锚定形注 v1 授予腿：启用行在场即授予、开发态
+   * --plugin-file 动作即授予）。
    */
   readonly opens?: readonly string[];
 }

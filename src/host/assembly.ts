@@ -1132,6 +1132,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           audit,
           // 装载史世代面（装载史批 h-3——boot 完成尾落行 + reapply 尾换代同点）
           loadHistory,
+          // grants 装载账 fence 快照（05 §1.1 行 80——2026-10-16 硬伤处置第三
+          // 批·①段一）：workspace 锚根 canonical 单源（canonicalWorkspaceRoot）
+          // + boot 解析档位（bootSandboxMode 一处解析——CLI > settings > 代码
+          // 常量；/reload reapply 重跑 runBoot 同一闭包 = 快照随换代重算、
+          // plugin/grants diff 幂等落）
+          grantsFence: { workspace: canonicalWorkspaceRoot(), mode: bootSandboxMode },
           noPlugins: noPluginsFlag,
           // 快速试件（eco-3a——启动期一次性注入；reapply 单参调用时 undefined）
           ...(pluginFile !== undefined ? { pluginFile } : {}),

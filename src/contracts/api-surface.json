@@ -1914,6 +1914,20 @@
       "desc": "complete 单发补全通道的计量事实（token 原始值入账，货币折算在投影查询做）"
     },
     {
+      "symbol": "marketplace/sources",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "marketplace 源添加 provenance 审计（硬伤处置第三批·⑤辅件B笔 2026-10-16——05 §1.1 铸族注升格；立题档辅件 B 节源添加 durable 审计件）：载荷 {action（v1 值域 add 单值——remove/update 源管理动词随其落码批扩值、悬空枚举值不入值域）, name, sourceType（github|git|url|local）, sourceUri, commit?（git 源锁定 catalog commit——字段集与源清单账本同源）}；写点 = 源管理命令面 add 成功尾恰一笔（add 三腿——local 快照拷贝 / git·github clone 提升 / url 平铺 JSON——共汇位）、失败路径零落账（拒路径零审计律）；装源动作不挂 door（door 防插件/模型道，装源是显式用户动作）；写入者 = host 装配根源管理命令面（audit 流单写者律）；载体 = audit_events"
+    },
+    {
+      "symbol": "plugin/grants",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "grants 装载深校验+交集入账（硬伤处置第三批·①段一笔 2026-10-16——05 §1.1 行 80 写根交集族；销 12a 欠账：修前装载链零消费 manifest.grants 的申请面死键收口——申请面成账可审计，并为段二调用级执法〔04 §7 编舞条款〕与沙箱立题 R1/R2 写根白名单供数据源单源）：载荷 {pluginId, anchor（锚形两态 plugin-dir|workspace——03 §4.2 双锚定形注：开发态 --plugin-file 锚插件目录/装机态磁盘行锚 workspace）, roots（canonical 化交集——恒 canonical 绝对路径、清单原文不入载荷；空数组 = 写面全关收口形；boot 解析档下快照、审计归因面非执法面——段二执法交集 = 调用时与 live fence 根求交）}；写点 = boot 装载序深校验+选锚求交尾与审计流尾最近一条本词 diff——有变才落幂等记账（diff 键 = anchor+roots 二元组，锚形切换亦是授予面变迁如实入账；空面首记不落）、交集变空/grants 撤除落 roots:[] 收口形；深校验四拒（../段/绝对路径/空串/Windows 形）行级隔离零落本词（拒载零审计——未获装载不记账）；试件行零落盘（--plugin-file 不变式 1——opens/lifecycle 同律滤除）；写入者 = host 装配根装载序（audit 流单写者律）；载体 = audit_events"
+    },
+    {
       "symbol": "plugin/installed",
       "module": "session-events",
       "tier": "stable",

@@ -35,6 +35,13 @@
  *     plugin/activated·failed·skipped + composition/reloaded 三清单载荷）——
  *     逐行时点发射位装载器仍未开（/reload 批已飞未启——2026-09-13 勘正，
  *     维持收口批量补发形态）；合成失败行并入 failed 面。
+ *  ⑫ grants 装载深校验+交集入账（05 §1.1 行 80——2026-10-16 硬伤处置第三批·
+ *     ①段一，销 12a 欠账）：合成序对 writableRoots 四拒（../段/绝对/空串/
+ *     Windows 形——装机态行级隔离、试件态 fail-loud）；装载收口对获装载磁盘
+ *     行选锚（03 §4.2 双锚）求交（canonical 化 + 数据目录 carve-out 恒优先 +
+ *     fence 根 containment）成账——audit 面在场 diff 幂等落 plugin/grants
+ *     （拒载行零审计、试件行零落盘）；handle.grantsOf 供段二执法/沙箱立题
+ *     数据源单源。grantsFence 缺席 = 本腿整体静默（诚实缺席律）。
  *
  * 消费腿实况（2026-09-11 勘正——原「挂账」注记所指批次均已飞）：boot 级
  * 工具注册表经 assembly bootTools 取值器并入会话工具面（conversation-stack）；
@@ -70,6 +77,10 @@ import type { PluginRouteRegistry } from '../sdk/index.js';
 // 审计流面 + 装载史世代面类型（U3 批 U3-5 / 装载史批 h-3——05 §9 两宿主域表
 // 载体真身；host→persist 边在册）
 import type { AuditFace, LoadHistoryFace } from '../persist/index.js';
+// canonical/求交单源（safety 公开面——①段一 grants 装载账：锚定解析 canonical
+// 化 + fence 根推导 + containment 三面同源；host→safety 边在册）
+import { canonicalPath, deriveWritableRoots, isInsideRoot } from '../safety/index.js';
+import type { SandboxMode } from '../safety/index.js';
 // Job 收口窄面类型（Job 消费面批桥二——插件卸载归属围栏收口；host→subagent 边在册）
 // + jobs 窄面（JobsPluginFace——2026-09-15 ④ 笔 fork 绑面自报位除名后的插件可见形状）
 import type { JobRegistry, JobsPluginFace } from '../subagent/index.js';
@@ -409,6 +420,16 @@ export interface PluginBootOptions {
    */
   readonly pluginFile?: string;
   /**
+   * grants 装载账 fence 快照输入（05 §1.1 行 80——2026-10-16 硬伤处置第三批·
+   * ①段一）：workspace 锚根 + boot 解析档位（fence 根推导真源 = 04 §7 fence
+   * 条款 + §8 deriveWritableRoots 表——与 fs fence/沙箱 profile 同源；boot 时
+   * 点无会话授予面，worktree 授予根随会话起收不入快照）。在场时装载序对
+   * grants 磁盘行深校验+选锚求交入账（audit 面在场且落账有变才落；拒载行零
+   * 审计）并供 handle.grantsOf 在程视图。缺席 = grants 腿整体静默（不记账不
+   * 供值器、既有账面不坍缩——诚实缺席律：:memory: 诊断形/测试替身）。
+   */
+  readonly grantsFence?: { readonly workspace: string; readonly mode: SandboxMode };
+  /**
    * 卸载换代槽（/reload 批——03 §5.7 热重载换代执法位）：在场时本代卸载
    * 序不走 runtime closers 直注册，改写槽内 current（装配根一次性注册读
    * 槽 closer——shutdown 恒跑**最新代**回卷，reload 换代不累积重复
@@ -435,6 +456,30 @@ export interface PluginBootOptions {
   readonly onPluginStart?: LoadPluginsOptions['onPluginStart'];
   /** fs 注入（缺省真盘） */
   readonly fs?: PluginBootFs;
+}
+
+/**
+ * grants 锚形两态（03 §4.2 双锚定形注——2026-10-16 硬伤处置第三批·①段一）：
+ * 开发态装载（--plugin-file 试件行）锚**插件目录**；装机态装载（boot 读侧磁盘
+ * 行）锚 **workspace**。装机态插件目录落数据目录族——维持插件目录锚则交集
+ * 结构性恒空，故改锚 workspace（定形注根因）；开发态试件常驻工作区内独立仓
+ * （fence 根外 = 交集恒空——布局事实非缺陷）。
+ */
+export type PluginGrantsAnchor = 'plugin-dir' | 'workspace';
+
+/**
+ * grants 装载账条目（05 §1.1 行 80——写根交集族）：roots = boot 解析档下
+ * 交集快照（canonical 绝对路径、排序去重；清单原文不入载荷；空数组 = 写面
+ * 全关收口形）。审计归因面非执法面——段二调用级执法交集 = 调用时与 live
+ * fence 根求交（04 §7 编舞条款）。
+ */
+export interface PluginGrantsAccount {
+  /** 插件行 id（装载身份位） */
+  readonly pluginId: string;
+  /** 锚形两态（见 PluginGrantsAnchor） */
+  readonly anchor: PluginGrantsAnchor;
+  /** canonical 化交集（boot 解析档下快照——排序去重稳定形） */
+  readonly roots: readonly string[];
 }
 
 /**
@@ -474,6 +519,13 @@ export interface PluginBootHandle {
   readonly configFaceOf: (
     pluginId: string,
   ) => { readonly fields: readonly ConfigField[]; readonly hostDefaults?: unknown } | undefined;
+  /**
+   * grants 装载账取值器（①段一——段二调用级执法与沙箱立题 R1/R2 的数据源
+   * 单源）：durable 审计流（装机行——audit 面在场时落）+ 本在程视图（含试件
+   * 行——零落盘律下唯一视图）同函数同值。id 不在账面 = undefined（core 行
+   * 结构性无 grants 申请面、拒载/禁用行不记账——拒载零审计律）。
+   */
+  readonly grantsOf: (pluginId: string) => PluginGrantsAccount | undefined;
   /** 提示词段注册表（消费腿 = assembly pluginSections 取值器 → driver systemPrompt 装配位） */
   readonly promptSections: PromptSectionRegistry;
 }
@@ -545,6 +597,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       tools,
       toolsOf: () => [],
       configFaceOf: () => undefined,
+      // grants 账取值器空形（装载面整跳 = 零账面——消费面形态统一）
+      grantsOf: () => undefined,
       promptSections,
     };
   }
@@ -928,6 +982,21 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     for (const a of loaded.activated) clearBootFailure(bookkeepingPath, a.id, bookkeepingFs);
   }
 
+  // —— grants 装载账计算（05 §1.1 行 80——2026-10-16 硬伤处置第三批·①段一）：
+  //    boot 解析档下快照（深校验已在合成序拒载——此处账面只记获装载行：拒载/
+  //    禁用/装载门红/loader 失败零记账 = 拒载零审计律；04 §7 编舞条款「审计
+  //    归因面非执法面」——段二执法交集 = 调用时与 live fence 根求交）。
+  //    grantsFence 缺席 = grants 腿整体静默（不记账不供值器——诚实缺席律）
+  const grantsAccounts =
+    options.grantsFence === undefined
+      ? []
+      : computeGrantsAccounts({
+          plan,
+          activatedIds: new Set(loaded.activated.map((a) => a.id)),
+          fence: options.grantsFence,
+          dataDir: options.runtime.dataDir,
+        });
+
   // —— 启动横幅聚合 warn（03 §5.7② obs-a 兑现）：装载序尾对本 boot loader
   //    行失败（jiti 装载/apply/模块 inject 执法——合成失败行已在上方点名）
   //    逐行 warn，与合成失败行同形 `插件装载失败（id）：[码] 报文`。修前本
@@ -961,6 +1030,17 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       options.audit,
       plan.flatMap((row) => (row.id === QUICK_TEST_ROW_ID ? [] : [{ id: row.id, disabled: row.disabled === true }])),
     );
+    // —— plugin/grants 幂等落（①段一——05 §1.1 行 80 写根交集族）：canonical
+    //    化交集与审计流尾最近一条本词 diff——有变才落（diff 键 = anchor+roots
+    //    二元组，锚形切换亦是授予面变迁如实入账）；试件行滤除（不变式 1 零落
+    //    盘面——opens/lifecycle 同律）；grantsFence 缺席恒不落（缺席 = 零账面
+    //    非空账面——既有账不坍缩为撤位形）
+    if (options.grantsFence !== undefined) {
+      recordPluginGrantsDiff(
+        options.audit,
+        grantsAccounts.filter((account) => account.pluginId !== QUICK_TEST_ROW_ID),
+      );
+    }
   }
 
   // ⑪ 生命周期事件批量补发（合成失败行 + 装载门红行 + loader 行失败行并
@@ -991,7 +1071,6 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       replay: true,
     });
   }
-
 
   // ⑨ closer：apply disposer LIFO 后 fork 逆序 dispose（drain 序 = 注册序）；
   //    Job 归属围栏收口腿（Job 消费面批桥二）在 disposer 回卷后对 activated
@@ -1057,6 +1136,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       if (fields === undefined) return undefined;
       return { fields, hostDefaults: row.kind === 'core' ? row.reference.config : row.manifest.config };
     },
+    // grants 装载账取值器（①段一——在程视图含试件行：durable 审计流滤试件行
+    // 后，试件授予面在此唯一可见——账面两视图同源同值）
+    grantsOf: (pluginId) => grantsAccounts.find((account) => account.pluginId === pluginId),
     promptSections,
   };
 }
@@ -1132,6 +1214,149 @@ export function recordDoorsDiff(audit: AuditFace, doors: readonly string[]): voi
   const current = [...new Set(doors)].sort();
   if (prev.length === current.length && current.every((d, i) => prev[i] === d)) return; // 有变才落
   audit.append('doors/updated', { doors: current, origin: 'boot-diff' });
+}
+
+/**
+ * manifest.grants.writableRoots 取值（防御式——形状浅校验在 parseManifest，
+ * 深校验四拒在装载序；此处只滤出 string 面供两处消费）。
+ */
+function writableRootsOf(manifest: PluginManifest): readonly string[] {
+  const raw = (manifest.grants as { writableRoots?: unknown } | undefined)?.writableRoots;
+  return Array.isArray(raw) ? raw.filter((r): r is string => typeof r === 'string') : [];
+}
+
+/**
+ * grants 申请面深校验四拒（03 §4.2——清单校验拒绝式同门；①段一落装载序；
+ * 修前浅校验只覆 string[] 形状）：
+ *  ① ".." 段——申请面不得越出锚根（相对锚解析才有交集语义）；
+ *  ② 绝对路径——锚定解析被绕过、交集语义失效；
+ *  ③ 空串——非路径形态；
+ *  ④ Windows 形（\ 分隔或盘符前缀）——路径分隔符须为 /。
+ * 逐条先拒先报（首违即止）；返回 null = 全过。
+ * @param entries 申请面清单原文（已过浅校验 string[]）
+ * @param pluginId 行 id（报文点名——装载身份位）
+ */
+function validateWritableRootsDeep(entries: readonly string[], pluginId: string): string | null {
+  for (const entry of entries) {
+    if (entry.split('/').includes('..')) {
+      return `grants.writableRoots 含 ".." 段（"${entry}"，插件 ${pluginId}）——申请面不得越出锚根`;
+    }
+    if (isAbsolute(entry)) {
+      return `grants.writableRoots 含绝对路径（"${entry}"，插件 ${pluginId}）——须为相对锚根的路径（03 §4.2 双锚）`;
+    }
+    if (entry.length === 0) {
+      return `grants.writableRoots 含空串（插件 ${pluginId}）——申请面须为非空路径段`;
+    }
+    if (entry.includes('\\') || /^[A-Za-z]:/.test(entry)) {
+      return `grants.writableRoots 含 Windows 形路径（"${entry}"，插件 ${pluginId}）——路径分隔符须为 /`;
+    }
+  }
+  return null;
+}
+
+/**
+ * grants 装载账计算（05 §1.1 行 80——①段一：装载序深校验+选锚求交）。
+ *
+ * 只记获装载行（activatedIds 内的磁盘行——拒载/禁用/装载门红/loader 失败
+ * 零记账 = 拒载零审计律）；core 引用行结构性无 grants 申请面（CorePlugin
+ * Reference 无此键——非豁免分支：段一无豁免面，§4.6 官方件豁免是段二执法
+ * 闸事）。选锚 = 装载形态（03 §4.2 双锚定形注）：试件行（--plugin-file）锚
+ * 插件目录、装机态磁盘行锚 workspace。求交三步：申请面逐条锚定解析
+ * canonical 化（最近既有祖先解析——与 fence 判据同律可对账；./x ≡ x ≡
+ * ./x/ 同 canonical）→ 数据目录 carve-out 恒优先出交集（04 §7 fence 条款
+ * ——任何档恒不可写族；memory 形无数据目录即无此面）→ 与 fence 可写根
+ * containment 求交（不在任何根内 = 出交集——锚定根在 fence 根外即交集恒
+ * 空，开发态独立仓布局的「布局事实非缺陷」律）。fence 根单源 =
+ * deriveWritableRoots（04 §8 表——boot 快照不含授予根：boot 时点无会话
+ * 授予面，worktree 授予随会话起收）。
+ */
+function computeGrantsAccounts(input: {
+  readonly plan: readonly LoaderPlanRow[];
+  readonly activatedIds: ReadonlySet<string>;
+  readonly fence: { readonly workspace: string; readonly mode: SandboxMode };
+  readonly dataDir: string | null;
+}): readonly PluginGrantsAccount[] {
+  const fenceRoots = deriveWritableRoots(input.fence.workspace, input.fence.mode);
+  // 数据目录 carve-out 判据（canonical 化——与锚定根同律比对）
+  const dataCarve = input.dataDir === null ? null : canonicalPath(input.dataDir);
+  const accounts: PluginGrantsAccount[] = [];
+  for (const row of input.plan) {
+    // core 行结构性无 grants 申请面（非豁免分支——段一无豁免面）
+    if (row.kind !== 'disk') continue;
+    // 拒载零审计律：未获装载行不记账
+    if (!input.activatedIds.has(row.id)) continue;
+    // 装载形态选锚（03 §4.2 双锚）：试件行锚插件目录（试件常驻工作区内
+    // 独立仓——workspace 锚则结构性恒空）；装机态锚 workspace（插件目录在
+    // 数据目录族——维持插件目录锚则交集结构性恒空，定形注改锚根因）
+    const anchor: PluginGrantsAnchor = row.id === QUICK_TEST_ROW_ID ? 'plugin-dir' : 'workspace';
+    const anchorRoot = anchor === 'plugin-dir' ? row.pluginDir : input.fence.workspace;
+    const roots = new Set<string>();
+    for (const entry of writableRootsOf(row.manifest)) {
+      // 锚定解析 canonical 化（清单原文不入载荷——值律）
+      const anchored = canonicalPath(resolve(anchorRoot, entry));
+      // 数据目录族恒排除——fence 根内亦出交集（carve-out 恒优先于档位）
+      if (dataCarve !== null && isInsideRoot(anchored, dataCarve)) continue;
+      // 与 fence 可写根求交（containment 单源 isInsideRoot）
+      if (!fenceRoots.some((root) => isInsideRoot(anchored, root))) continue;
+      roots.add(anchored);
+    }
+    accounts.push({ pluginId: row.id, anchor, roots: [...roots].sort() });
+  }
+  return accounts;
+}
+
+/**
+ * boot 序 plugin/grants 幂等落（05 §1.1 行 80 写根交集族——①段一；律同
+ * recordPluginOpensDiff）：以装载账为当前授予面，与审计流尾最近一条本词
+ * （per 插件——fold = 尾条 = 该插件当前有效写根交集）diff，**有变才落**。
+ * diff 键 = anchor+roots 二元组（锚形切换亦是授予面变迁——如实入账）。
+ * 撤位（行删除/换装/拒载/禁用——计划面缺席）且尾条非空 → 落 `roots: []`
+ * 收口形；已空幂等不重放。空面首记不落：无记录 ≡ 空面，`[]` 笔恒为收口形
+ * 而非首记基线（不为从未获交集的插件造基线噪声）。锚形沿用尾条记入撤位笔
+ * （插件已不在场无现锚可记——账读作「其最后锚形下的授予面已清零」）。
+ * 集合语义比对（排序后逐位）。历史尾条只扫近期窗（listRecent 帽 100——
+ * opens 同律）。单写者 = 装配根装载序（audit 流单写者律——插件面零写入位）。
+ * @param audit 审计流面（读写两用——尾读建 per 插件最新账，diff 后落账）
+ * @param accounts 装载账（调用方已滤试件行——不变式 1 零落盘面）
+ */
+export function recordPluginGrantsDiff(audit: AuditFace, accounts: readonly PluginGrantsAccount[]): void {
+  // 尾读 → per 插件最新账面（listRecent id 降序——首见即最新；词形防御只防库被手编）
+  const latest = new Map<string, { anchor: PluginGrantsAnchor; roots: readonly string[] }>();
+  for (const row of audit.listRecent()) {
+    if (row.type !== 'plugin/grants') continue;
+    const pluginId = row.data['pluginId'];
+    const anchor = row.data['anchor'];
+    const roots = row.data['roots'];
+    if (typeof pluginId !== 'string' || (anchor !== 'plugin-dir' && anchor !== 'workspace') || !Array.isArray(roots)) {
+      continue;
+    }
+    if (!latest.has(pluginId)) {
+      latest.set(pluginId, { anchor, roots: roots.filter((r): r is string => typeof r === 'string').sort() });
+    }
+  }
+  // 有变才落：当前面（去重排序——尾条形稳定）vs 尾条（anchor+roots 二元组）
+  const current = new Map(
+    accounts.map((a) => [a.pluginId, { anchor: a.anchor, roots: [...new Set(a.roots)].sort() }] as const),
+  );
+  for (const [pluginId, cur] of current) {
+    const prev = latest.get(pluginId);
+    if (prev === undefined) {
+      // 空面首记不落（无记录 ≡ 空面——[] 笔恒为收口形非首记基线）
+      if (cur.roots.length > 0) audit.append('plugin/grants', { pluginId, anchor: cur.anchor, roots: cur.roots });
+      continue;
+    }
+    const same =
+      prev.anchor === cur.anchor &&
+      prev.roots.length === cur.roots.length &&
+      cur.roots.every((r, i) => prev.roots[i] === r);
+    if (!same) audit.append('plugin/grants', { pluginId, anchor: cur.anchor, roots: cur.roots });
+  }
+  // 撤位收口：曾记账而今不在账面，且尾条非空（已空则幂等不再落）
+  for (const [pluginId, prev] of latest) {
+    if (!current.has(pluginId) && prev.roots.length > 0) {
+      audit.append('plugin/grants', { pluginId, anchor: prev.anchor, roots: [] });
+    }
+  }
 }
 
 /**
@@ -1382,6 +1607,11 @@ function resolveQuickTestRow(pluginFile: string, plan: readonly LoaderPlanRow[],
       throw new BaseError('PLUGIN_ROW_INVALID', `--plugin-file 插件清单格式不对（${abs}）：${parsed.message}`);
     }
     const manifest = parsed.manifest;
+    // grants 深校验四拒（①段一——试件行同磁盘行执法面全套，坏形 fail-loud 拒启）
+    const grantsReject = validateWritableRootsDeep(writableRootsOf(manifest), manifest.id);
+    if (grantsReject !== null) {
+      throw new BaseError('PLUGIN_ROW_INVALID', `--plugin-file 插件清单格式不对（${abs}）：${grantsReject}`);
+    }
     const takenIds = new Set<string>([
       ...plan.map((row) => row.id),
       ...plan.flatMap((row) => (row.kind === 'disk' ? [row.manifest.id] : [])),
@@ -1488,6 +1718,18 @@ function resolveDiskRow(
         id: row.id,
         code: manifestResult.code,
         message: `清单校验失败（${pluginDir}）：${manifestResult.message}`,
+      },
+    };
+  }
+  // grants 深校验四拒（03 §4.2——①段一落装载序；浅校验只覆 string[] 形状）：
+  // 拒载行级隔离（03 §5.4/§5.7 两码分流沿用 PLUGIN_SHAPE_INVALID）+ 拒载零审计
+  const grantsReject = validateWritableRootsDeep(writableRootsOf(manifestResult.manifest), row.id);
+  if (grantsReject !== null) {
+    return {
+      failure: {
+        id: row.id,
+        code: 'PLUGIN_SHAPE_INVALID',
+        message: `清单校验失败（${pluginDir}）：${grantsReject}`,
       },
     };
   }
