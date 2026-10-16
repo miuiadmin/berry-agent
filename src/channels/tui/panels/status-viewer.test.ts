@@ -47,9 +47,9 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
     expect(lines[0]).toBe('── 运行时 ──');
     expect(lines[1]!.startsWith('版本')).toBe(true); // 非空断言——段首行契约位
     expect(lines[1]).toContain('0.2.0');
-    // 模型行 = 当前 + 全集计数（ctrl+p 循环宇宙同源）
+    // 模型行 = 当前 + 可用档计数（ux-4 翻档——过滤宇宙同口径「可用 N 档」）
     const modelLine = lines.find((line) => line.startsWith('模型'))!;
-    expect(modelLine).toContain('faux/test-model（全集 3 个）');
+    expect(modelLine).toContain('faux/test-model（可用 3 档）');
     // 会话段：短 id（8 字符）+ cwd 短名 + 轮次
     expect(lines).toContain('── 会话 ──');
     expect(lines.some((line) => line.startsWith('会话') && line.includes('sess-123'))).toBe(true);

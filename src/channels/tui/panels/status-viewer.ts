@@ -1,6 +1,6 @@
 /**
  * /status 状态汇总副屏件（07 §4.1 命令面增补批——TUI 本地拦截族）：版本 /
- * 模型位（当前 + 全集计数——ctrl+p 模型循环同数据源）/ 模型凭证（ob-2 态
+ * 模型位（当前 + 可用档计数——ux-4 翻档：凭证就绪过滤宇宙三处一句）/ 模型凭证（ob-2 态
  * + **完整值入面——2026-09-28 全明文翻裁**：人面所见即供血，模型读侧
  * carve-out 分权维持）/ 会话（短 id / cwd 短名 / 轮次）/ 数据目录 /
  * theme 生效档 / env 三键白名单。
@@ -39,7 +39,7 @@ export interface StatusPanelData {
   readonly version: string;
   /** 当前模型（provider/model 形——栈级旋钮现值） */
   readonly model: string;
-  /** 模型全集计数（providers × models 装配序全列——ctrl+p 循环宇宙同源） */
+  /** 可用模型档计数（ux-4 翻档——凭证就绪过滤宇宙；ctrl+p 循环//model 面板同源三处一句） */
   readonly modelCount: number;
   /** 模型凭证态（ob-2——modelCredentialStatus 开屏现算注入；值入面见 modelCredentialKey） */
   readonly modelCredential: 'ready' | 'unconfigured';
@@ -267,7 +267,7 @@ export function middleTruncatePath(value: string, maxWidth: number): string {
 }
 
 /**
- * 状态行集构造（纯函数——测试直锁消费）：运行时段（版本 / 模型 + 全集计数）
+ * 状态行集构造（纯函数——测试直锁消费）：运行时段（版本 / 模型 + 可用档计数）
  * → 会话段（短 id / 工作区行 44 轮件 C 全路径形 / 轮次）→ 环境段（数据目录
  * / theme 档 / env 三键——白名单制，缺席值「未设」）。标签补齐按显示宽（批
  * 10k 遗漏修同律——CJK 双宽标签 padEnd 码元计量会错位 1 格）。
@@ -279,7 +279,7 @@ export function buildStatusLines(data: StatusPanelData, columns?: number): strin
   const lines: string[] = [
     '── 运行时 ──',
     row('版本', data.version),
-    row('模型', data.modelCount > 0 ? `${data.model}（全集 ${data.modelCount} 个）` : `${data.model}（模型目录空）`),
+    row('模型', data.modelCount > 0 ? `${data.model}（可用 ${data.modelCount} 档）` : `${data.model}（模型目录空）`),
     // 模型凭证行（ob-2 态 + C-4 全明文翻裁值）：ready 携完整值（人面所见即
     // 供血）；unconfigured 附可行动指路半句（ob-1 录入位）
     row(

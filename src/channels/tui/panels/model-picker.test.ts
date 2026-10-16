@@ -338,3 +338,35 @@ describe('ModelPicker 长清单滚动位置指示（界面美化役 2026-10-01 �
     expect(readRow(grid, 3, 40)).not.toContain('更多'); // 贴尾无下指示
   });
 });
+
+describe('ModelPicker 过滤宇宙指路（ux-4 翻档件 A——装配位注入 notice）', () => {
+  const NOTICE = '仅显示已配置渠道的模型——/setup 添加渠道';
+
+  it('notice 在场：头部 dim 指路行（条目区整体下移一行）+ 底行逃生口段 + measure 同步 +1', () => {
+    const { picker } = makePicker({ notice: NOTICE });
+    const grid = paint(picker);
+    expect(readRow(grid, 1, 72)).toBe(NOTICE); // 头行下 dim 指路行（ux-4 钦定词面）
+    expect(grid.getCell(1, 0)?.style?.dim).toBe(true); // dim（pi 文案先例同律）
+    // 条目区整体下移一行（行 2 = 组头、行 3 = 首条目）
+    expect(readRow(grid, 2, 72)).toContain('── anthropic ──');
+    expect(readRow(grid, 3, 72)).toContain('anthropic/claude-sonnet');
+    // measure 计入指路行（1 头 + 1 指路 + 7 展开行 + 1 底行）
+    expect(picker.measure(72)).toBe(10);
+    // 底行逃生口段（BERRY_AGENT_MODEL/settings 直达——codex -m 同构；窄窗
+    // fitLine 收口下键名段仍可见）
+    expect(readRow(grid, grid.rows - 1, 72)).toContain('BERRY_AGENT_MODEL');
+    // 缺省（notice 缺席）零位移——既有锁全绿的证
+    const { picker: plain } = makePicker();
+    const g2 = paint(plain);
+    expect(readRow(g2, 1, 72)).toContain('── anthropic ──');
+    expect(plain.measure(72)).toBe(9);
+  });
+
+  it('notice 行窄窗 … 收口（wf_3c8b00b8 组δ X-5 同律——fitLine 非 raw 直写）', () => {
+    const { picker } = makePicker({ notice: NOTICE });
+    const grid = paint(picker, 12);
+    const row = readRow(grid, 1, 12);
+    expect(row.startsWith('仅')).toBe(true); // 行首锚存活（修前红位：行 1 是组头）
+    expect(row.endsWith('…')).toBe(true); // 超宽省略号收口
+  });
+});

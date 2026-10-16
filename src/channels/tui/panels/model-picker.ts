@@ -2,8 +2,9 @@
  * /model 模型选择器副屏件（2026-09-30 UX 对标批 ux-4——TUI 本地拦截族）：
  * ThinkingPicker 形选择器 + provider 分组头 + 打字过滤。
  *
- * - **条目 = providers 装配序 × provider 内 model 序的 `provider/model` 全列**
- *   （清单单源 = ctrl+p 循环同一读面——装配位注入纯数据行，本件不 import llm）；
+ * - **条目 = 装配位注入快照**（2026-10-16 ux-4 翻档：凭证就绪过滤宇宙——装配
+ *   位过滤后注入纯数据行，本件不 import llm；清单单源 = ctrl+p 循环同一读面；
+ *   可选 notice 指路行 + 底行逃生口段随过滤宇宙同注入）；
  * - **provider 分组头**（dim 行——opencode/zcode 分组先例；组头不可停光标）；
  * - **当前模型 ● 标记**（光标 › 与当前 ● 两记分立——ThinkingPicker 同律）；
  * - **打字过滤**（query 子串匹配 spec 即时过滤——pi/opencode/codex 面板先例；
@@ -55,6 +56,14 @@ export interface ModelPickerOptions {
    * 缺省 DEFAULT_THEME；主会话装配位已接线（tui-backend theme: this.theme）。
    */
   readonly theme?: ResolvedTheme;
+  /**
+   * 过滤宇宙指路（可选——2026-10-16 ux-4 翻档落码件 A，装配位注入纯文案、
+   * 本件不 import host 保 DAG）：在场时两效——头部 dim 指路行（头行之下、
+   * 条目区之上，ux-4 钦定词面「仅显示已配置渠道的模型——/setup 添加渠道」）
+   * + 底行逃生口段（BERRY_AGENT_MODEL 可设全量——codex -m 同构；notice 缺席
+   * 时底行与量高零改动——既有装配零扰动）。恒显档（可发现性优先——pi 先例）。
+   */
+  readonly notice?: string;
 }
 
 /** 提示行样式（dim） */
@@ -105,6 +114,8 @@ export class ModelPicker implements OverlayContent {
   private readonly panelHeadStyle: Readonly<CellStyle>;
   /** 在选行整行样式（R-9——accent bold；右段辅助段随光标行覆写） */
   private readonly activeRowStyle: Readonly<CellStyle>;
+  /** 过滤宇宙指路（ux-4 翻档——缺省 undefined = 恒缺档零扰动） */
+  private readonly notice: string | undefined;
 
   constructor(options: ModelPickerOptions) {
     this.entries = options.entries;
@@ -116,6 +127,7 @@ export class ModelPicker implements OverlayContent {
     this.onQuit = options.onQuit;
     this.panelHeadStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
     this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
+    this.notice = options.notice;
   }
 
   /** 过滤后条目集（query 空 = 全量；装配序保持） */
@@ -140,18 +152,18 @@ export class ModelPicker implements OverlayContent {
     return rows;
   }
 
-  /** 量高：头行 + 全量展开行数（过滤后行少底部留白——measure 快照形）+ 底行 */
+  /** 量高：头行 + 指路行（notice 在场时）+ 全量展开行数（过滤后行少底部留白——measure 快照形）+ 底行 */
   measure(width: number): number {
     void width;
-    return 1 + Math.max(1, this.rows(this.entries).length) + 1;
+    return 1 + (this.notice !== undefined ? 1 : 0) + Math.max(1, this.rows(this.entries).length) + 1;
   }
 
-  /** 落位：头行 → 展开行视口（组头 dim / 条目 › ● spec · model 右段）→ 底行 */
+  /** 落位：头行 → 指路行（可选）→ 展开行视口（组头 dim / 条目 › ● spec · model 右段）→ 底行 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
     const items = this.filtered();
     const rows = this.rows(items);
-    // 非条目行（头行/空匹配/组头/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5
+    // 非条目行（头行/指路行/空匹配/组头/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5
     // ——raw writeText 窄窗硬截断无提示的漏网面；条目行走 fitRowSegments 双段）；
     // 头行 accent 着色（界面美化役美学注④——词汇 ◆ 单源 panel-chrome）
     buffer.writeText(
@@ -163,15 +175,21 @@ export class ModelPicker implements OverlayContent {
       ),
       this.panelHeadStyle,
     );
+    let contentRow = region.row + 1;
+    // 指路行（ux-4 翻档——过滤宇宙说明，dim 恒显；窄窗 fitLine 同收口）
+    if (this.notice !== undefined) {
+      buffer.writeText(contentRow, region.col, fitLine(this.notice, region.width), HINT_STYLE);
+      contentRow++;
+    }
     // 守卫族语义（height=2 → 零内容行只头行+底行）：下限 0——旧 Math.max(1,·)
     // 在 height=2 强立 1 行内容，首内容行先写后又被底行覆写留残段
-    const viewHeight = Math.max(0, region.height - 2);
+    const viewHeight = Math.max(0, region.height - 2 - (this.notice !== undefined ? 1 : 0));
     this.viewportHeight = viewHeight;
     this.clampOffset(rows.length);
     if (viewHeight > 0) {
       if (rows.length === 0) {
         buffer.writeText(
-          region.row + 1,
+          contentRow,
           region.col,
           fitLine(`（无匹配「${this.query}」的模型）`, region.width),
           HINT_STYLE,
@@ -198,7 +216,7 @@ export class ModelPicker implements OverlayContent {
           }
           break;
         }
-        let line = region.row + 1;
+        let line = contentRow;
         if (indicatorsOn && this.offset > 0) {
           buffer.writeText(line, region.col, moreHint('↑', this.offset), HINT_STYLE);
           line++;
@@ -221,13 +239,25 @@ export class ModelPicker implements OverlayContent {
       }
     }
     // 底行：键路提示 + 过滤词呈现（过滤面在屏可感知）。过滤态换简化提示——
-    // 过滤词是首要信息（全量态长提示 + 过滤词会挤爆窄屏行宽）
+    // 过滤词是首要信息（全量态长提示 + 过滤词会挤爆窄屏行宽）；notice 在场
+    // （ux-4 翻档）全量态追加逃生口段并收缩选定段（回退语已在切换回执单载
+    // ——底行宽度预算让位指路；键名段居前，窄窗 … 收口不伤键名）
     if (this.query !== '') {
       buffer.writeText(
         region.row + region.height - 1,
         region.col,
         fitLine(
           `过滤：${this.query}_ · ` + hintLine('↑↓ 移动', 'enter 选定', 'backspace 删词', 'esc 返回'),
+          region.width,
+        ),
+        HINT_STYLE,
+      );
+    } else if (this.notice !== undefined) {
+      buffer.writeText(
+        region.row + region.height - 1,
+        region.col,
+        fitLine(
+          hintLine('↑↓ 移动', 'enter 选定', '打字过滤', 'q/esc 返回', 'BERRY_AGENT_MODEL 可设全量'),
           region.width,
         ),
         HINT_STYLE,

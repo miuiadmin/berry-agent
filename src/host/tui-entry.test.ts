@@ -1302,7 +1302,10 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
       dataDir,
       providers: [faux.provider],
       model: 'faux-key3/m1',
-      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
+      // ux-4 翻档（2026-10-16）：ctrl+p//model 宇宙 = 凭证就绪过滤——rig 补
+      // env 键使 faux-key3 就绪，两模型全列宇宙与修前一致（缺席则过滤后仅
+      // 当前模型一条，:1349 循环测与 :1405 两模型计数锚必红）
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1', FAUX_KEY3_API_KEY: 'k' },
     });
     await io.ready();
     return { entry, io, faux };
@@ -1432,6 +1435,108 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     const afterReceipt = stripAnsi(io.output.slice(io.output.indexOf('模型已切换：faux-key3/m2')));
     expect(afterReceipt).toContain(' · m2'); // 新短名入帧
     expect(afterReceipt).not.toContain(' · m1'); // 旧短名换出
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+});
+
+describe('/model 条目宇宙翻档（ux-4 凭证就绪过滤——2026-10-16 用户三反馈件 A）', () => {
+  /**
+   * 双 provider rig（一就绪一未就绪——过滤判据可观测）：faux-key3 两模型 +
+   * FAUX_KEY3_API_KEY 在场 = 就绪（一般律键名合成 providerApiKeyEnvNames）；
+   * faux-orphan 两模型零凭证 = 未就绪。rig 注入 io → onboarding 门不触发
+   * （onboardingKeySource undefined——:2061 门律），model 可指未就绪渠道
+   * （恒在列路径可达）。
+   */
+  async function rigFilteredEntry(dataDir: string, cwd: string, model: string, key3Ready = true) {
+    const fauxA = fauxProvider({ provider: 'faux-key3', models: [{ id: 'm1' }, { id: 'm2' }] });
+    const fauxB = fauxProvider({ provider: 'faux-orphan', models: [{ id: 'x1' }, { id: 'x2' }] });
+    const io = new FakeTerminalIO();
+    const entry = runTuiEntry({
+      flags: { noPlugins: false, debug: false },
+      io,
+      cwd,
+      version: 'test',
+      dataDir,
+      providers: [fauxA.provider, fauxB.provider],
+      model,
+      env: {
+        BERRY_AGENT_SKIP_UPDATE_CHECK: '1',
+        ...(key3Ready ? { FAUX_KEY3_API_KEY: 'k' } : {}),
+      },
+    });
+    await io.ready();
+    return { entry, io };
+  }
+
+  it('/model 只列已配置渠道的模型（修前红：全列 4 个含未配置 faux-orphan）', async () => {
+    const { entry, io } = await rigFilteredEntry(rigDir('entry-mf-a-'), rigDir('entry-ws-mf-a-'), 'faux-key3/m1');
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门
+    io.send('/model\r');
+    await until(() => io.output.includes('切换模型 · 2 个')); // 头行计数 = 过滤后（修前红位：4 个）
+    const screen = stripAnsi(io.output);
+    expect(screen).toContain('── faux-key3 ──'); // 就绪组头在场
+    expect(screen).toContain('faux-key3/m2');
+    expect(screen).not.toContain('faux-orphan'); // 未配置渠道整组缺席（修前红位）
+    io.send('q');
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('当前模型恒在列（● 锚不丢——provider 未就绪也保留该条）', async () => {
+    const { entry, io } = await rigFilteredEntry(rigDir('entry-mf-b-'), rigDir('entry-ws-mf-b-'), 'faux-orphan/x1');
+    await until(() => io.output.includes('工作区写 · '));
+    io.send('/model\r');
+    await until(() => io.output.includes('切换模型 · 3 个')); // m1+m2+恒在列 x1（修前红位：4 个）
+    const screen = stripAnsi(io.output);
+    expect(screen).toContain('faux-orphan/x1'); // 当前条目在场（误切可回）
+    expect(screen).not.toContain('faux-orphan/x2'); // 同渠道其余条目仍缺席
+    expect(screen).toContain('faux-key3/m1');
+    io.send('q');
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('ctrl+p 循环同过滤宇宙（修前红：循环跳入未配置渠道 x2）', async () => {
+    const { entry, io } = await rigFilteredEntry(rigDir('entry-mf-c-'), rigDir('entry-ws-mf-c-'), 'faux-orphan/x1');
+    await until(() => io.output.includes('工作区写 · '));
+    io.send('\x10'); // ctrl+p——当前 x1 不在过滤集 → 恒在列追加位 → 下一档 = 过滤集首位 m1
+    await until(() => io.output.includes('模型已切换：faux-key3/m1'));
+    io.send('\x10'); // 再循环——m1 → m2（过滤集内前进）
+    await until(() => io.output.includes('模型已切换：faux-key3/m2'));
+    const screen = stripAnsi(io.output);
+    expect(screen).not.toContain('模型已切换：faux-orphan/x2'); // 循环宇宙不含未配置条目（修前红位）
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('空集兜底：零就绪渠道面板照开（仅当前模型一条 + 头部指路句在场）', async () => {
+    const { entry, io } = await rigFilteredEntry(
+      rigDir('entry-mf-d-'),
+      rigDir('entry-ws-mf-d-'),
+      'faux-key3/m1',
+      false,
+    );
+    await until(() => io.output.includes('工作区写 · '));
+    io.send('/model\r');
+    await until(() => io.output.includes('切换模型 · 1 个')); // 仅当前模型（修前红位：4 个）
+    const screen = stripAnsi(io.output);
+    expect(screen).toContain('仅显示已配置渠道的模型——/setup 添加渠道'); // 头部指路（ux-4 钦定词面）
+    expect(screen).toContain('faux-key3/m1');
+    expect(screen).not.toContain('faux-key3/m2'); // 未就绪渠道自身条目也缺席
+    io.send('q');
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('/status 计数三处一句：可用 N 档 = 过滤后计数（修前红：全集 4 个）', async () => {
+    const { entry, io } = await rigFilteredEntry(rigDir('entry-mf-e-'), rigDir('entry-ws-mf-e-'), 'faux-key3/m1');
+    await until(() => io.output.includes('工作区写 · '));
+    io.send('/status\r');
+    await until(() => stripAnsi(io.output).includes('可用 2 档')); // 修前红位：「全集 4 个」
+    const screen = stripAnsi(io.output);
+    expect(screen).not.toContain('全集'); // 旧词面退役
+    io.send('q');
     io.send('\x04');
     expect(await entry).toBe(0);
   });

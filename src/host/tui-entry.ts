@@ -663,11 +663,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 可达）不可知不虚报：/status 面板轮次行缺席不推行（与 git/今日同律；
       // /usage 从持久日志折恒有数——两读面口径分立）
       const turns = driver === undefined ? null : foldSessionUsage(driver.session.events()).turns;
-      // 模型全集计数——ctrl+p 模型循环同数据源（providers × models 装配序）
-      let modelCount = 0;
-      for (const provider of stack.llmRuntime.models.getProviders()) {
-        modelCount += provider.getModels().length;
-      }
+      // 模型可用档计数（ux-4 翻档——凭证就绪过滤宇宙三处一句第三位：/status
+      // 计数//model 面板/ctrl+p 循环同 configuredModelEntries 单源；词面「可用
+      // N 档」与 status-viewer 单源）
+      const modelCount = configuredModelEntries().length;
       // env 白名单三键（04 §7 白名单制——凭证与 token 恒不入面；空串同未设）
       const envValue = (key: string): string | null => {
         const value = env[key];
@@ -824,18 +823,41 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       backend.setFooterModel(spec);
       backend.notify(`模型已切换：${spec}（下一轮对话起生效）`, { level: 'info' });
     };
-    const openModelPanel = (): void => {
-      // 条目 = providers 装配序 × model 序全列（ctrl+p onModelCycle 同构展开）
-      const entries = [];
+    // 已配置渠道模型清单单源（2026-10-16 ux-4 翻档落码——凭证就绪过滤宇宙）：
+    // 判据 = modelCredentialStatus === 'ready'（向导 credentialReadyOf 同锚——
+    // env 键 ∨ 绑定行现算，自定义渠道天然走绑定行）；/model 面板、ctrl+p 循环、
+    // /status 计数三处一句闭环同源（修前三处独立全列展开）。过滤快照档——开
+    // 面板/击键时现取，不加凭证变更事件（07 ux-4 明裁：向导录完 key 不重开
+    // 面板不见新条目属预期——向导收尾回执指路既有）。
+    const configuredModelEntries = (): { spec: string; provider: string; model: string }[] => {
+      const entries: { spec: string; provider: string; model: string }[] = [];
       for (const provider of stack.llmRuntime.models.getProviders()) {
+        if (stack.modelCredentialStatus(provider.id) !== 'ready') continue;
         for (const model of provider.getModels()) {
           entries.push({ spec: `${provider.id}/${model.id}`, provider: provider.id, model: model.id });
         }
       }
+      return entries;
+    };
+    const openModelPanel = (): void => {
+      // 条目 = 已配置渠道模型（ux-4 翻档——configuredModelEntries 单源）+ 当前
+      // 模型恒在列（● 锚不丢、误切可回——claude code 先例：当前模型 provider
+      // 未就绪也保留该条；ModelPicker 连续 provider 折组头，追加条天然尾自成组
+      // ——空集兜底同路：零就绪渠道面板不空转、恒有当前模型一条）
+      const entries = configuredModelEntries();
       // 预选 = 会话现值档（sessionModelOf 三级序——显式覆盖 ?? fold 现值 ??
       // 栈基线；修前 stack.model 是栈基线旋钮，会话已切档后面板预选错档）
       const sid = stack.channels.focusedId ?? session.sessionId;
-      if (!backend.openModelPicker(entries, stack.sessionModelOf(sid), selectModel)) {
+      const current = stack.sessionModelOf(sid);
+      const slash = current.indexOf('/');
+      if (slash !== -1 && !entries.some((entry) => entry.spec === current)) {
+        entries.push({
+          spec: current,
+          provider: current.slice(0, slash),
+          model: current.slice(slash + 1),
+        });
+      }
+      if (!backend.openModelPicker(entries, current, selectModel, '仅显示已配置渠道的模型——/setup 添加渠道')) {
         backend.notify(panelBusyNotice('模型页'), { level: 'warn' });
       }
     };
@@ -1608,23 +1630,24 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       },
       onInterrupt: (sessionId) => stack.interrupt(sessionId),
       // 模型循环柄（挂账解挂批 2026-09-15——ctrl+p 层③.5 应用动作路）：循环
-      // 宇宙 = providers 装配序 × provider 内 model 序的 `provider/model` 串全列
-      //（07 §4.1 R5）；换档 durable 落账 session/model 事件（挖掘 52 轮件 B
-      // 翻档——重启随 resume 重放恢复，不再回落装配基线），消费 = 下一 run
-      // 起跑现取（在飞 run 不中途换）。回执 notify 一行；空目录零动作（无
-      // 候选可换——诚实缺席）。footer 行1 模型槽（V-4 注⑪②——setFooterModel
-      // 回迁）：切换即活写短名（id 尾段）
+      // 宇宙 = 凭证就绪过滤集 + 当前模型恒在列（2026-10-16 ux-4 翻档——
+      // configuredModelEntries 单源，/model 面板//status 计数三处一句闭环）；
+      // 空集退化形 = 仅当前模型一条（循环恒返同项、notify 照发——零集合不虚
+      // 报空转，R5 退化形句随迁）。换档 durable 落账 session/model 事件（挖掘
+      // 52 轮件 B 翻档——重启随 resume 重放恢复，不再回落装配基线），消费 =
+      // 下一 run 起跑现取（在飞 run 不中途换）。回执 notify 一行；footer 行1
+      // 模型槽（V-4 注⑪②——setFooterModel 回迁）：切换即活写短名（id 尾段）
       onModelCycle: () => {
-        const specs: string[] = [];
-        for (const provider of stack.llmRuntime.models.getProviders()) {
-          for (const model of provider.getModels()) specs.push(`${provider.id}/${model.id}`);
-        }
-        if (specs.length === 0) return;
+        const specs = configuredModelEntries().map((entry) => entry.spec);
         // 当前档 = 会话现值（sessionModelOf 三级序——openModelPanel 预选同源；
-        // 修前 stack.model 是栈基线旋钮，会话已切档后循环起点错档）
+        // 修前 stack.model 是栈基线旋钮，会话已切档后循环起点错档）。恒在列：
+        // 当前档不在过滤集则尾追加（当前 provider 未就绪也可循环回——首击落到
+        // 过滤集首位不跳未配置渠道）
         const sid = stack.channels.focusedId ?? session.sessionId;
-        const index = specs.indexOf(stack.sessionModelOf(sid));
-        const next = specs[(index + 1) % specs.length]!; // 不在册（-1+1=0）→ 装配序首位
+        const current = stack.sessionModelOf(sid);
+        if (!specs.includes(current)) specs.push(current);
+        const index = specs.indexOf(current);
+        const next = specs[(index + 1) % specs.length]!; // 恒在列后 ≥1 条——零空集早退
         // 动作体单源（selectModel——「两入口一动作」注兑现：本闭包只算下一档，
         // 落账/直播块/活写 footer/回执不再持第二拷贝）
         selectModel(next);

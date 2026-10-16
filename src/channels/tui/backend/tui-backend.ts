@@ -2599,15 +2599,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /**
    * 开副屏模型选择器（2026-09-30 UX 对标批 ux-4 /model——TUI 本地拦截族）：
-   * 条目 = providers × models 全列 spec 与当前模型装配位现取注入（清单单源
-   * = ctrl+p 循环同一读面——本件收纯数据行，DAG 边表 channels 不入 llm）；
-   * 打字过滤 + provider 分组头件内自持；选定先收副屏再回调（件族同序律），
-   * setModel/回执/footer 活写归装配闭包。返 boolean 同 openThemes 律。
+   * 条目 = 装配位过滤后快照注入（2026-10-16 ux-4 翻档——凭证就绪过滤宇宙；
+   * 清单单源 = ctrl+p 循环同一读面——本件收纯数据行，DAG 边表 channels 不入
+   * llm）；打字过滤 + provider 分组头件内自持；选定先收副屏再回调（件族同序
+   * 律），setModel/回执/footer 活写归装配闭包。notice（可选）= 过滤宇宙指路
+   * 文案透传（头部 dim 指路行 + 底行逃生口段——件内零边外面）。返 boolean
+   * 同 openThemes 律。
    */
   openModelPicker(
     entries: readonly ModelPickEntry[],
     current: string | undefined,
     onSelect: (spec: string) => void,
+    notice?: string,
   ): boolean {
     if (this.altHandle !== null) return false;
     const handle = this.altHost.open(
@@ -2615,6 +2618,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         entries,
         current,
         onSelect,
+        notice,
         sessionId: this.sessionId,
         theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
