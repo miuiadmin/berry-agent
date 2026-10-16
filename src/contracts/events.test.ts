@@ -28,6 +28,7 @@ describe('事件词汇注册表', () => {
       'sandbox/mode',
       'session/thinking-level',
       'session/model',
+      'session/notice',
       'session/paused',
       'llm/usage',
       'llm/retry',

@@ -7811,6 +7811,26 @@ describe('TuiBackend appendModelChangeLine（挖掘 52 轮件 B——块账追�
   });
 });
 
+/* ---------------- 宿主通知块（挖掘 53 轮件 C）——直播追加公开面 ---------------- */
+
+describe('TuiBackend appendNoticeLine（挖掘 53 轮件 C——块账追加即入帧）', () => {
+  it('通知块落帧：四档头符 + 文案（块账路——同步直出即入帧；头符+空格瞬时 notify 形同族）', () => {
+    const { io, backend } = makeBackend();
+    backend.appendNoticeLine({ seq: 0, level: 'info', text: '新版本可用' });
+    expect(stripAnsi(io.bytes)).toContain('• 新版本可用');
+    io.bytes = '';
+    backend.appendNoticeLine({ seq: 1, level: 'warn', text: '令牌临期' });
+    expect(stripAnsi(io.bytes)).toContain('⚠ 令牌临期');
+  });
+
+  it('消毒链在渲染位（后端透传真值）：OSC 序列不入屏账', () => {
+    const { io, backend } = makeBackend();
+    backend.appendNoticeLine({ seq: 0, level: 'info', text: 'q\x1b]52;c;aGk=\x07b' });
+    expect(io.bytes.includes('\x1b]52;')).toBe(false);
+    expect(stripAnsi(io.bytes)).toContain('• qb'); // 消毒后拼接形
+  });
+});
+
 /* ---------------- 问答落史行（挖掘 36 轮 [2]）——直播追加公开面 ---------------- */
 
 describe('TuiBackend appendAskDecisionLine（挖掘 36 轮 [2]——块账追加即入帧）', () => {

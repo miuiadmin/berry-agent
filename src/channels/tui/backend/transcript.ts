@@ -43,7 +43,7 @@
  *   是管线非范围（主屏按帽 / 回看器全量——帽经 LiveTranscriptOptions 参数化）。
  */
 import type { AgentEvent } from '../../../agent/index.js';
-import { isStandardMessage, type AgentMessage } from '../../../contracts/index.js';
+import { isStandardMessage, type AgentMessage, type NotifyLevel } from '../../../contracts/index.js';
 import {
   DIM_STYLE,
   ellipsize,
@@ -263,6 +263,27 @@ export type TranscriptBlock =
     }
   | {
       /**
+       * 宿主通知块（挖掘 53 轮件 C——05 §1.1 session/notice 词条）：会话级
+       * 宿主通知（升级提示首例）session/notice durable 事件的转录呈现
+       * （durable 非消息源块族第五员——model-change 之后；直播腿 tui-entry
+       * 升级闭包追加、重建腿 loadProjection 按 seq 归位）。一行制：首游程
+       * 四档头符（• ✓ ⚠ ✗——瞬时 notify NOTIFY_SYMBOLS 同符表）+ 档位
+       * 语义色（info→secondary / success→success / warn·error→error 借键
+       * 〔sandbox danger 档先例，无 warn 专用键〕）+ 次游程 ` · ` + 文案
+       * （dim）。**槽感知直播腿** splice-before-slot（appendModelChange
+       * 同形）。
+       */
+      readonly kind: 'notice';
+      /** durable 位锚（session/notice 事件 seq——呈现不消费） */
+      readonly seq: number;
+      /** 档位四值（contracts NotifyLevel 同源） */
+      readonly level: NotifyLevel;
+      /** 通知文案（渲染位消毒+一行化） */
+      readonly text: string;
+      readonly theme: ResolvedTheme;
+    }
+  | {
+      /**
        * 问答落史行块（挖掘 36 轮 [2]——07 §4.1 问答落史行词条）：ctx.ui 阻塞
        * 三件（confirm/select/input）收场的即时一行落史——ask 收场单汇点
        * （UiCore）经 dispatch 总线词 ask/settled 回灌的 **live-only 旁支**：
@@ -357,18 +378,34 @@ export interface ModelChangeLineInput {
 }
 
 /**
- * 分页页载荷（挖掘 52 轮件 A——回看器分页加载）：一窗消息 + 三族随窗切片 +
+ * 宿主通知注入窄形（挖掘 53 轮件 C）：投影/回看路的通知载荷（seq 归位锚 +
+ * 档位 + 文案）——直播腿追加（appendNotice）与重建腿归位（loadProjection
+ * notices 参）两消费位同形；theme 由 LiveTranscript 自持（消费位不传）。
+ * 文件内导出窄形——contracts 零改（ApprovalDecisionLineInput 同律）。
+ */
+export interface NoticeLineInput {
+  /** 归位锚（session/notice 事件 durable seq） */
+  readonly seq: number;
+  /** 档位四值（contracts NotifyLevel 同源） */
+  readonly level: NotifyLevel;
+  readonly text: string;
+}
+
+/**
+ * 分页页载荷（挖掘 52 轮件 A——回看器分页加载）：一窗消息 + 四族随窗切片 +
  * 更早页游标。切窗产物 = sliceHistoryWindow 单源（host 装配闭包铸造、viewer
  * 每窗独立 loadProjection 消费——零承接账）。文件内导出型——contracts 零改
- * （三族窄形同律：channels/tui 域私有呈现数据形）。
+ * （四族窄形同律：channels/tui 域私有呈现数据形；notices 增员 = 挖掘 53 轮
+ * 件 C）。
  */
 export interface HistoryPageData {
   /** 窗内消息（升序——必带 seq 形；切窗源 = 投影快照数组恒带） */
   readonly messages: readonly (AgentMessage & { readonly seq: number })[];
-  /** 三族随窗切片（seq 域 [窗首消息 seq, beforeSeq)——与消息同窗归位） */
+  /** 四族随窗切片（seq 域 [窗首消息 seq, beforeSeq)——与消息同窗归位） */
   readonly decisions?: readonly ApprovalDecisionLineInput[];
   readonly todoSnapshots?: readonly TodoSnapshotLineInput[];
   readonly modelChanges?: readonly ModelChangeLineInput[];
+  readonly notices?: readonly NoticeLineInput[];
   /** 更早页游标（下一页拉取的 beforeSeq——本窗首消息 seq）；null = 已到最早 */
   readonly nextBeforeSeq: number | null;
 }
@@ -475,6 +512,43 @@ function modelChangeLine(block: Extract<TranscriptBlock, { kind: 'model-change' 
   const spec = sanitizeDisplayText(block.model).replace(/\s*[\n\r]+\s*/g, ''); // 消毒+一行化
   if (spec === '') return { plain: head, runs: [{ start: 0, end: head.length, style: Object.freeze({ fg }) }] };
   const plain = `${head} · ${spec}`;
+  return {
+    plain,
+    runs: [
+      { start: 0, end: head.length, style: Object.freeze({ fg }) },
+      { start: head.length, end: plain.length, style: DIM_STYLE },
+    ],
+  };
+}
+/**
+ * 通知头符四档表（挖掘 53 轮件 C）：tui-backend 瞬时 notify 形
+ * NOTIFY_SYMBOLS 同符表——本件单源自持（tui-backend 依赖本件、反向 import
+ * 成环，同符约束靠测试对拍锁）。
+ */
+const NOTICE_SYMBOLS: Readonly<Record<NotifyLevel, string>> = { info: '•', success: '✓', warn: '⚠', error: '✗' };
+
+/**
+ * 宿主通知行构造（挖掘 53 轮件 C——词面单源）：首游程四档头符（NOTICE_
+ * SYMBOLS）+ 档位语义色（info→secondary〔非成败判定中性档——问答行已取消
+ * 同档〕/ success→success / warn·error→error 借键〔sandbox danger 档「error
+ * 警示色」先例，主题无 warn 专用键〕）+ 次游程头符后空格 + 文案（dim）——
+ * 瞬时 notify 形 `${symbol} ${line}` 同族一致（头符单符号非词面，不引 ` · `
+ * 分隔——modelChange 头是词面才用 ·）。段加工链（渲染位单源）：
+ * sanitizeDisplayText 消毒（durable 事件是异源可写面——OSC/C0 不入屏账，
+ * modelChangeLine 同律）→ 一行化（同款折空）。空文案折叠 = 裸头符单腿形
+ * （approval 同构）。
+ */
+function noticeLine(block: Extract<TranscriptBlock, { kind: 'notice' }>): StyledLine {
+  const head = NOTICE_SYMBOLS[block.level];
+  const fg: ColorValue =
+    block.level === 'success'
+      ? block.theme.success
+      : block.level === 'info'
+        ? block.theme.secondary
+        : block.theme.error; // warn·error 借键同色（档位语义靠头符区分）
+  const text = sanitizeDisplayText(block.text).replace(/\s*[\n\r]+\s*/g, ''); // 消毒+一行化
+  if (text === '') return { plain: head, runs: [{ start: 0, end: head.length, style: Object.freeze({ fg }) }] };
+  const plain = `${head} ${text}`; // 瞬时 notify 形同族（头符+空格——无 · 分隔）
   return {
     plain,
     runs: [
@@ -863,6 +937,11 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
       // capStyledLine 整字截断）+ 块前垫（R-1 制度行）；durable 归位块
       //（repaint 重建自 fold 同集——非 live-only 族）
       return withPad([modelChangeLine(block)], leadingGap);
+    case 'notice':
+      // 宿主通知块（挖掘 53 轮件 C）：单行制（无折行族——超宽走出口帽
+      // capStyledLine 整字截断）+ 块前垫（R-1 制度行）；durable 归位块
+      //（repaint 重建自 collect 同集——非 live-only 族）
+      return withPad([noticeLine(block)], leadingGap);
     case 'ask-decision':
       // 问答落史行（挖掘 36 轮 [2]）：单行制（无折行族——超宽走出口帽
       // capStyledLine 整字截断）+ 块前垫（R-1 制度行）；live-only 旁支
@@ -1460,9 +1539,11 @@ export function forkEditAnchorsOf(messages: readonly (AgentMessage & { readonly 
  *
  * 算法：beforeSeq 域（seq < beforeSeq 升序子集——Infinity = 全量尾窗）→ 尾端
  * 起 cap 条 → 窗首非 user 消息向前推移到最近轮次边界（轮次完整性优先于页帽
- * ——可超帽；推到 0 = 域内到头即全集最早）。三族随窗同 seq 域切片
- * [窗首消息 seq, beforeSeq)——窗内归位锚完整、窗前事件不漏入（loadProjection
- * flush 语义正交）。空域 = 空窗 + nextBeforeSeq=null。
+ * ——可超帽；推到 0 = 域内到头即全集最早）。四族随窗同 seq 域切片
+ * [最早页 0 / 其余页窗首消息 seq, beforeSeq)——窗内归位锚完整、窗前事件不
+ * 漏入（loadProjection flush 语义正交）；最早页下界取 0（挖掘 53 轮件 C
+ * ——先于首消息的族块首窗全量呈现，四族统一）。空域 = 空窗 +
+ * nextBeforeSeq=null。
  */
 export function sliceHistoryWindow(
   messages: readonly (AgentMessage & { readonly seq: number })[],
@@ -1470,10 +1551,11 @@ export function sliceHistoryWindow(
   deps: {
     /** 页消息条数帽（HISTORY_PAGE_MESSAGES——参数化供测试注小值） */
     readonly cap: number;
-    /** 三族全序列（升序——切片随窗；缺席 = 页上恒缺席） */
+    /** 四族全序列（升序——切片随窗；缺席 = 页上恒缺席） */
     readonly decisions?: readonly ApprovalDecisionLineInput[];
     readonly todoSnapshots?: readonly TodoSnapshotLineInput[];
     readonly modelChanges?: readonly ModelChangeLineInput[];
+    readonly notices?: readonly NoticeLineInput[];
   },
 ): HistoryPageData {
   // beforeSeq 域（Infinity 尾窗免过滤直取全量）
@@ -1486,6 +1568,7 @@ export function sliceHistoryWindow(
       ...(deps.decisions !== undefined ? { decisions: [] } : {}),
       ...(deps.todoSnapshots !== undefined ? { todoSnapshots: [] } : {}),
       ...(deps.modelChanges !== undefined ? { modelChanges: [] } : {}),
+      ...(deps.notices !== undefined ? { notices: [] } : {}),
     };
   }
   let start = Math.max(0, domain.length - deps.cap);
@@ -1493,14 +1576,20 @@ export function sliceHistoryWindow(
   while (start > 0 && !rendersAsUserBlock(domain[start]!)) start -= 1;
   const window = domain.slice(start);
   const firstSeq = window[0]!.seq;
-  // 三族同域切片（上界 beforeSeq：域内事件全 < beforeSeq；下界窗首 seq 含端）
-  const inWindow = (seq: number): boolean => seq >= firstSeq && seq < beforeSeq;
+  // 四族同域切片（上界 beforeSeq：域内事件全 < beforeSeq）；最早页（start===0）
+  // 下界放宽取 0——seq 早于首条消息的族块旧语义不属任何页（空会话先落块后
+  // 聊天形：主屏有块回看器任何页无块，与 durable 块件义矛盾），首窗全量呈现
+  //（四族统一——model-change 先于首问潜伏边同修）；其余页下界窗首 seq 含端
+  // 不动（族块零跨页重复）
+  const lower = start === 0 ? 0 : firstSeq;
+  const inWindow = (seq: number): boolean => seq >= lower && seq < beforeSeq;
   return {
     messages: window,
     nextBeforeSeq: start === 0 ? null : firstSeq,
     ...(deps.decisions !== undefined ? { decisions: deps.decisions.filter((d) => inWindow(d.seq)) } : {}),
     ...(deps.todoSnapshots !== undefined ? { todoSnapshots: deps.todoSnapshots.filter((d) => inWindow(d.seq)) } : {}),
     ...(deps.modelChanges !== undefined ? { modelChanges: deps.modelChanges.filter((d) => inWindow(d.seq)) } : {}),
+    ...(deps.notices !== undefined ? { notices: deps.notices.filter((d) => inWindow(d.seq)) } : {}),
   };
 }
 
@@ -1748,6 +1837,30 @@ export class LiveTranscript {
     this.trimToCap();
   }
 
+  /**
+   * 直播腿宿主通知块追加（挖掘 53 轮件 C——tui-entry 升级腿闭包消费位）：
+   * 槽感知归位两形 appendModelChange 同形（splice-before-slot / 常序尾落）。
+   * **块账在册**（占 blockCap 帽）非瞬时行路——repaint 投影重建自愈
+   * （loadProjection 按 seq 归位同构）。调用位过滤（聚焦限定）归 tui-entry
+   * 闭包位。
+   */
+  appendNotice(entry: NoticeLineInput): void {
+    const block: TranscriptBlock = {
+      kind: 'notice',
+      seq: entry.seq,
+      level: entry.level,
+      text: entry.text,
+      theme: this.theme,
+    };
+    // 尾块判与 message_update 同源双判（slotOpen 不变式由开槽/摘槽位维护）
+    if (this.slotOpen && this.blocks[this.blocks.length - 1]?.kind === 'streaming') {
+      this.blocks.splice(this.blocks.length - 1, 0, block); // 槽之前一位——槽恒居尾
+    } else {
+      this.blocks.push(block); // 槽关闭期常序尾落
+    }
+    this.trimToCap();
+  }
+
   /** 块账最后 todo-snapshot 块（闸比较态真源——倒扫首中） */
   private lastTodoSnapshotBlock(
     blocks: readonly TranscriptBlock[],
@@ -1776,16 +1889,21 @@ export class LiveTranscript {
    * appendTodoSnapshot 同闸——两路同一块集）；扫尾全 flush + 消息零 seq
    * 降级尾 flush（decisions 同律诚实不丢）。
    * modelChanges（挖掘 52 轮件 B——模型切线块重建腿）：逐消息前 flush
-   * 队首 seq < 该消息 seq 的切线块（decisions 同实现形、分立队列；同一
-   * 消息边界三队列固定序 decisions → modelChanges → todoSnapshots——跨族
-   * 同 seq 邻接是罕见形，固定序近似与 decisions/todo 既有注记同类）；
+   * 队首 seq < 该消息 seq 的切线块（decisions 同实现形、分立队列）；
    * 扫尾全 flush + 消息零 seq 降级尾 flush 同律。
+   * notices（挖掘 53 轮件 C——宿主通知块重建腿）：逐消息前 flush 队首
+   * seq < 该消息 seq 的通知块（decisions 同实现形、分立队列、无闸直落）；
+   * 同一消息边界四队列固定序 decisions → modelChanges → todoSnapshots →
+   * notices（07 §4.1 定序——跨族同 seq 邻接是罕见形，固定序近似与
+   * decisions/todo 既有注记同类）；扫尾全 flush + 消息零 seq 降级尾 flush
+   * 同律。
    */
   loadProjection(
     messages: readonly (AgentMessage & { readonly seq?: number })[],
     decisions?: readonly ApprovalDecisionLineInput[],
     todoSnapshots?: readonly TodoSnapshotLineInput[],
     modelChanges?: readonly ModelChangeLineInput[],
+    notices?: readonly NoticeLineInput[],
   ): void {
     const rebuilt: TranscriptBlock[] = [];
     this.pendingCalls.clear(); // 配对账随投影重建（走查中 assistant 入账、toolResult 出账）
@@ -1827,11 +1945,20 @@ export class LiveTranscript {
         rebuilt.push({ kind: 'model-change', seq: entry.seq, model: entry.model, theme: this.theme });
       }
     };
+    // 通知归位队列（升序同律——decisions 同实现形、无闸直落；固定序末位）
+    const noticeQueue = [...(notices ?? [])].sort((a, b) => a.seq - b.seq);
+    const flushNoticesBefore = (limit: number): void => {
+      while (noticeQueue.length > 0 && noticeQueue[0]!.seq < limit) {
+        const entry = noticeQueue.shift()!;
+        rebuilt.push({ kind: 'notice', seq: entry.seq, level: entry.level, text: entry.text, theme: this.theme });
+      }
+    };
     for (const message of messages) {
       if (message.seq !== undefined) {
         flushDecisionsBefore(message.seq);
         flushModelChangesBefore(message.seq);
         flushTodoSnapshotsBefore(message.seq);
+        flushNoticesBefore(message.seq); // 固定序末位（07 §4.1 四队列定序）
       }
       switch (message.role) {
         case 'user': {
@@ -1877,6 +2004,12 @@ export class LiveTranscript {
     // 零 seq 消息降级尾 flush 同在此（诚实不丢）
     for (const entry of modelQueue) {
       rebuilt.push({ kind: 'model-change', seq: entry.seq, model: entry.model, theme: this.theme });
+    }
+    // 通知尾 flush（挖掘 53 轮件 C）：晚于全部消息的通知块——同先于组窗
+    // 收口（直播路通知落块在升级闭包、组卡收口在 agent_end——尾序同构）；
+    // 零 seq 消息降级尾 flush 同在此（诚实不丢）
+    for (const entry of noticeQueue) {
+      rebuilt.push({ kind: 'notice', seq: entry.seq, level: entry.level, text: entry.text, theme: this.theme });
     }
     // 组窗走查毕收口（直播路 agent_end 收口位的投影对位——末段窗
     // 不滞留；先于孤儿 ⚙ 扫描：组卡位在前、孤儿兜底在后与直播路同序）

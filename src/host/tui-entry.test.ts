@@ -1536,6 +1536,9 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
     version = 'test', // 判序腿要 semver 形版本时覆写（'test' 非 semver → 恒「已是最新」支）
   ) {
     const faux = fauxProvider({ provider: 'faux-upd', models: [{ id: 'm1' }] });
+    // 应答余量（53 轮件 C durable 主腿 it 发消息建非空日志——既有 it 不发消息
+    // 队列闲置零扰动）
+    faux.setResponses([() => messageOf(), () => messageOf()]);
     const io = new FakeTerminalIO();
     const entry = runTuiEntry({
       flags: { noPlugins: false, debug: false },
@@ -1667,6 +1670,92 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
     await until(() => io.output.includes('版本检查异常：SDK_TRANSPORT：检查腿炸了'));
     io.send('\x04');
     expect(await entry).toBe(0);
+  });
+
+  // —— 挖掘 53 轮件 C：提示形双动作 durable 化（§8.5 第 6 条改述）——
+  /** 决策桩类型（启动腿 hasUpdate 支三键形——手动 resolve 控时序） */
+  type UpdateDecision = { kind: 'checked'; latest: string; hasUpdate: boolean; alreadyNotified: boolean };
+
+  it('durable 主腿（53 轮件 C）：聚焦会话日志非空 → session/notice 落史 + 直播腿块 + notifiedVersion 落账（次序倒置——append 后才 record）', async () => {
+    const dataDir = rigDir('entry-upd-durable-');
+    let decide: (d: UpdateDecision) => void = () => {};
+    const gate = new Promise<UpdateDecision>((resolve) => {
+      decide = resolve;
+    });
+    const { entry, io } = await rigUpdateEntry(dataDir, () => gate);
+    // 先建非空日志（一条对话——空会话降级判据不触发）
+    io.send('探针\r');
+    await until(() => io.output.includes('ok'));
+    // 决策到达：durable 落账 + 直播腿块（头符 • 瞬时 notify 形同符——块路
+    // 经 transcript 渲染入帧）
+    decide({ kind: 'checked', latest: '9.9.9', hasUpdate: true, alreadyNotified: false });
+    await until(() => io.output.includes('新版本 9.9.9 可用——/update 查看详情'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    // durable 实证（probe 读库）：session/notice 事件在史（level info + 全句文案）
+    const probe = Persistence.open({
+      dbPath: resolveDatabasePathIn(dataDir),
+      dataDir,
+      migrations: HOST_MIGRATION_TAIL,
+    });
+    const [row] = probe.store.listSessions({ limit: 10 });
+    expect(row).toBeDefined();
+    const events = [...probe.loadSession(row!.id).log.events()];
+    const notice = events.find((e) => e.type === 'session/notice');
+    expect(notice).toBeDefined();
+    expect((notice!.data as { level?: string }).level).toBe('info');
+    expect((notice!.data as { text?: string }).text).toContain('退出后执行 berry update');
+    await probe.close();
+    // 去重基线照落（次序倒置——append 成功后 record）
+    const state = JSON.parse(readFileSync(join(dataDir, 'update-check.json'), 'utf8')) as {
+      notifiedVersion?: string;
+    };
+    expect(state.notifiedVersion).toBe('9.9.9');
+  });
+
+  it('空会话降级（53 轮件 C）：启动即提示（日志零事件）→ 瞬时 notify 维持不落史（无 session/notice 事件）+ record 照落', async () => {
+    const dataDir = rigDir('entry-upd-empty-');
+    const { entry, io } = await rigUpdateEntry(dataDir, async () => ({
+      kind: 'checked' as const,
+      latest: '9.9.9',
+      hasUpdate: true,
+      alreadyNotified: false,
+    }));
+    await until(() => io.output.includes('新版本 9.9.9 可用——/update 查看详情'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    // 零事件会话不落首事件（无标题空会话行 + 续接抢占防线）——瞬时形
+    const probe = Persistence.open({
+      dbPath: resolveDatabasePathIn(dataDir),
+      dataDir,
+      migrations: HOST_MIGRATION_TAIL,
+    });
+    const rows = probe.store.listSessions({ limit: 10 });
+    for (const row of rows) {
+      const events = [...probe.loadSession(row.id).log.events()];
+      expect(events.some((e) => e.type === 'session/notice')).toBe(false); // 不落史
+    }
+    await probe.close();
+    // record 照落（去重不因降级失效）
+    const state = JSON.parse(readFileSync(join(dataDir, 'update-check.json'), 'utf8')) as {
+      notifiedVersion?: string;
+    };
+    expect(state.notifiedVersion).toBe('9.9.9');
+  });
+
+  it('quit 后守卫（53 轮件 C）：决策晚于主循环收口到达 → 整腿跳过（零提示零落账——会话收口后提示无处落）', async () => {
+    const dataDir = rigDir('entry-upd-quit-');
+    let decide: (d: UpdateDecision) => void = () => {};
+    const gate = new Promise<UpdateDecision>((resolve) => {
+      decide = resolve;
+    });
+    const { entry, io } = await rigUpdateEntry(dataDir, () => gate);
+    io.send('\x04'); // 先退（决策未到——quitReached 置位）
+    expect(await entry).toBe(0);
+    decide({ kind: 'checked', latest: '9.9.9', hasUpdate: true, alreadyNotified: false });
+    await new Promise((resolve) => setTimeout(resolve, 30)); // 微任务冲完（then 腿跑毕）
+    expect(io.output).not.toContain('新版本'); // 零提示
+    expect(existsSync(join(dataDir, 'update-check.json'))).toBe(false); // 零落账（下版重报诚实）
   });
 });
 

@@ -1998,6 +1998,13 @@
       "desc": "会话级模型档位 = fold(events)，append 即切换、重放即恢复（挖掘 52 轮件 B 入册——档位族第三员，sandbox/mode·session/thinking-level 同形；写入者 = conversation 件档位切换面〔/model 面板与 ctrl+p 双入口单源〕，插件面零写入位单写者律；消费 = run 起 driver 取 fold 现值 ?? 栈基线 + 悬空校验回落〔指向已删渠道时 warn 降级〕）"
     },
     {
+      "symbol": "session/notice",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话级宿主通知 durable 化（挖掘 53 轮件 C 入册——05 §1.1「升级提示首例」兑现；升级提示按版本去重一次〔update-check.json〕而瞬时行滚出即永失、repaint persist 档不跨 reload——诚实 durable 须事件背书〔52B model-change 同构〕）：载荷 {level（四档 info/success/warn/error——contracts NotifyLevel 同源）, text}；单写者 = host 装配位通知腿（插件面零写入位）；随锚会话不跨会话广播；非档位字段、不入 session_meta_changed {field} 镜像族（session/model 行同判语——呈现驱动走装配位直调 + collect 重建双路）；消费面 = transcript notice 块（07 §4.1 durable 非消息源块族第五员）"
+    },
+    {
       "symbol": "session/paused",
       "module": "session-events",
       "tier": "stable",

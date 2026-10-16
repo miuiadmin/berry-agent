@@ -41,7 +41,7 @@ import {
 } from '../persist/index.js';
 
 import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
-import { setSessionModel } from '../conversation/index.js';
+import { appendSessionNotice, setSessionModel } from '../conversation/index.js';
 import {
   aggregateBackgroundSpentToday,
   aggregateSessionSpent,
@@ -2371,6 +2371,21 @@ describe('会话模型档位 durable 化（挖掘 52 轮件 B——session/model
     const entries = stack.modelChangesOf(session.sessionId);
     expect(entries.map((entry) => entry.model)).toEqual(['faux-stack/m2', 'ghost/m9']);
     expect(entries[0]!.seq).toBeLessThan(entries[1]!.seq);
+    await rt.shutdown();
+  });
+
+  it('noticesOf 双事实读面（挖掘 53 轮件 C）：appendSessionNotice 落 durable → 驱动活体位全序列升序（TUI notice 块数据源）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigTwoModelStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    // durable 通知（conversation 公开面单写者——tui-entry 升级腿同源）
+    const seqA = appendSessionNotice(stack.driverOf(session.sessionId)!.session, 'info', '新版本可用');
+    const seqB = appendSessionNotice(stack.driverOf(session.sessionId)!.session, 'warn', '令牌临期');
+    const entries = stack.noticesOf(session.sessionId);
+    expect(entries.map((entry) => [entry.seq, entry.level, entry.text])).toEqual([
+      [seqA, 'info', '新版本可用'],
+      [seqB, 'warn', '令牌临期'],
+    ]); // 升序 + 载荷三字段全息（seq 归位锚随事件位真值）
     await rt.shutdown();
   });
 

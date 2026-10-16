@@ -66,6 +66,7 @@ import {
   ensureTodoRole,
   foldApprovalDecisions,
   collectModelChanges,
+  collectSessionNotices,
   foldCallLedger,
   foldSessionModel,
   foldSessionSandboxMode,
@@ -81,6 +82,7 @@ import type {
   DriverFactory,
   FoldedApprovalDecision,
   ModelChangeEntry,
+  NoticeEntry,
   RunSettledReceipt,
   SubmitOptions,
   SubmitResult,
@@ -338,6 +340,13 @@ export interface ConversationStack {
    * 纪律 approvalDecisionsOf 同款（驱动活体优先、未开回库装载）。
    */
   modelChangesOf(sessionId: string): readonly ModelChangeEntry[];
+  /**
+   * 宿主通知全序列读面（挖掘 53 轮件 C——TUI notice 块数据源）：
+   * collectSessionNotices 单源扫日志全部 session/notice → [{seq, level,
+   * text}] 升序（收集位坏形防御跳过、遮蔽事件跳过——呈现面 fail-open）；
+   * 双事实纪律 modelChangesOf 同款（驱动活体优先、未开回库装载）。
+   */
+  noticesOf(sessionId: string): readonly NoticeEntry[];
   /**
    * 思考档位栈基线活读（2026-09-17 会话档位切换面批 F1）：装配面原始值的
    * 透传读面——会话生效档以 `foldSessionThinkingLevel(session.events()) ??
@@ -1995,6 +2004,14 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     modelChangesOf(sessionId: string): readonly ModelChangeEntry[] {
       const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
       return collectModelChanges(log.events());
+    },
+    // 宿主通知全序列读面（挖掘 53 轮件 C——TUI notice 块数据源）：双事实
+    // 源解析 modelChangesOf 一字不差（驱动活体优先、未开回库装载），
+    // collect 单源在 conversation 模块（坏形防御跳过 + 遮蔽跳过——呈现面
+    // fail-open，闸知识零携带）。
+    noticesOf(sessionId: string): readonly NoticeEntry[] {
+      const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
+      return collectSessionNotices(log.events());
     },
     // 模型旋钮（07 §4.1 R5 挂账解挂批；挖掘 52 轮件 B 翻档后 = 栈基线位）：
     // 内存换档不落事件——消费位 = defaultModel 闭包/fold 缺席回落位/配置面

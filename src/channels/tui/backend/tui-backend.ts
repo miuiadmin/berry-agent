@@ -110,6 +110,7 @@ import {
   type ApprovalDecisionLineInput,
   type AskDecisionLineInput,
   type ModelChangeLineInput,
+  type NoticeLineInput,
   type TodoSnapshotLineInput,
   type TranscriptBlock,
 } from './transcript.js';
@@ -346,6 +347,14 @@ export interface TuiBackendOptions {
    * 不受影响）。
    */
   readonly modelChangesOf?: (sessionId: string) => readonly ModelChangeLineInput[];
+  /**
+   * 宿主通知读面（挖掘 53 轮件 C——回看/投影重建路通知块数据源）：[{seq,
+   * level, text}] 升序全序列（collectSessionNotices 产物——坏形防御跳过已在
+   * 收集位，backend 收到干净子集）；重建腿 onRepaint/openHistory 随投影传参
+   * 两路共用。注入缺席 = 通知块零变化（兼容锁——旧装配/测试零扰动；直播腿
+   * 经 appendNoticeLine 直灌不受影响）。
+   */
+  readonly noticesOf?: (sessionId: string) => readonly NoticeLineInput[];
   /**
    * 外部编辑器执行器（挖掘 31 轮 [9]——ctrl+g 挂起交出形，codex
    * external_editor 对标）：seed = 当前草稿全文，返结局三态（edited /
@@ -1098,6 +1107,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly todoSnapshotsSource: ((sessionId: string) => readonly TodoSnapshotLineInput[]) | undefined;
   /** 模型切线读面（挖掘 52 轮件 B——重建路共用；直播腿经 appendModelChangeLine 直灌） */
   private readonly modelChangesSource: ((sessionId: string) => readonly ModelChangeLineInput[]) | undefined;
+  /** 宿主通知读面（挖掘 53 轮件 C——重建路共用；直播腿经 appendNoticeLine 直灌） */
+  private readonly noticesSource: ((sessionId: string) => readonly NoticeLineInput[]) | undefined;
   /**
    * goal 持续态数据源（件 G）：注入缺席 = 段缺席零变化（footer 态词与
    * JobPanel goal 段两消费面同判此位）；在场时帧首拉取持续态行集。
@@ -1608,6 +1619,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.todoSnapshotsSource = options.todoSnapshotsOf;
     // 模型切线读面（挖掘 52 轮件 B）：缺席 = 重建路切线块零变化（直播腿不受影响）
     this.modelChangesSource = options.modelChangesOf;
+    this.noticesSource = options.noticesOf;
     this.jobPanel = new JobPanel({ now: () => this.now() });
     this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
     // 浮层开/关两触点：重绘请求 + 注意态对账（件 C——stack 尺寸迁移即 sync；
@@ -2031,9 +2043,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 投影恒带 seq（createChannels 泛型钉形——契约面 AgentMessage 上界宽形，
     // 运行时窄化判据）→ sliceHistoryWindow 只装尾窗（beforeSeq = Infinity 免
     // 过滤直取尾帽窗）+ 续页按 viewer 游标复切同一投影快照（同步零 I/O——
-    // 快照档语义：续页与首窗同源零漂移）；三族随窗同 seq 域切片（deps 键在场
+    // 快照档语义：续页与首窗同源零漂移）；四族随窗同 seq 域切片（deps 键在场
     // 镜像注入在场——缺席族页产物无键，兼容锁逐族成立，不叠加全量族防窗外
-    // seq 错位）。免 seq 形（旧装配/测试直呼 openHistory）= 全量单发静态档
+    // seq 错位；notices 增员 = 挖掘 53 轮件 C）。免 seq 形（旧装配/测试直呼 openHistory）= 全量单发静态档
     // 现行为零变（兼容锁）。
     const seqMessages = messages.filter(
       (m): m is AgentMessage & { readonly seq: number } => typeof (m as { readonly seq?: number }).seq === 'number',
@@ -2048,6 +2060,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
               : {}),
             ...(this.todoSnapshotsSource !== undefined ? { todoSnapshots: this.todoSnapshotsSource(sessionId) } : {}),
             ...(this.modelChangesSource !== undefined ? { modelChanges: this.modelChangesSource(sessionId) } : {}),
+            ...(this.noticesSource !== undefined ? { notices: this.noticesSource(sessionId) } : {}),
           })
       : undefined;
     const firstPage = page?.(Number.POSITIVE_INFINITY);
@@ -2063,6 +2076,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         todoSnapshots: firstPage !== undefined ? firstPage.todoSnapshots : this.todoSnapshotsSource?.(sessionId),
         // 模型切线块同路（挖掘 52 轮件 B——modelChangesOf 同源，缺席零变化）
         modelChanges: firstPage !== undefined ? firstPage.modelChanges : this.modelChangesSource?.(sessionId),
+        // 宿主通知块同路（挖掘 53 轮件 C——noticesOf 同源，缺席零变化）
+        notices: firstPage !== undefined ? firstPage.notices : this.noticesSource?.(sessionId),
         columns: this.io.size().columns,
         theme: this.theme, // 会话主题快照（批 10i——回看器行集与主屏同板，含思考块/工具卡烙印）
         onExit: () => {
@@ -2895,6 +2910,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * 直播腿宿主通知块追加（挖掘 53 轮件 C——tui-entry 升级腿闭包消费位）：
+   * appendApprovalDecisionLine 同形三步（块账入 present 链——缺 enqueue 新块
+   * 不入帧）。**槽感知归位**在 transcript.appendNotice 单源（mid-run 通知让槽
+   * 居尾）；调用位过滤（聚焦限定）归 tui-entry 闭包位。
+   */
+  appendNoticeLine(input: NoticeLineInput): void {
+    this.transcript.appendNotice(input);
+    this.enqueuePresent();
+    this.requestRender();
+  }
+
+  /**
    * 直播腿回合收尾块追加（挖掘 43 轮件 A——agent_end completed 腿消费位）：
    * recap 行从瞬时行迁 turn-recap 块载体（词面单源 runRecapLine 不动——只迁
    * 载体）；appendApprovalDecisionLine 同形三步（块账入 present 链——缺
@@ -3423,6 +3450,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.approvalDecisionsSource?.(sessionId),
       this.todoSnapshotsSource?.(sessionId),
       this.modelChangesSource?.(sessionId), // 模型切线块随投影重建（52 轮件 B——缺席零变化）
+      this.noticesSource?.(sessionId), // 宿主通知块随投影重建（53 轮件 C——缺席零变化）
     );
     // 等回声复位分治（切焦 vs 同焦 refresh——2026-10-06 切焦清账修）：切焦即
     // 新观察窗——旧焦提交流的抑制位无条件清账（新焦零块空会话时条件 settle

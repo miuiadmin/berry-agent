@@ -100,6 +100,12 @@ export { foldSessionSandboxMode, setSessionMode } from './session-mode.js';
 // 块重建腿数据源〕；单写者律 = 宿主装配独占，host 跨模块消费走本公开面）
 export type { ModelChangeEntry, SessionModelEventData } from './session-model.js';
 export { collectModelChanges, foldSessionModel, setSessionModel } from './session-model.js';
+// 会话级宿主通知 durable 面（挖掘 53 轮件 C——05 §1.1 session/notice 行
+// 兑现：append 面 + collect 全序列读面〔transcript notice 块重建腿数据源
+// ——升级提示首例〕；owner=host 单写者律 = tui-entry 装配位通知腿独占，
+// 本面纯逻辑归 conversation 事件面族，host 跨模块消费走本公开面）
+export type { NoticeEntry, SessionNoticeEventData } from './session-notice.js';
+export { appendSessionNotice, collectSessionNotices } from './session-notice.js';
 // 审批三件 + open 域装配（11e：fresh 作用域审批 wiring + fs/检索/bash/todo 组装面）
 export type { SessionApprovalOptions, SessionApprovalWiring } from './approval-wiring.js';
 export { wireSessionApproval } from './approval-wiring.js';

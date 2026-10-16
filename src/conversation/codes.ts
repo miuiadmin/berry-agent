@@ -66,4 +66,10 @@ registerErrorCodes([
     description:
       'session/thinking-level 事件档位非法（七档词表 off/minimal/low/medium/high/xhigh/max 之外）——append 词法校验与 fold 全量正扫两抛出位（SANDBOX_MODE_INVALID 同律：静默跳过坏事件会沿用旧档属 fail-open，宁响亮失败；02 §5.3 THINKING_ 族 2026-09-17 会话档位切换面批入册；语义真源 05 §1.1 该行 + 07 §4.1 该批批注）',
   },
+  {
+    code: 'SESSION_NOTICE_PAYLOAD_INVALID',
+    module: 'conversation',
+    description:
+      'session/notice 事件载荷非法（level 出四档闭集 info/success/warn/error 或 text 非串）——append 面校验抛出位（坏形不入账；collect 读面同形防御跳过不炸呈现，fail-loud 归 append 面；挖掘 53 轮件 C 入册——SANDBOX_MODE_INVALID fail-loud 律同源承袭，纯逻辑面归 conversation 事件面族而写点 = host 装配位通知腿）',
+  },
 ]);

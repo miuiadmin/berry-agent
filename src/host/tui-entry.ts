@@ -66,6 +66,7 @@ import {
   foldTodoTable,
   isUserApprovalDecision,
   setSessionMode,
+  appendSessionNotice,
   setSessionModel,
   setSessionThinkingLevel,
   THINKING_LEVELS,
@@ -1726,6 +1727,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       //（seq+model 直展——collectModelChanges 收集位已坏形防御跳过，本层
       // 零过滤零闸知识，backend 收到干净子集）
       modelChangesOf: (sessionId) => stack.modelChangesOf(sessionId).map(({ seq, model }) => ({ seq, model })),
+      // 宿主通知全序列数据源（挖掘 53 轮件 C——投影/回看重建路）：窄形映射
+      //（seq+level+text 直展——collectSessionNotices 收集位已坏形防御跳过，
+      // 本层零过滤零闸知识，backend 收到干净子集）
+      noticesOf: (sessionId) => stack.noticesOf(sessionId).map(({ seq, level, text }) => ({ seq, level, text })),
       // 持久化分项目输入历史（B1——07 §4.1 呈现面件 2 定形注③种写双路）：
       // 域键 = 启动锚工作区根（session.workspaceRoot——resume/--session 续接
       // 会话根与 openStartupSession 缺省 cwd 归一两路均已 canonical 归一形；
@@ -2161,6 +2166,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // 注入面（贴 dispatchServe runners 先例）：缺省与产线接线逐字同形——测试
     // 注桩零网络，行为零变更；env 关断键由编排器自身消费（skipped 早退）。
     const startupCheck = options.startupUpdateCheck ?? runStartupUpdateCheck;
+    // quit 后守卫（挖掘 53 轮件 C）：异步腿可能在主循环收口后才 resolve——
+    // quit 后整腿跳过（会话已收口，提示无处落 = 诚实缺席非错误）
+    let quitReached = false;
     if (runtime.dataDir !== null) {
       void startupCheck({
         dataDir: runtime.dataDir,
@@ -2176,12 +2184,33 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             decision.hasUpdate &&
             !decision.alreadyNotified
           ) {
+            if (quitReached) return; // quit 后零提示零落账（守卫整腿）
+            // 提示形双动作（§8.5 第 6 条改述——挖掘 53 轮件 C durable 化）：
+            // 提示语单源（durable 块与瞬时降级腿同文）+ 指引退出后执行——
+            // 用户不看 /update 也知道下一步动作
+            const text = `新版本 ${decision.latest} 可用——/update 查看详情；退出后执行 berry update`;
+            // 落位仲裁（boot 异步腿聚焦分裂防线——selectModel/ask-settled
+            // 聚焦仲裁双先例同构）：target = 聚焦 ?? 启动会话，经 driverOf
+            // 落 durable；driver 在场且**日志非空**才落账+直播腿（零事件会话
+            // 落首事件会造无标题空会话行 + 「按 cwd 取最新」续接抢占——空会话
+            // 降级维持瞬时 notify 不落史）
+            const target = stack.channels.focusedId ?? session.sessionId;
+            const driver = stack.driverOf(target);
+            if (driver !== undefined && driver.session.events().length > 0) {
+              // 次序倒置（07:347）：append 成功后才 record——append 可抛，
+              // 标记先落则该版提示永失不可重试（失败下版重报诚实）
+              const seq = appendSessionNotice(driver.session, 'info', text);
+              recordNotifiedVersion(createNodeUpdateCheckFs(), runtime.dataDir as string, decision.latest, Date.now());
+              // 直播腿：仅 target ≡ 屏上会话（聚焦在场）时调——分裂形跳过
+              // 直播腿（durable 块留待回该会话经投影呈现）
+              if (stack.channels.focusedId !== undefined) {
+                backend.appendNoticeLine({ seq, level: 'info', text });
+              }
+              return;
+            }
+            // 空会话/驱动缺席降级：瞬时 notify（不落史——旧形）
             recordNotifiedVersion(createNodeUpdateCheckFs(), runtime.dataDir as string, decision.latest, Date.now());
-            // 提示形完整句（§8.5 第 6 条：notify 一行 + 指引退出后执行——
-            // 用户不看 /update 也知道下一步动作）
-            backend.notify(`新版本 ${decision.latest} 可用——/update 查看详情；退出后执行 berry update`, {
-              level: 'info',
-            });
+            backend.notify(text, { level: 'info' });
           }
         })
         .catch(() => {
@@ -2190,6 +2219,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     }
 
     await quitDone; // 主循环——输入事件驱动，直至 ctrl+d 空框退出
+    quitReached = true; // 退出后守卫置位（异步腿 quit 后跳过）
 
     // —— R-10 退出收尾快照（shutdown 前取——driver 事件面 shutdown 后不可
     // 靠）：聚焦会话（空悬回退启动会话——/status 供数同源形）；driver 缺席

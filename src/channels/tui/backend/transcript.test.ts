@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { ansiColor, CellGrid, colorRgb, sanitizeDisplayText, stringWidth } from '../../engine/index.js';
 import type { TodoItem } from '../../types.js';
 import type { AgentEvent } from '../../../agent/index.js';
-import type { AgentMessage, AssistantMessage } from '../../../contracts/index.js';
+import type { AgentMessage, AssistantMessage, NotifyLevel } from '../../../contracts/index.js';
 import { ccrMarkerLine } from '../../../contracts/index.js';
 import { LIGHT_PALETTE, resolveTheme, DEFAULT_THEME } from '../theme/index.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
@@ -2966,13 +2966,182 @@ describe('sliceHistoryWindow 轮次边界切窗（挖掘 52 轮件 A——回看
     expect(tail.todoSnapshots).toBeUndefined(); // 缺席族恒缺席
   });
 
-  it('空域（beforeSeq ≤ 首消息 seq）= 空窗 + null 游标；三族在场性随 deps 镜像', () => {
+  it('空域（beforeSeq ≤ 首消息 seq）= 空窗 + null 游标；族在场性随 deps 镜像', () => {
     const all = turns(2);
     const page = sliceHistoryWindow(all, 0, { cap: 10, decisions: [{ seq: 0, decision: 'approve', summary: 'x' }] });
     expect(page.messages).toEqual([]);
     expect(page.nextBeforeSeq).toBeNull();
-    expect(page.decisions).toEqual([]); // 在场族空切片（loadProjection 三参照旧）
+    expect(page.decisions).toEqual([]); // 在场族空切片（loadProjection 参照旧）
     expect(page.modelChanges).toBeUndefined();
+  });
+
+  it('最早页族切片下界放宽（挖掘 53 轮件 C）：seq 早于首条消息的族块旧语义不属任何页——空会话先落块后聊天形首窗全量呈现、四族统一', () => {
+    // 修前红：下界 = firstSeq → seq 0（< 首消息 seq 1）被滤——升级提示块在
+    // 任何页不可见与 durable 块件义矛盾（主屏有块、回看器任何页无块）
+    const all = [seqMsg(userMsg('问0'), 1), seqMsg(assistantMsg('答0'), 2)];
+    const page = sliceHistoryWindow(all, Number.POSITIVE_INFINITY, {
+      cap: 10,
+      notices: [
+        { seq: 0, level: 'info', text: '新版本可用' }, // 先于首消息（空会话先落形）
+        { seq: 1, level: 'success', text: '窗内' },
+        { seq: 2, level: 'warn', text: '窗内尾' },
+      ],
+      modelChanges: [{ seq: 0, model: 'p/m' }], // 四族统一（model-change 先于首问潜伏边同修）
+    });
+    expect(page.nextBeforeSeq).toBeNull(); // start===0 最早页
+    expect(page.notices).toEqual([
+      { seq: 0, level: 'info', text: '新版本可用' }, // 最早页下界取 0——首窗全量
+      { seq: 1, level: 'success', text: '窗内' },
+      { seq: 2, level: 'warn', text: '窗内尾' },
+    ]);
+    expect(page.modelChanges).toEqual([{ seq: 0, model: 'p/m' }]); // 四族同刀统一
+  });
+
+  it('最早页下界放宽不外溢：非最早页下界不动（窗首 seq 含端）——族块零跨页重复', () => {
+    const all = turns(3); // seq 0..5
+    const tail = sliceHistoryWindow(all, Number.POSITIVE_INFINITY, {
+      cap: 4,
+      notices: [{ seq: 0, level: 'info', text: '首锚' }],
+    });
+    // 尾窗 start=2（u1 边界）firstSeq=2 → seq 0 属更早页——本窗不重复呈现
+    expect(tail.messages.map((m) => m.seq)).toEqual([2, 3, 4, 5]);
+    expect(tail.notices).toEqual([]);
+    const older = sliceHistoryWindow(all, tail.nextBeforeSeq!, {
+      cap: 4,
+      notices: [{ seq: 0, level: 'info', text: '首锚' }],
+    });
+    // older domain=[u0 a0]（seq 0..3 实为 0..1）start=0 最早页——下界取 0 纳入
+    expect(older.messages.map((m) => m.seq)).toEqual([0, 1]);
+    expect(older.notices).toEqual([{ seq: 0, level: 'info', text: '首锚' }]); // 只在此页呈现一次
+  });
+});
+
+/* ---------------- 宿主通知块（挖掘 53 轮件 C——notice durable 族第五员） ---------------- */
+
+describe('LiveTranscript 宿主通知块（挖掘 53 轮件 C——session/notice durable）', () => {
+  /** 通知块速构（渲染面直锁） */
+  const noticeBlock = (level: NotifyLevel, text: string): TranscriptBlock => ({
+    kind: 'notice',
+    seq: 1,
+    level,
+    text,
+    theme: DEFAULT_THEME,
+  });
+
+  it('词面四档头符 + 档位色：info「• 文案」secondary / success「✓」success / warn「⚠」error 借键 / error「✗」error——文案段 dim', () => {
+    // 头符四档与瞬时 notify NOTIFY_SYMBOLS 同符表（tui-backend 私有——两处
+    // 字面一致靠本锁：• ✓ ⚠ ✗）
+    const info = renderBlockStyledLines(noticeBlock('info', '新版本可用'), 100, false);
+    expect(info).toHaveLength(1); // 一行制
+    expect(info[0]!.plain).toBe('• 新版本可用');
+    expect(info[0]!.runs).toHaveLength(2);
+    expect(info[0]!.runs[0]).toMatchObject({ start: 0, end: 1, style: { fg: DEFAULT_THEME.secondary } });
+    expect(info[0]!.runs[1]!.style.dim).toBe(true); // 文案段 dim
+    const ok = renderBlockStyledLines(noticeBlock('success', '完成'), 100, false);
+    expect(ok[0]!.plain).toBe('✓ 完成');
+    expect(ok[0]!.runs[0]).toMatchObject({ style: { fg: DEFAULT_THEME.success } });
+    // warn 借键 error 色（sandbox danger 档「error 警示色」先例——主题无 warn
+    // 专用键，档位语义靠头符区分）
+    const warn = renderBlockStyledLines(noticeBlock('warn', '注意'), 100, false);
+    expect(warn[0]!.plain).toBe('⚠ 注意');
+    expect(warn[0]!.runs[0]).toMatchObject({ style: { fg: DEFAULT_THEME.error } });
+    const err = renderBlockStyledLines(noticeBlock('error', '失败'), 100, false);
+    expect(err[0]!.plain).toBe('✗ 失败');
+    expect(err[0]!.runs[0]).toMatchObject({ style: { fg: DEFAULT_THEME.error } });
+  });
+
+  it('多行折叠一行 + 控制字节消毒（durable 事件是异源可写面——OSC/C0 不入屏账）+ 空文案裸头符形', () => {
+    const multi = renderBlockStyledLines(noticeBlock('info', '第一行\n  第二行'), 100, false);
+    expect(multi).toHaveLength(1);
+    expect(multi[0]!.plain).toBe('• 第一行第二行'); // 一行化（折空换行含围空白）
+    const dirty = renderBlockStyledLines(noticeBlock('info', 'q\x1b]52;c;aGk=\x07'), 100, false);
+    expect(dirty[0]!.plain).toBe('• q'); // 消毒（OSC 52 整段剥除）
+    const bare = renderBlockStyledLines(noticeBlock('warn', ''), 100, false);
+    expect(bare).toHaveLength(1);
+    expect(bare[0]!.plain).toBe('⚠'); // 空文案折叠裸头符单腿形（approval 同构）
+    expect(bare[0]!.runs).toHaveLength(1);
+  });
+
+  it('dialogueBlockCount 计入（排除式计数只除会话头卡——notice 在册占帽）', () => {
+    expect(dialogueBlockCount([noticeBlock('info', 'x')])).toBe(1);
+  });
+
+  it('直播腿：appendNotice 槽感知——槽开期 splice 到 streaming 槽前一位（槽恒居尾）、槽关期常序尾落', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_end', message: assistantMsg('答') });
+    const before = dialogueBlockCount(t.snapshot);
+    t.appendNotice({ seq: 3, level: 'info', text: '关槽形' });
+    expect(t.snapshot[t.snapshot.length - 1]).toMatchObject({ kind: 'notice', seq: 3, text: '关槽形' });
+    expect(dialogueBlockCount(t.snapshot)).toBe(before + 1); // 块账在册
+    // 槽开期（mid-run 升级形）：message_start 开槽后追加——块须在槽之前一位
+    apply(t, { type: 'message_start', role: 'assistant' });
+    expect(t.snapshot[t.snapshot.length - 1]!.kind).toBe('streaming');
+    t.appendNotice({ seq: 4, level: 'warn', text: '开槽形' });
+    expect(t.snapshot[t.snapshot.length - 1]!.kind).toBe('streaming'); // 槽恒居尾（尾块判不破）
+    expect(t.snapshot[t.snapshot.length - 2]).toMatchObject({ kind: 'notice', seq: 4, text: '开槽形' });
+  });
+
+  it('重建腿：loadProjection notices 归位——逐消息前 flush（先于其后首条消息）+ 尾 flush 诚实不丢', () => {
+    const t = new LiveTranscript();
+    t.loadProjection(
+      [
+        { ...userMsg('问0'), seq: 1 },
+        { ...assistantMsg('答0'), seq: 2 },
+        { ...userMsg('问1'), seq: 3 },
+      ] as never,
+      undefined,
+      undefined,
+      undefined,
+      [
+        { seq: 0, level: 'info', text: '先于首问' },
+        { seq: 2, level: 'warn', text: '两问之间' }, // flush 在 seq<3 边界（问1 前）
+        { seq: 9, level: 'error', text: '晚于全部' }, // 尾 flush
+      ],
+    );
+    const texts = t.snapshot
+      .filter((b): b is Extract<TranscriptBlock, { kind: 'notice' }> => b.kind === 'notice')
+      .map((b) => b.text);
+    expect(texts).toEqual(['先于首问', '两问之间', '晚于全部']);
+    expect(t.snapshot[0]).toMatchObject({ kind: 'notice', text: '先于首问' }); // user 块（问0）之前
+    const between = t.snapshot.findIndex((b) => b.kind === 'notice' && (b as { text: string }).text === '两问之间');
+    const ask1 = t.snapshot.findIndex((b) => b.kind === 'user');
+    const ask1b = t.snapshot.findIndex((b) => b.kind === 'user' && (b as { text: string }).text.includes('问1'));
+    expect(between).toBeGreaterThan(-1);
+    expect(ask1b).toBeGreaterThan(between); // 问1 块在通知块后（flush 先于消息）
+    expect(ask1).toBeGreaterThan(0); // 速构健全（首 user 是问0）
+  });
+
+  it('重建腿固定序末位：同 seq 跨族邻接 decisions → modelChanges → notices（07 §4.1 四队列定序）+ 零 seq 消息降级尾 flush', () => {
+    const t = new LiveTranscript();
+    t.loadProjection(
+      [
+        { ...userMsg('问0'), seq: 1 },
+        { ...assistantMsg('答0'), seq: 2 },
+      ] as never,
+      [{ seq: 0, decision: 'approve', summary: '决策' }],
+      undefined,
+      [{ seq: 0, model: 'p/m' }],
+      [{ seq: 0, level: 'info', text: '通知' }],
+    );
+    // seq 0 三族邻接（decisions+modelChanges+notices）：四队列固定序——决策 → 切线 → 通知
+    const kinds = t.snapshot.slice(0, 3).map((b) => b.kind);
+    expect(kinds).toEqual(['approval-decision', 'model-change', 'notice']);
+    // 零 seq 降级：消息全无 seq 形——notice 全量尾 flush（诚实不丢）
+    const bare = new LiveTranscript();
+    bare.loadProjection([userMsg('问0'), assistantMsg('答0')] as never, undefined, undefined, undefined, [
+      { seq: 0, level: 'info', text: '降级形' },
+    ]);
+    expect(bare.snapshot.some((b) => b.kind === 'notice' && (b as { text: string }).text === '降级形')).toBe(true);
+  });
+
+  it('直播/重建同集锁：appendNotice 落块后 loadProjection 同参重建——块仍在（durable 族非 live-only）', () => {
+    const t = new LiveTranscript();
+    t.appendNotice({ seq: 0, level: 'info', text: '升级提示' });
+    expect(t.snapshot.some((b) => b.kind === 'notice')).toBe(true);
+    t.loadProjection([{ ...userMsg('问0'), seq: 1 }] as never, undefined, undefined, undefined, [
+      { seq: 0, level: 'info', text: '升级提示' },
+    ]);
+    expect(t.snapshot.some((b) => b.kind === 'notice')).toBe(true); // 重建自 collect 同集——repaint 不消失
   });
 });
 
