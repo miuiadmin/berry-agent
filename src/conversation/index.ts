@@ -95,6 +95,11 @@ export {
 // 消费走本公开面）
 export type { SandboxModeEventData } from './session-mode.js';
 export { foldSessionSandboxMode, setSessionMode } from './session-mode.js';
+// 档位切换面 model 半边（挖掘 52 轮件 B——05 §1.1 session/model 行写入者
+// 兑现：append 面 + fold 读面 + collect 全序列读面〔transcript model-change
+// 块重建腿数据源〕；单写者律 = 宿主装配独占，host 跨模块消费走本公开面）
+export type { ModelChangeEntry, SessionModelEventData } from './session-model.js';
+export { collectModelChanges, foldSessionModel, setSessionModel } from './session-model.js';
 // 审批三件 + open 域装配（11e：fresh 作用域审批 wiring + fs/检索/bash/todo 组装面）
 export type { SessionApprovalOptions, SessionApprovalWiring } from './approval-wiring.js';
 export { wireSessionApproval } from './approval-wiring.js';

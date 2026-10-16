@@ -1,5 +1,5 @@
 /**
- * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——35 核心词全列，
+ * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——36 核心词全列，
  * compaction 三词 2026-09-06 纵切批增补、compaction/fallback 2026-09-09
  * U4 落码批入册、session/thinking-level 同日遗漏
  * 审计批回填〔05 行 66 agent 纵切批已定名而注册表漏登〕、plugin/opens·
@@ -10,7 +10,7 @@
  * 补注册〔c-1 立词而注册表漏行——/plugins config 表单腿 e2e 走真装配
  * audit 词汇闸 fail-loud 抓出；核心词 34〕、compaction/skip 2026-09-13
  * obs-b 压缩判据观测批入册〔05 §1.1 五门 skip 词——fire 而被门挡才落；
- * 核心词 35〕）。
+ * 核心词 35〕、session/model 2026-10-16 挖掘 52 轮件 B 入册〔05 §1.1 档位族第三员——sandbox/mode·session/thinking-level 同形；07:244「durable 事件流照记与 ctrl+p model-cycle 同口径」句由超前承诺转实；核心词 36〕）。
  *
  * 双入口纪律：核心词汇本表静态声明（含类别/归属/语义），插件扩展经
  * registerEventType 显式注册；session append 词汇检查（未注册类型抛
@@ -194,6 +194,14 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     tier: 'stable',
     description:
       '会话级思考档位 = fold(events)，append 即切换、重放即恢复（与 sandbox/mode 同形态；04 §5「thinkingLevel 是会话态不是 run 态」的 durable 落账词；写入者 = conversation 件档位切换面）',
+  },
+  {
+    type: 'session/model',
+    category: 'log-only',
+    owner: 'conversation',
+    tier: 'stable',
+    description:
+      '会话级模型档位 = fold(events)，append 即切换、重放即恢复（挖掘 52 轮件 B 入册——档位族第三员，sandbox/mode·session/thinking-level 同形；写入者 = conversation 件档位切换面〔/model 面板与 ctrl+p 双入口单源〕，插件面零写入位单写者律；消费 = run 起 driver 取 fold 现值 ?? 栈基线 + 悬空校验回落〔指向已删渠道时 warn 降级〕）',
   },
   {
     type: 'llm/usage',

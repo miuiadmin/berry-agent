@@ -39,7 +39,7 @@ import { hintLine } from '../keys/hint.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { fitLine } from '../row-segments.js';
 import { LiveTranscript, renderBlockStyledLines, shortIdOf, forkEditAnchorsOf } from '../backend/transcript.js';
-import type { ApprovalDecisionLineInput, TodoSnapshotLineInput } from '../backend/transcript.js';
+import type { ApprovalDecisionLineInput, ModelChangeLineInput, TodoSnapshotLineInput } from '../backend/transcript.js';
 import type { StyledLine } from '../backend/ansi-rows.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { AgentMessage, UiForkEditAnchor } from '../../../contracts/index.js';
@@ -65,6 +65,11 @@ export interface HistoryViewerOptions {
    * （兼容锁——旧装配/测试零扰动）。
    */
   readonly todoSnapshots?: readonly TodoSnapshotLineInput[];
+  /**
+   * 模型切线块数据（挖掘 52 轮件 B——modelChangesOf 同源注入）：loadProjection
+   * 按 seq 归位；缺席 = 既有零切线块形（兼容锁——旧装配/测试零扰动）
+   */
+  readonly modelChanges?: readonly ModelChangeLineInput[];
   /** 行集构建折宽锚（开屏时终端列宽——渲染期 ScrollView 按实际 region 宽重折） */
   readonly columns: number;
   /** markdown 主题（批 10i——行集构建档与主屏同板；缺席 DEFAULT_THEME 旧形） */
@@ -203,7 +208,12 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     // 审批决策行随投影按 seq 归位（挖掘 31 轮 [1]——decisions 缺席零变化）；
     // todo 快照块同路（挖掘 35 轮 B8——todoSnapshots 缺席零变化）
     const transcript = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY, theme: options.theme });
-    transcript.loadProjection(options.messages, options.decisions, options.todoSnapshots);
+    transcript.loadProjection(
+      options.messages,
+      options.decisions,
+      options.todoSnapshots,
+      options.modelChanges, // 模型切线块随投影归位（52 轮件 B——缺席零变化）
+    );
     const styled: StyledLine[] = [];
     const userRows: { from: number; to: number }[] = [];
     for (const block of transcript.snapshot) {

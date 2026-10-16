@@ -246,6 +246,23 @@ export type TranscriptBlock =
     }
   | {
       /**
+       * 模型切线块（挖掘 52 轮件 B——07 §4.1 model-change 词条）：
+       * session/model durable 事件的转录呈现（durable 非消息源块族第四员
+       * ——头卡/审批决策行/todo 快照之后；直播腿选择器/循环柄单源闭包追加、
+       * 重建腿 loadProjection 按 seq 归位）。一行制：首游程 ↻ 词面（accent）
+       * + 次游程 ` · ` + 模型标识（dim）；**槽感知直播腿**——流式槽开期
+       * 插槽前一位（槽恒居尾——message_update 尾块判与 message_end 摘槽
+       * 两判据不破；mid-run ctrl+p 换模是显式支持场景）。
+       */
+      readonly kind: 'model-change';
+      /** durable 位锚（session/model 事件 seq——呈现不消费） */
+      readonly seq: number;
+      /** 模型标识（provider 斜杠 model 全形——渲染位消毒） */
+      readonly model: string;
+      readonly theme: ResolvedTheme;
+    }
+  | {
+      /**
        * 问答落史行块（挖掘 36 轮 [2]——07 §4.1 问答落史行词条）：ctx.ui 阻塞
        * 三件（confirm/select/input）收场的即时一行落史——ask 收场单汇点
        * （UiCore）经 dispatch 总线词 ask/settled 回灌的 **live-only 旁支**：
@@ -325,6 +342,18 @@ export interface TodoSnapshotLineInput {
   /** 归位锚（todo/write 事件 durable seq） */
   readonly seq: number;
   readonly items: readonly TodoItem[];
+}
+
+/**
+ * 模型切线注入窄形（挖掘 52 轮件 B）：投影/回看路的切线载荷（seq 归位锚 +
+ * 模型标识）——直播腿追加（appendModelChange）与重建腿归位（loadProjection
+ * modelChanges 参）两消费位同形；theme 由 LiveTranscript 自持（消费位不
+ * 传）。文件内导出窄形——contracts 零改（ApprovalDecisionLineInput 同律）。
+ */
+export interface ModelChangeLineInput {
+  /** 归位锚（session/model 事件 durable seq） */
+  readonly seq: number;
+  readonly model: string;
 }
 
 /**
@@ -413,6 +442,27 @@ function approvalDecisionLine(block: Extract<TranscriptBlock, { kind: 'approval-
   };
 }
 
+/**
+ * 模型切线行构造（挖掘 52 轮件 B——词面单源）：首游程 ↻ 词面（accent——
+ * 换模非成败判定不借 success/error 对，问答行 accent 同档）+ 次游程
+ * ` · ` + 模型标识（dim）。段加工链（渲染位单源）：sanitizeDisplayText
+ * 消毒（durable 事件是异源可写面——OSC/C0 不入屏账，askDecisionLine 同
+ * 律）→ 一行化（同款折空）。空标识折叠 = 裸词面单腿形（approval 同构）。
+ */
+function modelChangeLine(block: Extract<TranscriptBlock, { kind: 'model-change' }>): StyledLine {
+  const head = '↻ 模型已切换';
+  const fg: ColorValue = block.theme.accent;
+  const spec = sanitizeDisplayText(block.model).replace(/\s*[\n\r]+\s*/g, ''); // 消毒+一行化
+  if (spec === '') return { plain: head, runs: [{ start: 0, end: head.length, style: Object.freeze({ fg }) }] };
+  const plain = `${head} · ${spec}`;
+  return {
+    plain,
+    runs: [
+      { start: 0, end: head.length, style: Object.freeze({ fg }) },
+      { start: head.length, end: plain.length, style: DIM_STYLE },
+    ],
+  };
+}
 /**
  * 问答落史行构造（挖掘 36 轮 [2]——词面单源）：首游程两态词（↳ 已回复 /
  * ↳ 已取消——accent / secondary；问答非成败判定，不借 success/error 对）+
@@ -788,6 +838,11 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
       // todo 快照块（挖掘 35 轮 B8）：多行制（卡头 + 条目行，单行制条目）
       // + 块前垫（R-1 制度行）
       return withPad(renderTodoSnapshotLines(block), leadingGap);
+    case 'model-change':
+      // 模型切线块（挖掘 52 轮件 B）：单行制（无折行族——超宽走出口帽
+      // capStyledLine 整字截断）+ 块前垫（R-1 制度行）；durable 归位块
+      //（repaint 重建自 fold 同集——非 live-only 族）
+      return withPad([modelChangeLine(block)], leadingGap);
     case 'ask-decision':
       // 问答落史行（挖掘 36 轮 [2]）：单行制（无折行族——超宽走出口帽
       // capStyledLine 整字截断）+ 块前垫（R-1 制度行）；live-only 旁支
@@ -1594,6 +1649,33 @@ export class LiveTranscript {
     this.trimToCap();
   }
 
+  /**
+   * 直播腿模型切线块追加（挖掘 52 轮件 B——选择器/循环柄单源闭包消费位）：
+   * **槽感知归位两形**——mid-run（slotOpen 期）切线 splice 到 streaming 槽
+   * 之前一位（槽恒居尾：message_update 尾块判〔末块须 streaming〕不被切线
+   * 块遮断、message_end pop 摘的仍是槽非切线块——naive push 尾会产「增量
+   * 静默丢弃〔画面冻结〕+ pop 弹错块〔孤儿槽滞留〕」两伪影，修前红在档）；
+   * 槽关闭期 push 尾（常序形）。**块账在册**（计入 dialogueBlockCount、占
+   * blockCap 帽）非瞬时行路——repaint 投影重建自愈（loadProjection 按 seq
+   * 归位同构——切线 durable 位在消息事件流中天然先于后续消息）。调用位
+   * 过滤（聚焦限定）归 tui-entry 闭包位。
+   */
+  appendModelChange(entry: { seq: number; model: string }): void {
+    const block: TranscriptBlock = {
+      kind: 'model-change',
+      seq: entry.seq,
+      model: entry.model,
+      theme: this.theme,
+    };
+    // 尾块判与 message_update 同源双判（slotOpen 不变式由开槽/摘槽位维护）
+    if (this.slotOpen && this.blocks[this.blocks.length - 1]?.kind === 'streaming') {
+      this.blocks.splice(this.blocks.length - 1, 0, block); // 槽之前一位——槽恒居尾
+    } else {
+      this.blocks.push(block); // 槽关闭期常序尾落
+    }
+    this.trimToCap();
+  }
+
   /** 块账最后 todo-snapshot 块（闸比较态真源——倒扫首中） */
   private lastTodoSnapshotBlock(
     blocks: readonly TranscriptBlock[],
@@ -1621,11 +1703,17 @@ export class LiveTranscript {
    * toolResult message_end〕同构）；flush 逐条过签名闸（offer 形与
    * appendTodoSnapshot 同闸——两路同一块集）；扫尾全 flush + 消息零 seq
    * 降级尾 flush（decisions 同律诚实不丢）。
+   * modelChanges（挖掘 52 轮件 B——模型切线块重建腿）：逐消息前 flush
+   * 队首 seq < 该消息 seq 的切线块（decisions 同实现形、分立队列；同一
+   * 消息边界三队列固定序 decisions → modelChanges → todoSnapshots——跨族
+   * 同 seq 邻接是罕见形，固定序近似与 decisions/todo 既有注记同类）；
+   * 扫尾全 flush + 消息零 seq 降级尾 flush 同律。
    */
   loadProjection(
     messages: readonly (AgentMessage & { readonly seq?: number })[],
     decisions?: readonly ApprovalDecisionLineInput[],
     todoSnapshots?: readonly TodoSnapshotLineInput[],
+    modelChanges?: readonly ModelChangeLineInput[],
   ): void {
     const rebuilt: TranscriptBlock[] = [];
     this.pendingCalls.clear(); // 配对账随投影重建（走查中 assistant 入账、toolResult 出账）
@@ -1659,9 +1747,18 @@ export class LiveTranscript {
         offerTodoSnapshot(todoQueue.shift()!);
       }
     };
+    // 切线归位队列（升序同律——decisions 同实现形、无闸直落）
+    const modelQueue = [...(modelChanges ?? [])].sort((a, b) => a.seq - b.seq);
+    const flushModelChangesBefore = (limit: number): void => {
+      while (modelQueue.length > 0 && modelQueue[0]!.seq < limit) {
+        const entry = modelQueue.shift()!;
+        rebuilt.push({ kind: 'model-change', seq: entry.seq, model: entry.model, theme: this.theme });
+      }
+    };
     for (const message of messages) {
       if (message.seq !== undefined) {
         flushDecisionsBefore(message.seq);
+        flushModelChangesBefore(message.seq);
         flushTodoSnapshotsBefore(message.seq);
       }
       switch (message.role) {
@@ -1703,6 +1800,12 @@ export class LiveTranscript {
     //（直播路快照落块在 tool_execution_end、组卡收口在 agent_end——尾序
     // 同构）；零 seq 消息降级尾 flush 同在此（闸逐条过——offer 形同上）
     for (const entry of todoQueue) offerTodoSnapshot(entry);
+    // 切线尾 flush（挖掘 52 轮件 B）：晚于全部消息的切线块——同先于组窗
+    // 收口（直播路切线落块在选择器闭包、组卡收口在 agent_end——尾序同构）；
+    // 零 seq 消息降级尾 flush 同在此（诚实不丢）
+    for (const entry of modelQueue) {
+      rebuilt.push({ kind: 'model-change', seq: entry.seq, model: entry.model, theme: this.theme });
+    }
     // 组窗走查毕收口（直播路 agent_end 收口位的投影对位——末段窗
     // 不滞留；先于孤儿 ⚙ 扫描：组卡位在前、孤儿兜底在后与直播路同序）
     this.flushGroupWindow(rebuilt);

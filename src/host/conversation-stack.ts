@@ -65,7 +65,9 @@ import {
   collectTodoSnapshots,
   ensureTodoRole,
   foldApprovalDecisions,
+  collectModelChanges,
   foldCallLedger,
+  foldSessionModel,
   foldSessionSandboxMode,
   foldSessionThinkingLevel,
   foldSessionUsage,
@@ -78,6 +80,7 @@ import type {
   ControlUsedRecord,
   DriverFactory,
   FoldedApprovalDecision,
+  ModelChangeEntry,
   RunSettledReceipt,
   SubmitOptions,
   SubmitResult,
@@ -319,11 +322,22 @@ export interface ConversationStack {
    */
   readonly attachments: AttachmentStore | undefined;
   /**
-   * 会话生效模型读面（03 §10.4 ② 能力门供源）：per-session 显式覆盖 ??
-   * 栈基线旋钮——受理链能力门按本值点查模型目录 input 声明（缺声明不拦，
-   * 诚实失败不臆断）。与驱动装配取值器同语义的只读投影。
+   * 会话生效模型读面（03 §10.4 ② 能力门供源；挖掘 52 轮件 B durable 化
+   * 翻档）：per-session 显式覆盖 ?? `session/model` fold 现值（目录级悬空
+   * 时 warn 回落栈基线）?? 栈基线旋钮——三级优先序与驱动装配取值器同语义
+   * 的只读投影（受理链能力门按本值点查模型目录 input 声明，缺声明不拦、
+   * 诚实失败不臆断）。行缺席（新建零 I/O 窗、未知 id）= 正常态非腐败——
+   * 本面回落栈基线不抛（fail-loud 归 run 起消费位）；fold 坏形上抛
+   * （fail-loud 家族律——thinkingLevel 同款）。
    */
   sessionModelOf(sessionId: string): string;
+  /**
+   * 模型切线全序列读面（挖掘 52 轮件 B——TUI model-change 块数据源）：
+   * collectModelChanges 单源扫日志全部 session/model → [{seq, model}]
+   * 升序（收集位坏形防御跳过、遮蔽事件跳过——呈现面 fail-open）；双事实
+   * 纪律 approvalDecisionsOf 同款（驱动活体优先、未开回库装载）。
+   */
+  modelChangesOf(sessionId: string): readonly ModelChangeEntry[];
   /**
    * 思考档位栈基线活读（2026-09-17 会话档位切换面批 F1）：装配面原始值的
    * 透传读面——会话生效档以 `foldSessionThinkingLevel(session.events()) ??
@@ -667,6 +681,43 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // 预算读面同位接线（04 §5——2026-09-13 复盘修复 #44：修前 backgroundSpentToday
   // 缺省 () => 0 空转，canAfford/预警三档/reserve 线三消费面生产恒判未超）。
   const llmRuntime = createLlmRuntime(options.providers !== undefined ? { providers: options.providers } : {});
+  // —— 会话档位解析器（挖掘 52 轮件 B——durable 化核心消费位单源）：fold
+  // `session/model` 现值 + 目录级悬空校验（resolveModel 失败 warn 回落栈
+  // 基线——「渠道已删」是目录态非语法态，语法 fail-loud 已在 fold 面执）；
+  // fold 坏形（LLM_MODEL_SPEC_INVALID）上抛——fail-loud 家族律（thinkingLevel
+  // 同款，run 起钉定位经 submit 回执面回流）。记忆化键 = 日志身份 + 事件数
+  // + 栈基线三入（活体日志 append-only 长度单调；onEvent 逐事件锚定消费防
+  // O(n²) 折叠；**基线是本解析器的输入**——构造期求值〔driver baseConfig
+  // 一次〕缓存后 setModel 换基线而事件数未变即吃陈值，键须携基线防〔修前
+  // 红锚：context_usage 兜底分母活槽随行〕。目录变更〔向导活注册〕不入键
+  // ——悬空结论陈值窗至多延到下一事件 append，窄径可接受）。
+  let sessionModelMemo: { log: SessionLog; count: number; baseline: string; value: string } | undefined;
+  const resolveSessionModelOrBaseline = (log: SessionLog): string => {
+    const events = log.events();
+    if (
+      sessionModelMemo !== undefined &&
+      sessionModelMemo.log === log &&
+      sessionModelMemo.count === events.length &&
+      sessionModelMemo.baseline === currentModel
+    ) {
+      return sessionModelMemo.value;
+    }
+    const folded = foldSessionModel(events);
+    let value: string;
+    if (folded === undefined) {
+      value = currentModel; // 无切线事件——栈基线（07:327 fold 缺席回落位）
+    } else {
+      try {
+        llmRuntime.resolveModel(folded);
+        value = folded;
+      } catch {
+        warn(`会话模型档位悬空（渠道或模型已删）：${folded}——回落栈基线 ${currentModel}`);
+        value = currentModel;
+      }
+    }
+    sessionModelMemo = { log, count: events.length, baseline: currentModel, value };
+    return value;
+  };
   const tracker = new InFlightTracker();
   // 流活性 watchdog 双帽（04 §3.8——批 A）：流层 idle 帽（主防，stream-fn
   // 闭包装）+ 编排层时滞帽（纵深，issue-session watchdog 第三判据消费）。
@@ -1551,10 +1602,12 @@ export function createConversationStack(options: ConversationStackOptions): Conv
           ? converted.map((one) => rehydrateImageRefsForLlm(one, attachments))
           : rehydrateImageRefsForLlm(converted, attachments);
       },
-      // 栈基线走取值器形（07 §4.1 R5）：每 run 起跑现取旋钮值——ctrl+p 换档
-      // 下一 run 生效；per-session 显式覆盖保持定值快照（覆盖序不变，旋钮
-      // 不越覆盖位）。
-      model: sessionModel ?? (() => currentModel),
+      // 栈基线走取值器形（07 §4.1 R5；挖掘 52 轮件 B durable 化翻档）：每
+      // run 起跑现取 resolveSessionModelOrBaseline（session/model fold 现值
+      // + 悬空校验 ?? 栈基线旋钮）——ctrl+p 换档 append 即改 fold 现值，下一
+      // run 生效；per-session 显式覆盖保持定值快照（覆盖序不变，旋钮不越
+      // 覆盖位、fold 不越覆盖位——三级优先序单源）。
+      model: sessionModel ?? (() => resolveSessionModelOrBaseline(session)),
       ...(tools !== undefined ? { tools } : {}),
       // 工具面请求边界对账供应商穿线（pi-3 件 A）：驱动每请求组装时调用
       // （agent_pre_step 瀑布后——到达窗分面对账位）；memory 形 undefined
@@ -1604,7 +1657,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // options.onRunSettled 消费者随后——批 #99 既有链不破）。session 直接
       // 取闭包本尊（settle 时点即本驱动日志——不经 manager 回查）
       onRunSettled: (receipt) => {
-        bridgeUsageLedger(session, sessionModel ?? currentModel, receipt);
+        bridgeUsageLedger(session, sessionModel ?? resolveSessionModelOrBaseline(session), receipt);
         options.onRunSettled?.(sessionId, receipt);
       },
       classifyError,
@@ -1619,7 +1672,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       onEvent: (event) => {
         // provider 失败指路呈现面 enrich（07 §5 扩面笔——见
         // providerGuidanceForMessageEvent 头注；auth 族不入/档案实录原文同注）
-        const guided = providerGuidanceForMessageEvent(event, sessionModel ?? currentModel);
+        const guided = providerGuidanceForMessageEvent(event, sessionModel ?? resolveSessionModelOrBaseline(session));
         channels.emit({ sessionId, event: guided ?? event });
         // 外部汇尾调（07 §4.1 V-0 注①供数链——子代理重试计数供数桥）：
         // channels.emit 之后 + 异常隔离（warn 不反卷驱动事件流；sink 返回
@@ -1911,13 +1964,35 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     },
     // 附件库读面（03 §10.4 ③）：受理/再水化共享单实例（内存模式诚实缺席）
     attachments,
-    // 会话生效模型读面（03 §10.4 ② 能力门供源）：覆盖登记 ?? 栈基线旋钮
+    // 会话生效模型读面（03 §10.4 ② 能力门供源；挖掘 52 轮件 B durable 化
+    // 翻档）：覆盖登记 ?? fold 现值（悬空回落栈基线）?? 栈基线旋钮——三级
+    // 优先序与驱动装配取值器同语义（resolveSessionModelOrBaseline 单源）。
+    // 行缺席（新建零 I/O 窗、未知 id）= 正常态——回落栈基线不抛（能力门是
+    // 粗粒度只读面，fail-loud 归 run 起消费位）；fold 坏形上抛（家族律）。
     sessionModelOf(sessionId: string): string {
-      return sessionModelOverrides.get(sessionId) ?? currentModel;
+      const override = sessionModelOverrides.get(sessionId);
+      if (override !== undefined) return override;
+      let log: SessionLog;
+      try {
+        log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
+      } catch {
+        return currentModel; // 行缺席（新建零 I/O 窗、未知 id）——能力门回落基线
+      }
+      return resolveSessionModelOrBaseline(log);
     },
-    // 模型旋钮（07 §4.1 R5 挂账解挂批）：内存换档——读面/驱动取值器/defaultModel
-    // 三消费位闭包活读同一持有，本面零广播零事件（纯拉取面——换档回执由
-    // 调用方（TUI ctrl+p）自行 notify）。
+    // 模型切线全序列读面（挖掘 52 轮件 B——TUI model-change 块数据源）：
+    // 双事实源解析 approvalDecisionsOf 一字不差（驱动活体优先、未开回库
+    // 装载），collect 单源在 conversation 模块（坏形防御跳过 + 遮蔽跳过
+    // ——呈现面 fail-open，闸知识零携带）。
+    modelChangesOf(sessionId: string): readonly ModelChangeEntry[] {
+      const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
+      return collectModelChanges(log.events());
+    },
+    // 模型旋钮（07 §4.1 R5 挂账解挂批；挖掘 52 轮件 B 翻档后 = 栈基线位）：
+    // 内存换档不落事件——消费位 = defaultModel 闭包/fold 缺席回落位/配置面
+    // （setup 向导腿、删渠道复位腿）三处；会话档位切换走 durable 面
+    // setSessionModel（TUI /model 与 ctrl+p 双入口单源），本面零广播零事件
+    // （纯拉取面——换档回执由调用方自行 notify）。
     setModel(id: string) {
       currentModel = id;
     },

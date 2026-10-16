@@ -2715,6 +2715,128 @@ describe('LiveTranscript todo 快照块（挖掘 35 轮 B8——todo-snapshot）
   });
 });
 
+describe('LiveTranscript 模型切线块（挖掘 52 轮件 B——model-change）', () => {
+  /** 切线块速构（渲染面直锁） */
+  const changeBlock = (model: string): TranscriptBlock => ({
+    kind: 'model-change',
+    seq: 1,
+    model,
+    theme: DEFAULT_THEME,
+  });
+
+  it('渲染：词头 accent + spec dim 两游程；换行注入消毒剥净（OSC/C0 不入屏账）', () => {
+    const lines = renderBlockStyledLines(changeBlock('faux/m2'), 100, false);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.plain).toBe('↻ 模型已切换 · faux/m2');
+    expect(lines[0]!.runs[0]).toMatchObject({
+      start: 0,
+      end: '↻ 模型已切换'.length,
+      style: { fg: DEFAULT_THEME.accent },
+    });
+    expect(lines[0]!.runs[1]).toMatchObject({ start: '↻ 模型已切换'.length, style: { dim: true } });
+    // 换行注入形：消毒后换行剥净一行化（durable 事件是异源可写面——askDecisionLine 同律）
+    const injected = renderBlockStyledLines(changeBlock('faux/m1\nrm -rf ~'), 100, false);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.plain).not.toMatch(/[\n\r]/);
+    // 全消毒空形：仅词头行（spec 段诚实缺席不造假占位）
+    const bare = renderBlockStyledLines(changeBlock('\n\n'), 100, false);
+    expect(bare).toHaveLength(1);
+    expect(bare[0]!.plain).toBe('↻ 模型已切换');
+  });
+
+  it('mid-run 槽感知归位（修前红核心）：槽开期切线落 streaming 槽之前一位——槽恒居尾、后续增量不丢', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_start', role: 'assistant' });
+    apply(t, { type: 'message_update', role: 'assistant', partial: assistantMsg('部分') });
+    // mid-run ctrl+p / 面板切模——slotOpen 期切线块入账
+    t.appendModelChange({ seq: 3, model: 'faux/m2' });
+    apply(t, { type: 'message_update', role: 'assistant', partial: assistantMsg('部分，续写') });
+    // 修前红（naive push 尾）：切线块居尾 → message_update 尾块判静默丢弃（画面冻结）
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['model-change', 'streaming']); // 槽恒居尾
+    expect(t.snapshot[1]).toMatchObject({ kind: 'streaming', text: '部分，续写' }); // 增量不丢
+  });
+
+  it('message_end 弹对块：摘的是 streaming 槽非切线块——终态无孤儿槽、切线块留账', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_start', role: 'assistant' });
+    apply(t, { type: 'message_update', role: 'assistant', partial: assistantMsg('部分') });
+    t.appendModelChange({ seq: 3, model: 'faux/m2' });
+    apply(t, { type: 'message_end', message: assistantMsg('部分，续写') });
+    // 修前红（naive push 尾）：pop 弹走切线块 → 孤儿 streaming 槽滞留 + 切线块丢
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['model-change', 'markdown']);
+  });
+
+  it('槽关闭期 push 尾：定稿块后切线落尾（常序形——非 mid-run 无槽可让）', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_end', message: assistantMsg('答') });
+    t.appendModelChange({ seq: 5, model: 'faux/m3' });
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['markdown', 'model-change']); // 尾落
+  });
+
+  it('直播腿块账在册：dialogueBlockCount 计入 + blockCap 同队让位（无特权位）', () => {
+    const t = new LiveTranscript();
+    t.appendModelChange({ seq: 1, model: 'faux/m1' });
+    expect(dialogueBlockCount(t.snapshot)).toBe(1); // 块账在册——非瞬时行
+    const capped = new LiveTranscript({ blockCap: 2 });
+    capped.appendModelChange({ seq: 1, model: 'faux/m1' });
+    capped.appendModelChange({ seq: 2, model: 'faux/m2' });
+    capped.appendModelChange({ seq: 3, model: 'faux/m3' });
+    expect(capped.blockCount).toBe(2);
+    expect(capped.snapshot.map((b) => (b.kind === 'model-change' ? b.model : b.kind))).toEqual(['faux/m2', 'faux/m3']); // 首块让位
+  });
+
+  it('投影归位：逐消息前 flush——[user][切线][markdown] 按 durable seq 落位；尾 flush + 零 seq 降级同律', () => {
+    const t = new LiveTranscript();
+    t.loadProjection(
+      [
+        { ...userMsg('问'), seq: 0 },
+        { ...assistantMsg('答'), seq: 2 },
+      ] as never,
+      [],
+      [],
+      [{ seq: 1, model: 'faux/m2' }], // durable 位在两消息之间
+    );
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['user', 'model-change', 'markdown']);
+    // 尾 flush：切线 seq 晚于全部消息 → 尾块
+    const late = new LiveTranscript();
+    late.loadProjection([{ ...userMsg('问'), seq: 0 }] as never, [], [], [{ seq: 5, model: 'faux/m9' }]);
+    expect(late.snapshot.map((b) => b.kind)).toEqual(['user', 'model-change']);
+    // 零 seq 消息（模型 timeline 种子形）→ 降级尾 flush 诚实不丢
+    const noSeq = new LiveTranscript();
+    noSeq.loadProjection([userMsg('问')], [], [], [{ seq: 1, model: 'faux/m9' }]);
+    expect(noSeq.snapshot.map((b) => b.kind)).toEqual(['user', 'model-change']);
+  });
+
+  it('同消息边界三队列固定序：decisions → modelChanges → todoSnapshots（跨族同 seq 邻接形）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection(
+      [{ ...userMsg('问'), seq: 4 }] as never,
+      [{ seq: 3, decision: 'approve', summary: 'bash ls' }],
+      [{ seq: 3, items: [{ status: 'pending', content: '甲' }] }],
+      [{ seq: 3, model: 'faux/m2' }],
+    );
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['approval-decision', 'model-change', 'todo-snapshot', 'user']);
+  });
+
+  it('直播与重建同构：槽开期切线 splice 位 === 投影 seq 归位（两路单源律）', () => {
+    // 直播腿：槽开期切线（splice 让槽居尾）→ message_end 摘槽定稿
+    const live = new LiveTranscript();
+    apply(live, { type: 'message_start', role: 'assistant' });
+    apply(live, { type: 'message_update', role: 'assistant', partial: assistantMsg('部分') });
+    live.appendModelChange({ seq: 1, model: 'faux/m2' });
+    apply(live, { type: 'message_end', message: assistantMsg('部分，续写') });
+    // 重建腿：同一 durable 序（切线 seq 1 < 消息 seq 2——槽开期切线的投影对位形）
+    const rebuilt = new LiveTranscript();
+    rebuilt.loadProjection(
+      [{ ...assistantMsg('部分，续写'), seq: 2 }] as never,
+      [],
+      [],
+      [{ seq: 1, model: 'faux/m2' }],
+    );
+    expect(live.snapshot.map((b) => b.kind)).toEqual(rebuilt.snapshot.map((b) => b.kind)); // 块序同构
+  });
+});
+
 describe('forkEditAnchorsOf 回溯锚单源（挖掘 36 轮件 8——session-rewind-fork）', () => {
   /** seq 回贴形工厂（投影副本增位——projectionWithSeqOf 产物同构） */
   const seqMsg = (message: AgentMessage, seq: number): AgentMessage & { seq: number } =>

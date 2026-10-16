@@ -41,6 +41,7 @@ import {
 } from '../persist/index.js';
 
 import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
+import { setSessionModel } from '../conversation/index.js';
 import {
   aggregateBackgroundSpentToday,
   aggregateSessionSpent,
@@ -2315,6 +2316,72 @@ describe('模型循环基座（挂账解挂批 2026-09-15——ctrl+p 会话级�
       .map((env) => (env.event as { maxTokens?: number }).maxTokens);
     expect(maxTokensSeen).toHaveLength(1);
     expect(maxTokensSeen[0]).toBe(12345); // 修前红锚：兜底腿静态 DEFAULT 常量恒 200000——调值不达呈现档
+    await rt.shutdown();
+  });
+});
+
+describe('会话模型档位 durable 化（挖掘 52 轮件 B——session/model 事件驱动装配）', () => {
+  /** 双模型 faux rig（m1 基线 + m2 切换档）+ 逐 call 模型观测 */
+  function rigTwoModelStack(rt: HostRuntime) {
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }, { id: 'm2' }] });
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {},
+    });
+    const modelsByCall: string[] = [];
+    const observe = (_c: unknown, _o: unknown, _s: unknown, model: unknown) => {
+      const m = model as { provider?: string; id?: string } | undefined;
+      modelsByCall.push(`${m?.provider ?? ''}/${m?.id ?? ''}`);
+      return messageOf('stop');
+    };
+    return { faux, stack, modelsByCall, observe };
+  }
+
+  it('setSessionModel 落事件 → 下一 run 起跑消费 fold 现值；setModel 栈基线不越切线（fold 胜基线）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack, modelsByCall, observe } = rigTwoModelStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    // durable 切线（conversation 公开面单写者——TUI /model 与 ctrl+p 双入口同源）
+    setSessionModel(stack.driverOf(session.sessionId)!.session, 'faux-stack/m2');
+    faux.setResponses([observe, observe]);
+    await stack.submitText(session.sessionId, '一问');
+    expect(modelsByCall[0]).toContain('m2'); // 生效语义 = 下一 run 起跑（run 起钉定 fold 现值）
+    expect(stack.sessionModelOf(session.sessionId)).toBe('faux-stack/m2'); // 读面同源
+    // 栈基线旋钮换档不越会话切线（三级序：覆盖 ?? fold ?? 基线——基线只兜无切线会话）
+    stack.setModel('faux-stack/m1');
+    await stack.submitText(session.sessionId, '二问');
+    expect(modelsByCall[1]).toContain('m2'); // fold 现值胜——基线不回扑
+    await rt.shutdown();
+  });
+
+  it('悬空回落：fold 值不在目录（渠道已删形）→ sessionModelOf 回落栈基线不抛；modelChangesOf 仍诚实收录（语法层收集无目录知识）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack, modelsByCall, observe } = rigTwoModelStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    // 切到合法语法但目录缺席的档位（悬空——「渠道已删」是目录态非语法态）
+    setSessionModel(stack.driverOf(session.sessionId)!.session, 'faux-stack/m2');
+    setSessionModel(stack.driverOf(session.sessionId)!.session, 'ghost/m9');
+    expect(stack.sessionModelOf(session.sessionId)).toBe('faux-stack/m1'); // warn 回落基线（fail-open 呈现面）
+    faux.setResponses([observe]);
+    await stack.submitText(session.sessionId, '一问');
+    expect(modelsByCall[0]).toContain('m1'); // run 消费同回落（解析器单源）
+    // 收集面无目录知识——两切线全收录升序（transcript 块重建数据源诚实）
+    const entries = stack.modelChangesOf(session.sessionId);
+    expect(entries.map((entry) => entry.model)).toEqual(['faux-stack/m2', 'ghost/m9']);
+    expect(entries[0]!.seq).toBeLessThan(entries[1]!.seq);
+    await rt.shutdown();
+  });
+
+  it('sessionModelOf 三级序：per-session 显式覆盖优先（子代理装配位）+ 行缺席回落基线不抛（正常态非腐败）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigTwoModelStack(rt);
+    const ws = rigWorkspace();
+    const child = stack.manager.create({ workspaceRoot: ws, origin: 'delegation', model: 'faux-stack/m2' });
+    expect(stack.sessionModelOf(child.sessionId)).toBe('faux-stack/m2'); // 覆盖位最优先（零事件也生效）
+    // 行缺席（未知 id）= 回落栈基线不抛（loadSession 对未知 id 抛——读面 try/catch 归一）
+    expect(stack.sessionModelOf('no-such-session')).toBe('faux-stack/m1');
     await rt.shutdown();
   });
 });

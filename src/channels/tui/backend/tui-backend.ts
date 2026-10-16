@@ -105,6 +105,7 @@ import {
   shortIdOf,
   type ApprovalDecisionLineInput,
   type AskDecisionLineInput,
+  type ModelChangeLineInput,
   type TodoSnapshotLineInput,
   type TranscriptBlock,
 } from './transcript.js';
@@ -333,6 +334,14 @@ export interface TuiBackendOptions {
    * 缺席 = 快照块零变化（兼容锁——旧装配/测试零扰动）。
    */
   readonly todoSnapshotsOf?: (sessionId: string) => readonly TodoSnapshotLineInput[];
+  /**
+   * 模型切线读面（挖掘 52 轮件 B——回看/投影重建路切线块数据源）：[{seq,
+   * model}] 升序全序列（collectModelChanges 产物——坏形防御跳过已在收集位，
+   * backend 收到干净子集）；重建腿 onRepaint/openHistory 随投影传参两路共用。
+   * 注入缺席 = 切线块零变化（兼容锁——旧装配/测试零扰动；直播腿总线追加
+   * 不受影响）。
+   */
+  readonly modelChangesOf?: (sessionId: string) => readonly ModelChangeLineInput[];
   /**
    * 外部编辑器执行器（挖掘 31 轮 [9]——ctrl+g 挂起交出形，codex
    * external_editor 对标）：seed = 当前草稿全文，返结局三态（edited /
@@ -1083,6 +1092,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly approvalDecisionsSource: ((sessionId: string) => readonly ApprovalDecisionLineInput[]) | undefined;
   /** todo 快照读面（挖掘 35 轮 B8——直播腿/重建路共用） */
   private readonly todoSnapshotsSource: ((sessionId: string) => readonly TodoSnapshotLineInput[]) | undefined;
+  /** 模型切线读面（挖掘 52 轮件 B——重建路共用；直播腿经 appendModelChangeLine 直灌） */
+  private readonly modelChangesSource: ((sessionId: string) => readonly ModelChangeLineInput[]) | undefined;
   /**
    * goal 持续态数据源（件 G）：注入缺席 = 段缺席零变化（footer 态词与
    * JobPanel goal 段两消费面同判此位）；在场时帧首拉取持续态行集。
@@ -1591,6 +1602,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.approvalDecisionsSource = options.approvalDecisionsOf;
     // todo 快照读面（挖掘 35 轮 B8）：缺席 = 快照块零变化（两路同判此位）
     this.todoSnapshotsSource = options.todoSnapshotsOf;
+    // 模型切线读面（挖掘 52 轮件 B）：缺席 = 重建路切线块零变化（直播腿不受影响）
+    this.modelChangesSource = options.modelChangesOf;
     this.jobPanel = new JobPanel({ now: () => this.now() });
     this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
     // 浮层开/关两触点：重绘请求 + 注意态对账（件 C——stack 尺寸迁移即 sync；
@@ -2015,6 +2028,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // 轮 B8——todoSnapshotsOf 同源，缺席零变化）
         decisions: this.approvalDecisionsSource?.(sessionId),
         todoSnapshots: this.todoSnapshotsSource?.(sessionId),
+        // 模型切线块同路（挖掘 52 轮件 B——modelChangesOf 同源，缺席零变化）
+        modelChanges: this.modelChangesSource?.(sessionId),
         columns: this.io.size().columns,
         theme: this.theme, // 会话主题快照（批 10i——回看器行集与主屏同板，含思考块/工具卡烙印）
         onExit: () => {
@@ -2814,6 +2829,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * 直播腿模型切线块追加（挖掘 52 轮件 B——选择器/循环柄单源闭包消费位）：
+   * appendApprovalDecisionLine 同形三步（块账入 present 链——缺 enqueue
+   * 新块不入帧）。**槽感知归位**在 transcript.appendModelChange 单源（mid-run
+   * 切线让槽居尾）；调用位过滤（聚焦限定）归 tui-entry 闭包位。
+   */
+  appendModelChangeLine(input: ModelChangeLineInput): void {
+    this.transcript.appendModelChange(input);
+    this.enqueuePresent();
+    this.requestRender();
+  }
+
+  /**
    * 直播腿回合收尾块追加（挖掘 43 轮件 A——agent_end completed 腿消费位）：
    * recap 行从瞬时行迁 turn-recap 块载体（词面单源 runRecapLine 不动——只迁
    * 载体）；appendApprovalDecisionLine 同形三步（块账入 present 链——缺
@@ -3341,6 +3368,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       projection,
       this.approvalDecisionsSource?.(sessionId),
       this.todoSnapshotsSource?.(sessionId),
+      this.modelChangesSource?.(sessionId), // 模型切线块随投影重建（52 轮件 B——缺席零变化）
     );
     // 等回声复位分治（切焦 vs 同焦 refresh——2026-10-06 切焦清账修）：切焦即
     // 新观察窗——旧焦提交流的抑制位无条件清账（新焦零块空会话时条件 settle

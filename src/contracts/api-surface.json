@@ -1973,6 +1973,13 @@
       "desc": "fork 种子边界标记（data 为空对象，边界即事件自身 seq）"
     },
     {
+      "symbol": "session/model",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话级模型档位 = fold(events)，append 即切换、重放即恢复（挖掘 52 轮件 B 入册——档位族第三员，sandbox/mode·session/thinking-level 同形；写入者 = conversation 件档位切换面〔/model 面板与 ctrl+p 双入口单源〕，插件面零写入位单写者律；消费 = run 起 driver 取 fold 现值 ?? 栈基线 + 悬空校验回落〔指向已删渠道时 warn 降级〕）"
+    },
+    {
       "symbol": "session/paused",
       "module": "session-events",
       "tier": "stable",

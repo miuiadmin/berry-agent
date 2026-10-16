@@ -1363,6 +1363,10 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     io.output = ''; // 切换帧起收窗（此前帧恒含旧短名 footer——判别锚窗口必须在切换之后）
     io.send('\x10'); // ctrl+p——模型循环（m1 → m2）
     await until(() => io.output.includes('模型已切换')); // notify 回执行
+    // 直播腿切线块入屏（52 轮件 B——appendModelChangeLine 直灌 transcript；
+    // stripAnsi 判别：词头 accent 与 spec dim 两游程间有 SGR 码，裸 includes
+    // 跨游程锚永不中——'↻ ' 前缀与回执「模型已切换：」全形两判别）
+    await until(() => stripAnsi(io.output).includes('↻ 模型已切换 · faux-key3/m2'));
     // V-4 注⑪② 判别性锁（setFooterModel 双入口之一——onModelCycle）：' · m2'
     // 连接符形只在 footer 行1 帧本体——回执文本恒含全形 faux-key3/m2，旧
     // toContain('m2') 是 vacuous（回执单载体即可过）；键分派同步于 io.send
@@ -1417,6 +1421,9 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     await until(() => stripAnsi(io.output).includes('›   faux-key3/m2'));
     io.send('\r'); // enter 选定——先收副屏再回调（closeAlt 复屏重画帧持旧短名，属回执位之前）
     await until(() => io.output.includes('模型已切换：faux-key3/m2'));
+    // 直播腿切线块入屏（52 轮件 B——selectModel 落 durable 事件后直灌块账；
+    // stripAnsi 判别同 ctrl+p 测——跨游程锚不可裸 includes）
+    await until(() => stripAnsi(io.output).includes('↻ 模型已切换 · faux-key3/m2'));
     // V-4 注⑪② 判别性锁（setFooterModel 双入口之二——selectModel）：回执字节
     // 位起开窗——' · m2' 连接符形只在 footer 行1 帧本体（回执/面板条目恒全形
     // faux-key3/m2〔右段裸名无连接符〕不可作证）；复屏重画帧与回执行同帧序前

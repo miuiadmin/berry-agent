@@ -66,6 +66,7 @@ import {
   foldTodoTable,
   isUserApprovalDecision,
   setSessionMode,
+  setSessionModel,
   setSessionThinkingLevel,
   THINKING_LEVELS,
 } from '../conversation/index.js';
@@ -797,13 +798,28 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
     };
 
-    // —— 模型选定与面板装配闭包（UX 对标批 ux-4 /model——TUI 本地拦截族）：
-    // 动作与 ctrl+p 循环同源（setModel + 回执）——两入口一动作（onModelCycle
-    // 算档后即委派本闭包——动作体单源，不持第二拷贝）；清单单源 =
-    // llmRuntime 目录现取（ctrl+p 宇宙同一读面不造第二清单）。footer 行1 模型
-    // 槽（V-4 注⑪②——setFooterModel 回迁）：切换即活写短名（id 尾段）
+    // —— 模型选定与面板装配闭包（UX 对标批 ux-4 /model——TUI 本地拦截族；
+    // 挖掘 52 轮件 B durable 化翻档）：动作与 ctrl+p 循环同源——两入口一动作
+    //（onModelCycle 算档后即委派本闭包——动作体单源，不持第二拷贝）；清单
+    // 单源 = llmRuntime 目录现取（ctrl+p 宇宙同一读面不造第二清单）。落账走
+    // conversation 公开面单写者 setSessionModel（05 §1.1 单写者律——宿主装配
+    // 独占；append 即切换、resume 重放即恢复，重启不再回落装配基线）；目标
+    // 会话 = 聚焦位（selectSandbox 同位律），生效时机 = 下一 run 起（driver
+    // 取值器 run 起钉定 fold 现值——mid-run 切换下一 run 生效）。直播腿切线
+    // 块随落账入 transcript（transcript 恒显聚焦会话——切焦经 onRepaint
+    // 同步，选择期 sid 即屏上会话）；footer 行1 模型槽（V-4 注⑪②
+    // ——setFooterModel 回迁）：切换即活写短名（id 尾段）
     const selectModel = (spec: string): void => {
-      stack.setModel(spec);
+      const sid = stack.channels.focusedId ?? session.sessionId;
+      const driver = stack.driverOf(sid);
+      if (driver === undefined) {
+        backend.notify('先进入一个会话，再切换模型', { level: 'warn' });
+        return;
+      }
+      setSessionModel(driver.session, spec);
+      // 直播腿切线块：seq = 刚落 durable 事件位（append 后日志末位——append
+      // 即数组尾推，length-1 尾锚单源）
+      backend.appendModelChangeLine({ seq: driver.session.events().length - 1, model: spec });
       backend.setFooterModel(spec);
       backend.notify(`模型已切换：${spec}（下一轮对话起生效）`, { level: 'info' });
     };
@@ -815,7 +831,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           entries.push({ spec: `${provider.id}/${model.id}`, provider: provider.id, model: model.id });
         }
       }
-      if (!backend.openModelPicker(entries, stack.model, selectModel)) {
+      // 预选 = 会话现值档（sessionModelOf 三级序——显式覆盖 ?? fold 现值 ??
+      // 栈基线；修前 stack.model 是栈基线旋钮，会话已切档后面板预选错档）
+      const sid = stack.channels.focusedId ?? session.sessionId;
+      if (!backend.openModelPicker(entries, stack.sessionModelOf(sid), selectModel)) {
         backend.notify(panelBusyNotice('模型页'), { level: 'warn' });
       }
     };
@@ -1589,20 +1608,24 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       onInterrupt: (sessionId) => stack.interrupt(sessionId),
       // 模型循环柄（挂账解挂批 2026-09-15——ctrl+p 层③.5 应用动作路）：循环
       // 宇宙 = providers 装配序 × provider 内 model 序的 `provider/model` 串全列
-      // （07 §4.1 R5）；换档走栈级旋钮（内存态不落盘——重启回落装配基线），
-      // 消费 = 下一 run 起跑现取（在飞 run 不中途换）。回执 notify 一行；
-      // 空目录零动作（无候选可换——诚实缺席）。footer 行1 模型槽（V-4 注⑪②
-      // ——setFooterModel 回迁）：切换即活写短名（id 尾段）
+      //（07 §4.1 R5）；换档 durable 落账 session/model 事件（挖掘 52 轮件 B
+      // 翻档——重启随 resume 重放恢复，不再回落装配基线），消费 = 下一 run
+      // 起跑现取（在飞 run 不中途换）。回执 notify 一行；空目录零动作（无
+      // 候选可换——诚实缺席）。footer 行1 模型槽（V-4 注⑪②——setFooterModel
+      // 回迁）：切换即活写短名（id 尾段）
       onModelCycle: () => {
         const specs: string[] = [];
         for (const provider of stack.llmRuntime.models.getProviders()) {
           for (const model of provider.getModels()) specs.push(`${provider.id}/${model.id}`);
         }
         if (specs.length === 0) return;
-        const index = specs.indexOf(stack.model);
+        // 当前档 = 会话现值（sessionModelOf 三级序——openModelPanel 预选同源；
+        // 修前 stack.model 是栈基线旋钮，会话已切档后循环起点错档）
+        const sid = stack.channels.focusedId ?? session.sessionId;
+        const index = specs.indexOf(stack.sessionModelOf(sid));
         const next = specs[(index + 1) % specs.length]!; // 不在册（-1+1=0）→ 装配序首位
         // 动作体单源（selectModel——「两入口一动作」注兑现：本闭包只算下一档，
-        // 切栈/活写 footer/回执三行不再持第二拷贝）
+        // 落账/直播块/活写 footer/回执不再持第二拷贝）
         selectModel(next);
       },
       // 档位模式循环柄（2026-10-05 ZCode TUI 对标批——shift+tab 层③.5 应用
@@ -1699,6 +1722,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 闸在 transcript 消费位单源，本层零闸知识）。
       todoSnapshotsOf: (sessionId) =>
         stack.todoSnapshotsOf(sessionId).map(({ seq, items }) => ({ seq, items: items.map((item) => ({ ...item })) })),
+      // 模型切线全序列数据源（挖掘 52 轮件 B——投影/回看重建路）：窄形映射
+      //（seq+model 直展——collectModelChanges 收集位已坏形防御跳过，本层
+      // 零过滤零闸知识，backend 收到干净子集）
+      modelChangesOf: (sessionId) => stack.modelChangesOf(sessionId).map(({ seq, model }) => ({ seq, model })),
       // 持久化分项目输入历史（B1——07 §4.1 呈现面件 2 定形注③种写双路）：
       // 域键 = 启动锚工作区根（session.workspaceRoot——resume/--session 续接
       // 会话根与 openStartupSession 缺省 cwd 归一两路均已 canonical 归一形；

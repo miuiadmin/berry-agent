@@ -7760,6 +7760,15 @@ describe('TuiBackend appendApprovalDecisionLine（挖掘 31 轮 [1]——块账�
   });
 });
 
+describe('TuiBackend appendModelChangeLine（挖掘 52 轮件 B——块账追加即入帧）', () => {
+  it('切线块落帧：↻ 模型已切换 · <spec>（块账路——同步直出即入帧）', () => {
+    const { io, backend } = makeBackend();
+    backend.appendModelChangeLine({ seq: 3, model: 'faux-stack/m2' });
+    // SGR 游程切割谱同 approval：词头 accent + spec dim——字面锚 stripAnsi 后断
+    expect(stripAnsi(io.bytes)).toContain('↻ 模型已切换 · faux-stack/m2');
+  });
+});
+
 /* ---------------- 问答落史行（挖掘 36 轮 [2]）——直播追加公开面 ---------------- */
 
 describe('TuiBackend appendAskDecisionLine（挖掘 36 轮 [2]——块账追加即入帧）', () => {
