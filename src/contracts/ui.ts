@@ -129,11 +129,17 @@ export interface UiBackend<TProjection> {
    * 才有「e 回溯」键行为（缺席注入律——键无效零行为变，openSessions 的
    * onDelete/onPreview 同族）。回执三态路由归通道核 wrapper（后端只透传锚
    * 与收回执），确认编舞 = 先收屏再回调（/rewind 选定序同构）。
+   *
+   * 第四参（挖掘 50 轮件 C 'o' 开史）：键面退出复原钩——onExit 双步（收副屏
+   * 后触发，'o' 开史路的切换器光标复原）；ask/stop 外部收屏路不经 viewer
+   * onExit 不触发（承认丢失——ask 优先级高于复原）。缺席 = onExit 单步现
+   * 行为零变。
    */
   openHistory?(
     sessionId: string,
     messages: readonly TProjection[],
     onForkEdit?: (anchor: UiForkEditAnchor) => Promise<UiForkEditReceipt>,
+    onCloseReopen?: () => void,
   ): void;
   /**
    * 开副屏记忆管理面（06 §7 `/memory` 命令的呈现面——命令注册在通道核按
@@ -170,6 +176,15 @@ export interface UiBackend<TProjection> {
      * requestRepaint 请帧——回执不落通道核）。
      */
     onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>,
+    /**
+     * 开史回调（挖掘 50 轮件 C 'o' 开史——光标行会话完整史两段开合的数据源
+     * 闭包：注入在场才有 'o' 键行为，缺席 = 键无效零行为变〔onDelete/
+     * onPreview 同律〕）。TUI 实装透传前包装即收形（先收切换器再入回调链
+     * ——竞窗结构性消解）。
+     */
+    onOpenHistory?: (sessionId: string, cursorAt: number) => void,
+    /** 光标复原位（挖掘 50 轮件 C——'o' 开史退出复原切换器时重开传入；缺省 0） */
+    initialCursor?: number,
   ): boolean;
   /**
    * 开副屏用量面板（07 §4.1 R7 批 10k `/usage` 命令的呈现面——数据源 =

@@ -355,9 +355,44 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
                 uiCore.notify(`切换会话失败：${foldErrorText(err)}`, { level: 'error' }); // 同防
               });
         };
+        // 'o' 开史闭包（挖掘 50 轮件 C）：picker 光标行会话完整史两段开合——
+        // backend 即收形收切换器后，按既有 /history 注入拉全量投影（签名本支
+        // 持任意 id）→ 开回看器（onForkEdit 诚实缺席——回溯是焦点会话
+        // /history 路独有面，'o' 路是快照查看语义）；键面退出复原切换器含
+        // 光标位（reopen 重发 openSessions 带 initialCursor）；投影拉取失败
+        // 折 error notify 不直穿（selectSession 同律——直穿沿 alt 输入链成
+        // uncaughtException 杀整个 TUI）。先铸局部别名（谓词闭包窄化不传播
+        // ——/history handler 同形）
+        const fetch = opts.history;
+        const openHistoryAt =
+          fetch === undefined
+            ? undefined
+            : (id: string, cursorAt: number): void => {
+                void fetch(id)
+                  .then((messages) => {
+                    const reopen = (): void => {
+                      for (const b of allBackends())
+                        b.openSessions?.(
+                          sessions,
+                          selectSession,
+                          total,
+                          deleteSessionWithReceipt,
+                          preview,
+                          openHistoryAt,
+                          cursorAt,
+                        );
+                    };
+                    for (const b of allBackends()) b.openHistory?.(id, messages, undefined, reopen);
+                  })
+                  .catch((err: unknown) => {
+                    uiCore.notify(`回看拉取失败：${foldErrorText(err)}`, { level: 'error' });
+                  });
+              };
         let opened = false;
         for (const b of allBackends()) {
-          if (b.openSessions?.(sessions, selectSession, total, deleteSessionWithReceipt, preview) === true)
+          if (
+            b.openSessions?.(sessions, selectSession, total, deleteSessionWithReceipt, preview, openHistoryAt) === true
+          )
             opened = true;
         }
         if (!opened) {

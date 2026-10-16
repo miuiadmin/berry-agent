@@ -77,6 +77,18 @@ export interface SessionPickerOptions {
    */
   readonly onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>;
   /**
+   * 开史回调（挖掘 50 轮件 C——注入在场 'o' 键有效〔光标行会话完整史两段
+   * 开合〕，缺席键无效零行为变〔onDelete/onPreview 同律〕）。真身 = 通道核
+   * 闭包（拉投影 → 开回看器 → 退出复原切换器含光标位）。
+   */
+  readonly onOpenHistory?: (sessionId: string, cursorAt: number) => void;
+  /**
+   * 光标复原位（挖掘 50 轮件 C——backend 重开切换器时传入 'o' 开史前光标位；
+   * 缺省 0；构造位显式夹取〔render 路 clampOffset 只夹 offset 从不写 cursor——
+   * 界内恒定靠变更位自守，超界直赋即破不变量〕）。
+   */
+  readonly initialCursor?: number;
+  /**
    * 异步请帧（删除回执落位后重画——面板不自驱重画；装配接 altHost
    * requestRepaint）。同步键路（视图切换/取消）由引擎事件后重画承载。
    */
@@ -176,6 +188,7 @@ export class SessionPicker implements OverlayContent {
   private readonly onQuit: (() => void) | undefined;
   private readonly onDelete: ((sessionId: string) => Promise<UiSessionDeleteResult>) | undefined;
   private readonly onPreview: ((sessionId: string) => Promise<readonly UiSessionPreviewLine[]>) | undefined;
+  private readonly onOpenHistory: ((sessionId: string, cursorAt: number) => void) | undefined;
   private readonly requestRepaint: (() => void) | undefined;
   /** 当前视图（list 清单 / confirm 删除确认——视图切换形同 rewind-picker） */
   private view: 'list' | 'confirm' = 'list';
@@ -217,6 +230,11 @@ export class SessionPicker implements OverlayContent {
     this.onQuit = options.onQuit;
     this.onDelete = options.onDelete;
     this.onPreview = options.onPreview;
+    this.onOpenHistory = options.onOpenHistory;
+    // 光标复原位（挖掘 50 轮件 C——构造位显式夹取：render 路 clampOffset 只夹
+    // offset 从不写 cursor，界内恒定靠各变更位自守——超界直赋破不变量（enter/
+    // tab 的 visible[cursor]!.id 直取即越界炸）；空表夹 0（home 同族））
+    this.cursor = Math.min(Math.max(options.initialCursor ?? 0, 0), Math.max(this.sessions.length - 1, 0));
     this.requestRepaint = options.requestRepaint;
     this.activeRowStyle = activeRowStyleOf(options.theme ?? DEFAULT_THEME);
     this.nowMs = options.nowMs ?? Date.now();
@@ -337,13 +355,17 @@ export class SessionPicker implements OverlayContent {
                   'esc 清搜索',
                 )
               : hintLine('输入过滤', '↑↓ 移动', 'enter 切换', 'esc 清搜索')
-          : this.onDelete !== undefined && this.onPreview !== undefined
-            ? hintLine('↑↓ 移动', 'enter 切换', this.previewOpen ? 'tab 收预览' : 'tab 预览', 'd 删除', 'q/esc 返回')
-            : this.onDelete !== undefined
-              ? hintLine('↑↓ 移动', 'enter 切换', 'd 删除', 'q/esc 返回')
-              : this.onPreview !== undefined
-                ? hintLine('↑↓ 移动', 'enter 切换', this.previewOpen ? 'tab 收预览' : 'tab 预览', 'q/esc 返回')
-                : hintLine('↑↓ 移动', 'enter 切换', 'q/esc 返回');
+          : (() => {
+              // 非搜索态段收集（挖掘 50 轮件 C——段族化：'o 开史' 段注入在场才
+              // 入，段序 'd 删除' 后 'q/esc 返回' 前〔窄窗 fitLine 尾段让位截断
+              // ——退出键面排末位最后丢〕；原四组合静态链等价重构零行为变）
+              const segments = ['↑↓ 移动', 'enter 切换'];
+              if (this.onPreview !== undefined) segments.push(this.previewOpen ? 'tab 收预览' : 'tab 预览');
+              if (this.onDelete !== undefined) segments.push('d 删除');
+              if (this.onOpenHistory !== undefined) segments.push('o 开史');
+              segments.push('q/esc 返回');
+              return hintLine(...segments);
+            })();
     buffer.writeText(region.row + region.height - 1, region.col, fitLine(bottomHint, region.width), HINT_STYLE);
   }
 
@@ -561,6 +583,13 @@ export class SessionPicker implements OverlayContent {
           this.openConfirm();
           return true;
         }
+        // 'o' = 开史键（挖掘 50 轮件 C——注入在场才有效：光标行会话完整史两段
+        // 开合；缺席吞而不动作〔'd' 删除键同律〕；搜索态归输入不可达；面板不
+        // 自杀收屏——「收」归 backend 透传包装位〔即收形〕）
+        if (isPlainKey(k, 'o')) {
+          this.openHistoryAtCursor();
+          return true;
+        }
         // tab = 尾段预览展开键（挖掘 35 轮 B5——注入在场才有效：toggle 预览
         // 区；缺席吞而不动作〔'd' 删除键同律〕；不可打印零输入冲突不废）
         if (isPlainKey(k, 'tab')) {
@@ -597,6 +626,12 @@ export class SessionPicker implements OverlayContent {
         if (this.view === 'list') this.openConfirm();
         return true;
       }
+      if (event.text === 'o') {
+        // kitty text 轨 'o' 同律（挖掘 50 轮件 C——双轨收键；搜索态已在上方
+        // appendQuery 分支提前 return 归输入，'o' 归输入不可达）
+        if (this.view === 'list') this.openHistoryAtCursor();
+        return true;
+      }
     }
     return true; // 未消费键终局吞（模态独占）
   }
@@ -610,6 +645,18 @@ export class SessionPicker implements OverlayContent {
     this.confirmStatus = undefined;
     this.deleteInFlight = false;
     this.view = 'confirm';
+  }
+
+  /**
+   * 开史动作（挖掘 50 轮件 C——注入缺席/空表/已退出零动作〔openConfirm 同形
+   * 自守卫〕；行源 = visible 单源；id + 当时光标位双参上浮——光标位供退出
+   * 复原切换器用）。
+   */
+  private openHistoryAtCursor(): void {
+    if (this.onOpenHistory === undefined || this.exited) return;
+    const visible = this.visibleSessions();
+    if (visible.length === 0) return;
+    this.onOpenHistory(visible[this.cursor]!.id, this.cursor);
   }
 
   /**

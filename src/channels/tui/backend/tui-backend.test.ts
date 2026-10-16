@@ -3506,6 +3506,45 @@ describe('TuiBackend /sessions · /usage · /help 副屏装配（R7 批 10k）',
     expect(backend.lifecycle).toBe('suspended');
   });
 
+  it("openSessions 'o' 开史即收形：透传前先收切换器副屏再达 onOpenHistory（id + initialCursor 位双参）；已收后连续 'o' 结构性不可能", () => {
+    const { io, backend } = rig();
+    const opened: Array<[string, number, string]> = [];
+    backend.openSessions(
+      SESSIONS,
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      (id, cursorAt) => opened.push([id, cursorAt, backend.lifecycle]),
+      1, // initialCursor——光标复原位（构造位透传）
+    );
+    io.reset();
+    io.emitInput('o'); // kitty 轨 text 事件 → picker text 轨 'o'（光标位 = initialCursor）
+    expect(opened).toEqual([['sess-dddddddddd', 1, 'running']]); // 即收形铁证：回调到达时切换器已收主屏已复起
+    expect(io.frames[0]).toBe(ALT_LEAVE);
+    expect(io.frames[1]).toBe(MAIN_ENTER);
+    io.reset();
+    io.emitInput('o'); // 已收切换器无键源——竞窗结构性消解（主屏编辑器归输入）
+    expect(opened.length).toBe(1);
+  });
+
+  it('openHistory 退出复原钩：onCloseReopen 在场 onExit 双步（先收副屏再触发）；缺席单步现行为零变', () => {
+    const { io, backend } = rig();
+    const calls: string[] = [];
+    backend.openHistory(SESSION, [], undefined, () => calls.push(`reopen@${backend.lifecycle}`));
+    io.reset();
+    io.emitInput('q'); // 键面退出路（ask/stop 外部收屏路不经 viewer onExit——承认丢失）
+    expect(calls).toEqual(['reopen@running']); // 双步序：复原钩到达时副屏已收主屏已复起
+    expect(io.frames[0]).toBe(ALT_LEAVE);
+    expect(io.frames[1]).toBe(MAIN_ENTER);
+    // 缺席单步（现行为锁——第四参不传 q 退出即既有形）
+    const bare = rig();
+    bare.backend.openHistory(SESSION, []);
+    bare.io.reset();
+    bare.io.emitInput('q');
+    expect(bare.backend.lifecycle).toBe('running'); // 现行为零变
+  });
+
   it('openUsage 编舞：用量面板首帧（短 id 头行 + 分表千位分组 + 费用）', () => {
     const { io, backend } = rig();
     expect(backend.openUsage('sess-dddddddddd', SUMMARY)).toBe(true);

@@ -54,13 +54,15 @@ function readRow(grid: CellGrid, rowNumber: number, width: number): string {
   return out.trimEnd();
 }
 
-/** 装配便捷（全回调 vi 记录；extra = Options 可选位覆写——截断披露/删除注入/相对钟腿用） */
+/** 装配便捷（全回调 vi 记录；extra = Options 可选位覆写——截断披露/删除注入/开史注入/光标复原/相对钟腿用） */
 function makePicker(
   sessions: readonly UiSessionSummary[],
   extra: {
     totalCount?: number;
     onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>;
     onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>;
+    onOpenHistory?: (sessionId: string, cursorAt: number) => void;
+    initialCursor?: number;
     requestRepaint?: () => void;
     nowMs?: number;
   } = {},
@@ -955,5 +957,83 @@ describe('SessionPicker 打字搜索（挖掘 43 轮件 C）', () => {
     expect(text).not.toContain('输入过滤');
     picker.handleEvent({ kind: 'text', text: 'x' }); // 追加零炸（不进态不吞——q 返回键面让位）
     expect(paintAll(picker, 70, 6)).toContain('无会话');
+  });
+});
+
+/* ---------------- 'o' 开史（挖掘 50 轮件 C——光标行完整史两段开合 + 光标复原） ---------------- */
+
+describe('SessionPicker ' + "'o'" + ' 开史（挖掘 50 轮件 C）', () => {
+  const sessions = [row({ id: 'aaa111111111' }), row({ id: 'bbb222222222', active: true })];
+
+  /** 全屏读（删除/打字搜索 describe paintAll 同形） */
+  function paintAll(picker: SessionPicker, width: number, height: number): string {
+    const grid = new CellGrid(width, height);
+    picker.render(grid, { row: 0, col: 0, width, height });
+    const lines: string[] = [];
+    for (let r = 0; r < height; r++) {
+      let out = '';
+      for (let c = 0; c < width; c++) out += grid.getCell(r, c)?.grapheme ?? ' ';
+      lines.push(out.trimEnd());
+    }
+    return lines.join('\n');
+  }
+
+  it("① 'o' 回调：光标行 id + 当时光标位双参上浮；面板不自杀收屏（收归 backend 包装位）", () => {
+    const calls: Array<[string, number]> = [];
+    const { picker, onExit } = makePicker(sessions, {
+      onOpenHistory: (id, cursorAt) => calls.push([id, cursorAt]),
+    });
+    picker.handleEvent(k('down')); // 光标 → 1
+    expect(picker.handleEvent(k('o'))).toBe(true);
+    expect(calls).toEqual([['bbb222222222', 1]]); // id + cursorAt 双参（cursorAt 供退出复原切换器）
+    expect(onExit).not.toHaveBeenCalled(); // 不自杀——收屏归 backend 透传包装位（即收形）
+  });
+
+  it("② 注入缺席 'o' 无效零行为变（吞而不动作——'d' 删除键同律）", () => {
+    const { picker, onSelect } = makePicker(sessions);
+    expect(picker.handleEvent(k('o'))).toBe(true); // 吞
+    expect(onSelect).not.toHaveBeenCalled(); // 零行为变
+    expect(picker.handleEvent(k('enter'))).toBe(true); // 面板仍活——enter 照常
+    expect(onSelect).toHaveBeenCalledWith('aaa111111111');
+  });
+
+  it('③ initialCursor 复原位：构造后首帧光标 = 复原位行；超界值夹到末行（修前红：构造直赋无夹取——超界 enter 即 TypeError 杀面板）', () => {
+    const { picker, onSelect } = makePicker(sessions, { initialCursor: 1 });
+    picker.handleEvent(k('enter'));
+    expect(onSelect).toHaveBeenCalledWith('bbb222222222'); // 复原位生效
+    // 超界夹取（冷读清偿 P1——render 路 clampOffset 只夹 offset 从不写 cursor，界内恒定靠变更位自守）
+    const far = makePicker(sessions, { initialCursor: 999 });
+    expect(far.picker.handleEvent(k('enter'))).toBe(true); // 修前：visible[999]! 越界 undefined TypeError
+    expect(far.onSelect).toHaveBeenCalledWith('bbb222222222'); // 夹到末行非越界炸
+  });
+
+  it("④ kitty text 轨 'o' 同律（双轨收键）+ 搜索态 'o' 归输入非触发", () => {
+    const calls: Array<[string, number]> = [];
+    const { picker } = makePicker(sessions, {
+      onOpenHistory: (id, cursorAt) => calls.push([id, cursorAt]),
+    });
+    picker.handleEvent({ kind: 'text', text: 'o' }); // text 轨（kitty disambiguate——'d' 双轨先例同形）
+    expect(calls).toEqual([['aaa111111111', 0]]);
+    picker.handleEvent(k('/')); // 进搜索态
+    picker.handleEvent(k('o')); // key 轨 'o' 归输入（搜索态键面避让）
+    picker.handleEvent({ kind: 'text', text: 'o' }); // text 轨同律归输入
+    expect(calls.length).toBe(1); // 非触发
+    expect(paintAll(picker, 70, 8)).toContain('0/2 匹配'); // 'o' 入 query（语料无 o 命中——归输入铁证）
+  });
+
+  it("⑤ hint 段在场律与段序：注入在场才显 'o 开史'（'d 删除' 后 'q/esc 返回' 前）；搜索态换「输入过滤」面无该段", () => {
+    const withOpen = makePicker(sessions, { onOpenHistory: vi.fn() });
+    expect(paintAll(withOpen.picker, 70, 8)).toContain('o 开史');
+    const withoutOpen = makePicker(sessions);
+    expect(paintAll(withoutOpen.picker, 70, 8)).not.toContain('o 开史'); // 缺席不注记
+    // 段序锁（段收集 IIFE——窄窗 fitLine 尾段让位时退出键面排末位最后丢）
+    const both = makePicker(sessions, { onDelete: vi.fn(), onOpenHistory: vi.fn() });
+    const text = paintAll(both.picker, 70, 8);
+    expect(text.indexOf('d 删除')).toBeLessThan(text.indexOf('o 开史'));
+    expect(text.indexOf('o 开史')).toBeLessThan(text.indexOf('q/esc 返回'));
+    withOpen.picker.handleEvent(k('/')); // 搜索态 hint 换「输入过滤」面
+    const search = paintAll(withOpen.picker, 70, 8);
+    expect(search).toContain('输入过滤');
+    expect(search).not.toContain('o 开史');
   });
 });

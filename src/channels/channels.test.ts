@@ -58,7 +58,12 @@ function fakeBackend(
   const envelopes: { env: SessionEnvelope; focused: boolean }[] = [];
   const repaints: { sessionId: string; projection: readonly unknown[]; widget: { node: unknown } | null }[] = [];
   const collapses: number[] = [];
-  const historyOpens: { sessionId: string; messages: readonly unknown[]; fork?: unknown }[] = [];
+  const historyOpens: {
+    sessionId: string;
+    messages: readonly unknown[];
+    fork?: unknown;
+    reopen?: unknown;
+  }[] = [];
   const memoryOpens: number[] = [];
   let memoryOpenReturn = false;
   const sessionsOpens: {
@@ -67,6 +72,8 @@ function fakeBackend(
     totalCount?: number;
     onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>;
     onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>;
+    onOpenHistory?: (sessionId: string, cursorAt: number) => void;
+    initialCursor?: number;
   }[] = [];
   let sessionsOpenReturn = false;
   const usageOpens: { sessionId: string; summary: unknown }[] = [];
@@ -115,7 +122,8 @@ function fakeBackend(
             sessionId: string,
             messages: readonly never[],
             onForkEdit?: (anchor: never) => Promise<unknown>,
-          ) => historyOpens.push({ sessionId, messages, fork: onForkEdit }),
+            onCloseReopen?: () => void,
+          ) => historyOpens.push({ sessionId, messages, fork: onForkEdit, reopen: onCloseReopen }),
           openMemory: () => {
             memoryOpens.push(memoryOpens.length);
             return memoryOpenReturn;
@@ -126,8 +134,10 @@ function fakeBackend(
             totalCount?: number,
             onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>,
             onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>,
+            onOpenHistory?: (sessionId: string, cursorAt: number) => void,
+            initialCursor?: number,
           ) => {
-            sessionsOpens.push({ sessions, onSelect, totalCount, onDelete, onPreview });
+            sessionsOpens.push({ sessions, onSelect, totalCount, onDelete, onPreview, onOpenHistory, initialCursor });
             return sessionsOpenReturn;
           },
           openUsage: (sessionId: string, summary: never) => {
@@ -1026,6 +1036,64 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     expect(b.notified).toEqual([
       { message: expect.stringContaining('已切到『题二』——工作区 /w/beta'), level: undefined },
     ]);
+  });
+
+  // —— 'o' 开史闭包（挖掘 50 轮件 C——两段开合：第六参 openHistoryAt 铸闭包
+  // 拉投影开回看器；键面退出 reopen 重发 openSessions 带光标复原位）——
+  it('history 注入在场：第六参铸闭包——任意 id 拉投影扇出 openHistory 带 reopen（onForkEdit 诚实缺席）；reopen 重发 openSessions 带 cursorAt 且链自续', async () => {
+    const s = createChannels({
+      sessions: async () => list,
+      history: async (id) => [{ role: 'user', content: id }],
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    const open = b.sessionsOpens[0]!.onOpenHistory!;
+    expect(open).toBeInstanceOf(Function); // 注入在场才铸（缺席键无效零行为变）
+    open('s2', 1); // picker 光标位 1（任意 id——签名本支持非焦点会话）
+    await Promise.resolve(); // fetch 微任务冲刷（.then 链同步扇出）
+    await Promise.resolve();
+    expect(b.historyOpens[b.historyOpens.length - 1]).toMatchObject({
+      sessionId: 's2',
+      messages: [{ role: 'user', content: 's2' }],
+      fork: undefined, // 'o' 路快照查看语义——回溯编辑是 /history 焦点路独有面
+    });
+    const reopen = b.historyOpens[b.historyOpens.length - 1]!.reopen as () => void;
+    expect(reopen).toBeInstanceOf(Function);
+    reopen(); // 键面退出复原（清屏重发非原地复用——快照档原班）
+    expect(b.sessionsOpens).toHaveLength(2); // 重发 openSessions
+    expect(b.sessionsOpens[1]!.initialCursor).toBe(1); // 光标复原位透传
+    expect(b.sessionsOpens[1]!.onOpenHistory).toBe(open); // 链自续——复原后 'o' 仍可用
+  });
+
+  it('history 注入缺席：第六参 undefined（o 键无效零行为变——不虚报）；拉取失败折 error notify 不直穿', async () => {
+    const s = createChannels({ sessions: async () => list });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    expect(b.sessionsOpens[0]!.onOpenHistory).toBeUndefined();
+    // 失败腿：fetch reject → error notify（直穿沿 alt 输入链成 uncaughtException
+    // 杀 TUI——selectSession 同律防）
+    let rejectFetch!: (err: Error) => void;
+    const s2 = createChannels({
+      sessions: async () => list,
+      history: () =>
+        new Promise<readonly unknown[]>((_resolve, reject) => {
+          rejectFetch = reject;
+        }),
+    });
+    const b2 = fakeBackend('tui', {}, true);
+    b2.setSessionsOpen(true);
+    s2.addBackend(b2.backend);
+    await s2.dispatchCommand('/sessions');
+    b2.sessionsOpens[0]!.onOpenHistory!('s1', 0);
+    rejectFetch(new Error('库炸了'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(b2.notified).toEqual([{ message: expect.stringContaining('回看拉取失败'), level: 'error' }]);
+    expect(b2.historyOpens).toEqual([]); // 未开回看器（失败诚实不假装已开）
   });
 });
 

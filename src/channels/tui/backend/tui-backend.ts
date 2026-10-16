@@ -1994,12 +1994,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    *
    * 第三参 onForkEdit（挖掘 36 轮件 8 回溯 fork 批）：注入在场才铸回溯回调
    * （缺席注入律——viewer 不见键行为）；回执编排经 wireForkEdit（seed 对账
-   * + 血缘 notify）。
+   * + 血缘 notify）。第四参 onCloseReopen（挖掘 50 轮件 C）：退出时复原钩
+   * ——onExit 双步（closeAlt 后触发；键面退出路专属，ask/stop 外部收屏路
+   * 不经 viewer onExit 不触发〔承认丢失——ask 优先级高于复原〕）；缺席
+   * onExit 单步现行为零变。
    */
   openHistory(
     sessionId: string,
     messages: readonly AgentMessage[],
     onForkEdit?: (anchor: UiForkEditAnchor) => Promise<UiForkEditReceipt>,
+    onCloseReopen?: () => void,
   ): void {
     if (this.altHandle !== null) return;
     const handle = this.altHost.open(
@@ -2013,7 +2017,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         todoSnapshots: this.todoSnapshotsSource?.(sessionId),
         columns: this.io.size().columns,
         theme: this.theme, // 会话主题快照（批 10i——回看器行集与主屏同板，含思考块/工具卡烙印）
-        onExit: () => this.closeAlt(),
+        onExit: () => {
+          // 键面退出双步（挖掘 50 轮件 C）：先收副屏（现行为），再复原钩——
+          // 'o' 开史路的切换器光标复原（reopen 重发 openSessions 带 initialCursor）
+          this.closeAlt();
+          onCloseReopen?.();
+        },
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
         // OSC 52 复制写出柄（mu-2）：release 选区行间拼 LF 到达 → 分诊单源
@@ -2084,8 +2093,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * ——通道核 sessionsTotal 注入缺席时回退清单长度；超清单长时切换器头行
    * 注记「N/M（仅显示最近）」）。onDelete = 删除回调（05 §2.5 会话删除编排
    * 定形注①——通道核 wrapper 透传，注入缺席 undefined 键无效；回执异步落位
-   * 经 requestRepaint 请帧）。已在副屏 / 主屏不在 running 返 false
-   * （核侧 notify 降级）。打断柄锚当前交互会话位（切焦前语义）。
+   * 经 requestRepaint 请帧）。onOpenHistory = 'o' 开史回调（挖掘 50 轮件 C
+   * ——透传前包装即收形：先同步 closeAlt 收切换器再入回调链，竞窗结构性
+   * 消解）。initialCursor = 光标复原位（'o' 开史退出复原时重开传入）。
+   * 已在副屏 / 主屏不在 running 返 false（核侧 notify 降级）。打断柄锚当前
+   * 交互会话位（切焦前语义）。
    */
   openSessions(
     sessions: readonly UiSessionSummary[],
@@ -2093,6 +2105,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     totalCount?: number,
     onDelete?: (sessionId: string) => Promise<UiSessionDeleteResult>,
     onPreview?: (sessionId: string) => Promise<readonly UiSessionPreviewLine[]>,
+    onOpenHistory?: (sessionId: string, cursorAt: number) => void,
+    initialCursor?: number,
   ): boolean {
     if (this.altHandle !== null) return false;
     const handle = this.altHost.open(
@@ -2105,6 +2119,20 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onQuit: this.onQuit,
         ...(onDelete !== undefined ? { onDelete } : {}),
         ...(onPreview !== undefined ? { onPreview } : {}),
+        ...(onOpenHistory !== undefined
+          ? {
+              // 即收形（挖掘 50 轮件 C 竞窗终案）：透传前包装先同步收切换器
+              // 再入回调链——连续 'o' 结构性不可能（picker 已收无键源）、
+              // 回调链开回看器时 altHandle 恒 null 可开；拉取失败 = error
+              // notify 诚实（用户重开 /sessions）；免 in-flight 旗 /
+              // instanceof 判定 / 标签位三件
+              onOpenHistory: (id: string, cursorAt: number) => {
+                this.closeAlt();
+                onOpenHistory(id, cursorAt);
+              },
+            }
+          : {}),
+        ...(initialCursor !== undefined ? { initialCursor } : {}),
         requestRepaint: () => this.altHost.requestRepaint(),
         theme: this.theme,
       }),
