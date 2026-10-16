@@ -253,7 +253,7 @@ export const assertTargetStable = async (abs: string, canonical: string): Promis
 /* ---------------- 编码纪律：UTF-8 严格解码 ---------------- */
 
 /** UTF-8 BOM 字节序列（EF BB BF——在场即剥离照读，不进内容） */
-const UTF8_BOM = '﻿';
+const UTF8_BOM = '\uFEFF';
 
 /**
  * 严格 UTF-8 解码（04 §7 编码纪律）：fatal TextDecoder——任何非法字节序
