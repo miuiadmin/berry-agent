@@ -101,8 +101,10 @@ import {
 import { MainScreen } from './main-screen.js';
 import {
   dialogueBlockCount,
+  HISTORY_PAGE_MESSAGES,
   LiveTranscript,
   shortIdOf,
+  sliceHistoryWindow,
   type ApprovalDecisionLineInput,
   type AskDecisionLineInput,
   type ModelChangeLineInput,
@@ -2000,10 +2002,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /**
    * 开副屏回看器（UiBackend 可选能力面实装——通道核 /history 命令到达扇出）：
-   * 挂起主屏 → 1049 副屏 HistoryViewer（同一渲染管线全量档——件 8 数据源
-   * 条款）。已在副屏 no-op（无嵌套备屏）；主屏不在 running 态 open 被拒
-   * （句柄 null——保持无副屏态）。Ctrl+C / Ctrl+D 副屏键面经 viewer 装配柄
-   * 透传本件两柄（与主屏同键面）。
+   * 挂起主屏 → 1049 副屏 HistoryViewer（同一渲染管线——件 8 数据源条款）。
+   * 已在副屏 no-op（无嵌套备屏）；主屏不在 running 态 open 被拒（句柄
+   * null——保持无副屏态）。Ctrl+C / Ctrl+D 副屏键面经 viewer 装配柄透传本件
+   * 两柄（与主屏同键面）。
+   *
+   * 分页加载（挖掘 52 轮件 A）：messages 全带 seq（生产装配投影恒带）时只装
+   * 尾窗 + 续页复切（内装合成见体内注）；免 seq 形 = 全量单发静态档。
    *
    * 第三参 onForkEdit（挖掘 36 轮件 8 回溯 fork 批）：注入在场才铸回溯回调
    * （缺席注入律——viewer 不见键行为）；回执编排经 wireForkEdit（seed 对账
@@ -2019,17 +2024,43 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     onCloseReopen?: () => void,
   ): void {
     if (this.altHandle !== null) return;
+    // 回看器分页（挖掘 52 轮件 A——backend 内装合成，零新增注入位：三族源已
+    // 在本件、切窗函数与页帽在 transcript 同域，合成闭包不需 host 材料）：
+    // 投影恒带 seq（createChannels 泛型钉形——契约面 AgentMessage 上界宽形，
+    // 运行时窄化判据）→ sliceHistoryWindow 只装尾窗（beforeSeq = Infinity 免
+    // 过滤直取尾帽窗）+ 续页按 viewer 游标复切同一投影快照（同步零 I/O——
+    // 快照档语义：续页与首窗同源零漂移）；三族随窗同 seq 域切片（deps 键在场
+    // 镜像注入在场——缺席族页产物无键，兼容锁逐族成立，不叠加全量族防窗外
+    // seq 错位）。免 seq 形（旧装配/测试直呼 openHistory）= 全量单发静态档
+    // 现行为零变（兼容锁）。
+    const seqMessages = messages.filter(
+      (m): m is AgentMessage & { readonly seq: number } => typeof (m as { readonly seq?: number }).seq === 'number',
+    );
+    const paged = seqMessages.length === messages.length;
+    const page = paged
+      ? (beforeSeq: number) =>
+          sliceHistoryWindow(seqMessages, beforeSeq, {
+            cap: HISTORY_PAGE_MESSAGES,
+            ...(this.approvalDecisionsSource !== undefined
+              ? { decisions: this.approvalDecisionsSource(sessionId) }
+              : {}),
+            ...(this.todoSnapshotsSource !== undefined ? { todoSnapshots: this.todoSnapshotsSource(sessionId) } : {}),
+            ...(this.modelChangesSource !== undefined ? { modelChanges: this.modelChangesSource(sessionId) } : {}),
+          })
+      : undefined;
+    const firstPage = page?.(Number.POSITIVE_INFINITY);
     const handle = this.altHost.open(
       new HistoryViewer({
         sessionId,
-        messages,
+        messages: firstPage !== undefined ? firstPage.messages : messages,
         // 审批决策行随回看重建（挖掘 31 轮 [1]——openHistory 签名零改：数据
         // 经 backend 闭包数据源注入，缺席零变化）；todo 快照块同路（挖掘 35
-        // 轮 B8——todoSnapshotsOf 同源，缺席零变化）
-        decisions: this.approvalDecisionsSource?.(sessionId),
-        todoSnapshots: this.todoSnapshotsSource?.(sessionId),
+        // 轮 B8——todoSnapshotsOf 同源，缺席零变化）。分页在场时三族改走页产物
+        // （切窗已随窗切片）；缺席 = 全量注入现行为
+        decisions: firstPage !== undefined ? firstPage.decisions : this.approvalDecisionsSource?.(sessionId),
+        todoSnapshots: firstPage !== undefined ? firstPage.todoSnapshots : this.todoSnapshotsSource?.(sessionId),
         // 模型切线块同路（挖掘 52 轮件 B——modelChangesOf 同源，缺席零变化）
-        modelChanges: this.modelChangesSource?.(sessionId),
+        modelChanges: firstPage !== undefined ? firstPage.modelChanges : this.modelChangesSource?.(sessionId),
         columns: this.io.size().columns,
         theme: this.theme, // 会话主题快照（批 10i——回看器行集与主屏同板，含思考块/工具卡烙印）
         onExit: () => {
@@ -2060,6 +2091,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
                 notify: (message, opts) => this.notify(message, opts),
                 shortIdOf,
               }),
+        // 分页三件套（挖掘 52 轮件 A——两参同现形同 openSessions 51 轮件 A 先例：
+        // 注入缺席零分页零占位）；onLoadOlder 复切同一投影快照（真身同步——
+        // Promise.resolve 包装，viewer 异步签名面向未来异步源）
+        ...(page !== undefined
+          ? {
+              onLoadOlder: (beforeSeq: number) => Promise.resolve(page(beforeSeq)),
+              nextBeforeSeq: firstPage !== undefined ? firstPage.nextBeforeSeq : null,
+              requestRepaint: () => this.altHost.requestRepaint(),
+            }
+          : {}),
       }),
     );
     this.altHandle = handle; // null = 主屏未 running 被拒——如实保持无副屏

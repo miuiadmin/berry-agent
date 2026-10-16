@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CellGrid, type CellBuffer, type InputEvent, type MouseEvent } from '../../engine/index.js';
-import { HistoryViewer } from './history-viewer.js';
+import { HistoryViewer, HISTORY_AUTO_LOAD_MAX_PAGES } from './history-viewer.js';
 import { Keymap } from '../keys/registry.js';
 import type { AgentMessage } from '../../../contracts/index.js';
 import { sessionColor, LIGHT_PALETTE, resolveTheme } from '../theme/index.js';
@@ -895,5 +895,197 @@ describe('回溯选择态（挖掘 36 轮件 8——session-rewind-fork）', () 
     expect(g3.getCell(3, 3)?.style.inverse).toBe(true); // 选区外·块内段保持反位
     r3.viewer.handleEvent(mouse('left', { row: 3, col: 2 }, 'release'));
     expect(r3.copies).toEqual(['› ']); // 拖选复制照常（选中块内拖选不受选择态干扰——press col0→motion col2 段）
+  });
+});
+
+/* ---------------- 分页加载（挖掘 52 轮件 A——上滚到顶 prepend 更早页） ---------------- */
+
+describe('回看器分页加载（onLoadOlder 注入——占位四态 / 到顶触发 / 锚定不跳 / 页帽）', () => {
+  /** 带 seq 的 user 消息工厂（页产物契约 = AgentMessage & seq——生产投影恒带） */
+  function seqUser(text: string, seq: number): AgentMessage & { seq: number } {
+    return { role: 'user', content: text, timestamp: 1, seq };
+  }
+
+  /** 分页装配：onLoadOlder + 首窗游标 + requestRepaint 串账（页切窗归 transcript 单测——此处只测 viewer 分页态机） */
+  function pagerRig(
+    first: readonly AgentMessage[],
+    onLoadOlder: (
+      beforeSeq: number,
+    ) => Promise<{ messages: readonly (AgentMessage & { seq: number })[]; nextBeforeSeq: number | null }>,
+    opts: { rows?: number; onForkEdit?: () => void } = {},
+  ) {
+    const log: string[] = [];
+    const viewer = new HistoryViewer({
+      sessionId: SESSION,
+      messages: first,
+      columns: COLS,
+      onExit: () => log.push('exit'),
+      onLoadOlder,
+      nextBeforeSeq: 42, // 非空即 more 态（值面归装配——真身 = 首窗首消息 seq）
+      requestRepaint: () => log.push('repaint'),
+      ...(opts.onForkEdit !== undefined ? { onForkEdit: opts.onForkEdit } : {}),
+    });
+    const rows = opts.rows ?? ROWS;
+    const render = (): CellGrid => {
+      const grid = new CellGrid(COLS, rows);
+      viewer.render(grid, { row: 0, col: 0, width: COLS, height: rows });
+      return grid;
+    };
+    return { viewer, log, render, rows };
+  }
+
+  /** 微任务排空（onLoadOlder 回执 .then 落位——Promise.resolve 真身也走微任务） */
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+  }
+
+  /** mouse 事件便捷构造（滚轮触发路） */
+  function mouse(button: 'wheel-up' | 'wheel-down'): MouseEvent {
+    return {
+      kind: 'mouse',
+      button,
+      phase: 'press',
+      col: 0,
+      row: 1,
+      ctrl: false,
+      alt: false,
+      shift: false,
+      meta: false,
+    };
+  }
+
+  it('占位行四态前两态（more / loading）+ 注入缺席零占位（nextBeforeSeq 误传不点燃——双保险）', async () => {
+    // 双保险：nextBeforeSeq 传了但 onLoadOlder 缺席 → 零占位（视口仍在行 1）
+    const bare = new HistoryViewer({
+      sessionId: SESSION,
+      messages: manyUsers(3),
+      columns: COLS,
+      nextBeforeSeq: 7, // 误传——loader 缺席不点燃
+      onExit: () => {},
+    });
+    const g0 = new CellGrid(COLS, ROWS);
+    bare.render(g0, { row: 0, col: 0, width: COLS, height: ROWS });
+    expect(readRow(g0, 1, COLS)).not.toContain('加载'); // 行 1 = 视口首行（零占位）
+    // more 态：游标非空 → 「↑ 上滚加载更早」占位 + 视口下移行 2
+    const pending = pagerRig(manyUsers(3), () => new Promise(() => {})); // 永不回执——loading 态钉住
+    let grid = pending.render();
+    expect(readRow(grid, 1, COLS)).toContain('上滚加载更早');
+    expect(readRow(grid, 2, COLS)).not.toContain('上滚加载更早'); // 视口在占位行下
+    // loading 态：到顶触发后回执未落 → 「正在加载更早…」
+    pending.viewer.handleEvent(key('home'));
+    grid = pending.render();
+    expect(readRow(grid, 1, COLS)).toContain('正在加载更早');
+    expect(pending.log).toContain('repaint'); // 换装请帧（requestRepaint 串账）
+  });
+
+  it('到顶触发 prepend：done 占位 + 更早页上方就位 + 视口锚定不跳 + 游标收账', async () => {
+    const calls: number[] = [];
+    const older = [seqUser('old0', 0), seqUser('old1', 1), seqUser('old2', 2)];
+    const first = [seqUser('new0', 3), seqUser('new1', 4), seqUser('new2', 5)];
+    const r = pagerRig(first, (beforeSeq) => {
+      calls.push(beforeSeq);
+      return Promise.resolve({ messages: older, nextBeforeSeq: null });
+    });
+    r.viewer.handleEvent(key('home')); // 到顶即触发（home 含在到顶判据——spec ③）
+    const loading = r.render(); // loading 态快照（视口 = 首窗顶部）
+    // 快照面 = 视口内容行（readBody 剥滚动条列——thumb 位随总行数变非锚定面；
+    // 不含底铬行——scrollPercent 读数合法变面）
+    const snapRows = Array.from({ length: r.rows - 3 }, (_, i) => readBody(loading, i + 2));
+    await flush();
+    const done = r.render();
+    expect(calls).toEqual([42]); // 游标透传
+    expect(readRow(done, 1, COLS)).toContain('已到最早'); // done 占位（游标 null + 曾拉取）
+    // 视口锚定不跳：loading→done 转换视口内容行零漂（prepend 后 scrollToLine 锚回原视觉位）
+    expect(Array.from({ length: r.rows - 3 }, (_, i) => readBody(done, i + 2))).toEqual(snapRows);
+    // 更早页上方就位：再 home 见 old0（前插在首窗之上）
+    r.viewer.handleEvent(key('home'));
+    const top = r.render();
+    expect(
+      [readRow(top, 2, COLS), readRow(top, 3, COLS), readRow(top, 4, COLS), readRow(top, 5, COLS)].join('\n'),
+    ).toContain('old0');
+    // 游标 null 后到顶不再发（calls 不增）
+    r.viewer.handleEvent(key('up'));
+    await flush();
+    expect(calls).toEqual([42]);
+  });
+
+  it('失败态可重试：failed 占位 + 游标不动 + 再到顶重发同游标后转正', async () => {
+    const calls: number[] = [];
+    let failedOnce = false;
+    const older = [seqUser('old0', 0)];
+    // 首窗 3 条 = 12 行溢出——防 render 尾 auto-fill 在不溢出形抢跑重试（页帽收敛属 it 4 面）
+    const r = pagerRig([seqUser('new0', 1), seqUser('new1', 2), seqUser('new2', 3)], (beforeSeq) => {
+      calls.push(beforeSeq);
+      if (!failedOnce) {
+        failedOnce = true;
+        return Promise.reject(new Error('boom'));
+      }
+      return Promise.resolve({ messages: older, nextBeforeSeq: null });
+    });
+    r.viewer.handleEvent(key('home'));
+    await flush();
+    expect(readRow(r.render(), 1, COLS)).toContain('加载失败，上滚重试');
+    expect(calls).toEqual([42]);
+    r.viewer.handleEvent(key('up')); // 到顶重发（游标不动可重试）
+    await flush();
+    expect(calls).toEqual([42, 42]); // 同游标重试
+    expect(readRow(r.render(), 1, COLS)).toContain('已到最早'); // 转正清失败旗
+  });
+
+  it('不溢出一屏自动续拉——页帽 HISTORY_AUTO_LOAD_MAX_PAGES 后停（手动上滚续）', async () => {
+    const calls: number[] = [];
+    const r = pagerRig(
+      [seqUser('p-0', 0), seqUser('p-1', 1)],
+      (beforeSeq) => {
+        calls.push(beforeSeq);
+        const at = calls.length;
+        return Promise.resolve({
+          messages: [seqUser(`o${at}-0`, 0), seqUser(`o${at}-1`, 1)],
+          nextBeforeSeq: 42 - at, // 恒非空——页帽是唯一停因（非到最早非溢出）
+        });
+      },
+      { rows: 60 }, // 高视口：12 条 user ≈ 48 行 < 57 视口——恒不溢出
+    );
+    for (let i = 0; i < 8; i++) {
+      r.render(); // render 尾自动续拉一页（帧驱动）
+      await flush();
+    }
+    expect(HISTORY_AUTO_LOAD_MAX_PAGES).toBe(5); // 页帽定值锁
+    expect(calls.length).toBe(5); // 帽后 render 帧零再发
+    expect(readRow(r.render(), 1, COLS)).toContain('上滚加载更早'); // more 态保持（游标仍在——手动上滚续）
+  });
+
+  it('fork 回溯锚随 prepend 前插保序——首锚 = 更早页最早块', async () => {
+    const older = [seqUser('old0', 0), seqUser('old1', 1)];
+    const first = [seqUser('new0', 2), seqUser('new1', 3), seqUser('new2', 4)];
+    const r = pagerRig(first, () => Promise.resolve({ messages: older, nextBeforeSeq: null }), {
+      onForkEdit: () => {},
+    });
+    r.viewer.handleEvent(key('home')); // 到顶触发 prepend
+    await flush();
+    r.viewer.handleEvent(key('home')); // 回顶（prepend 后锚定在旧内容区）
+    r.render();
+    r.viewer.handleEvent(text('e')); // 进入选择态——首锚滚至块首
+    const grid = r.render();
+    const head = [readRow(grid, 2, COLS), readRow(grid, 3, COLS), readRow(grid, 4, COLS), readRow(grid, 5, COLS)].join(
+      '\n',
+    );
+    expect(head).toContain('old0'); // 首锚 = 更早页最早块（前插保序；修前首锚 = new0）
+    expect(readRow(grid, r.rows - 1, COLS)).toContain('选择'); // 选择态底行提示在场
+  });
+
+  it('搜索域随 prepend 增长 + 当前匹配保持（header 计数当前位随平移再定位）', async () => {
+    const older = [seqUser('o0alpha', 0), seqUser('o1alpha', 1)];
+    const first = Array.from({ length: 12 }, (_, i) => seqUser(`n${i}alpha`, 2 + i));
+    const r = pagerRig(first, () => Promise.resolve({ messages: older, nextBeforeSeq: null }));
+    r.render(); // 贴尾（48 行溢出——auto-fill 不扰）
+    r.viewer.handleEvent(key('f', { ctrl: true, shift: true })); // 开搜索
+    for (const ch of 'alpha') r.viewer.handleEvent(text(ch));
+    expect(readRow(r.render(), 0, COLS)).toContain('1/12'); // 首窗域 12 匹配、当前 = 首个（n0）
+    // 搜索在场滚轮照常滚——到顶触发（滚轮向上路）
+    for (let i = 0; i < 20; i++) r.viewer.handleEvent(mouse('wheel-up'));
+    await flush();
+    const grid = r.render();
+    expect(readRow(grid, 0, COLS)).toContain('3/14'); // 域增 14；当前 n0 随平移再定位到 3（o0/o1 插队在前）
   });
 });

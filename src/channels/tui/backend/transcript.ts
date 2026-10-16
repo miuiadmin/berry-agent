@@ -357,6 +357,26 @@ export interface ModelChangeLineInput {
 }
 
 /**
+ * 分页页载荷（挖掘 52 轮件 A——回看器分页加载）：一窗消息 + 三族随窗切片 +
+ * 更早页游标。切窗产物 = sliceHistoryWindow 单源（host 装配闭包铸造、viewer
+ * 每窗独立 loadProjection 消费——零承接账）。文件内导出型——contracts 零改
+ * （三族窄形同律：channels/tui 域私有呈现数据形）。
+ */
+export interface HistoryPageData {
+  /** 窗内消息（升序——必带 seq 形；切窗源 = 投影快照数组恒带） */
+  readonly messages: readonly (AgentMessage & { readonly seq: number })[];
+  /** 三族随窗切片（seq 域 [窗首消息 seq, beforeSeq)——与消息同窗归位） */
+  readonly decisions?: readonly ApprovalDecisionLineInput[];
+  readonly todoSnapshots?: readonly TodoSnapshotLineInput[];
+  readonly modelChanges?: readonly ModelChangeLineInput[];
+  /** 更早页游标（下一页拉取的 beforeSeq——本窗首消息 seq）；null = 已到最早 */
+  readonly nextBeforeSeq: number | null;
+}
+
+/** 分页页定值（挖掘 52 轮件 A 规范③——每页消息条数帽；轮次边界前移可超帽） */
+export const HISTORY_PAGE_MESSAGES = 200;
+
+/**
  * 问答落史行注入窄形（挖掘 36 轮 [2]）：ask 收场通知的呈现载荷（收场态 +
  * 问题 + 答案段）——tui-backend 直注追加（appendAskDecisionLine）单消费位
  * （live-only 无投影路——区别于 approval/todo 直播/回放双消费位族）。theme
@@ -1430,6 +1450,58 @@ export function forkEditAnchorsOf(messages: readonly (AgentMessage & { readonly 
     anchors.push({ seq: message.seq, text: plainTextOf(message) });
   }
   return anchors;
+}
+
+/**
+ * 按用户轮次边界切史窗（挖掘 52 轮件 A——回看器分页加载的切窗单源）：
+ * 一轮次 = user 消息 + 后续 assistant/tool 族直到下一 user 消息（rendersAsUserBlock
+ * 判据单源——与块渲染/fork 锚同集）。纯函数同步零 I/O——回看快照档下续页 =
+ * 同一投影数组复切（新事件不进副屏语义维持，通道核零动）。
+ *
+ * 算法：beforeSeq 域（seq < beforeSeq 升序子集——Infinity = 全量尾窗）→ 尾端
+ * 起 cap 条 → 窗首非 user 消息向前推移到最近轮次边界（轮次完整性优先于页帽
+ * ——可超帽；推到 0 = 域内到头即全集最早）。三族随窗同 seq 域切片
+ * [窗首消息 seq, beforeSeq)——窗内归位锚完整、窗前事件不漏入（loadProjection
+ * flush 语义正交）。空域 = 空窗 + nextBeforeSeq=null。
+ */
+export function sliceHistoryWindow(
+  messages: readonly (AgentMessage & { readonly seq: number })[],
+  beforeSeq: number,
+  deps: {
+    /** 页消息条数帽（HISTORY_PAGE_MESSAGES——参数化供测试注小值） */
+    readonly cap: number;
+    /** 三族全序列（升序——切片随窗；缺席 = 页上恒缺席） */
+    readonly decisions?: readonly ApprovalDecisionLineInput[];
+    readonly todoSnapshots?: readonly TodoSnapshotLineInput[];
+    readonly modelChanges?: readonly ModelChangeLineInput[];
+  },
+): HistoryPageData {
+  // beforeSeq 域（Infinity 尾窗免过滤直取全量）
+  const domain =
+    beforeSeq === Number.POSITIVE_INFINITY ? messages : messages.filter((message) => message.seq < beforeSeq);
+  if (domain.length === 0) {
+    return {
+      messages: [],
+      nextBeforeSeq: null,
+      ...(deps.decisions !== undefined ? { decisions: [] } : {}),
+      ...(deps.todoSnapshots !== undefined ? { todoSnapshots: [] } : {}),
+      ...(deps.modelChanges !== undefined ? { modelChanges: [] } : {}),
+    };
+  }
+  let start = Math.max(0, domain.length - deps.cap);
+  // 轮次边界前移：窗首非 user 消息（assistant 族续尾）向前找最近 user 边界
+  while (start > 0 && !rendersAsUserBlock(domain[start]!)) start -= 1;
+  const window = domain.slice(start);
+  const firstSeq = window[0]!.seq;
+  // 三族同域切片（上界 beforeSeq：域内事件全 < beforeSeq；下界窗首 seq 含端）
+  const inWindow = (seq: number): boolean => seq >= firstSeq && seq < beforeSeq;
+  return {
+    messages: window,
+    nextBeforeSeq: start === 0 ? null : firstSeq,
+    ...(deps.decisions !== undefined ? { decisions: deps.decisions.filter((d) => inWindow(d.seq)) } : {}),
+    ...(deps.todoSnapshots !== undefined ? { todoSnapshots: deps.todoSnapshots.filter((d) => inWindow(d.seq)) } : {}),
+    ...(deps.modelChanges !== undefined ? { modelChanges: deps.modelChanges.filter((d) => inWindow(d.seq)) } : {}),
+  };
 }
 
 /**

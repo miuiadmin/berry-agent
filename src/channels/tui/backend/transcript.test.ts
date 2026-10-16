@@ -20,11 +20,13 @@ import { renderThinkingStyledLines } from '../blocks/thinking.js';
 import {
   dialogueBlockCount,
   forkEditAnchorsOf,
+  HISTORY_PAGE_MESSAGES,
   LiveTranscript,
   renderBlockLines,
   renderBlockStyledLines,
   renderSlotTailLines,
   shortIdOf,
+  sliceHistoryWindow,
   stableSlotLineCount,
   TRANSCRIPT_BLOCK_CAP,
   type TranscriptBlock,
@@ -2879,6 +2881,98 @@ describe('forkEditAnchorsOf 回溯锚单源（挖掘 36 轮件 8——session-re
       { seq: 4, text: '' }, // 回填面不造假占位（joinTextBlocks 呈现形分立）
       { seq: 6, text: '看图补充' }, // 文本块零分隔直拼
     ]);
+  });
+});
+
+describe('sliceHistoryWindow 轮次边界切窗（挖掘 52 轮件 A——回看器分页加载）', () => {
+  /** seq 回贴形工厂（projectionWithSeqOf 产物同构） */
+  const seqMsg = (message: AgentMessage, seq: number): AgentMessage & { seq: number } =>
+    ({ ...message, seq }) as AgentMessage & { seq: number };
+
+  /** 两轮会话工厂：u1 a1 u2 a2 …（每轮 user+assistant 对——seq 连续递增） */
+  const turns = (n: number): Array<AgentMessage & { seq: number }> => {
+    const out: Array<AgentMessage & { seq: number }> = [];
+    let seq = 0;
+    for (let i = 0; i < n; i += 1) {
+      out.push(seqMsg(userMsg(`问${i}`), seq++));
+      out.push(seqMsg(assistantMsg(`答${i}`), seq++));
+    }
+    return out;
+  };
+
+  it('尾窗（beforeSeq=Infinity）：cap 内全量纳窗、不足 cap 即全史（nextBeforeSeq=null）', () => {
+    expect(HISTORY_PAGE_MESSAGES).toBe(200); // 页定值锁（规范③）
+    const all = turns(3); // 6 条
+    const tail = sliceHistoryWindow(all, Number.POSITIVE_INFINITY, { cap: 200 });
+    expect(tail.messages).toHaveLength(6);
+    expect(tail.nextBeforeSeq).toBeNull();
+  });
+
+  it('轮次边界前移：cap 切在轮中（assistant 续尾）→ 窗首前推到最近 user（可超帽）', () => {
+    const all = turns(5); // 10 条：u0 a0 u1 a1 u2 a2 u3 a3 u4 a4（seq=下标）
+    // cap=3 尾起 3 条 = slice(7) = [a3, u4, a4]；窗首 a3 非 user → 前推到 u3
+    //（start=6）→ 窗 = [u3 a3 u4 a4]（4 条超帽 3——轮次完整性优先）
+    const tail = sliceHistoryWindow(all, Number.POSITIVE_INFINITY, { cap: 3 });
+    expect(tail.messages.map((m) => m.seq)).toEqual([6, 7, 8, 9]);
+    expect(tail.nextBeforeSeq).toBe(6); // 游标 = 窗首 seq（下一页拉 < 6）
+  });
+
+  it('续页切窗（beforeSeq=游标）：更早窗按轮边界产出、递进到最早 null', () => {
+    const all = turns(5); // seq=下标
+    const tail = sliceHistoryWindow(all, Number.POSITIVE_INFINITY, { cap: 4 });
+    // 尾起 4 条 = slice(6) = [a3,u4,a4]→ 前推 u3（6）→ [u3 a3 u4 a4]
+    expect(tail.nextBeforeSeq).toBe(6);
+    const older = sliceHistoryWindow(all, tail.nextBeforeSeq!, { cap: 4 });
+    // domain = seq<6 = [u0 a0 u1 a1 u2 a2]；尾起 4 = slice(2) = [u1 a1 u2 a2] 窗首 u1 已 user
+    expect(older.messages.map((m) => m.seq)).toEqual([2, 3, 4, 5]);
+    expect(older.nextBeforeSeq).toBe(2);
+    const oldest = sliceHistoryWindow(all, older.nextBeforeSeq!, { cap: 4 });
+    // domain = [u0 a0]；全量纳窗 start=0 → 已到最早
+    expect(oldest.messages.map((m) => m.seq)).toEqual([0, 1]);
+    expect(oldest.nextBeforeSeq).toBeNull();
+  });
+
+  it('机器注入 user 非轮次边界（rendersAsUserBlock 同集）——前推跳过注入族', () => {
+    const all = [
+      seqMsg(userMsg('问0'), 0),
+      seqMsg(assistantMsg('答0'), 1),
+      seqMsg(userMsg('结算', 'subagent-settled'), 2), // 机器注入——非边界
+      seqMsg(assistantMsg('答1'), 3),
+    ];
+    // cap=2 尾起 = [结算, 答1] → 窗首「结算」非边界（机器注入滤除）→ 前推到 问0
+    const tail = sliceHistoryWindow(all, Number.POSITIVE_INFINITY, { cap: 2 });
+    expect(tail.messages).toHaveLength(4); // 前推吞全史（start=0 到头）
+    expect(tail.nextBeforeSeq).toBeNull();
+  });
+
+  it('三族随窗同 seq 域切片：窗内归位锚保留、窗外滤除、缺席族恒缺席', () => {
+    const all = turns(3); // seq 0..5
+    const tail = sliceHistoryWindow(all, 2, {
+      // beforeSeq=2 → domain=[问0,答0]；全量纳窗 firstSeq=0
+      cap: 10,
+      decisions: [
+        { seq: -1, decision: 'approve', summary: '更早窗事' }, // < firstSeq 滤除
+        { seq: 0, decision: 'approve', summary: '窗内首锚' }, // 含端（>= firstSeq）
+        { seq: 1, decision: 'reject', summary: '窗内' },
+        { seq: 5, decision: 'approve', summary: '窗外（>= beforeSeq）' }, // 滤除
+      ],
+      modelChanges: [{ seq: 0, model: 'p/m' }],
+    });
+    expect(tail.decisions).toEqual([
+      { seq: 0, decision: 'approve', summary: '窗内首锚' },
+      { seq: 1, decision: 'reject', summary: '窗内' },
+    ]);
+    expect(tail.modelChanges).toEqual([{ seq: 0, model: 'p/m' }]);
+    expect(tail.todoSnapshots).toBeUndefined(); // 缺席族恒缺席
+  });
+
+  it('空域（beforeSeq ≤ 首消息 seq）= 空窗 + null 游标；三族在场性随 deps 镜像', () => {
+    const all = turns(2);
+    const page = sliceHistoryWindow(all, 0, { cap: 10, decisions: [{ seq: 0, decision: 'approve', summary: 'x' }] });
+    expect(page.messages).toEqual([]);
+    expect(page.nextBeforeSeq).toBeNull();
+    expect(page.decisions).toEqual([]); // 在场族空切片（loadProjection 三参照旧）
+    expect(page.modelChanges).toBeUndefined();
   });
 });
 

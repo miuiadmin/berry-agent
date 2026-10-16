@@ -26,6 +26,12 @@
  *   本保留续搜）；
  * - **退出让位判据**（条款）：q/Esc 退出只在搜索框不在场时消费——否则打
  *   不出字母 q；
+ * - **分页加载**（挖掘 52 轮件 A——大史不全量驻留）：onLoadOlder 注入在场时
+ *   openHistory 只装尾窗（HISTORY_PAGE_MESSAGES 帽 + user 轮次边界切窗），
+ *   上滚到顶触发续页 prepend（行号账平移 + 视口锚定不跳）；不溢出一屏时
+ *   render 尾自动补满（页帽 HISTORY_AUTO_LOAD_MAX_PAGES）；占位行 = 头行下
+ *   固定行位（不进 ScrollView 行集——结构性不污染搜索域/行位账/选区坐标
+ *   系）四态词面；注入缺席 = 全量单发静态档（兼容锁——旧装配/测试零扰动）；
  * - **副屏键面补丁**（与主屏同键面——07 §4.3 输入路由拦截链条款）：Ctrl+C
  *   = 打断在飞 run（滤 kitty release）、Ctrl+D = 退出（先收副屏——onExit
  *   先于 onQuit；搜索框有文不退，与主屏空框闸同律）。
@@ -39,7 +45,12 @@ import { hintLine } from '../keys/hint.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { fitLine } from '../row-segments.js';
 import { LiveTranscript, renderBlockStyledLines, shortIdOf, forkEditAnchorsOf } from '../backend/transcript.js';
-import type { ApprovalDecisionLineInput, ModelChangeLineInput, TodoSnapshotLineInput } from '../backend/transcript.js';
+import type {
+  ApprovalDecisionLineInput,
+  HistoryPageData,
+  ModelChangeLineInput,
+  TodoSnapshotLineInput,
+} from '../backend/transcript.js';
 import type { StyledLine } from '../backend/ansi-rows.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { AgentMessage, UiForkEditAnchor } from '../../../contracts/index.js';
@@ -94,6 +105,19 @@ export interface HistoryViewerOptions {
    * 不持 promise）。签名 void——fire-and-forget。
    */
   readonly onForkEdit?: (anchor: UiForkEditAnchor) => void;
+  /**
+   * 更早页拉闭包（挖掘 52 轮件 A——分页加载）：注入在场才有分页行为，缺席 =
+   * 全量单发静态档（兼容锁——旧装配/测试零扰动）。真身 = backend 闭包
+   * （切窗纯函数复执——回看快照档下零 I/O）；异步签名面向未来异步源。
+   */
+  readonly onLoadOlder?: (beforeSeq: number) => Promise<HistoryPageData>;
+  /** 首窗更早页游标（挖掘 52 轮件 A——openHistory 切尾窗产物；null/缺席 = 已到最早零分页占位） */
+  readonly nextBeforeSeq?: number | null;
+  /**
+   * 异步请帧（挖掘 52 轮件 A——prepend 回执/失败态落位后重画：viewer 不自驱
+   * 重画；装配接 altHost requestRepaint——openSessions 同柄同律）。
+   */
+  readonly requestRepaint?: () => void;
 }
 
 /** 搜索匹配定位（逻辑行 + UTF-16 区间〔start 含 end 不含〕） */
@@ -119,6 +143,12 @@ const HINT_TEXT = hintLine('q/esc 返回', 'ctrl+shift+f 搜索', '↑↓/pgup/p
 export const SELECTION_CAP_BYTES = 64 * 1024;
 /** 超帽底行提示（spec 定文——常显至选区清除；/memory 管理面同文单源引用） */
 export const SELECTION_CAP_NOTICE = '选区过大未复制';
+/**
+ * 不溢出自动续拉页帽（挖掘 52 轮件 A 规范③）：开屏一屏装下（无溢出可滚）时
+ * render 尾自动补拉更早页直到溢出/到最早/到帽——防极矮视口无限拉全史驻留
+ * （帽后用户上滚手动续页）。测试面消费故导出。
+ */
+export const HISTORY_AUTO_LOAD_MAX_PAGES = 5;
 
 /** key 事件窄化（其他事件形归各分路——text/ime/paste） */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -156,10 +186,10 @@ function lowercaseAligned(text: string): string {
 export class HistoryViewer extends ScrollView implements OverlayContent {
   private readonly sessionId: string;
   private readonly shortId: string;
-  /** 带样式行集（构造后静态——快照档 v1：回看期新事件不进副屏） */
-  private readonly styledLines: readonly StyledLine[];
-  /** 行集明文小写副本（搜索比对预算——构造期一次铸形；快照档行集静态无需随动，击键重算零逐行重铸） */
-  private readonly plainLowerLines: readonly string[];
+  /** 带样式行集（分页 prepend 可变——挖掘 52 轮件 A 前为构造后静态；快照档语义维持：回看期新事件不进副屏，prepend 只是同快照更早页） */
+  private styledLines: StyledLine[];
+  /** 行集明文小写副本（搜索比对预算——构造期铸首窗 + prepend 前插；长度保形见 lowercaseAligned） */
+  private plainLowerLines: string[];
   private readonly onExit: (() => void) | undefined;
   private readonly onInterrupt: ((sessionId: string) => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
@@ -182,16 +212,35 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
   private selectionNotice: string | null = null;
 
   /* ---- 回溯选择态（挖掘 36 轮件 8 回溯 fork 批——session-rewind-fork） ---- */
-  /** 回溯锚（forkEditAnchorsOf 单源产物；1:1 对账不齐降级 [] 禁用回溯面） */
-  private readonly forkAnchors: readonly UiForkEditAnchor[];
-  /** user 块行区间账（styledLines 行下标 [from,to)——与锚同序保 paired） */
-  private readonly forkBlockRows: readonly { from: number; to: number }[];
+  /** 回溯锚（forkEditAnchorsOf 单源产物；1:1 对账不齐降级 [] 禁用回溯面；prepend 后逐窗重验） */
+  private forkAnchors: UiForkEditAnchor[];
+  /** user 块行区间账（styledLines 行下标 [from,to)——与锚同序保 paired；prepend 平移+前插） */
+  private forkBlockRows: { from: number; to: number }[];
   /** 选择态在场旗（e 进入 / Esc·q 退出 / Enter 确认即退场） */
   private forkActive = false;
   /** 当前选中锚下标（进入 = 首锚 0；步进端点 clamp） */
   private forkIndex = 0;
   /** 回溯编辑回调（缺席 = e 键无效——缺席注入律） */
   private readonly onForkEdit: ((anchor: UiForkEditAnchor) => void) | undefined;
+
+  /* ---- 分页态（挖掘 52 轮件 A——上滚到顶加载更早页 prepend） ---- */
+  /** 更早页拉闭包（缺席 = 静态全量档零分页零占位——兼容锁） */
+  private readonly onLoadOlder: ((beforeSeq: number) => Promise<HistoryPageData>) | undefined;
+  /** 更早页游标（null = 已到最早；onLoadOlder 缺席时恒 null——双保险单源） */
+  private nextBeforeSeq: number | null = null;
+  /** 续页拉单飞锁（在飞回执落位前不重发——ensurePreviewOfCursor 同族） */
+  private loadingOlder = false;
+  /** 拉取失败旗（占位行 failed 态词面源；重试成功清除） */
+  private loadFailed = false;
+  /** 曾收到拉取回执（终态「已到最早」占位的在场判据——初值 false 零占位不虚报） */
+  private loadAttempted = false;
+  /** 自动续拉已拉页数（不溢出一屏的自动补满——帽 HISTORY_AUTO_LOAD_MAX_PAGES） */
+  private autoPagesLoaded = 0;
+  /** 异步请帧（prepend 回执/失败态落位后重画——装配接 altHost requestRepaint） */
+  private readonly requestRepaint: (() => void) | undefined;
+  /** 页级行集构建锚（构造期定格——折宽/主题快照档，prepend 页同锚同板） */
+  private readonly pageColumns: number;
+  private readonly pageTheme: ResolvedTheme | undefined;
 
   constructor(options: HistoryViewerOptions) {
     super(); // 无 maxHeight——副屏 root 直收 region 全高
@@ -204,35 +253,27 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     this.onForkEdit = options.onForkEdit;
     // 会话键位册自持（守卫判据与子编辑器同实例——缺席自建缺省册，单测语义）
     this.keymap = options.keymap ?? new Keymap();
-    // 全量档行集：投影 → LiveTranscript（Infinity 帽恒不截）→ 带样式行（管线单源）；
-    // 审批决策行随投影按 seq 归位（挖掘 31 轮 [1]——decisions 缺席零变化）；
-    // todo 快照块同路（挖掘 35 轮 B8——todoSnapshots 缺席零变化）
-    const transcript = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY, theme: options.theme });
-    transcript.loadProjection(
-      options.messages,
-      options.decisions,
-      options.todoSnapshots,
-      options.modelChanges, // 模型切线块随投影归位（52 轮件 B——缺席零变化）
-    );
-    const styled: StyledLine[] = [];
-    const userRows: { from: number; to: number }[] = [];
-    for (const block of transcript.snapshot) {
-      const from = styled.length; // 块首行位（行位账——与锚同序配对）
-      styled.push(...renderBlockStyledLines(block, options.columns));
-      if (block.kind === 'user') userRows.push({ from, to: styled.length });
-    }
-    this.styledLines = styled;
+    this.pageColumns = options.columns;
+    this.pageTheme = options.theme;
+    // 首窗行集（buildPageRows 单源——页级独立 loadProjection 零承接账，prepend 复用同路）
+    const first = this.buildPageRows(options);
+    this.styledLines = first.styled;
     // 回溯锚 + 1:1 对账：锚数（rendersAsUserBlock 同集 + seq 在场）与 user 块数
     // 不齐（无 seq user 消息破坏配对）→ 降级 [] 禁用回溯面（防御位——诚实无键
     // 优于错位配对「所见非所选」）
     const anchors = forkEditAnchorsOf(options.messages);
-    this.forkAnchors = anchors.length === userRows.length ? anchors : [];
-    this.forkBlockRows = userRows;
+    this.forkAnchors = anchors.length === first.userRows.length ? anchors : [];
+    this.forkBlockRows = first.userRows;
     // 小写副本构造期预算（搜索比对单源——击键只走 indexOf 比对，不对静态行集
     // 逐行重铸小写串；长度保形：与原文逐下标对齐——İ 等变长小写字不破匹配
     // 坐标系，见 lowercaseAligned）
-    this.plainLowerLines = styled.map((line) => lowercaseAligned(line.plain));
-    super.setLines(styled.map((line) => line.plain)); // 开屏贴尾（follow 初始 true）
+    this.plainLowerLines = first.lower;
+    // 分页态初始化（挖掘 52 轮件 A）：注入在场才持有游标（缺席恒 null——双保险，
+    // nextBeforeSeq 误传不点燃分页）
+    this.onLoadOlder = options.onLoadOlder;
+    this.nextBeforeSeq = options.onLoadOlder !== undefined ? (options.nextBeforeSeq ?? null) : null;
+    this.requestRepaint = options.requestRepaint;
+    super.setLines(first.styled.map((line) => line.plain)); // 开屏贴尾（follow 初始 true）
     this.searchEditor = new Editor({
       maxVisibleLines: 1, // 单行档——搜索框
       // minPresentedLines 1 + padRows 0 = 底铬瞬时输入行 opt-out（五件批 A+B
@@ -248,9 +289,163 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     this.searchEditor.setFocused(false);
   }
 
-  /** 量高：头行 + 视口全量 + 底铬（副屏 root 不经布局路——契约的诚实实现） */
+  /**
+   * 页级行集构建（挖掘 52 轮件 A——构造首窗与 prepend 页共用单源）：页消息
+   * 独立 LiveTranscript（Infinity 帽）+ loadProjection（三族随窗归位）→ 逐块
+   * 带样式行 + user 块行位账。页间零承接账——切窗三族切片已保证归位锚域完整。
+   */
+  private buildPageRows(page: {
+    readonly messages: readonly AgentMessage[];
+    readonly decisions?: readonly ApprovalDecisionLineInput[];
+    readonly todoSnapshots?: readonly TodoSnapshotLineInput[];
+    readonly modelChanges?: readonly ModelChangeLineInput[];
+  }): { styled: StyledLine[]; userRows: { from: number; to: number }[]; lower: string[] } {
+    const transcript = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY, theme: this.pageTheme });
+    transcript.loadProjection(page.messages, page.decisions, page.todoSnapshots, page.modelChanges);
+    const styled: StyledLine[] = [];
+    const userRows: { from: number; to: number }[] = [];
+    for (const block of transcript.snapshot) {
+      const from = styled.length; // 块首行位（行位账——与锚同序配对）
+      styled.push(...renderBlockStyledLines(block, this.pageColumns));
+      if (block.kind === 'user') userRows.push({ from, to: styled.length });
+    }
+    return { styled, userRows, lower: styled.map((line) => lowercaseAligned(line.plain)) };
+  }
+
+  /* ---------------- 分页加载（挖掘 52 轮件 A——上滚到顶 prepend 更早页） ---------------- */
+
+  /** 分页占位行在场判据（头行下固定行——四态词面随态换装；静态档零占位不虚报） */
+  private placeholderInUse(): boolean {
+    return (
+      this.onLoadOlder !== undefined &&
+      (this.loadingOlder || this.loadFailed || this.nextBeforeSeq !== null || this.loadAttempted)
+    );
+  }
+
+  /** 占位行词面（四态：在飞 loading / 失败可重试 failed / 有续页 more / 终态 done） */
+  private placeholderText(): string {
+    if (this.loadingOlder) return '正在加载更早…';
+    if (this.loadFailed) return '加载失败，上滚重试';
+    if (this.nextBeforeSeq !== null) return '↑ 上滚加载更早';
+    return '已到最早';
+  }
+
+  /**
+   * 更早页触发（挂点三处：handleEvent 尾 / 滚轮向上路 / render 尾自动续拉）：
+   * 判据 = 注入在场 + 游标非空 + 单飞锁 + **到顶**（scrollOffset === 0——溢出态
+   * 上滚到顶的用户触发与不溢出一屏装下的自动续拉场景在到顶判据上统一：不溢出
+   * 时 offset 恒 0，任何事件到达即触发）。异步回执 prependPage / 失败置
+   * loadFailed（游标不动可重试——用户再上滚/到顶事件重发），落位经
+   * requestRepaint 请帧（viewer 不自驱重画）。
+   */
+  private maybeLoadOlder(): void {
+    if (this.onLoadOlder === undefined || this.loadingOlder) return;
+    if (this.nextBeforeSeq === null) return;
+    if (this.scrollOffset !== 0) return;
+    const beforeSeq = this.nextBeforeSeq;
+    this.loadingOlder = true;
+    this.loadFailed = false;
+    this.requestRepaint?.(); // 占位行换装 loading 态
+    this.onLoadOlder(beforeSeq).then(
+      (page) => {
+        this.loadingOlder = false;
+        this.loadAttempted = true;
+        this.prependPage(page);
+        this.requestRepaint?.();
+      },
+      () => {
+        this.loadingOlder = false;
+        this.loadAttempted = true;
+        this.loadFailed = true;
+        this.requestRepaint?.(); // 占位行换装 failed 态（重试 = 到顶事件再触发）
+      },
+    );
+  }
+
+  /**
+   * 不溢出自动续拉（render 尾挂点——规范③）：一屏装下（scrollPercent() 返
+   * null = maxOffset 0）且未到最早时自动补拉更早页，帽 HISTORY_AUTO_LOAD_
+   * MAX_PAGES 页（防极矮视口无限拉全史驻留——页帽后用户上滚手动续）。render
+   * 每帧过此判据：在飞锁 + 游标 + 页帽三闸防重入，循环天然收敛（溢出即停或
+   * 到最早即停）。
+   */
+  private maybeAutoFill(): void {
+    if (this.onLoadOlder === undefined || this.loadingOlder) return;
+    if (this.nextBeforeSeq === null) return;
+    if (this.autoPagesLoaded >= HISTORY_AUTO_LOAD_MAX_PAGES) return;
+    if (this.scrollPercent() !== null) return; // 已溢出——手动档（上滚触发）
+    this.autoPagesLoaded += 1;
+    this.maybeLoadOlder();
+  }
+
+  /**
+   * prepend 更早页（分页核心——同步回执落位）：新页独立 loadProjection 渲染
+   * （零承接账）→ 行集前插 + 行号账平移（fork 块区间/搜索匹配/选区锚焦点
+   * ——坐标系 = 逻辑行，prepend 后全体 +新增行数）→ 视口锚定。
+   *
+   * 视口锚定两态：**溢出态**显式锚定——记 prepend 前视口首视觉段对应逻辑行，
+   * 行集前插后 scrollToLine(旧首逻辑行 + 新增行数)（scrollToLine 呈现口径两遍
+   * 折叠——折宽档〔滚动条让列〕翻转天然重算，用户视觉位不跳）；**不溢出态**
+   * （自动续拉场景）不动 offset——follow 保持贴尾，最新段恒在屏内，更早内容
+   * 上方可滚。
+   *
+   * fork 锚 1:1 重验（规范⑧）：新页锚数与新页 user 块数配对成功才前插拼接
+   * （旧账已验 + 新账现验 = 全账配对——同序拼接保 paired）；配对失败全降级
+   * []（诚实无键优于错位配对——构造期对账同律）。
+   */
+  private prependPage(page: HistoryPageData): void {
+    const next = this.buildPageRows(page);
+    this.nextBeforeSeq = page.nextBeforeSeq; // 游标收账（空页也收——空窗产物恒 null 游标即终态）
+    this.loadFailed = false;
+    if (next.styled.length === 0) return; // 空页（防御位——正常切窗到头走游标 null，不产空页重铸）
+    // prepend 前视口首视觉段（锚定用——逻辑行 + 段内列位）
+    const anchorSeg = this.segmentAt(0);
+    const anchorLine = anchorSeg !== null ? anchorSeg.line : 0;
+    const anchorCol = anchorSeg !== null ? anchorSeg.startCol : 0;
+    const wasOverflowing = this.scrollPercent() !== null;
+    const addedLines = next.styled.length;
+    // 行号账平移 + 前插（fork 块区间先平移旧账再前插新账——同序保 paired）
+    this.forkBlockRows = [
+      ...next.userRows,
+      ...this.forkBlockRows.map((rows) => ({ from: rows.from + addedLines, to: rows.to + addedLines })),
+    ];
+    const pageAnchors = forkEditAnchorsOf(page.messages);
+    this.forkAnchors = pageAnchors.length === next.userRows.length ? [...pageAnchors, ...this.forkAnchors] : [];
+    this.plainLowerLines = [...next.lower, ...this.plainLowerLines];
+    this.styledLines = [...next.styled, ...this.styledLines];
+    // 搜索匹配：搜索在场时重算（新页行进域）+ 当前匹配保持——内容位随平移后
+    // 在重算账里再定位（新页匹配按行序插队在前，直接沿用 matchIndex 会跳到别
+    // 的匹配）；不在场时纯平移账（matches 结构性保序——matchIndex 不动即同一
+    // 匹配随行平移，当前匹配不跳）
+    if (this.searchOpen) {
+      const current = this.matchIndex >= 0 ? this.matches[this.matchIndex] : undefined;
+      const moved = current !== undefined ? { ...current, line: current.line + addedLines } : undefined;
+      this.computeMatches();
+      if (moved !== undefined) {
+        const at = this.matches.findIndex(
+          (m) => m.line === moved.line && m.start === moved.start && m.end === moved.end,
+        );
+        this.matchIndex = at >= 0 ? at : Math.min(this.matchIndex, this.matches.length - 1);
+      }
+    } else {
+      this.matches = this.matches.map((m) => ({ ...m, line: m.line + addedLines }));
+    }
+    // 选区锚/焦点平移（逻辑行坐标系——prepend 不改变既有行的相对位置）
+    if (this.selAnchor !== null) this.selAnchor = { ...this.selAnchor, line: this.selAnchor.line + addedLines };
+    if (this.selFocus !== null) this.selFocus = { ...this.selFocus, line: this.selFocus.line + addedLines };
+    // 行集整替 + 视口锚定（溢出态显式锚 pre-prepend 视口首逻辑行）
+    super.setLines(this.styledLines.map((line) => line.plain));
+    if (wasOverflowing) this.scrollToLine(anchorLine + addedLines, anchorCol);
+  }
+
+  /** 量高：头行 + 占位行（分页在场时）+ 视口全量 + 底铬（副屏 root 不经布局路——契约的诚实实现） */
   measure(width: number): number {
-    return 1 + super.measure(width) + (this.searchOpen ? this.searchEditor.measure(width) : 1);
+    return (
+      1 +
+      (this.placeholderInUse() ? 1 : 0) +
+      super.measure(width) +
+      (this.searchOpen ? this.searchEditor.measure(width) : 1)
+    );
   }
 
   /**
@@ -287,11 +482,22 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
         buffer.writeText(region.row, start, count, HINT_STYLE);
       }
     }
-    // 滚动视口（头行与底铬之间）
+    // 滚动视口（头行与底铬之间——分页占位行在场时头行下固定让 1 行、视口下移）
     const chromeBottom = this.searchOpen ? this.searchEditor.measure(region.width) : 1;
-    const viewHeight = region.height - 1 - chromeBottom;
+    const placeholderArea = this.placeholderInUse() ? 1 : 0;
+    const viewHeight = region.height - 1 - placeholderArea - chromeBottom;
     if (viewHeight > 0) {
-      super.render(buffer, { row: region.row + 1, col: region.col, width: region.width, height: viewHeight });
+      // 占位行（固定行位——不进 ScrollView 行集：结构性不污染搜索域/fork 行位
+      // 账/选区坐标系；四态词面随分页态换装，dim 同 hint 族；fitLine 收口同头行）
+      if (placeholderArea > 0) {
+        buffer.writeText(region.row + 1, region.col, fitLine(this.placeholderText(), region.width), HINT_STYLE);
+      }
+      super.render(buffer, {
+        row: region.row + 1 + placeholderArea,
+        col: region.col,
+        width: region.width,
+        height: viewHeight,
+      });
     }
     // 底铬
     if (this.searchOpen) {
@@ -314,6 +520,10 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
         this.selectionNotice === null && !this.forkActive ? this.scrollPercent() : null,
       );
     }
+    // 不溢出自动续拉（分页挂点三处之三——render 尾）：帧级判据，在飞锁 + 游标
+    // + 页帽三闸防重入；回执是微任务落位（Promise.resolve 也异帧）——render 期
+    // 零重入，requestRepaint 请帧续判直到溢出/到最早/到帽收敛
+    this.maybeAutoFill();
   }
 
   /**
@@ -413,6 +623,7 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
         }
       }
       this.handleEventSuper(event);
+      this.maybeLoadOlder(); // 分页挂点（选择态与滚动共存条款——到顶同触发）
       return true;
     }
     // 回溯进入键（册驱动 history.fork-edit——缺省 e）：回调在场 + 锚非空才有
@@ -443,6 +654,7 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     }
     // 滚动键（↑/↓/PgUp/PgDn/Home/End——ScrollView 自持；未消费键终局吞）
     this.handleEventSuper(event);
+    this.maybeLoadOlder(); // 分页挂点三处之一（handleEvent 尾——滚动消费后判到顶）
     return true;
   }
 
@@ -462,6 +674,9 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
   private handleMouse(event: MouseEvent): boolean {
     if (event.button === 'wheel-up' || event.button === 'wheel-down') {
       this.handleEventSuper(event); // 滚轮消费路（±3 视觉行——显式滚动路）
+      // 分页挂点三处之二（滚轮向上路——归 super 后 return 不回 handleEvent 尾，
+      // 需在此显式挂；搜索在场滚轮照常滚，本路同样覆盖）
+      if (event.button === 'wheel-up') this.maybeLoadOlder();
       return true;
     }
     if (this.searchOpen) return true; // 搜索框在场拖选禁用（输入模态优先）——吞
@@ -498,10 +713,13 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
    */
   private screenToLogical(row: number, col: number): SelPoint | null {
     const geo = this.viewportGeometry;
-    if (row < 1 || row >= 1 + geo.height) return null; // 头行 / 底铬（拖选仅在搜索不在场——底铬恒提示行 1 行）
+    // 头行/占位行/底铬（拖选仅在搜索不在场——底铬恒提示行 1 行；占位行在场时
+    // 视口起行下移 1——与 render 让位同账）
+    const top = 1 + (this.placeholderInUse() ? 1 : 0);
+    if (row < top || row >= top + geo.height) return null;
     if (col < 0 || col >= geo.width) return null; // 界外防御位
     if (this.hitScrollbar(col)) return null; // 滚动条列（溢出让列时末列）零动作
-    const seg = this.segmentAt(row - 1);
+    const seg = this.segmentAt(row - top);
     if (seg === null) return null;
     const text = this.styledLines[seg.line]?.plain ?? '';
     let index = seg.startCol;
@@ -569,8 +787,19 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     this.searchEditor.setFocused(false);
   }
 
-  /** 匹配重算（查询变更路）：全行不区分大小写子串扫描 + 跳首匹配（比对面 = 构造期预算小写副本——击键零重铸） */
+  /** 匹配重算（查询变更路）：全行扫描 + 跳首匹配（比对面 = 构造期预算小写副本——击键零重铸） */
   private recomputeMatches(): void {
+    this.computeMatches();
+    this.matchIndex = this.matches.length > 0 ? 0 : -1;
+    if (this.matchIndex >= 0) this.scrollToLine(this.matches[0]!.line, this.matches[0]!.start);
+  }
+
+  /**
+   * 匹配计算（纯算——matches 落位不跳转）：全行不区分大小写子串扫描。prepend
+   * 后搜索在场时刷新域消费（新页行进域；matchIndex 由消费位自理——重算后新页
+   * 匹配按行序插队在前，直接沿用会跳到别的匹配）。
+   */
+  private computeMatches(): void {
     const query = this.searchEditor.getText();
     const found: MatchSpan[] = [];
     if (query !== '') {
@@ -585,8 +814,6 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
       }
     }
     this.matches = found;
-    this.matchIndex = found.length > 0 ? 0 : -1;
-    if (this.matchIndex >= 0) this.scrollToLine(found[0]!.line, found[0]!.start);
   }
 
   /** 跳匹配（±1 循环——尾后回首、首前到尾） */

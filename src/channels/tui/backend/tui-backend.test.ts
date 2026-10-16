@@ -2707,6 +2707,48 @@ describe('TuiBackend /history 副屏装配（openHistory / collapseAltScreen—�
     expect(io2.bytes).toBe('');
   });
 
+  it('分页装配（挖掘 52 轮件 A）：seq 投影 → 尾窗切装 + more 占位 + 到顶续页 prepend 更早就位', async () => {
+    // 修前红锚：修前 openHistory 全量单发——earliest-0 与首窗同帧在场、零占位行
+    const { io, backend } = historyRig();
+    const messages = Array.from({ length: 205 }, (_, i) => ({
+      role: 'user' as const,
+      content: i < 5 ? `earliest-${i}` : i >= 200 ? `latest-${i}` : `mid-${i}`,
+      timestamp: 1,
+      seq: i,
+    }));
+    backend.openHistory(SESSION, messages);
+    expect(backend.lifecycle).toBe('suspended');
+    // 尾窗切装（200 帽 + 轮次边界）：末位在场、首窗外最早消息缺席
+    expect(io.bytes).toContain('latest-204');
+    expect(io.bytes).not.toContain('earliest-0');
+    // more 占位（游标非空——头行下固定行）
+    expect(io.bytes).toContain('上滚加载更早');
+    // 到顶触发（Home 含在到顶判据）→ 续页 prepend（微任务回执 + requestRepaint 请帧）
+    io.emitInput('\x1b[H'); // home（CSI H）
+    for (let i = 0; i < 4; i++) await Promise.resolve(); // 微任务排空——prepend 落位
+    io.emitInput('\x1b[H'); // 再 home——prepend 锚定在旧内容区，回顶见更早页
+    expect(io.bytes).toContain('earliest-0'); // 更早页上方就位（快照同源复切）
+    expect(io.bytes).toContain('已到最早'); // done 占位（游标到 null）
+  });
+
+  it('免 seq 形兼容锁：旧装配直呼 openHistory 全量单发——零分页零占位', () => {
+    const { io, backend } = historyRig();
+    const messages = Array.from({ length: 205 }, (_, i) => ({
+      role: 'user' as const,
+      content: `compat-${i}`,
+      timestamp: 1,
+    }));
+    backend.openHistory(SESSION, messages);
+    expect(io.bytes).not.toContain('上滚加载更早'); // 零占位（分页未激活）
+    // 全量单发：全量行集经搜索可达证（分页形首窗只有尾窗域——此形全域 1 匹配）
+    io.emitInput('\x06'); // ctrl+f 开搜索（legacy 0x06 归一）
+    for (const ch of 'compat-0') io.emitInput(ch);
+    // 渲染强制（副屏 Engine 输入后不自动重画——resize 触发 forceFull，搜索测试同律）
+    io.rows = 12;
+    io.emitResize();
+    expect(io.bytes).toContain('1/1');
+  });
+
   it('stop 防御位：在场副屏先收再退（副屏 Engine 不残活）', () => {
     const { io, backend } = historyRig();
     backend.openHistory(SESSION, []);
