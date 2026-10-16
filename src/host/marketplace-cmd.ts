@@ -56,7 +56,21 @@ import type { UninstallDataAction, UninstallDeps } from './plugin-uninstall.js';
 import { createPluginStoreFs, readLedger } from './plugin-store.js';
 import type { LifecycleAuditSink } from './plugin-store.js';
 import { HOST_MIGRATION_TAIL } from './runtime.js';
-import type { MarketFetchFace } from './plugin-market/types.js';
+import type { MarketFetchFace, MarketSourcesAuditData } from './plugin-market/types.js';
+
+/**
+ * market 审计词族宽面（辅件B笔——LifecycleAuditSink 生命周期五词之外增
+ * `marketplace/sources` 源添加 provenance 审计词）。宽参数面对窄
+ * LifecycleAuditSink 注入位赋值安全（逆变——收更宽词面的函数可注入只发
+ * 五词的调用链）。data 位恒 Record<string, unknown>（与 LifecycleAuditSink
+ * 同形直透 audit append 面）；typed 载荷经调用位 `satisfies` 进来（字面量
+ * 型持隐式索引签名可赋 Record、五字段编译期锁同时成立——接口注解形无
+ * 索引签名会堵 Record 赋值）。
+ */
+type MarketAuditSink = (
+  type: Parameters<LifecycleAuditSink>[0] | 'marketplace/sources',
+  data: Record<string, unknown>,
+) => void;
 
 /** 入口选项（main 分派接线 + 测试注入面——e2e 唯一 mock 位即 writeOut/writeErr/fetch） */
 export interface MarketplaceEntryOptions {
@@ -97,32 +111,66 @@ export async function runMarketplaceEntry(sub: MarketplaceCommand, options: Mark
   }
 }
 
-/** add <源>：源清单信任裁决（local 源零网络；git/url 源走 fetch 真身——mp-4） */
+/**
+ * add <源>：源清单信任裁决（local 源零网络；git/url 源走 fetch 真身——mp-4）
+ * + 源添加 provenance durable 审计（辅件B笔——05 §1.1 `marketplace/sources`：
+ * 成功尾恰一笔、失败路径零落账；装源动作不挂 door——显式用户动作）。
+ */
 async function runAdd(source: string, options: MarketplaceEntryOptions): Promise<number> {
   const writeOut = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
   const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
   const dataDir = options.dataDir ?? resolveDataDir();
-  const added = await addMarketplaceSource(
-    {
-      dataDir,
-      fs: createMarketFs(),
-      now: () => new Date(),
-      // 网络抓取真身（mp-4：ssrf-guard 消费律 + 传输帽 + 克隆帽）；home 供 local `~` 展开
-      fetch: options.fetch ?? createMarketFetchFace(),
-      home: homedir(),
-    },
-    source,
-  );
-  if (!added.ok) {
-    // 报文皮带（§9.6 mp 收尾批呈现消毒全位收口修笔）：add 拒文可携 catalog 原始字节
-    // （如 catalog 名 parse 拒报文携带原文）——writeErr 前过 sanitizeLine
-    writeErr(sanitizeLine(added.message));
-    return 1;
+  const audit = marketAuditOf(options, writeErr);
+  try {
+    const added = await addMarketplaceSource(
+      {
+        dataDir,
+        fs: createMarketFs(),
+        now: () => new Date(),
+        // 网络抓取真身（mp-4：ssrf-guard 消费律 + 传输帽 + 克隆帽）；home 供 local `~` 展开
+        fetch: options.fetch ?? createMarketFetchFace(),
+        home: homedir(),
+      },
+      source,
+    );
+    if (!added.ok) {
+      // 报文皮带（§9.6 mp 收尾批呈现消毒全位收口修笔）：add 拒文可携 catalog 原始字节
+      // （如 catalog 名 parse 拒报文携带原文）——writeErr 前过 sanitizeLine。
+      // 失败路径零落账（拒路径零审计律——audit 槽零开库即零笔）
+      writeErr(sanitizeLine(added.message));
+      return 1;
+    }
+    // 源添加 provenance 审计（05 §1.1——成功尾恰一笔）：durable 先于呈现（账
+    // 先于回执发出）；载荷字段集与源清单账本同源（satisfies 编译期锁五字段
+    // 且字面量型持隐式索引签名可赋 sink 的 Record 位——接口注解形反堵）；commit
+    // 缺席不落键（local/url 源）。落账失败 sink 自吞 warn 不阻塞主流程（源
+    // 清单已落账生效——审计缺笔可观测〔warn 落 stderr〕不翻成败）
+    const auditData = {
+      action: 'add',
+      name: added.record.name,
+      sourceType: added.record.sourceType,
+      sourceUri: added.record.sourceUri,
+      ...(added.record.commit !== undefined ? { commit: added.record.commit } : {}),
+    } satisfies MarketSourcesAuditData;
+    audit.sink('marketplace/sources', auditData);
+    // 回执 provenance 呈现（辅件B节 a 件）：源域（sourceType/sourceUri）/条目数/
+    // 首源提示（首个条目寻址形 entry@name——可直接 install 的地址）+ git 源
+    // commit 锚（前 7 位——list 行同锚律）。条目名经名段词法上游执法（ASCII
+    // 域）零消毒需求；sourceUri 用户自输入（既有回执同位原样呈现先例）。
+    // 〔2026-10-16 硬伤处置第三批·p5b-marketplace清偿——本回执整行不过
+    // sanitizeLine、与 list 行（同 sourceUri 数据位消毒）的差异系明示豁免
+    // 裁决非遗漏：三数据位上游防线齐备（sourceUri=argv 用户自输入原样 /
+    // catalog 名坏词法整拒不入场 / 条目名坏词法跳过不入 entries——catalog.ts
+    // ASCII 域执法），豁免成文防「呈现消毒全位收口」翻案时静默不一致〕
+    const commitAnchor = added.record.commit !== undefined ? ` · commit ${added.record.commit.slice(0, 7)}` : '';
+    const firstHint = added.entries.length > 0 ? ` · 首个条目 ${added.entries[0]!.name}@${added.record.name}` : '';
+    writeOut(
+      `已添加市场源：${added.record.name}（${added.record.sourceType}，${added.record.sourceUri}）——条目 ${added.entries.length}${commitAnchor}${firstHint}（条目发现走 berry marketplace discover）`,
+    );
+    return 0;
+  } finally {
+    await audit.close();
   }
-  writeOut(
-    `已添加市场源：${added.record.name}（${added.record.sourceType}，${added.record.sourceUri}）——条目发现走 berry marketplace discover`,
-  );
-  return 0;
 }
 
 /** remove <名>：删源 + 清缓存目录（装机物独立落位不受影响——B2 定形） */
@@ -260,13 +308,14 @@ async function runDiscover(name: string | undefined, options: MarketplaceEntryOp
 
 /**
  * 生命周期归因账真身（plugins-cmd lifecycleAuditOf 同律——本件独立构造：
- * 惰性开库 sink + 调用层 finally close；dbPath 显式随 dataDir）。落账失败
- * warn 不阻塞主流程。
+ * 惰性开 Persistence + createAuditFace 落 audit_events + 调用层 finally
+ * close；dbPath 显式随 dataDir）。落账失败 warn 不阻塞主流程。
+ * 词面宽至 MarketAuditSink（辅件B笔——lifecycle 五词 + marketplace/sources）。
  */
 function marketAuditOf(
   options: MarketplaceEntryOptions,
   writeErr: (text: string) => void,
-): { readonly sink: LifecycleAuditSink; readonly close: () => Promise<void> } {
+): { readonly sink: MarketAuditSink; readonly close: () => Promise<void> } {
   let persistence: Persistence | undefined;
   return {
     sink: (type, data) => {

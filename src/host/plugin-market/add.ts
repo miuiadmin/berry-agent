@@ -17,7 +17,13 @@
 import { classifyMarketplaceSource, expandGitUri, expandHomePath } from './classify.js';
 import { loadCatalogFromRoot, parseMarketplaceCatalog } from './catalog.js';
 import { addSourceRecord, readMarketplaceSources, writeMarketplaceSources } from './registry.js';
-import type { MarketFetchFace, MarketFs, MarketplaceSourceRecord } from './types.js';
+import type {
+  MarketFetchFace,
+  MarketFs,
+  MarketplaceCatalog,
+  MarketplacePluginEntry,
+  MarketplaceSourceRecord,
+} from './types.js';
 
 /** add 注入面：fs + 时钟 + 网络源 seam（缺席 = git/url 源诚实拒）+ home 展开基 */
 export interface AddMarketplaceDeps {
@@ -30,9 +36,14 @@ export interface AddMarketplaceDeps {
   readonly home?: string;
 }
 
-/** add 产物：result 面（ok=true 时 record = 落账源记录） */
+/**
+ * add 产物：result 面（ok=true 时 record = 落账源记录；entries = catalog
+ * 条目清单——辅件B笔回执 provenance 位数据源：源域/条目数/首源提示的
+ * 条目侧真值，catalog.plugins 解析产物直通〔名段词法已上游执法〕）
+ */
 export type AddMarketplaceResult =
-  { readonly ok: true; readonly record: MarketplaceSourceRecord } | { readonly ok: false; readonly message: string };
+  | { readonly ok: true; readonly record: MarketplaceSourceRecord; readonly entries: readonly MarketplacePluginEntry[] }
+  | { readonly ok: false; readonly message: string };
 
 /**
  * 目录树快照拷贝（local 源全真跑 / git 克隆 promote 共用）：src 整树 → dst。
@@ -117,7 +128,8 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
     };
     const clashAtCommit = commitRecord(dataDir, fs, record);
     if (clashAtCommit !== null) return { ok: false, message: clashAtCommit };
-    return { ok: true, record };
+    // 辅件B笔：条目清单随 result 面回传（local 腿——catalog 解析产物直通）
+    return { ok: true, record, entries: loaded.parse.catalog.plugins };
   }
 
   // —— 网络腿（git/github/url）：fetch seam 缺席诚实拒（真因 = 装配面未注入；
@@ -140,11 +152,11 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
     }
     const parse = parseForAdd(fetched.text, source);
     if (parse.ok === false) return { ok: false, message: parse.message };
-    const clash = checkNameClash(dataDir, fs, parse.name);
+    const clash = checkNameClash(dataDir, fs, parse.catalog.name);
     if (clash !== null) return { ok: false, message: clash };
     // 缓存平铺：marketplaces/<name>/marketplace.json（前置整目录清场同律
     // ——残留 JSON 不与新快照混合）
-    const cacheDir = `${dataDir}/marketplaces/${parse.name}`;
+    const cacheDir = `${dataDir}/marketplaces/${parse.catalog.name}`;
     try {
       fs.rm(cacheDir); // 残留前置清场（幂等——缺席形不抛）
       fs.mkdir(cacheDir);
@@ -155,7 +167,7 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
       return { ok: false, message: `缓存落位失败（${error instanceof Error ? error.message : String(error)}）` };
     }
     const record: MarketplaceSourceRecord = {
-      name: parse.name,
+      name: parse.catalog.name,
       sourceType: 'url',
       sourceUri: source,
       catalogPath: 'marketplace.json',
@@ -164,7 +176,8 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
     };
     const clashAtCommit = commitRecord(dataDir, fs, record);
     if (clashAtCommit !== null) return { ok: false, message: clashAtCommit };
-    return { ok: true, record };
+    // 辅件B笔：条目清单随 result 面回传（url 腿——平铺 JSON 解析产物直通）
+    return { ok: true, record, entries: parse.catalog.plugins };
   }
 
   // —— git/github 腿：克隆到 tmp → 解析 → promote 整树进缓存 + commit 落账 ——
@@ -195,7 +208,7 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
     fs.rm(fetched.cloneDir); // tmp 清场——零残影
     return { ok: false, message: parse.message };
   }
-  const clash = checkNameClash(dataDir, fs, parse.name);
+  const clash = checkNameClash(dataDir, fs, parse.catalog.name);
   if (clash !== null) {
     fs.rm(fetched.cloneDir); // tmp 清场——零残影
     return { ok: false, message: clash };
@@ -203,7 +216,7 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
   // promote：tmp 克隆整树 → 缓存（换血语义——缓存目录即该源快照真相）。前置
   // 整目录清场同律：账本无此名的残留缓存不与克隆树混合；promote 中途 IO 失败
   // = 诚实拒 + tmp 克隆场/半缓存双清场——零残影
-  const promoteDir = `${dataDir}/marketplaces/${parse.name}`;
+  const promoteDir = `${dataDir}/marketplaces/${parse.catalog.name}`;
   try {
     fs.rm(promoteDir); // 残留前置清场（幂等——缺席形不抛）
     fs.mkdir(promoteDir);
@@ -215,7 +228,7 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
   }
   fs.rm(fetched.cloneDir); // tmp 清场（成功位）
   const record: MarketplaceSourceRecord = {
-    name: parse.name,
+    name: parse.catalog.name,
     sourceType: classified.sourceType, // git | github（短手形入账 github——refresh 重放同展开）
     sourceUri: source, // 用户输入原样（短手保持短手）
     catalogPath: fetched.catalogPath,
@@ -225,19 +238,20 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
   };
   const clashAtCommit = commitRecord(dataDir, fs, record);
   if (clashAtCommit !== null) return { ok: false, message: clashAtCommit };
-  return { ok: true, record };
+  // 辅件B笔：条目清单随 result 面回传（git/github 腿——克隆 catalog 解析产物直通）
+  return { ok: true, record, entries: parse.catalog.plugins };
 }
 
-/** catalog 文本解析速记（add 位——坏形即拒，name 供撞名检查） */
+/** catalog 文本解析速记（add 位——坏形即拒；catalog 整体回传：name 供撞名检查、plugins 供回执 provenance） */
 function parseForAdd(
   text: string,
   label: string,
-): { readonly ok: true; readonly name: string } | { readonly ok: false; readonly message: string } {
+): { readonly ok: true; readonly catalog: MarketplaceCatalog } | { readonly ok: false; readonly message: string } {
   const parse = parseMarketplaceCatalog(text, label);
   if (!parse.ok) {
     return { ok: false, message: parse.reason };
   }
-  return { ok: true, name: parse.catalog.name };
+  return { ok: true, catalog: parse.catalog };
 }
 
 /** 撞名报文单源（前置检查与落账位保底双检同词面——词面漂移即测试红） */

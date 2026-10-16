@@ -754,6 +754,9 @@ describe('MarketplaceTuiFace 真服务面集成（runMarketplaceEntry 直装）'
     await face.open();
     const secondModel = openPanel.mock.calls.at(-1)![0] as MarketPanelModel;
     expect(secondModel.rows.find((row) => row.id === 'hello-plugin@alpha')!.installed).toBe(true);
+    // 辅件B笔：install 回执 market provenance 回显（TUI 面经 runEntry 单源
+    // 消费 CLI 回执——results 结算块逐行消毒形携带 market 溯源位）
+    expect(secondModel.results.join('\n')).toContain('（源 local，market hello-plugin@alpha，');
 
     // 真刷新：源仓推进（catalog 增第三条目）→ update 换血 → 行集可见新条目
     const catalogPath = join(repo, '.claude-plugin', 'marketplace.json');

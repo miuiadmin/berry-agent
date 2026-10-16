@@ -1113,6 +1113,9 @@ describe('市场拷贝腿与 market 注记（03 §9.6 mp-3——装机咬合）'
     // 账本往返：market 字段经 checkEntryShape 重建保留（缺席 = 读写往返丢失）
     const roundtrip = entriesOf(dataDir);
     expect(roundtrip[0]!.market).toEqual(market);
+    // 辅件B笔：install 回执携带 market 源 provenance 回显（既有账本位
+    // {name, entry}——market 注记在场即回显、源位后插；修前回执零 market 位即红）
+    expect(outcome.text).toContain('（源 local，market hello-plugin@alpha，');
   });
 
   it('拷贝腿幂等重装：目标在场先 rm 再落新树（无版本段布局）', async () => {

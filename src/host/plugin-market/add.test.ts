@@ -67,6 +67,9 @@ describe('add 编舞——本地目录源全链（零网络）', () => {
     // 缓存快照在场：marketplaces/alpha/ 内 catalog + 插件子目录可读
     expect(fs.read('/data/marketplaces/alpha/.claude-plugin/marketplace.json')).toContain('alpha');
     expect(fs.read('/data/marketplaces/alpha/plugins/hello/package.json')).toContain('hello');
+    // 辅件B笔契约：entries = catalog 条目清单（add 回执 provenance 位的
+    // 数据源——源域/条目数/首源提示；修前 result 面零 entries 字段即红）
+    expect(result.entries.map((entry) => entry.name)).toEqual(['hello-plugin']);
     // 源清单文件落盘（version 1 + 单条目）
     const doc = JSON.parse(fs.read('/data/marketplaces.json')!) as { version: number; marketplaces: unknown[] };
     expect(doc.version).toBe(1);
@@ -273,6 +276,8 @@ describe('add 编舞——网络源 fetch 注入位（mp-2 零网络；mp-4 落�
     // clone 目录 promote 进缓存（换血语义：tmp clone → marketplaces/<name>/）
     expect(fs.read('/data/marketplaces/official/.claude-plugin/marketplace.json')).toContain('official');
     expect(fs.isDir('/tmp/clone')).toBe(false); // tmp 清场
+    // 辅件B笔契约：entries 同随网络腿回传（回执 provenance 位数据源）
+    expect(result.entries.map((entry) => entry.name)).toEqual(['p']);
   });
 
   it('github 短手源 + 注假 fetcher：短手展开后进 fetch（url 单形）', async () => {
@@ -315,6 +320,10 @@ describe('add 编舞——网络源 fetch 注入位（mp-2 零网络；mp-4 落�
     expect(result.record.sourceType).toBe('url');
     expect(result.record.catalogPath).toBe('marketplace.json'); // 缓存平铺形
     expect(result.record.commit).toBeUndefined(); // URL 源无 commit 位
+    // 辅件B笔 entries 直通三腿补锁（url 腿——清偿批与 local/git 两腿同形：
+    // 本案 catalog 空清单，锁字段在场性与空形直通；url 腿 return 与 git 腿
+    // 共享 parseForAdd 同一解析形）
+    expect(result.entries.map((entry) => entry.name)).toEqual([]);
     // 缓存只存 JSON（无仓结构）
     expect(fs.read('/data/marketplaces/url-one/marketplace.json')).toBe(text);
   });

@@ -481,10 +481,14 @@ export async function installPlugin(
   const tail = enabledCarried
     ? `——换血换代：${carriedFromId} → ${manifest.id}，启用行已随换代迁移（下次启动生效）`
     : '——安装零生效，启用走 mount（下次启动生效）';
+  // market 源 provenance 回显（辅件B笔 b 件）：market 注记在场即在回执源位后
+  // 回显既有账本位（寻址形 entry@name——与 discover 寻址形同形）；缺席零回显
+  // （非市场装机不加位——直装与拷贝两腿同律，market 注记两腿皆在场时才达此）
+  const marketEcho = opts.market !== undefined ? `，market ${opts.market.entry}@${opts.market.name}` : '';
   return {
     ok: true,
     entry,
-    text: `已安装：${manifest.id}（源 ${parsed.parsed.source}，${product.installPath}）${tail}${rowMigrateNote}${cleanupNote}`,
+    text: `已安装：${manifest.id}（源 ${parsed.parsed.source}${marketEcho}，${product.installPath}）${tail}${rowMigrateNote}${cleanupNote}`,
     ...(enabledCarried ? { enabledCarried: true } : {}),
   };
 }

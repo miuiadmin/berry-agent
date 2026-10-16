@@ -147,6 +147,26 @@ export interface MarketplaceSourcesFile {
   readonly marketplaces: readonly MarketplaceSourceRecord[];
 }
 
+/**
+ * `marketplace/sources` 审计词载荷形（05 §1.1 硬伤处置第三批·⑤辅件B笔——
+ * 源添加 provenance 审计）：字段集与 MarketplaceSourceRecord 源清单账本
+ * 同源（name/sourceType/sourceUri/commit?——catalogPath 与时间戳不入审计
+ * 载荷）；action v1 值域 'add' 单值（remove/update 源管理动词随其落码批
+ * 扩值——悬空枚举值不入值域，`doors/updated` 'cli-cmd' 预留位同律）。
+ */
+export interface MarketSourcesAuditData {
+  /** 源管理动词（v1 唯 'add'——写点 = 源管理命令面 add 成功尾恰一笔） */
+  readonly action: 'add';
+  /** 市场名（catalog 自报名——add 时锁定） */
+  readonly name: string;
+  /** 源分类四值（与源清单账本同源） */
+  readonly sourceType: MarketplaceSourceType;
+  /** 用户输入原样（短手/URL/路径） */
+  readonly sourceUri: string;
+  /** git 源锁定 catalog commit（漂移防线锚——local/url 源缺席不落键） */
+  readonly commit?: string;
+}
+
 /* ---------------- 翻译产物形（五形 → 三源 ref 矩阵——§9.6） ---------------- */
 
 /**

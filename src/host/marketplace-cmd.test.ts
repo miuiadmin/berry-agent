@@ -23,6 +23,9 @@ import { createMarketFs } from './plugin-market/fs.js';
 import { readMarketplaceSources, writeMarketplaceSources } from './plugin-market/registry.js';
 import type { MarketFetchFace } from './plugin-market/types.js';
 import { createPluginStoreFs, mountRow, readEnabledRowsForEdit, readLedger } from './plugin-store.js';
+import { Persistence, createAuditFace } from '../persist/index.js';
+import { HOST_MIGRATION_TAIL } from './runtime.js';
+import { DOORS_SEGMENT_V1_DOMAIN, USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 
 /** 测试根 tmp（vitest 每文件钉数据目录纪律——自管 tmp 收尾自清） */
 const testRoot = mkdtempSync(join(tmpdir(), 'berry-marketplace-cmd-test-'));
@@ -843,5 +846,128 @@ describe('呈现消毒面——拒绝报文 stderr 位（mp 收尾批 sec：inst
     expect(errText).toContain('拒'); // 诚实拒语义不丢（消毒不吞拒因）
     // 伪行锁：源内 \n 不得产出以 FAKE 起头的独立行（消毒后同值行内空格）
     expect(errText.split('\n').some((line) => line.startsWith('FAKE'))).toBe(false);
+  });
+});
+
+describe('辅件B笔——源添加 provenance 回执 + durable 审计 + 装源不挂 door（05 §1.1 marketplace/sources）', () => {
+  /**
+   * 开库读审计流（runAdd 的 sink 已在 CLI 腿 finally close——此处独立开读库；
+   * dbPath 显式随 dataDir，与 marketAuditOf 同律）。返回 marketplace/sources
+   * 行集（type + data——count 断言的判据面）。
+   */
+  async function marketAuditRowsOf(
+    dataDir: string,
+  ): Promise<readonly { readonly type: string; readonly data: Record<string, unknown> }[]> {
+    const persistence = Persistence.open({
+      dataDir,
+      dbPath: join(dataDir, 'sessions.db'),
+      migrations: HOST_MIGRATION_TAIL,
+      warn: () => undefined,
+    });
+    try {
+      return createAuditFace(persistence.store.sqlite())
+        .listRecent(500)
+        .map((row) => ({ type: row.type, data: row.data }));
+    } finally {
+      await persistence.close();
+    }
+  }
+
+  it('local 源 add 成功：回执 provenance 三件（源域/条目数/首源提示）逐字锚 + 审计五字段 verbatim（修前两红位：回执零 provenance 尾、审计零词）', async () => {
+    const stage = stageOf('prov-add');
+    const repo = seedMarketRepo('prov-market');
+    expect(await runMarketplaceEntry({ sub: 'add', source: repo }, stage.options)).toBe(0);
+    // 回执 provenance 三件逐字锚：源域（sourceType+sourceUri）/条目数/首源提示
+    // （首个条目寻址形 entry@name——可直接 install 的地址）；local 源无 commit 锚
+    expect(stage.out.join('\n')).toContain(
+      `已添加市场源：prov-market（local，${repo}）——条目 2 · 首个条目 hello-plugin@prov-market（条目发现走 berry marketplace discover）`,
+    );
+    // durable 审计恰一笔：五字段 verbatim（action/name/sourceType/sourceUri；
+    // local 源 commit 缺席不落键——词形单源 05 §1.1 行）
+    const rows = await marketAuditRowsOf(stage.options.dataDir);
+    const added = rows.filter((row) => row.type === 'marketplace/sources');
+    expect(added).toHaveLength(1);
+    expect(added[0]!.data).toEqual({
+      action: 'add',
+      name: 'prov-market',
+      sourceType: 'local',
+      sourceUri: repo,
+    });
+  });
+
+  it('git 源 add 成功：commit 锚（前 7 位，list 行同律）+ 审计 commit 全值入账', async () => {
+    const stage = stageOf('prov-git');
+    // 假 git 腿（list-anchor 先例——真盘物化克隆目录，零网络）
+    const cloneDir = join(testRoot, 'prov-git-clone');
+    mkdirSync(join(cloneDir, '.claude-plugin'), { recursive: true });
+    const catalog = JSON.stringify({
+      name: 'prov-git-market',
+      owner: { name: 'o' },
+      plugins: [{ name: 'git-plugin', source: './plugins/git' }],
+    });
+    writeFileSync(join(cloneDir, '.claude-plugin', 'marketplace.json'), catalog);
+    const fetch: MarketFetchFace = {
+      fetchGitCatalog: async () => ({
+        cloneDir,
+        catalogPath: '.claude-plugin/marketplace.json',
+        text: catalog,
+        commit: 'aaaa1111bbbb2222cccc3333dddd4444eeee5555',
+      }),
+      fetchUrlCatalog: async () => {
+        throw new Error('本用例不达');
+      },
+    };
+    expect(
+      await runMarketplaceEntry({ sub: 'add', source: 'owner/prov-git-market' }, { ...stage.options, fetch }),
+    ).toBe(0);
+    // git 源 commit 锚前 7 位（与 list 行 '@aaaa111' 同锚律）+ 首源提示在场
+    expect(stage.out.join('\n')).toContain(
+      '——条目 1 · commit aaaa111 · 首个条目 git-plugin@prov-git-market（条目发现走 berry marketplace discover）',
+    );
+    // 审计 commit 全值入账（漂移防线锚——源清单账本位同源；github 短手 sourceType 入账 github）
+    const rows = await marketAuditRowsOf(stage.options.dataDir);
+    const added = rows.filter((row) => row.type === 'marketplace/sources');
+    expect(added).toHaveLength(1);
+    expect(added[0]!.data).toEqual({
+      action: 'add',
+      name: 'prov-git-market',
+      sourceType: 'github',
+      sourceUri: 'owner/prov-git-market',
+      commit: 'aaaa1111bbbb2222cccc3333dddd4444eeee5555',
+    });
+  });
+
+  it('失败路径零落账：坏源目录拒不记 + 同名再 add 拒不增行（幂等账面）', async () => {
+    const stage = stageOf('prov-zero');
+    // 坏源（目录缺席）——拒退 1，审计零行（未生效的源添加不是事实）
+    expect(await runMarketplaceEntry({ sub: 'add', source: join(testRoot, 'nowhere-market') }, stage.options)).toBe(1);
+    expect(
+      (await marketAuditRowsOf(stage.options.dataDir)).filter((row) => row.type === 'marketplace/sources'),
+    ).toHaveLength(0);
+    // 成功一笔后：同名再 add（信任裁决显式动作——撞名拒）不增审计行
+    const repo = seedMarketRepo('prov-zero-market');
+    expect(await runMarketplaceEntry({ sub: 'add', source: repo }, stage.options)).toBe(0);
+    const again = stageOf('prov-zero-again', stage.options.dataDir);
+    expect(await runMarketplaceEntry({ sub: 'add', source: repo }, again.options)).toBe(1);
+    expect(again.err.join('\n')).toContain('已在源清单');
+    const rows = await marketAuditRowsOf(stage.options.dataDir);
+    expect(rows.filter((row) => row.type === 'marketplace/sources')).toHaveLength(1);
+  });
+
+  it('install 回执 market provenance 回显（CLI 面——既有账本位 {name, entry} 直达回执）', async () => {
+    const stage = stageOf('prov-install');
+    const repo = seedMarketRepo('prov-install-market');
+    expect(await runMarketplaceEntry({ sub: 'add', source: repo }, stage.options)).toBe(0);
+    const inst = stageOf('prov-install-run', stage.options.dataDir);
+    expect(await runMarketplaceEntry({ sub: 'install', id: 'hello-plugin@prov-install-market' }, inst.options)).toBe(0);
+    expect(inst.out.join('\n')).toContain('（源 local，market hello-plugin@prov-install-market，');
+  });
+
+  it('装源动作不挂 door（立题档辅件 B 既定立场——door 防插件/模型道，装源是显式用户动作；结构锁防将来误挂）', () => {
+    // door 两值域零 marketplace 位：DOORS_SEGMENT_V1_DOMAIN（doors 段值域）与
+    // USER_GRANTABLE_CAPABILITIES（opens 行值域上界）——任一进 marketplace 位
+    // 即「显式用户动作误设门」翻案，本锁即红
+    expect(DOORS_SEGMENT_V1_DOMAIN.some((door) => door.includes('marketplace'))).toBe(false);
+    expect(USER_GRANTABLE_CAPABILITIES.some((capability) => capability.includes('marketplace'))).toBe(false);
   });
 });
