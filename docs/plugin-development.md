@@ -77,7 +77,7 @@ export default async function apply(ctx, config) {
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 服务目录     | `get(name)` / `tryGet(name)` / `provide(name, svc)`                                                                                                                                                                                                           | 取服务（缺席 fail-loud 附服务目录名单）/ 诚实缺席形 / 注册（重名分类——同主重供 = 原位刷新〔`/reload` 换代重跑同插件的结构性支撑〕，跨主重名与匿名任一方照拒 `CONTEXT_SERVICE_DUPLICATE`；跨插件可见——装载序依赖的事实源）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | 作用域       | `effect(register)`                                                                                                                                                                                                                                            | 可逆注册（LIFO 回卷；上限 10⁴）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 钩子         | `on(hookName, handler)`                                                                                                                                                                                                                                       | fail-closed（词不在主表拒）；handler 包 5s 钟                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 钩子         | `on(hookName, handler)`                                                                                                                                                                                                                                       | fail-closed（词不在主表拒——41 词闭集见下[钩子词汇主表](#钩子词汇主表活词与保留词)）；handler 包 5s 钟                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 活体事件     | `emit(name, data?)`                                                                                                                                                                                                                                           | 自域词 `${pluginId}/` 起头强制——全局词结构性不可达                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 工具         | `tools.register(def, opts?)`                                                                                                                                                                                                                                  | 拒绝式重名执法；返回 Disposer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 命令         | `channels.registerCommand(name, handler, description?)`                                                                                                                                                                                                       | `/命令` 界面；后写胜出                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -97,6 +97,65 @@ export default async function apply(ctx, config) {
 | 自省         | `host`                                                                                                                                                                                                                                                        | 宿主信息面（版本、装配、本插件 id）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 频率护栏：注册类动词 1000 次 / 滑动 1s 窗（越限 `PLUGIN_RATE_LIMITED`）。
+
+### 钩子词汇主表（活词与保留词）
+
+钩子词是 **41 词固定闭集**（fail-closed：词不在集内 `ctx.on` 即拒 `PLUGIN_HOOK_UNKNOWN`）。闭集内部分两类——**活词**（宿主侧已有发射位，订阅即会响）与**保留词**（词汇在册、发射位未落，订阅合法但**现在不会触发**）。如实分列如下，防你挂上永远不响的钩子。
+
+派发四模式：**waterfall** = 串行链、载荷逐棒可改写、可刹停；**serial** = 只读串行、逐个等待；**parallel** = 只读并行、收口等全部；**emit** = 通知播、宿主不等待。
+
+#### 活词（27）
+
+| 钩子                    | 模式      | 宿主侧发射位                                                        |
+| ----------------------- | --------- | ------------------------------------------------------------------- |
+| `session/event`         | emit      | `src/host/assembly.ts` — durable 会话事件桥入活体派发               |
+| `session_before_fork`   | waterfall | `src/conversation/sessions.ts` — 会话派生（fork）接管缝             |
+| `session_before_compact`| waterfall | `src/host/conversation-stack.ts` — 上下文压缩接管缝                 |
+| `agent_start`           | emit      | `src/agent/loop.ts` — agent 运行起点                                |
+| `agent_pre_step`        | waterfall | `src/conversation/driver.ts` — 每轮模型请求发射前                   |
+| `agent_request_error`   | waterfall | `src/conversation/driver.ts` — 模型道请求失败                       |
+| `agent_end`             | emit      | `src/agent/loop.ts` — agent 运行终态                                |
+| `turn_start`            | emit      | `src/agent/loop.ts` — 轮界起                                        |
+| `turn_end`              | emit      | `src/agent/loop.ts` — 轮界终                                        |
+| `message_start`         | emit      | `src/agent/stream.ts` — 模型流开流                                  |
+| `message_update`        | emit      | `src/agent/stream.ts` — 模型流增量                                  |
+| `message_end`           | waterfall | `src/agent/stream.ts` — 模型流收口                                  |
+| `context_transform`     | waterfall | `src/conversation/driver.ts` — 请求组装关口（上下文变换链）         |
+| `tools_pre_execute`     | waterfall | `src/tools/pipeline.ts` — 工具管道守门位（改参 / 否决）             |
+| `tools_execute`         | waterfall | `src/tools/pipeline.ts` — 工具管道执行位（替换执行体）              |
+| `tools_post_execute`    | waterfall | `src/tools/pipeline.ts` — 工具管道后置位（改产出）                  |
+| `tool_execution_start`  | emit      | `src/agent/tools-batch.ts` — 单工具调用执行起                       |
+| `tool_execution_update` | emit      | `src/agent/tools-batch.ts` — 单工具调用进度                         |
+| `tool_execution_end`    | emit      | `src/agent/tools-batch.ts` — 单工具调用终                           |
+| `tools_change`          | emit      | `src/tools/registry.ts` — 工具注册面变更通知                        |
+| `job_settled`           | emit      | `src/host/assembly.ts` — 后台 Job 结算通知                          |
+| `plugin/activated`      | emit      | `src/host/plugin-boot.ts` — 插件装载成功收口                        |
+| `plugin/failed`         | emit      | `src/host/plugin-boot.ts` — 插件装载失败收口                        |
+| `plugin/skipped`        | emit      | `src/host/plugin-boot.ts` — 插件装载跳过收口（依赖缺席等）          |
+| `composition/reloaded`  | emit      | `src/host/plugin-boot.ts` — 装载组合重载收口                        |
+| `prompts_change`        | emit      | `src/host/plugin-boot.ts` — 提示词段注册面变更                      |
+| `skills_change`         | emit      | `src/host/assembly.ts` — 技能注册面变更                             |
+
+#### 保留词（14——发射位未落，订阅静默）
+
+| 钩子                       | 模式      | 状态                                                               |
+| -------------------------- | --------- | ------------------------------------------------------------------ |
+| `session_start`            | emit      | 发射位未落——落位在路线图（装载收口编舞补播）                       |
+| `session_compact`          | emit      | 压缩后通知位未落（压缩「前」接管缝已开：`session_before_compact`）  |
+| `session_flush`            | serial    | 会话刷盘通知位未落                                                 |
+| `session_shutdown`         | parallel  | 退出序宿主内部已承载、插件派发未桥接（挂账）                       |
+| `agent_before_start`       | waterfall | 子代理起前位未落                                                   |
+| `agent_idle`               | emit      | 闲置通知位未落                                                     |
+| `turn_stopping`            | serial    | 停轮中位未落                                                       |
+| `user_input`               | waterfall | 用户输入改写位未落                                                 |
+| `provider_before_request`  | waterfall | 模型道观测缝挂账——不轻开，待真实消费端进场再裁                     |
+| `provider_before_headers`  | waterfall | 同上（模型道观测缝挂账）                                           |
+| `provider_after_response`  | emit      | 同上（模型道观测缝挂账）                                           |
+| `model_select`             | waterfall | 同上（模型道观测缝挂账）                                           |
+| `resources_discover`       | serial    | 动态资源发现挂账——真实需求拉动再裁                                 |
+| `project_trust`            | waterfall | 目录信任交互流挂账                                                 |
+
+保留词不是「永远不响」的永久承诺——闭集随版本演进扩位，保留词可能兑现为活词、活词表也可能增员；升级后请重读本节对表。
 
 ### 工具定义（ctx.tools.register 入参）
 
