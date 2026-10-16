@@ -18,6 +18,7 @@ import {
   OSC_ATTENTION_BLINK_MS,
   OSC_PROGRESS_KEEPALIVE_MS,
   sanitizeNotifyText,
+  sanitizeTitle,
 } from './osc.js';
 
 /** OSC 9;4 忙态序列（锚定 pi-tui 字节形） */
@@ -258,6 +259,85 @@ describe('sanitizeNotifyText（通知文案消毒纯函数）', () => {
   it('帽内零扰动 + 全空白入 → 空串（诚实缺席形）', () => {
     expect(sanitizeNotifyText('短文案', 80)).toBe('短文案');
     expect(sanitizeNotifyText('  \n  ', 80)).toBe('');
+  });
+});
+
+// ── title 消毒（件 C 挖掘 51 轮——codex sanitize_title 同律：折叠先行 +
+// 禁字符直剥 + 码点帽 240 硬截无省略号；writeTitleDedup 入口单点两路同律）──
+describe('sanitizeTitle（title 消毒纯函数——件 C 挖掘 51 轮）', () => {
+  it('White_Space 精确集折叠：TAB/LF/CRLF/NBSP/NNBSP 折叠单空格 + trim（折叠非直删——词不粘连）', () => {
+    expect(sanitizeTitle('Project\tWorking | Thread')).toBe('Project Working | Thread');
+    expect(sanitizeTitle('  首\t\t尾  ')).toBe('首 尾');
+    expect(sanitizeTitle('a\u00a0\u202fb')).toBe('a b'); // NBSP + NNBSP（窄不换行空格）同折叠
+  });
+
+  it('NEL（U+0085）折叠腿——JS \\s 简写少含（codex 折叠非直删）', () => {
+    expect(sanitizeTitle('a\u0085b')).toBe('a b'); // \s 不收 NEL——精确集显式枚举
+  });
+
+  it('禁字符直剥：C0/C1/DEL/软连字符/零宽族/变体选择符/BOM（OSC 0 载荷注入面不可入）', () => {
+    expect(sanitizeTitle('a\x00\x1f\x7f\x9fb')).toBe('ab');
+    expect(sanitizeTitle('a\u00adb')).toBe('ab'); // 软连字符 SHY
+    expect(sanitizeTitle('a\u200b\u200fb')).toBe('ab'); // 零宽族（ZWSP..RLM）
+    expect(sanitizeTitle('a\ufe0fb')).toBe('ab'); // 变体选择符 VS16
+    expect(sanitizeTitle('a\ufeffb')).toBe('ab'); // BOM（\s 含之但 codex 直删——本集直剥）
+  });
+
+  it('SMP 段谱锁：interlinear 注记区直剥 + 花括号形不误伤 ASCII（\\uXXXX 4 位截断酿巨区间反例）', () => {
+    expect(sanitizeTitle('a\u{1bca0}\u{e01ef}b')).toBe('ab'); // 注记段 U+1BCA0/U+E01EF 直剥
+    expect(sanitizeTitle('berry-agent 0.1.1')).toBe('berry-agent 0.1.1'); // ASCII 零误伤
+    // 修前红锚语义：若误写 ᯊ0（无花括号）则解析为 U+1BCA + 字面 '0'——
+    // 字符类区间 ['0'-U+1BCA] 吞 ASCII；本断言锁花括号形（u 旗）
+  });
+
+  it('码点帽 240 硬截无省略号 + 帽内零扰动（通知面「…」尾形是 sanitizeNotifyText 语义——title 面纯截）', () => {
+    const exact = 'x'.repeat(240);
+    expect(sanitizeTitle(exact)).toBe(exact); // 恰帽零扰动
+    expect(sanitizeTitle('x'.repeat(250))).toBe('x'.repeat(240)); // 超帽硬截无尾
+    expect(sanitizeTitle('短题')).toBe('短题'); // 干净串入同串出（零行为变锁）
+  });
+
+  it('空串入空串出（空 title 是合法诚实态——不注入占位词）', () => {
+    expect(sanitizeTitle('')).toBe('');
+    expect(sanitizeTitle(' \t ')).toBe(''); // 全空白折叠 trim 归空
+  });
+});
+
+describe('OscDisplay title 消毒接线（writeTitleDedup 入口单点——setTitle 与注意帧两路）', () => {
+  it('紧邻控制符对：ESC+BEL 直剥（OSC 注入对残留文本不构成序列）', () => {
+    const { io, osc } = makeOsc();
+    osc.setTitle('a\x1b\x07b');
+    expect(io.frames).toEqual([title('ab')]);
+  });
+
+  it('夹杂真 OSC 注入序列拆解：ESC 与 BEL 直剥后裸文本残留（终端标题面零注入面）', () => {
+    const { io, osc } = makeOsc();
+    osc.setTitle('a\x1b]0;pwn\x07b');
+    expect(io.frames).toEqual([title('a]0;pwnb')]);
+  });
+
+  it('消毒值入去重账：同原始值二调一字节 + 原始值异消毒值同不重写', () => {
+    const { io, osc } = makeOsc();
+    osc.setTitle('带\x07禁符');
+    osc.setTitle('带\x07禁符'); // 同原始值——去重
+    osc.setTitle('带\x08禁符'); // 异原始值同消毒值——去重（账记消毒值）
+    expect(io.frames).toEqual([title('带禁符')]);
+  });
+
+  it('注意帧同消毒（normalTitle 记原始值、帧铸值经单点再消毒）+ 收态归位幂等', () => {
+    const { io, osc } = makeOsc();
+    osc.setTitle('常态\x07值');
+    expect(io.frames).toEqual([title('常态值')]);
+    osc.setAttention(true); // 帧 `[ ! ] 待处置 常态值`（铸值含原始禁符——再消毒）
+    expect(io.frames).toEqual([title('常态值'), title('[ ! ] 待处置 常态值')]);
+    osc.setAttention(false); // 收态归位 setTitle(normalTitle 原始值)——再消毒幂等
+    expect(io.frames).toEqual([title('常态值'), title('[ ! ] 待处置 常态值'), title('常态值')]);
+  });
+
+  it('restore 基线同经消毒（干净基线零变——现状锁）', () => {
+    const { io, osc } = makeOsc('berry-agent 1.2.3');
+    osc.restore();
+    expect(io.frames).toEqual([title('berry-agent 1.2.3'), CLEAR]);
   });
 });
 

@@ -128,6 +128,39 @@ export function sanitizeNotifyText(text: string, maxCodePoints: number): string 
   return cps.slice(0, maxCodePoints - 1).join('') + '…';
 }
 
+/**
+ * title 折叠空白集（件 C 挖掘 51 轮——Unicode White_Space 精确集，codex
+ * is_whitespace 判定集同参）：**JS `\s` 简写不可代**——多含 U+FEFF（codex
+ * 直删非折叠）、少含 U+0085 NEL（codex 折叠）。
+ */
+const TITLE_WHITESPACE_RE = /[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/g;
+
+/**
+ * title 禁字符集（codex is_disallowed 判定集同参）：C0/C1 控制 + DEL + 软
+ * 连字符 + 双向/零宽/包裹禁用族 + 变体选择符 + BOM + interlinear 注记 +
+ * 标签禁用区。SMP 段**必须 `\u{…}` 花括号形 + u 旗**——`\uXXXX` 4 位截断
+ * 会酿巨区间字符类（冷读 C-1 实证：`ᯊ0` 解析为 U+1BCA + 字面 '0'）。
+ */
+const TITLE_DISALLOWED_RE =
+  /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufe00-\ufe0f\ufeff\ufff9-\ufffb\u{1bca0}-\u{1bca3}\u{e0100}-\u{e01ef}]/gu;
+
+/**
+ * title 消毒（纯函数，sanitizeNotifyText 同族——件 C 挖掘 51 轮，codex
+ * sanitize_title 同律）：三步序——①White_Space 精确集折叠单空格 + trim
+ * （**折叠先行**：TAB/LF/NEL 折叠非直删——先剥后折会把 TAB 直删酿词粘连）；
+ * ②禁字符直剥（OSC 0 载荷注入面——控制/零宽族不可入终端标题）；③码点帽
+ * 240 硬截**无省略号**（终端标签页窄面近似截断可接受——sanitizeNotifyText
+ * 的「…」尾形是通知面语义，title 面纯截）。空串入空串出（空 title 是合法
+ * 诚实态，不注入占位词）。帽为近似值（codex MAX_TITLE_LEN 同值——按码点
+ * 非显示宽，宽字符可超终端显示宽，溢出由终端自裁）。
+ */
+export function sanitizeTitle(title: string, maxCodePoints = 240): string {
+  const folded = title.replace(TITLE_WHITESPACE_RE, ' ').trim();
+  const stripped = folded.replace(TITLE_DISALLOWED_RE, '');
+  const cps = [...stripped];
+  return cps.length <= maxCodePoints ? stripped : cps.slice(0, maxCodePoints).join('');
+}
+
 /** 调度注入形（与 TuiBackend schedule 注入同形——(fn, ms) → 句柄） */
 export type OscSchedule = (fn: () => void, ms: number) => unknown;
 
@@ -208,11 +241,12 @@ export class OscDisplay {
     this.normalTitle = title;
   }
 
-  /** 去重写出私法（注意态帧共用去重律——帧值非常态值，不记常态值账防污染） */
+  /** 去重写出私法（注意态帧共用去重律——帧值非常态值，不记常态值账防污染；入口单点消毒〔件 C 挖掘 51 轮〕：setTitle 公法与注意帧私法两路同律，lastTitle 记消毒值、normalTitle 记原始值〔归位重写再消毒幂等〕） */
   private writeTitleDedup(title: string): void {
-    if (title === this.lastTitle) return; // 去重律——同值零字节
-    this.lastTitle = title;
-    this.io.write(`\x1b]0;${title}\x07`);
+    const safe = sanitizeTitle(title);
+    if (safe === this.lastTitle) return; // 去重律——同值零字节
+    this.lastTitle = safe;
+    this.io.write(`\x1b]0;${safe}\x07`);
   }
 
   /**
