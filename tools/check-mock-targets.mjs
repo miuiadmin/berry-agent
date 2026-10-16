@@ -44,7 +44,10 @@ const REPO_ROOT = process.env.CHECK_MOCKS_ROOT ?? fileURLToPath(new URL('..', im
  *   包；27e7a33 引入缺席未注，挖掘 33 轮补册）；
  * - 'node:fs'：secret-box.race.test.ts 单函数谎报注入（existsSync 只对密钥
  *   文件谎报——败者窗竞态复现的确定性面，其余路径真身直通非整体替身；
- *   23d5f04 引入缺席未注，挖掘 33 轮补册）。
+ *   23d5f04 引入缺席未注，挖掘 33 轮补册）；
+ * - '../blocks/word-diff.js'：diff-viewer.test.ts 计数缝（visual-lines 先例
+ *   同形——spread 全真导出 + diffWords 计数后原样转发，perf 锁「组体缓存命中
+ *   零 DP 重跑」；挖掘 50 轮件 A 随批入册）。
  * 扩展本表须同批注缺席原因（为何该目标允许文件级 vi.mock）。
  */
 const MOCK_TARGET_WHITELIST = new Set([
@@ -53,6 +56,7 @@ const MOCK_TARGET_WHITELIST = new Set([
   './visual-lines.js',
   '../channels/index.js',
   'node:fs',
+  '../blocks/word-diff.js',
 ]);
 
 /**

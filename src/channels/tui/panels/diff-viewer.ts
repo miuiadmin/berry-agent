@@ -441,6 +441,14 @@ export class DiffViewer implements OverlayContent {
   private readonly onQuit: (() => void) | undefined;
   /** 展开组集合（路径键——缺省全收起：总览语义） */
   private readonly expanded = new Set<string>();
+  /**
+   * 组体缓存（挖掘 50 轮件 A）：bodyRowsOf 词级 DP 结果按组引用缓存——组对象
+   * foldSessionDiff 构造期一次铸造引用恒稳（Map 引用键成立）；Map 生命周期 =
+   * 实例生命周期（副屏关即弃，组引用全持于 groups 不延寿）；体上界 = 组数 ×
+   * 组体行数（与一次全量 flatRows 中间产物同量级，恒有界）；懒加载只算展开过
+   * 的组（未展开组 flatRows continue 前置零调用——现状维持）。
+   */
+  private readonly bodyRowsCache = new Map<DiffFileGroup, readonly DiffBodyRow[]>();
   /** 行空间光标（扁平行下标） */
   private cursor = 0;
   /** 视口首行（光标驱动夹取） */
@@ -476,6 +484,15 @@ export class DiffViewer implements OverlayContent {
     return this.lastWidth >= SPLIT_MIN_WIDTH;
   }
 
+  /** 组体行缓存取（命中直返——flatRows 每帧消费零 DP 重跑，纯性能零行为变） */
+  private cachedBodyRows(group: DiffFileGroup): readonly DiffBodyRow[] {
+    const hit = this.bodyRowsCache.get(group);
+    if (hit !== undefined) return hit;
+    const rows = bodyRowsOf(group.sections);
+    this.bodyRowsCache.set(group, rows);
+    return rows;
+  }
+
   /** 扁平行空间（组头 + 展开组体——render/measure/事件三消费面单源；形随宽双空间） */
   private flatRows(): readonly FlatRow[] {
     const split = this.splitForm;
@@ -483,7 +500,7 @@ export class DiffViewer implements OverlayContent {
     for (const group of this.groups) {
       rows.push({ kind: 'head', group });
       if (!this.expanded.has(group.path)) continue;
-      const bodyRows = bodyRowsOf(group.sections);
+      const bodyRows = this.cachedBodyRows(group);
       const numWidth = numWidthOfRows(bodyRows);
       // split 形：对行合并同屏行（行空间收缩）+ 两侧独立折独立帽（49 轮件 A
       //——行折数取 max 短侧衬空，diff 并排语义：左右行视觉对齐）

@@ -3,12 +3,30 @@
  * 纯函数（分组/累计计数/字典序/孤儿 ⋮/坏串防御/非 edit 滤除）+ DiffViewer
  * 呈现（组头计数/enter 展开/收起缺省/空态/退出族）。
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid, DIM_STYLE } from '../../engine/index.js';
 import { DiffViewer, foldSessionDiff } from './diff-viewer.js';
 import type { DiffProjectionMessage, DiffViewerOptions } from './diff-viewer.js';
 import { DARK_PALETTE, DEFAULT_THEME, LIGHT_PALETTE, resolveTheme } from '../theme/index.js';
+
+/**
+ * diffWords 调用计数缝（挖掘 50 轮件 A）：vi.mock 部分透传——真实现零行为替身
+ * 只加计数；hoisted 使计数器先于 vi.mock 工厂就绪。文件级波及注记：同文件其他
+ * describe 及模块图内 tool-card 的 diffWords 绑定同被包裹（透传零扰——本文件
+ * 不调 tool-card 渲染函数）。白名单注记见 tools/check-mock-targets.mjs 表内。
+ */
+const diffWordsCalls = vi.hoisted(() => ({ count: 0 }));
+vi.mock('../blocks/word-diff.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../blocks/word-diff.js')>();
+  return {
+    ...actual,
+    diffWords: (a: string, b: string) => {
+      diffWordsCalls.count += 1;
+      return actual.diffWords(a, b);
+    },
+  };
+});
 
 /** key 事件夹具 */
 const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
@@ -1184,5 +1202,52 @@ describe('DiffViewer 真行号与段间分隔（挖掘 45 轮件 D）', () => {
     expect(readRow(grid, 6, 64)).toBe('    ⋮');
     expect(readRow(grid, 7, 64)).toBe(' 3 3  ctx2'); // S2 真帧重起（回看重起双轨）
     expect(readRow(grid, 8, 64)).toBe(' 4  -second old');
+  });
+});
+
+describe('flatRows 词级 DP 组体缓存（挖掘 50 轮件 A——零 DP 重跑）', () => {
+  /** 计数器逐 it 重置（vi.mock 工厂一次性——计数器跨 it 累积） */
+  beforeEach(() => {
+    diffWordsCalls.count = 0;
+  });
+
+  it('展开组重复消费不重算——光标动作+measure+render 复跑计数恒平（修前红：每 flatRows 全量重算）', () => {
+    // 单组夹具（src/one.ts——含相邻 del+add 对）：两组夹具首组 docs/two.md 是
+    // Add File 零相邻对（bodyRowsOf 对其永不调 diffWords——冷读勘正：主锁须落
+    // 有对组；单组唯一组头即光标 0 位，enter 直展免 down）
+    const viewer = new DiffViewer({
+      messages: [assistant([editCall('t1', PATCH_A)]), result('t1')],
+      theme: DEFAULT_THEME,
+      sessionId: 'sess-abcdef1234567890',
+      onExit: vi.fn(),
+    });
+    const width = 64;
+    viewer.handleEvent(k('enter')); // 展开唯一组
+    viewer.measure(width);
+    let grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    expect(diffWordsCalls.count).toBeGreaterThan(0); // 夹具有效前置（PATCH_A 一对相邻对）
+    const afterFirstPass = diffWordsCalls.count;
+    // 第二遍全量消费：光标动作（handleEvent 消费面）+ measure + render 三面复跑
+    viewer.handleEvent(k('down'));
+    viewer.measure(width);
+    grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // 修后：组体命中缓存零重跑（修前每 flatRows 全量重算——计数涨红）
+    expect(diffWordsCalls.count).toBe(afterFirstPass);
+  });
+
+  it('未展开组零调用——全收起态 measure+render 后计数为零（continue 前置现状锁）', () => {
+    const viewer = new DiffViewer({
+      messages: [assistant([editCall('t1', PATCH_A)]), result('t1')],
+      theme: DEFAULT_THEME,
+      sessionId: 'sess-abcdef1234567890',
+      onExit: vi.fn(),
+    });
+    const width = 64;
+    viewer.measure(width);
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    expect(diffWordsCalls.count).toBe(0); // flatRows 组头后 continue 前置——bodyRowsOf 零达
   });
 });
