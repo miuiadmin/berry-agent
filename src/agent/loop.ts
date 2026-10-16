@@ -2,7 +2,7 @@
  * agent 件 — loop 骨架（04 §2 形态铁律：双 while、≤150 行、零 try/catch、零存储感知）。
  * 外层 turn 循环：steering 注入 → 流消费 → 终态判定 → 工具批 → followUp 续跑裁决。
  * 内层流消费与工具批执行分别住在 stream.ts / tools-batch.ts（骨架只留控制流）。
- * 全部策略经注入回调（AgentLoopConfig 13 项）、全部状态经活体事件回流——
+ * 全部策略经注入回调（AgentLoopConfig 18 项）、全部状态经活体事件回流——
  * loop 不知道 conversation 存在；错误不就地 try/catch（StreamFn 永不抛契约），失败由 run 终态承载（04 §2/§3）。
  */
 
