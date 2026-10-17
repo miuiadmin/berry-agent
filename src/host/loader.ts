@@ -34,7 +34,7 @@ import { providerApiFace } from '../llm/index.js';
 import type { McpServerAttachFace, McpSpawnFace } from '../../plugins/mcp/index.js';
 
 import { synthesizePluginConfig, type ConfigField } from './config-schema.js';
-import { createGateTransform, createTreeBareResolver } from './import-gate.js';
+import { createGateTransform, createTreeBareResolver, prescanPluginOwnGraph } from './import-gate.js';
 import type { PluginManifest } from './manifest.js';
 import { withoutSessionAnchor } from './session-anchor.js';
 import { withTimeout } from './runtime.js';
@@ -562,15 +562,30 @@ async function loadDiskModule(
   const faces = { ...virtualFaces }; // 面快照（本插件 jiti 实例的直注集）
   // 受门档生效集快照（R3——缺席 = 分级腿未接线，道②静默；空集 = 受门档全拒）
   const gatedNodeBuiltins = gatedNodeBuiltinsOf?.(row.id);
+  // 裸说明符树内解析位（道③自带 node_modules——缺此位裸说明符恒 fail-closed 拒）
+  const resolveBare = createTreeBareResolver(row.pluginDir);
+  // 门禁上下文单源：transform 腿与前置源扫腿共用（两腿同一裁决核——03 §3.3 勘正）
+  const gateContext = {
+    resolveBare,
+    ...(gatedNodeBuiltins !== undefined ? { gatedNodeBuiltins: new Set(gatedNodeBuiltins) } : {}),
+  };
+  const entryId =
+    row.manifest.entryPlan.kind === 'entry-file'
+      ? join(row.pluginDir, row.manifest.entryPlan.entry)
+      : join(row.pluginDir, resolvePkgMain(row.pluginDir));
+  // 前置源扫腿（2026-10-18 勘正）：jiti 对原生 ESM 求值路径（type:module 入口）
+  // 零调 transform——本腿在 jiti 求值前从入口扫插件自有码图，越界即拒（同核
+  // 同码同律；转译路径文件 transform 腿照扫，双扫幂等）
+  const prescan = prescanPluginOwnGraph({
+    pluginId: row.id,
+    pluginDir: row.pluginDir,
+    entryPath: entryId,
+    ...gateContext,
+  });
+  if (prescan !== true) throw prescan; // BaseError 直抛——行级隔离 catch 位按码受理（mapJitiError 透传 BaseError 同形）
   const opts: LoadPluginJitiOptions = {
     virtualModules: faces,
-    // 裸说明符树内解析位接线（道③自带 node_modules——缺此位裸说明符恒 fail-closed 拒）
-    transform: createGateTransform({
-      pluginId: row.id,
-      pluginDir: row.pluginDir,
-      resolveBare: createTreeBareResolver(row.pluginDir),
-      ...(gatedNodeBuiltins !== undefined ? { gatedNodeBuiltins: new Set(gatedNodeBuiltins) } : {}),
-    }),
+    transform: createGateTransform({ pluginId: row.id, pluginDir: row.pluginDir, ...gateContext }),
   };
   const jiti =
     jitiFactory?.(row.pluginDir, opts) ??
@@ -581,10 +596,6 @@ async function loadDiskModule(
       moduleCache: true,
       fsCache: false, // 门禁身份不入缓存键——缓存命中即跳过 transform 穿门（03 §3.3 勘正）
     });
-  const entryId =
-    row.manifest.entryPlan.kind === 'entry-file'
-      ? join(row.pluginDir, row.manifest.entryPlan.entry)
-      : join(row.pluginDir, resolvePkgMain(row.pluginDir));
   let namespace: Record<string, unknown>;
   try {
     namespace = (await jiti.import(entryId)) as Record<string, unknown>;

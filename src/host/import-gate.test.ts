@@ -14,7 +14,14 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 
 import { BARE_BUILTINS, PURE_COMPUTATION_BUILTINS } from './builtins.js';
-import { checkImportSpecifier, createGateTransform, extractImportSpecifiers, VIRTUAL_KEYS } from './import-gate.js';
+import {
+  checkImportSpecifier,
+  createGateTransform,
+  extractImportSpecifiers,
+  prescanPluginOwnGraph,
+  VIRTUAL_KEYS,
+} from './import-gate.js';
+import type { PreScanOptions } from './import-gate.js';
 
 /** containment 测试临时目录族（统一清） */
 const containDirs: string[] = [];
@@ -315,5 +322,145 @@ describe('createGateTransform 相对径 containment 执法（道③补腿——�
       filename: join(pluginDir, 'deep', 'entry.js'),
     });
     expect(missing.code).toContain("'../not-yet.js'");
+  });
+});
+
+describe('prescanPluginOwnGraph 装载前置源扫腿（2026-10-18 勘正——修前红：jiti 原生 ESM 求值路径零调 transform，字面量腿对 type:module 形整体失明）', () => {
+  /** 源扫 fixture：相对路径 → 源文本映射落盘（真实文件系统形态——与装载腿同基） */
+  function scanFixture(files: Readonly<Record<string, string>>): string {
+    const root = mkdtempSync(join(tmpdir(), 'berry-gate-prescan-'));
+    containDirs.push(root);
+    const pluginDir = join(root, 'plug');
+    for (const [rel, source] of Object.entries(files)) {
+      const target = join(pluginDir, rel);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, source);
+    }
+    return pluginDir;
+  }
+
+  /** 受门档生效集注入形（装载序快照——空集外的「授予 tls」形更能分档） */
+  const GATED = new Set(['node:tls']);
+
+  /** 扫描速记（缺省入口 entry.js + 受门集注入） */
+  function scan(pluginDir: string, extra: Partial<PreScanOptions> = {}, entry = 'entry.js'): true | BaseError {
+    return prescanPluginOwnGraph({
+      pluginId: 'plug-scan',
+      pluginDir,
+      entryPath: join(pluginDir, entry),
+      gatedNodeBuiltins: GATED,
+      ...extra,
+    });
+  }
+
+  it('入口受门内建越界即拒（原生 ESM 形的单元镜像——transform 腿不达路径由本腿封）', () => {
+    const pluginDir = scanFixture({ 'entry.js': `import os from 'node:os';\nexport default 1;\n` });
+    const verdict = scan(pluginDir);
+    expect(verdict).toBeInstanceOf(BaseError);
+    expect((verdict as BaseError).code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
+    expect((verdict as BaseError).message).toContain('node:os'); // 说明符点名
+    expect((verdict as BaseError).message).toContain('plug-scan'); // 插件 id 点名
+  });
+
+  it('递归深入：相对导入链子文件违规同拒（深层多级图遍历）', () => {
+    const pluginDir = scanFixture({
+      'entry.js': `import './mid.js';\nexport default 1;\n`,
+      'mid.js': `import './deep.js';\nexport default 1;\n`,
+      'deep.js': `import cp from 'node:child_process';\nexport default cp;\n`,
+    });
+    const verdict = scan(pluginDir);
+    expect(verdict).toBeInstanceOf(BaseError);
+    expect((verdict as BaseError).code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
+    expect((verdict as BaseError).message).toContain('node:child_process'); // 违规点在孙文件
+  });
+
+  it('visited 防环：circular import 图不炸、全清即过（纯计算内建免门同判）', () => {
+    const pluginDir = scanFixture({
+      'entry.js': `import './a.js';\nexport default 1;\n`,
+      'a.js': `import './entry.js';\nimport p from 'node:path';\nexport default p;\n`, // node:path ∈ 放行档
+    });
+    expect(scan(pluginDir)).toBe(true);
+  });
+
+  it('node_modules 子树豁免同律：第三方码受门内建/裸内建不拦（生态惯例）', () => {
+    const pluginDir = scanFixture({
+      'entry.js': `import d from './node_modules/dep/i.js';\nexport default d;\n`,
+      'node_modules/dep/i.js': `import os from 'node:os';\nconst fs = require('fs');\nexport default 1;\n`,
+    });
+    expect(scan(pluginDir)).toBe(true);
+  });
+
+  it('非码扩展名跳过：.json 载荷内说明符字面量零误伤', () => {
+    const pluginDir = scanFixture({
+      'entry.js': `import data from './data.json';\nexport default data;\n`,
+      'data.json': `{"x": "require('node:os')"}`,
+    });
+    expect(scan(pluginDir)).toBe(true);
+  });
+
+  it('相对径逃逸拒——../ 链解析出插件树（containment 与 transform 腿同律）', () => {
+    const pluginDir = scanFixture({ 'deep/entry.js': `import x from '../../escape.js';\nexport default x;\n` });
+    const verdict = scan(pluginDir, {}, 'deep/entry.js');
+    expect(verdict).toBeInstanceOf(BaseError);
+    expect((verdict as BaseError).code).toBe('PLUGIN_IMPORT_FORBIDDEN');
+    expect((verdict as BaseError).message).toContain('逃逸');
+  });
+
+  it('扩展名补全解析：无扩展说明符 ./mid → mid.js 违规同拒（jiti 解析序镜像）', () => {
+    const pluginDir = scanFixture({
+      'entry.js': `import './mid';\nexport default 1;\n`,
+      'mid.js': `import cp from 'node:child_process';\nexport default cp;\n`,
+    });
+    const verdict = scan(pluginDir);
+    expect(verdict).toBeInstanceOf(BaseError);
+    expect((verdict as BaseError).code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
+    expect((verdict as BaseError).message).toContain('node:child_process');
+  });
+
+  it('目录 index 解析：./sub → sub/index.js 违规同拒', () => {
+    const pluginDir = scanFixture({
+      'entry.js': `import './sub';\nexport default 1;\n`,
+      'sub/index.js': `import net from 'node:net';\nexport default net;\n`,
+    });
+    const verdict = scan(pluginDir);
+    expect(verdict).toBeInstanceOf(BaseError);
+    expect((verdict as BaseError).code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
+    expect((verdict as BaseError).message).toContain('node:net');
+  });
+
+  it('解析不达目标跳过：缺席相对引用归 jiti 解析失败红（门禁不代跑解析错）', () => {
+    const pluginDir = scanFixture({ 'entry.js': `import './missing.js';\nexport default 1;\n` });
+    expect(scan(pluginDir)).toBe(true);
+  });
+
+  it('readSource 注入位：craft 源参与裁决、返 null 跳过', () => {
+    const pluginDir = scanFixture({ 'entry.js': `export default 1;\n` });
+    // craft 源越界——裁决吃注入源非盘面源（测试注入位的语义锁）
+    const crafted = scan(pluginDir, {
+      readSource: (path) => (path.endsWith('entry.js') ? `import os from 'node:os';\nexport default 1;\n` : null),
+    });
+    expect(crafted).toBeInstanceOf(BaseError);
+    expect((crafted as BaseError).code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
+    // 全 null = 全跳过——零裁决零误伤（读不达形归 jiti 解析失败红）
+    expect(scan(pluginDir, { readSource: () => null })).toBe(true);
+  });
+
+  it('全清图过：放行档内建 + 虚拟键 + 树内裸说明符（resolveBare 注入）', () => {
+    const pluginDir = scanFixture({
+      'entry.js': `import p from 'node:path';\nimport host from 'berry-agent';\nimport dep from 'left-pad';\nexport default 1;\n`,
+    });
+    expect(scan(pluginDir, { resolveBare: () => true })).toBe(true);
+    // resolveBare 缺席 = 树内不可解析拒（fail-closed——transform 腿同律）
+    const bare = scan(pluginDir);
+    expect(bare).toBeInstanceOf(BaseError);
+    expect((bare as BaseError).code).toBe('PLUGIN_IMPORT_FORBIDDEN');
+    expect((bare as BaseError).message).toContain('left-pad');
+  });
+
+  it('分级腿未接线 = 道②静默（gatedNodeBuiltins 缺席——镜像律）', () => {
+    const pluginDir = scanFixture({ 'entry.js': `import os from 'node:os';\nexport default 1;\n` });
+    expect(prescanPluginOwnGraph({ pluginId: 'plug-scan', pluginDir, entryPath: join(pluginDir, 'entry.js') })).toBe(
+      true,
+    );
   });
 });

@@ -384,6 +384,88 @@ describe('门禁管线（boot 全链真 jiti——03 §3.3 道②分级执法）
   });
 });
 
+describe('门禁管线 ESM 形（type:module 原生求值路径——2026-10-18 勘正修前红：jiti 原生 ESM 零调 transform，受门内建整体绕行；前置源扫腿封堵）', () => {
+  /** 真盘数据目录速记 */
+  function realDataDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-agent-nb-esm-'));
+    dirs.push(dir);
+    return dir;
+  }
+
+  /**
+   * 真盘 ESM 码行速记（type:module 清单——jiti 走原生 import() 的装载形态）：
+   * 多文件 map 落盘（相对导入图形），行件三源（enabled.yaml/账本/清单）同
+   * codeRow 惯例。
+   */
+  function codeRowEsm(
+    dataDir: string,
+    id: string,
+    files: Readonly<Record<string, string>>,
+    nodeBuiltins?: readonly string[],
+    opens?: readonly string[],
+  ): void {
+    const yaml =
+      'plugins:\n' +
+      (opens === undefined
+        ? `  - id: ${id}\n`
+        : `  - id: ${id}\n    opens:\n${opens.map((o) => `      - ${o}\n`).join('')}`);
+    writeFileSync(join(dataDir, 'enabled.yaml'), yaml);
+    const ledgerPath = join(dataDir, 'plugins', 'ledger.json');
+    const ledger: Record<string, unknown> = { [id]: { installPath: `plugins/node_modules/${id}` } };
+    mkdirSync(join(dataDir, 'plugins', 'node_modules', id), { recursive: true });
+    writeFileSync(ledgerPath, JSON.stringify(ledger));
+    const berryAgent: Record<string, unknown> = { entry: 'entry.js' };
+    if (nodeBuiltins !== undefined) berryAgent['grants'] = { nodeBuiltins: [...nodeBuiltins] };
+    // 差异位：type:module（触发 jiti 原生 ESM 求值——transform 钩子零调用的形态）
+    writeFileSync(
+      join(dataDir, 'plugins', 'node_modules', id, 'package.json'),
+      JSON.stringify({ name: id, version: '1.0.0', type: 'module', berryAgent }),
+    );
+    for (const [rel, source] of Object.entries(files)) {
+      writeFileSync(join(dataDir, 'plugins', 'node_modules', id, rel), source);
+    }
+  }
+
+  it('type:module + 未声明受门档 import → 拒载 PLUGIN_NODE_BUILTIN_FORBIDDEN（修前红：原生 ESM 求值绕过 transform 腿整体放行）', async () => {
+    const dataDir = realDataDir();
+    codeRowEsm(dataDir, 'plug-esm-bad', {
+      'entry.js': `import os from 'node:os';\nexport default async function apply() {}\n`,
+    });
+    const boot = await bootPlugins(rigBoot({ runtime: stubRuntime(dataDir) }));
+    expect(boot.report.failed.map((f) => f.id)).toEqual(['plug-esm-bad']);
+    expect(boot.report.failed[0]!.code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN'); // 分码分归因
+    expect(boot.report.failed[0]!.message).toContain('node:os');
+  });
+
+  it('type:module + 声明+开门 → 原生 ESM 装载成活（node:os 真可达——源扫腿对在道形零误伤）', async () => {
+    const dataDir = realDataDir();
+    codeRowEsm(
+      dataDir,
+      'plug-esm-ok',
+      {
+        'entry.js': `import os from 'node:os';\nexport default async function apply(ctx) { ctx.provide('nb-esm', os.platform()); }\n`,
+      },
+      ['node:os'],
+      ['grants.node-builtins'],
+    );
+    const boot = await bootPlugins(rigBoot({ runtime: stubRuntime(dataDir) }));
+    expect(boot.report.failed).toEqual([]);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['plug-esm-ok']);
+  });
+
+  it('type:module 相对导入子文件违规同拒（源扫腿图遍历——违规点在 helper.js 孙位）', async () => {
+    const dataDir = realDataDir();
+    codeRowEsm(dataDir, 'plug-esm-deep', {
+      'entry.js': `import './helper.js';\nexport default async function apply() {}\n`,
+      'helper.js': `import cp from 'node:child_process';\nexport const probe = cp;\n`,
+    });
+    const boot = await bootPlugins(rigBoot({ runtime: stubRuntime(dataDir) }));
+    expect(boot.report.failed.map((f) => f.id)).toEqual(['plug-esm-deep']);
+    expect(boot.report.failed[0]!.code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
+    expect(boot.report.failed[0]!.message).toContain('node:child_process'); // 归因到子文件说明符
+  });
+});
+
 describe('diff 三元组（recordPluginGrantsDiff——anchor+roots+nodeBuiltins 扩形）', () => {
   it('首落含维 + 幂等零新笔 + nodeBuiltins 单独变迁亦落新笔（三元组 diff 键）', () => {
     const face = openFace();

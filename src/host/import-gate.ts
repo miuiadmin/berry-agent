@@ -10,15 +10,22 @@
  * 自带 node_modules——裸第三方说明符由「能否在插件树内解析」判，解析不可
  * 达即拒）。
  *
- * 执法 = **字面量腿**（单腿——03 §3.3 批 12d 勘正）：装载期 jiti transform
- * 钩子拦截说明符（静态 import/export-from/require + 动态字面量
- * `import('…')`/`require('…')` 全扫），越界即**抛** `PLUGIN_IMPORT_FORBIDDEN`
- * ——jiti 主求值径只消费 transform 产码、error 通道仅 debug 日志（2026-09-07
- * 探针实证），故 throw 直抛是唯一拒载通道；配套 jiti `fsCache:false`（缓存
- * 键不含门禁身份——命中即跳过 transform 穿门，装载器件负责关）。原设计
- * 运行期兜底腿（前置守卫注入/裸内建 alias 毒丸）经 jiti v2 公开面核实无
- * 注入位（裸内建名 builtin 短路判在 alias/resolve 之前）——结构性不可实现，
- * 残差（动态拼接裸内建名/绝对径逃逸）随沙箱立题裁，详 03 §3.3 勘正段。
+ * 执法 = **执法腿两腿化**（03 §3.3 批 12d 勘正 + 2026-10-18 勘正——同一
+ * 裁决核的两条装配腿）：① transform 腿——装载期 jiti transform 钩子拦截
+ * 说明符（静态 import/export-from/require + 动态字面量 `import('…')`/
+ * `require('…')` 全扫），越界即**抛** `PLUGIN_IMPORT_FORBIDDEN`——jiti 主
+ * 求值径只消费 transform 产码、error 通道仅 debug 日志（2026-09-07 探针
+ * 实证），故 throw 直抛是唯一拒载通道；② 装载前置源扫腿（2026-10-18）——
+ * jiti 对原生 ESM 求值路径（包清单 `type: "module"` 判 ESM 的入口）直接走
+ * 原生 import()，transform 钩子结构性零调用（tryNative 等公开旋钮均不达
+ * ——探针实证），字面量腿对该形态整体失明；本腿在 jiti 求值前从入口对
+ * 插件自有码图裸源扫描（prescanPluginOwnGraph），与 ① 同核（同函数复用）
+ * 同码同律拒载，转译路径文件 ① 照扫（同核幂等——双扫 verdict 恒一致）。
+ * 配套 jiti `fsCache:false`（缓存键不含门禁身份——命中即跳过 transform
+ * 穿门，装载器件负责关）。原设计运行期兜底腿（前置守卫注入/裸内建 alias
+ * 毒丸）经 jiti v2 公开面核实无注入位（裸内建名 builtin 短路判在 alias/
+ * resolve 之前）——结构性不可实现，残差（动态拼接裸内建名/绝对径逃逸/
+ * 非字面量动态说明符）随沙箱立题裁，详 03 §3.3 勘正段。
  *
  * 辖域 = 插件自有码：入口与相对导入的自有模块全扫；插件树 `node_modules/`
  * 子树内第三方码豁免（npm 生态惯例裸内建与 `node:` 形语义等价——豁免只
@@ -26,7 +33,7 @@
  * （macOS `/var` ↔ `/private/var` 符号链径差异防假阴性）；符号链接形态的
  * 深层对齐（install 期记 realpath）归装机腿落码批收口。
  */
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve as resolvePath, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -281,6 +288,123 @@ function normalizePath(filename: string): string {
   } catch {
     return plain;
   }
+}
+
+/* ---------------- 装载前置源扫腿（2026-10-18 勘正——jiti 原生 ESM 绕行补执法） ---------------- */
+
+/**
+ * 源扫辖域的码扩展名单（jiti 解析扩展表的源扫镜像——.json 等非码文件零
+ * 说明符可扫，跳过即零误伤）。
+ */
+const SCAN_SOURCE_EXTENSIONS: readonly string[] = [
+  '.js',
+  '.mjs',
+  '.cjs',
+  '.ts',
+  '.tsx',
+  '.mts',
+  '.cts',
+  '.mtsx',
+  '.ctsx',
+];
+
+/** 前置源扫选项（与 GateTransformOptions 同族——两腿共用同一裁决核的外在形） */
+export interface PreScanOptions {
+  /** 插件 id（拒载报文点名） */
+  readonly pluginId: string;
+  /** 插件目录根（辖域判定基——node_modules 子树豁免同律） */
+  readonly pluginDir: string;
+  /** 入口文件绝对路径（源扫图遍历起点） */
+  readonly entryPath: string;
+  /** 裸说明符解析位（与 checkImportSpecifier 同源） */
+  readonly resolveBare?: (specifier: string) => boolean;
+  /** 受门档 node: 内建生效集（缺席 = 道②分级腿未接线——同 transform 腿镜像律） */
+  readonly gatedNodeBuiltins?: ReadonlySet<string>;
+  /** 源读面（缺省 readFileSync——测试注入位；返 null = 读不达跳过） */
+  readonly readSource?: (path: string) => string | null;
+}
+
+/** 缺省源读面：utf8 读文件，读不达返 null（入口缺席等形归 jiti 解析失败红——本腿不抢跑） */
+function defaultReadSource(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 相对说明符的文件解析探测（jiti 解析序的最小镜像：精确命中 → 扩展名补 →
+ * 目录 index）。解析不达返 null——递归腿跳过（jiti 求值期自会以更诚实的
+ * 解析失败红，门禁不代跑解析错）。
+ */
+function resolveRelativeTarget(fromDir: string, specifier: string): string | null {
+  const base = resolvePath(fromDir, specifier);
+  const candidates = [
+    base,
+    ...SCAN_SOURCE_EXTENSIONS.map((ext) => `${base}${ext}`),
+    ...SCAN_SOURCE_EXTENSIONS.map((ext) => join(base, `index${ext}`)),
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (statSync(candidate).isFile()) return candidate;
+    } catch {
+      // 探测缺席——次候选
+    }
+  }
+  return null;
+}
+
+/**
+ * 装载前置源扫腿：从入口对插件自有码图裸源扫描说明符字面量，与 transform
+ * 腿同一裁决核（extractImportSpecifiers + checkImportSpecifier +
+ * relativeEscape——同函数复用非复刻），越界同码同律拒载。
+ *
+ * 缘起（03 §3.3 2026-10-18 勘正笔）：jiti v2 对原生 ESM 求值路径（包清单
+ * `type: "module"` 判 ESM 的入口）直接走原生 import()，transform 钩子结构
+ * 性零调用（tryNative / transformOptions 等公开旋钮均不达——探针实证）——
+ * 字面量腿对该装载形态整体失明。本腿在 jiti 求值**前**扫源，覆盖原生 ESM
+ * 路径；转译路径文件由 transform 腿照扫（同核幂等——双扫 verdict 恒一致，
+ * 成本可忽略：插件自有码图有界）。
+ *
+ * 图遍历语义：相对导入递归深入（visited 防环）；node_modules 子树与树外
+ * 文件豁免（isPluginOwnCode 同判——第三方码按生态惯例）；非码扩展名跳过；
+ * 裸说明符 / node: / 虚拟键说明符零递归（递归只沿相对径——其余形态的求值
+ * 归 jiti / 原生 loader，白名单裁决已在前置判完成）。
+ */
+export function prescanPluginOwnGraph(options: PreScanOptions): true | BaseError {
+  const pluginRoot = normalizePath(options.pluginDir);
+  const read = options.readSource ?? defaultReadSource;
+  const visited = new Set<string>();
+  const queue: string[] = [normalizePath(options.entryPath)];
+  while (queue.length > 0) {
+    const file = queue.pop() as string;
+    if (visited.has(file)) continue; // 防环（circular import 图合法形）
+    visited.add(file);
+    if (!isPluginOwnCode(file, pluginRoot)) continue; // node_modules/树外豁免同律
+    if (!SCAN_SOURCE_EXTENSIONS.some((ext) => file.endsWith(ext))) continue; // 非码文件（.json 等）
+    const source = read(file);
+    if (source === null) continue; // 读不达（入口缺席等）——jiti 解析失败红更诚实
+    for (const spec of extractImportSpecifiers(source)) {
+      const verdict = checkImportSpecifier(spec, {
+        ...(options.resolveBare !== undefined ? { resolveBare: options.resolveBare } : {}),
+        ...(options.gatedNodeBuiltins !== undefined ? { gatedNodeBuiltins: options.gatedNodeBuiltins } : {}),
+      });
+      if (verdict !== true) {
+        return new BaseError(verdict.code, `[${options.pluginId}] ${verdict.message}`);
+      }
+      // 相对径 containment 执法（transform 腿同律）+ 递归深入
+      if (spec.startsWith('./') || spec.startsWith('../')) {
+        if (relativeEscape(spec, file, pluginRoot) === true) {
+          const escaped = forbidden(spec, '相对导入解析逃逸插件目录树');
+          return new BaseError(escaped.code, `[${options.pluginId}] ${escaped.message}`);
+        }
+        const target = resolveRelativeTarget(dirname(file), spec);
+        if (target !== null) queue.push(normalizePath(target));
+      }
+    }
+  }
+  return true;
 }
 
 /** jiti 实例面再导出（loader 组装位类型收窄用） */
