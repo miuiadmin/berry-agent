@@ -9,8 +9,10 @@
  * 合批 / 唤醒预算批消费位记账）+ 取消模型（dismantled 停摆旗标 + per-run
  * 控制器——abort()）+ resume 冷启动续接（构造折叠 + 重播种 + header resume）。
  * 批 11e 纵切面：open 域工具与审批三件装配（assembleOpenTools 消费）。
- * 批 11f 纵切面：环境披露段注入（04 §11）+ onRunSettled 终态回调（ctx.agent
- * 服务订阅面）+ 子代理审批挂起通知注入面（04 §10）；host 装配根接线归批 12。
+ * 批 11f 纵切面：环境披露段注入（04 §11）+ onRunSettled 终态回调（宿主
+ * 装配缝——AgentLoopConfig 注入位、非插件面词汇，03 §2.2:188 定谳〔ctx.agent
+ * 命名空间无此成员〕——词形勘正随 2026-10-17 硬伤处置第三批·①段二）+
+ * 子代理审批挂起通知注入面（04 §10）；host 装配根接线归批 12。
  * 批 v 纵切面（2026-09-11 运行时断言批）：「模型可见即已记录」请求关口总拍
  * （05 §1.2 对拍断言）——onTransformContext 入口 timeline 活数组 vs 日志独立
  * 重建恒开对拍，红 = 驱动 bug fail-loud（暗通道/翻译失真两类病灶）。
@@ -1378,14 +1380,17 @@ export class ConversationDriver {
       // run 终态 = 结算边界（04 §3）：审批对收口（04 §9 turn 界闭合——未决
       // ask 统一 unavailable；run 打断的在身 ask 已由 signal 链先收 cancel）
       this.options.settleApprovals?.();
-      // onRunSettled 终态回调（ctx.agent 服务订阅面——03 §2.2；非总线词汇，
-      // 与审批收口同界；异常/上抛路径无终态即零回调）
+      // onRunSettled 终态回调（宿主装配缝——AgentLoopConfig 注入位、非插件
+      // 面词汇——03 §2.2:188 定谳〔ctx.agent 命名空间无此成员，消费 = 宿主
+      // 装配侧/core 件经 ctx.get('agent') 服务目录〕；非总线词汇，与审批
+      // 收口同界；异常/上抛路径无终态即零回调）
       if (settled !== undefined) {
         notifyRunSettled(this.options.scope, { result: settled, sessionId: this.session.sessionId });
       }
       // session/lifecycle 终态拍广播（04 §6 e-2——finally 面恒发：崩溃路径也
       // 收口〔只报 phase 不虚构终值〕；与 onRunSettled 同界但语义分立——彼系
-      // ctx.agent 订阅面携 RunResult 本体、此系活体投影零结果引用）
+      // 宿主装配缝终态回调携 RunResult 本体（03 §2.2:188）、此系活体投影
+      // 零结果引用）
       void this.options.dispatch.emit(SESSION_LIFECYCLE_EVENT, {
         sessionId: this.session.sessionId,
         phase: 'run-settled',

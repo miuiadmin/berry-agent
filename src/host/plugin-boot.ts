@@ -78,8 +78,9 @@ import type { PluginRouteRegistry } from '../sdk/index.js';
 // 载体真身；host→persist 边在册）
 import type { AuditFace, LoadHistoryFace } from '../persist/index.js';
 // canonical/求交单源（safety 公开面——①段一 grants 装载账：锚定解析 canonical
-// 化 + fence 根推导 + containment 三面同源；host→safety 边在册）
-import { canonicalPath, deriveWritableRoots, isInsideRoot } from '../safety/index.js';
+// 化 + fence 根推导 + containment 三面同源；①段二调用级执法 live 侧取值器
+// 同源 createRootsProvider；host→safety 边在册）
+import { canonicalPath, createRootsProvider, deriveWritableRoots, isInsideRoot } from '../safety/index.js';
 import type { SandboxMode } from '../safety/index.js';
 // Job 收口窄面类型（Job 消费面批桥二——插件卸载归属围栏收口；host→subagent 边在册）
 // + jobs 窄面（JobsPluginFace——2026-09-15 ④ 笔 fork 绑面自报位除名后的插件可见形状）
@@ -421,14 +422,30 @@ export interface PluginBootOptions {
   readonly pluginFile?: string;
   /**
    * grants 装载账 fence 快照输入（05 §1.1 行 80——2026-10-16 硬伤处置第三批·
-   * ①段一）：workspace 锚根 + boot 解析档位（fence 根推导真源 = 04 §7 fence
-   * 条款 + §8 deriveWritableRoots 表——与 fs fence/沙箱 profile 同源；boot 时
-   * 点无会话授予面，worktree 授予根随会话起收不入快照）。在场时装载序对
-   * grants 磁盘行深校验+选锚求交入账（audit 面在场且落账有变才落；拒载行零
-   * 审计）并供 handle.grantsOf 在程视图。缺席 = grants 腿整体静默（不记账不
-   * 供值器、既有账面不坍缩——诚实缺席律：:memory: 诊断形/测试替身）。
+   * ①段一）+ 调用级执法 live 侧真源（①段二——04 §7 编舞条款〔2026-10-17
+   * 定谳注：boot 授予交集冻结档〕）：workspace 锚根 + boot 解析档位（fence
+   * 根推导真源 = 04 §7 fence 条款 + §8 deriveWritableRoots 表——与 fs
+   * fence/沙箱 profile 同源；boot 时点无会话授予面，worktree 授予根随会话
+   * 起收不入快照）。在场时装载序对 grants 磁盘行深校验+选锚求交入账
+   * （audit 面在场且落账有变才落；拒载行零审计）、供 handle.grantsOf 在程
+   * 视图、并对磁盘行注入调用级执法 fence（①段二——仅磁盘行，core 行结构
+   * 性无 grants 申请面 = 03 §4.6 豁免先例）。缺席 = grants 腿整体静默
+   * （不记账不供值器不执法、既有账面不坍缩——诚实缺席律：:memory: 诊断形/
+   * 测试替身）。
    */
-  readonly grantsFence?: { readonly workspace: string; readonly mode: SandboxMode };
+  readonly grantsFence?: {
+    readonly workspace: string;
+    readonly mode: SandboxMode;
+    /**
+     * per-session 档位 fold 取值器（①段二 live 侧——safety createRootsProvider
+     * 消费形，WritableRootsInput.mode 同构；disclosure eventsOf 带参会话键
+     * 先例）：live fence 根按调用时点会话档位求值（read-only 收窄恒拒 /
+     * danger 放宽全盘）。缺席 = boot 解析档位恒值 fallback（grants 腿先于
+     * 装配根 per-session fold 接线的过渡形——装配根注入随后续批，worktree
+     * 授予根〔grantedRoots〕同批）。
+     */
+    readonly sessionMode?: (sessionId?: string) => SandboxMode;
+  };
   /**
    * 卸载换代槽（/reload 批——03 §5.7 热重载换代执法位）：在场时本代卸载
    * 序不走 runtime closers 直注册，改写槽内 current（装配根一次性注册读
@@ -772,9 +789,49 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   // 账——注册成功入账、disposer 出账）；/reload reapply 重跑本函数 = 换代
   // 即新账，旧代 disposer 回卷只动旧代账（世代行已快照落笔，无害）
   const toolLedger = createPluginToolLedger();
+  // —— grants 逐行 boot 授予交集预算（①段一账面与①段二执法冻结值的单源
+  //    计算——〔2026-10-17 定谳注：boot 授予交集冻结档〕「与装载账 roots
+  //    同值、两用非同一物」的结构保证）：装载前对计划面磁盘行一次算就
+  //    （拒绝式深校验已在合成序先行——此处只见获准入计划的行；装载成败不
+  //    影响预算——失败行 ctx 未建成零消费）；createContext 逐行取值注 fence
+  //    （段二执法基线——受理壳注册时点冻结副本）、收口按 activatedIds 过滤
+  //    成账（段一审计归因面）——同 Map 两取，值恒同源。core 行结构性无
+  //    grants 申请面（非豁免分支——段一无豁免面；段二豁免 = 装配面不注入
+  //    fence，03 §4.6 先例）。grantsFence 缺席 = grants 腿整体静默（同段一
+  //    ——诚实缺席律）
+  const grantsFenceInput = options.grantsFence;
+  const grantsRowRoots =
+    grantsFenceInput === undefined
+      ? null
+      : computeGrantRowRoots({ plan, fence: grantsFenceInput, dataDir: options.runtime.dataDir });
+  // live fence 根取值器（①段二 live 侧——safety createRootsProvider 单源：
+  // 会话档位 sandbox/mode fold 与 canonical 化都在 provider 内；sessionMode
+  // 缺席 = boot 解析档位恒值 fallback——见 grantsFence.sessionMode 注）
+  let grantsLiveRoots: ((sessionId?: string) => readonly string[]) | null = null;
+  if (grantsFenceInput !== undefined) {
+    const bootMode = grantsFenceInput.mode;
+    grantsLiveRoots = createRootsProvider({
+      workspace: grantsFenceInput.workspace,
+      mode: grantsFenceInput.sessionMode ?? (() => bootMode),
+    });
+  }
+  // 磁盘行 fence 装配窄面：Map 有条目（= 磁盘行，含试件行）才供值；core 行
+  // 无条目 = undefined = 不注入 = 03 §4.6 官方件豁免先例的落码形
+  const grantsFenceOf = (pluginId: string) => {
+    const rowGrants = grantsRowRoots?.get(pluginId);
+    return rowGrants !== undefined && grantsLiveRoots !== null
+      ? { bootRoots: rowGrants.roots, liveRoots: grantsLiveRoots }
+      : undefined;
+  };
   const createContext = (pluginId: string, opens?: readonly string[]) => {
     const fork = options.scope.fork();
     pluginScopes.push(fork);
+    // grants 调用级执法 fence（①段二——04 §7 编舞条款〔2026-10-17 定谳注：
+    // boot 授予交集冻结档〕）：仅磁盘行（含试件行）注入——未声明 grants 的
+    // 第三方件冻结交集空 = 写面全关 fail-closed；core 行无 Map 条目 = 不注
+    // 入 = 03 §4.6 官方件豁免先例。bootRoots 传共享数组、冻结副本在受理壳
+    // 注册时点复制（两用非同一物）
+    const grantsFence = grantsFenceOf(pluginId);
     const handle = createPluginContext({
       pluginId,
       scope: fork,
@@ -783,6 +840,10 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       // 工具名账透传（h-3——register 包壳层记账；缺席（本面不存在缺位）只
       // 发生在 createPluginContext 直测形，bootPlugins 恒注）
       toolLedger,
+      // grants 调用级执法 fence 透传（①段二——见上方 grantsFenceOf 注；
+      // 受理壳 executeWithWindow 同位再包，frozen ∩ live 空且 write/exec
+      // 效果面即拒跑）
+      ...(grantsFence !== undefined ? { grantsFence } : {}),
       commands: options.commands,
       llm: options.llm,
       promptSections,
@@ -985,17 +1046,17 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   // —— grants 装载账计算（05 §1.1 行 80——2026-10-16 硬伤处置第三批·①段一）：
   //    boot 解析档下快照（深校验已在合成序拒载——此处账面只记获装载行：拒载/
   //    禁用/装载门红/loader 失败零记账 = 拒载零审计律；04 §7 编舞条款「审计
-  //    归因面非执法面」——段二执法交集 = 调用时与 live fence 根求交）。
-  //    grantsFence 缺席 = grants 腿整体静默（不记账不供值器——诚实缺席律）
-  const grantsAccounts =
-    options.grantsFence === undefined
+  //    归因面非执法面」——段二执法交集 = 调用时与 live fence 根求交）。与段二
+  //    执法冻结值同 Map 单算（createContext 已逐行取值注 fence——两用同值非
+  //    同一物）。grantsFence 缺席 = grants 腿整体静默（不记账不供值器——诚实
+  //    缺席律）
+  const activatedIds = new Set(loaded.activated.map((a) => a.id));
+  const grantsAccounts: readonly PluginGrantsAccount[] =
+    grantsRowRoots === null
       ? []
-      : computeGrantsAccounts({
-          plan,
-          activatedIds: new Set(loaded.activated.map((a) => a.id)),
-          fence: options.grantsFence,
-          dataDir: options.runtime.dataDir,
-        });
+      : [...grantsRowRoots.entries()]
+          .filter(([id]) => activatedIds.has(id))
+          .map(([id, row]) => ({ pluginId: id, anchor: row.anchor, roots: row.roots }));
 
   // —— 启动横幅聚合 warn（03 §5.7② obs-a 兑现）：装载序尾对本 boot loader
   //    行失败（jiti 装载/apply/模块 inject 执法——合成失败行已在上方点名）
@@ -1255,36 +1316,35 @@ function validateWritableRootsDeep(entries: readonly string[], pluginId: string)
 }
 
 /**
- * grants 装载账计算（05 §1.1 行 80——①段一：装载序深校验+选锚求交）。
- *
- * 只记获装载行（activatedIds 内的磁盘行——拒载/禁用/装载门红/loader 失败
- * 零记账 = 拒载零审计律）；core 引用行结构性无 grants 申请面（CorePlugin
- * Reference 无此键——非豁免分支：段一无豁免面，§4.6 官方件豁免是段二执法
- * 闸事）。选锚 = 装载形态（03 §4.2 双锚定形注）：试件行（--plugin-file）锚
- * 插件目录、装机态磁盘行锚 workspace。求交三步：申请面逐条锚定解析
- * canonical 化（最近既有祖先解析——与 fence 判据同律可对账；./x ≡ x ≡
- * ./x/ 同 canonical）→ 数据目录 carve-out 恒优先出交集（04 §7 fence 条款
- * ——任何档恒不可写族；memory 形无数据目录即无此面）→ 与 fence 可写根
- * containment 求交（不在任何根内 = 出交集——锚定根在 fence 根外即交集恒
- * 空，开发态独立仓布局的「布局事实非缺陷」律）。fence 根单源 =
- * deriveWritableRoots（04 §8 表——boot 快照不含授予根：boot 时点无会话
- * 授予面，worktree 授予随会话起收）。
+ * grants 逐行 boot 授予交集计算（05 §1.1 行 80——①段一装载序深校验+选锚
+ * 求交；①段二起升为段一账面与段二执法冻结值的单源计算——〔2026-10-17
+ * 定谳注：boot 授予交集冻结档〕两用同值非同一物：本函数装载前对计划面
+ * 磁盘行一次算就成 Map，段一收口按 activatedIds 过滤成账（拒载/禁用/装载
+ * 门红/loader 失败零记账 = 拒载零审计律）、段二 createContext 逐行取值注
+ * fence（受理壳注册时点冻结副本））。core 引用行结构性无 grants 申请面
+ * （CorePluginReference 无此键——非豁免分支：段一无豁免面，§4.6 官方件
+ * 豁免是段二执法闸事＝装配面不注入 fence）。选锚 = 装载形态（03 §4.2 双
+ * 锚定形注）：试件行（--plugin-file）锚插件目录、装机态磁盘行锚 workspace。
+ * 求交三步：申请面逐条锚定解析 canonical 化（最近既有祖先解析——与 fence
+ * 判据同律可对账；./x ≡ x ≡ ./x/ 同 canonical）→ 数据目录 carve-out 恒优先
+ * 出交集（04 §7 fence 条款——任何档恒不可写族；memory 形无数据目录即无
+ * 此面）→ 与 fence 可写根 containment 求交（不在任何根内 = 出交集——锚定
+ * 根在 fence 根外即交集恒空，开发态独立仓布局的「布局事实非缺陷」律）。
+ * fence 根单源 = deriveWritableRoots（04 §8 表——boot 快照不含授予根：boot
+ * 时点无会话授予面，worktree 授予随会话起收）。
  */
-function computeGrantsAccounts(input: {
+function computeGrantRowRoots(input: {
   readonly plan: readonly LoaderPlanRow[];
-  readonly activatedIds: ReadonlySet<string>;
   readonly fence: { readonly workspace: string; readonly mode: SandboxMode };
   readonly dataDir: string | null;
-}): readonly PluginGrantsAccount[] {
+}): ReadonlyMap<string, { readonly anchor: PluginGrantsAnchor; readonly roots: readonly string[] }> {
   const fenceRoots = deriveWritableRoots(input.fence.workspace, input.fence.mode);
   // 数据目录 carve-out 判据（canonical 化——与锚定根同律比对）
   const dataCarve = input.dataDir === null ? null : canonicalPath(input.dataDir);
-  const accounts: PluginGrantsAccount[] = [];
+  const rows = new Map<string, { anchor: PluginGrantsAnchor; roots: readonly string[] }>();
   for (const row of input.plan) {
     // core 行结构性无 grants 申请面（非豁免分支——段一无豁免面）
     if (row.kind !== 'disk') continue;
-    // 拒载零审计律：未获装载行不记账
-    if (!input.activatedIds.has(row.id)) continue;
     // 装载形态选锚（03 §4.2 双锚）：试件行锚插件目录（试件常驻工作区内
     // 独立仓——workspace 锚则结构性恒空）；装机态锚 workspace（插件目录在
     // 数据目录族——维持插件目录锚则交集结构性恒空，定形注改锚根因）
@@ -1300,9 +1360,9 @@ function computeGrantsAccounts(input: {
       if (!fenceRoots.some((root) => isInsideRoot(anchored, root))) continue;
       roots.add(anchored);
     }
-    accounts.push({ pluginId: row.id, anchor, roots: [...roots].sort() });
+    rows.set(row.id, { anchor, roots: [...roots].sort() });
   }
-  return accounts;
+  return rows;
 }
 
 /**

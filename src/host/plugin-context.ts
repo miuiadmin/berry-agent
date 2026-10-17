@@ -60,6 +60,9 @@ import type {
 } from '../contracts/index.js';
 import type { LlmRuntime } from '../llm/index.js';
 import type { CommandHandler, ToolRenderer } from '../channels/index.js';
+// containment 单源（grants 调用级执法——04 §7 编舞条款·①段二 2026-10-17
+// 〔定谳注：boot 授予交集冻结档〕；host→safety 边在册）
+import { isInsideRoot } from '../safety/index.js';
 import { AGENT_TOOL_PREFIX } from '../subagent/types.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { Disposer, EventDispatch, Scope, WaterfallListener } from '../context/index.js';
@@ -417,6 +420,34 @@ export interface PluginContextOptions {
    * doors 支路恒空（订阅门检只吃行 opens——诊断形/测试替身）。
    */
   readonly crossDoors?: () => ReadonlySet<string>;
+  /**
+   * grants 调用级执法 fence（04 §7 编舞条款·①段二——〔2026-10-17 定谳注
+   * （boot 授予交集冻结档）〕）：在场时 ctx.tools.register 受理壳执行体
+   * （executeWithWindow 同位）再包一层 grants fence——执法判据 = 冻结交集 ∩
+   * 调用时 live fence 根为空且效果面 ∈ {write, exec}（缺省 exec 亦入执法集
+   * ——fail-closed，04 §9 未知缺省最危律）→ 执行体拒跑、isError 错误回执
+   * （复用在册码 FS_OUTSIDE_WRITABLE_ROOTS——零新码）。
+   *  - bootRoots：boot 授予交集**冻结值**（与 handle.grantsOf 账面 roots
+   *    同值——装载序单源计算；两用非同一物：受理壳注册时点复制副本闭包
+   *    常驻，不引用账行对象；boot 后盘上配置漂移不生效、/reload 换代重
+   *    冻结）。值域 = canonical 绝对路径（装载序单源 canonical 化——本面
+   *    零再解析）。**单独不得充当写面**——必须再与调用时 live 根求交。
+   *  - liveRoots：调用时 live fence 根取值器（safety 件 createRootsProvider
+   *    单源产物——会话档位 sandbox/mode fold；read-only 档 live 根空 =
+   *    执法交集恒空，frozen 非空亦恒拒）。消费键 = ToolContext.sessionId。
+   *  装配序注入律（plugin-boot）：**仅磁盘行注入**（含试件行——未声明
+   *  grants 的第三方件冻结交集空 = 写面全关 fail-closed，03 §4.1「不申请 =
+   *  无该面」）；core 行结构性无 grants 申请面 = 不注入 = 豁免（03 §4.6
+   *  先例——官方件高危面经宿主装配裁决直开不被门检拦）。宿主直构件
+   *  （core:host 装配工具）不经受理壳 = 零行为变化。缺席 = 不执法（直测
+   *  形/:memory: 诊断形——诚实缺席律）。
+   */
+  readonly grantsFence?: {
+    /** boot 授予交集冻结值（受理壳注册时点复制——闭包常驻不随外部数组变动） */
+    readonly bootRoots: readonly string[];
+    /** live fence 根取值器（参数 = ToolContext.sessionId——per-session 档位 fold 消费键） */
+    readonly liveRoots: (sessionId?: string) => readonly string[];
+  };
 }
 
 /** 命令注册表受局面（CommandRegistry 的结构面——测试替身免建全量） */
@@ -935,7 +966,43 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         // 窗外（与钩子派发窗同律）；深度计数天然支持执行体内嵌套。宿主直
         // 构件不经本壳（open-tools 直接 registry.register——无插件身份亦无
         // 窗需求）
+        // grants fence 冻结副本（〔2026-10-17 定谳注：boot 授予交集冻结档〕——
+        // 04 §7 编舞条款·①段二）：注册时点一次复制进闭包 = 装载时冻结（不引
+        // 用装载账行对象、不随后续外部数组变动——与账面 roots 同值但两用非同
+        // 一物；同值由装载序单源计算保证）。fence 缺席（core 行/直测形）零包
+        // 装差——执行体只剩既有回调窗包装
+        const grantsBootRoots = options.grantsFence === undefined ? null : [...options.grantsFence.bootRoots];
+        const grantsLiveRoots = options.grantsFence === undefined ? null : options.grantsFence.liveRoots;
         const executeWithWindow: ToolDefinition['execute'] = async (args, toolCtx) => {
+          // grants 调用级执法（04 §7 编舞条款）：执法交集 = 冻结交集 ∩ 调用时
+          // live fence 根（live 取值器收 ToolContext.sessionId——per-session
+          // 档位 fold）；空且效果面 write/exec（缺省 exec——未知缺省最危律）
+          // → 执行体拒跑。判据在回调窗开之前（拒跑非执行——不占窗计数）；
+          // 交集非空判据 = 双向 containment（frozen ⊆ live 或 live ⊆ frozen
+          // 任一即交——前缀闭族的非空判据，isInsideRoot 单源）。复用在册码
+          // FS_OUTSIDE_WRITABLE_ROOTS 走 isError 数据面（工具面一切失败编码
+          // isError 结果——错误是数据契约之一，非抛错）
+          if (grantsBootRoots !== null && grantsLiveRoots !== null && (def.effect ?? 'exec') !== 'read') {
+            const liveRoots = grantsLiveRoots(toolCtx.sessionId);
+            const intersects = grantsBootRoots.some((frozen) =>
+              liveRoots.some((live) => isInsideRoot(frozen, live) || isInsideRoot(live, frozen)),
+            );
+            if (!intersects) {
+              const fmt = (roots: readonly string[]) => (roots.length === 0 ? '（空）' : roots.join('、'));
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text:
+                      `[FS_OUTSIDE_WRITABLE_ROOTS] 插件 ${pluginId} 工具 ${def.name}（效果面 ${def.effect ?? 'exec'}）执行被拒：` +
+                      `grants 执法交集为空——boot 授予交集冻结值 ${fmt(grantsBootRoots)} ∩ 调用时 live fence 根 ${fmt(liveRoots)} = ∅` +
+                      `（04 §7 grants 三方交集执法〔2026-10-17 定谳注：boot 授予交集冻结档〕；read-only 档 live fence 根空即恒拒）`,
+                  },
+                ],
+                isError: true,
+              };
+            }
+          }
           hostCallbackDepth++;
           try {
             return await def.execute(args, toolCtx);
