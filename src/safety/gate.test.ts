@@ -57,7 +57,7 @@ const EDIT = makeTool('edit', 'write');
 const READ = makeTool('read', 'read');
 const DEPLOY = makeTool('deploy', 'write'); // 整名族（非 fs 写意图工具）
 const EXEC_TOOL = makeTool('shell', 'exec'); // exec 档工具（三值扩——任意进程执行类）
-const BASH = makeTool('bash', 'exec'); // bash 工具（exec 档——词干条目族被测对象，name/effect 同 src/exec/bash.ts）
+const BASH = makeTool('bash', 'exec'); // bash 工具（exec 档——词干条目族被测对象，name/effect 同 plugins/exec/bash.ts）
 
 /** 两文件补丁（多路径 edit 场景；f1/f2 均相对 workspace） */
 function twoFilePatch(f1: string, f2: string): string {

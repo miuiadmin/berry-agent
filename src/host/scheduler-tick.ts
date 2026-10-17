@@ -29,8 +29,8 @@ import { cwd as processCwd } from 'node:process';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 
 import type { ConversationStack } from './conversation-stack.js';
-import type { RunnerFactory, RunnerHandle, RunnerRequest } from '../scheduler/index.js';
-import type { JobRow, RunOutcome } from '../scheduler/types.js';
+import type { RunnerFactory, RunnerHandle, RunnerRequest } from '../../plugins/scheduler/index.js';
+import type { JobRow, RunOutcome } from '../../plugins/scheduler/types.js';
 
 /** goal 件唤醒判定链窄面（GoalService.wake 投影——词面独立律，GoalJobsFace 同形） */
 export interface GoalWakeFace {

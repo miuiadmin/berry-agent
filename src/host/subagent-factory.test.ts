@@ -22,7 +22,7 @@ import { fauxProvider } from '../llm/index.js';
 import { getCurrentSystemPrompt } from '@earendil-works/pi-ai';
 
 import type { AgentMessage } from '../contracts/index.js';
-import type { Skill } from '../skills/index.js';
+import type { Skill } from '../../plugins/skills/index.js';
 import { createConversationStack } from './conversation-stack.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';

@@ -23,8 +23,8 @@
  * 成功尾序：行写盘 → secret 入盒 → requestReload（与 mount 同律 03 §5.2
  * 自动链）→ 回执（maskConfigSecrets 呈现纪律——secret 值恒遮蔽）。
  */
-import { pluginNamespace } from '../credentials/index.js';
-import type { CredentialChangedPayload } from '../credentials/index.js';
+import { pluginNamespace } from '../../plugins/credentials/index.js';
+import type { CredentialChangedPayload } from '../../plugins/credentials/index.js';
 import type { UiAskOptions, UiInputOptions, UiSelectChoice } from '../contracts/index.js';
 
 import type { ConfigField } from './config-schema.js';

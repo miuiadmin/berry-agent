@@ -4,7 +4,7 @@
  * 架构位（03 §10.6 件身份条）：协议核心（事件外推/请求受理/admit/seq 游标）代码位与
  * channels 通道核同体——SDK 通道后端 = UiBackend 第三后端，本件目录即其协议面；
  * stdio JSONL 传输归宿主 serve 子命令（07 §5）；HTTP+SSE 传输与 MCP server 包装归
- * core:sdk 件（src/sdk/ 随批 13e 起域）——三传输同律吃本件词汇，零第二套。
+ * core:sdk 件（plugins/sdk/ 随批 13e 起域——④批量迁移 D 腿迁位）——三传输同律吃本件词汇，零第二套。
  *
  * 信封定形（03 §10.6 线事件词汇条「信封词面（`{seq, sessionId, event}` 形）随落码
  * 批定形」——本批即定形批）：活体事件帧 kind:'event' 恰携三载荷字段 {seq, sessionId,

@@ -23,7 +23,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
-import { repoMatchesGlob } from '../issue/index.js';
+import { repoMatchesGlob } from '../../plugins/issue/index.js';
 import {
   canonicalJson,
   createDangerGate,

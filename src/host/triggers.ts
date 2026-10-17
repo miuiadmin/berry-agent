@@ -48,7 +48,7 @@ import { BaseError } from '../contracts/index.js';
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
 import type { EventSource, JobKind } from '../contracts/index.js';
 import type { OpenedSession, SessionManager, SubmitOptions, SubmitResult } from '../conversation/index.js';
-import type { JobHandle, JobRegistry } from '../subagent/index.js';
+import type { JobHandle, JobRegistry } from '../../plugins/subagent/index.js';
 import type { Disposer } from '../context/index.js';
 
 /** 起会参数（starter 单参——03 §2.2 行 120 starter(spec) 签名定形） */

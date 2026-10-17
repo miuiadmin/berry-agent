@@ -20,7 +20,7 @@ import {
   type UpdateCheckFs,
 } from './upgrade.js';
 import type { SpawnRunner } from './plugin-install.js';
-import type { DnsResolver, FetchLike } from '../web/types.js';
+import type { DnsResolver, FetchLike } from '../../plugins/web/types.js';
 
 /** 公网 DNS 桩（守卫层 assertPublicHost 过审用——零真解析） */
 const publicDns: DnsResolver = async () => ['93.184.216.34'];

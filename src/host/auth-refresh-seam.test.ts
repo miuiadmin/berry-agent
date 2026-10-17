@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { RefreshChainHandle } from '../credentials/index.js';
+import type { RefreshChainHandle } from '../../plugins/credentials/index.js';
 import { authFamily } from '../llm/index.js';
 import { createHostAuthRefreshSeam } from './auth-refresh-seam.js';
 

@@ -1,0 +1,1483 @@
+/**
+ * issue 服务测试——全假件装配（真件互证归 compat.test.ts）：
+ * 入队纪律四闸（capabilities/closed/dedupe/budget）、runOne 编舞五结局
+ * （draft·completed/auto·completed/failed/needs-human/paused）、worktree
+ * 撞名让位、dirty 保留、编舞异常兜底、孤儿扫描、start/stop、
+ * ⑪ 三零件（交付验证门三态/escalation 收口双档/前次分支指路 prompt）、
+ * ⑪ 遗漏修复批两件（非 completed 收口 escalation 附段双面——回执评论与
+ * settle detail；验证四元组 settle detail 补齐——非零分支输出尾 + 异常
+ * 分支时长）、FX-1 并行上限诚实受理（满限预检 + 受理残窗兜底——不谎报
+ * started 不崩进程）与 issue-3 补锁（验证门异常分支回执评论证据面 +
+ * verifyBlocked 两分支 × escalation 附段组合）、五役 CL-2 回执全面出口
+ * 消毒三锁（03 §10.7 五役扩射笔——postReceipt 出口单源收口，全 body 过
+ * 值基+模式双腿消毒；outcome.summary / 危险闸原始判据 / escalation 段
+ * 三射程面各一锁——修前红锚「明文直贴公开评论」）+ issue 停靠恢复批
+ * （04 §5 停靠登记 daemon 重启恢复律：onParked 写位/复停靠覆写/finally
+ * 删除位/settle-hook 再挂 + reenterParked 重入矩阵八腿）。
+ */
+import { BaseError } from '../../src/contracts/index.js';
+import { describe, expect, it, vi } from 'vitest';
+import type { GithubBackend } from './github.js';
+import { createIssueService } from './service.js';
+import type {
+  IssueBudgetFace,
+  IssueConfig,
+  IssueDangerFace,
+  IssueJobsFace,
+  IssueRunOutcome,
+  IssueSchedulerFace,
+  IssueSessionFace,
+  IssueSessionStartResult,
+  IssueStoreStateFace,
+  IssueVerifyFace,
+  IssueWorktreeFace,
+} from './types.js';
+import { ISSUE_PARALLEL_LIMIT_DEFAULT, ISSUE_PARKED_REGISTRY_KEY } from './types.js';
+import type { ToolDefinition } from '../../src/contracts/index.js';
+
+/* ---------------- 假件族 ---------------- */
+
+/**
+ * Job 注册表假件（settle 记录——first-wins 模拟归真件语义）。issueKindLimit
+ * 在场时按真 registry 语义执法 kind issue 并行上限（plugins/subagent/registry.ts
+ * register 同形：kind 在飞计数到限同步 throw JOB_LIMIT_REACHED、先查限后
+ * 入表）——FX-1 满限回归锁的「真语义」源。
+ */
+function fakeJobs(opts?: { issueKindLimit?: number }) {
+  const kinds: string[] = [];
+  const runningNames = new Set<string>();
+  // name → kind（上限执法的 kind 计数源——真 running() 收窄面只返 name，假件内部记账）
+  const runningKinds = new Map<string, string>();
+  const settled: { name: string; terminal: { status: string; detail?: string } }[] = [];
+  const jobs: IssueJobsFace = {
+    registerKind: (kind) => kinds.push(kind),
+    register: (input) => {
+      if (
+        opts?.issueKindLimit !== undefined &&
+        input.kind === 'issue' &&
+        [...runningKinds.values()].filter((k) => k === 'issue').length >= opts.issueKindLimit
+      ) {
+        throw new BaseError(
+          'JOB_LIMIT_REACHED',
+          `Job kind「issue」运行中的作业数已达并行上限 ${opts.issueKindLimit}——拒新注册（04 §10 注册表面口）`,
+        );
+      }
+      runningNames.add(input.name);
+      runningKinds.set(input.name, input.kind);
+      return {
+        settle: (terminal) => {
+          if (!runningNames.has(input.name)) return false; // 已终态——first-wins
+          runningNames.delete(input.name);
+          runningKinds.delete(input.name);
+          settled.push({ name: input.name, terminal });
+          return true;
+        },
+      };
+    },
+    running: () => [...runningNames].map((name) => ({ name })),
+  };
+  return { jobs, kinds, settled, runningNames };
+}
+
+/** scheduler 假件（挂/摘钟记录） */
+function fakeScheduler() {
+  const registered: { name: string; schedule: string }[] = [];
+  const removed: string[] = [];
+  const scheduler: IssueSchedulerFace = {
+    registerPollJob: (req) => registered.push({ name: req.name, schedule: req.schedule }),
+    removePollJob: (name) => removed.push(name),
+  };
+  return { scheduler, registered, removed };
+}
+
+/** store_state 假件（Map 直通——返回形与真身 StoreStateEntry 同形） */
+function fakeState(): IssueStoreStateFace & { map: Map<string, unknown> } {
+  const map = new Map<string, unknown>();
+  return {
+    map,
+    getStoreState: (key) => (map.has(key) ? { key, value: map.get(key) } : undefined),
+    setStoreState: (key, value) => map.set(key, value),
+    deleteStoreState: (key) => map.delete(key),
+  };
+}
+
+/** worktree 假件（调用记录 + 可注行为覆写） */
+function fakeWorktree(behavior?: {
+  existsFirst?: number; // 前 N 次 create 折 FS_WORKTREE_EXISTS（撞名让位测试）
+  dirtyOnClean?: boolean; // clean 折 FS_WORKTREE_DIRTY
+}) {
+  const created: { name: string }[] = [];
+  const cleaned: string[] = [];
+  const granted: { sessionId: string; path: string }[] = [];
+  const released: string[] = [];
+  const grantMap = new Map<string, Set<string>>();
+  let createCalls = 0;
+  const wt: IssueWorktreeFace = {
+    create: async (req) => {
+      createCalls += 1;
+      if (behavior?.existsFirst !== undefined && createCalls <= behavior.existsFirst) {
+        throw new BaseError(
+          'FS_WORKTREE_EXISTS',
+          `[FS_WORKTREE_EXISTS] worktree 已存在：${req.name}（第 ${createCalls} 次）`,
+        );
+      }
+      created.push({ name: req.name });
+      return { name: req.name, path: `/wt/${req.name}`, branch: req.name };
+    },
+    clean: async (req) => {
+      if (behavior?.dirtyOnClean) throw new BaseError('FS_WORKTREE_DIRTY', '[FS_WORKTREE_DIRTY] 未提交变更');
+      cleaned.push(req.name);
+      return { name: req.name, path: `/wt/${req.name}` };
+    },
+    list: async () => created.map((c) => ({ name: c.name, path: `/wt/${c.name}`, branch: c.name })),
+    diffPatch: async (req) => `diff --git a/f b/f（base=${req.baseRef}）\n+新行`,
+    grant: async (req) => {
+      granted.push(req);
+      let set = grantMap.get(req.sessionId);
+      if (set === undefined) {
+        set = new Set();
+        grantMap.set(req.sessionId, set);
+      }
+      set.add(req.path);
+    },
+    releaseSession: (sessionId) => {
+      const releasedPaths = [...(grantMap.get(sessionId) ?? [])];
+      grantMap.delete(sessionId);
+      released.push(sessionId);
+      return releasedPaths;
+    },
+  };
+  return { wt, created, cleaned, granted, released, grantMap, createCalls: () => createCalls };
+}
+
+/** headless 会话假件（可注结局；记录起跑面） */
+function fakeSession(outcome: IssueRunOutcome) {
+  let run = 0;
+  const starts: { cwd: string; prompt: string; budgetMessages: number; toolsCount: number }[] = [];
+  const session: IssueSessionFace = {
+    startHeadless: async (req) => {
+      run += 1;
+      starts.push({
+        cwd: req.cwd,
+        prompt: req.prompt,
+        budgetMessages: req.budgetMessages,
+        toolsCount: req.tools.length,
+      });
+      const result: IssueSessionStartResult = { sessionId: `headless-${run}`, outcome: Promise.resolve(outcome) };
+      return result;
+    },
+  };
+  return { session, starts };
+}
+
+/**
+ * 延迟结局会话假件：起跑后先让测试调 issue_escalate 登记、再放行终局——
+ * 证登记表与编舞同域跨收口存活（工具工厂在 runOne 内组、回调闭包入表）。
+ * 模块级共享（escalation 收口双档族 + 非 completed 收口附段族共件）。
+ */
+function deferredSession() {
+  let resolveOutcome!: (o: IssueRunOutcome) => void;
+  const outcome = new Promise<IssueRunOutcome>((resolve) => {
+    resolveOutcome = resolve;
+  });
+  let tools: ToolDefinition[] = [];
+  const session: IssueSessionFace = {
+    startHeadless: async (req) => {
+      tools = [...req.tools];
+      return { sessionId: 'headless-1', outcome };
+    },
+  };
+  return { session, settle: (o: IssueRunOutcome) => resolveOutcome(o), toolsOf: () => tools };
+}
+
+/**
+ * 并发在飞会话假件（FX-1 并行上限回归锁专用）：多 run 同时在飞、各自停靠在
+ * outcome promise 上（不 resolve 即在飞）——「两在飞 + 第三个」帽满场景的
+ * 构造源（deferredSession 单 run 形不够用）。
+ */
+function concurrentDeferredSession() {
+  let run = 0;
+  const resolvers: ((o: IssueRunOutcome) => void)[] = [];
+  const session: IssueSessionFace = {
+    startHeadless: async (_req) => {
+      run += 1;
+      let resolveOutcome!: (o: IssueRunOutcome) => void;
+      const outcome = new Promise<IssueRunOutcome>((resolve) => {
+        resolveOutcome = resolve;
+      });
+      resolvers.push(resolveOutcome);
+      return { sessionId: `headless-${run}`, outcome };
+    },
+  };
+  return {
+    session,
+    startedCount: () => run,
+    settleAll: (o: IssueRunOutcome) => {
+      for (const resolve of resolvers) resolve(o);
+    },
+  };
+}
+
+/**
+ * 停靠回调会话假件（issue 停靠恢复批）：捕获 startHeadless req 的 onParked
+ * 位——测试手动触发模拟 parkNow 词落定后的回调位（词先行、行随后——时序断言
+ * 归 issue-session.test.ts 真工厂面；本件只锁编排侧写位）。outcome 悬置
+ * （pending = 在飞停靠形——finally 删除位不触达）。
+ */
+function parkedSession() {
+  let started = false;
+  let onParkedPresent = false;
+  let parkedCb: ((sessionId: string) => void) | undefined;
+  let resolveOutcome!: (o: IssueRunOutcome) => void;
+  const outcome = new Promise<IssueRunOutcome>((resolve) => {
+    resolveOutcome = resolve;
+  });
+  const session: IssueSessionFace = {
+    startHeadless: async (req) => {
+      started = true;
+      onParkedPresent = req.onParked !== undefined;
+      parkedCb = req.onParked;
+      return { sessionId: 'headless-1', outcome };
+    },
+  };
+  return {
+    session,
+    started: () => started,
+    onParkedSeen: () => onParkedPresent,
+    /** 模拟 parkNow 回调触发（词已落定语义——回调真身时序锁在真工厂面） */
+    park: () => parkedCb?.('headless-1'),
+    settle: (o: IssueRunOutcome) => resolveOutcome(o),
+  };
+}
+
+/** 预算假件（可注余量） */
+function fakeBudget(ok = true, reason?: string): IssueBudgetFace {
+  return { canAffordIssue: () => ({ ok, reason }) };
+}
+
+/** backend 假件（评论/PR 投递记录；listIssues 供 issue_get 面；createPullRequest 供危险闸交付腿；getIssue 供重入判据面——默认 undefined＝已删形） */
+function fakeBackend(postFail?: boolean, getIssueImpl?: GithubBackend['getIssue']) {
+  const comments: { repo: string; number: number; body: string }[] = [];
+  const prs: { repo: string; title: string; body: string; head: string; base: string }[] = [];
+  const getIssueCalls: { repo: string; number: number }[] = [];
+  const backend: GithubBackend = {
+    listIssues: async () => [],
+    listComments: async () => [],
+    postComment: async (req) => {
+      if (postFail) throw new BaseError('ISSUE_SOURCE_UNREACHABLE', '[ISSUE_SOURCE_UNREACHABLE] 投递失败');
+      comments.push(req);
+      return { id: comments.length };
+    },
+    createPullRequest: async (req) => {
+      prs.push(req);
+      const n = prs.length;
+      return { number: 800 + n, htmlUrl: `https://github.com/${req.repo}/pull/${800 + n}` };
+    },
+    // 重入判据单取面（issue 停靠恢复批）——调用记录可观测；行为注入缺席 = undefined（已删形）
+    getIssue: async (req) => {
+      getIssueCalls.push(req);
+      return getIssueImpl !== undefined ? await getIssueImpl(req) : undefined;
+    },
+  };
+  return { backend, comments, prs, getIssueCalls };
+}
+
+/** 内联 backend 假件的 createPullRequest 缺省桩（入队/起跑面测试不触交付腿） */
+const prStub = async (): Promise<{ number: number; htmlUrl: string }> => ({
+  number: 1,
+  htmlUrl: 'https://github.com/o/r/pull/1',
+});
+
+/** danger 假件（两腿行为可注——记录调用面；auto 档交付腿与 ⑪ escalation 降级共件） */
+function fakeDanger(behavior?: { pushFail?: Error; prFail?: Error; denyCode?: string }) {
+  const deliverCalls: {
+    kind: 'push' | 'create-pr';
+    repo: string;
+    branch: string;
+    base?: string;
+    title?: string;
+    body?: string;
+  }[] = [];
+  const face: IssueDangerFace = {
+    deliver: async (req) => {
+      deliverCalls.push(req);
+      if (req.kind === 'push') {
+        if (behavior?.denyCode !== undefined)
+          throw new BaseError(behavior.denyCode, `[${behavior.denyCode}] 测试注入拒`);
+        if (behavior?.pushFail !== undefined) throw behavior.pushFail;
+        return {};
+      }
+      if (behavior?.prFail !== undefined) throw behavior.prFail;
+      return { prNumber: 42, prUrl: 'https://github.com/o/r/pull/42' };
+    },
+    approve: async () => ({ ok: true, expiresAt: 1 }),
+    status: async () => {
+      throw new Error('status 不在编舞路径——不应触达');
+    },
+  };
+  return { face, deliverCalls };
+}
+
+/** verify 假件（可注结局；记录调用面——交付验证门与非 completed 收口附段族共件） */
+function fakeVerify(behavior?: {
+  exitCode?: number;
+  timedOut?: boolean;
+  throwErr?: Error;
+  /** 输出尾覆写位（出口消毒例注入敏感形——缺省沿用基线尾） */
+  outputTail?: string;
+}) {
+  const calls: { cwd: string; command: string; timeoutMs: number }[] = [];
+  const face: IssueVerifyFace = {
+    runVerify: async (req) => {
+      calls.push({ cwd: req.cwd, command: req.command, timeoutMs: req.timeoutMs });
+      if (behavior?.throwErr !== undefined) throw behavior.throwErr;
+      return {
+        exitCode: behavior?.exitCode ?? 0,
+        timedOut: behavior?.timedOut ?? false,
+        outputTail: behavior?.outputTail ?? 'FAIL  src/x.test.ts\n断言未过：期望 3 得 4',
+        durationMs: 1234,
+      };
+    },
+  };
+  return { face, calls };
+}
+
+/** 测试基线 issue */
+const ISSUE = {
+  repo: 'o/r',
+  number: 7,
+  title: 'bug found',
+  body: 'steps',
+  labels: [],
+  assignees: [],
+  state: 'open' as const,
+  updatedAt: '2026-09-06T00:00:00Z',
+  htmlUrl: 'https://github.com/o/r/issues/7',
+};
+
+/** 组装（覆写位——mode/outcome/预算/行为/危险闸/验证门/会话/jobs 帽） */
+function makeService(over?: {
+  mode?: 'draft' | 'auto';
+  outcome?: IssueRunOutcome;
+  budgetOk?: boolean;
+  budgetReason?: string;
+  worktreeBehavior?: { existsFirst?: number; dirtyOnClean?: boolean };
+  postFail?: boolean;
+  webhookSecret?: string;
+  danger?: IssueDangerFace;
+  verify?: IssueVerifyFace;
+  verifyCommand?: string;
+  session?: IssueSessionFace;
+  /** 出口消毒值基腿活值 provider（附段 b——缺席 = 纯模式腿降级） */
+  sensitiveValues?: () => readonly string[];
+  /** jobs 假件上限执法开关（FX-1——真 registry kind issue 并行上限语义注入位） */
+  jobsIssueLimit?: number;
+  /** 重入判据单取面行为注入（issue 停靠恢复批——缺席 = undefined 已删形） */
+  backendGetIssue?: GithubBackend['getIssue'];
+}) {
+  const fj = fakeJobs(over?.jobsIssueLimit !== undefined ? { issueKindLimit: over.jobsIssueLimit } : undefined);
+  const fsched = fakeScheduler();
+  const fstate = fakeState();
+  const fwd = fakeWorktree(over?.worktreeBehavior);
+  const fsess = fakeSession(over?.outcome ?? { status: 'completed', messagesUsed: 12, summary: '改动完成' });
+  const fbud = fakeBudget(over?.budgetOk ?? true, over?.budgetReason);
+  const fback = fakeBackend(over?.postFail, over?.backendGetIssue);
+  const config: IssueConfig = {
+    mode: over?.mode ?? 'draft',
+    schedule: 'every:120s',
+    repos: ['o/r'],
+    perIssueBudgetMessages: 25,
+    baseBranch: 'main',
+    maxDeliveriesPerDay: 10,
+    ...(over?.verifyCommand !== undefined ? { verifyCommand: over.verifyCommand } : {}),
+    verifyTimeoutMs: 120_000,
+  };
+  const svc = createIssueService({
+    config,
+    backend: fback.backend,
+    jobs: fj.jobs,
+    scheduler: fsched.scheduler,
+    state: fstate,
+    worktree: fwd.wt,
+    session: over?.session ?? fsess.session,
+    budget: fbud,
+    capabilities: ['goal', 'exec', 'checkpoint'],
+    ...(over?.danger !== undefined ? { danger: over.danger } : {}),
+    ...(over?.verify !== undefined ? { verify: over.verify } : {}),
+    ...(over?.sensitiveValues !== undefined ? { sensitiveValues: over.sensitiveValues } : {}),
+    webhookSecret: over?.webhookSecret,
+  });
+  return { svc, config, fj, fsched, fstate, fwd, fsess, fbud, fback };
+}
+
+describe('入队纪律（同步四闸）', () => {
+  it('capabilities 缺席拒（goal/exec/checkpoint 任一缺席——经 pollOnce 通路）', async () => {
+    const f = makeService();
+    const backend: GithubBackend = {
+      listIssues: async () => [ISSUE],
+      listComments: async () => [],
+      postComment: async () => ({ id: 1 }),
+      createPullRequest: prStub,
+      getIssue: async () => undefined,
+    };
+    const svc = createIssueService({
+      config: f.config,
+      backend,
+      jobs: f.fj.jobs,
+      scheduler: f.fsched.scheduler,
+      state: f.fstate,
+      worktree: f.fwd.wt,
+      session: f.fsess.session,
+      budget: f.fbud,
+      capabilities: ['goal', 'exec'], // checkpoint 缺席
+    });
+    const report = await svc.pollOnce();
+    expect(report).toMatchObject({ candidates: 1, rejected: 1, enqueued: 0 });
+    expect(f.fsess.starts).toHaveLength(0); // 未起跑
+    expect(f.fj.settled).toHaveLength(0);
+  });
+
+  it('四闸执法：closed 拒 / 预算拒 / 重复拒 / 正常 started（经 pollOnce 通路）', async () => {
+    // listIssues 假件返回三个 issue：一 closed、一 open、一 open
+    const f = makeService({ budgetOk: false, budgetReason: '日池尽' });
+    const backend: GithubBackend = {
+      listIssues: async () => [ISSUE, { ...ISSUE, number: 8, state: 'closed' }],
+      listComments: async () => [],
+      postComment: async () => ({ id: 1 }),
+      createPullRequest: prStub,
+      getIssue: async () => undefined,
+    };
+    const svc = createIssueService({
+      config: f.config,
+      backend,
+      jobs: f.fj.jobs,
+      scheduler: f.fsched.scheduler,
+      state: f.fstate,
+      worktree: f.fwd.wt,
+      session: f.fsess.session,
+      budget: f.fbud, // 预算尽
+      capabilities: ['goal', 'exec', 'checkpoint'],
+    });
+    const report = await svc.pollOnce();
+    expect(report).toMatchObject({ seen: 2, candidates: 1, rejected: 1, enqueued: 0 });
+    // 二轮：预算恢复——open issue 入队（candidates 重见——水位推进但 since 模拟面恒返全量）
+    const svc2 = createIssueService({
+      config: f.config,
+      backend,
+      jobs: f.fj.jobs,
+      scheduler: f.fsched.scheduler,
+      state: f.fstate,
+      worktree: f.fwd.wt,
+      session: f.fsess.session,
+      budget: fakeBudget(true),
+      capabilities: ['goal', 'exec', 'checkpoint'],
+    });
+    const report2 = await svc2.pollOnce();
+    expect(report2.enqueued).toBe(1);
+    // 三轮：在飞互斥（running 见 issue-7 注册）——duplicate
+    const report3 = await svc2.pollOnce();
+    expect(report3).toMatchObject({ duplicates: 1, enqueued: 0 });
+  });
+});
+
+describe('runOne 编舞（draft 档 happy path）', () => {
+  it('起跑面：cwd=worktree 路径、prompt 含纪律与预算、issue_get 装载、授予记账', async () => {
+    const f = makeService();
+    // 直接入队经 pollOnce 通路（backend 返 issue——enqueue 内墙面）
+    const backend: GithubBackend = {
+      listIssues: async () => [ISSUE],
+      listComments: async () => [],
+      postComment: async (req) => {
+        f.fback.comments.push(req);
+        return { id: 1 };
+      },
+      createPullRequest: prStub,
+      getIssue: async () => undefined,
+    };
+    const svc = createIssueService({
+      config: f.config,
+      backend,
+      jobs: f.fj.jobs,
+      scheduler: f.fsched.scheduler,
+      state: f.fstate,
+      worktree: f.fwd.wt,
+      session: f.fsess.session,
+      budget: f.fbud,
+      capabilities: ['goal', 'exec', 'checkpoint'],
+      webhookSecret: 's',
+    });
+    await svc.pollOnce();
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    // 起跑面断言（双工具族：issue_get + issue_escalate——⑪ 裁决 4 第二件）
+    expect(f.fsess.starts[0]).toMatchObject({ cwd: '/wt/issue-7', budgetMessages: 25, toolsCount: 2 });
+    expect(f.fsess.starts[0]!.prompt).toContain('o/r#7');
+    expect(f.fsess.starts[0]!.prompt).toContain('严禁 push');
+    expect(f.fsess.starts[0]!.prompt).toContain('issue_get');
+    // 授予→回收链
+    expect(f.fwd.granted).toEqual([{ sessionId: 'headless-1', path: '/wt/issue-7' }]);
+    expect(f.fwd.released).toEqual(['headless-1']);
+    // 评论贴补丁 + settle completed + clean
+    expect(f.fback.comments[0]!.body).toContain('issue-7');
+    expect(f.fback.comments[0]!.body).toContain('```diff');
+    expect(f.fj.settled[0]).toMatchObject({ name: 'o/r#7', terminal: { status: 'completed' } });
+    expect(f.fwd.cleaned).toEqual(['issue-7']);
+  });
+});
+
+describe('runOne 编舞（其余结局）', () => {
+  /** 通路快捷：注 outcome → pollOnce → 等终态 */
+  async function runWithOutcome(
+    outcome: IssueRunOutcome,
+    over?: { mode?: 'draft' | 'auto'; dirtyOnClean?: boolean; existsFirst?: number },
+  ) {
+    const f = makeService({
+      outcome,
+      mode: over?.mode,
+      worktreeBehavior: { dirtyOnClean: over?.dirtyOnClean, existsFirst: over?.existsFirst },
+    });
+    const backend: GithubBackend = {
+      listIssues: async () => [ISSUE],
+      listComments: async () => [],
+      postComment: async (req) => {
+        f.fback.comments.push(req);
+        return { id: 1 };
+      },
+      createPullRequest: prStub,
+      getIssue: async () => undefined,
+    };
+    const svc = createIssueService({
+      config: f.config,
+      backend,
+      jobs: f.fj.jobs,
+      scheduler: f.fsched.scheduler,
+      state: f.fstate,
+      worktree: f.fwd.wt,
+      session: f.fsess.session,
+      budget: f.fbud,
+      capabilities: ['goal', 'exec', 'checkpoint'],
+    });
+    const report = await svc.pollOnce();
+    return { f, svc, report };
+  }
+
+  it('auto 档 completed → 阻塞转人审：settle failed 需人审（危险闸缺席）', async () => {
+    const { f } = await runWithOutcome({ status: 'completed', messagesUsed: 9, summary: 'ok' }, { mode: 'auto' });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('需人审');
+    expect(f.fback.comments[0]!.body).toContain('阻塞转人审');
+    expect(f.fj.settled[0]!.terminal.detail).not.toContain('push 已执行'); // 不 push——词面自证
+  });
+  it('failed 结局 → 评论贴原因 + settle failed + clean', async () => {
+    const { f } = await runWithOutcome({
+      status: 'failed',
+      messagesUsed: 3,
+      reason: 'issue 消息预算上限已用完（3 条）',
+    });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed', detail: 'issue 消息预算上限已用完（3 条）' });
+    expect(f.fback.comments[0]!.body).toContain('issue 消息预算上限已用完（3 条）');
+    expect(f.fwd.cleaned).toEqual(['issue-7']);
+  });
+
+  it('needs-human 结局 → settle failed 需人审', async () => {
+    const { f } = await runWithOutcome({ status: 'needs-human', messagesUsed: 5, reason: '写动作无审批覆盖' });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fj.settled[0]!.terminal.detail).toContain('需人审');
+    expect(f.fback.comments[0]!.body).toContain('需人审');
+  });
+
+  it('paused 结局 → 不 settle、不 clean、授予保留、在飞保留（orphanScan 免标）', async () => {
+    const { f, svc } = await runWithOutcome({ status: 'paused', reason: '全局日池尽' });
+    await new Promise((r) => setTimeout(r, 10)); // 停靠路径无终态可等——静默排空
+    expect(f.fj.settled).toHaveLength(0);
+    expect(f.fwd.cleaned).toHaveLength(0);
+    expect(f.fwd.released).toHaveLength(0); // 授予未回收
+    const orphans = await svc.orphanScan();
+    expect(orphans).toHaveLength(0); // 在飞保留——非孤儿
+  });
+
+  it('worktree 撞名让位：首撞 -r2 起（分支留史重跑场景）', async () => {
+    const { f } = await runWithOutcome({ status: 'completed', messagesUsed: 2, summary: 's' }, { existsFirst: 1 });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fwd.created.map((c) => c.name)).toEqual(['issue-7-r2']);
+    expect(f.fsess.starts[0]!.cwd).toBe('/wt/issue-7-r2');
+  });
+
+  it('九连撞耗尽：候选穷尽 → 折 lastExists settle failed（终态必落不悬挂）+ 起跑前零交付面', async () => {
+    // 2026-09-14 扫描三役 F18 补锁：耗尽分支（service.ts 撞名让位循环尾）此前
+    // 零测试触达——existsFirst 帽 99 使九候选全撞，锁「折 lastExists 原码面 +
+    // settle 兜底 + 零回执零起会」三断言面
+    const { f } = await runWithOutcome({ status: 'completed', messagesUsed: 2, summary: 's' }, { existsFirst: 99 });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fwd.createCalls()).toBe(9); // 候选序列穷尽（issue-7 + -r2..-r9）
+    expect(f.fwd.created).toHaveLength(0); // 九试九撞——无 worktree 落成
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('FS_WORKTREE_EXISTS'); // 折 lastExists（第 9 次原码面）
+    expect(f.fsess.starts).toHaveLength(0); // 起会未达
+    expect(f.fback.comments).toHaveLength(0); // 起跑前折——零回执零交付
+  });
+
+  it('clean 遇 dirty 保留（FS_WORKTREE_DIRTY 不强拆）', async () => {
+    const { f } = await runWithOutcome({ status: 'completed', messagesUsed: 2, summary: 's' }, { dirtyOnClean: true });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fj.settled[0]!.terminal.status).toBe('completed'); // 终态照落
+    expect(f.fwd.cleaned).toHaveLength(0); // 保留
+    // 授予仍回收（会话终了——worktree 留存但授予不留）
+    expect(f.fwd.released).toEqual(['headless-1']);
+  });
+
+  it('评论投递失败不阻塞终态（回执后补语义）', async () => {
+    const f = makeService({ postFail: true });
+    const backend: GithubBackend = {
+      listIssues: async () => [ISSUE],
+      listComments: async () => [],
+      postComment: async () => {
+        throw new BaseError('ISSUE_SOURCE_UNREACHABLE', '[ISSUE_SOURCE_UNREACHABLE] down');
+      },
+      createPullRequest: prStub,
+      getIssue: async () => undefined,
+    };
+    const svc = createIssueService({
+      config: f.config,
+      backend,
+      jobs: f.fj.jobs,
+      scheduler: f.fsched.scheduler,
+      state: f.fstate,
+      worktree: f.fwd.wt,
+      session: f.fsess.session,
+      budget: f.fbud,
+      capabilities: ['goal', 'exec', 'checkpoint'],
+    });
+    await svc.pollOnce();
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fj.settled[0]!.terminal.status).toBe('completed');
+  });
+});
+
+describe('编舞异常兜底', () => {
+  it('startHeadless 抛 → settle failed + worktree 清', async () => {
+    const f = makeService();
+    const session: IssueSessionFace = {
+      startHeadless: async () => {
+        throw new Error('起跑失败：无可用模型');
+      },
+    };
+    const backend: GithubBackend = {
+      listIssues: async () => [ISSUE],
+      listComments: async () => [],
+      postComment: async () => ({ id: 1 }),
+      createPullRequest: prStub,
+      getIssue: async () => undefined,
+    };
+    const svc = createIssueService({
+      config: f.config,
+      backend,
+      jobs: f.fj.jobs,
+      scheduler: f.fsched.scheduler,
+      state: f.fstate,
+      worktree: f.fwd.wt,
+      session,
+      budget: f.fbud,
+      capabilities: ['goal', 'exec', 'checkpoint'],
+    });
+    await svc.pollOnce();
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed', detail: expect.stringContaining('起跑失败') });
+    expect(f.fwd.cleaned).toEqual(['issue-7']);
+  });
+});
+
+describe('orphanScan / start / stop', () => {
+  it('孤儿标注：名形匹配减在飞（issue-* 形；非形不标）', async () => {
+    const f = makeService();
+    // 假 worktree list 返混名清单（在飞 issue-7 + 残留 issue-9 + 非形 misc）
+    const wt = f.fwd.wt;
+    const originalList = wt.list.bind(wt);
+    wt.list = async () => [
+      ...(await originalList()),
+      { name: 'issue-9', path: '/wt/issue-9', branch: 'issue-9' },
+      { name: 'issue-9-r3', path: '/wt/issue-9-r3', branch: 'issue-9-r3' },
+      { name: 'misc', path: '/wt/misc', branch: 'misc' },
+      { name: 'feature-x', path: '/wt/feature-x', branch: 'feature-x' },
+    ];
+    const orphans = await f.svc.orphanScan();
+    expect(orphans.map((o) => o.name).sort()).toEqual(['issue-9', 'issue-9-r3']);
+  });
+
+  it('start/stop：登记 kind + 挂钟（名/周期）+ 摘钟', () => {
+    const f = makeService();
+    f.svc.start();
+    expect(f.fj.kinds).toEqual(['issue']);
+    expect(f.fsched.registered).toEqual([{ name: 'issue-poll', schedule: 'every:120s' }]);
+    f.svc.stop();
+    expect(f.fsched.removed).toEqual(['issue-poll']);
+  });
+
+  it('start 幂等：挂钟抛不炸（行已在场景）', () => {
+    const f = makeService();
+    const scheduler: IssueSchedulerFace = {
+      registerPollJob: () => {
+        throw new Error('SCHEDULER_NAME_EXISTS: issue-poll');
+      },
+      removePollJob: () => undefined,
+    };
+    const svc = createIssueService({
+      config: f.config,
+      backend: f.fback.backend,
+      jobs: f.fj.jobs,
+      scheduler,
+      state: f.fstate,
+      worktree: f.fwd.wt,
+      session: f.fsess.session,
+      budget: f.fbud,
+      capabilities: ['goal', 'exec', 'checkpoint'],
+    });
+    expect(() => svc.start()).not.toThrow();
+  });
+
+  it('handleWebhook secret 缺席 → ISSUE_WEBHOOK_INVALID 响亮拒', async () => {
+    const f = makeService();
+    await expect(
+      f.svc.handleWebhook({ event: 'issues', signatureHeader: 'sha256=x', rawBody: '{}' }),
+    ).rejects.toMatchObject({ code: 'ISSUE_WEBHOOK_INVALID' });
+  });
+});
+
+describe('auto 档危险闸交付腿（04 §13——闸在场三径）', () => {
+  /**
+   * 通路快捷：auto 档 + 注入 danger 假件 → 直接 enqueue（公开口）→ 等终态。
+   * deliverCalls 记录两腿调用序（push 先于 create-pr——PR 依赖远端分支在场）。
+   */
+  async function runWithDanger(
+    danger: IssueDangerFace,
+    outcome: IssueRunOutcome = { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+  ) {
+    const f = makeService({ outcome, mode: 'auto', danger });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    return f;
+  }
+
+  /** danger 假件（模块级共件——见 fakeDanger） */
+
+  it('成功径：push → create-pr 序 + PR 链接回执 + settle completed', async () => {
+    const fd = fakeDanger();
+    const f = await runWithDanger(fd.face);
+    expect(fd.deliverCalls.map((c) => c.kind)).toEqual(['push', 'create-pr']); // 序律
+    expect(fd.deliverCalls[1]).toMatchObject({ repo: 'o/r', base: 'main', title: 'bug found' }); // config 原料面
+    expect(fd.deliverCalls[1]!.body).toContain('Closes #7'); // PR 正文闭环位
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'completed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('https://github.com/o/r/pull/42');
+    expect(f.fback.comments[0]!.body).toContain('危险闸放行交付');
+    expect(f.fback.prs).toHaveLength(0); // 交付走 danger 腿——backend.createPullRequest 不直触（装配位组合律）
+  });
+
+  it('闸拒径：DANGER_CONSENT_ABSENT → 转人审回执（指路 + 分支状态如实）+ settle failed', async () => {
+    const fd = fakeDanger({ denyCode: 'DANGER_CONSENT_ABSENT' });
+    const f = await runWithDanger(fd.face);
+    expect(fd.deliverCalls).toHaveLength(1); // push 即拒——create-pr 零触达
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('DANGER_CONSENT_ABSENT');
+    expect(f.fj.settled[0]!.terminal.detail).toContain('/danger approve'); // 指路表
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('需人审');
+    expect(body).toContain('本地未推'); // pushed=false 如实陈述
+    expect(body).toContain('分支 `issue-7`');
+  });
+
+  it('非拒失败径：push 过闸但 git 失败 → allow-failed 语义（失败留分支可重试 + settle failed）', async () => {
+    const fd = fakeDanger({ pushFail: new Error('git push 失败：网络断') });
+    const f = await runWithDanger(fd.face);
+    expect(fd.deliverCalls).toHaveLength(1); // push 败——create-pr 不触
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('交付失败');
+    expect(f.fback.comments[0]!.body).toContain('git push 失败：网络断');
+    expect(f.fback.comments[0]!.body).toContain('可重试');
+    expect(f.fback.comments[0]!.body).toContain('本地未推');
+  });
+
+  it('半成径：push 成 create-pr 败 → 回执「已推远端可人工补开」如实陈述', async () => {
+    const fd = fakeDanger({ prFail: new Error('422 PR 已在') });
+    const f = await runWithDanger(fd.face);
+    expect(fd.deliverCalls.map((c) => c.kind)).toEqual(['push', 'create-pr']);
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('已推远端'); // pushed=true 如实陈述
+    expect(body).toContain('可人工补开');
+    expect(f.fj.settled[0]!.terminal.detail).toContain('交付失败');
+  });
+});
+
+describe('⑪ 交付验证门（verifyCommand 在场即执法——编排层交付前一步）', () => {
+  /** 通路快捷：verifyCommand 在场 + draft 档 → enqueue → 等终态 */
+  async function runWithVerifyGate(verify?: IssueVerifyFace, over?: { sensitiveValues?: () => readonly string[] }) {
+    const f = makeService({
+      outcome: { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+      verifyCommand: 'npm test',
+      ...(verify !== undefined ? { verify } : {}),
+      ...(over?.sensitiveValues !== undefined ? { sensitiveValues: over.sensitiveValues } : {}),
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    return f;
+  }
+
+  it('过门径：退出码 0 → 照常交付（draft 评论贴补丁）+ 真跑面 cwd/命令/时帽对拍', async () => {
+    const fv = fakeVerify();
+    const f = await runWithVerifyGate(fv.face);
+    expect(fv.calls).toEqual([{ cwd: '/wt/issue-7', command: 'npm test', timeoutMs: 120_000 }]);
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'completed' });
+    expect(f.fback.comments[0]!.body).toContain('```diff'); // 交付照走
+  });
+
+  it('非零拒：退出码 1 → settle failed 验证未过 + 回执贴输出尾 + 分支留存陈述', async () => {
+    const fv = fakeVerify({ exitCode: 1 });
+    const f = await runWithVerifyGate(fv.face);
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('验证未过');
+    expect(f.fj.settled[0]!.terminal.detail).toContain('退出码 1');
+    // 证据四元组双面律（03 §10.7 定形注 + types.ts IssueVerifyResult.outputTail
+    // JSDoc「回执与 detail 双面证据」）：detail 面必须同载输出尾——2026-09-14
+    // 扫描三役 F2 修前红锚（此前 detail 只载命令/判据/时长三段，尾段缺席）
+    expect(f.fj.settled[0]!.terminal.detail).toContain('断言未过：期望 3 得 4');
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('验证未过');
+    expect(body).toContain('断言未过：期望 3 得 4'); // 输出尾证据面
+    expect(body).toContain('分支 `issue-7` 留存供排查');
+    expect(f.fback.comments[0]!.body).not.toContain('```diff'); // 未交付——无补丁段
+    expect(f.fwd.cleaned).toEqual(['issue-7']); // 收尾清理照走（分支留史非 worktree 留存）
+  });
+
+  it('输出尾出口消毒：模式腿（敏感键名赋值形）+ 值基腿（sensitiveValues 活值）双面抹值不折叠（附段 b——2026-09-14 第四役修前红锚）', async () => {
+    const live = 'sk-live-abcdef1234567890'; // ≥8 过值基腿长度阈
+    const fv = fakeVerify({
+      exitCode: 1,
+      outputTail:
+        'FAIL  src/x.test.ts\nFAKE_SECRET=sk-test-12345678\nenv LIVE_TOKEN=sk-live-abcdef1234567890\n断言未过：期望 3 得 4',
+    });
+    const f = await runWithVerifyGate(fv.face, { sensitiveValues: () => [live] });
+    const body = f.fback.comments[0]!.body;
+    // 两腿双面：回执评论与 settle detail 均不得含明文（issue 正文=外部不可信
+    // 文本威胁模型——验证输出可回显 env，03 §10.7 第四役附段 b）
+    expect(body).not.toContain('sk-test-12345678');
+    expect(body).not.toContain(live);
+    expect(body).toContain('[REDACTED:secret]'); // 模式腿具名注记（FAKE_SECRET 敏感键名形）
+    expect(body).toContain('[REDACTED:credential]'); // 值基腿整段置换
+    expect(body).toContain('断言未过：期望 3 得 4'); // 只抹值不折叠——非敏感行证据照旧
+    const detail = f.fj.settled[0]!.terminal.detail;
+    expect(detail).not.toContain('sk-test-12345678');
+    expect(detail).not.toContain(live);
+    expect(detail).toContain('断言未过：期望 3 得 4');
+  });
+
+  it('超时拒：timedOut → 同律拒交付（detail 载超时判据）', async () => {
+    const fv = fakeVerify({ timedOut: true });
+    const f = await runWithVerifyGate(fv.face);
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('超时');
+  });
+
+  it('执行体异常拒：runVerify 抛 → 门不放行（fail-closed 三拒形收口）', async () => {
+    const fv = fakeVerify({ throwErr: new Error('spawn ENOENT') });
+    const f = await runWithVerifyGate(fv.face);
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('执行体异常');
+    expect(f.fj.settled[0]!.terminal.detail).toContain('spawn ENOENT');
+  });
+
+  it('执行体异常拒 detail 补时长：编排层围挂钟（异常上抛无 face 报告 durationMs 可读）', async () => {
+    // ⑪ 裁决 5 四元组双面收尾——异常分支此前连时长也不进 detail（红源：
+    // 修前 detail 形 `执行体异常（spawn ENOENT）` 无 ms 段）；face 异常上抛
+    // 时无 IssueVerifyResult.durationMs 可读，时长源 = 编排层 try 前围挂钟
+    const fv = fakeVerify({ throwErr: new Error('spawn ENOENT') });
+    const f = await runWithVerifyGate(fv.face);
+    const detail = f.fj.settled[0]!.terminal.detail ?? '';
+    expect(detail).toContain('`npm test`'); // 命令面（四元组第一元既有）
+    expect(detail).toMatch(/执行体异常（spawn ENOENT，\d+ms）/); // 时长段——修前红锚
+  });
+
+  it('执行体异常分支回执评论证据面（FX-1 issue-3 补锁——body 此前零断言）', async () => {
+    // 回执评论承载命令串/异常信息/拒交付陈述/分支留存——settle detail 面
+    // 已有锁（上两例），本例锁 postReceipt body 证据面（service.ts 异常分支
+    // appendEscalationReceipt 接入位的主体文本——2026-09-14 第四役前零断言）
+    const fv = fakeVerify({ throwErr: new Error('spawn ENOENT') });
+    const f = await runWithVerifyGate(fv.face);
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('验证未过（执行异常）'); // 判词（异常分支专属形）
+    expect(body).toContain('`npm test`'); // 命令串（证据四元组第一元）
+    expect(body).toContain('spawn ENOENT'); // 异常信息（第三元——detail 直嵌）
+    expect(body).toContain('拒交付'); // 拒交付陈述
+    expect(body).toContain('分支 `issue-7` 留存供排查'); // 分支留存指路
+    expect(body).toContain('改动完成'); // outcome.summary 承载位
+    expect(body).not.toContain('```diff'); // 未交付——无补丁段
+    // detail 面时长段同锚（四元组第四元——编排层围挂钟）
+    expect(f.fj.settled[0]!.terminal.detail).toMatch(/执行体异常（spawn ENOENT，\d+ms）/);
+  });
+
+  it('face 注入缺席（verifyCommand 在场时）→ 同律拒交付转人审（不选「缺席=无门放行」）', async () => {
+    const f = await runWithVerifyGate(undefined);
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('需人审');
+    expect(f.fj.settled[0]!.terminal.detail).toContain('验证执行面缺席');
+    expect(f.fback.comments[0]!.body).toContain('验证门缺席');
+    expect(f.fback.comments[0]!.body).toContain('阻塞转人审');
+  });
+
+  it('verifyCommand 缺席 = 无门：completed 照常交付零拦截（渐进启用法）', async () => {
+    // 既有 happy path 测试族即本例（makeService 缺省无 verifyCommand 无 verify）
+    // ——此处显式锁「配置缺席时 verify 槽闲置不阻交付」
+    const f = makeService({ outcome: { status: 'completed', messagesUsed: 5, summary: 's' } });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'completed' });
+  });
+});
+
+describe('⑪ escalation 收口消费（issue_escalate 登记面——runOne 闭包登记表）', () => {
+  /** 通路快捷：延迟会话 → enqueue → 等起跑 → 登记上报 → 放行 completed → 等终态 */
+  async function runWithEscalation(over?: { mode?: 'draft' | 'auto'; danger?: IssueDangerFace }) {
+    const ds = deferredSession();
+    const f = makeService({
+      outcome: { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+      mode: over?.mode,
+      session: ds.session,
+      ...(over?.danger !== undefined ? { danger: over.danger } : {}),
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(ds.toolsOf()).toHaveLength(2)); // 双工具族装载
+    const escalate = ds.toolsOf().find((t) => t.name === 'issue_escalate')!;
+    await escalate.execute(
+      {
+        question: 'API 形选 REST 还是 GraphQL？',
+        options: ['REST', 'GraphQL'],
+        recommendation: 'REST',
+        continueWithDefault: 'REST 先行',
+      },
+      { toolCallId: 'tc-esc-1' },
+    );
+    await escalate.execute({ question: '要不要顺带修相邻 typo？' }, { toolCallId: 'tc-esc-2' });
+    ds.settle({ status: 'completed', messagesUsed: 9, summary: '改动完成' });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    return { f, ds };
+  }
+
+  it('draft 档：回执附全量四字段结构化段（多条累积非末条）+ settle 维持 completed + detail 注记', async () => {
+    const { f } = await runWithEscalation();
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('## ⚠️ 模型上报待裁决（2 条');
+    expect(body).toContain('**上报 1**：API 形选 REST 还是 GraphQL？');
+    expect(body).toContain('REST ｜ GraphQL'); // options 全量
+    expect(body).toContain('- 建议：REST');
+    expect(body).toContain('仅呈报不执行'); // continueWithDefault 呈报位
+    expect(body).toContain('**上报 2**：要不要顺带修相邻 typo？');
+    expect(body).toContain('```diff'); // 交付照走——draft 档终态不因附段翻档
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'completed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('escalation 存在 2 条');
+  });
+
+  it('auto 档：escalation 在场降级转人审——不 push（danger 零触达）+ 回执附结构化段', async () => {
+    const fd = fakeDanger();
+    const { f } = await runWithEscalation({ mode: 'auto', danger: fd.face });
+    expect(fd.deliverCalls).toHaveLength(0); // 不 push——保守偏向
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('需人审：escalation 存在 2 条');
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('不自动交付');
+    expect(body).toContain('**上报 1**');
+    expect(body).toContain('本地未 push'); // 分支状态如实陈述
+  });
+});
+
+describe('⑪ 非 completed 收口 escalation 附段（回执评论与 settle detail 双面）', () => {
+  /**
+   * 通路快捷（三路径共用）：延迟会话 + 可注 verify 门 → enqueue → 等起跑 →
+   * 可选登记 escalation → 放行注定的非 completed 结局 → 等终态。
+   * needs-human / failed 直落对应分支；verifyBlocked 以 completed + 验证
+   * 非零拒触达（verifyCommand 在场 + verify 假件注 exitCode 1）。
+   */
+  async function runToNonCompleted(
+    outcome: IssueRunOutcome,
+    over?: { escalate?: boolean; verify?: IssueVerifyFace; verifyAbsent?: boolean },
+  ) {
+    const ds = deferredSession();
+    const f = makeService({
+      outcome,
+      session: ds.session,
+      ...(over?.verify !== undefined ? { verify: over.verify, verifyCommand: 'npm test' } : {}),
+      // FX-1 issue-3 ㈢：verifyCommand 在场而 verify face 缺席（验证门缺席
+      // 分支——helper 此前只支持「verify 注入」形，缺席形无法触达该分支）
+      ...(over?.verifyAbsent ? { verifyCommand: 'npm test' } : {}),
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(ds.toolsOf()).toHaveLength(2)); // 双工具族装载
+    if (over?.escalate) {
+      const escalate = ds.toolsOf().find((t) => t.name === 'issue_escalate')!;
+      await escalate.execute({ question: 'API 形选 REST 还是 GraphQL？' }, { toolCallId: 'tc-esc-1' });
+    }
+    ds.settle(outcome);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    return f;
+  }
+
+  it('needs-human 路径：escalation 在场 → 回执附摘要段 + settle detail 双面附（注记 + 摘要同形）', async () => {
+    // 03 §10.7 ⑪ 定形注（2026-09-14 补笔）：转人审场景恰是 escalation 呈现的
+    // 第一场景——登记表随 Job 蒸发，回执与 detail 是仅有的 durable 呈现面
+    const f = await runToNonCompleted(
+      { status: 'needs-human', messagesUsed: 5, reason: '写动作无审批覆盖' },
+      { escalate: true },
+    );
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('需人审');
+    expect(body).toContain('## ⚠️ 模型上报待裁决（1 条'); // 摘要段同 draft 附段形
+    expect(body).toContain('**上报 1**：API 形选 REST 还是 GraphQL？');
+    const detail = f.fj.settled[0]!.terminal.detail ?? '';
+    expect(detail).toContain('需人审：写动作无审批覆盖'); // 原 detail 面保持
+    expect(detail).toContain('escalation 存在 1 条'); // draft 注记同律
+    expect(detail).toContain('API 形选 REST 还是 GraphQL？'); // detail 含摘要（双面承诺）
+  });
+
+  it('failed 路径：escalation 在场 → 回执与 settle detail 均附摘要段（detail 不再只剩 reason）', async () => {
+    const f = await runToNonCompleted(
+      { status: 'failed', messagesUsed: 3, reason: 'issue 消息预算上限已用完（3 条）' },
+      { escalate: true },
+    );
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fback.comments[0]!.body).toContain('## ⚠️ 模型上报待裁决（1 条');
+    expect(f.fback.comments[0]!.body).toContain('**上报 1**');
+    const detail = f.fj.settled[0]!.terminal.detail ?? '';
+    expect(detail).toContain('issue 消息预算上限已用完（3 条）'); // 原 reason 保持
+    expect(detail).toContain('escalation 存在 1 条');
+    expect(detail).toContain('**上报 1**'); // 全量结构化段非仅计数
+  });
+
+  it('verifyBlocked 路径：验证非零拒 + escalation 在场 → 回执与 detail 双面附摘要段', async () => {
+    const fv = fakeVerify({ exitCode: 1 });
+    const f = await runToNonCompleted(
+      { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+      { escalate: true, verify: fv.face },
+    );
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('验证未过'); // 验证判据保持
+    expect(f.fback.comments[0]!.body).toContain('## ⚠️ 模型上报待裁决（1 条');
+    const detail = f.fj.settled[0]!.terminal.detail ?? '';
+    expect(detail).toContain('escalation 存在 1 条');
+    expect(detail).toContain('API 形选 REST 还是 GraphQL？');
+  });
+
+  it('verifyBlocked（执行体异常）× escalation 组合：回执与 detail 双面附段（FX-1 issue-3 补锁）', async () => {
+    // 异常分支的 appendEscalationReceipt / appendEscalationDetail 两接入位
+    // 此前零触达（非零分支有锁、异常分支无锁——2026-09-14 第四役补）
+    const fv = fakeVerify({ throwErr: new Error('spawn ENOENT') });
+    const f = await runToNonCompleted(
+      { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+      { escalate: true, verify: fv.face },
+    );
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('执行体异常'); // 验证判据保持（异常分支专属形）
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('验证未过（执行异常）'); // 异常分支主体回执
+    expect(body).toContain('## ⚠️ 模型上报待裁决（1 条'); // appendEscalationReceipt 接入位
+    expect(body).toContain('**上报 1**：API 形选 REST 还是 GraphQL？');
+    const detail = f.fj.settled[0]!.terminal.detail ?? '';
+    expect(detail).toContain('escalation 存在 1 条'); // appendEscalationDetail 接入位
+    expect(detail).toContain('API 形选 REST 还是 GraphQL？'); // detail 含摘要（双面承诺）
+  });
+
+  it('verifyBlocked（验证门缺席）× escalation 组合：回执与 detail 双面附段（FX-1 issue-3 补锁）', async () => {
+    // face 缺席分支（service.ts「验证门缺席」回执位）的 escalation 附段组合
+    // 此前零触达——verifyCommand 在场而 verify face 未注入 + escalation 登记
+    const f = await runToNonCompleted(
+      { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+      { escalate: true, verifyAbsent: true },
+    );
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('验证执行面缺席'); // 缺席分支判词保持
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('验证门缺席'); // 缺席分支主体回执
+    expect(body).toContain('## ⚠️ 模型上报待裁决（1 条'); // appendEscalationReceipt 接入位
+    expect(body).toContain('**上报 1**：API 形选 REST 还是 GraphQL？');
+    const detail = f.fj.settled[0]!.terminal.detail ?? '';
+    expect(detail).toContain('escalation 存在 1 条'); // appendEscalationDetail 接入位
+    expect(detail).toContain('API 形选 REST 还是 GraphQL？');
+  });
+
+  it('零呈现锁：无 escalation 登记的非 completed 收口——回执与 detail 均零附段零注记', async () => {
+    const f = await runToNonCompleted({ status: 'needs-human', messagesUsed: 5, reason: '写动作无审批覆盖' });
+    expect(f.fback.comments[0]!.body).not.toContain('模型上报待裁决');
+    expect(f.fback.comments[0]!.body).not.toContain('**上报 1**');
+    // detail 维持原串不加空段（零呈现律）
+    expect(f.fj.settled[0]!.terminal.detail).toBe('需人审：写动作无审批覆盖');
+  });
+});
+
+describe('FX-1 并行上限诚实受理（两在飞 + 第三个——不谎报 started 不崩进程）', () => {
+  it('帽满预检：第三个 enqueue 诚实 rejected + 零 unhandledRejection + 不发起 run', async () => {
+    // jobs 假件按真 registry 语义执法帽（kind issue 在飞计数到帽同步 throw
+    // JOB_LIMIT_REACHED——先查帽后入表）；会话假件多 run 停靠在飞——两在飞
+    // 占帽后第三个 enqueue 即帽满位。修前红源：register 在 runOne try 块外
+    // void 吞 rejection → unhandledRejection（全局崩溃编舞 exit(1) 杀
+    // daemon）+ enqueue 谎报 started
+    const cds = concurrentDeferredSession();
+    const f = makeService({ session: cds.session, jobsIssueLimit: ISSUE_PARALLEL_LIMIT_DEFAULT });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const A = { ...ISSUE, number: 11 };
+      const B = { ...ISSUE, number: 12 };
+      const C = { ...ISSUE, number: 13 };
+      expect(f.svc.enqueue(A)).toMatchObject({ status: 'started' });
+      expect(f.svc.enqueue(B)).toMatchObject({ status: 'started' });
+      await vi.waitFor(() => expect(cds.startedCount()).toBe(2)); // 两在飞（会话起跑占位）
+      // 第三个：帽满（2 ≥ 帽 2）——诚实拒收回执（不谎报 started）
+      const receipt = f.svc.enqueue(C);
+      expect(receipt.status).toBe('rejected');
+      expect(receipt.status === 'rejected' ? receipt.reason : '').toContain('并行上限已满');
+      // 不发起 run：零注册（running 无 C）、零 worktree、零起跑、零回执评论
+      // （帽满拒收不打 GitHub 评论——轮询每周期重见会刷屏，rejected 回执已
+      // 是轮询报告/webhook 响应的调用方可见面）
+      expect(f.fj.runningNames.has('o/r#13')).toBe(false);
+      expect(f.fwd.created.map((c) => c.name)).toEqual(['issue-11', 'issue-12']);
+      expect(cds.startedCount()).toBe(2);
+      expect(f.fback.comments).toHaveLength(0);
+      // 不逃逸 unhandledRejection（修前红锚之二）
+      await new Promise((r) => setTimeout(r, 25));
+      expect(unhandled).toHaveLength(0);
+      // 收尾排空（卫生——两 run 落终态出帽）
+      cds.settleAll({ status: 'completed', messagesUsed: 5, summary: 's' });
+      await vi.waitFor(() => expect(f.fj.settled).toHaveLength(2));
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled); // 先解绑防污染其它例
+    }
+  });
+
+  it('受理残窗兜底：预检过后 register 仍拒（外部占帽漂移）→ warn 收口 + 回执落账 + 零悬挂零逃逸', async () => {
+    // 构造预检/registry 漂移形：外部直接占满 kind issue 两帽位（service 在飞
+    // 记账不见——预检放行），register 仍按真帽 throw——runOne 受理位 try-catch
+    // 兜底收口（triggers.ts 受理先例同形：warn 不上抛）
+    const f = makeService({ jobsIssueLimit: ISSUE_PARALLEL_LIMIT_DEFAULT });
+    f.fj.jobs.register({ kind: 'issue', name: '外部占位#1', owner: '外部' });
+    f.fj.jobs.register({ kind: 'issue', name: '外部占位#2', owner: '外部' });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const receipt = f.svc.enqueue(ISSUE);
+      // 残窗形调用方回执仍是 started（预检已放行——结构性残窗，受理位兜底
+      // 是唯一纠偏面；register 同步先查帽后入表，表内零条目无 settle 可落）
+      expect(receipt).toMatchObject({ status: 'started' });
+      // 可观测失败落账：issue 回执评论（durable 纠偏——修前红源：零回执 +
+      // unhandledRejection 逃逸）
+      await vi.waitFor(() => expect(f.fback.comments).toHaveLength(1));
+      expect(f.fback.comments[0]!.body).toContain('未受理');
+      expect(f.fback.comments[0]!.body).toContain('JOB_LIMIT_REACHED');
+      // 零悬挂：无注册（running 无 o/r#7）、无 settle、无 worktree、零起跑
+      expect(f.fj.runningNames.has('o/r#7')).toBe(false);
+      expect(f.fj.settled).toHaveLength(0);
+      expect(f.fwd.created).toHaveLength(0);
+      expect(f.fsess.starts).toHaveLength(0);
+      // 零逃逸：unhandledRejection 计数为零
+      await new Promise((r) => setTimeout(r, 25));
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled); // 先解绑防污染其它例
+    }
+  });
+});
+
+describe('⑪ 前次分支指路与对账纪律（prompt 两笔）', () => {
+  it('撞名让位分支全列举进 prompt（两次残留——issue-7 与 issue-7-r2 都指路）+ 对账句在场', async () => {
+    const f = makeService({
+      outcome: { status: 'completed', messagesUsed: 2, summary: 's' },
+      worktreeBehavior: { existsFirst: 2 }, // issue-7、issue-7-r2 连撞 → -r3 起跑
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    const prompt = f.fsess.starts[0]!.prompt;
+    expect(prompt).toContain('本任务此前跑过');
+    expect(prompt).toContain('`issue-7`');
+    expect(prompt).toContain('`issue-7-r2`'); // 全列举——单指首撞位漏后续史
+    expect(prompt).toContain('git log');
+    expect(prompt).toContain('也可从头独立解决');
+    expect(prompt).toContain('逐条核对'); // 裁决 6 对账纪律句
+    expect(prompt).toContain('未尽项');
+    expect(f.fwd.created.map((c) => c.name)).toEqual(['issue-7-r3']);
+  });
+
+  it('零撞名（首跑）prompt 无指路段——不误导模型找不存在的前次分支', async () => {
+    const f = makeService({ outcome: { status: 'completed', messagesUsed: 2, summary: 's' } });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fsess.starts[0]!.prompt).not.toContain('本任务此前跑过');
+  });
+});
+
+describe('五役 CL-2 回执全面出口消毒（03 §10.7 五役扩射笔——postReceipt 出口单源收口）', () => {
+  /**
+   * 射程背景：修前 postReceipt → backend.postComment 的 body 除验证尾段
+   * （verifyTail 第四役 b 腿已消毒）外零消毒——outcome.summary / 错误
+   * detail / 危险闸原始判据 / escalation 段均模型可控或含外部内容文本，
+   * 明文凭证直贴公开 GitHub 评论（威胁模型 = 模型读 worktree 内 .env 等
+   * 外来凭证后原文引述进总结）。修形 = postReceipt 投递前全 body 过
+   * redactSensitiveText(redactKnownSecretValues(body, secrets))（合流序
+   * 与 b 腿同款——值基先行 + 模式腿补裸形；secrets 与 verifyTail 同一
+   * 活值源）。三锁各证一射程面。
+   */
+
+  it('outcome.summary 携伪凭证明文 → 回执 body 明文被 [REDACTED:*] 置换（值基+模式双腿；修前红锚：明文直贴公开评论）', async () => {
+    const live = 'sk-plain-token-987654'; // ≥8 过值基腿长度阈（装配注入件内已知凭证活值）
+    const f = makeService({
+      outcome: {
+        status: 'completed',
+        messagesUsed: 9,
+        // summary 是模型可控面：既含敏感键名赋值形（模式腿射程）又含裸值
+        // 明文（值基腿射程）——「模型读 .env 后原文引述进总结」的构造形
+        summary: '改动完成。核对远端配置 GATEWAY_TOKEN=sk-echo-abcdef123456 与裸值 sk-plain-token-987654 后收口',
+      },
+      sensitiveValues: () => [live],
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    const body = f.fback.comments[0]!.body;
+    // 两腿双抹：敏感键名赋值形 → [REDACTED:secret]；活值裸明文 → [REDACTED:credential]
+    expect(body).not.toContain('sk-echo-abcdef123456');
+    expect(body).not.toContain(live);
+    expect(body).toContain('[REDACTED:secret]');
+    expect(body).toContain('[REDACTED:credential]');
+    // 只抹值不折叠：summary 主体句与 draft 回执结构（补丁段）照旧
+    expect(body).toContain('改动完成');
+    expect(body).toContain('```diff');
+  });
+
+  it('危险闸原始判据 err.message 携伪凭证明文 → 回执「原始判据」行抹值（修前红锚：判据原文直贴）', async () => {
+    const crit = 'ghp_denycrit1234567890'; // ≥8——危险闸判据串可携活值明文形（CL-2 射程面之一）
+    const face: IssueDangerFace = {
+      deliver: async (req) => {
+        if (req.kind === 'push') {
+          throw new BaseError('DANGER_CONSENT_INVALID', `consent 校验失败：基串 ${crit} 不匹配`);
+        }
+        return {};
+      },
+      approve: async () => ({ ok: true, expiresAt: 1 }),
+      status: async () => {
+        throw new Error('status 不在编舞路径——不应触达');
+      },
+    };
+    const f = makeService({
+      outcome: { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+      mode: 'auto',
+      danger: face,
+      sensitiveValues: () => [crit],
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    const body = f.fback.comments[0]!.body;
+    expect(body).not.toContain(crit);
+    expect(body).toContain('原始判据：'); // 判据行在场（只抹值不折叠——行不整删）
+    expect(body).toContain('[REDACTED:credential]');
+    expect(body).toContain('需人审'); // 拒收 scaffold 照旧
+  });
+
+  it('escalation 段（模型可控 question）携伪凭证明文 → 回执附段抹值（收口段同射程）', async () => {
+    const live = 'sk-esc-q-8877665544'; // ≥8
+    const ds = deferredSession();
+    const f = makeService({
+      outcome: { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+      session: ds.session,
+      sensitiveValues: () => [live],
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(ds.toolsOf()).toHaveLength(2)); // 双工具族装载
+    const escalate = ds.toolsOf().find((t) => t.name === 'issue_escalate')!;
+    // issue_escalate 四字段均模型输入——上报问题文本携明文（模型可控面）
+    await escalate.execute({ question: `部署密钥 ${live} 是否轮换？` }, { toolCallId: 'tc-esc-1' });
+    ds.settle({ status: 'needs-human', messagesUsed: 5, reason: '写动作无审批覆盖' });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    const body = f.fback.comments[0]!.body;
+    expect(body).not.toContain(live);
+    expect(body).toContain('**上报 1**：部署密钥 [REDACTED:credential] 是否轮换？'); // 只抹值不折叠——问题主体照旧
+    expect(body).toContain('需人审'); // needs-human 收口 scaffold 照旧
+  });
+
+  it('交付腿 PR 正文携伪凭证明文 → create-pr body 抹值（同一公开 GitHub 面——五役复核笔同批收口；修前红锚：PR 描述直贴裸 summary）', async () => {
+    const live = 'sk-pr-body-4455667788'; // ≥8 过值基腿长度阈
+    const fd = fakeDanger();
+    const f = makeService({
+      outcome: {
+        status: 'completed',
+        messagesUsed: 9,
+        // summary 模型可控面：敏感键名赋值形（模式腿）+ 活值裸明文（值基腿）双构造
+        summary: `改动完成。远端网关核对 GATEWAY_KEY=sk-pr-pattern-998877 与裸值 ${live} 后收口`,
+      },
+      mode: 'auto',
+      danger: fd.face,
+      sensitiveValues: () => [live],
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(fd.deliverCalls.map((c) => c.kind)).toEqual(['push', 'create-pr']); // 交付序照旧（消毒不扰编舞）
+    const prBody = fd.deliverCalls[1]!.body!; // create-pr 腿正文（公开 PR 描述面）
+    // 两腿双抹：键名赋值形 → [REDACTED:secret]；活值裸明文 → [REDACTED:credential]
+    expect(prBody).not.toContain('sk-pr-pattern-998877');
+    expect(prBody).not.toContain(live);
+    expect(prBody).toContain('[REDACTED:secret]');
+    expect(prBody).toContain('[REDACTED:credential]');
+    expect(prBody).toContain('Closes #7'); // 只抹值不折叠——闭环位与 PR 结构照旧
+  });
+
+  it('交付腿 PR title 携伪凭证明文（issue.title 外部文本）→ create-pr title 同律抹值（03 §10.7 六役补钉；修前红锚：title 直拼 issue.title 裸贴公开 PR 面）', async () => {
+    const live = 'sk-pr-title-8877665544'; // ≥8 过值基腿长度阈
+    const fd = fakeDanger();
+    const f = makeService({
+      mode: 'auto',
+      danger: fd.face,
+      sensitiveValues: () => [live],
+    });
+    // issue.title 属外部不可信文本（与正文同威胁模型）——单行面双构造：
+    // 敏感键名赋值形（模式腿）+ 活值裸明文（值基腿）
+    f.svc.enqueue({ ...ISSUE, title: `bug: 核对 GATEWAY_KEY=sk-pr-pattern-998877 与裸值 ${live} 后修复` });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(fd.deliverCalls.map((c) => c.kind)).toEqual(['push', 'create-pr']); // 交付序照旧（消毒不扰编舞）
+    const prTitle = fd.deliverCalls[1]!.title!; // create-pr 腿标题（公开 PR 面单行 title）
+    // 两腿双抹同 body：键名赋值形 → [REDACTED:secret]；活值裸明文 → [REDACTED:credential]
+    expect(prTitle).not.toContain('sk-pr-pattern-998877');
+    expect(prTitle).not.toContain(live);
+    expect(prTitle).toContain('[REDACTED:secret]');
+    expect(prTitle).toContain('[REDACTED:credential]');
+    expect(prTitle).toContain('bug:'); // 只抹值不折叠——title 主体照旧
+  });
+});
+
+/* ---------------- 停靠登记 + 重入通道（issue 停靠恢复批——04 §5 停靠登记
+ * daemon 重启恢复律 + 03 §10.7 定形注五机制点）---------------- */
+
+describe('停靠登记（写位/复停靠覆写/删除位/再挂钩）', () => {
+  it('onParked 写位：startHeadless req 携 onParked、parkNow 回调触发 → 登记行落库（durable 单键）', async () => {
+    const ps = parkedSession();
+    const f = makeService({ session: ps.session });
+    const result = f.svc.enqueue(ISSUE);
+    expect(result.status).toBe('started');
+    await vi.waitFor(() => expect(ps.started()).toBe(true));
+    // 修前红锚：req 未携 onParked（编排侧无写位）
+    expect(ps.onParkedSeen()).toBe(true);
+    ps.park(); // 模拟 parkNow 词落定后的回调（词先行、行随后）
+    expect(f.svc.listParked()).toEqual([{ repo: 'o/r', number: 7, sessionId: 'headless-1' }]); // 修前红锚：登记行缺席
+  });
+
+  it('复停靠同键覆写：同 repo#number 新 sessionId 覆盖旧行（行数不涨——upsert 语义）', async () => {
+    const ps = parkedSession();
+    const f = makeService({ session: ps.session });
+    // 旧行（前次停靠残留——重入 duplicate 形下在飞 run 持有未来、行保留待新 run 覆写）
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 'stale-run' }]);
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(ps.started()).toBe(true));
+    ps.park();
+    expect(f.svc.listParked()).toEqual([{ repo: 'o/r', number: 7, sessionId: 'headless-1' }]); // 修前红锚：旧行原样（无 upsert）
+  });
+
+  it('finally 删除位：终态 run 收口（!retain 分支）即清本键登记行', async () => {
+    const f = makeService({ outcome: { status: 'completed', messagesUsed: 3, summary: '完成' } });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 'headless-1' }]);
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.svc.listParked()).toEqual([]); // 修前红锚：终态后行残留（删除位缺席）
+  });
+
+  it('settle-hook 再挂：终态后仍有其余登记行 → 触发重入通道（getIssue 可观测——帽满主恢复径的链式再挂）', async () => {
+    const f = makeService({ outcome: { status: 'completed', messagesUsed: 3, summary: '完成' } });
+    // 两行：本键（随 run 终态清）+ 其余键（剩余行触发再挂钩）
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [
+      { repo: 'o/r', number: 7, sessionId: 'headless-1' },
+      { repo: 'o/x', number: 9, sessionId: 'headless-9' },
+    ]);
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    // 修前红锚：无 settle-hook → getIssue 零调用
+    await vi.waitFor(() => expect(f.fback.getIssueCalls).toHaveLength(1));
+    expect(f.fback.getIssueCalls[0]).toEqual({ repo: 'o/x', number: 9 }); // 本键已清——剩余行进入重入判据
+    expect(f.svc.listParked()).toEqual([]); // getIssue undefined（已删形）→ 清行
+  });
+});
+
+describe('reenterParked（重入通道矩阵——单发触发器 + 整程自吞）', () => {
+  it('外联折码上抛（限额）→ 整程自吞不抛 + 行保留（诚实边界③：静默待再挂）', async () => {
+    const f = makeService({
+      backendGetIssue: async () => {
+        throw new BaseError('ISSUE_SOURCE_RATE_LIMITED', '[ISSUE_SOURCE_RATE_LIMITED] 限额');
+      },
+    });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    // 修前红锚：reenterParked 不存在（TypeError）
+    await expect(f.svc.reenterParked()).resolves.toBeUndefined();
+    expect(f.svc.listParked()).toEqual([{ repo: 'o/r', number: 7, sessionId: 's-park' }]); // 行保留
+  });
+
+  it('issue 已删（getIssue undefined——404 特判）→ 清行', async () => {
+    const f = makeService({ backendGetIssue: async () => undefined });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([]);
+  });
+
+  it('issue 已关（closed）→ 清行（终态 issue 不再入队）', async () => {
+    const f = makeService({ backendGetIssue: async () => ({ ...ISSUE, state: 'closed' as const }) });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([]);
+    expect(f.fsess.starts).toHaveLength(0); // 零起跑
+  });
+
+  it('配置域漂移（repo 出域——config drift 防护）→ 清行', async () => {
+    const f = makeService({ backendGetIssue: async () => ({ ...ISSUE, repo: 'other/r' }) });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'other/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([]);
+    expect(f.fsess.starts).toHaveLength(0);
+  });
+
+  it('入队 started → 清行（新 run 持有未来）+ 全管线零旁路走完（enqueue 正门）', async () => {
+    const f = makeService({ backendGetIssue: async () => ISSUE });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([]); // started → 即清行
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1)); // runOne 全管线走完（startHeadless→交付映射→settle）
+  });
+
+  it('入队 duplicate（同键在飞）→ 行保留（在飞 run 持有未来）', async () => {
+    const f = makeService({ backendGetIssue: async () => ISSUE });
+    // 在飞占位：同键 Job 注册在册（enqueue dedupe 扫 running 即见）
+    f.fj.jobs.register({ kind: 'issue', name: 'o/r#7', owner: 'test-dup' });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    expect(f.fsess.starts).toHaveLength(0); // 零起跑（duplicate 不 fire runOne）
+  });
+
+  it('入队 rejected（预算拒）→ 行保留 + 零起跑（下轮再挂/外活动再触发）', async () => {
+    const f = makeService({ budgetOk: false, budgetReason: '日池尽', backendGetIssue: async () => ISSUE });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    await f.svc.reenterParked();
+    expect(f.svc.listParked()).toEqual([{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    expect(f.fsess.starts).toHaveLength(0);
+  });
+
+  it('在飞互斥：并发双调单程执行（getIssue 恰一次——布尔在飞闸）', async () => {
+    let releaseGet!: (value: undefined) => void;
+    const f = makeService({
+      backendGetIssue: () =>
+        new Promise((resolve) => {
+          releaseGet = resolve;
+        }),
+    });
+    f.fstate.map.set(ISSUE_PARKED_REGISTRY_KEY, [{ repo: 'o/r', number: 7, sessionId: 's-park' }]);
+    const p1 = f.svc.reenterParked();
+    const p2 = f.svc.reenterParked(); // 同步双调——第二程须见在飞闸即返
+    releaseGet(undefined);
+    await p1;
+    await p2;
+    // 修前红锚：无在飞闸 → 双程各走一遍 getIssue（两调用）
+    expect(f.fback.getIssueCalls).toHaveLength(1);
+    expect(f.svc.listParked()).toEqual([]); // undefined → 清行（单程照常收尾）
+  });
+});

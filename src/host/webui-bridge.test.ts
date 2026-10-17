@@ -21,8 +21,8 @@ import type { Provider } from '../llm/index.js';
 import { sessionDisplayTitleOf } from '../persist/index.js';
 import { deriveMessages } from '../session/index.js';
 import { SANDBOX_MODES } from '../safety/index.js';
-import { createSdkHttpFace } from '../sdk/index.js';
-import type { WebuiRouteDescriptor, WebuiRouteRegistrar } from '../webui/index.js';
+import { createSdkHttpFace } from '../../plugins/sdk/index.js';
+import type { WebuiRouteDescriptor, WebuiRouteRegistrar } from '../../plugins/webui/index.js';
 
 import { createConversationStack } from './conversation-stack.js';
 import type { ConversationStack } from './conversation-stack.js';
@@ -796,7 +796,7 @@ describe('openWebuiFace HTTP e2e（18a compat 互证）', () => {
       expect(messages.status).toBe(200);
       const items = (messages.body as { messages: { role: string; content: unknown }[] }).messages;
       expect(items.some((m) => m.role === 'user')).toBe(true);
-      // API-only 形：测试态无 dist/src/webui 静态面——/ 与未知路径 404（诚实缺席）
+      // API-only 形：测试态无 dist/plugins/webui 静态面——/ 与未知路径 404（诚实缺席）
       const root = await apiFetch(port, token, '/');
       expect(root.status).toBe(404);
       // stop 幂等收口（rt.shutdown 经 closer 已含 stop——二次直调幂等；改形后

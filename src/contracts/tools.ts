@@ -86,7 +86,7 @@ export type AgentToolCall = ToolCallBlock;
  * 工具效果面（03 §2.3 一位两用）——**工具档三值**（04 §9 定形块①，2026-09-11
  * 审批分档批）：`read` = 只读（批内并行调度、不走审批对）；`write` = 写面
  * （批边界串行屏障 + 审批对触发）；`exec` = 任意进程执行类（v1 升档清单恰
- * 一处 = bash——exec/bash.ts；write/exec 同触发审批对、同走批边界串行）。
+ * 一处 = bash——plugins/exec/bash.ts；write/exec 同触发审批对、同走批边界串行）。
  * **缺省 = exec**（未知缺省最危律——04 §9 定形块②；执法位在注册面归一
  * `def.effect ?? 'exec'`，2026-09-11 缺省反转，原缺省 read 作废）。
  * 审批编舞归 safety 件。

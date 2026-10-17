@@ -72,8 +72,8 @@ import { createGateTransform, createTreeBareResolver } from './import-gate.js';
 import { loadDefaultVirtualFaces, resolvePkgMain } from './loader.js';
 // web 卫生件单源消费（market 腿 git 克隆守卫——§9.6 攻击表行；host→web 边
 // 既有〔assembly/core-plugins 同族〕，ssrf 判定不另起炉灶）
-import { assertPublicHost, defaultDnsResolver } from '../web/index.js';
-import type { DnsResolver } from '../web/types.js';
+import { assertPublicHost, defaultDnsResolver } from '../../plugins/web/index.js';
+import type { DnsResolver } from '../../plugins/web/types.js';
 
 /* ---------------- ref 词法（CLI 与账本同形单源——§5.4 ref 字段） ---------------- */
 

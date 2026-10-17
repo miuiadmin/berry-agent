@@ -16,7 +16,7 @@ import type { Message } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import { CommandRegistry, createChannels } from '../channels/index.js';
 import { createToolRegistry } from '../tools/index.js';
-import { createJobRegistry, createSubagentService } from '../subagent/index.js';
+import { createJobRegistry, createSubagentService } from '../../plugins/subagent/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { createLlmRuntime } from '../llm/runtime.js';
 import { createLlmService } from '../llm/complete.js';

@@ -1,0 +1,7 @@
+{
+  "name": "berry-agent-plugin-scheduler",
+  "version": "0.1.1-alpha.8",
+  "private": true,
+  "description": "core:scheduler 调度件元数据清单（M2 自持 private——不作发布物、不入 files 白名单；装载走 core-plugins.ts 注册表官方引用形〔03 §1.4〕，件目录=纯库+元数据+独立测试锚；真源：00-拍板-硬伤处置四件-20261016 §④ M1(a)/M2、00-立题-core件迁plugins目录-20261016）",
+  "type": "module"
+}

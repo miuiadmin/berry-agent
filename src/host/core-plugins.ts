@@ -32,11 +32,11 @@ import { BaseError } from '../contracts/index.js';
 import { getEventTypeMeta } from '../contracts/index.js';
 import type { AgentService, ContextTransformInput, ExecToolService, PreStepInput } from '../conversation/index.js';
 import { canonicalWorkspaceRoot, createLogger, LogLevelState } from '../context/index.js';
-import type { SpawnPipeline } from '../exec/index.js';
-import { createMcpService, normalizeMcpConfig } from '../mcp/index.js';
-import type { McpConfig } from '../mcp/index.js';
-import { createLspService, normalizeLspSettings } from '../lsp/index.js';
-import type { LspService } from '../lsp/index.js';
+import type { SpawnPipeline } from '../../plugins/exec/index.js';
+import { createMcpService, normalizeMcpConfig } from '../../plugins/mcp/index.js';
+import type { McpConfig } from '../../plugins/mcp/index.js';
+import { createLspService, normalizeLspSettings } from '../../plugins/lsp/index.js';
+import type { LspService } from '../../plugins/lsp/index.js';
 import {
   createBrowserService,
   defaultDownloadFace,
@@ -44,7 +44,7 @@ import {
   engineEgressProxy,
   installBrowserEngine,
   normalizeBrowserConfig,
-} from '../browser/index.js';
+} from '../../plugins/browser/index.js';
 import {
   createCapture,
   createCheckpointGate,
@@ -53,8 +53,8 @@ import {
   manifestLine,
   previewRewind,
   REWIND_USAGE,
-} from '../checkpoint/index.js';
-import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
+} from '../../plugins/checkpoint/index.js';
+import type { RewindForkFace, SessionContextFace } from '../../plugins/checkpoint/index.js';
 import {
   createBashTool,
   createGateExec,
@@ -64,7 +64,7 @@ import {
   killProcessTree,
   readCmdlineSync,
   sweepOrphans,
-} from '../exec/index.js';
+} from '../../plugins/exec/index.js';
 import {
   createGoalService,
   createGoalTodoTool,
@@ -93,7 +93,7 @@ import {
   createSchedulerService,
   runTickCommand,
   TICK_USAGE,
-} from '../scheduler/index.js';
+} from '../../plugins/scheduler/index.js';
 import type {
   GateFacts,
   GoalJobsFace,
@@ -101,17 +101,22 @@ import type {
   JobsDao,
   SchedulerEngine,
   SchedulerService,
-} from '../scheduler/index.js';
+} from '../../plugins/scheduler/index.js';
 import { createSchedulerTickRunner, type IssuePollFace } from './scheduler-tick.js';
-import { createFetchTool, createInFlightGate, createWebFetchService, DEFAULT_WEB_LIMITS } from '../web/index.js';
-import type { InFlightGate, WebFetchService } from '../web/index.js';
+import {
+  createFetchTool,
+  createInFlightGate,
+  createWebFetchService,
+  DEFAULT_WEB_LIMITS,
+} from '../../plugins/web/index.js';
+import type { InFlightGate, WebFetchService } from '../../plugins/web/index.js';
 import {
   createLoadSkillTool,
   createSkillManageTool,
   createSkillsRegistry,
   createStandardLayers,
   renderAvailableSkills,
-} from '../skills/index.js';
+} from '../../plugins/skills/index.js';
 import {
   briefBaseline,
   buildCoreBrief,
@@ -134,7 +139,7 @@ import {
   recallInjectionMessage,
   runMemoryExportCommand,
   runMemoryImportCommand,
-} from '../memory/index.js';
+} from '../../plugins/memory/index.js';
 import type {
   ExtractableUserMessage,
   FtsMaintenanceFace,
@@ -142,18 +147,23 @@ import type {
   MemoryDiffEntry,
   MemoryLlmFace,
   SessionFtsSearchFace,
-} from '../memory/index.js';
+} from '../../plugins/memory/index.js';
 import type { SessionsFace } from './sessions-face.js';
-import { collectAgentDefs, createAgentLayerProvider, createStandardAgentLayers } from '../skills/index.js';
-import { createAgentTool, materializeDeclarativeSubagents, JOBS_SERVICE_NAME } from '../subagent/index.js';
-import type { DelegationToolDeps, SubagentService } from '../subagent/index.js';
+import { collectAgentDefs, createAgentLayerProvider, createStandardAgentLayers } from '../../plugins/skills/index.js';
+import { createAgentTool, materializeDeclarativeSubagents, JOBS_SERVICE_NAME } from '../../plugins/subagent/index.js';
+import type { DelegationToolDeps, SubagentService } from '../../plugins/subagent/index.js';
 // 批 19e HTTP 面族四件（sdk/webui/issue/obs——core 15 件齐册）
-import { createSdkHttpFace } from '../sdk/index.js';
-import type { PluginRouteRegistry, SdkHttpFaceHandle } from '../sdk/index.js';
+import { createSdkHttpFace } from '../../plugins/sdk/index.js';
+import type { PluginRouteRegistry, SdkHttpFaceHandle } from '../../plugins/sdk/index.js';
 import { createObsQueryTool, createObsService } from '../../plugins/obs/index.js';
 import type { ObsAlertRule, ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../../plugins/obs/index.js';
-import { createGithubBackend, createIssueService, mountIssueWebhook, normalizeIssueConfig } from '../issue/index.js';
-import { ISSUE_VERIFY_TAIL_BYTES } from '../issue/index.js';
+import {
+  createGithubBackend,
+  createIssueService,
+  mountIssueWebhook,
+  normalizeIssueConfig,
+} from '../../plugins/issue/index.js';
+import { ISSUE_VERIFY_TAIL_BYTES } from '../../plugins/issue/index.js';
 import type {
   IssueBudgetFace,
   IssueDangerFace,
@@ -164,7 +174,7 @@ import type {
   IssueStoreStateFace,
   IssueVerifyResult,
   IssueWebhookMountFace,
-} from '../issue/index.js';
+} from '../../plugins/issue/index.js';
 import { createWorktreeService } from '../tools/index.js';
 import type { WorktreeService } from '../tools/index.js';
 // c 批 credentials 件（c-3 席占位入册 / c-5 人面命令注册——03 §10.9）
@@ -175,14 +185,14 @@ import {
   runDeviceCodeFlow,
   resolveOAuthFlow,
   createRefreshChain,
-} from '../credentials/index.js';
+} from '../../plugins/credentials/index.js';
 import type {
   CredentialChangedPayload,
   CredentialsCommandStore,
   OAuthFetchLike,
   OAuthFlowRegistry,
   RefreshChainHandle,
-} from '../credentials/index.js';
+} from '../../plugins/credentials/index.js';
 
 import type { PluginContext } from './plugin-context.js';
 import type { CorePluginReference } from './loader.js';

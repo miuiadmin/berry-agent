@@ -7,7 +7,7 @@ import { EventDispatch, Scope } from '../context/index.js';
 import type { Disposer } from '../context/index.js';
 import { CommandRegistry, createChannels, registerToolRenderer, lookupToolRenderer } from '../channels/index.js';
 import { createToolRegistry } from '../tools/index.js';
-import { createJobRegistry, createSubagentService } from '../subagent/index.js';
+import { createJobRegistry, createSubagentService } from '../../plugins/subagent/index.js';
 import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 // 归因两律机制件（U4-3——session_before_compact 接管缝测试的种箱位）
 import { BEFORE_COMPACT_ATTRIB } from '../compaction/index.js';

@@ -25,7 +25,7 @@ import { canonicalWorkspaceRoot, EventDispatch, Scope } from '../context/index.j
 import type { AuthRefreshSeam, ConversationDriverOptions, ExecSessionDeps } from '../conversation/types.js';
 import { setSessionMode } from '../conversation/index.js';
 import type { SessionBeforeForkInput } from '../conversation/sessions.js';
-import { createBashTool, createSpawnPipeline } from '../exec/index.js';
+import { createBashTool, createSpawnPipeline } from '../../plugins/exec/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { DEFAULT_COMPACTION_CONFIG } from '../compaction/index.js';
 import { createSandboxService } from '../safety/index.js';

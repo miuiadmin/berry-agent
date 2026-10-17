@@ -63,7 +63,7 @@ import type { ConversationStack } from './conversation-stack.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit, WebuiOpenInfo } from './webui-bridge.js';
-import type { PluginRouteRegistry } from '../sdk/index.js';
+import type { PluginRouteRegistry } from '../../plugins/sdk/index.js';
 
 /** stdio 注入面（缺省 process stdin/stdout——测试以 PassThrough 驱动全环） */
 export interface ServeIo {

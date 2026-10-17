@@ -2,7 +2,7 @@
  * berry-agent-sdk/http — 直连 HTTP 传输（批 13f-3）。
  *
  * 面向 13e 落码的 SDK HTTP face（daemon sock / 前台 TCP 两监听形）。路由与
- * 鉴权头常量单源自 `src/sdk/types.js` 复导入——端点词面漂移在结构上不可能。
+ * 鉴权头常量单源自 `plugins/sdk/types.js` 复导入——端点词面漂移在结构上不可能。
  * node:http 直用（fetch 无 Unix socket 支持——daemon 缺省接入位即 sock）。
  *
  * 应答归属：HTTP 请求/响应一一对应，帧归属天然无歧义——无需 stdio 形的
@@ -29,7 +29,7 @@ import type { ClientRequest, IncomingMessage } from 'node:http';
 import { decodeWireLine, isSdkRequest } from '../../../src/channels/sdk/jsonl.js';
 import { SDK_PROTOCOL_VERSION } from '../../../src/channels/sdk/protocol.js';
 import type { SdkErrorFrame, SdkRequest, SdkWireFrame } from '../../../src/channels/sdk/protocol.js';
-import { SDK_AUTH_HEADER, SDK_HTTP_ENDPOINTS, SDK_PROTOCOL_HEADER } from '../../../src/sdk/types.js';
+import { SDK_AUTH_HEADER, SDK_HTTP_ENDPOINTS, SDK_PROTOCOL_HEADER } from '../../../plugins/sdk/types.js';
 
 import { SdkError } from './types.js';
 import type { SdkFrameListener, SdkLiveHandle, SdkLiveParams, SdkTransport } from './types.js';
@@ -304,7 +304,7 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
                       // 修前双漂移：错误帧只投 onFrame 且流终结折 SDK_TRANSPORT 泛码）。
                       // 机理：真实宿主 face 对核级订阅失败（SESSION_NOT_FOUND/
                       // SDK_CURSOR_INVALID——会话不存在/游标非法）SSE 开流即 200
-                      // （状态码位已用尽，错误只能走帧——src/sdk/http.ts SseStream）、
+                      // （状态码位已用尽，错误只能走帧——plugins/sdk/http.ts SseStream）、
                       // 错误帧入流后 EOF 收线。此处 reject 后流终结 terminate 的
                       // reject 为 no-op（Promise 已落定）。
                       failed = true;

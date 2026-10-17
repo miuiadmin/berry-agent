@@ -27,8 +27,8 @@ import { spawn as childSpawn } from 'node:child_process';
 import { dirname } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
-import { createSsrfGuardedFetch, pinnedFetch } from '../web/index.js';
-import type { DnsResolver, FetchLike } from '../web/types.js';
+import { createSsrfGuardedFetch, pinnedFetch } from '../../plugins/web/index.js';
+import type { DnsResolver, FetchLike } from '../../plugins/web/types.js';
 import type { SpawnRunner } from './plugin-install.js';
 
 /** 跳过启动版本检查的 env 键（§8.5 第 6 条——关掉即零网络包，机器可验证） */

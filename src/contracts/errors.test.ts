@@ -105,8 +105,9 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
   // 注册侧全集（beforeAll 结构性前置）：fs 递归发现 src/ 与 plugins/ 双区
   // codes.ts 逐份动态导入（副作用注册）——未来新增 codes.ts 面自动纳入、
   // 完备性程序自证；核心码由本文件顶部 import './index.js' 模块加载灌入。
-  // 哨值 23 = 当前实有面数（src 21 + plugins 2；净删面须同步改此哨——防
-  // 扫描根意外缩水成假绿）。双区制 = 2026-10-17 ④试点件迁移批
+  // 哨值 23 = 当前实有面数（src 9 + plugins 14——④批量迁移 D 腿 scheduler/
+  // credentials 两 codes.ts 随区〔承 C 腿同注先例〕，两区账面互换总数不变；
+  // 净删面须同步改此哨——防扫描根意外缩水成假绿）。双区制 = 2026-10-17 ④试点件迁移批
   // （core:obs/core:goal 迁 plugins/ 后 codes.ts 随区——与 02 §4.1 席位
   // 表双区制、check-topology 扫描面同拍）。域码入册是本 describe 两张锁
   // （前缀族锁 + 字面量锁）对全集生效的前提——钉在 beforeAll 而非首个

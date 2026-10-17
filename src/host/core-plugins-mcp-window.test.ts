@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EventDispatch, Scope } from '../context/index.js';
 import { CommandRegistry, createChannels } from '../channels/index.js';
 import { createToolRegistry } from '../tools/index.js';
-import type { McpChildFace, McpServerConfig } from '../mcp/index.js';
+import type { McpChildFace, McpServerConfig } from '../../plugins/mcp/index.js';
 import { createCorePlugins } from './core-plugins.js';
 import { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
 import type { PluginContextHandle } from './plugin-context.js';
@@ -11,7 +11,7 @@ import { loadPlugins } from './loader.js';
 import type { CorePluginReference, LoaderPlanRow } from './loader.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
 import { TriggerRegistry } from './triggers.js';
-import { createJobRegistry, createSubagentService } from '../subagent/index.js';
+import { createJobRegistry, createSubagentService } from '../../plugins/subagent/index.js';
 // 错误码册注册腿（「import 发生才注册」——窗闸拒码文本断言的前置副作用）
 import './codes.js';
 

@@ -61,9 +61,9 @@ import type { Disposer, Scope } from '../context/index.js';
 import { createToolRegistry } from '../tools/index.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { LlmRuntime } from '../llm/index.js';
-import { createEnvRefResolver, createSecretsFace, pluginNamespace } from '../credentials/index.js';
-import type { SecretsFaceOptions } from '../credentials/index.js';
-import type { OAuthFlowRegistry } from '../credentials/index.js';
+import { createEnvRefResolver, createSecretsFace, pluginNamespace } from '../../plugins/credentials/index.js';
+import type { SecretsFaceOptions } from '../../plugins/credentials/index.js';
+import type { OAuthFlowRegistry } from '../../plugins/credentials/index.js';
 // 跨会话操控受理器（e4-3——sessions-control fork 绑定；host→conversation 边在册）
 import { bindControlForPlugin, SESSIONS_CONTROL_SERVICE } from '../conversation/index.js';
 import type { SessionsControlFace, SessionStartInput } from '../conversation/index.js';
@@ -72,8 +72,8 @@ import { bindSessionsForPlugin } from './sessions-face.js';
 import type { SessionsFace } from './sessions-face.js';
 // 压缩席位容器（U4-3——compaction fork 绑定；host→compaction 边在册）
 import type { CompactionSlotsHandle } from '../compaction/index.js';
-import { SDK_ROUTES_SERVICE } from '../sdk/index.js';
-import type { PluginRouteRegistry } from '../sdk/index.js';
+import { SDK_ROUTES_SERVICE } from '../../plugins/sdk/index.js';
+import type { PluginRouteRegistry } from '../../plugins/sdk/index.js';
 // 审计流面 + 装载史世代面类型（U3 批 U3-5 / 装载史批 h-3——05 §9 两宿主域表
 // 载体真身；host→persist 边在册）
 import type { AuditFace, LoadHistoryFace } from '../persist/index.js';
@@ -84,13 +84,13 @@ import { canonicalPath, createRootsProvider, deriveWritableRoots, isInsideRoot }
 import type { SandboxMode } from '../safety/index.js';
 // Job 收口窄面类型（Job 消费面批桥二——插件卸载归属围栏收口；host→subagent 边在册）
 // + jobs 窄面（JobsPluginFace——2026-09-15 ④ 笔 fork 绑面自报位除名后的插件可见形状）
-import type { JobRegistry, JobsPluginFace } from '../subagent/index.js';
+import type { JobRegistry, JobsPluginFace } from '../../plugins/subagent/index.js';
 // 'jobs' 服务词汇名（五役 d3-1 谱系执法腿——fork 绑定 provide 的键位）
-import { JOBS_SERVICE_NAME } from '../subagent/index.js';
+import { JOBS_SERVICE_NAME } from '../../plugins/subagent/index.js';
 // 程序化子代理物化消费腿（遗漏审计批 G——注册即派生）：物化真身 + toolDeps
 // 类型（与 core:subagent 件声明式腿同源单物化函数）
-import { createDeclarativeAgentTool } from '../subagent/index.js';
-import type { DelegationToolDeps } from '../subagent/index.js';
+import { createDeclarativeAgentTool } from '../../plugins/subagent/index.js';
+import type { DelegationToolDeps } from '../../plugins/subagent/index.js';
 
 import { clearBootFailure, formatPluginFailureText, recordBootFailure } from './boot-failures.js';
 import type { ConfigField } from './config-schema.js';

@@ -17,8 +17,8 @@
 import { stdout as processStdout, stderr as processStderr } from 'node:process';
 
 import { Persistence } from '../persist/index.js';
-import { runCredentialsCommand } from '../credentials/index.js';
-import type { CredentialsSub } from '../credentials/index.js';
+import { runCredentialsCommand } from '../../plugins/credentials/index.js';
+import type { CredentialsSub } from '../../plugins/credentials/index.js';
 
 import { HOST_MIGRATION_TAIL } from './runtime.js';
 

@@ -22,7 +22,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import { fauxProvider } from '../llm/index.js';
-import type { JobRow, Schedule } from '../scheduler/index.js';
+import type { JobRow, Schedule } from '../../plugins/scheduler/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import type { ConversationStack } from './conversation-stack.js';

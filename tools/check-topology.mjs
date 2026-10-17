@@ -35,9 +35,11 @@ import { fileURLToPath } from 'node:url';
 /** 模块边表（28 席；02 篇 §4.1 依赖列全量转录——L3/L4 对 contracts 共边不省略。
  * 三次加席 26→27→28 注释计数随批更新。
  * 双区制布局（2026-10-17 ④试点件迁移落码批——02 §4.1 席位表双区制）：宿主区
- * 12 席居 src/<id>/；core: 16 席中 obs/goal 先迁件区 plugins/<id>/（试点件
- * 迁移批），余 14 席暂留宿主区 src/<id>/（批量迁移批随批挪区——席位名与边
- * 关系两区同表单源，物理位置由 PLUGIN_ZONE 声明）。 */
+ * 12 席居 src/<id>/；core: 16 席中 obs/goal（④试点批）+ exec/checkpoint/
+ * skills（④批量迁移 A 腿）+ memory/subagent/issue（④批量迁移 B 腿）+ web/
+ * browser/lsp/mcp（④批量迁移 C 腿）+ scheduler/webui/sdk/credentials
+ * （④批量迁移 D 腿）全数 16 席迁件区 plugins/<id>/（「暂留宿主区」过渡段
+ * 收档；席位名与边关系两区同表单源，物理位置由 PLUGIN_ZONE 声明）。 */
 const MODULE_EDGES = {
   // ===== 宿主区（src/<id>/——12 席）=====
   contracts: [],
@@ -73,8 +75,8 @@ const MODULE_EDGES = {
     'lsp',
     'checkpoint',
     'scheduler',
-    // 件区两席（plugins/goal、plugins/obs）——host→plugins/<id> 为装配根
-    // 引用（④试点件迁移批：件本体纯库不 import host，唯一反向指向是宿主
+    // 件区席位（host→plugins/<id> 为装配根引用——④试点+批量迁移批全迁后
+    // 不再逐件计数；件本体纯库不 import host，唯一反向指向是宿主
     // 消费件；02 §4.1 host 行「全部」的落码同步笔）
     'goal',
     'obs',
@@ -89,30 +91,31 @@ const MODULE_EDGES = {
     // CREDENTIALS_MIGRATION；02 §4.1 host 行「全部」的落码同步笔）
     'credentials',
   ],
-  // ===== core: 件区暂留宿主区 14 席（src/<id>/——④批量迁移批随批挪入件区；
-  // 席位注释承载各件入册批次史，随挪区批迁移）=====
+  // ===== 件区（plugins/<id>/——④试点批先迁 2 席 + ④批量迁移 A 腿 3 席
+  // 〔exec/checkpoint/skills〕+ ④批量迁移 B 腿 3 席〔memory/subagent/issue〕+
+  // ④批量迁移 C 腿 4 席〔web/browser/lsp/mcp〕+ ④批量迁移 D 腿 4 席
+  // 〔scheduler/webui/sdk/credentials——「暂留宿主区」段随批收档、席位
+  // 注释承载的入册批次史原样随迁〕；物理位置单源 = PLUGIN_ZONE）=====
+  goal: ['contracts', 'context', 'persist', 'session'],
+  obs: ['contracts', 'persist'],
   skills: ['contracts', 'context'],
+  exec: ['contracts', 'context', 'safety', 'tools'],
+  checkpoint: ['contracts', 'context', 'tools', 'persist'],
   memory: ['contracts', 'context', 'session', 'persist'],
   subagent: ['contracts', 'context', 'session', 'agent'],
-  exec: ['contracts', 'context', 'safety', 'tools'],
-  mcp: ['contracts', 'context'],
+  issue: ['contracts', 'context'],
   web: ['contracts'],
   browser: ['contracts', 'web', 'persist'],
   lsp: ['contracts', 'context'],
-  checkpoint: ['contracts', 'context', 'tools', 'persist'],
+  mcp: ['contracts', 'context'],
   scheduler: ['contracts', 'context', 'persist'],
   webui: ['contracts', 'channels'],
   sdk: ['contracts', 'channels'],
-  issue: ['contracts', 'context'],
   // 2026-09-08 c-1 凭证代管件规范先行批入册 27→28（02 §4.1 #28 席）；c-2
   // 存储腿起在场（契约词面件 + 表扩容迁移 v7——deps {contracts, persist}
   // 〔persist 真边消费 MigrationSpec；图示对 contracts 共边按图例省略〕；
   // 读腿 ctx.secrets/注入腿/人面/oauth 随 c-3..c-6 逐笔扩）
   credentials: ['contracts', 'persist'],
-  // ===== 件区（plugins/<id>/——④试点件迁移批先迁 2 席；物理位置单源 =
-  // PLUGIN_ZONE）=====
-  goal: ['contracts', 'context', 'persist', 'session'],
-  obs: ['contracts', 'persist'],
 };
 
 /** 在场模块集（占位清单语义：边表其余键 = 显式占位、不判死边；落码逐批迁移进来） */
@@ -134,23 +137,33 @@ const PRESENT_MODULES = new Set([
   'host',
   // 批 14c 起在场（core:web 纯逻辑腿——deps 单边 contracts；装载态集成
   // 归批 12 装载面后装配批）
+  // 〔2026-10-17 ④批量迁移 C 腿：物理位置迁 plugins/web/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'web',
   // 批 14a 起在场（core:exec 纯逻辑腿——spawn 管道/bash 工具件/git 摘要件，
   // deps {contracts, context, safety, tools}；装载态 scope.provide('exec') 归
-  // 批 12 装载面后装配批）
+  // 批 12 装载面后装配批）。
+  // 〔2026-10-17 ④批量迁移 A 腿：物理位置迁 plugins/exec/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'exec',
   // 批 14b 起在场（core:skills 纯逻辑腿——SKILL.md 装载/发现六位序列/注册表/
   // 渐进披露/skill_manage，deps {contracts, context}；装载态集成（标准层装配 +
-  // skills_change 桥）归批 12 装载面后装配批，出厂技能件内容挂 07 出厂清单定名批）
+  // skills_change 桥）归批 12 装载面后装配批，出厂技能件内容挂 07 出厂清单定名批）。
+  // 〔2026-10-17 ④批量迁移 A 腿：物理位置迁 plugins/skills/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'skills',
   // 批 13e 起在场（core:sdk 件——HTTP+SSE 传输与 MCP 包装承载位〔02 §4.1
   // #26 席：L4、deps contracts+channels 与 webui 同构〕；13e-1 起域 = 端点
   // 词面/开面配置/三防线判定器，传输实装 13e-2、daemon 13e-3；MCP 包装 13f）
+  // 〔2026-10-17 ④批量迁移 D 腿：物理位置迁 plugins/sdk/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'sdk',
   // 批 15a 起在场（core:scheduler 纯逻辑腿——jobs 表/进程内挂钟/抢占/
   // DiscoveryGates/cron 可选后端//tick 处理器，deps {contracts, context,
   // persist}；装载态集成〔ctx.schedule、channels /tick 注册、--tick CLI、
   // GateFacts 宿主收集〕归批 12 装载面后装配批）
+  // 〔2026-10-17 ④批量迁移 D 腿：物理位置迁 plugins/scheduler/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'scheduler',
   // 批 15b 起在场（core:goal 纯逻辑腿——goals 表族/计划态跨轮 fold/续跑触发
   // wakeGate 双帽+停滞硬停/预算双轨/挂钟窄面 GoalJobsFace 词面独立，deps
@@ -164,13 +177,17 @@ const PRESENT_MODULES = new Set([
   // session, agent}〔session/agent 占位——in-process 真工厂与装载态接线归
   // host 装配批〕；声明式 def 解析层住 skills〔agents.ts——06 §11.6〕，
   // onSettled→goal 折叠腿经组合根闭包零边落地）
+  // 〔2026-10-17 ④批量迁移 B 腿：物理位置迁 plugins/subagent/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'subagent',
   // 批 15d 起在场（core:checkpoint 纯逻辑腿——pre-mutation 守门捕获/
   // blob 内容寻址仓/manifest 裁剪帽+/rewind 两段事务，deps {contracts,
   // context, tools, persist}〔context/tools 声明未用——gate 监听器挂载与
   // 管道 sessionId 透传归 host 装配批消费，persist 单边 resolveDataDir 已用；
   //先例同 subagent session/agent 占位〕；装配位 = safety 行之后的
-  // tools_pre_execute 监听 + TUI /rewind 命令注册〔挂批 12〕
+  // tools_pre_execute 监听 + TUI /rewind 命令注册〔挂批 12〕。
+  // 〔2026-10-17 ④批量迁移 A 腿：物理位置迁 plugins/checkpoint/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'checkpoint',
   // 批 16 起在场（core:issue 纯逻辑腿——无人值守 issue→PR 编排件〔03
   // §10.7〕：GitHub 源后端/过滤归一/轮询水位/webhook 验签路由/issue_get/
@@ -178,6 +195,8 @@ const PRESENT_MODULES = new Set([
   // 占位——装载态接线随装配批消费〕；兄弟件全经窄面注入〔IssueJobsFace/
   // IssueSchedulerFace/IssueStoreStateFace/IssueWorktreeFace 词面独立律——
   // compat.test 互证〕；headless 会话面 IssueSessionFace 装配批实装）
+  // 〔2026-10-17 ④批量迁移 B 腿：物理位置迁 plugins/issue/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'issue',
   // 批 17a-2 起在场（core:mcp 纯逻辑腿——stdio 行帧 JSON-RPC 手写最小桥
   // 〔03 §10.1 六条款〕：行帧卫生双防线/一服务器一桥〔握手-分页-调用-关停〕
@@ -185,6 +204,8 @@ const PRESENT_MODULES = new Set([
   // +scope 回卷，deps {contracts, context}；spawn/注册/作用域全经窄面注入
   // 〔McpSpawnFace 等——compat.test 真 SpawnPipeline 互证〕；装载态集成归
   // 批 12 装载面后装配批）
+  // 〔2026-10-17 ④批量迁移 C 腿：物理位置迁 plugins/mcp/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'mcp',
   // 批 17a-3 起在场（core:lsp 纯逻辑腿——Content-Length 帧手写 + 惰性
   // per-(server, rootUri) 实例 + 诊断回流〔03 §10.2 六条款〕：帧资源卫生
@@ -194,6 +215,8 @@ const PRESENT_MODULES = new Set([
   // goal seam fail-closed，deps {contracts, context}；spawn/注册/作用域/
   // 事件/盘读全经窄面注入〔LspSpawnFace 等——compat.test 真 SpawnPipeline
   // + 真 fs 互证〕；装载态集成归批 12 装载面后装配批）
+  // 〔2026-10-17 ④批量迁移 C 腿：物理位置迁 plugins/lsp/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'lsp',
   // 批 17b 起在场（core:browser 纯逻辑腿——CDP 手写最小桥 + 引擎发现序 +
   // 工具面十件〔03 §10.3〕：引擎发现四步〔显式覆盖 fail-loud/知名位+PATH/
@@ -205,6 +228,8 @@ const PRESENT_MODULES = new Set([
   // 注入〔BrowserSpawnFace 等——compat.test 真 SpawnPipeline + 真全局
   // WebSocket 互证〕；logger 窄面注入〔本件无 context 边〕；装载态集成归
   // 批 12 装载面后装配批）
+  // 〔2026-10-17 ④批量迁移 C 腿：物理位置迁 plugins/browser/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'browser',
   // 批 18a 起在场（core:webui 服务端核心——Web 通道〔03 §10.4〕：微路由
   // 五撮〔node:http 手写〕+ SSE 信封三族〔帧合成钉死/30s ping/90s 写侧
@@ -216,6 +241,9 @@ const PRESENT_MODULES = new Set([
   // host 装配桥真身，compat 互证归 host 装配批〕；SPA 客户端腿批 18a-2
   // 已落〔client 树自持 protocol 视界零服务端导入〕，host `--port` 接线
   // 归 host 装配批）
+  // 〔2026-10-17 ④批量迁移 D 腿：物理位置迁 plugins/webui/（件区——
+  // PLUGIN_ZONE 单源；SPA 客户端树 client/ 随件整体迁位）；装载轨零变
+  // （core-plugins.ts 注册表官方引用形）〕
   'webui',
   // 批 18b 起在场（core:obs 纯逻辑腿——观测面〔03 §10.8〕：rollup 自管库
   // 〔经 persist aux 面 openAuxDatabase 开库——主库零 schema 残迹、可禁用
@@ -237,6 +265,8 @@ const PRESENT_MODULES = new Set([
   // 占位——提取即时路〔18c-3〕与跨会话检索〔18c-6〕落码批消费；persist
   // 真边消费 SqliteDatabase/MigrationSpec〕；工具面九件/周期路/晋升桥/
   // 持有面动词随 18c-2..8 逐笔扩；迁移 export-only——host 装配根机械聚合）
+  // 〔2026-10-17 ④批量迁移 B 腿：物理位置迁 plugins/memory/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'memory',
   // c-2 存储腿起在场（core:credentials 凭证代管面〔03 §10.9〕：契约词面件
   // 〔namespace 值域 'host' | 'plugin:<id>' + meta 键约定 source/expired——
@@ -245,6 +275,8 @@ const PRESENT_MODULES = new Set([
   // 读腿 ctx.secrets〔受理制 + credentials.read-cross 高危面第四枚〕/注入腿
   // env 白名单/人面命令/oauth 授权流随 c-3..c-6 逐笔扩；迁移 export-only——
   // host 装配根机械聚合进 HOST_MIGRATION_TAIL）
+  // 〔2026-10-17 ④批量迁移 D 腿：物理位置迁 plugins/credentials/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'credentials',
 ]);
 
@@ -379,8 +411,11 @@ const SDK_PACKAGE_EXTERNALS = ['typebox', 'typebox/value'];
  * 缺省 = 当前工作目录（门禁原形态不变） */
 const ROOT = process.env.CHECK_TOPOLOGY_ROOT ?? process.cwd();
 const SRC = join(ROOT, 'src');
-/** 件区根（plugins/<id>/——2026-10-17 ④试点件迁移落码批双区制：core:obs/
- * core:goal 迁入；夹具根可能无 plugins/ 树，消费位 existsSync 先判） */
+/** 件区根（plugins/<id>/——2026-10-17 ④双区制批链起：core:obs/core:goal
+ * （试点批）与 exec/checkpoint/skills（④批量迁移 A 腿）及 memory/subagent/
+ * issue（④批量迁移 B 腿）与 web/browser/lsp/mcp（④批量迁移 C 腿）及
+ * scheduler/webui/sdk/credentials（④批量迁移 D 腿——core: 16 席全数迁入）
+ * 迁入；夹具根可能无 plugins/ 树，消费位 existsSync 先判） */
 const PLUGINS = join(ROOT, 'plugins');
 /** SDK 包产码根（W5 任务①入扫描面——packages/berry-agent-sdk/src；夹具根
  * 可能无 packages/ 树，消费位 existsSync 先判） */
@@ -435,9 +470,28 @@ function seatOf(file) {
 }
 
 /** 件区席位清单（物理位置单源——席位名与边关系仍在 MODULE_EDGES 单表；
- * 余 core: 14 席批量迁移批随批入册此处）。plugins/ 下目录不入本清单即
+ * core: 16 席全数入册＝试点批 2 席 + ④批量迁移 A-D 腿 14 席——D 腿
+ * 〔scheduler/webui/sdk/credentials〕收尾、「暂留宿主区」清零）。
+ * plugins/ 下目录不入本清单即
  * fail-loud（未入册件区目录——立题档硬约束 3 执法面）。 */
-const PLUGIN_ZONE = new Set(['goal', 'obs']);
+const PLUGIN_ZONE = new Set([
+  'goal',
+  'obs',
+  'exec',
+  'checkpoint',
+  'skills',
+  'memory',
+  'subagent',
+  'issue',
+  'web',
+  'browser',
+  'lsp',
+  'mcp',
+  'scheduler',
+  'webui',
+  'sdk',
+  'credentials',
+]);
 
 /** 席位入册判定（双区各按本区在册表）：宿主区席位不得是件区席位（双址即
  * 漂移信号——挪区批漏改 PLUGIN_ZONE 当场红）；件区目录必须同时入册
@@ -580,15 +634,24 @@ if (existsSync(SDK_PACKAGE_SRC)) {
       // 落点①：SDK 包 src 内——豁免（包内件组织自由，非 DAG 席）
       const relToSdkSrc = relative(SDK_PACKAGE_SRC, targetPath);
       if (!relToSdkSrc.startsWith('..') && !isAbsolute(relToSdkSrc)) continue;
-      // 落点②：主仓 src 内——公开面三名收敛（共享深挖面册 ∪ SDK 专属册）
-      const relToSrc = relative(SRC, targetPath);
-      if (!relToSrc.startsWith('..') && !isAbsolute(relToSrc)) {
-        const parts = relToSrc.split(sep);
+      // 落点②：主仓两区（src/ + plugins/）内——公开面三名收敛（共享深挖面册
+      // ∪ SDK 专属册）。plugins 分支 = 2026-10-17 ④批量迁移 D 腿随迁：SDK 包
+      // src/http.ts 消费 plugins/sdk/types.js 公开面（sdk 席迁件区后跟进编译
+      // 树 dist/plugins/** 随迁——SDK_PACK_ALLOWED 白名单同笔放行）
+      let landed = false;
+      for (const [zoneLabel, zoneRoot] of [
+        ['src', SRC],
+        ['plugins', PLUGINS],
+      ]) {
+        const relToZone = relative(zoneRoot, targetPath);
+        if (relToZone.startsWith('..') || isAbsolute(relToZone)) continue;
+        landed = true;
+        const parts = relToZone.split(sep);
         const target = parts[0];
         const face = parts.slice(1).join('/');
         if (!face) {
-          violations.push(`${posixRel(file)}: SDK 相对导入 ${spec} 指向主仓 src 顶层散文件`);
-          continue;
+          violations.push(`${posixRel(file)}: SDK 相对导入 ${spec} 指向主仓 ${zoneLabel} 顶层散文件`);
+          break;
         }
         const deepAllowed = [...(DEEP_FACES[target] ?? []), ...(SDK_DEEP_FACES[target] ?? [])];
         if (!PUBLIC_FACES.has(face) && !deepAllowed.includes(face)) {
@@ -596,10 +659,11 @@ if (existsSync(SDK_PACKAGE_SRC)) {
             `${posixRel(file)}: SDK 深挖 ${target} 实现面（${face}）——只准走公开面三名（面册例外见 DEEP_FACES/SDK_DEEP_FACES）`,
           );
         }
-        continue;
+        break;
       }
-      // 落点③：两扫描根之外（packages 其他角落 / 仓外）——红
-      violations.push(`${posixRel(file)}: SDK 相对导入 ${spec} 跳出扫描根（SDK 包 src / 主仓 src）`);
+      if (landed) continue;
+      // 落点③：扫描根之外（packages 其他角落 / 仓外）——红
+      violations.push(`${posixRel(file)}: SDK 相对导入 ${spec} 跳出扫描根（SDK 包 src / 主仓 src / 主仓 plugins）`);
     }
   }
 }

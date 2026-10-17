@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { channelModelsEndpoint, fetchChannelModels } from './channel-models-fetch.js';
-import type { DnsResolver, FetchLike } from '../web/index.js';
+import type { DnsResolver, FetchLike } from '../../plugins/web/index.js';
 
 /** 公网 DNS 桩（守卫测试同形——假域走通字面+DNS 两查；SSRF 拒锁用例字面拒先于 DNS，注入无害） */
 const publicDns: DnsResolver = async () => ['93.184.216.34'];

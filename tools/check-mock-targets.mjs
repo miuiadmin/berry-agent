@@ -34,8 +34,9 @@ const REPO_ROOT = process.env.CHECK_MOCKS_ROOT ?? fileURLToPath(new URL('..', im
  * vi.mock 目标白名单（现状五目标——六处消费，均 passthrough 单点形）：
  * - 'node:crypto'：pipeline-spill-eexist.test.ts 单点钉值 randomBytes（铸名可
  *   预知——EEXIST 竞态复现的确定性面，非行为替身）；
- * - '../issue/index.js'：run-issue-verify(.env).test.ts 捕获缝 ×2（spread 全真
- *   导出 + 记录后原样转发——零行为替身，捕获装配位生产闭包本体）；
+ * - '../../plugins/issue/index.js'：run-issue-verify(.env).test.ts 捕获缝 ×2
+ *   （spread 全真导出 + 记录后原样转发——零行为替身，捕获装配位生产闭包
+ *   本体；④批量迁移 B 腿随迁——原 '../issue/index.js' 位）；
  * - './visual-lines.js'：editor-model.test.ts 计数缝（spread 全真导出 +
  *   buildVisualLineMap 计数后原样转发——perf 锁「同 state 双调底层只建一
  *   次」；ef390dc 引入缺席未注，挖掘 33 轮补册）；
@@ -52,7 +53,7 @@ const REPO_ROOT = process.env.CHECK_MOCKS_ROOT ?? fileURLToPath(new URL('..', im
  */
 const MOCK_TARGET_WHITELIST = new Set([
   'node:crypto',
-  '../issue/index.js',
+  '../../plugins/issue/index.js',
   './visual-lines.js',
   '../channels/index.js',
   'node:fs',

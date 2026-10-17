@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BaseError, registerEventType, type SessionEvent } from '../contracts/index.js';
-import { CREDENTIALS_MIGRATION } from '../credentials/index.js';
+import { CREDENTIALS_MIGRATION } from '../../plugins/credentials/index.js';
 import { SessionLog } from '../session/index.js';
 import { ephemeralSecretKey } from './secret-box.js';
 import type { MigrationSpec } from './migrations.js';

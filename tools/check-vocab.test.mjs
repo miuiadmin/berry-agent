@@ -99,7 +99,8 @@ describe('check-vocab 守护炮自测（spawn 全闸形态）', () => {
 
   it('.app 路径字符串豁免 → 夹具绿（macOS Chrome 真值）', () => {
     const root = fixture('app-path', {
-      'src/browser/discover.ts': "export const p = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';\n",
+      'plugins/browser/discover.ts':
+        "export const p = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';\n",
     });
     const { status } = runCheck(root);
     expect(status).toBe(0);
@@ -107,7 +108,7 @@ describe('check-vocab 守护炮自测（spawn 全闸形态）', () => {
 
   it('CDP 协议名字符串豁免 → 夹具绿（Page.enable）', () => {
     const root = fixture('cdp-protocol', {
-      'src/browser/page.ts':
+      'plugins/browser/page.ts':
         "export async function f(send: (m: string) => Promise<void>) { await send('Page.enable'); }\n",
     });
     const { status } = runCheck(root);
@@ -201,7 +202,7 @@ describe('check-vocab 守护炮自测（spawn 全闸形态）', () => {
 
   it('查四产码腿：新模块 codes.ts 注册表 → 绿（19→23 文件豁免台账随批补——出生晚于枚举不入红）', () => {
     const root = fixture('userface-registry-exempt', {
-      'src/issue/codes.ts': "export const CODES = { X: { description: '同键在飞互斥撞锁' } };\n",
+      'plugins/issue/codes.ts': "export const CODES = { X: { description: '同键在飞互斥撞锁' } };\n",
     });
     const { status, out } = runCheck(root);
     expect(status).toBe(0);

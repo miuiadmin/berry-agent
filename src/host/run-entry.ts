@@ -48,8 +48,8 @@ import { isStandardMessage } from '../contracts/index.js';
 import type { SubmitResult } from '../conversation/index.js';
 import { diagnoseProviderFailure } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
-import { FIRE_WALL_TIMEOUT_MS, nextFireAt, realIsPidAlive } from '../scheduler/index.js';
-import type { JobRow, RunOutcome } from '../scheduler/index.js';
+import { FIRE_WALL_TIMEOUT_MS, nextFireAt, realIsPidAlive } from '../../plugins/scheduler/index.js';
+import type { JobRow, RunOutcome } from '../../plugins/scheduler/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import { approvalPresetOf } from '../safety/index.js';
 

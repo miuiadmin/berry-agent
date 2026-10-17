@@ -10,7 +10,7 @@
  * - 200 应答体变 ask 帧（客户端按协议解析 ack 拿到异型帧、丢幂等回执）。
  *
  * 端到端交错形（SSE 末流撤订 + POST prompt + 后续 ask fail-closed）在
- * src/sdk/http.test.ts 另锁；本件只钉核内帧序——传输面无需再持首帧假设。
+ * plugins/sdk/http.test.ts 另锁；本件只钉核内帧序——传输面无需再持首帧假设。
  */
 import { describe, expect, it } from 'vitest';
 

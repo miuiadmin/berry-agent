@@ -72,7 +72,7 @@ async function startFace(): Promise<{ transport: SdkTransport; log: FaceLog; clo
     }
     if (req.method === 'POST' && url.pathname === '/v1/interrupt') {
       log.interrupts += 1;
-      // 镜像宿主 face（src/sdk/http.ts respondCollected）：interrupt 失败形错误帧
+      // 镜像宿主 face（plugins/sdk/http.ts respondCollected）：interrupt 失败形错误帧
       // 经非 2xx + 线面错误体回达（SESSION_NOT_FOUND → 404）；成功形 204 空体
       void readJson().then((body) => {
         if (body.sessionId === 's-missing') {
@@ -115,7 +115,7 @@ async function startFace(): Promise<{ transport: SdkTransport; log: FaceLog; clo
     }
     if (req.method === 'GET' && url.pathname === '/v1/events') {
       log.eventsQueries.push(url.search);
-      // 宿主对拍锚（idx 17）：镜像宿主解码位（src/sdk/http.ts 的 noDelta
+      // 宿主对拍锚（idx 17）：镜像宿主解码位（plugins/sdk/http.ts 的 noDelta
       // 解析）——只认字面 true/false，其余一律 400 SDK_DECODE。'1'/'0' 形
       // 在宿主真面恒被拒，face 不执法即把编码漂移放行成「绿」。
       const noDeltaRaw = url.searchParams.get('noDelta');
@@ -129,7 +129,7 @@ async function startFace(): Promise<{ transport: SdkTransport; log: FaceLog; clo
       }
       const sessionId = url.searchParams.get('sessionId');
       if (sessionId === 's-missing') {
-        // 真实形对拍（宿主 src/sdk/http.ts getEvents）：核级订阅失败（会话不
+        // 真实形对拍（宿主 plugins/sdk/http.ts getEvents）：核级订阅失败（会话不
         // 存在/游标非法）SSE 开流即 200（状态码位已用尽——错误只能走帧）、
         // 错误帧入流后 EOF 收线
         res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });

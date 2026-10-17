@@ -46,7 +46,8 @@ const PACK_BASELINES = {
     'README.md',
     'LICENSE',
     'dist/src/host/main.js',
-    'dist/src/webui/index.html',
+    // SPA 面深位（④批量迁移 D 腿 webui 迁件区——随 MAIN_PACK_MUST 同笔）
+    'dist/plugins/webui/index.html',
     'dist/api/surface.json',
     'dist/.build-meta.json',
     // 出厂技能四件（2026-09-15 落位批——随必在件断言同步入基线）
@@ -68,6 +69,9 @@ const PACK_BASELINES = {
     'dist/packages/berry-agent-sdk/src/stdio.js',
     'dist/packages/berry-agent-sdk/src/types.js',
     'dist/src/channels/sdk/protocol.js',
+    // ④批量迁移 D 腿：http.ts 消费 plugins/sdk/types.js 的跟进编译产物
+    // （dist/plugins/** 随 sdk 席迁件区入 SDK 包白名单——代表件入基线）
+    'dist/plugins/sdk/types.js',
   ],
 };
 

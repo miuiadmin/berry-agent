@@ -42,7 +42,7 @@
  * 分支注）。
  */
 import type { EventSource, ToolDefinition } from '../contracts/index.js';
-import type { IssueSessionFace, IssueSessionStartResult, IssueRunOutcome } from '../issue/index.js';
+import type { IssueSessionFace, IssueSessionStartResult, IssueRunOutcome } from '../../plugins/issue/index.js';
 
 import type { ConversationStack } from './conversation-stack.js';
 import { DEFAULT_SESSION_STALL_TIMEOUT_MS } from './conversation-stack.js';

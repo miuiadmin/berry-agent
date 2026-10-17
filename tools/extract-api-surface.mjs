@@ -1517,9 +1517,17 @@ export async function extractSurface() {
     // 快照文件缺席（首跑形态）——账本空表，全部落 pkg.apiVersion
   }
   // 全仓接口索引（faceInterface 寻址——服务契约接口散住宿主模块时全仓索引是
-  // 唯一不漏形；撞名/零源在寻址点 fail-loud。目录空集时索引仍构建〔src 全树
-  // 扫描廉价〕，首服务条目落码即活）
+  // 唯一不漏形；撞名/零源在寻址点 fail-loud。目录空集时索引仍构建〔扫描
+  // 廉价〕，首服务条目落码即活）。件区树入索引面（2026-10-17 ④批量迁移
+  // B 腿：JobsPluginFace 随 core:subagent 迁 plugins/ 零源即红——两区声明
+  // 并账合入，同名跨区仍按寻址单义性 fail-loud；夹具根可能无 plugins/ 树，
+  // existsSync 先判）
   const interfaceIndex = buildInterfaceIndex(join(REPO_ROOT, 'src'));
+  if (existsSync(join(REPO_ROOT, 'plugins'))) {
+    for (const [name, hits] of buildInterfaceIndex(join(REPO_ROOT, 'plugins'))) {
+      interfaceIndex.set(name, [...(interfaceIndex.get(name) ?? []), ...hits]);
+    }
+  }
   /** faceInterface 寻址（三向 fail-loud：零源/撞源/枚举词法失步皆抽取期红） */
   const lookupFace = (entry) => {
     const hits = interfaceIndex.get(entry.faceInterface) ?? [];

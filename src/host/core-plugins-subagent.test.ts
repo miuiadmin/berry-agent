@@ -14,7 +14,7 @@ import { loadPlugins } from './loader.js';
 import type { CorePluginReference, LoaderPlanRow } from './loader.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
 import { TriggerRegistry } from './triggers.js';
-import { createJobRegistry, createSubagentService } from '../subagent/index.js';
+import { createJobRegistry, createSubagentService } from '../../plugins/subagent/index.js';
 // 错误码册注册腿（「import 发生才注册」——拒码文本断言的前置副作用）
 import './codes.js';
 

@@ -36,7 +36,7 @@ function runCheck(fixture) {
 }
 
 /**
- * 造夹具根：files 形如 { 'src/webui/index.ts': "import …" }。
+ * 造夹具根：files 形如 { 'plugins/webui/index.ts': "import …" }。
  * @param {string} name 夹具名（独立子目录）
  * @param {Record<string, string>} files 相对路径 → 文件内容
  * @returns {string} 夹具根绝对路径
@@ -61,8 +61,11 @@ describe('check-topology 守护炮自测（spawn 全闸形态）', () => {
   });
 
   it('跨模块未声明边 → 红（webui→session 不在边表）', () => {
+    // webui 席位已迁件区（④批量迁移 D 腿）——夹具随 PLUGIN_ZONE 单源落
+    // plugins/webui/，跨区指回 ../../src/ 形
     const root = fixture('edge-violation', {
-      'src/webui/index.ts': "import { x } from '../session/index.js';\nexport const y = x;\n",
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'plugins/webui/index.ts': "import { x } from '../../src/session/index.js';\nexport const y = x;\n",
     });
     const { status, out } = runCheck(root);
     expect(status).toBe(1);
@@ -72,7 +75,8 @@ describe('check-topology 守护炮自测（spawn 全闸形态）', () => {
 
   it('裸导入越账 → 红（better-sqlite3 只准 persist——webui 账无此项）', () => {
     const root = fixture('external-violation', {
-      'src/webui/index.ts': "import Database from 'better-sqlite3';\nexport const db = Database;\n",
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'plugins/webui/index.ts': "import Database from 'better-sqlite3';\nexport const db = Database;\n",
     });
     const { status, out } = runCheck(root);
     expect(status).toBe(1);
@@ -176,7 +180,8 @@ describe('check-topology 守护炮自测（spawn 全闸形态）', () => {
 
   it('动态裸导入越账 → 红（await import 单行形——静态两形扫描零命中的整类缝）', () => {
     const root = fixture('dynamic-external-violation', {
-      'src/webui/index.ts': "export const db = await import('better-sqlite3');\n",
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'plugins/webui/index.ts': "export const db = await import('better-sqlite3');\n",
     });
     const { status, out } = runCheck(root);
     expect(status).toBe(1);

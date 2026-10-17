@@ -28,16 +28,21 @@ import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-
 
 import { EventDispatch, Scope, canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
-import { MEMORY_MIGRATIONS } from '../memory/index.js';
+import { MEMORY_MIGRATIONS } from '../../plugins/memory/index.js';
 import { MEMORY_DB_PATH, Persistence } from '../persist/index.js';
-import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
+import { SCHEDULER_MIGRATION } from '../../plugins/scheduler/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import { createCorePlugins, startSchedulerClock } from './core-plugins.js';
 import type { SchedulerFace } from './core-plugins.js';
 import { bootPlugins } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
-import { createSchedulerEngine, type JobsDao, type RunnerFactory, type TimerSeam } from '../scheduler/index.js';
+import {
+  createSchedulerEngine,
+  type JobsDao,
+  type RunnerFactory,
+  type TimerSeam,
+} from '../../plugins/scheduler/index.js';
 
 /* ---------------- 测试基建 ---------------- */
 

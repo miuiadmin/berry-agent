@@ -23,7 +23,7 @@
  */
 import { BaseError } from '../contracts/index.js';
 import type { CustomProviderProtocol } from '../llm/index.js';
-import { createSsrfGuardedFetch, pinnedFetch, type DnsResolver, type FetchLike } from '../web/index.js';
+import { createSsrfGuardedFetch, pinnedFetch, type DnsResolver, type FetchLike } from '../../plugins/web/index.js';
 
 /** 拉取请求（渠道定义件三要素 + 凭证行 key——向导装配位现算注入） */
 export interface ChannelModelsRequest {

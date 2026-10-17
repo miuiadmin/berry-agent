@@ -21,8 +21,9 @@
     "rootDir": "."
   },
   // exclude 覆盖父值不合并（extends 语义）：本列表 = 父 exclude 重列 + 新增
-  // 位——*.test.tsx（client 轨测试）、src/webui/client（SPA 树——vite 独立
-  // 产物链 build:webui，tsc 发布物不含）与 tools/golden-record.ts（金样
+  // 位——*.test.tsx（client 轨测试）、plugins/webui/client（SPA 树——vite
+  // 独立产物链 build:webui，tsc 发布物不含；④批量迁移 D 腿随 webui 件迁
+  // plugins/）与 tools/golden-record.ts（金样
   // 录制器——父 include 点名入列换类型检查，发布物侧在此出局）；vite /
   // vitest 两根配置件同律（第九役 α+β 批 d113e07 父 include 补入后漏本
   // exclude——CI release-drill TS6059 红实证：根位配置件只进类型检查不进
@@ -32,7 +33,7 @@
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "plugins/**/*.test.ts",
-    "src/webui/client",
+    "plugins/webui/client",
     "tools/golden-record.ts",
     "vite.config.ts",
     "vitest.config.ts"

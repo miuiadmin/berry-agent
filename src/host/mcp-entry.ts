@@ -3,7 +3,7 @@
  *
  * 组合根形态承 serve-entry 同族：装配公共段（批 19a-3 迁 assembly 件——
  * 运行时→logger→共享根→栈→**插件装载**，与 TUI 同一合成代码路径）→ 装配桥
- * （createServeBridge——三形态共用）→ runMcpFace（src/sdk/mcp 件承载：
+ * （createServeBridge——三形态共用）→ runMcpFace（plugins/sdk/mcp 件承载：
  * 行帧 JSON-RPC 反向位 + 工具面收窄两件 `berry-agent`/`berry-agent-reply`）
  * → 后端注册（信封回流自动馈送）→ 终局走六步退出序。
  *
@@ -17,7 +17,7 @@
 import type { Readable, Writable } from 'node:stream';
 import { stdin, stdout, stderr } from 'node:process';
 
-import { runMcpFace } from '../sdk/index.js';
+import { runMcpFace } from '../../plugins/sdk/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import type { Provider } from '../llm/index.js';
 

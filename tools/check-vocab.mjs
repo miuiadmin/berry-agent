@@ -170,13 +170,19 @@ const DIAG_RE = /\bwarn\(|\bwarn\?\.\(|\bwarnFace\b|\blogger\b|\.debug\b|console
  * 钉死——改 description 须动快照，故整文件豁免 + 快照不动。
  */
 const USERFACE_FILE_EXEMPTS = [
-  { file: 'src/checkpoint/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  {
+    file: 'plugins/checkpoint/codes.ts',
+    reason: '错误码注册表 description 工程目录面（④批量迁移 A 腿随迁——原 src/checkpoint/ 位）',
+  },
   { file: 'src/context/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/contracts/api.ts', reason: 'API 治理 note 面——api-surface.json 快照镜像钉死' },
   { file: 'src/contracts/errors.ts', reason: '错误码注册表——api-surface.json 快照镜像钉死' },
   { file: 'src/contracts/events.ts', reason: '事件词汇表——api-surface.json 快照镜像钉死' },
   { file: 'src/conversation/codes.ts', reason: '错误码注册表 description 工程目录面' },
-  { file: 'src/credentials/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  {
+    file: 'plugins/credentials/codes.ts',
+    reason: '错误码注册表 description 工程目录面（④批量迁移 D 腿随迁——原 src/credentials/ 位）',
+  },
   {
     file: 'plugins/goal/codes.ts',
     reason: '错误码注册表 description 工程目录面（④试点件迁移批随迁——原 src/goal/ 位）',
@@ -184,29 +190,38 @@ const USERFACE_FILE_EXEMPTS = [
   { file: 'src/host/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/host/manifest.ts', reason: 'manifest 治理表 desc——API 治理工程单源' },
   {
-    file: 'src/issue/codes.ts',
-    reason: '错误码注册表 description 工程目录面（wf_70e9b7b8 批补——新模块注册表出生晚于 19 文件枚举）',
+    file: 'plugins/issue/codes.ts',
+    reason:
+      '错误码注册表 description 工程目录面（wf_70e9b7b8 批补——新模块注册表出生晚于 19 文件枚举；④批量迁移 B 腿随迁——原 src/issue/ 位）',
   },
   {
     file: 'src/llm/codes.ts',
     reason: '错误码注册表 description 工程目录面（wf_70e9b7b8 批补——新模块注册表出生晚于 19 文件枚举）',
   },
-  { file: 'src/lsp/codes.ts', reason: '错误码注册表 description 工程目录面' },
-  { file: 'src/mcp/codes.ts', reason: '错误码注册表 description 工程目录面' },
-  { file: 'src/memory/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'plugins/lsp/codes.ts', reason: '错误码注册表 description 工程目录面（④批量迁移 C 腿随迁——原 src/lsp/ 位）' },
+  { file: 'plugins/mcp/codes.ts', reason: '错误码注册表 description 工程目录面（④批量迁移 C 腿随迁——原 src/mcp/ 位）' },
+  {
+    file: 'plugins/memory/codes.ts',
+    reason: '错误码注册表 description 工程目录面（④批量迁移 B 腿随迁——原 src/memory/ 位）',
+  },
   { file: 'plugins/obs/codes.ts', reason: '错误码注册表 description 工程目录面（④试点件迁移批随迁——原 src/obs/ 位）' },
   { file: 'src/persist/schema.ts', reason: 'CANONICAL_DDL SQL 注释域——工程真源' },
   { file: 'src/safety/codes.ts', reason: '错误码注册表 description 工程目录面（F 先例已改 11 行不回退）' },
   {
-    file: 'src/scheduler/codes.ts',
-    reason: '错误码注册表 description 工程目录面（wf_70e9b7b8 批补——新模块注册表出生晚于 19 文件枚举）',
+    file: 'plugins/scheduler/codes.ts',
+    reason:
+      '错误码注册表 description 工程目录面（wf_70e9b7b8 批补——新模块注册表出生晚于 19 文件枚举；④批量迁移 D 腿随迁——原 src/scheduler/ 位）',
   },
   { file: 'src/session/codes.ts', reason: '错误码注册表 description 工程目录面' },
-  { file: 'src/subagent/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  {
+    file: 'plugins/subagent/codes.ts',
+    reason: '错误码注册表 description 工程目录面（④批量迁移 B 腿随迁——原 src/subagent/ 位）',
+  },
   { file: 'src/tools/codes.ts', reason: '错误码注册表 description 工程目录面' },
   {
-    file: 'src/web/codes.ts',
-    reason: '错误码注册表 description 工程目录面（wf_70e9b7b8 批补——新模块注册表出生晚于 19 文件枚举）',
+    file: 'plugins/web/codes.ts',
+    reason:
+      '错误码注册表 description 工程目录面（wf_70e9b7b8 批补——新模块注册表出生晚于 19 文件枚举；④批量迁移 C 腿随迁——原 src/web/ 位）',
   },
 ];
 
@@ -229,7 +244,11 @@ const USERFACE_EXEMPTS = [
     snippet: '段·判据门',
     reason: '模型面指令回执标记——判据门是 goal 纪律段既定机制词汇',
   },
-  { file: 'src/issue/service.ts', snippet: '本 prompt 不发往任何模型', reason: '工程占位描述——轮询占位符不发往模型' },
+  {
+    file: 'plugins/issue/service.ts',
+    snippet: '本 prompt 不发往任何模型',
+    reason: '工程占位描述——轮询占位符不发往模型',
+  },
   { file: 'src/host/plugin-context.ts', snippet: '07 §4.3 档位', reason: '规范篇号条款引用——「档位 2/3」是编号非档词' },
 ];
 

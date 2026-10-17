@@ -38,10 +38,10 @@ import type { PersistenceOptions } from '../persist/index.js';
 // v13 → input-history v14 → session-archived-at v15（audit v8 / load-generations
 // v10 / session-archive v13 / input-history v14 / session-archived-at v15 = 宿主
 // 域表——persist export-only 声明，非 core: 表族）。
-import { MEMORY_MIGRATIONS } from '../memory/index.js';
+import { MEMORY_MIGRATIONS } from '../../plugins/memory/index.js';
 import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../../plugins/goal/index.js';
-import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
-import { CREDENTIALS_MIGRATION } from '../credentials/index.js';
+import { SCHEDULER_MIGRATION } from '../../plugins/scheduler/index.js';
+import { CREDENTIALS_MIGRATION } from '../../plugins/credentials/index.js';
 import type { MigrationSpec } from '../persist/index.js';
 
 import { collectDate, collectPlatform, renderEnvironmentDisclosure } from './disclosure.js';

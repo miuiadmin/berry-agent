@@ -12,7 +12,7 @@
  * - notify：产品级指路文案 + M4 转换位去重（per-provider×outcome 进程内
  *   一次；'expired' 形静默——链侧 wasExpired 三振 notify 已含指路不重发）。
  */
-import type { RefreshChainHandle } from '../credentials/index.js';
+import type { RefreshChainHandle } from '../../plugins/credentials/index.js';
 import { authFamily } from '../llm/index.js';
 import type { AuthRefreshNotice, AuthRefreshOutcome, AuthRefreshSeam } from '../conversation/types.js';
 import { providerApiKeyEnvNames } from './conversation-stack.js';

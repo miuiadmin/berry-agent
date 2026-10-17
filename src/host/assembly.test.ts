@@ -33,11 +33,11 @@ import type { BootGuardState, BootGuardStore } from './boot-guard.js';
 import { readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import { SETTINGS_BASENAME } from './settings-store.js';
 import { openWebuiFace } from './webui-bridge.js';
-import type { PluginRouteRegistry } from '../sdk/index.js';
+import type { PluginRouteRegistry } from '../../plugins/sdk/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { createAuditFace } from '../persist/index.js';
-import { openCheckpointStore } from '../checkpoint/index.js';
-import type { SkillsRegistry } from '../skills/index.js';
+import { openCheckpointStore } from '../../plugins/checkpoint/index.js';
+import type { SkillsRegistry } from '../../plugins/skills/index.js';
 import type {
   AgentMessage,
   ApprovalAskAnswer,
@@ -47,7 +47,7 @@ import type {
 } from '../contracts/index.js';
 import type { UiBackend } from '../channels/index.js';
 import type { GoalService } from '../../plugins/goal/index.js';
-import type { JobRegistry } from '../subagent/index.js';
+import type { JobRegistry } from '../../plugins/subagent/index.js';
 import { fauxProvider } from '../llm/index.js';
 // pi-ai 1.0 起 TranscriptContext 不再携带独立 systemPrompt 字段（normalizeContext
 // 折叠进 messages 头部 system message）——外发提示词面改经包公开 helper 提取

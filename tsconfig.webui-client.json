@@ -15,5 +15,5 @@
   // exclude 覆盖父值（extends 不合并语义）：父 exclude 恰含本树，不显式清空
   // 则 include 与 exclude 相消——TS18003 零输入。
   "exclude": [],
-  "include": ["src/webui/client"]
+  "include": ["plugins/webui/client"]
 }

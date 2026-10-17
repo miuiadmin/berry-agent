@@ -53,10 +53,10 @@ import {
   type SdkHttpListenConfig,
   type SdkListenInfo,
   type SdkTcpListenSpec,
-} from '../sdk/index.js';
+} from '../../plugins/sdk/index.js';
 import type { Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
-import { WEBUI_DEFAULT_HOST } from '../webui/index.js';
+import { WEBUI_DEFAULT_HOST } from '../../plugins/webui/index.js';
 
 import { createServeBridge } from './serve-entry.js';
 import { assembleHostStack } from './assembly.js';

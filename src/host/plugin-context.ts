@@ -63,7 +63,7 @@ import type { CommandHandler, ToolRenderer } from '../channels/index.js';
 // containment 单源（grants 调用级执法——04 §7 编舞条款·①段二 2026-10-17
 // 〔定谳注：boot 授予交集冻结档〕；host→safety 边在册）
 import { isInsideRoot } from '../safety/index.js';
-import { AGENT_TOOL_PREFIX } from '../subagent/types.js';
+import { AGENT_TOOL_PREFIX } from '../../plugins/subagent/types.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { Disposer, EventDispatch, Scope, WaterfallListener } from '../context/index.js';
 import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';

@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { CredentialChangedPayload } from '../credentials/index.js';
+import type { CredentialChangedPayload } from '../../plugins/credentials/index.js';
 import type { UiInputOptions, UiSelectChoice } from '../contracts/index.js';
 
 import type { ConfigField } from './config-schema.js';

@@ -29,7 +29,7 @@ import { createMarketFs } from './fs.js';
 import { discoverMarketplaces } from './discover.js';
 import type { MarketFetchFace } from './types.js';
 import type { SpawnRunner } from '../plugin-install.js';
-import type { DnsResolver, FetchLike } from '../../web/types.js';
+import type { DnsResolver, FetchLike } from '../../../plugins/web/types.js';
 
 /** 测试根 tmp（自管收尾自清） */
 const testRoot = mkdtempSync(join(tmpdir(), 'berry-market-fetch-test-'));

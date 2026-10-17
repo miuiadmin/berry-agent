@@ -17,7 +17,7 @@ import { fuzzyFilter } from '../channels/index.js';
 import type { AutocompleteItem } from '../channels/index.js';
 import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 import { APPROVAL_PRESETS } from '../safety/index.js';
-import { REWIND_SUBVERBS } from '../checkpoint/index.js';
+import { REWIND_SUBVERBS } from '../../plugins/checkpoint/index.js';
 import { GOAL_SUBVERBS } from '../../plugins/goal/index.js';
 import { APPROVAL_SUBVERBS } from './approval-cmd.js';
 import { DOORS_SUBVERBS } from './doors-cmd.js';

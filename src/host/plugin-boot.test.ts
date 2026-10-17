@@ -16,7 +16,7 @@ import type { JobKind } from '../contracts/index.js';
 import type { ToolDefinition } from '../contracts/index.js';
 import type { UiBackend } from '../contracts/index.js';
 // oauth 流注册表真身（03 §10.9 oauth 死域批——换代清理/死域开窗两道闸测试）
-import { createOAuthFlowRegistry } from '../credentials/index.js';
+import { createOAuthFlowRegistry } from '../../plugins/credentials/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import { createChannels } from '../channels/index.js';
 import {
@@ -29,8 +29,8 @@ import {
 import type { AuditFace, LoadHistoryFace, Store } from '../persist/index.js';
 // 子代理 service 真身（物化消费腿 e2e——遗漏审计批 G）+ jobs 窄面类型
 // （2026-09-15 ④ 笔——fork 绑面自报位除名后的插件可见形状）
-import { createJobRegistry, createSubagentService } from '../subagent/index.js';
-import type { JobsPluginFace } from '../subagent/index.js';
+import { createJobRegistry, createSubagentService } from '../../plugins/subagent/index.js';
+import type { JobsPluginFace } from '../../plugins/subagent/index.js';
 
 import { readBootFailures } from './boot-failures.js';
 import type { CorePluginReference } from './loader.js';
@@ -47,8 +47,8 @@ import type { PluginBootFs, PluginBootOptions, PluginUnloadReceipt } from './plu
 import type { HostRuntime } from './runtime.js';
 import { createCompactionSlots } from '../compaction/index.js';
 import { DEFAULT_COMPACTION_CONFIG } from '../compaction/types.js';
-import { createPluginRouteRegistry } from '../sdk/index.js';
-import type { PluginRouteDescriptor, SdkRoutesPluginFace } from '../sdk/index.js';
+import { createPluginRouteRegistry } from '../../plugins/sdk/index.js';
+import type { PluginRouteDescriptor, SdkRoutesPluginFace } from '../../plugins/sdk/index.js';
 
 /** 临时目录族（统一清） */
 const dirs: string[] = [];

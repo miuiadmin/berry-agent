@@ -72,11 +72,11 @@ import {
   THINKING_LEVELS,
 } from '../conversation/index.js';
 import type { ApprovalSettledNotice } from '../conversation/index.js';
-import { sanitizeEntryForReadout, shortIdOf, type MemoryDao } from '../memory/index.js';
-import { formatSkillInvocation, type SkillsRegistry } from '../skills/index.js';
+import { sanitizeEntryForReadout, shortIdOf, type MemoryDao } from '../../plugins/memory/index.js';
+import { formatSkillInvocation, type SkillsRegistry } from '../../plugins/skills/index.js';
 import type { Provider } from '../llm/index.js';
 import { SANDBOX_MODES, type SandboxMode } from '../safety/index.js';
-import type { CheckpointStore } from '../checkpoint/index.js';
+import type { CheckpointStore } from '../../plugins/checkpoint/index.js';
 import type { JobEntry } from '../contracts/index.js';
 import type { SessionEvent } from '../contracts/index.js';
 import { recoverClosers } from '../session/index.js';
@@ -139,11 +139,11 @@ import { createMarketFs } from './plugin-market/index.js';
 import { createPluginStoreFs, readLedger } from './plugin-store.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit } from './webui-bridge.js';
-import type { PluginRouteRegistry } from '../sdk/index.js';
+import type { PluginRouteRegistry } from '../../plugins/sdk/index.js';
 import type { ConversationStack, StartupSession } from './conversation-stack.js';
 import { providerApiKeyEnvNames } from './conversation-stack.js';
 import { runSetupWizard } from './setup-wizard.js';
-import { runCredentialsCommand } from '../credentials/index.js';
+import { runCredentialsCommand } from '../../plugins/credentials/index.js';
 
 /**
  * 档位文案与回执单源已迁 host/session-tier-copy.ts（2026-09-18 webui 档位面

@@ -31,7 +31,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Store } from '../persist/index.js';
-import { createSdkHttpFace, type SdkHttpFaceHandle } from '../sdk/index.js';
+import { createSdkHttpFace, type SdkHttpFaceHandle } from '../../plugins/sdk/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
 import { createHostRuntime } from './runtime.js';

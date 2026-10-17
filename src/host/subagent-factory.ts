@@ -23,10 +23,10 @@ import type {
   SubagentResult,
   Usage,
 } from '../contracts/index.js';
-import { EXCLUDED_FROM_DERIVED_SURFACE, IN_PROCESS_CAPABILITIES } from '../subagent/index.js';
-import type { SubagentMachineAccount } from '../subagent/index.js';
-import { formatSkillBlock, validateSkillRefList } from '../skills/index.js';
-import type { Skill } from '../skills/index.js';
+import { EXCLUDED_FROM_DERIVED_SURFACE, IN_PROCESS_CAPABILITIES } from '../../plugins/subagent/index.js';
+import type { SubagentMachineAccount } from '../../plugins/subagent/index.js';
+import { formatSkillBlock, validateSkillRefList } from '../../plugins/skills/index.js';
+import type { Skill } from '../../plugins/skills/index.js';
 
 import type { ConversationStack } from './conversation-stack.js';
 

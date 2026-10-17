@@ -71,7 +71,8 @@ export default defineConfig({
         extends: false,
         test: {
           name: 'webui-client',
-          include: ['src/webui/client/**/*.test.tsx'],
+          // webui-client 轨（④批量迁移 D 腿随 webui 件迁 plugins/）：
+          include: ['plugins/webui/client/**/*.test.tsx'],
           environment: 'jsdom',
           testTimeout: 15_000,
           clearMocks: true,

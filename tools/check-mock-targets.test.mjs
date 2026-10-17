@@ -96,7 +96,7 @@ describe('scanViolations——两查门（目标白名单 + passthrough 形）',
   });
 
   it('白名单内整体替身（无 importOriginal / 无 ...actual spread）红', () => {
-    const stub = "vi.mock('../issue/index.js', () => ({ createIssueService: fake }));\n";
+    const stub = "vi.mock('../../plugins/issue/index.js', () => ({ createIssueService: fake }));\n";
     const violations = scanViolations(stub);
     assert.equal(violations.length, 1);
     assert.ok(violations[0].message.includes('非 passthrough 形'));

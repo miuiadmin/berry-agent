@@ -22,15 +22,15 @@ import { EventDispatch, Scope } from '../context/index.js';
 import { BaseError } from '../contracts/index.js';
 import type { GateInput, SessionEvent, UserMessage } from '../contracts/index.js';
 import type { CommandHandler } from '../channels/index.js';
-import { openCheckpointStore } from '../checkpoint/index.js';
-import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
-import { CREDENTIALS_MIGRATION, createOAuthFlowRegistry } from '../credentials/index.js';
+import { openCheckpointStore } from '../../plugins/checkpoint/index.js';
+import type { RewindForkFace, SessionContextFace } from '../../plugins/checkpoint/index.js';
+import { CREDENTIALS_MIGRATION, createOAuthFlowRegistry } from '../../plugins/credentials/index.js';
 import type {
   CredentialChangedPayload,
   CredentialsCommandStore,
   OAuthFetchLike,
   OAuthFlowRegistry,
-} from '../credentials/index.js';
+} from '../../plugins/credentials/index.js';
 import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../../plugins/goal/index.js';
 import type { GoalService, GoalSessionFace, GoalSummarizerFace } from '../../plugins/goal/index.js';
 import type {
@@ -39,10 +39,10 @@ import type {
   IssueService,
   IssueSessionFace,
   IssueStoreStateFace,
-} from '../issue/index.js';
-import { ISSUE_PARKED_REGISTRY_KEY } from '../issue/index.js';
-import { MEMORY_MIGRATIONS } from '../memory/index.js';
-import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../memory/index.js';
+} from '../../plugins/issue/index.js';
+import { ISSUE_PARKED_REGISTRY_KEY } from '../../plugins/issue/index.js';
+import { MEMORY_MIGRATIONS } from '../../plugins/memory/index.js';
+import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../../plugins/memory/index.js';
 import type { ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../../plugins/obs/index.js';
 import {
   MEMORY_DB_PATH,
@@ -50,11 +50,11 @@ import {
   SESSION_ARCHIVE_MIGRATION,
   SESSION_ARCHIVED_AT_MIGRATION,
 } from '../persist/index.js';
-import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
-import { createSdkHttpFace } from '../sdk/index.js';
-import type { SdkHttpFaceHandle } from '../sdk/index.js';
+import { SCHEDULER_MIGRATION } from '../../plugins/scheduler/index.js';
+import { createSdkHttpFace } from '../../plugins/sdk/index.js';
+import type { SdkHttpFaceHandle } from '../../plugins/sdk/index.js';
 import { SessionLog } from '../session/index.js';
-import { createJobRegistry, provideJobsService } from '../subagent/index.js';
+import { createJobRegistry, provideJobsService } from '../../plugins/subagent/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
 import type { GoalFace, IssueSessionReadsFace, SchedulerFace } from './core-plugins.js';
@@ -69,7 +69,7 @@ import type { HostRuntime } from './runtime.js';
 import { assembleOpenTools } from '../conversation/open-tools.js';
 import type { ContextTransformInput, ExecToolService, PreStepInput } from '../conversation/index.js';
 import { AGENT_PRE_STEP_EVENT, CONTEXT_TRANSFORM_EVENT } from '../conversation/index.js';
-import type { SkillsRegistry } from '../skills/index.js';
+import type { SkillsRegistry } from '../../plugins/skills/index.js';
 import { createSessionsFace, type SessionsFace, type SessionsDriverOf } from './sessions-face.js';
 
 /** 临时目录族（统一清） */

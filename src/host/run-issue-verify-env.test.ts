@@ -23,8 +23,8 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createCorePlugins } from './core-plugins.js';
-import { DEFAULT_ENV_ALLOW } from '../exec/index.js';
-import type { IssueVerifyFace } from '../issue/types.js';
+import { DEFAULT_ENV_ALLOW } from '../../plugins/exec/index.js';
+import type { IssueVerifyFace } from '../../plugins/issue/types.js';
 
 /* ---------------- 捕获缝：issue barrel passthrough（仅记录 verify 注入面） ---------------- */
 
@@ -33,8 +33,8 @@ const verifyCapture = vi.hoisted(() => ({ face: undefined as IssueVerifyFace | u
 
 // passthrough 单点包裹：spread 全真导出 + createIssueService 记录 deps.verify 后
 // 原样转发——零行为替身，捕获到的是 core-plugins 模块内铸造的生产闭包本体
-vi.mock('../issue/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../issue/index.js')>();
+vi.mock('../../plugins/issue/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../plugins/issue/index.js')>();
   return {
     ...actual,
     createIssueService: (deps: Parameters<typeof actual.createIssueService>[0]) => {

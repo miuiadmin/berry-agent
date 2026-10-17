@@ -18,7 +18,7 @@
  * 恰一个（多余位置参数不 join——静默拼接是另一种「语义并进正文」）；无参
  * TUI 入口不收位置参数；`--port` 值域 = 正整数 ≤ 65535（端口物理域）。
  */
-import type { CredentialsSub } from '../credentials/index.js';
+import type { CredentialsSub } from '../../plugins/credentials/index.js';
 // 子命令形单源再导出（credentials/commands.ts 立形——CLI 解析与命令语义共用；
 // dispatch/dispatch 表与 CredentialsCommand 族从此处取型，与 SessionsCommand 同位）
 export type { CredentialsSub };

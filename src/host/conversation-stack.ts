@@ -90,7 +90,7 @@ import type {
   TodoSnapshotEntry,
 } from '../conversation/index.js';
 import type { UserMessage } from '../contracts/index.js';
-import { HOST_NAMESPACE } from '../credentials/index.js';
+import { HOST_NAMESPACE } from '../../plugins/credentials/index.js';
 import type { AuthRefreshSeam } from '../conversation/types.js';
 import type { AgentEvent } from '../agent/index.js';
 import {

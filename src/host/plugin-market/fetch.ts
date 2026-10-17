@@ -34,8 +34,8 @@ import { CATALOG_RELATIVE_PATHS } from './catalog.js';
 import type { MarketFetchFace } from './types.js';
 import { createDefaultSpawnRunner } from '../plugin-install.js';
 import type { SpawnRunner } from '../plugin-install.js';
-import { createSsrfGuardedFetch, pinnedFetch } from '../../web/index.js';
-import type { DnsResolver, FetchLike } from '../../web/types.js';
+import { createSsrfGuardedFetch, pinnedFetch } from '../../../plugins/web/index.js';
+import type { DnsResolver, FetchLike } from '../../../plugins/web/types.js';
 
 /** url 腿超时帽（ms）——§9.6 定值（整个抓取含重定向跟随的总预算） */
 export const MARKET_FETCH_TIMEOUT_MS = 60_000;

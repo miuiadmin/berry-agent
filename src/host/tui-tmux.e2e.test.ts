@@ -326,7 +326,7 @@ function seedRewindManifest(dataDir: string, wsDir: string, id: string, trigger:
     scriptPath,
     [
       `const root = process.argv[2];`,
-      `const { openCheckpointStore } = await import(root + '/src/checkpoint/index.js');`,
+      `const { openCheckpointStore } = await import(root + '/plugins/checkpoint/index.js');`,
       `const { canonicalWorkspaceRoot } = await import(root + '/src/context/index.js');`,
       `const store = openCheckpointStore(process.argv[3]);`,
       `await store.saveManifest({`,

@@ -30,23 +30,23 @@ import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogg
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
 import { createCustomChannelProvider, builtinProviderIds, SUBAGENT_RESERVE_THRESHOLD } from '../llm/index.js';
-import { llmTextOf } from '../memory/index.js';
-import type { MemoryLlmFace } from '../memory/index.js';
+import { llmTextOf } from '../../plugins/memory/index.js';
+import type { MemoryLlmFace } from '../../plugins/memory/index.js';
 import type { GoalSummarizerFace } from '../../plugins/goal/index.js';
 import type { GoalService } from '../../plugins/goal/index.js';
-import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
-import { gitSummary } from '../exec/index.js';
-import type { GitSummary, SpawnPipeline } from '../exec/index.js';
+import type { RewindForkFace, SessionContextFace } from '../../plugins/checkpoint/index.js';
+import { gitSummary } from '../../plugins/exec/index.js';
+import type { GitSummary, SpawnPipeline } from '../../plugins/exec/index.js';
 import type { ApprovalPolicyMode, SandboxMode, ToolPolicyDraft } from '../safety/index.js';
 import {
   DEFAULT_SUBAGENT_PROVIDER,
   createJobRegistry,
   createSubagentService,
   provideJobsService,
-} from '../subagent/index.js';
-import { createDirProvider } from '../skills/index.js';
-import type { SkillsRegistry } from '../skills/index.js';
-import { createSsrfGuardedFetch, pinnedFetch } from '../web/index.js';
+} from '../../plugins/subagent/index.js';
+import { createDirProvider } from '../../plugins/skills/index.js';
+import type { SkillsRegistry } from '../../plugins/skills/index.js';
+import { createSsrfGuardedFetch, pinnedFetch } from '../../plugins/web/index.js';
 
 import { appendToolPolicyEntry, readToolPolicy } from './tool-policy-store.js';
 import { readHostSettings } from './settings-store.js';
@@ -62,8 +62,8 @@ import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
 // B3 联动腿装配 seam 工厂（04 §3.3 条 8——authFamily/refreshNow/notify 三注入单点）
 import { createHostAuthRefreshSeam } from './auth-refresh-seam.js';
-import type { RefreshChainHandle } from '../credentials/index.js';
-import type { CredentialChangedPayload, CredentialsCommandStore } from '../credentials/index.js';
+import type { RefreshChainHandle } from '../../plugins/credentials/index.js';
+import type { CredentialChangedPayload, CredentialsCommandStore } from '../../plugins/credentials/index.js';
 import { SESSION_LIFECYCLE_EVENT, APPROVAL_SETTLED_EVENT } from '../conversation/index.js';
 import type { AgentService, ControlCaller } from '../conversation/index.js';
 import { AGENT_SERVICE_NAME } from '../conversation/index.js';
@@ -101,10 +101,14 @@ import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactor
 // 批 19e HTTP 面族接线：sdk 面工厂（件承载真身）+ issue 并行帽常量 +
 // webui 挂载闭包（assembly→webui-bridge→serve-entry→assembly 系声明式
 // 函数引用环——顶层零副作用，boot 后才调值，ESM live binding 安全）
-import { createSdkHttpFace } from '../sdk/index.js';
-import { createPluginRouteRegistry } from '../sdk/index.js';
-import { ISSUE_GITHUB_TOKEN_NAME, ISSUE_PARALLEL_LIMIT_DEFAULT, ISSUE_WEBHOOK_SECRET_NAME } from '../issue/index.js';
-import { HOST_NAMESPACE, createOAuthFlowRegistry } from '../credentials/index.js';
+import { createSdkHttpFace } from '../../plugins/sdk/index.js';
+import { createPluginRouteRegistry } from '../../plugins/sdk/index.js';
+import {
+  ISSUE_GITHUB_TOKEN_NAME,
+  ISSUE_PARALLEL_LIMIT_DEFAULT,
+  ISSUE_WEBHOOK_SECRET_NAME,
+} from '../../plugins/issue/index.js';
+import { HOST_NAMESPACE, createOAuthFlowRegistry } from '../../plugins/credentials/index.js';
 // 进程级 durable 审计流面（05 §9 audit_events——U3 批 U3-5 载体真接线）
 import { createAuditFace, createInputHistoryFace, createLoadHistoryFace } from '../persist/index.js';
 import type { InputHistoryFace } from '../persist/index.js';
