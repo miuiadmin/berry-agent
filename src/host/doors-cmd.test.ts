@@ -73,18 +73,21 @@ describe('parseDoorsArgv（TUI 裸 argv 解析律）', () => {
   });
 });
 
-describe('runDoorsCommand·list（六枚全清单 + 双源呈现）', () => {
-  it('两源样例：六枚清单 + 行 opens 分组（禁用行标注）+ doors 段行 + 闭门 reason 单源', () => {
+describe('runDoorsCommand·list（七枚全清单 + 双源呈现）', () => {
+  it('两源样例：七枚清单 + 行 opens 分组（禁用行标注）+ doors 段行 + 闭门 reason 单源', () => {
     const fs = memFs({ [enabledYamlPath('/data')]: SEED_TWO_SOURCES });
     const outcome = runDoorsCommand({ sub: 'list' }, { dataDir: '/data', fs });
     expect(outcome.ok).toBe(true);
-    // 六枚全清单（USER_GRANTABLE_CAPABILITIES 单源投影）
+    // 七枚全清单（USER_GRANTABLE_CAPABILITIES 单源投影——第七枚 grants.node-builtins 随 R3 入册自动共变）
     expect(outcome.text).toContain('channels.ui-backend=');
     expect(outcome.text).toContain('sdk.register-route=');
     expect(outcome.text).toContain('triggers.start-run=');
     expect(outcome.text).toContain('credentials.read-cross=');
     expect(outcome.text).toContain('sessions.observe-cross=open（doors 段——进程级）');
     expect(outcome.text).toContain('sessions.control-cross=closed——');
+    // 第七枚（R3——呈现面全量七枚；授予位 = 行 opens 插件道独面，doors 段值域不含）
+    expect(outcome.text).toContain('grants.node-builtins=closed——');
+    expect(outcome.text).toContain('高危面清单（7 枚）');
     // 行 opens：启用行开门 + 禁用行授予面在场标注
     expect(outcome.text).toContain('sdk.register-route=open（行 opens：acme-widgets）');
     expect(outcome.text).toContain('ghost-tools: channels.ui-backend（已禁用——授予实效收回）');
@@ -97,7 +100,7 @@ describe('runDoorsCommand·list（六枚全清单 + 双源呈现）', () => {
     expect(outcome.ok).toBe(true);
     expect(outcome.text).toContain('（无——未有任何插件行开位）');
     expect(outcome.text).toContain('（段缺席 = 空集）');
-    expect(outcome.text).toContain('closed——'); // 六枚全闭（附单源 reason）
+    expect(outcome.text).toContain('closed——'); // 七枚全闭（附单源 reason）
   });
 
   it('显式空段辨段缺席（parseDoorsPresence 往返保真——呈现分立两形）', () => {
@@ -167,9 +170,15 @@ describe('runDoorsCommand·open/close（段编辑腿 + 落账 seam + 幂等）',
     expect(fs.read(enabledYamlPath('/data'))).toBe(before); // 文件原封
   });
 
-  it('值域拒：doors 段值域外（插件道四枚）拒绝式——行 opens 位承载，不进段', () => {
+  it('值域拒：doors 段值域外（插件道五枚）拒绝式——行 opens 位承载，不进段', () => {
     const fs = memFs({ [enabledYamlPath('/data')]: SEED_TWO_SOURCES });
-    for (const door of ['channels.ui-backend', 'sdk.register-route', 'triggers.start-run', 'credentials.read-cross']) {
+    for (const door of [
+      'channels.ui-backend',
+      'sdk.register-route',
+      'triggers.start-run',
+      'credentials.read-cross',
+      'grants.node-builtins', // R3 第七枚——插件道独面（行 opens 承载），doors 段值域不含
+    ]) {
       const outcome = runDoorsCommand({ sub: 'open', door }, { dataDir: '/data', fs });
       expect(outcome.ok).toBe(false);
       expect(outcome.text).toContain('值域');

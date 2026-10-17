@@ -17,6 +17,10 @@
  * 2026-09-09 装机面落码批（成熟度缺口 #10）补两码：`PLUGIN_INSTALL_FAILED`
  * （三源执行器统一失败档）与 `PLUGIN_UNINSTALL_REFUSED`（清算防线拒绝档）
  * ——02 §5.3 PLUGIN_ 族同笔入册。
+ *
+ * R3 落码批补一码：`PLUGIN_NODE_BUILTIN_FORBIDDEN`（03 §3.3 道②分级定名
+ * ——受门档 node: 内建生效集外拒载，与 PLUGIN_IMPORT_FORBIDDEN 分码分归因；
+ * 字面量腿同面执法零新执法面）。
  */
 import { registerErrorCodes, type ErrorCodeInfo } from '../contracts/index.js';
 
@@ -88,6 +92,12 @@ export const HOST_PLUGIN_ERROR_CODES: readonly ErrorCodeInfo[] = [
     module: 'host',
     description:
       'import 门禁越界拒载：依赖图说明符不在三道白名单（虚拟键/node: 内建/插件目录树内——03 §3.3；字面量腿 transform 钩子 throw 形执法〔error 通道不抛已实证〕+ jiti fsCache 关；门禁定位 = 架构边界非反恶意沙箱，动态构造逃逸残差随沙箱立题）',
+  },
+  {
+    code: 'PLUGIN_NODE_BUILTIN_FORBIDDEN',
+    module: 'host',
+    description:
+      '受门档 node: 内建 import 未在「清单声明 ∩ 用户开门」生效集拒载（03 §3.3 道②分级 / §4.2 第二维——与 PLUGIN_IMPORT_FORBIDDEN 分码分归因：三道白名单闭集外越界 vs 道②门内未授；放行档纯计算闭集默认免门；生效集 = 装载时点快照注入、/reload 重算；执法位 = 字面量腿 transform 钩子同面〔零新执法面〕，处置面 = 装载失败行级隔离）',
   },
   {
     code: 'PLUGIN_DB_HANDLE_FORBIDDEN',

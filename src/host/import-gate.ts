@@ -2,9 +2,13 @@
  * host/import-gate — 插件 import 门禁三道白名单执法件（03 §3.3；批 12d）。
  *
  * 三道白名单：① 虚拟面六键（§3.2 表——闭集，越出键表的 `berry-agent/*` 子径
- * 同拒）；② `node:` 内建（裸内建名〔无前缀〕不在道内——白名单字面只收
- * `node:` 形）；③ 插件目录树内（相对导入 + 自带 node_modules——裸第三方
- * 说明符由「能否在插件树内解析」判，解析不可达即拒）。
+ * 同拒）；② `node:` 内建**分级两档**（§3.3 :350-357——放行档纯计算闭集
+ * {PURE_COMPUTATION_BUILTINS} 缺省免门；受门档生效集 = 清单声明 ∩ 用户开门，
+ * 装载时点快照注入〔本裁决核无运行期查面〕，越出拒 `PLUGIN_NODE_BUILTIN_FORBIDDEN`
+ * ——与道外越界的 PLUGIN_IMPORT_FORBIDDEN 分码分归因；裸内建名〔无前缀〕
+ * 不在道内——白名单字面只收 `node:` 形）；③ 插件目录树内（相对导入 +
+ * 自带 node_modules——裸第三方说明符由「能否在插件树内解析」判，解析不可
+ * 达即拒）。
  *
  * 执法 = **字面量腿**（单腿——03 §3.3 批 12d 勘正）：装载期 jiti transform
  * 钩子拦截说明符（静态 import/export-from/require + 动态字面量
@@ -31,7 +35,7 @@ import { createJiti, type Jiti, type TransformOptions, type TransformResult } fr
 
 import { BaseError } from '../contracts/index.js';
 
-import { BARE_BUILTINS } from './builtins.js';
+import { BARE_BUILTINS, PURE_COMPUTATION_BUILTINS } from './builtins.js';
 
 /** 虚拟面六键闭集（03 §3.2 定名表——同实例注入的真源清单） */
 export const VIRTUAL_KEYS: readonly string[] = [
@@ -47,19 +51,42 @@ export const VIRTUAL_KEYS: readonly string[] = [
 export interface ImportGateContext {
   /** 裸说明符是否可在插件目录树内解析（自带 node_modules——树内第三道） */
   readonly resolveBare?: (specifier: string) => boolean;
+  /**
+   * 受门档 node: 内建生效集（`node:<bare>` 全形闭集——boot 装载序注入的
+   * 「清单声明 ∩ 用户开门」两方交集快照）。
+   *
+   * 缺席 = 分级腿未接线（诊断/替身形直调本谓词）——道②回历史行为全放行
+   * （生产装载链恒注入——装机收割腿除外，见 plugin-install harvestEvents
+   * 注：装机时点生效集两源皆 boot 读侧、结构性缺席，受门拒载归装载期执法，
+   * 故缺席非执法面豁免口）；**注入即执法**：空集 =
+   * 受门档全拒（声明缺省即默认关——03 §3.3 :357 fail-closed）。
+   */
+  readonly gatedNodeBuiltins?: ReadonlySet<string>;
 }
 
 /**
  * 单说明符白名单裁决（纯谓词——字面量腿的裁决核）。
  *
- * 判序：node: 前缀 → 虚拟键闭集（`berry-agent`/`typebox` 前缀但越出键表 =
- * 越界拒）→ 相对导入（./ ../——白名单层放行，树内 containment 由 transform
- * 腿以 filename 为基另行执法〔本谓词无文件语境〕）→ 绝对路径
+ * 判序：node: 前缀 → **道②分级**（放行档闭集短路 → 未接线放行 → 受门档
+ * 生效集判——§3.3 :350-357）→ 虚拟键闭集（`berry-agent`/`typebox` 前缀但
+ * 越出键表 = 越界拒）→ 相对导入（./ ../——白名单层放行，树内 containment
+ * 由 transform 腿以 filename 为基另行执法〔本谓词无文件语境〕）→ 绝对路径
  * （file: / 盘符——直拒：插件面无绝对径合法位）→ 裸说明符（resolveBare
  * 判，缺席即拒 fail-closed）。
  */
 export function checkImportSpecifier(specifier: string, ctx: ImportGateContext = {}): true | BaseError {
-  if (specifier.startsWith('node:')) return true; // 道②：node: 内建
+  if (specifier.startsWith('node:')) {
+    // 道②分级：首段裸名归级（子径族 node:fs/promises 按首段——声明面裸名枚）
+    const bare = specifier.slice('node:'.length).split('/')[0] ?? '';
+    // 放行档闭集短路——纯计算内建缺省免门（三道白名单叙事对此集零变化）
+    if (PURE_COMPUTATION_BUILTINS.has(bare)) return true;
+    // 分级腿未接线（诊断/替身形直调）——回历史行为全放行；注入即执法（空集 = 全拒）
+    if (ctx.gatedNodeBuiltins === undefined) return true;
+    // 受门档：生效集（声明 ∩ 开门快照）内放行——比对按首段裸名形（声明面
+    // 裸名枚〔深校验三拒拒子径形〕，node:fs 授予即覆 node:fs/promises 族）
+    if (ctx.gatedNodeBuiltins.has(`node:${bare}`)) return true;
+    return nodeBuiltinForbidden(specifier);
+  }
   if (VIRTUAL_KEYS.includes(specifier)) return true; // 道①：虚拟键闭集
   if ((specifier.startsWith('berry-agent') || specifier.startsWith('typebox')) && !specifier.startsWith('./')) {
     // 虚拟键域内越出键表（berry-agent/unknown、typebox/extra）——闭集外即拒
@@ -83,6 +110,18 @@ export function checkImportSpecifier(specifier: string, ctx: ImportGateContext =
 /** 越界裁决产物（携带码与因由——统一抛形） */
 function forbidden(specifier: string, reason: string): BaseError {
   return new BaseError('PLUGIN_IMPORT_FORBIDDEN', `import 越界拒载：${specifier}（${reason}——三道白名单见 03 §3.3）`);
+}
+
+/**
+ * 受门档 node: 内建未授裁决产物（§3.3 道②分级 / §4.2 第二维——与
+ * PLUGIN_IMPORT_FORBIDDEN 分码分归因：三道白名单闭集外越界 vs 道②门内
+ * 未授；生效集 = 清单声明 ∩ 用户开门，快照装载时点注入，/reload 重算）。
+ */
+function nodeBuiltinForbidden(specifier: string): BaseError {
+  return new BaseError(
+    'PLUGIN_NODE_BUILTIN_FORBIDDEN',
+    `受门档 node: 内建未授拒载：${specifier}（不在「清单声明 ∩ 用户开门」生效集——grants.nodeBuiltins 声明 + grants.node-builtins 开门见 03 §3.3/§4.2）`,
+  );
 }
 
 /**
@@ -143,6 +182,11 @@ export interface GateTransformOptions {
   readonly pluginDir: string;
   /** 裸说明符解析位（与 checkImportSpecifier 同源） */
   readonly resolveBare?: (specifier: string) => boolean;
+  /**
+   * 受门档 node: 内建生效集（`node:<bare>` 全形——boot 注入的两方交集快照；
+   * 缺省 = 分级腿未接线，道②历史行为全放行——装载链恒注入〔loader 组装位〕）
+   */
+  readonly gatedNodeBuiltins?: ReadonlySet<string>;
   /** 委托 transform（缺省自建无门禁 jiti 实例的 babel transform——公开 API 链转；测试注入位） */
   readonly delegate?: (opts: TransformOptions) => string;
 }
@@ -187,7 +231,11 @@ export function createGateTransform(options: GateTransformOptions): (opts: Trans
       return { code: delegate(opts) }; // node_modules 子树豁免——第三方码按生态惯例
     }
     for (const spec of extractImportSpecifiers(opts.source)) {
-      const verdict = checkImportSpecifier(spec, { resolveBare: options.resolveBare });
+      const verdict = checkImportSpecifier(spec, {
+        resolveBare: options.resolveBare,
+        // 受门档生效集快照注入（缺省未接线 = 道②静默——见 GateTransformOptions 注）
+        gatedNodeBuiltins: options.gatedNodeBuiltins,
+      });
       if (verdict !== true) {
         // 越界即拒——throw 直抛（唯一拒载通道；error 通道仅 debug 日志不抛）
         throw new BaseError(verdict.code, `[${options.pluginId}] ${verdict.message}`);

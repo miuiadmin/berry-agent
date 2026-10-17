@@ -198,6 +198,14 @@ interface CapabilityEntry {
  *   开门。承载方 = host 装配根〔per-session 工具族闭包装配位 +
  *   订阅作用域执法住宿主侧——03 §8.2 providedBy 第三形同 triggers.
  *   start-run；obs 件提供 SessionView 纯派生读面非承载方〕）。
+ * R3 落码批入册第七枚（2026-10-18——03 §4.6 v1 首批名单六枚→七枚；
+ * grants 第二维用户开门的值域承载）：
+ * - `grants.node-builtins`：受门档 node: 内建整域开门（03 §3.3 道②分级
+ *   /§4.2 第二维——生效集 = 清单声明 grants.nodeBuiltins ∩ 启用行 opens
+ *   两方交集；维整域单枚粒度〔开门不枚举具体内建名——授权面整域〕；
+ *   承载方 = host 装配根〔生效集计算/注入/审计记账皆宿主侧——§8.2
+ *   providedBy 第三形〕；不进 DOORS_SEGMENT_V1_DOMAIN〔插件道独面
+ *   ——opens 行授予，非清单顶层 doors 段〕）。
  * 后续高危面经三路准入扩枚举同律入册（§4.6）；构建差能力随真实构建分叉日
  * 启用 `API_CAPABILITY_MISSING`（预留码，本批无 thrower）。
  */
@@ -234,6 +242,14 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
     providedBy: 'host',
     userGrantable: true,
   },
+  {
+    // grants 第二维整域门（03 §4.6 v1 首批第七枚——R3 落码批入册）：
+    // 受门档 node: 内建开门（生效集 = 清单声明 ∩ 本门——03 §3.3 道②
+    // 分级/§4.2 第二维）；承载方 = host 装配根（§8.2 providedBy 第三形）
+    name: 'grants.node-builtins',
+    providedBy: 'host',
+    userGrantable: true,
+  },
 ];
 
 /**
@@ -248,10 +264,11 @@ export const USER_GRANTABLE_CAPABILITIES: readonly string[] = CAPABILITIES.filte
 
 /**
  * 启用清单顶层 `doors:` 段值域 v1 单源（开门制扩展批 2026-09-09——03 §4.6
- * 双源并集律第二源的值域面）：观测/操控两门枚举。**射程即值域**——六枚全宽
+ * 双源并集律第二源的值域面）：观测/操控两门枚举。**射程即值域**——七枚全宽
  * 将致「清单呈现开、门检实效关」的三读分叉与审计说谎背离（冷读闸 major #1
  * 收窄）；USER_GRANTABLE_CAPABILITIES 名单系其上界，扩枚随后续模型道高危面
- * 立题放宽。行校验拒绝式消费（host/manifest——段坏形/值域外 fail-loud 拒）。
+ * 立题放宽（R3 grants.node-builtins 系插件道独面——行 opens 承载，不进本
+ * 段值域）。行校验拒绝式消费（host/manifest——段坏形/值域外 fail-loud 拒）。
  */
 export const DOORS_SEGMENT_V1_DOMAIN: readonly string[] = ['sessions.observe-cross', 'sessions.control-cross'];
 

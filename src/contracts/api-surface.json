@@ -1557,7 +1557,7 @@
       "module": "manifest-keys",
       "tier": "stable",
       "since": "1.0",
-      "desc": "授权申请面；单维 writableRoots 字符串数组"
+      "desc": "授权申请面；两维——writableRoots/nodeBuiltins 各字符串数组（03 §4.2）"
     },
     {
       "symbol": "id",
@@ -2146,6 +2146,11 @@
     {
       "name": "credentials.read-cross",
       "providedBy": "core:credentials",
+      "userGrantable": true
+    },
+    {
+      "name": "grants.node-builtins",
+      "providedBy": "host",
       "userGrantable": true
     },
     {

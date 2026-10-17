@@ -13,10 +13,12 @@
  *    执行层诚实指路文件直编）。零装配零库纯文件读（不 boot 插件面、不开
  *    Persistence——段在文件不在库）。
  *
- * list 呈现 = 六枚高危面全清单（USER_GRANTABLE_CAPABILITIES 单源）+ 当前
+ * list 呈现 = 七枚高危面全清单（USER_GRANTABLE_CAPABILITIES 单源）+ 当前
  * 开态**双源呈现**：行 opens 按插件分组 + doors 段进程级一行；闭门 reason
  * = adjudicateCapabilityDoor 单源 message（与 session_status 门态段、执行
- * 时拒绝同源——先查后用）。
+ * 时拒绝同源——先查后用）。注：grants.node-builtins（R3 第七枚）行 opens
+ * 授予位专属——doors 段值域不含（DOORS_SEGMENT_V1_DOMAIN），list 呈现仍
+ * 全量七枚（呈现面 ≠ 段值域）。
  *
  * 生效时点诚实律：g-1 门检输入 = 活体源（受理时点现读现判——open/close 写
  * 回即门立即生效、撤位即收回）；装载面（boot 快照/审计基线）下次 /reload
@@ -35,7 +37,7 @@ export const DOORS_SUBVERBS = ['list', 'open', 'close'] as const;
 
 /** 用法说明（TUI 命令描述位 + 解析错回执共用单源） */
 export const DOORS_USAGE = `/doors list | open <capability> | close <capability>
-  list                 六枚高危面全清单 + 当前开态两处同时显示（行 opens 按插件分组 + doors 段进程级一行）
+  list                 七枚高危面全清单 + 当前开态两处同时显示（行 opens 按插件分组 + doors 段进程级一行）
   open <capability>    开门（写回 enabled.yaml doors 段 + 落 doors/updated——门检即时生效）
   close <capability>   关门（撤位即收回；doors 段收口为显式空段）
 （CLI 面只读 list——写动词 TUI 专属；headless 经文件直编 doors 段 + boot diff 记账）`;
@@ -95,7 +97,7 @@ export function parseDoorsArgv(argv: readonly string[]): { ok: true; sub: DoorsS
 }
 
 /**
- * list 渲染（六枚全清单 + 双源呈现——纯读零副作用）：
+ * list 渲染（七枚全清单 + 双源呈现——纯读零副作用）：
  *  - 清单段：每枚高危面标注开态——doors 段含（进程级）/ 启用行 opens 含
  *    （插件道：插件 id 清单）/ 闭门附 adjudicateCapabilityDoor 单源 reason
  *    （与 session_status 门态段、执行时拒绝 message 同源）；
@@ -121,7 +123,7 @@ function renderDoorsList(dataDir: string | null, fs: PluginStoreFs): DoorsComman
     const openers = read.rows
       .filter((row) => row.disabled !== true && (row.opens ?? []).includes(capability))
       .map((r) => r.id);
-    // 闭门 reason = 单源 verdict.message（六枚皆高危面，空集判恒 door-closed
+    // 闭门 reason = 单源 verdict.message（七枚皆高危面，空集判恒 door-closed
     // 非 not-a-door——窄化兜底只为类型面，语义上不可达）
     const closed = adjudicateCapabilityDoor(new Set<string>(), capability);
     const state = doors.has(capability)

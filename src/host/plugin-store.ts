@@ -565,7 +565,7 @@ export type DoorsAuditSink = (doors: readonly string[]) => void;
 /**
  * doors 段编辑（03 §4.6 /doors 人面命令 = enabled.yaml 的编辑腿——g-2 落码）：
  * open/close **只动段不动行**（行集原样携带——与行编辑腿全文件形状往返保真律
- * 对偶方向）；值域执法 door ∈ DOORS_SEGMENT_V1_DOMAIN（射程即值域——六枚
+ * 对偶方向）；值域执法 door ∈ DOORS_SEGMENT_V1_DOMAIN（射程即值域——七枚
  * 全宽将致三读分叉，拒绝式单源同 manifest 段校验）。
  *
  * 幂等律：open 已开 / close 未开 = no-op 成功**不写文件不落账**（无变更不
@@ -585,7 +585,7 @@ export function editDoorsSegment(
   if (!DOORS_SEGMENT_V1_DOMAIN.includes(action.door)) {
     return {
       ok: false,
-      message: `doors 段值域外能力位 "${action.door}"——值域 v1 = 两门枚举（现役：${DOORS_SEGMENT_V1_DOMAIN.join('、')}；§8.2 六枚高危面名单系上界，行 opens 位承载插件道四枚）`,
+      message: `doors 段值域外能力位 "${action.door}"——值域 v1 = 两门枚举（现役：${DOORS_SEGMENT_V1_DOMAIN.join('、')}；§8.2 七枚高危面名单系上界，行 opens 位承载插件道五枚）`,
     };
   }
   const read = readEnabledRowsForEdit(dataDir, fs);

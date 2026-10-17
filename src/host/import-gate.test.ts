@@ -13,7 +13,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
 
-import { BARE_BUILTINS } from './builtins.js';
+import { BARE_BUILTINS, PURE_COMPUTATION_BUILTINS } from './builtins.js';
 import { checkImportSpecifier, createGateTransform, extractImportSpecifiers, VIRTUAL_KEYS } from './import-gate.js';
 
 /** containment 测试临时目录族（统一清） */
@@ -73,6 +73,63 @@ describe('checkImportSpecifier 三道白名单', () => {
 
   it('空说明符拒', () => {
     expectForbidden(checkImportSpecifier(''), '空说明符');
+  });
+});
+
+describe('checkImportSpecifier 道②分级（R3——修前红：node: 前缀无条件放行、无受门档判）', () => {
+  it('放行档闭集短路——纯计算内建免门（空生效集下仍全过：分级判序先于生效集判）', () => {
+    // 零上下文（历史调用形）放行档全过——三道白名单叙事对此集零变化
+    for (const name of PURE_COMPUTATION_BUILTINS) {
+      expect(checkImportSpecifier(`node:${name}`)).toBe(true);
+    }
+    // 受门档全拒档（空集）下放行档依旧全过——短路在生效集判之前
+    const closed = new Set<string>();
+    for (const name of PURE_COMPUTATION_BUILTINS) {
+      expect(checkImportSpecifier(`node:${name}`, { gatedNodeBuiltins: closed })).toBe(true);
+    }
+  });
+
+  it('受门档：生效集内过、集外拒 PLUGIN_NODE_BUILTIN_FORBIDDEN（分码分归因）', () => {
+    const gate = new Set(['node:fs']);
+    expect(checkImportSpecifier('node:fs', { gatedNodeBuiltins: gate })).toBe(true);
+    const verdict = checkImportSpecifier('node:os', { gatedNodeBuiltins: gate });
+    expect(verdict).toBeInstanceOf(BaseError);
+    expect((verdict as BaseError).code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN'); // 非 PLUGIN_IMPORT_FORBIDDEN——道内门中未授
+    expect((verdict as BaseError).message).toContain('node:os'); // 报文含说明符
+    expect((verdict as BaseError).message).toContain('生效集'); // 因由词面
+  });
+
+  it('子径族按首段裸名归级——node:fs 授予即覆 node:fs/promises、放行档子径同免门', () => {
+    const gate = new Set(['node:fs']);
+    expect(checkImportSpecifier('node:fs/promises', { gatedNodeBuiltins: gate })).toBe(true); // 首段在集即过
+    expect(checkImportSpecifier('node:url/whatwg', { gatedNodeBuiltins: new Set() })).toBe(true); // 放行档子径短路
+    const verdict = checkImportSpecifier('node:os', { gatedNodeBuiltins: new Set(['node:fs']) });
+    expect((verdict as BaseError).code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN'); // 受门档子径首段不在集即拒
+  });
+
+  it('分级腿未接线 = 道②静默（缺省 ctx——诊断/替身形历史行为锁）', () => {
+    expect(checkImportSpecifier('node:os')).toBe(true); // 无 ctx 全放行
+    expect(checkImportSpecifier('node:os', {})).toBe(true); // ctx 在场而键缺席同静默
+  });
+
+  it('空生效集 = 受门档全拒（注入即执法——声明缺省即默认关 fail-closed）', () => {
+    const verdict = checkImportSpecifier('node:fs', { gatedNodeBuiltins: new Set() });
+    expect(verdict).toBeInstanceOf(BaseError);
+    expect((verdict as BaseError).code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
+  });
+
+  it('闭集 fail-closed——放行档 ⊆ 裸名册、典型副作用名不在放行档（03 §3.3 :357 判据）', () => {
+    for (const name of PURE_COMPUTATION_BUILTINS) {
+      expect(BARE_BUILTINS.has(name)).toBe(true); // 放行档是裸名册子集（结构一致律）
+    }
+    // 副作用面典型名恒受门（无文件系统/网络/进程生成/环境面副作用判据）
+    expect(PURE_COMPUTATION_BUILTINS.has('fs')).toBe(false);
+    expect(PURE_COMPUTATION_BUILTINS.has('net')).toBe(false);
+    expect(PURE_COMPUTATION_BUILTINS.has('child_process')).toBe(false);
+    expect(PURE_COMPUTATION_BUILTINS.has('os')).toBe(false); // 读环境面
+    expect(PURE_COMPUTATION_BUILTINS.has('crypto')).toBe(false); // 载密码学随机源
+    expect(PURE_COMPUTATION_BUILTINS.has('process')).toBe(false); // 全局面
+    expect(PURE_COMPUTATION_BUILTINS.size).toBe(8); // 名单定谳锁（扩名须先改 03 §3.3）
   });
 });
 
@@ -178,6 +235,36 @@ describe('createGateTransform 字面量腿', () => {
     });
     expect(result.code).not.toBe(`import os from 'node:os';\nexport default os.platform();`); // babel 实转（非原样）
     expect(result.code.length).toBeGreaterThan(0);
+  });
+
+  it('受门档注线：生效集外 node: import throw（码身份 + 插件 id 点名——R3 修前红）', () => {
+    const gate = createGateTransform({
+      pluginId: 'plug-gated',
+      pluginDir: PLUGIN_DIR,
+      gatedNodeBuiltins: new Set(['node:fs']),
+      delegate: (o) => o.source,
+    });
+    try {
+      gate({ source: `import os from 'node:os';\nexport default 1;`, filename: `${PLUGIN_DIR}/entry.js` });
+      expect.unreachable('未拒载');
+    } catch (err) {
+      expect(err).toBeInstanceOf(BaseError);
+      expect((err as BaseError).code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
+      expect((err as BaseError).message).toContain('plug-gated');
+      expect((err as BaseError).message).toContain('node:os');
+    }
+    // 生效集内与放行档照常链转
+    const ok = gate({
+      source: `import fsp from 'node:fs/promises';\nimport p from 'node:path';\nexport default 1;`,
+      filename: `${PLUGIN_DIR}/entry.js`,
+    });
+    expect(ok.code).toContain("'node:fs/promises'");
+  });
+
+  it('transform 腿缺省 gatedNodeBuiltins = 道②静默（未接线形——装载器直调历史行为锁）', () => {
+    const gate = createGateTransform({ pluginId: 'plug-a', pluginDir: PLUGIN_DIR, delegate: (o) => o.source });
+    const result = gate({ source: `import os from 'node:os';\nexport default 1;`, filename: `${PLUGIN_DIR}/entry.js` });
+    expect(result.code).toContain("from 'node:os'"); // 无 gatedNodeBuiltins 键 = 门②不执法
   });
 });
 
