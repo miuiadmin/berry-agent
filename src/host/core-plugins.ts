@@ -32,7 +32,7 @@ import { BaseError } from '../contracts/index.js';
 import { getEventTypeMeta } from '../contracts/index.js';
 import type { AgentService, ContextTransformInput, ExecToolService, PreStepInput } from '../conversation/index.js';
 import { canonicalWorkspaceRoot, createLogger, LogLevelState } from '../context/index.js';
-import type { SpawnPipeline } from '../../plugins/exec/index.js';
+import type { InteractiveChild, InteractiveSpawnRequest, SpawnPipeline } from '../../plugins/exec/index.js';
 import { createMcpService, normalizeMcpConfig } from '../../plugins/mcp/index.js';
 import type { McpConfig } from '../../plugins/mcp/index.js';
 import { createLspService, normalizeLspSettings } from '../../plugins/lsp/index.js';
@@ -86,6 +86,9 @@ import type { BudgetBroadcastEntry, BudgetBroadcastFace } from './budget-broadca
 import { foldErrorText } from '../channels/index.js';
 import type { SqliteDatabase } from '../persist/index.js';
 import { createDangerGate, createSandboxService, DANGER_V1_ACTIONS, normalizeDangerMandate } from '../safety/index.js';
+// R1 桥 confine 类型面（SandboxMode = SharedPluginHostDeps.bootSandboxMode 位 /
+// SandboxService = confinedSpawnFace 包装位——03 §10.1:915-918）
+import type { SandboxMode, SandboxService } from '../safety/index.js';
 import {
   createOsCronRegistrar,
   createProcessRunnerFactory,
@@ -215,6 +218,12 @@ import type { WebuiFaceMount } from './webui-bridge.js';
  * 03 §10.9 注入腿）——MCP/LSP server config env 的 `@credentials:<name>`
  * 在 spawn 时刻单点展开。
  *
+ * 'exec-sandbox' 第三供给位（R1 落码批——沙箱立题批次 3，03 §10.1:915-918/
+ * §10.2:935）：SandboxService 真身同根供给——MCP/LSP 两桥 server spawn
+ * confine 的第二消费位（exec bash 工具链之后）。confine 位不在桥件内
+ * （mcp/lsp 席 DAG 无 safety 边——02 §4.1 席位表），组合根
+ * confinedSpawnFace 包装面消费（见 makeMcpPlugin/makeLspPlugin）。
+ *
  * 工厂形（批 19b-1 deps 聚落律同款）：沙箱服务持 dataDir——敏感件读集
  * 单源注入（04 §7 读侧 carve-out 的 profile 腿，2026-09-08 P0①）。
  * dataDir null（:memory: 诊断形）= 无敏感集（confine 零读 deny 行）。
@@ -246,6 +255,11 @@ function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
         ...(deps.dataDir !== null ? { dataDir: deps.dataDir } : {}),
       });
       context.provide('exec-pipeline', pipeline);
+      // R1（03 §10.1:915-918/§10.2:935）：沙箱服务同根供给——MCP/LSP 两桥
+      // spawn confine 第二消费位。服务名 'exec-sandbox'：供给源 = exec 件
+      // （沙箱服务进程级单例随管道同件创建——同一 dataDir 敏感集 enrich 面）。
+      // exec 禁用 = pipeline 主闸先行（两桥零装载），本位恒不被消费。
+      context.provide('exec-sandbox', sandboxService);
       const service: ExecToolService = {
         // 会话装配期工厂：进程级单例闭包自持 + 会话级 deps（档位/审批/工作
         // 区）由消费位注入求值——结构契约单源在 conversation/types.ts；
@@ -340,7 +354,7 @@ export interface CorePluginHostDeps
 
 /**
  * 宿主真身注入面——共享位（W7 分片）：两件以上 core 件共同消费的装配期
- * 宿主事实七位。逐位消费件账：dataDir 八件（exec/skills/memory/
+ * 宿主事实八位。逐位消费件账：dataDir 八件（exec/skills/memory/
  * subagent/checkpoint/obs/issue/browser——:memory: 诊断形判据同源）；cwd
  * 六件（skills/memory/subagent/goal/issue/lsp）；homeDir 三件（skills/
  * subagent/browser）；notify 九件（memory/scheduler/goal/checkpoint/
@@ -348,7 +362,8 @@ export interface CorePluginHostDeps
  * （memory 原文注；scheduler/goal 同律复用——各件头注互见）；
  * conversationStack 两件（scheduler 进程内推进 / goal 停靠唤醒）；
  * bootRecoveryGuard 两件（goal boot 重挂扫描 / issue boot 停靠扫描——
- * crash-loop 守卫跳过判）。件专属语义成员随件入各自子接口，不入此。
+ * crash-loop 守卫跳过判）；bootSandboxMode 两件（mcp/lsp——R1 桥 spawn
+ * confine 的 policy.mode 位）。件专属语义成员随件入各自子接口，不入此。
  */
 interface SharedPluginHostDeps {
   /** 数据目录（null = :memory: 诊断形——skills user 层跳过等件内分支判据） */
@@ -395,6 +410,16 @@ interface SharedPluginHostDeps {
    * 现行行为非损坏）。
    */
   readonly bootRecoveryGuard?: boolean;
+  /**
+   * boot 解析沙箱档位（R1 落码批——沙箱立题批次 3，03 §10.1:915-918/
+   * §10.2:935）：MCP/LSP 两桥 server spawn confine 的 policy.mode 位。
+   * 单源 = assembly bootSandboxMode 一处解析（CLI 旗标 > settings.json >
+   * 代码常量 workspace-write——与 grantsFence 同源同值）。桥 spawn 无会话
+   * 语境（config 形 server 非插件——spawn 主 = 用户显式行配置），恒取 boot
+   * 冻结值非会话档位（结构性定谳，见 confinedSpawnFace 头注）。缺席（测试
+   * 替身形）= workspace-write（与 assembly 缺省折叠同值）。
+   */
+  readonly bootSandboxMode?: SandboxMode;
 }
 
 /**
@@ -2869,14 +2894,75 @@ const BROWSER_CMD_USAGE =
   '/browser install——下载 Chromium for Testing 引擎到数据目录（发现序③；约 150MB，下载域白名单钉 Chromium for Testing 官方两域，摘要账本 TOFU 锚定）';
 
 /**
+ * R1 桥 spawn confine 包装面（沙箱立题批次 3——03 §10.1:915-918/§10.2:935）：
+ * MCP/LSP 两桥 server spawn argv 过 SandboxService.confine，confine 产物
+ * ConfinedArgv.argv 才是子进程 argv（env/cwd/owner 原样透传——confine 只动
+ * argv 维）。
+ *
+ * confine 位定谳（三式择一）= 组合根包一层（本 helper）：
+ * - 桥件内嵌式结构性不可行——mcp/lsp 席 DAG 边表 = [contracts, context]
+ *   无 safety 边（02 §4.1 席位表单源），内嵌须席位表先行加边（本腿射程外）；
+ * - spawn face 包装式（桥侧另立包装）与组合根包装同构，但两桥各写一份且
+ *   错误面两立——组合根单源一份、两桥零改动（03 §10.1 R1 条款「两桥既有
+ *   编舞零动」面），桥侧既有 spawn catch 漏斗天然把包装层 throw 归并
+ *   MCP_CONNECT_FAILED / LSP_CONNECT_FAILED（连接失败族——归并条款）；
+ * - LSP 熔断计数承接自然成立：confine 拒在 spawnInteractive 内抛 →
+ *   instance catch → LSP_CONNECT_FAILED → service getInstance catch →
+ *   countFailure（confine 拒 = 进程事故，下用再试并计熔断一败——03 §10.2
+ *   既有律，定形如此）。
+ *
+ * config 形口径（03 §10.1:918 复闸 P2 清偿笔）：config 形 server 非插件、
+ * spawn 主 = 用户显式行配置（信任根直系——exec 工具链同信任类），写根白
+ * 名单 = live fence 根：policy.writableRoots 缺省 deriveWritableRoots(
+ * workspaceRoot, mode)（04 §8 档位维——sandbox.ts resolvePolicyRoots 单源，
+ * 与 exec 工具链同源同律），非 grants 交集（R2 形专属数据源——每装载形态
+ * 恰一数据源）。三档一律进 confine（04 §8 定形②——danger 亦然，无「不进
+ * 沙箱」的档位）。桥消费面仅取 argv 维——confine 回执只改写 argv，request
+ * 其余维原样透传；运行期拒绝（连接失败/超时）归因走既有 crash/notify 面
+ * （berry 同形）。
+ *
+ * fail-closed：沙箱服务缺席（exec 件缺席 = 'exec-sandbox' 供给缺席）→
+ * 响亮拒 SANDBOX_UNAVAILABLE——绝不静默裸 spawn（与 gate-exec.ts 沙箱缺席
+ * 同律；拒路径零审计——plugin/server-loaded 属 R2 形专属词）。
+ */
+function confinedSpawnFace(
+  inner: Pick<SpawnPipeline, 'spawnInteractive'>,
+  sandbox: SandboxService | undefined,
+  mode: SandboxMode,
+  workspaceRootOf: () => string,
+): Pick<SpawnPipeline, 'spawnInteractive'> {
+  return {
+    spawnInteractive(request: InteractiveSpawnRequest): InteractiveChild {
+      // fail-closed 主闸：沙箱缺席即拒（spawn 面——不拦装载拦 spawn，桥侧
+      // catch 漏斗归并连接失败族；MCP 降级 notify / LSP errResult+熔断计败）
+      if (sandbox === undefined) {
+        throw new BaseError(
+          'SANDBOX_UNAVAILABLE',
+          '沙箱服务缺席，拒绝桥 server 裸起（fail-closed——不静默无沙箱 spawn）',
+        );
+      }
+      // workspaceRoot 活引用（canonicalWorkspaceRoot 单源——.git 上溯缺省回
+      // 退字面 cwd；per-cwd 进程内缓存）。writableRoots 不携带 = 缺省档位维
+      // 派生（live fence 根——见头注 config 形口径）
+      const confined = sandbox.confine(request.argv, { mode, workspaceRoot: workspaceRootOf() });
+      // ConfinedArgv.argv 才是子进程 argv（含 runner 前缀）——裸 argv 不达
+      // spawn 面（R1 硬律）
+      return inner.spawnInteractive({ ...request, argv: confined.argv });
+    },
+  };
+}
+
+/**
  * core:mcp（批 19d）——03 §10.1 装载态兑现：服务编排（装配后异步发现零
  * 阻塞——config 缺省 servers 空 = 行惰性无害零 spawn）+ 工具面全局合计
  * 定形态（≤20 原生注册 / >20 目录降级——重铺归 service 内部）+ 回卷绑
  * 件作用域（LIFO = stdin.end 协议化告别 → 宽限 → 树杀，service 自登记）。
  *
  * spawn 主闸 = 'exec-pipeline'（exec 件供给——04 §11「spawn 管道 + 登记
- * 簿同册」单源；exec 禁用 = 本件零装载诚实缺席）。config 线 = apply 第二
- * 参（enabled.yaml core:mcp 行 config 整值替换；坏形 normalizeMcpConfig
+ * 簿同册」单源；exec 禁用 = 本件零装载诚实缺席）。spawn 面 = 组合根
+ * confinedSpawnFace 包装（R1——server spawn argv 过沙箱 confine，见该
+ * helper 头注；confine 拒归并 MCP_CONNECT_FAILED 降级语义）。config 线 =
+ * apply 第二参（enabled.yaml core:mcp 行 config 整值替换；坏形 normalizeMcpConfig
  * 响亮拒 MCP_CONFIG_INVALID → 行级装载失败，/reload 时刻可修）。
  * 'mcp' 服务面供给（liveServers 观测面）。
  */
@@ -2890,10 +2976,18 @@ function makeMcpPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const context = ctx as PluginContext;
       const pipeline = context.tryGet<SpawnPipeline>('exec-pipeline');
       if (pipeline === undefined) return; // 主闸——exec 管道缺席零装载（诚实缺席律）
+      // R1 confine（03 §10.1:915-918）：server spawn argv 过沙箱——exec 工具
+      // 链后第二消费位。沙箱缺席不拦装载、拦 spawn（fail-closed 在 spawn 面
+      // ——confine 拒经桥侧 catch 漏斗归并 MCP_CONNECT_FAILED 降级 notify）。
+      // 档位 = boot 解析值（deps.bootSandboxMode——assembly 单源）；工作区根
+      // 活引用（canonicalWorkspaceRoot(cwd)）。
+      const sandbox = context.tryGet<SandboxService>('exec-sandbox');
 
       const servers: McpConfig = normalizeMcpConfig((config as { servers?: unknown } | undefined)?.servers);
       const service = createMcpService({
-        spawn: pipeline,
+        spawn: confinedSpawnFace(pipeline, sandbox, deps.bootSandboxMode ?? 'workspace-write', () =>
+          canonicalWorkspaceRoot(deps.cwd),
+        ),
         // 注册闭包经宿主面开窗（2026-09-13 真模型四轮 C 组——03 §2.1 官方件
         // 异步续段通道/§10.1 连接语义定形注）：resurface 全部到达时点（discover
         // 续段/运行期 onDown 撤桥重铺）均在装载窗收口后——直调 ctx.tools.register
@@ -3006,7 +3100,9 @@ function makeBrowserPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * mode=waterfall 自动走 onWaterfall 腿 + 5s 钩子钟；注入器内层竞速钟
  * 3500ms 硬帽先触即收，两道预算线谁先触谁执法，checkpoint 同论证）。
  *
- * 主闸 = 'exec-pipeline'（spawn 同册）。config 线 = apply 第二参
+ * 主闸 = 'exec-pipeline'（spawn 同册）。spawn 面 = 组合根 confinedSpawnFace
+ * 包装（R1——§10.1 同批同律 confine；confine 拒归并 LSP_CONNECT_FAILED +
+ * 熔断计数承接，见该 helper 头注）。config 线 = apply 第二参
  * （{servers, diagnostics_timeout_ms} 整值替换；坏形 normalizeLspSettings
  * 响亮拒 LSP_CONFIG_INVALID → 行级装载失败，/reload 时刻可修——03 §10.2
  * config 坏形条，2026-09-13 f-2 批立）。
@@ -3023,9 +3119,16 @@ function makeLspPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const context = ctx as PluginContext;
       const pipeline = context.tryGet<SpawnPipeline>('exec-pipeline');
       if (pipeline === undefined) return; // 主闸——exec 管道缺席零装载（诚实缺席律）
+      // R1 confine（03 §10.2:935——§10.1 同批同律）：server spawn argv 过
+      // 沙箱。沙箱缺席拦 spawn 不拦装载——confine 拒经 instance catch 归并
+      // LSP_CONNECT_FAILED（errResult）+ service countFailure（下用再试并计
+      // 熔断一败——confine 拒 = 进程事故的定形承接）。
+      const sandbox = context.tryGet<SandboxService>('exec-sandbox');
 
       const service = createLspService({
-        spawn: pipeline,
+        spawn: confinedSpawnFace(pipeline, sandbox, deps.bootSandboxMode ?? 'workspace-write', () =>
+          canonicalWorkspaceRoot(deps.cwd),
+        ),
         registry: { register: (def) => context.tools.register(def) },
         scope: scopeFaceOf(context),
         events: {

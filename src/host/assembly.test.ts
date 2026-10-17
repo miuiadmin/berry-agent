@@ -8,7 +8,7 @@
  * 在场仍跳过）。真盘真库（临时目录）+ 真装载管线（core 件 in-process）。
  */
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
@@ -471,6 +471,54 @@ describe('assembleHostStack 成功档', () => {
         roots: [join(fenceWorkspace, 'assets')],
       });
     } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('bootSandboxMode 装配环接线锁（R1 桥 confine 档位——落码波终复闸 P2 清偿）：真装配 danger 档经 config 形 MCP server spawn 落工作区外探针', async () => {
+    // R1 confine 档位在真装配路径的唯一接线位 = runBoot 闭包 createCorePlugins
+    // deps 的 bootSandboxMode 透传（assembly 单源解析 CLI > settings > 代码
+    // 常量）。组合根单测（core-plugins-bridge-confine.test.ts）恒直调
+    // createCorePlugins 注入档位——装配环若漏传（删接线行/重构丢参），
+    // core-plugins 侧 `?? 'workspace-write'` 静默兜底、全部测试面照绿（「单测
+    // 假注入绿掩盖装配缺口」谱——grantsFence/C-1 同族真装配锁律）。锁形 =
+    // 行为差分探针：enabled.yaml core:mcp 行 config 整值替换配一台 config 形
+    // server（command=/bin/sh 写探针文件——发现续段 fire-and-forget spawn），
+    // boot 档取 danger（三档一律进 confine——04 §8 定形②；danger 可写根
+    // = [sep] 全盘）。探针落 HOME：danger 全开可写；接线断 → 静默回落
+    // workspace-write → 可写根族 = [workspace, /tmp, tmpdir()]（tmpdir
+    // carve-out 在根族内——tmpdir 探针无差分不可用）→ HOME 写被沙箱拒 →
+    // 探针永不出现 → 轮询超时红。探针出现本身即 spawn 真发生的正信号
+    // （无假绿洞——发现续段未跑/管道缺席同红）。
+    const dir = tmpDir('host-asm-sbxmode-');
+    const probe = join(homedir(), `.berry-asm-sbxmode-${process.pid}-${Date.now()}`);
+    writeFileSync(
+      join(dir, 'enabled.yaml'),
+      `plugins:\n  - id: core:mcp\n    config:\n      servers:\n        probe:\n          command: /bin/sh\n          args:\n            - '-c'\n            - 'echo x > ${probe}'\n`,
+    );
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      sandboxMode: () => 'danger',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // core:mcp 行装载面干净先行锚（config 坏形拒启红在此——与档位锁面分立）
+      expect(assembly.boot.report.failed).toEqual([]);
+      // MCP 发现续段 fire-and-forget：轮询探针出现（danger 档写面全开——
+      // seatbelt 最小读 deny profile / bwrap --bind / / 同律真写；CI 双平台
+      // 后端真装——gate-exec 判据门同依赖）
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && !existsSync(probe)) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      // 修前红锚：接线行删除 → bootSandboxMode 静默缺席 → 'workspace-write'
+      // 兜底 → 工作区外探针写被沙箱拒 → 永不出现 → 本断言红
+      expect(existsSync(probe)).toBe(true);
+    } finally {
+      rmSync(probe, { force: true });
       await assembly.runtime.shutdown();
     }
   });

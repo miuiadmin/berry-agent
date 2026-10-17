@@ -1164,6 +1164,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               // crash-loop 守卫判定冻结值（定谳②——boot 判一次全程不变：
               // /reload 换代 runBoot 重跑，两扫描腿读同一冻结布尔）
               bootRecoveryGuard: bootGuard.active,
+              // R1 桥 confine 档位（沙箱立题批次 3——03 §10.1:915-918/
+              // §10.2:935）：boot 一处解析值（CLI > settings > 代码常量——与
+              // grantsFence 同源同值）→ MCP/LSP 两桥 spawn confine 的
+              // policy.mode 单源传入
+              bootSandboxMode,
               // worktree 服务共享位（件/栈同源双注之二——issue 编排授予与
               // 会话内工具消费同台账；见 stack 前单真身注）
               worktree: worktreeService,

@@ -116,6 +116,20 @@ async function bootMcpRow(withHostChannel: boolean) {
     },
   };
   scope.provide('exec-pipeline', fakePipeline);
+  // 透传假沙箱（R1 落码批——桥 spawn confine 主闸二 'exec-sandbox'）：confine
+  // 原样回传 argv（零 runner 前缀），本测试锁异步发现注册通道面非 confine 面
+  // （confine 注桩锁在 core-plugins-bridge-confine.test.ts）——缺席会使
+  // fail-closed 拒 spawn、发现链不成立
+  scope.provide('exec-sandbox', {
+    confine: (argv: readonly string[]) => ({
+      argv: [...argv],
+      enforcement: 'full' as const,
+      denialSignatures: [],
+      runnerFailureRules: [],
+    }),
+    registerBackend: () => () => undefined,
+    listBackends: () => [],
+  });
 
   const refs = createCorePlugins({ dataDir: null });
   const mcpRef = refs.find((r) => r.name === 'mcp') as CorePluginReference;
