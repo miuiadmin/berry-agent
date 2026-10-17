@@ -26,9 +26,13 @@ deepStrictEqual(inject, [], '本模板零依赖——保留空数组示形');
   const disposers = [];
   let commandHandler = undefined;
   const notified = [];
-  // 最小伪 ctx：仅实现模板消费的三面（作者可复制的最小桩）
+  // 最小伪 ctx：仅实现模板消费的三面（作者可复制的最小桩）。effect 取
+  // 同构形——真面「受理即执行注册闭包、disposer 入账回卷」（宿主 scope
+  // 受理位 register() 现调）；伪面只收集不清调 = 注册面从未打开（假绿陷阱）。
   const ctx = {
-    effect: (dispose) => disposers.push(dispose),
+    effect: (register) => {
+      disposers.push(register());
+    },
     channels: {
       registerCommand: (name, handler) => {
         registeredNames.push(name);
