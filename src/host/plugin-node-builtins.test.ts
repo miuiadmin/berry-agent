@@ -21,7 +21,7 @@
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
@@ -403,6 +403,8 @@ describe('门禁管线 ESM 形（type:module 原生求值路径——2026-10-18 
     files: Readonly<Record<string, string>>,
     nodeBuiltins?: readonly string[],
     opens?: readonly string[],
+    /** 清单覆写位（P2 锁用）：berryEntry=改 berryAgent.entry；main=走 pkg main 装载腿（entry 缺席） */
+    manifestOverride?: { berryEntry?: string; main?: string },
   ): void {
     const yaml =
       'plugins:\n' +
@@ -414,15 +416,18 @@ describe('门禁管线 ESM 形（type:module 原生求值路径——2026-10-18 
     const ledger: Record<string, unknown> = { [id]: { installPath: `plugins/node_modules/${id}` } };
     mkdirSync(join(dataDir, 'plugins', 'node_modules', id), { recursive: true });
     writeFileSync(ledgerPath, JSON.stringify(ledger));
-    const berryAgent: Record<string, unknown> = { entry: 'entry.js' };
+    const berryAgent: Record<string, unknown> = {};
+    if (manifestOverride?.berryEntry !== undefined) berryAgent['entry'] = manifestOverride.berryEntry;
+    else if (manifestOverride?.main === undefined) berryAgent['entry'] = 'entry.js'; // 缺省形（既有三 it 兼容）
     if (nodeBuiltins !== undefined) berryAgent['grants'] = { nodeBuiltins: [...nodeBuiltins] };
+    const pkg: Record<string, unknown> = { name: id, version: '1.0.0', type: 'module', berryAgent };
+    if (manifestOverride?.main !== undefined) pkg['main'] = manifestOverride.main;
     // 差异位：type:module（触发 jiti 原生 ESM 求值——transform 钩子零调用的形态）
-    writeFileSync(
-      join(dataDir, 'plugins', 'node_modules', id, 'package.json'),
-      JSON.stringify({ name: id, version: '1.0.0', type: 'module', berryAgent }),
-    );
+    writeFileSync(join(dataDir, 'plugins', 'node_modules', id, 'package.json'), JSON.stringify(pkg));
     for (const [rel, source] of Object.entries(files)) {
-      writeFileSync(join(dataDir, 'plugins', 'node_modules', id, rel), source);
+      const target = join(dataDir, 'plugins', 'node_modules', id, rel);
+      mkdirSync(dirname(target), { recursive: true }); // 深位文件父目录先建（lib/index.js 形）
+      writeFileSync(target, source);
     }
   }
 
@@ -463,6 +468,38 @@ describe('门禁管线 ESM 形（type:module 原生求值路径——2026-10-18 
     expect(boot.report.failed.map((f) => f.id)).toEqual(['plug-esm-deep']);
     expect(boot.report.failed[0]!.code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
     expect(boot.report.failed[0]!.message).toContain('node:child_process'); // 归因到子文件说明符
+  });
+
+  it('type:module + berryAgent.entry 无扩展形（lib/index）→ 拒载（冷读闸 P2 修前红：入口顶点裸入队过不了扩展门，零扫描即放行——闸探针形①复刻）', async () => {
+    const dataDir = realDataDir();
+    codeRowEsm(
+      dataDir,
+      'plug-esm-extless',
+      { 'lib/index.js': `import os from 'node:os';\nexport default async function apply() {}\n` },
+      undefined,
+      undefined,
+      { berryEntry: 'lib/index' },
+    );
+    const boot = await bootPlugins(rigBoot({ runtime: stubRuntime(dataDir) }));
+    expect(boot.report.failed.map((f) => f.id)).toEqual(['plug-esm-extless']);
+    expect(boot.report.failed[0]!.code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
+    expect(boot.report.failed[0]!.message).toContain('node:os');
+  });
+
+  it('type:module + pkg main 目录形（lib）→ 拒载（冷读闸 P2——resolvePkgMain 腿同漏，闸探针形②复刻）', async () => {
+    const dataDir = realDataDir();
+    codeRowEsm(
+      dataDir,
+      'plug-esm-maindir',
+      { 'lib/index.js': `import os from 'node:os';\nexport default async function apply() {}\n` },
+      undefined,
+      undefined,
+      { main: 'lib' },
+    );
+    const boot = await bootPlugins(rigBoot({ runtime: stubRuntime(dataDir) }));
+    expect(boot.report.failed.map((f) => f.id)).toEqual(['plug-esm-maindir']);
+    expect(boot.report.failed[0]!.code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
+    expect(boot.report.failed[0]!.message).toContain('node:os');
   });
 });
 

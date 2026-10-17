@@ -35,7 +35,7 @@
  */
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve as resolvePath, sep } from 'node:path';
+import { basename, dirname, extname, join, resolve as resolvePath, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createJiti, type Jiti, type TransformOptions, type TransformResult } from 'jiti';
@@ -336,10 +336,12 @@ function defaultReadSource(path: string): string | null {
 /**
  * 相对说明符的文件解析探测（jiti 解析序的最小镜像：精确命中 → 扩展名补 →
  * 目录 index）。解析不达返 null——递归腿跳过（jiti 求值期自会以更诚实的
- * 解析失败红，门禁不代跑解析错）。
+ * 解析失败红，门禁不代跑解析错）。原生 ESM 合法的 cache-bust 尾
+ * （`./util.js?v=2`）先剥 query/fragment 再探测——尾不剥则精确候选永缺席。
  */
 function resolveRelativeTarget(fromDir: string, specifier: string): string | null {
-  const base = resolvePath(fromDir, specifier);
+  const cleaned = specifier.replace(/[?#].*$/, ''); // 剥 query/fragment 尾（containment 前缀判不受尾影响）
+  const base = resolvePath(fromDir, cleaned);
   const candidates = [
     base,
     ...SCAN_SOURCE_EXTENSIONS.map((ext) => `${base}${ext}`),
@@ -356,6 +358,24 @@ function resolveRelativeTarget(fromDir: string, specifier: string): string | nul
 }
 
 /**
+ * 入口顶点解析探测（冷读闸 P2 清偿——无扩展/目录形入口零扫描即放行的洞）：
+ * 精确文件在场即用（**含无扩展形**——node 按精确路径照样执行，探针实证）；
+ * 否则走相对解析序（扩展名补全 + 目录 index——`entry:"lib/index"` /
+ * `main:"lib"` 两形同达）；全不达透传裸径（归 jiti 诚实解析失败红，本腿
+ * 不抢跑——node 原生径只执行 .js/.mjs/.cjs 三族皆在扫描名单，点扩展非码
+ * 形 node 拒执行回落 transform 腿，无零扫描放行残差）。
+ */
+function resolveEntryTarget(entryPath: string): string {
+  try {
+    if (statSync(entryPath).isFile()) return entryPath;
+  } catch {
+    // 探测缺席——走解析序
+  }
+  const resolved = resolveRelativeTarget(dirname(entryPath), basename(entryPath));
+  return resolved ?? entryPath;
+}
+
+/**
  * 装载前置源扫腿：从入口对插件自有码图裸源扫描说明符字面量，与 transform
  * 腿同一裁决核（extractImportSpecifiers + checkImportSpecifier +
  * relativeEscape——同函数复用非复刻），越界同码同律拒载。
@@ -367,22 +387,29 @@ function resolveRelativeTarget(fromDir: string, specifier: string): string | nul
  * 路径；转译路径文件由 transform 腿照扫（同核幂等——双扫 verdict 恒一致，
  * 成本可忽略：插件自有码图有界）。
  *
- * 图遍历语义：相对导入递归深入（visited 防环）；node_modules 子树与树外
- * 文件豁免（isPluginOwnCode 同判——第三方码按生态惯例）；非码扩展名跳过；
- * 裸说明符 / node: / 虚拟键说明符零递归（递归只沿相对径——其余形态的求值
- * 归 jiti / 原生 loader，白名单裁决已在前置判完成）。
+ * 图遍历语义：相对导入递归深入（visited 防环，query/fragment 尾先剥——原生
+ * ESM 合法 cache-bust 形）；node_modules 子树与树外文件豁免（isPluginOwnCode
+ * 同判——第三方码按生态惯例）；非码**点扩展**跳过（.json 等——无扩展文件不
+ * 跳过，入口顶点先过解析探测：精确文件/扩展名补全/目录 index 三形同达，
+ * 冷读闸 P2 清偿）；裸说明符 / node: / 虚拟键说明符零递归（递归只沿相对径
+ * ——其余形态的求值归 jiti / 原生 loader，白名单裁决已在前置判完成）。
  */
 export function prescanPluginOwnGraph(options: PreScanOptions): true | BaseError {
   const pluginRoot = normalizePath(options.pluginDir);
   const read = options.readSource ?? defaultReadSource;
   const visited = new Set<string>();
-  const queue: string[] = [normalizePath(options.entryPath)];
+  // 入口顶点先过解析探测（P2 修）：无扩展精确文件 / 扩展名补全 / 目录 index
+  // 三形同达扫描起点——裸 entryPath 直接入队则无扩展/目录形过不了扩展门。
+  const queue: string[] = [normalizePath(resolveEntryTarget(options.entryPath))];
   while (queue.length > 0) {
     const file = queue.pop() as string;
     if (visited.has(file)) continue; // 防环（circular import 图合法形）
     visited.add(file);
     if (!isPluginOwnCode(file, pluginRoot)) continue; // node_modules/树外豁免同律
-    if (!SCAN_SOURCE_EXTENSIONS.some((ext) => file.endsWith(ext))) continue; // 非码文件（.json 等）
+    // 扩展门（P2 修）：有扩展名且不在码名单才跳过（.json 等非码形）；无扩展
+    // 文件**不跳过**——node/jiti 按精确路径照样装载（探针实证），跳过即放行洞。
+    const fileExt = extname(file);
+    if (fileExt !== '' && !SCAN_SOURCE_EXTENSIONS.includes(fileExt)) continue;
     const source = read(file);
     if (source === null) continue; // 读不达（入口缺席等）——jiti 解析失败红更诚实
     for (const spec of extractImportSpecifiers(source)) {

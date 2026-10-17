@@ -464,3 +464,86 @@ describe('prescanPluginOwnGraph 装载前置源扫腿（2026-10-18 勘正——�
     );
   });
 });
+
+describe('prescanPluginOwnGraph 入口顶点解析与图边尾剥（冷读闸 P2/P3 清偿——修前红：无扩展/目录形入口零扫描即放行）', () => {
+  /** fixture 与扫描速记（同前 describe 惯例） */
+  function scanFixture(files: Readonly<Record<string, string>>): string {
+    const root = mkdtempSync(join(tmpdir(), 'berry-gate-prescan2-'));
+    containDirs.push(root);
+    const pluginDir = join(root, 'plug');
+    for (const [rel, source] of Object.entries(files)) {
+      const target = join(pluginDir, rel);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, source);
+    }
+    return pluginDir;
+  }
+
+  function scan(pluginDir: string, entry: string): true | BaseError {
+    return prescanPluginOwnGraph({
+      pluginId: 'plug-scan2',
+      pluginDir,
+      entryPath: join(pluginDir, entry),
+      gatedNodeBuiltins: new Set(['node:tls']),
+    });
+  }
+
+  /** 拒载断言速记（码 + 说明符点名） */
+  function expectGated(verdict: true | BaseError, specifier: string): void {
+    expect(verdict).toBeInstanceOf(BaseError);
+    expect((verdict as BaseError).code).toBe('PLUGIN_NODE_BUILTIN_FORBIDDEN');
+    expect((verdict as BaseError).message).toContain(specifier);
+  }
+
+  it('入口无扩展精确文件违规拒——修前红（jiti 按精确路径装载无扩展码文件，探针实证 node:os 真执行）', () => {
+    const pluginDir = scanFixture({ main: `import os from 'node:os';\nexport default 1;\n` }); // 无扩展名文件
+    expectGated(scan(pluginDir, 'main'), 'node:os');
+  });
+
+  it('入口目录形解析（lib → lib/index.js）违规拒——修前红（冷读闸探针形①：entry:"lib/index" 同族）', () => {
+    const pluginDir = scanFixture({ 'lib/index.js': `import os from 'node:os';\nexport default 1;\n` });
+    expectGated(scan(pluginDir, 'lib'), 'node:os');
+  });
+
+  it('入口扩展名补全形（src/mod → src/mod.ts）违规拒——修前红', () => {
+    const pluginDir = scanFixture({ 'src/mod.ts': `import os from 'node:os';\nexport default 1;\n` });
+    expectGated(scan(pluginDir, 'src/mod'), 'node:os');
+  });
+
+  it('图边 query 尾剥解析：./util.js?v=2 → util.js 违规同拒——修前红（原生 ESM 合法 cache-bust 形）', () => {
+    const pluginDir = scanFixture({
+      'entry.js': `import u from './util.js?v=2';\nexport default u;\n`,
+      'util.js': `import cp from 'node:child_process';\nexport default cp;\n`,
+    });
+    expectGated(scan(pluginDir, 'entry.js'), 'node:child_process');
+  });
+
+  it('无扩展入口在道形零误伤（clean 无扩展码 + 目录形全清图均过）', () => {
+    const exact = scanFixture({ main: `import p from 'node:path';\nexport default p;\n` });
+    expect(scan(exact, 'main')).toBe(true);
+    const dir = scanFixture({ 'lib/index.js': `import p from 'node:path';\nexport default p;\n` });
+    expect(scan(dir, 'lib')).toBe(true);
+  });
+
+  it('扩展名族锁面：./x → x.mjs（x.js 缺席）与 ./sub → sub/index.mjs 违规同拒（.mjs 补全形）', () => {
+    const completion = scanFixture({
+      'entry.js': `import './x';\nexport default 1;\n`,
+      'x.mjs': `import os from 'node:os';\nexport default 1;\n`,
+    });
+    expectGated(scan(completion, 'entry.js'), 'node:os');
+    const dirIndex = scanFixture({
+      'entry.js': `import './sub';\nexport default 1;\n`,
+      'sub/index.mjs': `import os from 'node:os';\nexport default 1;\n`,
+    });
+    expectGated(scan(dirIndex, 'entry.js'), 'node:os');
+  });
+
+  it('多级目录 index 链递归达（./a → a/index.js → ../b → b/index.js 违规在孙位；父相对跳层形）', () => {
+    const pluginDir = scanFixture({
+      'entry.js': `import './a';\nexport default 1;\n`,
+      'a/index.js': `import '../b';\nexport default 1;\n`, // 父相对——b 在插件根不在 a/ 下（夹具曾误 './b' 解析基错位致假红）
+      'b/index.js': `import cp from 'node:child_process';\nexport default cp;\n`,
+    });
+    expectGated(scan(pluginDir, 'entry.js'), 'node:child_process');
+  });
+});
