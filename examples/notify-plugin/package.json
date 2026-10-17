@@ -1,0 +1,89 @@
+{
+  "name": "berry-agent-example-notify",
+  "version": "0.1.0",
+  "description": "berry-agent 通知范式件——run 收口单向推送（SMTP/Telegram 双后端；R3 受门档内建 node:tls/node:net 的首个真实消费者）",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "berry-agent-plugin"
+  ],
+  "berryAgent": {
+    "api": {
+      "minApiVersion": "1.0"
+    },
+    "entry": "entry.js",
+    "configSchema": [
+      {
+        "key": "backend",
+        "type": "select",
+        "label": "推送后端",
+        "description": "both = 双后端并发；smtp / telegram = 单后端；缺省 both",
+        "default": "both",
+        "options": [
+          {
+            "value": "both",
+            "label": "双后端"
+          },
+          {
+            "value": "smtp",
+            "label": "仅 SMTP"
+          },
+          {
+            "value": "telegram",
+            "label": "仅 Telegram"
+          }
+        ]
+      },
+      {
+        "key": "smtp-host",
+        "type": "text",
+        "label": "SMTP 服务器",
+        "description": "缺该键 = SMTP 后端降级跳过（warn 不崩装载）"
+      },
+      {
+        "key": "smtp-port",
+        "type": "text",
+        "label": "SMTP 端口",
+        "description": "缺省 465（隐式 TLS）；STARTTLS 档常配 587",
+        "default": "465"
+      },
+      {
+        "key": "smtp-from",
+        "type": "text",
+        "label": "发件地址",
+        "description": "MAIL FROM 位"
+      },
+      {
+        "key": "smtp-to",
+        "type": "text",
+        "label": "收件地址",
+        "description": "RCPT TO 位（通知接收人）"
+      },
+      {
+        "key": "smtp-username",
+        "type": "text",
+        "label": "SMTP 用户名",
+        "description": "缺席 = 不发 AUTH（匿名投递形）"
+      },
+      {
+        "key": "smtp-starttls",
+        "type": "boolean",
+        "label": "STARTTLS",
+        "description": "true = 明文连入后 STARTTLS 升级（587 常形）；false = 隐式 TLS 直连（465 常形，缺省）",
+        "default": false
+      },
+      {
+        "key": "telegram-chat-id",
+        "type": "text",
+        "label": "Telegram 会话 id",
+        "description": "缺该键 = Telegram 后端降级跳过（warn 不崩装载）"
+      }
+    ],
+    "grants": {
+      "nodeBuiltins": [
+        "node:tls",
+        "node:net"
+      ]
+    }
+  }
+}
