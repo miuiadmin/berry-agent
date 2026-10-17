@@ -1,5 +1,5 @@
 /**
- * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——39 核心词全列，
+ * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——40 核心词全列，
  * compaction 三词 2026-09-06 纵切批增补、compaction/fallback 2026-09-09
  * U4 落码批入册、session/thinking-level 同日遗漏
  * 审计批回填〔05 行 66 agent 纵切批已定名而注册表漏登〕、plugin/opens·
@@ -10,7 +10,7 @@
  * 补注册〔c-1 立词而注册表漏行——/plugins config 表单腿 e2e 走真装配
  * audit 词汇闸 fail-loud 抓出；核心词 34〕、compaction/skip 2026-09-13
  * obs-b 压缩判据观测批入册〔05 §1.1 五门 skip 词——fire 而被门挡才落；
- * 核心词 35〕、session/model 2026-10-16 挖掘 52 轮件 B 入册〔05 §1.1 档位族第三员——sandbox/mode·session/thinking-level 同形；07:244「durable 事件流照记与 ctrl+p model-cycle 同口径」句由超前承诺转实；核心词 36〕、session/notice 2026-10-16 挖掘 53 轮件 C 入册〔05 §1.1 会话级宿主通知 durable 化——升级提示首例；07:347 重建路四刀与 §8.5 第 6 条提示形双动作改述同批；核心词 37〕、marketplace/sources 2026-10-16 硬伤处置第三批·⑤辅件B笔入册〔05 §1.1 铸族注升格——marketplace 源添加 provenance 审计词；载体 = audit_events；写点 = 源管理命令面 add 成功尾恰一笔、失败路径零落账、装源不挂 door；核心词 38〕、plugin/grants 2026-10-16 硬伤处置第三批·①段一笔入册〔05 §1.1 行 80 写根交集族——grants 装载深校验+交集入账审计词；销 12a 欠账；载体 = audit_events；写点 = boot 装载序深校验+选锚求交尾 diff 幂等——有变才落、锚切换/根变落新条、交集变空落 [] 收口；拒载行零审计；核心词 39〕）。
+ * 核心词 35〕、session/model 2026-10-16 挖掘 52 轮件 B 入册〔05 §1.1 档位族第三员——sandbox/mode·session/thinking-level 同形；07:244「durable 事件流照记与 ctrl+p model-cycle 同口径」句由超前承诺转实；核心词 36〕、session/notice 2026-10-16 挖掘 53 轮件 C 入册〔05 §1.1 会话级宿主通知 durable 化——升级提示首例；07:347 重建路四刀与 §8.5 第 6 条提示形双动作改述同批；核心词 37〕、marketplace/sources 2026-10-16 硬伤处置第三批·⑤辅件B笔入册〔05 §1.1 铸族注升格——marketplace 源添加 provenance 审计词；载体 = audit_events；写点 = 源管理命令面 add 成功尾恰一笔、失败路径零落账、装源不挂 door；核心词 38〕、plugin/grants 2026-10-16 硬伤处置第三批·①段一笔入册〔05 §1.1 行 80 写根交集族——grants 装载深校验+交集入账审计词；销 12a 欠账；载体 = audit_events；写点 = boot 装载序深校验+选锚求交尾 diff 幂等——有变才落、锚切换/根变落新条、交集变空落 [] 收口；拒载行零审计；核心词 39〕、plugin/server-loaded 2026-10-18 沙箱立题批次 3·R2 落码笔入册〔05 §1.1 ⑤C 升格行——MCP-server 形插件装载 provenance 审计词（manifest 可选 server 声明块装载位，03 §10.1 R2）；载体 = audit_events；写点 = 装载序此形插件装载成功尾恰一笔、非 diff 幂等；confine? v1 恒缺席〔写点时点早于异步 confine 执行〕；核心词 40〕）。
  *
  * 双入口纪律：核心词汇本表静态声明（含类别/归属/语义），插件扩展经
  * registerEventType 显式注册；session append 词汇检查（未注册类型抛
@@ -54,7 +54,7 @@ export interface EventTypeMeta {
 }
 
 /**
- * 核心事件类型 39 词（05 §1.1 表格逐条转录；owner 归属按表注：
+ * 核心事件类型 40 词（05 §1.1 表格逐条转录；owner 归属按表注：
  * gate/decision 归 tools、llm/usage 归 llm、llm/retry 注册走 session
  * 核心词汇（llm 模块不知道驱动存在）、plugin/uninstalled 宿主写点 host、
  * approval/* 与 sandbox/mode 归 safety 域、todo/write 与
@@ -103,6 +103,12 @@ export interface EventTypeMeta {
  * 写根交集族——grants 装载深校验+交集入账；载体 = audit_events；写点 =
  * boot 装载序深校验+选锚求交尾与审计流尾 diff 幂等；深校验四拒行级隔离
  * 零审计、试件行零落盘；写入者 = host 装配根装载序）。
+ * 39→40：plugin/server-loaded 随沙箱立题批次 3·R2 落码笔入册（05 §1.1
+ * ⑤C 升格行——MCP-server 形插件装载 provenance〔manifest 可选 server 声明
+ * 块装载位，03 §10.1 R2 条款〕；载体 = audit_events；写点 = 装载序对此形
+ * 插件装载成功尾恰一笔、非 diff 幂等〔provenance 行为流〕；confine? v1 恒
+ * 缺席〔写点时点早于异步 confine 执行——时序差定谳随本笔〕；清单坏形/
+ * 连接失败零落账、试件行零落盘；写入者 = host 装配根装载序）。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
   {
@@ -394,6 +400,14 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     tier: 'stable',
     description:
       'grants 装载深校验+交集入账（硬伤处置第三批·①段一笔 2026-10-16——05 §1.1 行 80 写根交集族；销 12a 欠账：修前装载链零消费 manifest.grants 的申请面死键收口——申请面成账可审计，并为段二调用级执法〔04 §7 编舞条款〕与沙箱立题 R1/R2 写根白名单供数据源单源）：载荷 {pluginId, anchor（锚形两态 plugin-dir|workspace——03 §4.2 双锚定形注：开发态 --plugin-file 锚插件目录/装机态磁盘行锚 workspace）, roots（canonical 化交集——恒 canonical 绝对路径、清单原文不入载荷；空数组 = 写面全关收口形；boot 解析档下快照、审计归因面非执法面——段二执法交集 = 调用时与 live fence 根求交）}；写点 = boot 装载序深校验+选锚求交尾与审计流尾最近一条本词 diff——有变才落幂等记账（diff 键 = anchor+roots 二元组，锚形切换亦是授予面变迁如实入账；空面首记不落）、交集变空/grants 撤除落 roots:[] 收口形；深校验四拒（../段/绝对路径/空串/Windows 形）行级隔离零落本词（拒载零审计——未获装载不记账）；试件行零落盘（--plugin-file 不变式 1——opens/lifecycle 同律滤除）；写入者 = host 装配根装载序（audit 流单写者律）；载体 = audit_events',
+  },
+  {
+    type: 'plugin/server-loaded',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      'MCP-server 形插件装载 provenance 审计（沙箱立题批次 3·R2 落码笔 2026-10-18——05 §1.1 ⑤C 升格行的发射位兑现〔词先锚定随批次 2 规范笔；真源 00-立题-沙箱纵切与强隔离正道-20261016 §R2〕）：载荷 {pluginId, command（server 声明块 spawn 命令——字段集与 03 §10.1 config servers 单源）, confine?（full|partial 执法档实录骨架——v1 恒缺席：恰一笔写点定死在装载成功尾，而 confine 执行在受理后异步 spawn 序〔fire-and-forget 发现〕，写点时点执法档结构性未知、如实缺席优于猜测回填；confine 拒路径不落本词〔经既有降级漏斗呈现〕，改 spawn 后补写须先改 05 §1.1 写点条款——文档先行）}；写点 = 装载序对此形插件装载成功尾恰一笔（非 diff 幂等——装载 provenance 行为流，每次装载 = 一次事实，marketplace/sources「成功尾恰一笔」同族；spawn 异步成败不阻装载账）；失败路径零落账（清单坏形拒载在合成序即拒、MCP_CONNECT_FAILED 连接失败均不记——拒路径零审计律）；试件行零落盘（--plugin-file 不变式 1——opens/lifecycle/grants 同律滤除）；写入者 = host 装配根装载序（audit 流单写者律、核心词身份双闸）；载体 = audit_events',
   },
 ];
 

@@ -275,3 +275,56 @@ describe('注册面 execute 联动', () => {
     expect((result.content[0] as { text: string }).text).toBe('回声');
   });
 });
+
+/** attachServer 受理位（03 §10.1 R2 装载位——server 形插件服务器入桥） */
+describe('attachServer 受理位（R2 server 形插件装载）', () => {
+  it('spawn 面透传——受理的 spawn override 独立起桥（装配缺省面零消费）', async () => {
+    const { service, registry, children } = makeService(); // children = 装配缺省面
+    const override = makeFakeSpawn(); // R2 装载根现铸面（confine grants 维）
+    service.attachServer('plug-srv', SERVER_CONFIG(), override.spawn);
+    expect(children.size).toBe(0); // 缺省面零消费——server 形行走专属面
+    const child = override.children.get('mcp:plug-srv');
+    expect(child).toBeDefined();
+    child!.tools = [{ name: 'q' }];
+    await until(() => registry.registered.length === 1);
+    expect(registry.registered[0]!.name).toBe('plug-srv__q'); // 复合名归因（<server>__<tool>）
+    expect(service.liveServers()).toEqual([{ server: 'plug-srv', toolCount: 1 }]);
+  });
+
+  it('spawn 面缺席 = 走装配缺省 spawn（config 形同一管道）', async () => {
+    const { service, registry, children } = makeService();
+    service.attachServer('plug-srv', SERVER_CONFIG());
+    const child = children.get('mcp:plug-srv');
+    expect(child).toBeDefined();
+    child!.tools = [{ name: 'q' }];
+    await until(() => registry.registered.some((d) => d.name === 'plug-srv__q'));
+  });
+
+  it('撞名响亮拒 MCP_CONFIG_INVALID——config 键 ∪ 已受理名（防互蔽静默顶活表）', async () => {
+    const { service } = makeService();
+    service.apply({ demo: SERVER_CONFIG() }); // config 键占用 demo
+    expect(() => service.attachServer('demo', SERVER_CONFIG())).toThrowError(/已被占用/);
+    // 同名双受理亦拒（已受理名占用账）
+    service.attachServer('plug-srv', SERVER_CONFIG());
+    expect(() => service.attachServer('plug-srv', SERVER_CONFIG())).toThrowError(/已被占用/);
+    // 错误码点名（装载侧行级隔离收口判据）
+    try {
+      service.attachServer('demo', SERVER_CONFIG());
+      expect.unreachable('未拒');
+    } catch (err) {
+      expect((err as { code?: string }).code).toBe('MCP_CONFIG_INVALID');
+    }
+  });
+
+  it('apply 整值替换重置占用账——旧占用名随重 apply 释放可再受理（v1 无运行期重 apply 路径语义注）', async () => {
+    const { service, registry, children } = makeService();
+    service.apply({ demo: SERVER_CONFIG() });
+    service.attachServer('plug-srv', SERVER_CONFIG());
+    service.apply({ other: SERVER_CONFIG() }); // 整值替换：占用账重置为 config 键集
+    // 重置后旧受理名可再受理（boot 内序结构性不撞：apply 先行、受理后至）
+    expect(() => service.attachServer('plug-srv', SERVER_CONFIG())).not.toThrow();
+    const child = children.get('mcp:plug-srv');
+    child!.tools = [{ name: 'q' }];
+    await until(() => registry.registered.some((d) => d.name === 'plug-srv__q'));
+  });
+});

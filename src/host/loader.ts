@@ -9,8 +9,9 @@
  * 双轨装载（§1.4）：core: 官方引用形对象直调 apply（零 jiti 零门禁——同仓
  * 同版本）；用户插件磁盘装载——jiti 实例（virtualModules 宿主面直注〔防双
  * 实例〕+ import 门禁字面量腿〔transform throw 形 + fsCache 关——03 §3.3
- * 批 12d 勘正〕+ interop default）。入口解析序三态承 manifest 件（12a）：
- * entry-file / 纯声明包（零码装载）/ default-export（包主入口）。
+ * 批 12d 勘正〕+ interop default）。入口解析序四态承 manifest 件（12a +
+ * 03 §10.1 R2）：entry-file / server 形纯声明包（零码装载——server 块交
+ * core:mcp 桥受理）/ 纯声明包（零码装载）/ default-export（包主入口）。
  *
  * 失败三档（§5.7）：① 清单校验失败拒换——归调用方（parseEnabledRows 先行）；
  * ② 用户行装载失败 = 行级隔离降级——onBootFailure 记账（boot-failures 件
@@ -30,6 +31,7 @@ import type { Jiti, TransformOptions, TransformResult } from 'jiti';
 import { BaseError } from '../contracts/index.js';
 import type { ApiBlock } from '../contracts/api.js';
 import { providerApiFace } from '../llm/index.js';
+import type { McpServerAttachFace, McpSpawnFace } from '../../plugins/mcp/index.js';
 
 import { synthesizePluginConfig, type ConfigField } from './config-schema.js';
 import { createGateTransform, createTreeBareResolver } from './import-gate.js';
@@ -201,6 +203,22 @@ export interface LoadPluginsOptions<TCtx = unknown> {
   readonly allowMissingRequiredSecret?: boolean;
   /** jiti 工厂注入位（测试替身；缺省 = 真门禁真虚拟面 jiti） */
   readonly jitiFactory?: (pluginDir: string, opts: LoadPluginJitiOptions) => Jiti;
+  /**
+   * server 形插件逐位 spawn 面铸造位（03 §10.1 R2——grants 交集维 confine）：
+   * 装载序把回执面注入 core:mcp 桥受理位（按 row id 查该插件 grants 装载账
+   * 交集铸 confine 策略——writableRoots = 交集、mode/workspaceRoot = fence）。
+   * 缺席 = 桥装配态缺省 spawn 面（core:mcp 装配 confine 档位维——R1 面）。
+   * 试件行（--plugin-file）以 row id 查账同律。
+   */
+  readonly serverSpawnFace?: (pluginId: string) => McpSpawnFace | undefined;
+  /**
+   * 受门档 node: 内建生效集取值器（R3——03 §3.3 道②分级 / §4.2 第二维）：
+   * 装载序按 row id 取「清单声明 ∩ opens 开门」两方交集快照铸 import 门禁
+   * 受门档 Set（试件行 = 动作即授予——声明全量；放行档纯计算闭集在门禁核
+   * 短路、不经本位）。缺席 = 分级腿未接线（诊断/替身形——道②历史行为全
+   * 放行；生产装配根恒注入，非执法豁免口）。
+   */
+  readonly gatedNodeBuiltinsOf?: (pluginId: string) => readonly string[];
 }
 
 /**
@@ -393,6 +411,35 @@ async function loadRow<TCtx>(
 ): Promise<void> {
   const { options, applyBudgetMs } = state;
   try {
+    // server 形分支（03 §10.1 R2 装载位）——置于 ctx 装配之先：零 ctx 注入即
+    // 能力子集（无钩子/渲染/UI/ctx 注册动词面——「只供工具」）的结构性执法；
+    // 零 jiti、零 apply、零 config 合成（入口不求值——不可信代码作者的强隔离
+    // 分发正道）。装载 = server 声明块铸为服务器描述符交 core:mcp 桥受理，
+    // spawn/连接/发现/注册/降级全复用桥内 §10.1 既有管道（本装载器零独立
+    // spawn 路径）。
+    if (row.kind === 'disk' && row.manifest.entryPlan.kind === 'server-declared') {
+      // 受理面结构性校验：'mcp' 服务经 injectOf 结构性桥依赖在此轮已可达；
+      // 此处再验 attachServer 位形（防非 core:mcp 桥占名）——面缺席/形坏 =
+      // 行级装载失败 PLUGIN_INJECT_UNRESOLVED（core:mcp 禁用或 spawn 主闸红
+      // 时 server 形行随之隔离降级，不静默丢）
+      const attach = options.services.get('mcp') as McpServerAttachFace | undefined;
+      if (attach === undefined || typeof attach.attachServer !== 'function') {
+        throw new BaseError(
+          'PLUGIN_INJECT_UNRESOLVED',
+          `core:mcp 桥受理面不可达（插件 ${row.id}）——server 形装载位经本桥受理，桥缺席（core:mcp 禁用或 spawn 主闸红）即不可装载`,
+        );
+      }
+      // server 位 = manifest 声明 id：复合名 <server>__<tool> 天然归因（一插件
+      // 一服务器），词法已在清单校验闸整串过 [A-Za-z0-9-]+。试件行 row id
+      // 含 '_'（_quick_test 保留字）不合服务器键词法，故恒用 manifest.id——
+      // 两 id 装机形恒同值，试件形以声明 id 入桥。spawn 面按 row id 查 grants
+      // 账（R2 confine 数据源——铸造位在装配根 serverSpawnFace）。
+      attach.attachServer(row.manifest.id, row.manifest.entryPlan.server, options.serverSpawnFace?.(row.id));
+      // 声明载荷恒空（清单互斥闸已拒 server+skills/agents 混载）——激活行
+      // 仅记账身份；审计词 plugin/server-loaded 由装配根装载收口统一落笔
+      state.activated.push({ id: row.id, skillDirs: [], agentDirs: [] });
+      return;
+    }
     // 开门授予集只随磁盘行透传（core: 行无 opens 位——读侧已拒，结构性保证）
     const ctx = options.createContext(row.id, row.kind === 'disk' ? row.opens : undefined);
     // 装载位配置合成（ix-3——03 §1.2 合成序）：configSchema 缺席 = 行为零变化
@@ -454,7 +501,12 @@ async function loadRow<TCtx>(
       return;
     }
 
-    const module = await loadDiskModule(row, state.options.jitiFactory, state.virtualFaces);
+    const module = await loadDiskModule(
+      row,
+      state.options.jitiFactory,
+      state.virtualFaces,
+      state.options.gatedNodeBuiltinsOf,
+    );
     const apply = module.default;
     if (typeof apply !== 'function') {
       throw new BaseError('PLUGIN_SHAPE_INVALID', `入口 default export 缺席或非函数（插件 ${row.id}）`);
@@ -505,8 +557,11 @@ async function loadDiskModule(
   row: DiskPluginSpec,
   jitiFactory: LoadPluginsOptions['jitiFactory'],
   virtualFaces: Readonly<Record<string, unknown>>,
+  gatedNodeBuiltinsOf: LoadPluginsOptions['gatedNodeBuiltinsOf'],
 ): Promise<PluginModule> {
   const faces = { ...virtualFaces }; // 面快照（本插件 jiti 实例的直注集）
+  // 受门档生效集快照（R3——缺席 = 分级腿未接线，道②静默；空集 = 受门档全拒）
+  const gatedNodeBuiltins = gatedNodeBuiltinsOf?.(row.id);
   const opts: LoadPluginJitiOptions = {
     virtualModules: faces,
     // 裸说明符树内解析位接线（道③自带 node_modules——缺此位裸说明符恒 fail-closed 拒）
@@ -514,6 +569,7 @@ async function loadDiskModule(
       pluginId: row.id,
       pluginDir: row.pluginDir,
       resolveBare: createTreeBareResolver(row.pluginDir),
+      ...(gatedNodeBuiltins !== undefined ? { gatedNodeBuiltins: new Set(gatedNodeBuiltins) } : {}),
     }),
   };
   const jiti =
@@ -573,10 +629,17 @@ export async function loadDefaultVirtualFaces(): Promise<Record<string, unknown>
   };
 }
 
-/** jiti 错误映射（三码分流：门禁拒 / 入口不可达 / 装载失败） */
+/** jiti 错误映射（四码分流：门禁拒两码 / 入口不可达 / 装载失败） */
 function mapJitiError(pluginId: string, err: unknown): BaseError {
   const message = err instanceof Error ? err.message : String(err);
-  if (err instanceof BaseError && err.code === 'PLUGIN_IMPORT_FORBIDDEN') return err; // 字面量腿原样透传
+  // 门禁拒两码原样透传（三道白名单越界 + 受门档内建未授——R3 分码分归因：
+  // 码身份即归因面，泛化装载失败码会抹掉分码语义）
+  if (
+    err instanceof BaseError &&
+    (err.code === 'PLUGIN_IMPORT_FORBIDDEN' || err.code === 'PLUGIN_NODE_BUILTIN_FORBIDDEN')
+  ) {
+    return err;
+  }
   if (message.includes('PLUGIN_IMPORT_FORBIDDEN')) {
     // 兜底腿毒丸（裸 Error 码前缀形——毒丸经 jiti eval 不得 import 宿主面）
     return new BaseError('PLUGIN_IMPORT_FORBIDDEN', `[${pluginId}] ${message}`, { cause: err });
@@ -651,7 +714,13 @@ function asStringArray(value: unknown, id: string, field: string): readonly stri
 
 /** 行 inject 面（排序位）：core: 注册表声明 / 磁盘行预收割位（两段式——装载位另执法） */
 function injectOf(row: LoaderPlanRow): readonly string[] {
-  return row.kind === 'core' ? (row.reference.inject ?? []) : (row.inject ?? []);
+  if (row.kind === 'core') return row.reference.inject ?? [];
+  // server 形结构性桥依赖（03 §10.1 R2）：装载受理位在 core:mcp 服务面——
+  // inject 恒 ['mcp']（磁盘行 manifest.inject 载荷不适用：零入口不求值，
+  // 无 named exports inject 可言）。core:mcp 禁用/spawn 主闸红 → 'mcp' 服务
+  // 缺席 → 本行 PLUGIN_INJECT_UNRESOLVED 行级隔离
+  if (row.manifest.entryPlan.kind === 'server-declared') return ['mcp'];
+  return row.inject ?? [];
 }
 
 /** 不动点回卷（core: fail-loud 前置清场——已活行 LIFO） */

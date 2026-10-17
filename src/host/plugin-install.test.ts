@@ -513,6 +513,29 @@ describe('local 源与收割真跑（本地 fixture 零网络）', () => {
     expect(outcome.ok && outcome.entry.declaredEvents).toEqual([]);
   });
 
+  it('server 形（server-declared）装机零收割 + 零 jiti 构造（R2 专锁——无入口可求值，收割腿结构性缺席）', async () => {
+    const dataDir = dataDirOf('data-c');
+    // server 声明块 + 无 entry → server-declared 装载形态；fixture 不写 index.js
+    // （entry 缺席是结构性的——server 与 entry 互斥由清单闸承载，此处走正道形）
+    const src = localFixture(
+      'server-form',
+      pluginPkgJson({ name: 'server-form-pkg', berryAgent: { server: { command: '/usr/local/bin/srv' } } }),
+    );
+    // jiti 构造 tripwire：jitiFactory 唯一调位在 harvestEvents 的
+    // declared-payload/server-declared 早退之后——server 形若误入求值腿，
+    // 此工厂被调即掷错、install 拒（装机收割腿结构性缺席的负向锁）
+    const deps = depsOf(dataDir, noopSpawn, {
+      jitiFactory: () => {
+        throw new Error('server 形装机不得构造 jiti——无入口可求值');
+      },
+    });
+    const outcome = await installPlugin(deps, `local:${src}`);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.entry.declaredEvents).toEqual([]); // 同律空操作（03 §10.1 R2）
+    expect(entriesOf(dataDir).some((e) => e.id === 'server-form-pkg')).toBe(true); // server 形可装机落账
+  });
+
   it('events 坏形（非字符串数组）= 收割失败拒 + local 源不删用户目录', async () => {
     const dataDir = join(testRoot, 'data-c');
     const src = localFixture('badev', pluginPkgJson({ name: 'badev-pkg' }), `export const events = 'oops';\n`);

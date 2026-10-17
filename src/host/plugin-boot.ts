@@ -36,12 +36,16 @@
  *     逐行时点发射位装载器仍未开（/reload 批已飞未启——2026-09-13 勘正，
  *     维持收口批量补发形态）；合成失败行并入 failed 面。
  *  ⑫ grants 装载深校验+交集入账（05 §1.1 行 80——2026-10-16 硬伤处置第三批·
- *     ①段一，销 12a 欠账）：合成序对 writableRoots 四拒（../段/绝对/空串/
- *     Windows 形——装机态行级隔离、试件态 fail-loud）；装载收口对获装载磁盘
- *     行选锚（03 §4.2 双锚）求交（canonical 化 + 数据目录 carve-out 恒优先 +
- *     fence 根 containment）成账——audit 面在场 diff 幂等落 plugin/grants
- *     （拒载行零审计、试件行零落盘）；handle.grantsOf 供段二执法/沙箱立题
- *     数据源单源。grantsFence 缺席 = 本腿整体静默（诚实缺席律）。
+ *     ①段一，销 12a 欠账；R3 扩第二维 nodeBuiltins）：合成序对 writableRoots
+ *     四拒（../段/绝对/空串/Windows 形——装机态行级隔离、试件态 fail-loud）+
+ *     nodeBuiltins 三拒（非 node: 词形/不在册/重复——同两态）；装载收口对获
+ *     装载磁盘行选锚（03 §4.2 双锚）求交（canonical 化 + 数据目录 carve-out
+ *     恒优先 + fence 根 containment）成账 + nodeBuiltins 两方交集（声明 ∩
+ *     opens 开门，试件行动作即授予——零 fence 参与）成账——audit 面在场 diff
+ *     幂等落 plugin/grants（diff 键三元组 anchor+roots+nodeBuiltins；拒载行
+ *     零审计、试件行零落盘）；handle.grantsOf 供段二执法/沙箱立题数据源单源。
+ *     grantsFence 缺席 = fence 输入依赖腿静默（记账/段二执法/spawn confine
+ *     ——诚实缺席律）；R3 门禁生效集无条件计算注入（两输入结构性恒在场）。
  *
  * 消费腿实况（2026-09-11 勘正——原「挂账」注记所指批次均已飞）：boot 级
  * 工具注册表经 assembly bootTools 取值器并入会话工具面（conversation-stack）；
@@ -81,7 +85,10 @@ import type { AuditFace, LoadHistoryFace } from '../persist/index.js';
 // 化 + fence 根推导 + containment 三面同源；①段二调用级执法 live 侧取值器
 // 同源 createRootsProvider；host→safety 边在册）
 import { canonicalPath, createRootsProvider, deriveWritableRoots, isInsideRoot } from '../safety/index.js';
-import type { SandboxMode } from '../safety/index.js';
+import type { SandboxMode, SandboxPolicy, SandboxService } from '../safety/index.js';
+// R2 server 形插件位 spawn 面装配（03 §10.1 R2——confine 产物喂 exec 管道真身）
+import type { SpawnPipeline } from '../../plugins/exec/index.js';
+import type { McpSpawnFace } from '../../plugins/mcp/index.js';
 // Job 收口窄面类型（Job 消费面批桥二——插件卸载归属围栏收口；host→subagent 边在册）
 // + jobs 窄面（JobsPluginFace——2026-09-15 ④ 笔 fork 绑面自报位除名后的插件可见形状）
 import type { JobRegistry, JobsPluginFace } from '../../plugins/subagent/index.js';
@@ -93,6 +100,8 @@ import { createDeclarativeAgentTool } from '../../plugins/subagent/index.js';
 import type { DelegationToolDeps } from '../../plugins/subagent/index.js';
 
 import { clearBootFailure, formatPluginFailureText, recordBootFailure } from './boot-failures.js';
+// node: 内建裸名册（R3 grants 第二维深校验「不在册」拒的判据单源——import-gate 同源）
+import { BARE_BUILTINS } from './builtins.js';
 import type { ConfigField } from './config-schema.js';
 import type {
   CorePluginReference,
@@ -485,10 +494,14 @@ export interface PluginBootOptions {
 export type PluginGrantsAnchor = 'plugin-dir' | 'workspace';
 
 /**
- * grants 装载账条目（05 §1.1 行 80——写根交集族）：roots = boot 解析档下
- * 交集快照（canonical 绝对路径、排序去重；清单原文不入载荷；空数组 = 写面
- * 全关收口形）。审计归因面非执法面——段二调用级执法交集 = 调用时与 live
- * fence 根求交（04 §7 编舞条款）。
+ * grants 装载账条目（05 §1.1 行 80——写根交集族 + R3 nodeBuiltins 维）：roots =
+ * boot 解析档下交集快照（canonical 绝对路径、排序去重；清单原文不入载荷；
+ * 空数组 = 写面全关收口形）。nodeBuiltins = 受门档内建生效集快照（R3——
+ * 两方交集〔清单声明 ∩ opens 开门〕，`node:<bare>` 全形、排序去重；缺席 =
+ * 无声明零参与、空数组 = 撤声明/开门缺席收口形——与 roots 同律）。审计归因
+ * 面非执法面——段二调用级执法交集 = 调用时与 live fence 根求交（04 §7 编舞
+ * 条款）；nodeBuiltins 维零 fence 参与（03 §4.2——两方交集无 live fence
+ * 第三方，本维无段二执法闭包）。
  */
 export interface PluginGrantsAccount {
   /** 插件行 id（装载身份位） */
@@ -497,6 +510,11 @@ export interface PluginGrantsAccount {
   readonly anchor: PluginGrantsAnchor;
   /** canonical 化交集（boot 解析档下快照——排序去重稳定形） */
   readonly roots: readonly string[];
+  /**
+   * 受门档内建生效集快照（R3——两方交集；缺席 = 无声明，空数组 = 收口形；
+   * 写式区分三态见 recordPluginGrantsDiff 注）
+   */
+  readonly nodeBuiltins?: readonly string[];
 }
 
 /**
@@ -815,6 +833,12 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       mode: grantsFenceInput.sessionMode ?? (() => bootMode),
     });
   }
+  // —— R3 grants 第二维（nodeBuiltins）逐行生效集：**无条件计算**（两方交集
+  //    零 fence 参与——grantsFence 缺席不静默本维：与写根维 fence 输入依赖
+  //    腿分立，03 §4.2；生产装配恒传 fence，缺席仅诊断/替身形而门禁面仍执法）
+  const grantsRowNodeBuiltins = computeGrantRowNodeBuiltins(plan);
+  // 门禁生效集供值器（装载序消费——无条目 = 声明缺席，空集受门档全拒默认关）
+  const gatedNodeBuiltinsOf = (pluginId: string): readonly string[] => grantsRowNodeBuiltins.get(pluginId) ?? [];
   // 磁盘行 fence 装配窄面：Map 有条目（= 磁盘行，含试件行）才供值；core 行
   // 无条目 = undefined = 不注入 = 03 §4.6 官方件豁免先例的落码形
   const grantsFenceOf = (pluginId: string) => {
@@ -823,6 +847,42 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       ? { bootRoots: rowGrants.roots, liveRoots: grantsLiveRoots }
       : undefined;
   };
+  // —— R2 server 形插件位 spawn 面（03 §10.1 R2——写根白名单数据源 = 本插件
+  //    ①段一 grants 装载账交集，每装载形态恰一数据源：config 形 = 档位维
+  //    〔core:mcp 装配面 R1〕、server 形 = grants 维〔本面〕）：装载序受理时
+  //    按 row id 现铸，confine 策略 = fence 档位 + workspaceRoot + 显式
+  //    writableRoots = 账面交集（无账/交集空 = 空数组显式覆盖——「交集空 =
+  //    白名单空，写面全关仍可只读供工具」的落码形；显式空覆盖档位推导 =
+  //    SandboxPolicy resolvePolicyRoots 语义单源）。pipeline/sandbox 从共享根
+  //    活取（core:exec/core:mcp 装配序先于 server 行装载——Kahn inject ['mcp']
+  //    结构性保证在场）；缺席（spawn 主闸红/沙箱席未装）= spawnInteractive
+  //    即抛 SANDBOX_UNAVAILABLE fail-closed——不静默裸起（R1 同律）。
+  //    grantsFence 缺席 = 不铸本面（受理走桥装配缺省档位维 spawn 面）——
+  //    grants 腿整体静默律（段一/段二同缺席；生产装配恒传 fence——assembly
+  //    无条件注入，缺席仅诊断/替身形）
+  const serverSpawnFace: ((pluginId: string) => McpSpawnFace) | undefined =
+    grantsFenceInput === undefined
+      ? undefined
+      : (pluginId) => ({
+          spawnInteractive: (request) => {
+            const pipeline = options.scope.tryGet<SpawnPipeline>('exec-pipeline');
+            const sandbox = options.scope.tryGet<SandboxService>('exec-sandbox');
+            if (pipeline === undefined || sandbox === undefined) {
+              throw new BaseError(
+                'SANDBOX_UNAVAILABLE',
+                `server 形插件 ${pluginId} spawn 管道/沙箱服务缺席，拒绝裸起（fail-closed——不静默无沙箱 spawn）`,
+              );
+            }
+            const policy: SandboxPolicy = {
+              mode: grantsFenceInput.mode,
+              workspaceRoot: grantsFenceInput.workspace,
+              // 交集空/无账 = 空数组显式覆盖（写面全关；只读供工具照常）
+              writableRoots: grantsRowRoots?.get(pluginId)?.roots ?? [],
+            };
+            const confined = sandbox.confine(request.argv, policy);
+            return pipeline.spawnInteractive({ ...request, argv: confined.argv });
+          },
+        });
   const createContext = (pluginId: string, opens?: readonly string[]) => {
     const fork = options.scope.fork();
     pluginScopes.push(fork);
@@ -1001,6 +1061,13 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     // required-secret 诊断豁免（07 §5 :memory: 同构纪律）：诊断形凭证盒结构性
     // 恒空——缺席拒降级 warn 提示行装载照走（真实装载形不豁免，拒载照常）
     ...(options.runtime.memory ? { allowMissingRequiredSecret: true } : {}),
+    // server 形插件位 spawn 面（03 §10.1 R2——grants 交集维 confine）：受理时
+    // 按 row id 现铸；缺席（grantsFence 缺席 = grants 腿整体静默律）= 桥走
+    // core:mcp 装配缺省 spawn 面（R1 档位维）
+    ...(serverSpawnFace !== undefined ? { serverSpawnFace } : {}),
+    // R3 受门档 node: 内建生效集（03 §3.3 道②分级——import 门禁 jiti transform
+    // 注入；无条件透传：两方交集零 fence 参与，grantsFence 缺席不静默本维）
+    gatedNodeBuiltinsOf,
     onApplySettled: (pluginId) => handles.get(pluginId)?.closeWindow(), // 行收口即关窗（finally 语义）
     // 官方件宿主面铸造（2026-09-13 真模型四轮 C 组——03 §2.1 官方件异步续段
     // 通道）：core 行 apply 第三参 = 按本插件 handle 铸开窗器（enterHostCallback
@@ -1043,20 +1110,29 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     for (const a of loaded.activated) clearBootFailure(bookkeepingPath, a.id, bookkeepingFs);
   }
 
-  // —— grants 装载账计算（05 §1.1 行 80——2026-10-16 硬伤处置第三批·①段一）：
-  //    boot 解析档下快照（深校验已在合成序拒载——此处账面只记获装载行：拒载/
-  //    禁用/装载门红/loader 失败零记账 = 拒载零审计律；04 §7 编舞条款「审计
-  //    归因面非执法面」——段二执法交集 = 调用时与 live fence 根求交）。与段二
-  //    执法冻结值同 Map 单算（createContext 已逐行取值注 fence——两用同值非
-  //    同一物）。grantsFence 缺席 = grants 腿整体静默（不记账不供值器——诚实
-  //    缺席律）
+  // —— grants 装载账计算（05 §1.1 行 80——2026-10-16 硬伤处置第三批·①段一；
+  //    R3 扩 nodeBuiltins 维）：boot 解析档下快照（深校验已在合成序拒载——
+  //    此处账面只记获装载行：拒载/禁用/装载门红/loader 失败零记账 = 拒载零
+  //    审计律；04 §7 编舞条款「审计归因面非执法面」——段二执法交集 = 调用时
+  //    与 live fence 根求交〔写根维〕；nodeBuiltins 维零段二执法闭包——生效集
+  //    即执法面快照同值〕。与段二执法冻结值同 Map 单算（createContext 已逐行
+  //    取值注 fence——两用同值非同一物）。grantsFence 缺席 = grants 腿整体
+  //    静默（不记账——诚实缺席律；门禁面不受此闸：gatedNodeBuiltinsOf 无条件
+  //    透传，见上注）
   const activatedIds = new Set(loaded.activated.map((a) => a.id));
   const grantsAccounts: readonly PluginGrantsAccount[] =
     grantsRowRoots === null
       ? []
       : [...grantsRowRoots.entries()]
           .filter(([id]) => activatedIds.has(id))
-          .map(([id, row]) => ({ pluginId: id, anchor: row.anchor, roots: row.roots }));
+          .map(([id, row]) => ({
+            pluginId: id,
+            anchor: row.anchor,
+            roots: row.roots,
+            // nodeBuiltins 维写式三态（R3）：Map 有条目（= 有声明）→ 值或空
+            // 数组（空 = 已声明未开门收口形）；无条目（= 无声明）→ 键缺席
+            ...(grantsRowNodeBuiltins.get(id) !== undefined ? { nodeBuiltins: grantsRowNodeBuiltins.get(id) } : {}),
+          }));
 
   // —— 启动横幅聚合 warn（03 §5.7② obs-a 兑现）：装载序尾对本 boot loader
   //    行失败（jiti 装载/apply/模块 inject 执法——合成失败行已在上方点名）
@@ -1101,6 +1177,27 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
         options.audit,
         grantsAccounts.filter((account) => account.pluginId !== QUICK_TEST_ROW_ID),
       );
+    }
+    // —— plugin/server-loaded 恰一笔落（⑤C 兑现——05 §1.1：MCP-server 形插件
+    //    装载 provenance，发射位随 R2 落码批）：server 形磁盘行装载成功尾
+    //    逐行恰一笔。非 diff 幂等——plugin/grants「有变才落」系授予面 fold
+    //    语义，本词系装载 provenance 行为流（每次装载 = 一次事实，
+    //    marketplace/sources「成功尾恰一笔」同族）；失败路径零落账（清单坏形
+    //    拒载在合成序即拒、MCP_CONNECT_FAILED 连接失败系受理后异步序不阻
+    //    装载账——两路都不进本词，拒路径零审计律）；试件行滤除（不变式 1
+    //    零落盘面——opens/lifecycle/grants 三滤同律）。confine? 恒缺席
+    //    〔v1 定谳——05 §1.1「填值时点与异步发现序的时序差随 R2 落码批定形」
+    //    的本批定谳：恰一笔写点定死在装载成功尾，而 confine 执行在受理后
+    //    异步 spawn 序（fire-and-forget 发现）——写点时点执法档结构性未知，
+    //    如实缺席优于猜测回填；骨架位保留，改「spawn 后补写」须先改
+    //    05 §1.1 写点条款（文档先行）〕
+    for (const row of plan) {
+      if (row.kind !== 'disk' || row.manifest.entryPlan.kind !== 'server-declared') continue;
+      if (row.id === QUICK_TEST_ROW_ID || !activatedIds.has(row.id)) continue;
+      options.audit.append('plugin/server-loaded', {
+        pluginId: row.id,
+        command: row.manifest.entryPlan.server.command,
+      });
     }
   }
 
@@ -1316,6 +1413,45 @@ function validateWritableRootsDeep(entries: readonly string[], pluginId: string)
 }
 
 /**
+ * grants.nodeBuiltins 申请面防御性滤出（R3——与 writableRootsOf 同律：形状
+ * 浅校验在 manifest，深校验三拒在装载序；此处只滤出 string 面供两处消费）。
+ */
+function nodeBuiltinsOf(manifest: PluginManifest): readonly string[] {
+  const raw = (manifest.grants as { nodeBuiltins?: unknown } | undefined)?.nodeBuiltins;
+  return Array.isArray(raw) ? raw.filter((n): n is string => typeof n === 'string') : [];
+}
+
+/**
+ * grants.nodeBuiltins 深校验三拒（03 §4.2——R3 落装载序；与 writableRoots
+ * 四拒同门：装机态行级隔离、试件态 fail-loud）：
+ *  ① 非 `node:` 前缀词形——声明面词形即生效集比对形（import 门禁判
+ *     `node:<bare>` 全形），裸名形结构性失配；
+ *  ② 裸名不在 BARE_BUILTINS 册——拼错名/虚构名即拒（fail-closed：不静默
+ *     出集），与 import 门禁裸名册同源单物；
+ *  ③ 重复项——排序去重前的原面须无重复（声明面规范形）。
+ * 逐条先拒先报（首违即止）；返回 null = 全过。
+ * @param entries 申请面清单原文（已过浅校验 string[]）
+ * @param pluginId 行 id（报文点名——装载身份位）
+ */
+function validateNodeBuiltinsDeep(entries: readonly string[], pluginId: string): string | null {
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.startsWith('node:')) {
+      return `grants.nodeBuiltins 含非 node: 前缀词形（"${entry}"，插件 ${pluginId}）——须为 node:<裸名> 形（03 §4.2）`;
+    }
+    const bare = entry.slice('node:'.length);
+    if (!BARE_BUILTINS.has(bare)) {
+      return `grants.nodeBuiltins 含未知内建名（"${entry}"，插件 ${pluginId}）——名字面须在 Node 内建名单（拼错名/虚构名不静默出集）`;
+    }
+    if (seen.has(entry)) {
+      return `grants.nodeBuiltins 含重复项（"${entry}"，插件 ${pluginId}）——申请面须无重复`;
+    }
+    seen.add(entry);
+  }
+  return null;
+}
+
+/**
  * grants 逐行 boot 授予交集计算（05 §1.1 行 80——①段一装载序深校验+选锚
  * 求交；①段二起升为段一账面与段二执法冻结值的单源计算——〔2026-10-17
  * 定谳注：boot 授予交集冻结档〕两用同值非同一物：本函数装载前对计划面
@@ -1366,22 +1502,61 @@ function computeGrantRowRoots(input: {
 }
 
 /**
- * boot 序 plugin/grants 幂等落（05 §1.1 行 80 写根交集族——①段一；律同
- * recordPluginOpensDiff）：以装载账为当前授予面，与审计流尾最近一条本词
- * （per 插件——fold = 尾条 = 该插件当前有效写根交集）diff，**有变才落**。
- * diff 键 = anchor+roots 二元组（锚形切换亦是授予面变迁——如实入账）。
- * 撤位（行删除/换装/拒载/禁用——计划面缺席）且尾条非空 → 落 `roots: []`
- * 收口形；已空幂等不重放。空面首记不落：无记录 ≡ 空面，`[]` 笔恒为收口形
- * 而非首记基线（不为从未获交集的插件造基线噪声）。锚形沿用尾条记入撤位笔
- * （插件已不在场无现锚可记——账读作「其最后锚形下的授予面已清零」）。
- * 集合语义比对（排序后逐位）。历史尾条只扫近期窗（listRecent 帽 100——
- * opens 同律）。单写者 = 装配根装载序（audit 流单写者律——插件面零写入位）。
+ * grants 第二维（nodeBuiltins）逐行 boot 生效集计算（R3——03 §3.3 道②
+ * 分级/§4.2 第二维）：受门档生效集 = 清单声明 grants.nodeBuiltins ∩ 用户
+ * 开门 opens `grants.node-builtins`（**两方交集**——无 live fence 第三方，
+ * 与写根维三方总式分立）；试件行（--plugin-file）= 动作即授予（用户亲手
+ * 指定文件装载，opens 位结构性缺席——生效集 = 声明全量）。
+ *
+ * 值形 = `node:<bare>` 全形、排序去重（深校验已保证词形/在册/无重复——
+ * 此处稳定形防上游手编账本）；门禁消费比对按首段裸名形（node:fs 授予即覆
+ * node:fs/promises 族）。core 行结构性无 grants 申请面（同 computeGrantRowRoots
+ * 非豁免分支）。**本维零 fence 参与**——grantsFence 缺席不静默本维（两输入
+ * 〔manifest/opens〕结构性恒在场；fence 缺席静默律系 fence 输入依赖腿——
+ * 段一账面/段二执法/spawn confine）。
+ */
+function computeGrantRowNodeBuiltins(plan: readonly LoaderPlanRow[]): ReadonlyMap<string, readonly string[]> {
+  const rows = new Map<string, readonly string[]>();
+  for (const row of plan) {
+    if (row.kind !== 'disk') continue; // core 行结构性无 grants 申请面
+    const declared = [...new Set(nodeBuiltinsOf(row.manifest))].sort();
+    if (declared.length === 0) continue; // 无声明零参与——不建空账位
+    // 授予载体两维分立（03 §4.2）：写根维启用行在场即授予；本维 opens 位
+    // 显式开门才授予（维整域单枚粒度）——试件行动作即授予（见上注）
+    const opened = row.id === QUICK_TEST_ROW_ID || (row.opens?.includes('grants.node-builtins') ?? false);
+    rows.set(row.id, opened ? declared : []);
+  }
+  return rows;
+}
+
+/**
+ * boot 序 plugin/grants 幂等落（05 §1.1 行 80 写根交集族——①段一；R3 扩
+ * nodeBuiltins 维；律同 recordPluginOpensDiff）：以装载账为当前授予面，与
+ * 审计流尾最近一条本词（per 插件——fold = 尾条 = 该插件当前有效授予面）
+ * diff，**有变才落**。diff 键 = anchor+roots+nodeBuiltins **三元组**（锚形
+ * 切换/写根变迁/内建生效集变迁皆是授予面变迁——如实入账；nodeBuiltins
+ * 比对归一缺席 ≡ []，写式区分三态见下）。
+ * nodeBuiltins 写式三态（R3——值语义：缺席 = 无声明、[] = 收口形、非空 =
+ * 生效集）：①现声明 → 恒写键（值 = 生效集快照，空数组 = 已声明未开门）；
+ * ②现无声明 + 尾条非空 → 写 `[]`（撤声明/撤开门收口形）；③现无声明 +
+ * 尾条空 → 键缺席（无声明零参与——不为未声明维造键）。
+ * 撤位（行删除/换装/拒载/禁用——计划面缺席）且尾条任一维非空 → 落收口形
+ * （roots 恒 `[]`；nodeBuiltins 按三态②③——尾条非空才写 `[]`）；已空幂等
+ * 不重放。空面首记不落：无记录 ≡ 空面（两维同判——roots 与 nodeBuiltins
+ * 皆空不落），`[]` 笔恒为收口形而非首记基线（不为从未获交集的插件造基线
+ * 噪声）。锚形沿用尾条记入撤位笔（插件已不在场无现锚可记——账读作「其
+ * 最后锚形下的授予面已清零」）。集合语义比对（排序后逐位）。历史尾条只扫
+ * 近期窗（listRecent 帽 100——opens 同律）。单写者 = 装配根装载序（audit
+ * 流单写者律——插件面零写入位）。
  * @param audit 审计流面（读写两用——尾读建 per 插件最新账，diff 后落账）
  * @param accounts 装载账（调用方已滤试件行——不变式 1 零落盘面）
  */
 export function recordPluginGrantsDiff(audit: AuditFace, accounts: readonly PluginGrantsAccount[]): void {
   // 尾读 → per 插件最新账面（listRecent id 降序——首见即最新；词形防御只防库被手编）
-  const latest = new Map<string, { anchor: PluginGrantsAnchor; roots: readonly string[] }>();
+  const latest = new Map<
+    string,
+    { anchor: PluginGrantsAnchor; roots: readonly string[]; nodeBuiltins: readonly string[] }
+  >();
   for (const row of audit.listRecent()) {
     if (row.type !== 'plugin/grants') continue;
     const pluginId = row.data['pluginId'];
@@ -1391,30 +1566,79 @@ export function recordPluginGrantsDiff(audit: AuditFace, accounts: readonly Plug
       continue;
     }
     if (!latest.has(pluginId)) {
-      latest.set(pluginId, { anchor, roots: roots.filter((r): r is string => typeof r === 'string').sort() });
+      // nodeBuiltins 维坏形条目滤 string 面（缺席 ≡ []——归一比对形）
+      const rawNode = row.data['nodeBuiltins'];
+      const nodeBuiltins = Array.isArray(rawNode)
+        ? rawNode.filter((n): n is string => typeof n === 'string').sort()
+        : [];
+      latest.set(pluginId, {
+        anchor,
+        roots: roots.filter((r): r is string => typeof r === 'string').sort(),
+        nodeBuiltins,
+      });
     }
   }
-  // 有变才落：当前面（去重排序——尾条形稳定）vs 尾条（anchor+roots 二元组）
+  // 有变才落：当前面（去重排序——尾条形稳定）vs 尾条（anchor+roots+nodeBuiltins 三元组）
   const current = new Map(
-    accounts.map((a) => [a.pluginId, { anchor: a.anchor, roots: [...new Set(a.roots)].sort() }] as const),
+    accounts.map((a) => {
+      const effective = a.nodeBuiltins ?? [];
+      return [
+        a.pluginId,
+        {
+          anchor: a.anchor,
+          roots: [...new Set(a.roots)].sort(),
+          nodeBuiltins: [...new Set(effective)].sort(),
+          declared: a.nodeBuiltins !== undefined, // 账面键在场 = 有声明（写式三态判别位）
+        },
+      ] as const;
+    }),
   );
   for (const [pluginId, cur] of current) {
     const prev = latest.get(pluginId);
     if (prev === undefined) {
-      // 空面首记不落（无记录 ≡ 空面——[] 笔恒为收口形非首记基线）
-      if (cur.roots.length > 0) audit.append('plugin/grants', { pluginId, anchor: cur.anchor, roots: cur.roots });
+      // 空面首记不落（两维同判——无记录 ≡ 空面，[] 笔恒为收口形非首记基线）
+      if (cur.roots.length > 0 || cur.nodeBuiltins.length > 0) {
+        audit.append('plugin/grants', {
+          pluginId,
+          anchor: cur.anchor,
+          roots: cur.roots,
+          // 写式三态：首记形——现声明恒写键（值 = 生效集），现无声明键缺席
+          ...(cur.declared ? { nodeBuiltins: cur.nodeBuiltins } : {}),
+        });
+      }
       continue;
     }
     const same =
       prev.anchor === cur.anchor &&
       prev.roots.length === cur.roots.length &&
-      cur.roots.every((r, i) => prev.roots[i] === r);
-    if (!same) audit.append('plugin/grants', { pluginId, anchor: cur.anchor, roots: cur.roots });
+      cur.roots.every((r, i) => prev.roots[i] === r) &&
+      prev.nodeBuiltins.length === cur.nodeBuiltins.length &&
+      cur.nodeBuiltins.every((n, i) => prev.nodeBuiltins[i] === n);
+    if (!same) {
+      audit.append('plugin/grants', {
+        pluginId,
+        anchor: cur.anchor,
+        roots: cur.roots,
+        // 写式三态：现声明恒写键；现无声明 + 尾条非空 = 撤声明收口形显式 [];
+        // 现无声明 + 尾条空 = 键缺席（未声明维不造键）
+        ...(cur.declared
+          ? { nodeBuiltins: cur.nodeBuiltins }
+          : prev.nodeBuiltins.length > 0
+            ? { nodeBuiltins: [] }
+            : {}),
+      });
+    }
   }
-  // 撤位收口：曾记账而今不在账面，且尾条非空（已空则幂等不再落）
+  // 撤位收口：曾记账而今不在账面，且尾条任一维非空（已空则幂等不再落）
   for (const [pluginId, prev] of latest) {
-    if (!current.has(pluginId) && prev.roots.length > 0) {
-      audit.append('plugin/grants', { pluginId, anchor: prev.anchor, roots: [] });
+    if (!current.has(pluginId) && (prev.roots.length > 0 || prev.nodeBuiltins.length > 0)) {
+      audit.append('plugin/grants', {
+        pluginId,
+        anchor: prev.anchor,
+        roots: [],
+        // 尾条 nodeBuiltins 非空才写收口形（尾条空则键缺席——未声明维不造键）
+        ...(prev.nodeBuiltins.length > 0 ? { nodeBuiltins: [] } : {}),
+      });
     }
   }
 }
@@ -1667,10 +1891,14 @@ function resolveQuickTestRow(pluginFile: string, plan: readonly LoaderPlanRow[],
       throw new BaseError('PLUGIN_ROW_INVALID', `--plugin-file 插件清单格式不对（${abs}）：${parsed.message}`);
     }
     const manifest = parsed.manifest;
-    // grants 深校验四拒（①段一——试件行同磁盘行执法面全套，坏形 fail-loud 拒启）
+    // grants 深校验（①段一四拒 + R3 第二维三拒——试件行同磁盘行执法面全套，坏形 fail-loud 拒启）
     const grantsReject = validateWritableRootsDeep(writableRootsOf(manifest), manifest.id);
     if (grantsReject !== null) {
       throw new BaseError('PLUGIN_ROW_INVALID', `--plugin-file 插件清单格式不对（${abs}）：${grantsReject}`);
+    }
+    const nodeReject = validateNodeBuiltinsDeep(nodeBuiltinsOf(manifest), manifest.id);
+    if (nodeReject !== null) {
+      throw new BaseError('PLUGIN_ROW_INVALID', `--plugin-file 插件清单格式不对（${abs}）：${nodeReject}`);
     }
     const takenIds = new Set<string>([
       ...plan.map((row) => row.id),
@@ -1781,7 +2009,7 @@ function resolveDiskRow(
       },
     };
   }
-  // grants 深校验四拒（03 §4.2——①段一落装载序；浅校验只覆 string[] 形状）：
+  // grants 深校验（03 §4.2——①段一四拒 + R3 第二维三拒；浅校验只覆 string[] 形状）：
   // 拒载行级隔离（03 §5.4/§5.7 两码分流沿用 PLUGIN_SHAPE_INVALID）+ 拒载零审计
   const grantsReject = validateWritableRootsDeep(writableRootsOf(manifestResult.manifest), row.id);
   if (grantsReject !== null) {
@@ -1790,6 +2018,16 @@ function resolveDiskRow(
         id: row.id,
         code: 'PLUGIN_SHAPE_INVALID',
         message: `清单校验失败（${pluginDir}）：${grantsReject}`,
+      },
+    };
+  }
+  const nodeReject = validateNodeBuiltinsDeep(nodeBuiltinsOf(manifestResult.manifest), row.id);
+  if (nodeReject !== null) {
+    return {
+      failure: {
+        id: row.id,
+        code: 'PLUGIN_SHAPE_INVALID',
+        message: `清单校验失败（${pluginDir}）：${nodeReject}`,
       },
     };
   }

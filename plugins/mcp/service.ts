@@ -8,12 +8,18 @@
  * 定形态：≤20 原生注册 / >20 目录降级——每桥落地/撤销均重铺，阈值随活集
  * 自然收敛）。
  *
+ * attachServer(server, config, spawn?)（03 §10.1 R2 装载位受理口）：server
+ * 形插件装载序单服务器受理——名字占用账响亮拒撞名；spawn 在场 = 插件位
+ * 专属 spawn 面（grants 交集维 confine），缺席 = 装配态缺省面（档位维）；
+ * 连接/发现/降级全复用 apply 同管道。
+ *
  * crash：撤该服务器工具（重铺减源）+ ui.notify warn + 不自动重连（复位走
  * /reload）。作用域回卷：ctx.effect LIFO——各桥 close()（stdin.end 协议化
  * 告别 → 宽限 → killTree 树杀）异步起跑不阻塞回卷序。
  */
 import { createLogger } from '../../src/context/index.js';
 import type { Logger } from '../../src/context/index.js';
+import { BaseError } from '../../src/contracts/index.js';
 import { connectMcpServer } from './bridge.js';
 import type { McpBridge } from './bridge.js';
 import { buildMcpToolDefs } from './tools.js';
@@ -42,8 +48,21 @@ export interface McpLiveServer {
   readonly toolCount: number;
 }
 
-/** MCP 服务公开面（apply 单口 + 活集快照） */
-export interface McpService {
+/**
+ * 单服务器受理窄面（03 §10.1 R2 装载位消费形——host 装载器只认本子面）。
+ *
+ * server 形插件装载 = 声明块铸为服务器描述符交本面受理：spawn/连接/发现/
+ * 注册/降级全复用 §10.1 既有管道（装载器零 spawn 路径）；`spawn` 缺席 = 走
+ * 装配态缺省 spawn 面（core:mcp 装配时的 confine 档位维），在场 = 插件位
+ * 专属面（grants 交集维——装载序按插件逐个注入）。
+ */
+export interface McpServerAttachFace {
+  /** 受理单服务器（名字撞已受理/config 键 → MCP_CONFIG_INVALID 响亮拒） */
+  attachServer(server: string, config: McpServerConfig, spawn?: McpSpawnFace): void;
+}
+
+/** MCP 服务公开面（apply 单口 + 活集快照 + 单服务器受理位） */
+export interface McpService extends McpServerAttachFace {
   /** 全量应用配置（零阻塞——发现后台跑；重复 apply 先撤旧桥再发现） */
   apply(config: McpConfig): void;
   /** 活服务器快照（发现完成且未 crash 的桥） */
@@ -56,6 +75,12 @@ export function createMcpService(deps: McpServiceDeps): McpService {
   const notify = deps.notify ?? (() => undefined);
   /** 活桥表（server → { bridge, config }——config 供过滤与重铺） */
   const bridges = new Map<string, { bridge: McpBridge; config: McpServerConfig }>();
+  /**
+   * 名字占用账（config 键 ∪ 已受理 server 形插件名——受理位撞名执法面）：
+   * apply 整值替换时重置为 config 键集；attachServer 逐名登记。防 config 键
+   * 与插件位声明名互蔽（后写静默顶掉先写桥的活表遮蔽——响亮拒优于静默丢）。
+   */
+  const claimedNames = new Set<string>();
   /** 当前注册面注销器（重铺先全撤） */
   let surfaceDisposers: (() => void)[] = [];
 
@@ -103,10 +128,10 @@ export function createMcpService(deps: McpServiceDeps): McpService {
     }
   }
 
-  /** 单服务器后台发现（fire-and-forget 调用方必带 .catch） */
-  async function discover(server: string, config: McpServerConfig): Promise<void> {
+  /** 单服务器后台发现（fire-and-forget 调用方必带 .catch）；spawnOverride = 插件位专属 spawn 面（缺席走装配缺省） */
+  async function discover(server: string, config: McpServerConfig, spawnOverride?: McpSpawnFace): Promise<void> {
     const bridge = await connectMcpServer(server, config, {
-      spawn: deps.spawn,
+      spawn: spawnOverride ?? deps.spawn,
       logger,
       closeGraceMs: deps.closeGraceMs,
       clientVersion: deps.clientVersion,
@@ -142,7 +167,13 @@ export function createMcpService(deps: McpServiceDeps): McpService {
   const service: McpService = {
     apply(config) {
       shutdownAll(); // config 整值替换语义——旧桥全撤再发现（§5.3）
+      // 占用账重置为 config 键集（整值替换同律）：受理位从零起算——已受理
+      // 的 server 形插件服务器随旧桥全撤不复活（v1 无运行期重 apply 路径；
+      // boot 内序 = core:mcp 装配 apply 先行、server 行装载受理后至——结构
+      // 性不撞本重置）
+      claimedNames.clear();
       for (const [server, serverConfig] of Object.entries(config)) {
+        claimedNames.add(server);
         void discover(server, serverConfig).catch((err: unknown) => {
           // 失败收口必带（fire-and-forget 纪律）：降 warn + ui.notify 不炸装配
           const detail = err instanceof Error ? err.message : String(err);
@@ -150,6 +181,25 @@ export function createMcpService(deps: McpServiceDeps): McpService {
           notify(`MCP 服务器 ${server} 连接失败：${detail}`);
         });
       }
+    },
+
+    attachServer(server, config, spawn) {
+      // 撞名响亮拒（config 键 ∪ 已受理名——防互蔽静默顶活表；装载序行级
+      // 隔离由调用方收口为该插件行装载失败）
+      if (claimedNames.has(server)) {
+        throw new BaseError(
+          'MCP_CONFIG_INVALID',
+          `MCP 服务器名已被占用（${server}）——config servers 键与 server 形插件声明名不得重名`,
+        );
+      }
+      claimedNames.add(server);
+      // 受理即装载账收讫：spawn/连接/发现全后台（连接失败不阻装载账——
+      // 03 §10.1 降级语义复用；plugin/server-loaded 审计词不受此路影响）
+      void discover(server, config, spawn).catch((err: unknown) => {
+        const detail = err instanceof Error ? err.message : String(err);
+        logger.warn(`MCP 服务器连接失败（${server}）：${detail}`);
+        notify(`MCP 服务器 ${server} 连接失败：${detail}`);
+      });
     },
 
     liveServers() {

@@ -72,13 +72,25 @@ export function normalizeMcpConfig(raw: unknown): McpConfig {
   }
   const out: Record<string, McpServerConfig> = {};
   for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
-    out[name] = normalizeServerEntry(name, value);
+    out[name] = normalizeMcpServerEntry(name, value);
   }
   return out;
 }
 
-/** 单服务器条目归一（字段集逐一类型校验——词法/绝对路径/正数域） */
-function normalizeServerEntry(name: string, value: unknown): McpServerConfig {
+/**
+ * 单服务器条目归一（字段集逐一类型校验——词法/绝对路径/正数域）。
+ *
+ * 单源双消费（03 §10.1 R2 字段集单源条款）：config `servers` 行与 manifest
+ * `berryAgent.server` 声明块共用本校验——`labelPrefix` 定错误指位词头
+ * （config 形缺省 `servers`；manifest 形传 `server`——指位读
+ * `server.<id>.command` 与清单键位一致）。坏形码恒 MCP_CONFIG_INVALID
+ * （manifest 侧由调用方映射 PLUGIN_SHAPE_INVALID——清单坏形拒载语义）。
+ */
+export function normalizeMcpServerEntry(
+  name: string,
+  value: unknown,
+  labelPrefix: string = 'servers',
+): McpServerConfig {
   if (!MCP_SERVER_NAME_RE.test(name)) {
     throw new BaseError(
       'MCP_CONFIG_INVALID',
@@ -86,22 +98,22 @@ function normalizeServerEntry(name: string, value: unknown): McpServerConfig {
     );
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new BaseError('MCP_CONFIG_INVALID', `servers.${name} 须为对象`);
+    throw new BaseError('MCP_CONFIG_INVALID', `${labelPrefix}.${name} 须为对象`);
   }
   const v = value as Record<string, unknown>;
   const command = v.command;
   if (typeof command !== 'string' || command === '' || !command.startsWith('/')) {
     throw new BaseError(
       'MCP_CONFIG_INVALID',
-      `servers.${name}.command 须为绝对路径（v1 只收绝对路径）：${JSON.stringify(command)}`,
+      `${labelPrefix}.${name}.command 须为绝对路径（v1 只收绝对路径）：${JSON.stringify(command)}`,
     );
   }
-  const args = strArray(v.args, `servers.${name}.args`);
-  const env = strRecord(v.env, `servers.${name}.env`);
-  const enabled = strArray(v.enabled_tools, `servers.${name}.enabled_tools`);
-  const disabled = strArray(v.disabled_tools, `servers.${name}.disabled_tools`);
-  const startup = positiveNumber(v.startup_timeout_sec, `servers.${name}.startup_timeout_sec`);
-  const toolTimeout = positiveNumber(v.tool_timeout_sec, `servers.${name}.tool_timeout_sec`);
+  const args = strArray(v.args, `${labelPrefix}.${name}.args`);
+  const env = strRecord(v.env, `${labelPrefix}.${name}.env`);
+  const enabled = strArray(v.enabled_tools, `${labelPrefix}.${name}.enabled_tools`);
+  const disabled = strArray(v.disabled_tools, `${labelPrefix}.${name}.disabled_tools`);
+  const startup = positiveNumber(v.startup_timeout_sec, `${labelPrefix}.${name}.startup_timeout_sec`);
+  const toolTimeout = positiveNumber(v.tool_timeout_sec, `${labelPrefix}.${name}.tool_timeout_sec`);
   return {
     command,
     ...(args !== undefined ? { args } : {}),

@@ -989,8 +989,12 @@ function readManifestAt(deps: InstallExecutorDeps, installPath: string): ReturnT
  * install 收割：jiti 求值入口模块读 `events` 导出（§1.3——装机零生效唯一
  * 例外）。与装载器同形：虚拟面四键直注（顶层 import 'berry-agent' 不炸）+
  * import 门禁 transform（03 §3.3 同律——装机时点不放宽）+ fsCache 关（门
- * 禁身份不入缓存键）。纯声明包（declared-payload）零码收割。非字符串数组
- * events 导出 = 收割失败（词表账本容不得坏形）。
+ * 禁身份不入缓存键）。门禁分级腿装机时点结构性未接线——受门 node: 生效
+ * 集两源（清单声明 ∩ 用户开门）皆 boot 读侧快照，收割 transform 不注入
+ * gatedNodeBuiltins、行为 = 道②未接线放行，受门拒载归装载期执法（03 §3.3
+ * 快照装载时点律）。纯声明包（declared-payload）零码收割；server 形
+ * （server-declared）同律空操作——无入口可求值（03 §10.1 R2）。非字符串
+ * 数组 events 导出 = 收割失败（词表账本容不得坏形）。
  */
 async function harvestEvents(
   deps: InstallExecutorDeps,
@@ -998,7 +1002,9 @@ async function harvestEvents(
   installPath: string,
   manifest: PluginManifest,
 ): Promise<readonly string[]> {
-  if (manifest.entryPlan.kind === 'declared-payload') return []; // 纯声明包零码
+  if (manifest.entryPlan.kind === 'declared-payload' || manifest.entryPlan.kind === 'server-declared') {
+    return []; // 纯声明包零码收割；server 形同律空操作（03 §10.1 R2——无入口可求值，declaredEvents 缺席合法）
+  }
   const entryFile = manifest.entryPlan.kind === 'entry-file' ? manifest.entryPlan.entry : resolvePkgMain(pluginDir);
   const entryId = join(pluginDir, entryFile);
   const jiti =

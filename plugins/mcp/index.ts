@@ -28,6 +28,7 @@ export {
   MCP_CLOSE_GRACE_MS,
   MCP_PROTOCOL_VERSION,
   normalizeMcpConfig,
+  normalizeMcpServerEntry,
 } from './types.js';
 
 // 行帧 JSON-RPC 协议腿
@@ -44,4 +45,4 @@ export type { McpToolSource, McpToolSurface, McpBuildDef } from './tools.js';
 
 // 服务编排
 export { createMcpService } from './service.js';
-export type { McpService, McpServiceDeps, McpLiveServer } from './service.js';
+export type { McpService, McpServiceDeps, McpLiveServer, McpServerAttachFace } from './service.js';

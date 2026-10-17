@@ -13,9 +13,13 @@ import { join } from 'node:path';
 
 import type { ApiBlock } from '../contracts/index.js';
 import { parseConfigSchemaFields, type ConfigField } from './config-schema.js';
-import { isValidApiVersion } from '../contracts/index.js';
+import { BaseError, isValidApiVersion } from '../contracts/index.js';
 // internal 桶机制符号深导（opens 授予位值域单源——02 §4.3 #2 深挖面册纪律）
 import { DOORS_SEGMENT_V1_DOMAIN, USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
+// server 声明块字段集归一单源（03 §10.1 R2——与 config servers 同一校验器；
+// host→mcp 席边既有）
+import { MCP_SERVER_NAME_RE, normalizeMcpServerEntry } from '../../plugins/mcp/index.js';
+import type { McpServerConfig } from '../../plugins/mcp/index.js';
 
 /* ---------------- 清单形状（package.json `berryAgent` 字段） ---------------- */
 
@@ -34,7 +38,11 @@ export interface PluginManifest {
   readonly version?: string;
   /** 入口文件（相对包根；缺席时走入口解析序——见 entryPlan） */
   readonly entry?: string;
-  /** grants 申请面（§4 单维 writableRoots；四拒深校验已随 ①段一落装载序〔plugin-boot 合成腿〕——本面维持形状浅校验单源） */
+  /**
+   * grants 申请面（§4 两维——writableRoots 写根 + nodeBuiltins 受门档内建；
+   * 两维深校验（写根四拒/内建三拒）已随 ①段一/R3 落装载序〔plugin-boot
+   * 合成腿〕——本面维持形状浅校验单源）
+   */
   readonly grants?: Readonly<Record<string, unknown>>;
   /** 宿主侧默认配置值（启用行 config 缺席时的整值回落——schema/值分键后值单源；secret 型键明文值拒载） */
   readonly config?: unknown;
@@ -51,17 +59,29 @@ export interface PluginManifest {
    * 插件层物化）。
    */
   readonly agents?: readonly string[];
-  /** 入口解析序判定产物（§1.2 三步定死） */
+  /**
+   * MCP-server 形插件装载位声明块（03 §10.1 R2 条款——`berryAgent.server`
+   * 单数键，一插件一服务器；字段集与 config `servers` 单源，归一校验器同源
+   * plugins/mcp）。在场 = server 形纯声明包：零 jiti、零 ctx 注入、零钩子
+   * 注册——装载 = server 块铸为服务器描述符交 core:mcp 桥受理（只供工具的
+   * 能力子集）。与 entry/skills/agents 互斥（单形状禁双载体）。
+   */
+  readonly server?: McpServerConfig;
+  /** 入口解析序判定产物（§1.2 定死） */
   readonly entryPlan: PluginEntryPlan;
 }
 
 /**
- * 入口解析序三态（03 §1.2——entry 键缺席时的判定序）：
- * ① entry 在场 → entry-file；② entry 缺席且声明载荷在场 = 纯声明包（零码装载，
- * 包主入口不执行）；③ 缺省 → 执行包主入口 default export。
+ * 入口解析序四态（03 §1.2 + §10.1 R2 扩射程——entry 键缺席时的判定序）：
+ * ① entry 在场 → entry-file；①' entry 缺席且 server 块在场 → server-declared
+ * （server 形纯声明包——零码装载：零 jiti、零 apply，装载 = server 块交
+ * core:mcp 桥受理〔§1.2 ②「声明载荷在场 = 纯声明包」射程随 R2 笔明文含
+ * server 形〕）；② 声明载荷（skills/agents）在场 = 纯声明包；③ 缺省 →
+ * 执行包主入口 default export。
  */
 export type PluginEntryPlan =
   | { readonly kind: 'entry-file'; readonly entry: string }
+  | { readonly kind: 'server-declared'; readonly server: McpServerConfig }
   | { readonly kind: 'declared-payload' }
   | { readonly kind: 'default-export' };
 
@@ -79,7 +99,7 @@ export const MANIFEST_KEY_CATALOG: readonly {
   { key: 'id', tier: 'stable', desc: '插件 id；缺省取 package.json name，不合字符集须显式声明（无隐式映射变换）' },
   { key: 'label', tier: 'stable', desc: '展示名；缺省取 id' },
   { key: 'entry', tier: 'stable', desc: '入口文件（相对包根）；缺席走入口解析序三步' },
-  { key: 'grants', tier: 'stable', desc: '授权申请面；单维 writableRoots 字符串数组' },
+  { key: 'grants', tier: 'stable', desc: '授权申请面；两维——writableRoots/nodeBuiltins 各字符串数组（03 §4.2）' },
   {
     key: 'config',
     tier: 'stable',
@@ -96,6 +116,11 @@ export const MANIFEST_KEY_CATALOG: readonly {
     key: 'agents',
     tier: 'stable',
     desc: '声明式子代理目录清单（06 §11.6 位 4；与 skills 同形——mount 即收集、物化消费腿挂 core:subagent 消费批）',
+  },
+  {
+    key: 'server',
+    tier: 'stable',
+    desc: 'MCP-server 形插件装载位声明块（03 §10.1 R2——一插件一服务器，字段集与 config servers 单源；在场 = 零码装载只供工具，与 entry/skills/agents 互斥）',
   },
 ];
 
@@ -219,15 +244,25 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
     return shapeFail(`berryAgent.entry 须为非空字符串（插件 ${id}）`);
   }
 
-  // grants：须对象（writableRoots 四拒深校验已随 ①段一落装载序——本笔形状浅校验）
+  // grants：须对象（writableRoots 四拒/nodeBuiltins 三拒深校验已随 ①段一/R3 落装载序——本笔形状浅校验）
   if (manifest['grants'] !== undefined) {
     const grants = manifest['grants'];
     if (typeof grants !== 'object' || grants === null || Array.isArray(grants)) {
-      return shapeFail(`berryAgent.grants 须为对象（插件 ${id}——申请面 { writableRoots: string[] }）`);
+      return shapeFail(
+        `berryAgent.grants 须为对象（插件 ${id}——申请面 { writableRoots?: string[]; nodeBuiltins?: string[] }）`,
+      );
     }
     const roots = (grants as Record<string, unknown>)['writableRoots'];
     if (roots !== undefined && (!Array.isArray(roots) || roots.some((r) => typeof r !== 'string'))) {
       return shapeFail(`berryAgent.grants.writableRoots 须为字符串数组（插件 ${id}）`);
+    }
+    // R3 第二维：nodeBuiltins 同形浅校验（词形/在册/重复三拒深校验在装载序合成腿）
+    const nodeBuiltins = (grants as Record<string, unknown>)['nodeBuiltins'];
+    if (
+      nodeBuiltins !== undefined &&
+      (!Array.isArray(nodeBuiltins) || nodeBuiltins.some((n) => typeof n !== 'string'))
+    ) {
+      return shapeFail(`berryAgent.grants.nodeBuiltins 须为字符串数组（插件 ${id}）`);
     }
   }
 
@@ -321,15 +356,62 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
     agents = manifest['agents'] as readonly string[];
   }
 
-  // 入口解析序三步定死（03 §1.2——声明载荷 = skills/agents 任一非空即第②步）
+  // server：MCP-server 形装载位声明块（03 §10.1 R2——字段集与 config
+  // servers 单源，归一校验器同源 plugins/mcp；grants/config/api 等治理键
+  // 不与之互斥——grants 正是 R2 confine 写根白名单数据源）
+  let server: McpServerConfig | undefined;
+  if (manifest['server'] !== undefined) {
+    // 单形状禁双载体：server 块与 entry 键同给 = 清单坏形拒载（装载形态
+    // 二择一——03 §10.1 R2 条款明文）
+    if (manifest['entry'] !== undefined) {
+      return shapeFail(
+        `berryAgent.server 与 entry 不得同给（插件 ${id}）——单形状禁双载体，装载形态二择一（03 §10.1 R2）`,
+      );
+    }
+    // 能力子集明文「只供工具」收口：skills/agents 声明载荷与 server 载荷
+    // 互斥——server 形 = entry+skills+agents 全缺席的纯声明包（混载即静默
+    // 扩能力面，拒绝式不留暗道；混合形若将来成需求须规范先行扩 §10.1 R2）
+    if (manifest['skills'] !== undefined || manifest['agents'] !== undefined) {
+      return shapeFail(
+        `berryAgent.server 与 skills/agents 声明载荷不得同给（插件 ${id}）——server 形能力子集 = 只供工具（03 §10.1 R2 能力子集明文）`,
+      );
+    }
+    // 复合名 server 位词法闸：校验对象 = 插件 id 整串（含前缀）须合服务器
+    // 键词法 [A-Za-z0-9-]+——core: 官方前缀含冒号结构性不合键词法 = 官方
+    // 件有意排除 server 形装载位（core 件经 config 形入桥、不走 MCP 分发
+    // 位；03 §10.1 R2 闸 P3 定谳）。用户插件 id 字符集系本词法严格子集，
+    // 本闸对用户件结构性恒过、承重位在官方形
+    if (!MCP_SERVER_NAME_RE.test(id)) {
+      return shapeFail(
+        `server 形插件 id "${id}" 须整串（含前缀）合服务器键词法 [A-Za-z0-9-]+——core: 前缀含冒号结构性不合 = 官方件有意排除 server 形装载位（03 §10.1 R2）`,
+      );
+    }
+    // 字段集归一单源：normalizeMcpServerEntry 以 id 作服务器名、`server` 作
+    // 指位词头（错误读 berryAgent.server.<id>.<字段> 与清单键位一致）；
+    // 坏形码 MCP_CONFIG_INVALID 在清单侧映射 PLUGIN_SHAPE_INVALID——
+    // 清单坏形拒载语义（同码分流 shapeFail 律）
+    try {
+      server = normalizeMcpServerEntry(id, manifest['server'], 'server');
+    } catch (err) {
+      if (err instanceof BaseError && err.code === 'MCP_CONFIG_INVALID') {
+        return shapeFail(`berryAgent.${err.message}（插件 ${id}）`);
+      }
+      throw err;
+    }
+  }
+
+  // 入口解析序定死（03 §1.2 + §10.1 R2 扩射程——server 形优先于声明载荷/
+  // 缺省判定；声明载荷 = skills/agents 任一非空）
   const entry = manifest['entry'] as string | undefined;
   const declaredPayload = (skills !== undefined && skills.length > 0) || (agents !== undefined && agents.length > 0);
   const entryPlan: PluginEntryPlan =
     entry !== undefined
       ? { kind: 'entry-file', entry }
-      : declaredPayload
-        ? { kind: 'declared-payload' }
-        : { kind: 'default-export' };
+      : server !== undefined
+        ? { kind: 'server-declared', server }
+        : declaredPayload
+          ? { kind: 'declared-payload' }
+          : { kind: 'default-export' };
 
   return {
     ok: true,
@@ -344,6 +426,7 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
       api,
       skills,
       agents,
+      server,
       entryPlan,
     },
   };
@@ -441,7 +524,7 @@ const DOC_KEYS = new Set(['plugins', 'doors']);
  * 顶层两查（开门制扩展批 2026-09-09 增）：未知顶层键拒（闭集 plugins/doors
  * ——无闭集则 `door:` 之类的段名手误将被静默忽略 = 静默不授予，拒绝式不留
  * 静默通道）；`doors` 段坏形（非数组/空串/值域外）拒——值域 v1 =
- * DOORS_SEGMENT_V1_DOMAIN 两门枚举（射程即值域，§8.2 名单系上界；六枚全宽
+ * DOORS_SEGMENT_V1_DOMAIN 两门枚举（射程即值域，§8.2 名单系上界；七枚全宽
  * 将致「清单呈现开、门检实效关」三读分叉），PLUGIN_ROW_INVALID 同门。
  */
 export function parseEnabledRows(doc: unknown): EnabledRowsResult {

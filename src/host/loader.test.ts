@@ -952,3 +952,124 @@ export default async function apply(ctx) {
     ).rejects.toBeInstanceOf(CorePluginBootError);
   });
 });
+
+describe('loadPlugins server 形装载位（沙箱立题批次 3·R2——03 §10.1：零 jiti 零 ctx、经 core:mcp 桥受理）', () => {
+  /** server 形 fixture pkg（磁盘行专用） */
+  const srvPkg = (id: string): Record<string, unknown> => ({
+    name: id,
+    version: '1.0.0',
+    berryAgent: { id, server: { command: '/usr/local/bin/fake-mcp', args: ['--tools'] } },
+  });
+
+  /** 桥受理记录替身（真形窄面——attachServer 三参全录） */
+  function makeAttach() {
+    const attached: Array<{ server: string; config: unknown; spawn: unknown }> = [];
+    const face = {
+      attachServer: (server: string, config: unknown, spawn?: unknown) => void attached.push({ server, config, spawn }),
+    };
+    return { attached, face };
+  }
+
+  it('纯声明包装载：零 jiti、零 ctx 注入——server 块经桥受理、激活行空载荷', async () => {
+    const dir = makePluginDir({ 'package.json': JSON.stringify(srvPkg('srv-demo')) });
+    const { attached, face } = makeAttach();
+    const services = makeServices();
+    services.map.set('mcp', face);
+    let ctxCalls = 0;
+    let jitiCalls = 0;
+    const spawnFace = {
+      spawnInteractive: () => {
+        throw new Error('本测试不消费 spawn');
+      },
+    };
+    const report = await loadPlugins(
+      rigOptions([diskRow('srv-demo', dir, srvPkg('srv-demo'))], {
+        services,
+        createContext: () => {
+          ctxCalls++; // 能力子集执法：server 形行不得建 ctx
+          return { provide: services.provide, get: services.get };
+        },
+        jitiFactory: () => {
+          jitiCalls++; // 零码装载：server 形行不得触 jiti
+          throw new Error('server 形不得求值入口');
+        },
+        serverSpawnFace: (pluginId) => (pluginId === 'srv-demo' ? spawnFace : undefined),
+      }),
+    );
+    expect(report.activated).toEqual([{ id: 'srv-demo', skillDirs: [], agentDirs: [] }]);
+    expect(report.failed).toEqual([]);
+    // server 位 = manifest 声明 id；配置 = 归一声明块；spawn 面按 row id 铸给
+    expect(attached).toEqual([
+      {
+        server: 'srv-demo',
+        config: { command: '/usr/local/bin/fake-mcp', args: ['--tools'] },
+        spawn: spawnFace,
+      },
+    ]);
+    // 零 jiti / 零 ctx 注入（能力子集 = 只供工具的结构性执法）
+    expect(jitiCalls).toBe(0);
+    expect(ctxCalls).toBe(0);
+  });
+
+  it('Kahn 排序：core:mcp 桥先落 mcp 服务、server 行后受理（inject [mcp] 结构性依赖）', async () => {
+    const order: string[] = [];
+    const { attached, face } = makeAttach();
+    const provider = coreRow('core:mcp', async (ctx) => {
+      order.push('core:mcp');
+      (ctx as { provide: (n: string, v: unknown) => void }).provide('mcp', face);
+    });
+    const dir = makePluginDir({ 'package.json': JSON.stringify(srvPkg('srv-demo')) });
+    const serverRow = diskRow('srv-demo', dir, srvPkg('srv-demo'));
+    // plan 序故意倒置：server 行在前——Kahn 依服务可用性重排
+    const report = await loadPlugins(rigOptions([serverRow, provider]));
+    expect(order).toEqual(['core:mcp']);
+    expect(attached.map((a) => a.server)).toEqual(['srv-demo']);
+    expect(report.activated.map((a) => a.id)).toEqual(['core:mcp', 'srv-demo']);
+  });
+
+  it('桥缺席（core:mcp 禁用形）= inject 不可达——行级隔离降级 PLUGIN_INJECT_UNRESOLVED', async () => {
+    const dir = makePluginDir({ 'package.json': JSON.stringify(srvPkg('srv-demo')) });
+    const report = await loadPlugins(rigOptions([diskRow('srv-demo', dir, srvPkg('srv-demo'))]));
+    expect(report.activated).toEqual([]);
+    expect(report.failed).toHaveLength(1);
+    expect(report.failed[0]!.id).toBe('srv-demo');
+    expect(report.failed[0]!.code).toBe('PLUGIN_INJECT_UNRESOLVED');
+    expect(report.failed[0]!.message).toContain('mcp');
+  });
+
+  it("'mcp' 名被非桥形占用 = 受理面不可达行级失败（防占名假桥）", async () => {
+    const dir = makePluginDir({ 'package.json': JSON.stringify(srvPkg('srv-demo')) });
+    const services = makeServices();
+    services.map.set('mcp', { attachServer: 3 }); // 位形坏——非函数
+    const report = await loadPlugins(rigOptions([diskRow('srv-demo', dir, srvPkg('srv-demo'))], { services }));
+    expect(report.activated).toEqual([]);
+    expect(report.failed).toHaveLength(1);
+    expect(report.failed[0]!.code).toBe('PLUGIN_INJECT_UNRESOLVED');
+    expect(report.failed[0]!.message).toContain('受理面不可达');
+  });
+
+  it('attachServer 受理抛错（MCP_CONFIG_INVALID 名占用）= 行级隔离——同批他行照常激活', async () => {
+    const dir = makePluginDir({ 'package.json': JSON.stringify(srvPkg('srv-demo')) });
+    const goodDir = makePluginDir({
+      'package.json': JSON.stringify({ name: 'plain', version: '1.0.0', berryAgent: { id: 'plain', skills: ['s'] } }),
+    });
+    const services = makeServices();
+    services.map.set('mcp', {
+      attachServer: () => {
+        throw new BaseError('MCP_CONFIG_INVALID', 'MCP 服务器名已被占用（srv-demo）');
+      },
+    });
+    const report = await loadPlugins(
+      rigOptions(
+        [
+          diskRow('srv-demo', dir, srvPkg('srv-demo')),
+          diskRow('plain', goodDir, { name: 'plain', version: '1.0.0', berryAgent: { id: 'plain', skills: ['s'] } }),
+        ],
+        { services },
+      ),
+    );
+    expect(report.failed.map((f) => f.id)).toEqual(['srv-demo']);
+    expect(report.failed[0]!.code).toBe('MCP_CONFIG_INVALID');
+    expect(report.activated.map((a) => a.id)).toEqual(['plain']);
+  });
+});

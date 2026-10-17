@@ -1574,6 +1574,13 @@
       "desc": "展示名；缺省取 id"
     },
     {
+      "symbol": "server",
+      "module": "manifest-keys",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "MCP-server 形插件装载位声明块（03 §10.1 R2——一插件一服务器，字段集与 config servers 单源；在场 = 零码装载只供工具，与 entry/skills/agents 互斥）"
+    },
+    {
       "symbol": "skills",
       "module": "manifest-keys",
       "tier": "stable",
@@ -1947,6 +1954,13 @@
       "tier": "stable",
       "since": "1.0",
       "desc": "高危面开门授予面切换事实（boot 装载序对每插件 grantedOpens 与审计流尾最近一条本词 diff——有变才落幂等记账；撤位落 opens:[] 空数组形收口；载体 = 进程级 durable 审计流 audit_events〔05 §9〕非会话流，fold = 审计流尾条 = 该插件当前有效授予面）"
+    },
+    {
+      "symbol": "plugin/server-loaded",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "MCP-server 形插件装载 provenance 审计（沙箱立题批次 3·R2 落码笔 2026-10-18——05 §1.1 ⑤C 升格行的发射位兑现〔词先锚定随批次 2 规范笔；真源 00-立题-沙箱纵切与强隔离正道-20261016 §R2〕）：载荷 {pluginId, command（server 声明块 spawn 命令——字段集与 03 §10.1 config servers 单源）, confine?（full|partial 执法档实录骨架——v1 恒缺席：恰一笔写点定死在装载成功尾，而 confine 执行在受理后异步 spawn 序〔fire-and-forget 发现〕，写点时点执法档结构性未知、如实缺席优于猜测回填；confine 拒路径不落本词〔经既有降级漏斗呈现〕，改 spawn 后补写须先改 05 §1.1 写点条款——文档先行）}；写点 = 装载序对此形插件装载成功尾恰一笔（非 diff 幂等——装载 provenance 行为流，每次装载 = 一次事实，marketplace/sources「成功尾恰一笔」同族；spawn 异步成败不阻装载账）；失败路径零落账（清单坏形拒载在合成序即拒、MCP_CONNECT_FAILED 连接失败均不记——拒路径零审计律）；试件行零落盘（--plugin-file 不变式 1——opens/lifecycle/grants 同律滤除）；写入者 = host 装配根装载序（audit 流单写者律、核心词身份双闸）；载体 = audit_events"
     },
     {
       "symbol": "plugin/toggled",

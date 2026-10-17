@@ -321,6 +321,110 @@ describe('parseManifest agents 键（生态启动批 eco-1——03 §6.3 键收�
   });
 });
 
+describe('parseManifest server 声明块（沙箱立题批次 3·R2——03 §10.1 R2 装载位）', () => {
+  it('合法块收下：entryPlan = server-declared + 归一配置随清单返回（字段集与 config servers 单源）', () => {
+    const r = parseManifest({
+      ...basePkg(),
+      berryAgent: {
+        id: 'srv-demo',
+        server: { command: '/usr/local/bin/fake-mcp', args: ['--tools'], env: { LANG: 'C' } },
+      },
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.manifest.entryPlan).toEqual({
+        kind: 'server-declared',
+        server: { command: '/usr/local/bin/fake-mcp', args: ['--tools'], env: { LANG: 'C' } },
+      });
+      // 声明块镜像位（消费面读 entryPlan.server——单源归一产物）
+      expect(r.manifest.server).toEqual({ command: '/usr/local/bin/fake-mcp', args: ['--tools'], env: { LANG: 'C' } });
+      expect(r.manifest.entry).toBeUndefined();
+    }
+  });
+
+  it('server 与 entry 同给拒——单形状禁双载体（03 §10.1 R2 条款明文）', () => {
+    const r = parseManifest({
+      ...basePkg(),
+      berryAgent: { id: 'srv-demo', entry: './src/plugin.ts', server: { command: '/usr/local/bin/fake-mcp' } },
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe('PLUGIN_SHAPE_INVALID');
+      expect(r.message).toContain('不得同给');
+      expect(r.message).toContain('srv-demo');
+    }
+  });
+
+  it('server 与 skills/agents 声明载荷同给拒——能力子集 = 只供工具（拒绝式不留暗道）', () => {
+    for (const payload of [{ skills: ['s-one'] }, { agents: ['./agents'] }, { skills: ['s'], agents: ['./a'] }]) {
+      const r = parseManifest({
+        ...basePkg(),
+        berryAgent: { id: 'srv-demo', server: { command: '/bin/x' }, ...payload },
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.code).toBe('PLUGIN_SHAPE_INVALID');
+        expect(r.message).toContain('skills/agents');
+      }
+    }
+  });
+
+  it('server 位词法闸：id 整串（含前缀）须合 [A-Za-z0-9-]+——core: 前缀含冒号结构性拒（官方件有意排除）', () => {
+    // 官方式：core: 前缀含冒号——闸 P3 定谳的承重断言（官方件走 config 形入桥；
+    // official 是解析选项位非 berryAgent 键）
+    const official = parseManifest(
+      { ...basePkg(), berryAgent: { id: 'core:mcp', server: { command: '/bin/x' } } },
+      { official: true },
+    );
+    expect(official.ok).toBe(false);
+    if (!official.ok) {
+      expect(official.code).toBe('PLUGIN_SHAPE_INVALID');
+      expect(official.message).toContain('服务器键词法');
+      expect(official.message).toContain('core:mcp');
+    }
+    // 用户件 id 字符集系词法严格子集——结构性恒过（承重位在官方形）
+    const user = parseManifest({
+      ...basePkg(),
+      berryAgent: { id: 'srv-demo-2', server: { command: '/bin/x' } },
+    });
+    expect(user.ok).toBe(true);
+  });
+
+  it('块内坏形经单源归一器拒：相对路径 command → PLUGIN_SHAPE_INVALID 指位 berryAgent.server.<id>.command', () => {
+    const r = parseManifest({
+      ...basePkg(),
+      berryAgent: { id: 'srv-demo', server: { command: 'fake-mcp' } },
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      // MCP_CONFIG_INVALID 在清单侧映射 shapeFail（同码分流）+ 指位词头 server
+      expect(r.code).toBe('PLUGIN_SHAPE_INVALID');
+      expect(r.message).toContain('server.srv-demo.command');
+      expect(r.message).toContain('绝对路径');
+    }
+  });
+
+  it('grants 与 server 并存合法——grants 正是 R2 confine 写根白名单数据源（治理键不互斥）', () => {
+    const r = parseManifest({
+      ...basePkg(),
+      berryAgent: {
+        id: 'srv-demo',
+        server: { command: '/usr/local/bin/fake-mcp' },
+        grants: { writableRoots: ['./cache'] },
+      },
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.manifest.entryPlan.kind).toBe('server-declared');
+      expect(r.manifest.grants).toEqual({ writableRoots: ['./cache'] });
+    }
+  });
+
+  it('MANIFEST_KEY_CATALOG 收 server 键（surface manifest-keys 域同源单列）', () => {
+    expect(MANIFEST_KEY_CATALOG.map((k) => k.key)).toContain('server');
+  });
+});
+
 describe('parseEnabledRows 行校验', () => {
   it('合法行集过（含 core: 覆盖行——用户行覆盖官方行合法形态）', () => {
     const r = parseEnabledRows({
