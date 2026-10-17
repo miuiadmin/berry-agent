@@ -1,0 +1,21 @@
+{
+  "name": "berry-agent-example-telegram-channel",
+  "version": "0.1.0",
+  "description": "berry-agent 双向渠道范式件——Telegram /start 起无头会话绑定 chat，终态推回 + 短指令审批（IM 域第一真实外延；R3 受门内建 node:https 的诚实消费者）",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "berry-agent-plugin"
+  ],
+  "berryAgent": {
+    "api": {
+      "minApiVersion": "1.0"
+    },
+    "entry": "entry.js",
+    "grants": {
+      "nodeBuiltins": [
+        "node:https"
+      ]
+    }
+  }
+}

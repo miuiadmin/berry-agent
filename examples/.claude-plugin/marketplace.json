@@ -1,6 +1,6 @@
 {
   "name": "berry-agent-examples",
-  "description": "berry-agent 官方插件模板与范式件三形——本地市场目录（local 源零网络试跑）",
+  "description": "berry-agent 官方插件模板与范式件四形——本地市场目录（local 源零网络试跑）",
   "owner": {
     "name": "miuiadmin"
   },
@@ -19,6 +19,11 @@
       "name": "notify-plugin",
       "description": "通知范式件——订阅 run 收口推 SMTP/Telegram（R3 受门内建首个真实消费者）",
       "source": "./notify-plugin"
+    },
+    {
+      "name": "telegram-channel",
+      "description": "双向渠道范式件——TG /start 起无头会话绑定 chat，终态推回 + 短指令审批（IM 域第一真实外延）",
+      "source": "./telegram-channel"
     }
   ]
 }

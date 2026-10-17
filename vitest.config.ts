@@ -45,6 +45,12 @@ export default defineConfig({
             'src/**/*.test.ts',
             'packages/berry-agent-sdk/src/**/*.test.ts',
             'plugins/**/*.test.ts',
+            // telegram-channel 范式件生命周期锁（examples 域首个 vitest 收录件）：
+            // 该件断言面落在真宿主契约上（真 createPluginContext 门检 + 真
+            // TriggerRegistry 三闸——装配 rig import src，拷走即失真），故逐件
+            // 点名入轨；不开 examples/** 通配——notify 件维持 node 直跑自持形
+            // （顶层断言形进 runner 会「No test suite found」红），通配会误收。
+            'examples/telegram-channel/test/**/*.test.ts',
             'tools/check-api.test.mjs',
             'tools/check-mock-targets.test.mjs',
             'tools/check-topology.test.mjs',

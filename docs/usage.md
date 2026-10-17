@@ -459,7 +459,7 @@ berry plugins mount <id>      # 「下次启动挂载生效」只归属 mount �
 
 写侧六动词执行面全可用：安装动词（`install`/`update`）走 npm 钉版安装（供应链护栏），行级动词（`mount`/`unmount`/`toggle`）编辑 `enabled.yaml` 启用行，`uninstall` 走双相清算（四段幂等 + 审计落账）；配置表单 `config <id>`（TUI 会话内 `/plugins config <id>`）按插件 `configSchema` 逐字段问答——非 secret 值整值替换写入行 `config`、secret 值入凭证盒（`plugin:<id>/config:<key>`）不落 yaml，值等于默认值不落行（行是覆盖仓不烙默认），取消整次放弃零写盘。`enabled.yaml` 仍是启用面的底层真源（手编与命令同链可审计——boot 挂载序 diff 补播）；`--no-plugins` 安全模式跳过全部插件挂载（core: 与用户插件都不挂载）——坏插件锁死启动时的自救位。
 
-开发态免安装试跑走 `--plugin-file`；写插件与生命周期证明矩阵（testkit）见[插件开发指南](./plugin-development.md)——仓内随包附两形模板（`examples/minimal-code-plugin` 代码插件 / `examples/pure-skill-pack` 纯技能包）。
+开发态免安装试跑走 `--plugin-file`；写插件与生命周期证明矩阵（testkit）见[插件开发指南](./plugin-development.md)——仓内随包附四形范式件（`examples/minimal-code-plugin` 代码插件 / `examples/pure-skill-pack` 纯技能包 / `examples/notify-plugin` 单向通知件〔SMTP+Telegram 双后端〕 / `examples/telegram-channel` Telegram 双向渠道件）。
 
 ### marketplace 市场聚合
 
