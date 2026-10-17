@@ -280,6 +280,49 @@ describe('grants 调用级执法（04 §7 编舞条款·①段二——〔2026-1
     await expectRan(write, { toolCallId: 'r-danger', sessionId: 's-danger' });
   });
 
+  it('grantedRoots live 并入（04 §7 补钉①——装配根接线批）：workspace-write 档 live 根含本会话授予根（per-session 分发）/ 他会话不串 / read-only 档恒不并入（授予不越档）', async () => {
+    // 观测面设计：声明 writableRoots: [] 的行 frozen 恒空 → workspace-write
+    // 档下亦恒拒 → 拒跑回执的「调用时 live fence 根」列表面即授予根并与否
+    // 的确定性观测位（宿主铸形回执文本，非 AI 生成面）
+    const dataDir = mkdtempSync(join(tmpdir(), 'fence-grant-data-'));
+    const ws = mkdtempSync(join(tmpdir(), 'fence-grant-ws-'));
+    dirs.push(dataDir, ws);
+    layDiskPlugin(dataDir, 'fence-grant', []); // frozen = [] 恒空 → 恒拒 + 回执见 live 根列表面
+    const grantsBySession = new Map<string, string[]>([['s-g', ['/nonexistent-grant-root/wt-g']]]);
+    const boot = await bootPlugins(
+      rig({
+        runtime: stubRuntime(dataDir),
+        grantsFence: {
+          workspace: ws,
+          mode: 'workspace-write',
+          // read-only 会话键 = s-ro（越档授予无效腿）；其余 workspace-write
+          sessionMode: (sessionId) => (sessionId === 's-ro' ? 'read-only' : 'workspace-write'),
+          // 授予根 live 取值器（fence 输入第四槽——装配根注入位）
+          grantedRoots: (sessionId) => grantsBySession.get(sessionId ?? '') ?? [],
+        },
+      }),
+    );
+    expect(boot.report.failed).toEqual([]);
+    const write = boot.tools.definitions().find((t) => t.name === 'gw_write');
+    expect(write).toBeDefined();
+    // 本会话授予根并入：s-g 的 live 根列表面含授予根（修前红位：槽缺席被
+    // 忽略 → live 根恒三根 → toContain 红）
+    const resOwn = await write!.execute({}, { toolCallId: 'g-own', sessionId: 's-g' });
+    expect(resOwn.isError).toBe(true); // frozen 空 → 恒拒（观测前提）
+    expect(textOf(resOwn)).toContain('[FS_OUTSIDE_WRITABLE_ROOTS]');
+    expect(textOf(resOwn)).toContain(canonicalPath('/nonexistent-grant-root/wt-g'));
+    // 他会话不串：s-other 无授予 → 列表面不含 s-g 的授予根
+    const resOther = await write!.execute({}, { toolCallId: 'g-other', sessionId: 's-other' });
+    expect(resOther.isError).toBe(true);
+    expect(textOf(resOther)).not.toContain('/nonexistent-grant-root/wt-g');
+    // 越档授予无效：read-only 会话 live 根恒空（回执「（空）」字面）——授予
+    // 根不因在场面翻身（档位是裁决面）
+    const resRo = await write!.execute({}, { toolCallId: 'g-ro', sessionId: 's-ro' });
+    expect(resRo.isError).toBe(true);
+    expect(textOf(resRo)).toContain('live fence 根 （空）');
+    expect(textOf(resRo)).not.toContain('/nonexistent-grant-root/wt-g');
+  });
+
   it('boot 解析档 read-only：冻结交集恒空 → write 工具恒拒（声明 grants 亦空——deriveWritableRoots(read-only)=[]）；read 照放', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'fence-ro-data-'));
     const ws = mkdtempSync(join(tmpdir(), 'fence-ro-ws-'));

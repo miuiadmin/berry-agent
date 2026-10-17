@@ -66,7 +66,7 @@ import type { RefreshChainHandle } from '../../plugins/credentials/index.js';
 import type { CredentialChangedPayload, CredentialsCommandStore } from '../../plugins/credentials/index.js';
 import { SESSION_LIFECYCLE_EVENT, APPROVAL_SETTLED_EVENT } from '../conversation/index.js';
 import type { AgentService, ControlCaller } from '../conversation/index.js';
-import { AGENT_SERVICE_NAME } from '../conversation/index.js';
+import { AGENT_SERVICE_NAME, foldSessionSandboxMode } from '../conversation/index.js';
 // 工具渲染器注册表受理真源（收官批③——ctx.ui.registerRenderer 委派位；与
 // TUI 消费位 lookupToolRenderer 同册两钉——channels 模块级单册）
 import { foldErrorText, registerToolRenderer } from '../channels/index.js';
@@ -1142,8 +1142,29 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           // 批·①段一）：workspace 锚根 canonical 单源（canonicalWorkspaceRoot）
           // + boot 解析档位（bootSandboxMode 一处解析——CLI > settings > 代码
           // 常量；/reload reapply 重跑 runBoot 同一闭包 = 快照随换代重算、
-          // plugin/grants diff 幂等落）
-          grantsFence: { workspace: canonicalWorkspaceRoot(), mode: bootSandboxMode },
+          // plugin/grants diff 幂等落）。快照语义不变（boot 定死 /reload 重算）
+          // ——下方两槽是 live 侧接线（①段二 live 收尾——装配根接线批）：
+          //  - sessionMode：fence 根 live 推导随调用时点会话档位 fold（04
+          //    §7:263 编舞条款「档位动态面」）。活体真源 = stack.driverOf——
+          //    工具调用只发生在活体 run 内、切档事件即时可见；sessionId 缺席
+          //    或无活体 driver（未开/已 retire）= boot 档诚实 fallback（不落
+          //    durable 回读——driverOf 活体单源定谳）；fold 真源
+          //    foldSessionSandboxMode（tui-entry/webui-bridge 既有消费先例）。
+          //  - grantedRoots：worktree 授予根 live 并入（04 §7:267 补钉①）——
+          //    worktreeService 单真身（:539 件/栈同源双注），provider 内仅
+          //    workspace-write 档并入（越档授予无效）。
+          grantsFence: {
+            workspace: canonicalWorkspaceRoot(),
+            mode: bootSandboxMode,
+            sessionMode: (sessionId) => {
+              const driver = sessionId === undefined ? undefined : stack.driverOf(sessionId);
+              return driver === undefined
+                ? bootSandboxMode
+                : foldSessionSandboxMode(driver.session.events(), bootSandboxMode);
+            },
+            // 缺席 = 无授予根（显式契约——不倚赖「空键自然 Miss」的 Map 巧合）
+            grantedRoots: (sessionId) => (sessionId === undefined ? [] : worktreeService.grantedRoots(sessionId)),
+          },
           noPlugins: noPluginsFlag,
           // 快速试件（eco-3a——启动期一次性注入；reapply 单参调用时 undefined）
           ...(pluginFile !== undefined ? { pluginFile } : {}),

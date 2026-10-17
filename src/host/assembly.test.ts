@@ -10,6 +10,8 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
+import { execFile as execFileCallback } from 'node:child_process';
+import { promisify } from 'node:util';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
@@ -34,7 +36,9 @@ import { readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import { SETTINGS_BASENAME } from './settings-store.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { PluginRouteRegistry } from '../../plugins/sdk/index.js';
-import { canonicalWorkspaceRoot } from '../context/index.js';
+import { canonicalWorkspaceRoot, clearWorkspaceRootCache } from '../context/index.js';
+import { canonicalPath } from '../safety/index.js';
+import { setSessionMode } from '../conversation/index.js';
 import { createAuditFace } from '../persist/index.js';
 import { openCheckpointStore } from '../../plugins/checkpoint/index.js';
 import type { SkillsRegistry } from '../../plugins/skills/index.js';
@@ -472,6 +476,152 @@ describe('assembleHostStack 成功档', () => {
       });
     } finally {
       await assembly.runtime.shutdown();
+    }
+  });
+
+  it('grantsFence live 侧装配环接线锁（①段二 live 收尾——sessionMode fold + grantedRoots 授予根）：真装配态行为差分（a）切档收窄拒跑 /（b）worktree 授予根并入 live 根', async () => {
+    // 本锁 = ①段二 live 侧两槽（sessionMode / grantedRoots）在真装配路径的
+    // 唯一接线位锁：装配根若漏传任一槽（删行/重构丢参），boot 静态档过渡形
+    // 静默续命（boot 档恒值 fallback / 授予根永不并入）且组合根测试面照绿
+    // （plugin-grants-fence.test.ts 恒自带槽直调 bootPlugins——「单测假注入绿
+    // 掩盖装配缺口」谱，本锁同族防线）。行为差分两腿：
+    //  (a) 会话内落 sandbox/mode read-only 切档事件 → 插件 write 工具调用
+    //      live fence 根随 fold 收窄 → 执法交集空拒跑 isError
+    //      （FS_OUTSIDE_WRITABLE_ROOTS 语义面复用）；
+    //  (b) 会话内经真模型 run（faux 只停模型层律）调 worktree_create 落真
+    //      worktree（真 git）→ 授予根并入该会话 live fence 根（frozen 恒空行
+    //      的拒跑回执「live fence 根」列表面为确定性观测位）。
+    // 工作区隔离：worktree 服务仓根 = canonicalWorkspaceRoot()（装配根硬编码
+    // 单源）——chdir 临时 git 仓 + 清探测缓存，真 worktree 落仓同级派生位
+    // （仓外目录族，均在测试临时域内）；finally 恢复 cwd + 复清缓存（探测
+    // 缓存键 = cwd，恢复后既有测试面不受串扰）。
+    const execFileAsync = promisify(execFileCallback);
+    const repoParent = mkdtempSync(join(tmpdir(), 'host-asm-live-parent-'));
+    const repo = join(repoParent, 'asm-live-repo');
+    mkdirSync(repo, { recursive: true });
+    dirs.push(repoParent); // 仓 + 仓同级 -worktrees 派生位都在本域内统一清
+    const gitIn = (args: string[]) => execFileAsync('git', args, { cwd: repo });
+    await gitIn(['init', '-b', 'main']);
+    await gitIn(['config', 'user.email', 'test@example.com']);
+    await gitIn(['config', 'user.name', 'test']);
+    writeFileSync(join(repo, 'seed.txt'), 'v1\n', 'utf8');
+    await gitIn(['add', '.']);
+    await gitIn(['commit', '-m', 'init']);
+    // 装机树磁盘行两件：A 声明 ['./assets']（frozen 非空——(a) 腿 RAN→拒差分
+    // 面）；B 声明 []（frozen 恒空——(b) 腿恒拒回执见 live 根列表面）
+    const dataDir = tmpDir('host-asm-live-data-');
+    const layAsmPlugin = (id: string, writableRoots: readonly string[], toolName: string): void => {
+      const pluginDir = join(dataDir, 'plugins', 'node_modules', id);
+      mkdirSync(pluginDir, { recursive: true });
+      writeFileSync(
+        join(pluginDir, 'package.json'),
+        JSON.stringify({
+          name: id,
+          version: '1.0.0',
+          berryAgent: { entry: 'entry.js', grants: { writableRoots: [...writableRoots] } },
+        }),
+      );
+      writeFileSync(
+        join(pluginDir, 'entry.js'),
+        [
+          'export const inject = [];',
+          'export default async (ctx) => {',
+          '  ctx.tools.register({',
+          `    name: ${JSON.stringify(toolName)},`,
+          '    description: "装配环 live 侧探针写工具",',
+          '    parameters: { type: "object", properties: {} },',
+          '    effect: "write",',
+          `    execute: async () => ({ content: [{ type: "text", text: "RAN:" + ${JSON.stringify(toolName)} }] }),`,
+          '  });',
+          '};',
+        ].join('\n'),
+      );
+    };
+    layAsmPlugin('asm-live-a', ['./assets'], 'asm_live_a_write');
+    layAsmPlugin('asm-live-b', [], 'asm_live_b_write');
+    writeFileSync(join(dataDir, 'enabled.yaml'), 'plugins:\n  - id: asm-live-a\n  - id: asm-live-b\n');
+    writeFileSync(
+      join(dataDir, 'plugins', 'ledger.json'),
+      JSON.stringify({
+        'asm-live-a': { installPath: 'plugins/node_modules/asm-live-a' },
+        'asm-live-b': { installPath: 'plugins/node_modules/asm-live-b' },
+      }),
+    );
+    // worktree_create 免问面（策略表 allow 条目——整名族）：真 run 内该工具
+    // 过守门行评估序 (4) 免问直执行（否则 ask 无应答者 fail-closed 拒）
+    writeFileSync(
+      join(dataDir, TOOL_POLICY_BASENAME),
+      JSON.stringify({ entries: [{ tool: 'worktree_create', decision: 'allow' }] }),
+    );
+    const faux = fauxProvider({ provider: 'faux-asm', models: [{ id: 'm1' }] });
+    const prevCwd = process.cwd();
+    process.chdir(repo);
+    clearWorkspaceRootCache();
+    try {
+      const assembly = await assembleHostStack({
+        runtime: { dataDir },
+        noPlugins: false,
+        debug: false,
+        version: 'x',
+        providers: [faux.provider],
+        model: 'faux-asm/m1',
+      });
+      if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+      try {
+        expect(assembly.boot.report.failed).toEqual([]);
+        expect(assembly.boot.report.activated.map((a) => a.id)).toContain('asm-live-a');
+        const findTool = (name: string) => assembly.boot.tools.definitions().find((t) => t.name === name);
+        const textOf = (res: { content: ReadonlyArray<{ type: string; text?: string }> }): string =>
+          res.content.map((c) => (c.type === 'text' ? (c.text ?? '') : '')).join('');
+        // 活体会话（driverOf 单真源——sessionMode fold 的数据源）
+        const session = assembly.stack.manager.create({ workspaceRoot: repo });
+        const writeA = findTool('asm_live_a_write');
+        const writeB = findTool('asm_live_b_write');
+        expect(writeA).toBeDefined();
+        expect(writeB).toBeDefined();
+        // —— (a) 腿：切档事件（宿主 append 面——单写者律的宿主侧消费形）
+        // 无切档事件：boot 档 workspace-write → frozen=[repo/assets] ⊆ live 三根 → 放行
+        let res = await writeA!.execute({}, { toolCallId: 'a-base', sessionId: session.sessionId });
+        expect(res.isError).toBeFalsy();
+        expect(textOf(res)).toContain('RAN:asm_live_a_write');
+        // 落 read-only 切档事件 → live fence 根随 fold 收窄恒空 → 执法交集空拒跑
+        setSessionMode(session.driver.session, 'read-only');
+        res = await writeA!.execute({}, { toolCallId: 'a-ro', sessionId: session.sessionId });
+        expect(res.isError).toBe(true); // 修前红位：槽漏传 → boot 档恒值 → 照跑非拒
+        expect(textOf(res)).toContain('[FS_OUTSIDE_WRITABLE_ROOTS]');
+        // 回 workspace-write（尾档胜出——(b) 腿 run 的守门行解档前提）
+        setSessionMode(session.driver.session, 'workspace-write');
+        // —— (b) 腿：授予根并入 live 根（frozen 恒空行恒拒 → 回执见 live 根列表面）
+        const grantedPath = canonicalPath(join(repoParent, 'asm-live-repo-worktrees', 'asm-live-grant'));
+        res = await writeB!.execute({}, { toolCallId: 'b-pre', sessionId: session.sessionId });
+        expect(res.isError).toBe(true); // frozen 恒空恒拒（观测前提）
+        expect(textOf(res)).not.toContain(grantedPath); // 授予前基线：live 根无授予根
+        // 真 run：faux 出 worktree_create 工具调用 → 真三段管道（策略表 allow 免问）
+        // → 真 git worktree add → 本会话授予记账（worktree 服务单真身）
+        faux.setResponses([
+          () => toolCallOf('t-asm-wt', 'worktree_create', { name: 'asm-live-grant' }),
+          () => fauxText('收口'),
+        ]);
+        const receipt = await assembly.stack.submitText(session.sessionId, '建 worktree');
+        expect(receipt).toMatchObject({ status: 'completed' });
+        const wtResult = session.driver.session
+          .events()
+          .find(
+            (event) =>
+              event.type === 'tool/result' && (event.data as { toolCallId?: string }).toolCallId === 't-asm-wt',
+          );
+        expect(wtResult).toBeDefined();
+        expect((wtResult!.data as { error?: boolean }).error).toBeUndefined(); // worktree 真建成（拒跑即红在此）
+        // 授予后：同会话 live fence 根列表面含授予根（修前红位：槽漏传 → 永不含）
+        res = await writeB!.execute({}, { toolCallId: 'b-post', sessionId: session.sessionId });
+        expect(res.isError).toBe(true); // frozen 恒空恒拒不变（授予只并入 live 根，不翻 frozen）
+        expect(textOf(res)).toContain(grantedPath);
+      } finally {
+        await assembly.runtime.shutdown();
+      }
+    } finally {
+      process.chdir(prevCwd);
+      clearWorkspaceRootCache();
     }
   });
 

@@ -185,4 +185,34 @@ describe('createRootsProvider / absolutize', () => {
     live = [granted, granted];
     expect(provider()).toHaveLength(deriveWritableRoots(ws, 'workspace-write').length + 1);
   });
+
+  it('grantedRoots 收 sessionId 参透传（per-session 授予集分发——装配根接线批）：两会话各返各集互不串；缺席腿透传 undefined（boot 无会话锚语境）', () => {
+    // 修前红位：provider 零参调 grantedRoots()（形宽前签名无参）——调用方
+    // 闭包收不到会话锚，per-session 分发结构性不可能 → 首个 toContain 红
+    const grantsBySession = new Map<string, string[]>([
+      ['s-one', ['/nonexistent-grant-root/wt-one']],
+      ['s-two', ['/nonexistent-grant-root/wt-two']],
+    ]);
+    const seen: Array<string | undefined> = [];
+    const provider = createRootsProvider({
+      workspace: ws,
+      mode: () => 'workspace-write',
+      grantedRoots: (sessionId) => {
+        seen.push(sessionId);
+        return grantsBySession.get(sessionId ?? '') ?? [];
+      },
+    });
+    // 会话一：本会话授予根并入、他会话授予根不串入（单次取值复用——seen 记账每会话恰一行）
+    const rootsOne = provider('s-one');
+    expect(rootsOne).toContain(canonicalPath('/nonexistent-grant-root/wt-one'));
+    expect(rootsOne).not.toContain(canonicalPath('/nonexistent-grant-root/wt-two'));
+    // 会话二：对侧同律（分发方向双向锁）
+    const rootsTwo = provider('s-two');
+    expect(rootsTwo).toContain(canonicalPath('/nonexistent-grant-root/wt-two'));
+    expect(rootsTwo).not.toContain(canonicalPath('/nonexistent-grant-root/wt-one'));
+    // 缺席腿：sessionId 原样透传 undefined（空授予集——boot 语境无会话锚）
+    expect(provider()).toEqual(deriveWritableRoots(ws, 'workspace-write'));
+    // 参透传锁（修前：seen 恒 [undefined, ...]——调用方会话锚从未到达）
+    expect(seen).toEqual(['s-one', 's-two', undefined]);
+  });
 });

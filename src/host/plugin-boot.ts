@@ -432,12 +432,13 @@ export interface PluginBootOptions {
   /**
    * grants 装载账 fence 快照输入（05 §1.1 行 80——2026-10-16 硬伤处置第三批·
    * ①段一）+ 调用级执法 live 侧真源（①段二——04 §7 编舞条款〔2026-10-17
-   * 定谳注：boot 授予交集冻结档〕）：workspace 锚根 + boot 解析档位（fence
-   * 根推导真源 = 04 §7 fence 条款 + §8 deriveWritableRoots 表——与 fs
+   * 定谳注：boot 授予交集冻结档〕；live 侧收尾 = per-session 档位 fold +
+   * worktree 授予根两槽，装配根接线批兑现）：workspace 锚根 + boot 解析档位
+   * （fence 根推导真源 = 04 §7 fence 条款 + §8 deriveWritableRoots 表——与 fs
    * fence/沙箱 profile 同源；boot 时点无会话授予面，worktree 授予根随会话
-   * 起收不入快照）。在场时装载序对 grants 磁盘行深校验+选锚求交入账
-   * （audit 面在场且落账有变才落；拒载行零审计）、供 handle.grantsOf 在程
-   * 视图、并对磁盘行注入调用级执法 fence（①段二——仅磁盘行，core 行结构
+   * 起收不入快照〔仅入 live 侧〕）。在场时装载序对 grants 磁盘行深校验+选锚
+   * 求交入账（audit 面在场且落账有变才落；拒载行零审计）、供 handle.grantsOf
+   * 在程视图、并对磁盘行注入调用级执法 fence（①段二——仅磁盘行，core 行结构
    * 性无 grants 申请面 = 03 §4.6 豁免先例）。缺席 = grants 腿整体静默
    * （不记账不供值器不执法、既有账面不坍缩——诚实缺席律：:memory: 诊断形/
    * 测试替身）。
@@ -449,11 +450,20 @@ export interface PluginBootOptions {
      * per-session 档位 fold 取值器（①段二 live 侧——safety createRootsProvider
      * 消费形，WritableRootsInput.mode 同构；disclosure eventsOf 带参会话键
      * 先例）：live fence 根按调用时点会话档位求值（read-only 收窄恒拒 /
-     * danger 放宽全盘）。缺席 = boot 解析档位恒值 fallback（grants 腿先于
-     * 装配根 per-session fold 接线的过渡形——装配根注入随后续批，worktree
-     * 授予根〔grantedRoots〕同批）。
+     * danger 放宽全盘）。装配根已注入（assembly 真身恒传——driverOf 活体
+     * 单源 + foldSessionSandboxMode fold 真源）；缺席面收窄为测试替身/诊断
+     * 形（boot 解析档位恒值 fallback——诚实缺席律，非过渡形）。
      */
     readonly sessionMode?: (sessionId?: string) => SandboxMode;
+    /**
+     * per-session worktree 授予根 live 取值器（①段二 live 侧收尾——04 §7
+     * 补钉①；roots.ts 同律）：provider 内仅 workspace-write 档并入（越档
+     * 授予无效——read-only 恒空根、danger 恒全盘不变形），按本调用
+     * sessionId 分发 per-session 授予集。装配根已注入（assembly 真身恒传
+     * ——worktree 服务单真身 grantedRoots 闭包）；缺席 = 无授予根并入
+     * （测试替身/诊断形——诚实缺席律）。
+     */
+    readonly grantedRoots?: (sessionId?: string) => readonly string[];
   };
   /**
    * 卸载换代槽（/reload 批——03 §5.7 热重载换代执法位）：在场时本代卸载
@@ -824,13 +834,16 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       : computeGrantRowRoots({ plan, fence: grantsFenceInput, dataDir: options.runtime.dataDir });
   // live fence 根取值器（①段二 live 侧——safety createRootsProvider 单源：
   // 会话档位 sandbox/mode fold 与 canonical 化都在 provider 内；sessionMode
-  // 缺席 = boot 解析档位恒值 fallback——见 grantsFence.sessionMode 注）
+  // 缺席 = boot 解析档位恒值 fallback、grantedRoots 缺席 = 无授予根并入
+  // （两缺席面 = 测试替身/诊断形——见 grantsFence 两槽注；grantsFenceInput
+  // 整体在场时逐槽透传，槽缺席 undefined 自然短路）
   let grantsLiveRoots: ((sessionId?: string) => readonly string[]) | null = null;
   if (grantsFenceInput !== undefined) {
     const bootMode = grantsFenceInput.mode;
     grantsLiveRoots = createRootsProvider({
       workspace: grantsFenceInput.workspace,
       mode: grantsFenceInput.sessionMode ?? (() => bootMode),
+      grantedRoots: grantsFenceInput.grantedRoots,
     });
   }
   // —— R3 grants 第二维（nodeBuiltins）逐行生效集：**无条件计算**（两方交集

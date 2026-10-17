@@ -144,8 +144,11 @@ export interface WritableRootsInput {
   /**
    * 会话授予根 live 取值器（04 §7 补钉①——worktree 产物可写根并入口）：
    * 每次可写根推导现取（授予起于装配后——issue 编排在会话起后才 grant，
-   * 快照形会漏授予）。仅 workspace-write 档并入（授予不越档：read-only 恒
-   * 空根、danger 恒全盘）；缺省 undefined = 无授予面（既有调用方零破坏）。
+   * 快照形会漏授予）。可选 sessionId 形参 = 调用方会话锚透传（mode 位同律
+   * ——provider 侧按同一 sessionId 分发 per-session 授予集；缺席 = boot 语境
+   * 无会话锚，取值器自处）。仅 workspace-write 档并入（授予不越档：
+   * read-only 恒空根、danger 恒全盘）；缺省 undefined = 无授予面（既有调用
+   * 方零破坏——零参闭包经可选参继续可赋值，向后兼容）。
    */
-  readonly grantedRoots?: () => string[];
+  readonly grantedRoots?: (sessionId?: string) => readonly string[];
 }

@@ -171,8 +171,10 @@ export function resolveWritability(
  *
  * grantedRoots live 并入（04 §7 补钉①——worktree 产物可写根）：仅
  * workspace-write 档把授予根 canonical 化后并入（去重——与既有根同形时
- * 不翻倍）；每次调用现取（授予起于装配后，快照形会漏授予）。授予不越档：
- * read-only 恒空根、danger 恒全盘 [sep]（已全可写，并入无意义不变形）。
+ * 不翻倍）；每次调用现取（授予起于装配后，快照形会漏授予），且按本调用
+ * sessionId 分发 per-session 授予集（与 mode(sessionId) 同一会话锚——
+ * 装配根接线批形宽）。授予不越档：read-only 恒空根、danger 恒全盘 [sep]
+ * （已全可写，并入无意义不变形）。
  */
 export function createRootsProvider(input: WritableRootsInput): (sessionId?: string) => string[] {
   const workspace = canonicalPath(input.workspace);
@@ -184,7 +186,9 @@ export function createRootsProvider(input: WritableRootsInput): (sessionId?: str
     const roots = deriveWritableRoots(workspace, mode);
     // 授予只并入 workspace-write 可写面（越档授予无效——档位是裁决面）
     if (mode !== 'workspace-write' || input.grantedRoots === undefined) return roots;
-    for (const granted of input.grantedRoots()) roots.push(canonicalPath(granted));
+    // per-session 授予集分发（装配根接线批）：grantedRoots 收本调用 sessionId
+    // ——与 mode(sessionId) 同一会话锚（既有零参闭包形照旧合法，实参被忽略）
+    for (const granted of input.grantedRoots(sessionId)) roots.push(canonicalPath(granted));
     return [...new Set(roots)];
   };
 }
