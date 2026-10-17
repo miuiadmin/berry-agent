@@ -28,8 +28,8 @@
  * 动态挂载——门检在 execute 内执法。per-session 闭包由装配位构造
  * （callerSessionId 注入——todoTool 换装 seam 同构先例）。
  */
-import { BaseError, type AgentToolResult, type ToolDefinition } from '../contracts/index.js';
-import { adjudicateCapabilityDoor } from '../contracts/api.js';
+import { BaseError, type AgentToolResult, type ToolDefinition } from '../../src/contracts/index.js';
+import { adjudicateCapabilityDoor } from '../../src/contracts/api.js';
 import { Type } from 'typebox';
 import type {
   SessionDoorStateEntry,

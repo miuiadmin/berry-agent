@@ -9,7 +9,7 @@
  * 第十一轮收官呈拍批定形①）是人面放弃动词——无人值守域停止权恒属用户，
  * 与模型工具 goal update 双通道并存（service 单漏斗不变）。
  */
-import { BaseError, type SessionEvent } from '../contracts/index.js';
+import { BaseError, type SessionEvent } from '../../src/contracts/index.js';
 import { foldGoalTodos, openGoalItems } from './fold.js';
 import type { GoalService } from './service.js';
 

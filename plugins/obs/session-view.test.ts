@@ -6,7 +6,7 @@
  * 锁载体——帽值/映射表变更先改规范再改本测试）。
  */
 import { describe, expect, it } from 'vitest';
-import type { SessionEvent } from '../contracts/index.js';
+import type { SessionEvent } from '../../src/contracts/index.js';
 import { createSessionView } from './session-view.js';
 import type { ObsLiveSessionInfo, ObsSessionRow, SessionViewDeps } from './types.js';
 

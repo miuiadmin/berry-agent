@@ -32,7 +32,7 @@ import { fauxProvider } from '../llm/index.js';
 import { assembleHostStack } from './assembly.js';
 import type { RunFlags } from './cli.js';
 import type { GoalFace, SchedulerFace } from './core-plugins.js';
-import type { GoalService } from '../goal/index.js';
+import type { GoalService } from '../../plugins/goal/index.js';
 import { runRunEntry } from './run-entry.js';
 
 /* ---------------- 测试基建 ---------------- */

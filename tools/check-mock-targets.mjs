@@ -274,7 +274,9 @@ function collectTestFiles(root, dir) {
  */
 export function checkTree(root = REPO_ROOT) {
   const found = [];
-  for (const dir of ['src', 'packages/berry-agent-sdk']) {
+  // 件区树入执法面（2026-10-17 ④试点件迁移落码批：plugins/<id>/ 测试随迁
+  // ——mock 只停模型层纪律两区同受执法）
+  for (const dir of ['src', 'packages/berry-agent-sdk', 'plugins']) {
     for (const file of collectTestFiles(root, dir)) {
       const violations = scanViolations(readFileSync(file, 'utf8'));
       for (const v of violations) found.push({ file: relative(root, file), line: v.line, message: v.message });
@@ -295,6 +297,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   }
   const count =
-    collectTestFiles(REPO_ROOT, 'src').length + collectTestFiles(REPO_ROOT, 'packages/berry-agent-sdk').length;
+    collectTestFiles(REPO_ROOT, 'src').length +
+    collectTestFiles(REPO_ROOT, 'packages/berry-agent-sdk').length +
+    collectTestFiles(REPO_ROOT, 'plugins').length;
   console.log(`lint:mocks：干净（vi.mock 目标白名单 + passthrough 形两查过——扫描 ${count} 个 node 轨测试文件）`);
 }

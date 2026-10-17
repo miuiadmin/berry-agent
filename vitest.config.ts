@@ -39,9 +39,12 @@ export default defineConfig({
           // 宽通配杀 coverage 面——承 berry 基建大扫教训，逐件点名扩）。
           // SDK 包测试（packages/berry-agent-sdk——批 13f-3 起）同轨收编：包内
           // 测试经相对导入吃主仓 src 契约，单轨即闭环。
+          // 件区测试（plugins/<id>/——2026-10-17 ④试点件迁移落码批随迁
+          // core:obs/core:goal 测试入轨；缺本行即迁移测试静默不跑整类假绿）
           include: [
             'src/**/*.test.ts',
             'packages/berry-agent-sdk/src/**/*.test.ts',
+            'plugins/**/*.test.ts',
             'tools/check-api.test.mjs',
             'tools/check-mock-targets.test.mjs',
             'tools/check-topology.test.mjs',

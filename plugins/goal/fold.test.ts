@@ -4,7 +4,7 @@
  * 纯函数面（conversation/todo.test.ts 同 idiom）。
  */
 import { describe, expect, it } from 'vitest';
-import type { SessionEvent } from '../contracts/index.js';
+import type { SessionEvent } from '../../src/contracts/index.js';
 import { foldGoalTodos, openGoalItems, parseResumeWhen, progressFingerprint, validateGoalTodoItems } from './fold.js';
 import type { GoalTodoItem } from './types.js';
 

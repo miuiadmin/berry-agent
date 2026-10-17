@@ -253,4 +253,42 @@ describe('check-topology 守护炮自测（spawn 全闸形态）', () => {
     expect(out).toContain('host ×2');
     expect(out).toContain('静默死码');
   });
+
+  // ---- ④试点件迁移落码批（2026-10-17）：边表双区制三腿 ----
+  // 件区 = plugins/<id>/（物理位置单源 PLUGIN_ZONE）；席位名/边关系仍在
+  // MODULE_EDGES 单表。三腿锁：跨区指回合法（绿）/ 件区深挖宿主实现面（红）/
+  // 错区指称名对址错（红——加固腿：席位名过边表 ≠ 落点正确）。
+
+  it('双区跨区指回合法 → 绿（plugins/obs → src/contracts 公开面 + host → plugins/obs 装配引用）', () => {
+    const root = fixture('dual-zone-legal', {
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'src/host/index.ts': "import { y } from '../../plugins/obs/index.js';\nexport const z = y;\n",
+      'plugins/obs/index.ts': "import { x } from '../../src/contracts/index.js';\nexport const y = x;\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(0);
+    expect(out).toContain('lint:topology 绿');
+  });
+
+  it('件区导宿主实现面 → 红（plugins/obs import src/host——件本体纯库纪律）', () => {
+    const root = fixture('plugin-to-host-violation', {
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'plugins/obs/index.ts': "import { h } from '../../src/host/index.js';\nexport const y = h;\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(1);
+    expect(out).toContain('跨模块导入 host 未在边表');
+    expect(out).toContain('obs 允许：contracts, persist');
+  });
+
+  it('错区指称名对址错 → 红（plugins/obs 沿用旧 ../contracts 形——落点 plugins/contracts 未入册件区）', () => {
+    const root = fixture('wrong-zone-anchor', {
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'plugins/obs/index.ts': "import { x } from '../contracts/index.js';\nexport const y = x;\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(1);
+    expect(out).toContain('落点席位物理位置未入册');
+    expect(out).toContain('plugins/contracts');
+  });
 });

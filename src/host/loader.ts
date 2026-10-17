@@ -21,7 +21,7 @@
  * ctx 面归调用方（createContext 注入——泛型 TCtx；注册动词族/服务目录随
  * conversation/TUI 装配批定形）。
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createJiti } from 'jiti';
@@ -207,7 +207,7 @@ export interface LoadPluginsOptions<TCtx = unknown> {
  * 激活行（skillDirs/agentDirs 随行——mount 即收集的装载侧面，03 §6.1/§6.3）：
  * 声明是相对包根的目录路径（磁盘行 manifest / core 行 reference 同形），装载位
  * 在此解析为绝对路径并过包根包含执法——磁盘行基 = pluginDir（装机树内插件
- * 目录）、core 行基 = 宿主包根（本模块上推两级——与 skills 件
+ * 目录）、core 行基 = 宿主包根（本模块包根上探——与 skills 件
  * resolveFactorySkillsDir 同法双形态同构）。消费位：skills = 装配根补注册
  * 编舞（06 §11.4 位 4）；agents = 装配根滤行（agentDirs > 0）投影喂
  * core:subagent 插件层物化（子代理消费腿批 ⑥-3 兑现——eco-1 收集先行的
@@ -238,8 +238,26 @@ function resolveDeclaredDirs(dirs: readonly string[] | undefined, base: string, 
   });
 }
 
-/** core: 行声明基（宿主包根——src/host 与 dist/host 双形态上推两级皆包根） */
-const hostPackageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+/**
+ * core: 行声明基（宿主包根）——逐级上探至含 package.json 的目录定根
+ * 〔2026-10-17 ④试点件迁移落码批：tsconfig.build rootDir 仓根化后产物布局
+ * dist/src/host/**，旧「上推两级」算术位在产物形上推到 dist/（非包根）失效，
+ * 改形态无关的包根上探；src 形二级/产物形三级皆中——与 skills 件
+ * resolveFactorySkillsDir 同法双形态同构。上探至文件系统根未中（异常嵌装
+ * 位形）回退上推两级（历史算术位兜底）〕。导出面 = 宿主包根单源：main
+ * readVersion / plugins-cmd+assembly readHostApiVersion 三读位同源消费
+ * （host 件内同目录——各文件自算与经此同值，单源防三处算术位漂移）。
+ */
+export function climbToPackageRoot(fromDir: string): string {
+  let dir = fromDir;
+  for (;;) {
+    if (existsSync(join(dir, 'package.json'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return resolve(fromDir, '..', '..');
+    dir = parent;
+  }
+}
+export const hostPackageRoot = climbToPackageRoot(dirname(fileURLToPath(import.meta.url)));
 
 /** 失败行（码身份 + 报文——启动横幅/boot-failures 的载荷） */
 export interface FailedPlugin {

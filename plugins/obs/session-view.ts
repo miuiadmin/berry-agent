@@ -28,8 +28,8 @@
  * **model 列单源**：最后一条 `request/header` 事件的 config.model（请求
  * 信封快照——wiring.noteRequest 写点）；防御读取缺席 undefined。
  */
-import type { SessionEvent } from '../contracts/index.js';
-import { sessionDisplayTitleOf } from '../persist/index.js';
+import type { SessionEvent } from '../../src/contracts/index.js';
+import { sessionDisplayTitleOf } from '../../src/persist/index.js';
 import type {
   ObsLiveSessionInfo,
   ObsSessionRow,

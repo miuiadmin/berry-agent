@@ -166,8 +166,8 @@ function defaultIsAlive(pid: number): boolean {
 
 /**
  * daemon 身份判据（纯函数——第十五役 α3 pid 复用防线）：命令行双特征
- * ——含 serve 子命令词 + 含宿主入口特征（bin 装机形 …/dist/host/main.js 与
- * dev 形 …/src/host/main.ts 共 'host/main' 片；或路径含 berry-agent 包名
+ * ——含 serve 子命令词 + 含宿主入口特征（bin 装机形 …/dist/src/host/main.js
+ * 与 dev 形 …/src/host/main.ts 共 'host/main' 片；或路径含 berry-agent 包名
  * ——值位 magic 串同 `~/.berry-agent` 族）。双特征齐方判真身；单特征不判
  * （'npm run serve' 类无关进程不含入口特征——拒误认）。
  */
@@ -736,7 +736,7 @@ export async function spawnDaemonServe(options: SpawnDaemonOptions): Promise<num
     return 2;
   }
 
-  const self = options.self ?? { execPath: process.execPath, mainPath: process.argv[1] ?? 'dist/host/main.js' };
+  const self = options.self ?? { execPath: process.execPath, mainPath: process.argv[1] ?? 'dist/src/host/main.js' };
   // argv 只传 daemon 形实消费的旗标——--debug 不转发（child 恒 env-only 零
   // 旗标面：日志级只走 BERRY_AGENT_LOG_LEVEL；parseServe 已 --daemon ×
   // --debug 互斥拒收，此处不转发是同族对称封口——07 §5 2026-10-04 注）

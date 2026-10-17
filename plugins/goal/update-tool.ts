@@ -7,7 +7,7 @@
  * 只做通道与收尾渲染。
  */
 import { Type } from 'typebox';
-import { BaseError, type ToolDefinition } from '../contracts/index.js';
+import { BaseError, type ToolDefinition } from '../../src/contracts/index.js';
 import type { GoalService } from './service.js';
 
 /** 工具装配依赖 */

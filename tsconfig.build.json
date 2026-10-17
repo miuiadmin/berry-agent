@@ -12,18 +12,26 @@
   "compilerOptions": {
     "declaration": false,
     "sourceMap": false,
-    "rootDir": "src"
+    // rootDir = 仓根（2026-10-17 ④试点件迁移落码批：core:obs/core:goal 迁
+    // plugins/<id>/ 后单 tsc 程序横跨 src/ + plugins/ 两区，公共源根=仓根
+    // 〔同 SDK 包 rootDir "../.." 既有先例〕；产物布局随之 dist/src/** +
+    // dist/plugins/**——src 侧相对指称符（host→contracts 等）emit 后原样
+    // 成立，件区→宿主区跨区指称（plugins/<id>→src/contracts）亦然；bin/
+    // exports/files 白名单/dist 深位由本批同笔同步）
+    "rootDir": "."
   },
   // exclude 覆盖父值不合并（extends 语义）：本列表 = 父 exclude 重列 + 新增
   // 位——*.test.tsx（client 轨测试）、src/webui/client（SPA 树——vite 独立
   // 产物链 build:webui，tsc 发布物不含）与 tools/golden-record.ts（金样
   // 录制器——父 include 点名入列换类型检查，发布物侧在此出局）；vite /
   // vitest 两根配置件同律（第九役 α+β 批 d113e07 父 include 补入后漏本
-  // exclude——CI release-drill TS6059 红实证：rootDir 恒 src，根位配置件
-  // 只进类型检查不进发布物）
+  // exclude——CI release-drill TS6059 红实证：根位配置件只进类型检查不进
+  // 发布物）；plugins 件区测试同律不入发布物（rootDir 仓根后深位
+  // plugins/**/*.test.ts 点名出局）
   "exclude": [
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
+    "plugins/**/*.test.ts",
     "src/webui/client",
     "tools/golden-record.ts",
     "vite.config.ts",

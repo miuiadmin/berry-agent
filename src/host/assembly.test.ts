@@ -46,7 +46,7 @@ import type {
   UiCallLedgerEntry,
 } from '../contracts/index.js';
 import type { UiBackend } from '../channels/index.js';
-import type { GoalService } from '../goal/index.js';
+import type { GoalService } from '../../plugins/goal/index.js';
 import type { JobRegistry } from '../subagent/index.js';
 import { fauxProvider } from '../llm/index.js';
 // pi-ai 1.0 起 TranscriptContext 不再携带独立 systemPrompt 字段（normalizeContext

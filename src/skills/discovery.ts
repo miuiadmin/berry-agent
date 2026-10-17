@@ -244,13 +244,23 @@ export function createDirProvider(options: DirProviderOptions): SkillsProvider {
 }
 
 /**
- * 出厂技能目录定位（06 §11.4 位 6：`<包根>/skills/`——包根 = 发现模块位置上推
- * 两级；源码 src/skills/* 与产物 dist/skills/* 双形态同构，上推两级皆包根）。
+ * 出厂技能目录定位（06 §11.4 位 6：`<包根>/skills/`）——包根 = 发现模块
+ * 位置逐级上探至含 package.json 的目录〔2026-10-17 ④试点件迁移落码批：
+ * tsconfig.build rootDir 仓根化后产物布局 dist/src/skills/**，旧「上推
+ * 两级」算术位在产物形上推到 dist/（非包根）失效，改形态无关的包根上探
+ * ——src 形二级/产物形三级皆中，与宿主 loader climbToPackageRoot 同法双
+ * 形态同构；上探至文件系统根未中（异常嵌装位形）回退上推两级（历史算术
+ * 位兜底）〕。
  */
 export function resolveFactorySkillsDir(moduleUrl: string = import.meta.url): string {
-  // dist/skills/discovery.js → dirname 两次 = 包根（src 形同理）
   const moduleDir = dirname(fileURLToPath(moduleUrl));
-  return resolve(moduleDir, '..', '..', 'skills');
+  let dir = moduleDir;
+  for (;;) {
+    if (existsSync(join(dir, 'package.json'))) return join(dir, 'skills');
+    const parent = dirname(dir);
+    if (parent === dir) return resolve(moduleDir, '..', '..', 'skills');
+    dir = parent;
+  }
 }
 
 /** 标准层装配参数（批 12 装载面消费——06 §11.4 六位序列的宿主侧全序） */

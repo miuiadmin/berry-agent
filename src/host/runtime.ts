@@ -39,7 +39,7 @@ import type { PersistenceOptions } from '../persist/index.js';
 // v10 / session-archive v13 / input-history v14 / session-archived-at v15 = 宿主
 // 域表——persist export-only 声明，非 core: 表族）。
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
-import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../goal/index.js';
+import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../../plugins/goal/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
 import { CREDENTIALS_MIGRATION } from '../credentials/index.js';
 import type { MigrationSpec } from '../persist/index.js';

@@ -10,8 +10,8 @@
  * （OBS_DB_OPEN_FAILED——旧程序开新库宁拒不误读，openStore 的
  * PERSIST_SCHEMA_TOO_NEW 同律）。
  */
-import { BaseError } from '../contracts/index.js';
-import { openAuxDatabase, type SqliteDatabase } from '../persist/index.js';
+import { BaseError } from '../../src/contracts/index.js';
+import { openAuxDatabase, type SqliteDatabase } from '../../src/persist/index.js';
 
 /** rollup schema 版本（本件唯一版本位——自管，随表族演进递增） */
 export const OBS_SCHEMA_VERSION = 1;

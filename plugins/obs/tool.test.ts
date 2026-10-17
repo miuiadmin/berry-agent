@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Value } from 'typebox/value';
-import type { SessionEvent } from '../contracts/index.js';
+import type { SessionEvent } from '../../src/contracts/index.js';
 import { createObsService } from './service.js';
 import { createObsQueryTool } from './tool.js';
 import type { ObsEventsFace, ObsService } from './types.js';

@@ -2,7 +2,7 @@
  * rollup 纯数学件测试（桶对齐律 + 单遍聚合——零 IO 全真断言）。
  */
 import { describe, expect, it } from 'vitest';
-import type { SessionEvent } from '../contracts/index.js';
+import type { SessionEvent } from '../../src/contracts/index.js';
 import { aggregateHours, bucketClosed, DAY_MS, dayBucketMs, HOUR_MS, hourBucketMs } from './rollup.js';
 
 /** 测试事件构造（time 必填、其余缺省） */

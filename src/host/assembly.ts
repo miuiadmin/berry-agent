@@ -20,6 +20,7 @@
  *    crashed: true 供调用方区分文案前缀，不再重复取证）。
  */
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
 import { BaseError, parseEventSource } from '../contracts/index.js';
@@ -31,8 +32,8 @@ import type { Provider } from '../llm/index.js';
 import { createCustomChannelProvider, builtinProviderIds, SUBAGENT_RESERVE_THRESHOLD } from '../llm/index.js';
 import { llmTextOf } from '../memory/index.js';
 import type { MemoryLlmFace } from '../memory/index.js';
-import type { GoalSummarizerFace } from '../goal/index.js';
-import type { GoalService } from '../goal/index.js';
+import type { GoalSummarizerFace } from '../../plugins/goal/index.js';
+import type { GoalService } from '../../plugins/goal/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
 import { gitSummary } from '../exec/index.js';
 import type { GitSummary, SpawnPipeline } from '../exec/index.js';
@@ -71,6 +72,7 @@ import { AGENT_SERVICE_NAME } from '../conversation/index.js';
 import { foldErrorText, registerToolRenderer } from '../channels/index.js';
 import { createWorktreeService } from '../tools/index.js';
 import type { CorePluginReference } from './loader.js';
+import { hostPackageRoot } from './loader.js';
 import { createHookDispatchGuard } from './hook-dispatch-guard.js';
 import { enabledYamlPath, parseEnabledRows } from './manifest.js';
 import type { PluginBootHandle, PluginUnloadReceipt } from './plugin-boot.js';
@@ -1981,10 +1983,13 @@ function formatGitSummary(summary: GitSummary): string {
  * 同文件双值（version + apiVersion）的 apiVersion 腿，装配根消费位补读
  * （与 plugins-cmd readHostApiVersion 同文件同源同式；本件不 import
  * main.ts〔宿主入口归他件域〕）。缺席兜 '1.0'（package.json 常位恒在——
- * 兜底仅防御非常规装载形）。装载门裁决坐标的真源。
+ * 兜底仅防御非常规装载形）。装载门裁决坐标的真源。包根定位 = loader 件
+ * hostPackageRoot 单源〔2026-10-17 ④试点件迁移落码批 rootDir 仓根化后
+ * 产物形 dist/src/host/** 三级上探——旧 '../../package.json' 算术位在
+ * 产物形失效，同批改上探〕。
  */
 function readHostApiVersion(): string {
-  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+  const pkg = JSON.parse(readFileSync(join(hostPackageRoot, 'package.json'), 'utf8')) as {
     apiVersion?: string;
   };
   return pkg.apiVersion ?? '1.0';

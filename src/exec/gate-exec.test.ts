@@ -21,7 +21,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import type { SandboxPolicy, SandboxService, ConfinedArgv } from '../safety/index.js';
 import { canonicalPath } from '../safety/index.js';
-import { GATE_COMMAND_TIMEOUT_MS } from '../goal/gates.js';
+import { GATE_COMMAND_TIMEOUT_MS } from '../../plugins/goal/gates.js';
 import { worktreeGitDir } from './git-guard.js';
 import { createGateExec, GATE_EXEC_OWNER, GATE_EXEC_TIMEOUT_MS, type GateExecFactoryDeps } from './gate-exec.js';
 import type { ExecResult, SpawnPipeline, SpawnRequest } from './types.js';

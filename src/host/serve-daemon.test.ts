@@ -130,10 +130,10 @@ describe('三足迹与 pid 登记原语', () => {
 
 describe('daemonCommandIsSelf（pid 复用防线判据——命令行双特征）', () => {
   it('真身形：bin 装机路径 / dev tsx 路径均判真', () => {
-    // bin 装机形（npm 全局——路径含包名与 dist/host/main.js）
-    expect(daemonCommandIsSelf('node /usr/local/lib/node_modules/berry-agent/dist/host/main.js serve --daemon')).toBe(
-      true,
-    );
+    // bin 装机形（npm 全局——路径含包名与 dist/src/host/main.js）
+    expect(
+      daemonCommandIsSelf('node /usr/local/lib/node_modules/berry-agent/dist/src/host/main.js serve --daemon'),
+    ).toBe(true);
     // dev 形（tsx——入口 src/host/main.ts，路径不含包名但含 host/main）
     expect(daemonCommandIsSelf('node /repo/node_modules/tsx/dist/cli.mjs /repo/src/host/main.ts serve --daemon')).toBe(
       true,

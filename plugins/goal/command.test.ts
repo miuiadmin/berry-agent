@@ -4,7 +4,7 @@
  * 创建入口（U10——位参形/会话锚/用法错守卫面分工）。
  */
 import { describe, expect, it } from 'vitest';
-import { BaseError, type SessionEvent } from '../contracts/index.js';
+import { BaseError, type SessionEvent } from '../../src/contracts/index.js';
 import { GOAL_USAGE, runGoalCommand } from './command.js';
 import type { ActivateGoalRequest, GoalService } from './service.js';
 import type { GoalRow, GoalWakeRow, WakeDecision } from './types.js';

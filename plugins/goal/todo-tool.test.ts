@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Value } from 'typebox/value';
-import { BaseError } from '../contracts/index.js';
+import { BaseError } from '../../src/contracts/index.js';
 import { createGoalTodoTool, type GoalTodoToolDeps } from './todo-tool.js';
 
 const SCOPE = { goalId: 'g-1', activatedSeq: 0 };

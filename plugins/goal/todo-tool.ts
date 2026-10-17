@@ -15,7 +15,7 @@
  *    双位、diagnostics 缺 lsp 查询面——申报即拒（评测位 gates.ts 双拦）。
  */
 import { Type } from 'typebox';
-import { BaseError, type ToolDefinition } from '../contracts/index.js';
+import { BaseError, type ToolDefinition } from '../../src/contracts/index.js';
 import { parseResumeWhen } from './fold.js';
 import type { CommandGateStatus, GoalTodoItem, WritableGoalTodoItem } from './types.js';
 

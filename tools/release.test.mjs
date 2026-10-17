@@ -45,8 +45,8 @@ const PACK_BASELINES = {
     'package.json',
     'README.md',
     'LICENSE',
-    'dist/host/main.js',
-    'dist/webui/index.html',
+    'dist/src/host/main.js',
+    'dist/src/webui/index.html',
     'dist/api/surface.json',
     'dist/.build-meta.json',
     // 出厂技能四件（2026-09-15 落位批——随必在件断言同步入基线）
@@ -107,7 +107,7 @@ function fakeSeams(overrides = {}, pkgKey = 'main') {
       calls.fetch++;
       return null;
     },
-    tarballTree: () => ({ 'package.json': 'a', 'dist/host/main.js': 'b', 'dist/.build-meta.json': 'm1' }),
+    tarballTree: () => ({ 'package.json': 'a', 'dist/src/host/main.js': 'b', 'dist/.build-meta.json': 'm1' }),
     readmeText: () => '# berry-agent\n真实 README（无占位符）',
     publish: (tarball, opts) => {
       calls.publish.push({ tarball, ...opts });
@@ -564,8 +564,8 @@ describe('runRelease 演习（--dry-run）', () => {
         fetchTarball: () => '/tmp/fake/fetch/berry-agent-0.1.0-alpha.1.tgz',
         tarballTree: (p) =>
           p.includes('fetch')
-            ? { 'package.json': 'a', 'dist/host/main.js': 'b', 'dist/.build-meta.json': 'm2' }
-            : { 'package.json': 'a', 'dist/host/main.js': 'b', 'dist/.build-meta.json': 'm1' },
+            ? { 'package.json': 'a', 'dist/src/host/main.js': 'b', 'dist/.build-meta.json': 'm2' }
+            : { 'package.json': 'a', 'dist/src/host/main.js': 'b', 'dist/.build-meta.json': 'm1' },
       }),
     );
     const r = await run(s);

@@ -123,8 +123,8 @@ import { TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 // /compact 回执文案与 end 载荷采数单源（B2 批 2——onManualQueuedSettled
 // 排队兑现接线消费；命令腿本体在 host/compact-cmd.ts，assembly 装配位直引）
 import { compactOutcomeText, lastCompactionEndFactsOf } from './compact-cmd.js';
-import { createSessionTools, createSessionView, OBSERVE_CROSS_CAPABILITY } from '../obs/index.js';
-import type { SessionObserveUsedRecord, SessionView } from '../obs/index.js';
+import { createSessionTools, createSessionView, OBSERVE_CROSS_CAPABILITY } from '../../plugins/obs/index.js';
+import type { SessionObserveUsedRecord, SessionView } from '../../plugins/obs/index.js';
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
 
 /** 组合根选项（TUI 入口与测试的注入面） */

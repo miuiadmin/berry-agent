@@ -32,8 +32,14 @@ import { existsSync, globSync, readdirSync, readFileSync, statSync } from 'node:
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** 模块边表（28 席；02 篇 §4.1 依赖列全量转录——L3/L4 对 contracts 共边不省略。三次加席 26→27→28 注释计数随批更新） */
+/** 模块边表（28 席；02 篇 §4.1 依赖列全量转录——L3/L4 对 contracts 共边不省略。
+ * 三次加席 26→27→28 注释计数随批更新。
+ * 双区制布局（2026-10-17 ④试点件迁移落码批——02 §4.1 席位表双区制）：宿主区
+ * 12 席居 src/<id>/；core: 16 席中 obs/goal 先迁件区 plugins/<id>/（试点件
+ * 迁移批），余 14 席暂留宿主区 src/<id>/（批量迁移批随批挪区——席位名与边
+ * 关系两区同表单源，物理位置由 PLUGIN_ZONE 声明）。 */
 const MODULE_EDGES = {
+  // ===== 宿主区（src/<id>/——12 席）=====
   contracts: [],
   context: ['contracts'],
   session: ['contracts', 'context'],
@@ -67,6 +73,9 @@ const MODULE_EDGES = {
     'lsp',
     'checkpoint',
     'scheduler',
+    // 件区两席（plugins/goal、plugins/obs）——host→plugins/<id> 为装配根
+    // 引用（④试点件迁移批：件本体纯库不 import host，唯一反向指向是宿主
+    // 消费件；02 §4.1 host 行「全部」的落码同步笔）
     'goal',
     'obs',
     'webui',
@@ -80,6 +89,8 @@ const MODULE_EDGES = {
     // CREDENTIALS_MIGRATION；02 §4.1 host 行「全部」的落码同步笔）
     'credentials',
   ],
+  // ===== core: 件区暂留宿主区 14 席（src/<id>/——④批量迁移批随批挪入件区；
+  // 席位注释承载各件入册批次史，随挪区批迁移）=====
   skills: ['contracts', 'context'],
   memory: ['contracts', 'context', 'session', 'persist'],
   subagent: ['contracts', 'context', 'session', 'agent'],
@@ -90,8 +101,6 @@ const MODULE_EDGES = {
   lsp: ['contracts', 'context'],
   checkpoint: ['contracts', 'context', 'tools', 'persist'],
   scheduler: ['contracts', 'context', 'persist'],
-  goal: ['contracts', 'context', 'persist', 'session'],
-  obs: ['contracts', 'persist'],
   webui: ['contracts', 'channels'],
   sdk: ['contracts', 'channels'],
   issue: ['contracts', 'context'],
@@ -100,6 +109,10 @@ const MODULE_EDGES = {
   // 〔persist 真边消费 MigrationSpec；图示对 contracts 共边按图例省略〕；
   // 读腿 ctx.secrets/注入腿/人面/oauth 随 c-3..c-6 逐笔扩）
   credentials: ['contracts', 'persist'],
+  // ===== 件区（plugins/<id>/——④试点件迁移批先迁 2 席；物理位置单源 =
+  // PLUGIN_ZONE）=====
+  goal: ['contracts', 'context', 'persist', 'session'],
+  obs: ['contracts', 'persist'],
 };
 
 /** 在场模块集（占位清单语义：边表其余键 = 显式占位、不判死边；落码逐批迁移进来） */
@@ -142,7 +155,9 @@ const PRESENT_MODULES = new Set([
   // 批 15b 起在场（core:goal 纯逻辑腿——goals 表族/计划态跨轮 fold/续跑触发
   // wakeGate 双帽+停滞硬停/预算双轨/挂钟窄面 GoalJobsFace 词面独立，deps
   // {contracts, context, persist, session}〔context/session 占位——装载态
-  // 接线随装配批消费〕；goalScopeFor 闭包经 conversation 可选参数已零边落地）
+  // 接线随装配批消费〕；goalScopeFor 闭包经 conversation 可选参数已零边落地）。
+  // 〔2026-10-17 ④试点件迁移落码批：物理位置迁 plugins/goal/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'goal',
   // 批 15c 起在场（core:subagent 纯逻辑腿——ctx.jobs 注册表/SubagentProvider
   // 委派机器/派生面/结算通知/通用+声明式工具，deps {contracts, context,
@@ -208,7 +223,9 @@ const PRESENT_MODULES = new Set([
   // DELETE+INSERT 整体重算〕+ 闭日物化 + 告警「只通知不执法」〔hasAudience
   // 前置不耗冷却〕+ obs_query 只读工具，deps {contracts, persist}；三窄面
   // 〔events/notify/audience〕词面独立律结构兼容宿主真身——装配批直传；
-  // 装载态集成归批 12 装载面后装配批）
+  // 装载态集成归批 12 装载面后装配批）。
+  // 〔2026-10-17 ④试点件迁移落码批：物理位置迁 plugins/obs/（件区——
+  // PLUGIN_ZONE 单源）；装载轨零变（core-plugins.ts 注册表官方引用形）〕
   'obs',
   // 批 18c 起在场（core:memory 使用进化机制〔06 篇〕：表族三迁移槽占
   // v4/v5/v6〔memories+FT5 external-content trigram 投影/效用两列/持有面
@@ -362,6 +379,9 @@ const SDK_PACKAGE_EXTERNALS = ['typebox', 'typebox/value'];
  * 缺省 = 当前工作目录（门禁原形态不变） */
 const ROOT = process.env.CHECK_TOPOLOGY_ROOT ?? process.cwd();
 const SRC = join(ROOT, 'src');
+/** 件区根（plugins/<id>/——2026-10-17 ④试点件迁移落码批双区制：core:obs/
+ * core:goal 迁入；夹具根可能无 plugins/ 树，消费位 existsSync 先判） */
+const PLUGINS = join(ROOT, 'plugins');
 /** SDK 包产码根（W5 任务①入扫描面——packages/berry-agent-sdk/src；夹具根
  * 可能无 packages/ 树，消费位 existsSync 先判） */
 const SDK_PACKAGE_SRC = join(ROOT, 'packages', 'berry-agent-sdk', 'src');
@@ -396,10 +416,114 @@ function collectSourceFiles(dir) {
   return out;
 }
 
-/** 文件归属模块（src 首段目录；顶层散文件不属任何模块——记违规） */
-function moduleOf(file) {
-  const rel = relative(SRC, file).split(sep);
-  return rel.length > 1 ? rel[0] : null;
+/** 文件归属席位（双区制：宿主区 = src 首段；件区 = plugins 次段——02 §4.1
+ * 席位表双区制，2026-10-17 ④试点件迁移落码批）。返回 null = 区内顶层散
+ * 文件（两区通例——记违规）；区外路径返回 undefined 形 'escape'（跳区违规）。
+ * root 字段 = 席位物理根（面名计算单源）。 */
+function seatOf(file) {
+  const relToSrc = relative(SRC, file);
+  if (!relToSrc.startsWith('..') && !isAbsolute(relToSrc)) {
+    const parts = relToSrc.split(sep);
+    return parts.length > 1 ? { zone: 'src', mod: parts[0], root: join(SRC, parts[0]) } : null;
+  }
+  const relToPlugins = relative(PLUGINS, file);
+  if (!relToPlugins.startsWith('..') && !isAbsolute(relToPlugins)) {
+    const parts = relToPlugins.split(sep);
+    return parts.length > 1 ? { zone: 'plugins', mod: parts[0], root: join(PLUGINS, parts[0]) } : null;
+  }
+  return 'escape';
+}
+
+/** 件区席位清单（物理位置单源——席位名与边关系仍在 MODULE_EDGES 单表；
+ * 余 core: 14 席批量迁移批随批入册此处）。plugins/ 下目录不入本清单即
+ * fail-loud（未入册件区目录——立题档硬约束 3 执法面）。 */
+const PLUGIN_ZONE = new Set(['goal', 'obs']);
+
+/** 席位入册判定（双区各按本区在册表）：宿主区席位不得是件区席位（双址即
+ * 漂移信号——挪区批漏改 PLUGIN_ZONE 当场红）；件区目录必须同时入册
+ * PLUGIN_ZONE 与 PRESENT_MODULES（未入册目录 fail-loud）。 */
+function seatRegistered(seat) {
+  if (!seat) return false;
+  return seat.zone === 'plugins'
+    ? PRESENT_MODULES.has(seat.mod) && PLUGIN_ZONE.has(seat.mod)
+    : PRESENT_MODULES.has(seat.mod) && !PLUGIN_ZONE.has(seat.mod);
+}
+
+for (const file of [...collectSourceFiles(SRC), ...(existsSync(PLUGINS) ? collectSourceFiles(PLUGINS) : [])]) {
+  const seat = seatOf(file);
+  if (!seatRegistered(seat)) {
+    // 走访即入 consumed 集（自检锚只对拍根覆盖漂移——已判违规文件不二次
+    // 记账为「漏检」；其 import 语句未解析故不计入语句数）
+    scannedFiles.add(posixRel(file));
+    violations.push(
+      `${relative(ROOT, file)}: 不属于任何在场模块（${
+        seat && seat.zone === 'plugins'
+          ? 'plugins/ 未入册件区席位（PLUGIN_ZONE）'
+          : 'src 顶层散文件或件区席位残留宿主区（挪区批漏改 PLUGIN_ZONE？）'
+      }）`,
+    );
+    continue;
+  }
+  const mod = seat.mod;
+  const allowed = MODULE_EDGES[mod] ?? [];
+  const externals = MODULE_EXTERNALS[mod] ?? [];
+  const text = readFileSync(file, 'utf8');
+  const specs = importSpecifiers(text);
+  scannedFiles.add(posixRel(file));
+  importStatementCount += specs.length;
+
+  for (const spec of specs) {
+    if (spec.startsWith('.')) {
+      // 相对导入：解析目标真路径判席位归属（双区制——src 首段 / plugins
+      // 次段）。件内子目录跳变（如 channels/tui → channels/engine 聚合面）
+      // 真路径仍在同席位内——放行（件内子目录不受席执法）；跨席位才走
+      // 边表。说明符写编译产物后缀 .js——归一化到 .ts 再解析。
+      const targetPath = resolve(dirname(file), spec.replace(/\.js$/, '.ts'));
+      const targetSeat = seatOf(targetPath);
+      if (targetSeat === 'escape') {
+        violations.push(`${relative(ROOT, file)}: 相对导入 ${spec} 跳出 src/plugins 两区扫描根`);
+        continue;
+      }
+      if (!targetSeat) {
+        violations.push(`${relative(ROOT, file)}: 相对导入 ${spec} 指向区内顶层散文件`);
+        continue;
+      }
+      // 目标席位物理位置入册判定（双区制加固腿）：席位名过边表 ≠ 落点正确
+      // ——错区指称（如件区文件 '../contracts/…' 落到 plugins/contracts/ 幻位、
+      // 宿主区文件沿用旧 '../goal/…' 形）名对址错，tsc/node 当场断——门禁
+      // 须同步红（错区锚即时爆，不待编译面）。目标席位按本区在册表核。
+      if (!seatRegistered(targetSeat)) {
+        violations.push(
+          `${relative(ROOT, file)}: 相对导入 ${spec} 落点席位物理位置未入册（${targetSeat.zone}/${targetSeat.mod}——跨区指称须显式指回：宿主区 ../../src/<id>/、件区 ../../plugins/<id>/）`,
+        );
+        continue;
+      }
+      const target = targetSeat.mod;
+      if (target === mod) continue; // 同席位件内（含平级子目录跳变）——自由
+      if (!allowed.includes(target)) {
+        violations.push(
+          `${relative(ROOT, file)}: 跨模块导入 ${target} 未在边表（${mod} 允许：${allowed.join(', ') || '无'}）`,
+        );
+        continue;
+      }
+      // 公开面收敛：目标须命中三名之一（'../mod' 或 '../mod/index' 等价公开面；
+      // 真路径已归一到 .ts——比对席位内相对面名）；深挖面册例外（DEEP_FACES）
+      const face = relative(targetSeat.root, targetPath).split(sep).join('/');
+      if (face && !PUBLIC_FACES.has(face) && !(DEEP_FACES[target] ?? []).includes(face)) {
+        violations.push(
+          `${relative(ROOT, file)}: 深挖 ${target} 实现面（${face}）——只准走公开面三名（面册例外见 DEEP_FACES）`,
+        );
+      }
+    } else {
+      // 裸导入：node:* 全局；包依赖按模块分账
+      if (NODE_BUILTIN.test(spec)) continue;
+      if (!externals.includes(spec)) {
+        violations.push(
+          `${relative(ROOT, file)}: 裸导入 '${spec}' 不在 ${mod} 模块白名单（node:* 全局 + ${externals.join(', ') || '无'}）`,
+        );
+      }
+    }
+  }
 }
 
 /** 从源文本提取全部 import 说明符（静态 import/export-from 两形 + 裸动态字面量
@@ -428,66 +552,6 @@ function importSpecifiers(text) {
     specs.push(spec);
   }
   return specs;
-}
-
-for (const file of collectSourceFiles(SRC)) {
-  const mod = moduleOf(file);
-  if (!mod || !PRESENT_MODULES.has(mod)) {
-    // 走访即入 consumed 集（自检锚只对拍根覆盖漂移——已判违规文件不二次
-    // 记账为「漏检」；其 import 语句未解析故不计入语句数）
-    scannedFiles.add(posixRel(file));
-    violations.push(`${relative(ROOT, file)}: 不属于任何在场模块（src 顶层散文件）`);
-    continue;
-  }
-  const allowed = MODULE_EDGES[mod] ?? [];
-  const externals = MODULE_EXTERNALS[mod] ?? [];
-  const text = readFileSync(file, 'utf8');
-  const specs = importSpecifiers(text);
-  scannedFiles.add(posixRel(file));
-  importStatementCount += specs.length;
-
-  for (const spec of specs) {
-    if (spec.startsWith('.')) {
-      // 相对导入：解析目标真路径判模块归属（首段目录 = 模块）。
-      // 件内子目录跳变（如 channels/tui → channels/engine 聚合面）真路径
-      // 仍在同模块内——放行（件内子目录不受席执法）；跨模块才走边表。
-      // 说明符写编译产物后缀 .js——归一化到 .ts 再解析。
-      const targetPath = resolve(dirname(file), spec.replace(/\.js$/, '.ts'));
-      const relToSrc = relative(SRC, targetPath);
-      if (relToSrc.startsWith('..') || isAbsolute(relToSrc)) {
-        violations.push(`${relative(ROOT, file)}: 相对导入 ${spec} 跳出 src`);
-        continue;
-      }
-      const target = relToSrc.split(sep)[0];
-      if (!target) {
-        violations.push(`${relative(ROOT, file)}: 相对导入 ${spec} 指向 src 顶层散文件`);
-        continue;
-      }
-      if (target === mod) continue; // 同模块件内（含平级子目录跳变）——自由
-      if (!allowed.includes(target)) {
-        violations.push(
-          `${relative(ROOT, file)}: 跨模块导入 ${target} 未在边表（${mod} 允许：${allowed.join(', ') || '无'}）`,
-        );
-        continue;
-      }
-      // 公开面收敛：目标须命中三名之一（'../mod' 或 '../mod/index' 等价公开面；
-      // 真路径已归一到 .ts——比对模块内相对面名）；深挖面册例外（DEEP_FACES）
-      const face = relToSrc.split(sep).slice(1).join('/');
-      if (face && !PUBLIC_FACES.has(face) && !(DEEP_FACES[target] ?? []).includes(face)) {
-        violations.push(
-          `${relative(ROOT, file)}: 深挖 ${target} 实现面（${face}）——只准走公开面三名（面册例外见 DEEP_FACES）`,
-        );
-      }
-    } else {
-      // 裸导入：node:* 全局；包依赖按模块分账
-      if (NODE_BUILTIN.test(spec)) continue;
-      if (!externals.includes(spec)) {
-        violations.push(
-          `${relative(ROOT, file)}: 裸导入 '${spec}' 不在 ${mod} 模块白名单（node:* 全局 + ${externals.join(', ') || '无'}）`,
-        );
-      }
-    }
-  }
 }
 
 // ---- SDK 包产码扫描（W5 任务①）----
@@ -544,8 +608,10 @@ if (existsSync(SDK_PACKAGE_SRC)) {
 // 独立 glob 真源与「实际被 importSpecifiers 消费的集合」交叉对拍：任何差集
 // 即红。真源宽于扫描根是有意设计——packages/*/src/** 覆盖任意包目录，新增
 // 包未接线扫描面（或收集器过滤器退化漏文件）在此立即爆红，而非静默漏检。
+// plugins/** 同律（2026-10-17 ④试点件迁移落码批：件区树入双扫描根+真源
+// 双侧——plugins/ 下未接线/漂移同等爆红）。
 const globTruth = new Set(
-  ['src/**/*.{ts,tsx}', 'packages/*/src/**/*.{ts,tsx}']
+  ['src/**/*.{ts,tsx}', 'packages/*/src/**/*.{ts,tsx}', 'plugins/**/*.{ts,tsx}']
     .flatMap((pattern) => globSync(pattern, { cwd: ROOT }))
     .filter((p) => !isTestFileName(p)),
 );

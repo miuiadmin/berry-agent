@@ -39,7 +39,7 @@ git clone https://github.com/miuiadmin/berry-agent.git
 cd berry-agent
 npm install
 npm run build
-node dist/host/main.js --help
+node dist/src/host/main.js --help
 ```
 
 首次启动自动创建数据目录 `~/.berry-agent/`（可用 `BERRY_AGENT_DATA_DIR` 重定位）。
@@ -129,7 +129,7 @@ npm 包名是 `berry-agent`（`npm install -g berry-agent`），装出来的命�
 源码形态（npm 全局安装之前）可设别名指向构建产物：
 
 ```bash
-alias berry='node /path/to/berry-agent/dist/host/main.js'
+alias berry='node /path/to/berry-agent/dist/src/host/main.js'
 ```
 
 ### TUI（无参启动）

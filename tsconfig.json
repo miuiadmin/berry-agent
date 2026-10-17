@@ -29,6 +29,9 @@
   // exclude 点名出局——rootDir 仍 src）。根目录两测试/构建配置件（vite /
   // vitest config）同点名入列（第九役遗漏扫描：此前三段 tsc 项目均不含
   // 它们——format 门禁明文点名却在类型检查盲区，配置件类型漂移无人执法）。
-  "include": ["src", "tools/golden-record.ts", "vite.config.ts", "vitest.config.ts"],
+  // plugins/ 件区入列（2026-10-17 ④试点件迁移落码批：core:obs/core:goal
+  // 迁 plugins/<id>/ 双区制〔02 §4.1〕，类型检查面随迁；余 14 core: 席位
+  // 批量迁移批随批并入）。
+  "include": ["src", "plugins", "tools/golden-record.ts", "vite.config.ts", "vitest.config.ts"],
   "exclude": ["src/webui/client"]
 }

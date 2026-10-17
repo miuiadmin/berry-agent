@@ -31,7 +31,7 @@ import { fauxProvider } from '../llm/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import type { GoalFace, SchedulerFace } from './core-plugins.js';
-import type { GoalService } from '../goal/index.js';
+import type { GoalService } from '../../plugins/goal/index.js';
 
 /* ---------------- 测试基建（scheduler-tick.test tickRig 同族） ---------------- */
 

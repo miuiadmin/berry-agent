@@ -102,13 +102,17 @@ describe('错误码注册表', () => {
 /* ---------------- 字面量 ⊆ 注册表机器对拍锁（02 §5.3 族规范 #2 执法腿） ---------------- */
 
 describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验抛出/写入点一致」执法腿）', () => {
-  // 注册侧全集（beforeAll 结构性前置）：fs 递归发现 src/**/codes.ts 逐份
-  // 动态导入（副作用注册）——未来新增 codes.ts 面自动纳入、完备性程序自证；
-  // 核心码由本文件顶部 import './index.js' 模块加载灌入。哨值 23 = 当前
-  // 实有面数（净删面须同步改此哨——防扫描根意外缩水成假绿）。域码入册是
-  // 本 describe 两张锁（前缀族锁 + 字面量锁）对全集生效的前提——钉在
-  // beforeAll 而非首个 it 内，锁与导入的依赖成结构、不依赖 it 巧合序。
+  // 注册侧全集（beforeAll 结构性前置）：fs 递归发现 src/ 与 plugins/ 双区
+  // codes.ts 逐份动态导入（副作用注册）——未来新增 codes.ts 面自动纳入、
+  // 完备性程序自证；核心码由本文件顶部 import './index.js' 模块加载灌入。
+  // 哨值 23 = 当前实有面数（src 21 + plugins 2；净删面须同步改此哨——防
+  // 扫描根意外缩水成假绿）。双区制 = 2026-10-17 ④试点件迁移批
+  // （core:obs/core:goal 迁 plugins/ 后 codes.ts 随区——与 02 §4.1 席位
+  // 表双区制、check-topology 扫描面同拍）。域码入册是本 describe 两张锁
+  // （前缀族锁 + 字面量锁）对全集生效的前提——钉在 beforeAll 而非首个
+  // it 内，锁与导入的依赖成结构、不依赖 it 巧合序。
   const srcRoot = fileURLToPath(new URL('../', import.meta.url));
+  const pluginsRoot = fileURLToPath(new URL('../../plugins/', import.meta.url));
   beforeAll(async () => {
     const codeModules: string[] = [];
     const collect = (dir: string): void => {
@@ -118,6 +122,7 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
       }
     };
     collect(srcRoot);
+    collect(pluginsRoot);
     expect(codeModules.length).toBeGreaterThanOrEqual(23);
     for (const mod of codeModules) await import(pathToFileURL(mod).href);
   });
@@ -174,12 +179,16 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
       // 第七形：SDK 客户端载体构造首参（packages/berry-agent-sdk——E1 入锁）
       /\bnew\s+SdkError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
     ];
-    // 扫描根双树：主仓 src/ + SDK 包源树（E1——原锁只扫 src/，npm SDK 包
-    // 结构性在锁面外）；双根并扫后位点报账改按仓根相对径（单根相对径失义）。
+    // 扫描根三树：主仓 src/ + SDK 包源树（E1——原锁只扫 src/，npm SDK 包
+    // 结构性在锁面外）+ plugins/ 件区（2026-10-17 ④试点件迁移——obs/goal
+    // 的字面量发射面（toolError/codedMessage 等）随迁，缺此根即脱锁假绿；
+    // 与 codes.ts 发现面双区制同拍）；多根并扫后位点报账改按仓根相对径
+    // （单根相对径失义）。
     const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
     const scanRoots = [
       fileURLToPath(new URL('../', import.meta.url)),
       fileURLToPath(new URL('../../packages/berry-agent-sdk/src/', import.meta.url)),
+      fileURLToPath(new URL('../../plugins/', import.meta.url)),
     ];
     // SDK 根哨值 8 = 当前实有 .ts 面数（与上方 codes.ts 哨 23 同律——净删面须
     // 同步改此哨，防扫描根意外缩水/挪位成假绿）。

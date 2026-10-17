@@ -16,8 +16,8 @@
  *    scheduler 装载序的补接线——effect 可逆双序对称）。
  */
 import { randomUUID } from 'node:crypto';
-import { BaseError } from '../contracts/index.js';
-import type { SqliteDatabase } from '../persist/index.js';
+import { BaseError } from '../../src/contracts/index.js';
+import type { SqliteDatabase } from '../../src/persist/index.js';
 import { foldGoalTodos, openGoalItems, progressFingerprint } from './fold.js';
 import { evaluateGoalGates, type GoalGateDeps } from './gates.js';
 import type {

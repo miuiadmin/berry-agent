@@ -31,8 +31,8 @@ import type {
   OAuthFetchLike,
   OAuthFlowRegistry,
 } from '../credentials/index.js';
-import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../goal/index.js';
-import type { GoalService, GoalSessionFace, GoalSummarizerFace } from '../goal/index.js';
+import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../../plugins/goal/index.js';
+import type { GoalService, GoalSessionFace, GoalSummarizerFace } from '../../plugins/goal/index.js';
 import type {
   IssueBudgetFace,
   IssueParkedRow,
@@ -43,7 +43,7 @@ import type {
 import { ISSUE_PARKED_REGISTRY_KEY } from '../issue/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../memory/index.js';
-import type { ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../obs/index.js';
+import type { ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../../plugins/obs/index.js';
 import {
   MEMORY_DB_PATH,
   Persistence,

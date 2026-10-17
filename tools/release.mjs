@@ -102,8 +102,11 @@ const MAIN_PACK_ALLOWED = /^(package\.json|README(\.(zh|ko|fr|es|ru))?\.md|LICEN
 const MAIN_PACK_BANNED = /\.(test|spec)\.(js|ts|tsx)$|\.test\.d\.ts$|\.js\.map$/;
 /** 主包必在件（bin 主入口 / SPA 面 / API 治理面 / 溯源戳 / 双档 / 出厂技能四件） */
 const MAIN_PACK_MUST = [
-  'dist/host/main.js',
-  'dist/webui/index.html',
+  // dist/src/** 布局（2026-10-17 ④试点件迁移落码批：tsconfig.build rootDir
+  // 仓根化 → bin/exports/SPA 面深位同步——dist/api 与 dist/.build-meta.json
+  // 顶层位不变）
+  'dist/src/host/main.js',
+  'dist/src/webui/index.html',
   'dist/api/surface.json',
   'dist/.build-meta.json',
   'README.md',

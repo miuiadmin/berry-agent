@@ -177,7 +177,10 @@ const USERFACE_FILE_EXEMPTS = [
   { file: 'src/contracts/events.ts', reason: '事件词汇表——api-surface.json 快照镜像钉死' },
   { file: 'src/conversation/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/credentials/codes.ts', reason: '错误码注册表 description 工程目录面' },
-  { file: 'src/goal/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  {
+    file: 'plugins/goal/codes.ts',
+    reason: '错误码注册表 description 工程目录面（④试点件迁移批随迁——原 src/goal/ 位）',
+  },
   { file: 'src/host/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/host/manifest.ts', reason: 'manifest 治理表 desc——API 治理工程单源' },
   {
@@ -191,7 +194,7 @@ const USERFACE_FILE_EXEMPTS = [
   { file: 'src/lsp/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/mcp/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/memory/codes.ts', reason: '错误码注册表 description 工程目录面' },
-  { file: 'src/obs/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'plugins/obs/codes.ts', reason: '错误码注册表 description 工程目录面（④试点件迁移批随迁——原 src/obs/ 位）' },
   { file: 'src/persist/schema.ts', reason: 'CANONICAL_DDL SQL 注释域——工程真源' },
   { file: 'src/safety/codes.ts', reason: '错误码注册表 description 工程目录面（F 先例已改 11 行不回退）' },
   {
@@ -222,7 +225,7 @@ const USERFACE_EXEMPTS = [
     reason: '模型面指令——挂钟是 goal 纪律段既定机制词汇',
   },
   {
-    file: 'src/goal/todo-tool.ts',
+    file: 'plugins/goal/todo-tool.ts',
     snippet: '段·判据门',
     reason: '模型面指令回执标记——判据门是 goal 纪律段既定机制词汇',
   },
@@ -248,7 +251,13 @@ function report(file, line, word, source) {
 // React 根组件 App→WebUiRoot 更名批同步入射程，扩面先落即翻红卡全仓）。
 // 产码腿含 packages/*/src（2026-10-01 wf_db273e73 扫描处置扩面——SDK 错误
 // 消息是 SDK 消费者可见面；文档腿既有 packages README 对称）──────────────
-const codeFiles = [...collect('src', ['.ts', '.tsx']), ...collect('packages', ['.ts', '.tsx'])];
+// 件区树入产码腿（2026-10-17 ④试点件迁移落码批：plugins/<id>/ 随迁——
+// 词汇查项射程与物理位置同步，件区源码不在射程即整类假绿）
+const codeFiles = [
+  ...collect('src', ['.ts', '.tsx']),
+  ...collect('packages', ['.ts', '.tsx']),
+  ...collect('plugins', ['.ts', '.tsx']),
+];
 for (const file of codeFiles) {
   const text = readFileSync(join(ROOT, file), 'utf8');
   const stripped = stripCode(text);

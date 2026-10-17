@@ -4,7 +4,7 @@
  * 桶对齐律：存储恒 UTC——小时桶 = epoch ms 下取整到 3_600_000 倍数、日桶
  * = 下取整到 86_400_000 倍数（时区换算归呈现层，与两维分立同精神）。
  */
-import type { SessionEvent } from '../contracts/index.js';
+import type { SessionEvent } from '../../src/contracts/index.js';
 
 /** 小时毫秒 */
 export const HOUR_MS = 3_600_000;

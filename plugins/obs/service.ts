@@ -12,8 +12,8 @@
  * 聚合呈现两维分立（07 §4.2）：本件数据面只有会话客观态聚合；用户已读
  * 游标不入观测库（住通道侧本地状态）。
  */
-import { BaseError, type SessionEvent } from '../contracts/index.js';
-import type { SqliteDatabase } from '../persist/index.js';
+import { BaseError, type SessionEvent } from '../../src/contracts/index.js';
+import type { SqliteDatabase } from '../../src/persist/index.js';
 import { openRollupDatabase } from './db.js';
 import { aggregateHours, bucketClosed, DAY_MS, dayBucketMs, HOUR_MS, hourBucketMs } from './rollup.js';
 import type {

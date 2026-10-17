@@ -3,7 +3,7 @@
  * 回归锁在「basename 深层匹配」例）。零网络；symlink 例 macOS/Linux 双平台可跑。
  */
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -241,9 +241,23 @@ describe('refresh 全量重扫与 pass 域去重（装配双 refresh 清册回�
 });
 
 describe('resolveFactorySkillsDir 出厂目录定位', () => {
-  it('发现模块位置上推两级 = 包根/skills（src 与 dist 双形态同构）', () => {
+  it('上探未中回退上推两级 = 包根/skills（src 与 dist 双形态同构——占位路径无 package.json，走兜底腿）', () => {
     expect(resolveFactorySkillsDir(pathToFileURL('/pkg/dist/skills/discovery.js').href)).toBe(join('/pkg', 'skills'));
     expect(resolveFactorySkillsDir(pathToFileURL('/pkg/src/skills/discovery.js').href)).toBe(join('/pkg', 'skills'));
+  });
+
+  // 〔2026-10-17 ④试点件迁移落码批〕包根上探腿锁：产物布局 dist/src/skills/**
+  // 三级上探（dist/src → dist → 包根）——真 package.json 命中定根（旧算术位
+  // 在产物形会错上推到 dist/，此腿专防回退算术位）。
+  it('包根上探命中——dist/src 产物形上探三级定根真 package.json', () => {
+    const root = mkdtempSync(join(tmpdir(), 'factory-skills-climb-'));
+    try {
+      writeFileSync(join(root, 'package.json'), '{"private":true}\n');
+      const moduleUrl = pathToFileURL(join(root, 'dist', 'src', 'skills', 'discovery.js')).href;
+      expect(resolveFactorySkillsDir(moduleUrl)).toBe(join(root, 'skills'));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

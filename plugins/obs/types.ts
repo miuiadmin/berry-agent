@@ -7,7 +7,7 @@
  * host 装配批）。obs deps = {contracts, persist}——persist 边只消费
  * openAuxDatabase 开库面，事件流经 ObsEventsFace 窄面注入。
  */
-import type { SessionEvent } from '../contracts/index.js';
+import type { SessionEvent } from '../../src/contracts/index.js';
 
 /* ---------------- 三窄面（装配注入缝） ---------------- */
 

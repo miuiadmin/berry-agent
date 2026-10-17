@@ -71,7 +71,7 @@ import {
   createGoalUpdateTool,
   runGoalCommand,
   GOAL_USAGE,
-} from '../goal/index.js';
+} from '../../plugins/goal/index.js';
 import type {
   GateExecSeam,
   GoalRow,
@@ -79,7 +79,7 @@ import type {
   GoalSessionFace,
   GoalSummarizerFace,
   GoalTodoItem,
-} from '../goal/index.js';
+} from '../../plugins/goal/index.js';
 import type { ConversationStack } from './conversation-stack.js';
 import type { BudgetBroadcastEntry, BudgetBroadcastFace } from './budget-broadcast.js';
 // foldErrorText 单源折面（wf_3c8b00b8 组α）——onRestore 双保险 catch 消费
@@ -150,8 +150,8 @@ import type { DelegationToolDeps, SubagentService } from '../subagent/index.js';
 // 批 19e HTTP 面族四件（sdk/webui/issue/obs——core 15 件齐册）
 import { createSdkHttpFace } from '../sdk/index.js';
 import type { PluginRouteRegistry, SdkHttpFaceHandle } from '../sdk/index.js';
-import { createObsQueryTool, createObsService } from '../obs/index.js';
-import type { ObsAlertRule, ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../obs/index.js';
+import { createObsQueryTool, createObsService } from '../../plugins/obs/index.js';
+import type { ObsAlertRule, ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../../plugins/obs/index.js';
 import { createGithubBackend, createIssueService, mountIssueWebhook, normalizeIssueConfig } from '../issue/index.js';
 import { ISSUE_VERIFY_TAIL_BYTES } from '../issue/index.js';
 import type {

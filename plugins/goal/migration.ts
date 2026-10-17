@@ -15,7 +15,7 @@
  * 后续列扩张一律走新号 ALTER（本族第二条 GOAL_APPROVAL_MIGRATION v12——
  * 2026-09-13 f-1 批：needsWrite 人面批准位）。
  */
-import type { MigrationSpec } from '../persist/index.js';
+import type { MigrationSpec } from '../../src/persist/index.js';
 
 export const GOAL_MIGRATION: MigrationSpec = {
   version: 3,

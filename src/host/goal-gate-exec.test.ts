@@ -26,7 +26,7 @@ import { BaseError } from '../contracts/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import type { GoalFace } from './core-plugins.js';
-import type { GoalService } from '../goal/index.js';
+import type { GoalService } from '../../plugins/goal/index.js';
 import type { ToolDefinition } from '../contracts/index.js';
 
 /* ---------------- 测试基建（goal-budget-park.test rig 同族） ---------------- */

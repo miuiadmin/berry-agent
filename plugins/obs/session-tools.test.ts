@@ -7,8 +7,8 @@
  * session-view.test（假 view 固定返回——层分立）。
  */
 import { describe, expect, it } from 'vitest';
-import type { ToolDefinition } from '../contracts/index.js';
-import { adjudicateCapabilityDoor } from '../contracts/api.js';
+import type { ToolDefinition } from '../../src/contracts/index.js';
+import { adjudicateCapabilityDoor } from '../../src/contracts/api.js';
 import { createSessionTools, OBSERVE_CROSS_CAPABILITY } from './session-tools.js';
 import type { SessionObserveUsedRecord, SessionToolsDeps } from './session-tools.js';
 import type {

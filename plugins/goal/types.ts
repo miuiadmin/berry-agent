@@ -11,7 +11,7 @@
  *    扩展字段 goal 段独有——durable `todo/write` 载荷两向兼容：conversation
  *    fold 读侧剥离未知字段、goal fold 读侧收窄扩展字段）。
  */
-import type { SessionEvent } from '../contracts/index.js';
+import type { SessionEvent } from '../../src/contracts/index.js';
 
 /** goal 状态（迁转面——终态两值不复活，续跑重开走新 goal） */
 export type GoalStatus = 'active' | 'completed' | 'abandoned';

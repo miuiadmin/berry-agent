@@ -28,7 +28,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stdout as processStdout, stderr as processStderr } from 'node:process';
-import { fileURLToPath } from 'node:url';
 
 import { Persistence, createAuditFace, resolveDataDir } from '../persist/index.js';
 import { adjudicateApiGate, compareApiVersions } from '../contracts/api.js';
@@ -37,6 +36,7 @@ import type { PluginsCommand } from './cli.js';
 import { assembleHostStack } from './assembly.js';
 import { formatPluginFailureText } from './boot-failures.js';
 import type { CorePluginReference } from './loader.js';
+import { hostPackageRoot } from './loader.js';
 import { checkPluginId, parseManifest } from './manifest.js';
 import { installPlugin, updatePlugin, createDefaultSpawnRunner } from './plugin-install.js';
 import type { InstallExecutorDeps } from './plugin-install.js';
@@ -166,14 +166,15 @@ type CheckRow =
 /**
  * 宿主 apiVersion 直读（03 §8.1 独立号——API 面版本，与包 version 分立）。
  * **与 main.ts readVersion 同文件同源**：仓库根 package.json 的 version +
- * apiVersion 双值同文件（src 与 dist 同相对深度 '../../package.json'——
- * DP2「readVersion 同源补读」的同源位，本面不 import main.ts〔宿主入口
- * 归他件域〕）。缺席兜底 '1.0' = 首快照号（boot options.apiVersion 缺省
- * 同值——防御位，仓库 package.json 恒有该字段）。
+ * apiVersion 双值同文件（包根定位 = loader 件 hostPackageRoot 单源〔形态
+ * 无关包根上探——2026-10-17 ④试点件迁移落码批 rootDir 仓根化后产物形
+ * dist/src/host/** 三级上探，旧 '../../package.json' 算术位在产物形失效，
+ * 同批改上探；DP2「readVersion 同源补读」的同源位，本面不 import main.ts
+ * 〔宿主入口归他件域〕〕）。缺席兜底 '1.0' = 首快照号（boot options
+ * .apiVersion 缺省同值——防御位，仓库 package.json 恒有该字段）。
  */
 function readHostApiVersion(): string {
-  const pkgUrl = new URL('../../package.json', import.meta.url);
-  const pkg = JSON.parse(readFileSync(fileURLToPath(pkgUrl), 'utf8')) as { apiVersion?: string };
+  const pkg = JSON.parse(readFileSync(join(hostPackageRoot, 'package.json'), 'utf8')) as { apiVersion?: string };
   return pkg.apiVersion ?? '1.0';
 }
 

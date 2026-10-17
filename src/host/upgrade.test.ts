@@ -117,31 +117,35 @@ describe('compareSemverFull（§8.5 第 6 条判序——prerelease 全序）', 
 
 describe('detectInstallForm（§8.5 第 1 条三态 + 管理器甄别）', () => {
   it('npm 全局形（node_modules 段）', () => {
-    expect(detectInstallForm('/usr/local/lib/node_modules/berry-agent/dist/host/main.js')).toBe('npm-global');
+    expect(detectInstallForm('/usr/local/lib/node_modules/berry-agent/dist/src/host/main.js')).toBe('npm-global');
     expect(
-      detectInstallForm('/Users/x/.nvm/versions/node/v24.1.0/lib/node_modules/berry-agent/dist/host/main.js'),
+      detectInstallForm('/Users/x/.nvm/versions/node/v24.1.0/lib/node_modules/berry-agent/dist/src/host/main.js'),
     ).toBe('npm-global');
   });
 
   it('pnpm 形先于通形判（.pnpm 段——路径同样含 node_modules）', () => {
     expect(
       detectInstallForm(
-        '/Users/x/Library/pnpm/global/5/.pnpm/berry-agent@1.0.0/node_modules/berry-agent/dist/host/main.js',
+        '/Users/x/Library/pnpm/global/5/.pnpm/berry-agent@1.0.0/node_modules/berry-agent/dist/src/host/main.js',
       ),
     ).toBe('pnpm');
   });
 
   it('bun 形（.bun 段）与 yarn 形（.yarn 段 / yarn+global 相邻段）', () => {
-    expect(detectInstallForm('/Users/x/.bun/install/global/node_modules/berry-agent/dist/host/main.js')).toBe('bun');
-    expect(detectInstallForm('/Users/x/.yarn/global/node_modules/berry-agent/dist/host/main.js')).toBe('yarn');
-    expect(detectInstallForm('/Users/x/.config/yarn/global/node_modules/berry-agent/dist/host/main.js')).toBe('yarn');
+    expect(detectInstallForm('/Users/x/.bun/install/global/node_modules/berry-agent/dist/src/host/main.js')).toBe(
+      'bun',
+    );
+    expect(detectInstallForm('/Users/x/.yarn/global/node_modules/berry-agent/dist/src/host/main.js')).toBe('yarn');
+    expect(detectInstallForm('/Users/x/.config/yarn/global/node_modules/berry-agent/dist/src/host/main.js')).toBe(
+      'yarn',
+    );
   });
 
   it('win32 反斜杠同判 + 源码形态（无 node_modules）', () => {
     expect(
       detectInstallForm('C:\\Users\\x\\AppData\\Roaming\\npm\\node_modules\\berry-agent\\dist\\host\\main.js'),
     ).toBe('npm-global');
-    expect(detectInstallForm('/Users/x/Documents/code/berry-agent/dist/host/main.js')).toBe('source');
+    expect(detectInstallForm('/Users/x/Documents/code/berry-agent/dist/src/host/main.js')).toBe('source');
   });
 });
 
@@ -524,7 +528,7 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
     return {
       deps: {
         currentVersion: '0.1.0-alpha.4',
-        realEntryPath: overrides.realEntryPath ?? '/usr/local/lib/node_modules/berry-agent/dist/host/main.js',
+        realEntryPath: overrides.realEntryPath ?? '/usr/local/lib/node_modules/berry-agent/dist/src/host/main.js',
         spawn: fakeSpawn('https://registry.example.com'),
         fetchImpl: fetch,
         resolveDns: overrides.resolveDns ?? publicDns,
@@ -547,7 +551,7 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
   };
 
   it('源码形态：指引四步不代执行（零网络零 spawn）', async () => {
-    const { deps, out, err } = cliDeps({ realEntryPath: '/src/berry-agent/dist/host/main.js' });
+    const { deps, out, err } = cliDeps({ realEntryPath: '/src/berry-agent/dist/src/host/main.js' });
     const code = await runUpgradeCommand(deps);
     expect(code).toBe(0);
     expect(out.join('\n')).toContain('git pull');
@@ -556,9 +560,9 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
   });
 
   it.each([
-    ['pnpm', '/x/.pnpm/berry-agent@1/node_modules/berry-agent/dist/host/main.js', 'pnpm add -g berry-agent'],
-    ['yarn', '/x/.yarn/global/node_modules/berry-agent/dist/host/main.js', 'yarn global add berry-agent'],
-    ['bun', '/x/.bun/install/global/node_modules/berry-agent/dist/host/main.js', 'bun add -g berry-agent'],
+    ['pnpm', '/x/.pnpm/berry-agent@1/node_modules/berry-agent/dist/src/host/main.js', 'pnpm add -g berry-agent'],
+    ['yarn', '/x/.yarn/global/node_modules/berry-agent/dist/src/host/main.js', 'yarn global add berry-agent'],
+    ['bun', '/x/.bun/install/global/node_modules/berry-agent/dist/src/host/main.js', 'bun add -g berry-agent'],
   ])('%s 形：只打原管理器指引不代执行', async (_form, path, guideCmd) => {
     const { deps, out, installCalls } = cliDeps({ realEntryPath: path });
     const code = await runUpgradeCommand(deps);

@@ -9,8 +9,8 @@
  *  - 遮蔽区间两向同律（05 §1.1）：occluded 的 todo/write 不成表；
  *  - 载荷收窄保守降级（durable 受信但形演进不得崩读侧——坏条目丢弃）。
  */
-import type { SessionEvent } from '../contracts/index.js';
-import { occludedSeqs } from '../session/index.js';
+import type { SessionEvent } from '../../src/contracts/index.js';
+import { occludedSeqs } from '../../src/session/index.js';
 import type { GoalTodoItem, WritableGoalTodoItem } from './types.js';
 
 /** status 四值词表（与 conversation TodoItemData 同词表——结构兼容面） */

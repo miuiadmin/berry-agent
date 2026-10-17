@@ -294,7 +294,10 @@ const DEPRECATIONS =
   // <说明>`——裸标签红：无编号的标签无法对账；注册行无标签红：登记不落码面
   // 标注即双源）——
   const jsdocFiles = [
+    // 件区树入 JSDoc 扫描面（2026-10-17 ④试点件迁移落码批：plugins/<id>/
+    // 随迁——deprecated 标签面与物理位置同步）
     ...walkFiles('src', ['.ts']).filter((f) => !f.endsWith('.test.ts')),
+    ...walkFiles('plugins', ['.ts']).filter((f) => !f.endsWith('.test.ts')),
     ...walkFiles('api-decls', ['.d.ts']),
     ...ROOT_READMES,
   ];
@@ -329,7 +332,9 @@ const DEPRECATIONS =
     })),
   ].filter((t, i, arr) => arr.findIndex((o) => o.symbol === t.symbol) === i);
   if (scanTargets.length > 0) {
-    const srcFiles = walkFiles('src', ['.ts']).filter(
+    // 件区树同入废弃使用扫描面（④试点件迁移落码批——件区产码同受零废弃
+    // 使用执法；examples 容缺席照旧）
+    const srcFiles = [...walkFiles('src', ['.ts']), ...walkFiles('plugins', ['.ts'])].filter(
       (f) => !f.endsWith('.test.ts') && !f.endsWith('contracts/deprecations.ts'),
     );
     const exampleFiles = walkFiles('examples', ['.ts']);

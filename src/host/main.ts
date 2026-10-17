@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * host/main — bin 入口装配位（package.json bin = berry → dist/host/main.js）。
+ * host/main — bin 入口装配位（package.json bin = berry → dist/src/host/main.js
+ * ——2026-10-17 ④试点件迁移落码批 rootDir 仓根化后 dist/src/** 布局）。
  *
  * 薄壳三件事：装崩溃编舞（前置窗口直写 crash.log——运行时组装后切
  * runtime.writeCrashLog）→ 装信号编舞（SIGINT②→130 / SIGTERM 优雅序——
@@ -16,6 +17,7 @@
  * bin 执行位由 npm pack 装配。
  */
 import { readFileSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
 import { argv, exit as processExit, stderr, stdin, stdout } from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -39,6 +41,7 @@ import { runSessionsEntry } from './sessions-cmd.js';
 import { runCredentialsEntry } from './credentials-cmd.js';
 import { runDoorsEntry } from './doors-cmd.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
+import { hostPackageRoot } from './loader.js';
 import { runUpgradeCommand, createNodeUpdateCheckFs } from './upgrade.js';
 import { createDefaultSpawnRunner } from './plugin-install.js';
 
@@ -50,10 +53,14 @@ export function attachRuntime(runtime: HostRuntime): void {
   activeRuntime = runtime;
 }
 
-/** 读包版本（裸 semver——bin 与包根两级上溯；src 与 dist 同相对深度） */
+/**
+ * 读包版本（裸 semver——包根定位 = loader 件 hostPackageRoot 单源〔形态
+ * 无关包根上探；2026-10-17 ④试点件迁移落码批 rootDir 仓根化后产物形
+ * dist/src/host/** 三级上探——旧「两级上溯」算术位在产物形失效，同批
+ * 改上探〕）。
+ */
 function readVersion(): string {
-  const pkgUrl = new URL('../../package.json', import.meta.url);
-  const pkg = JSON.parse(readFileSync(fileURLToPath(pkgUrl), 'utf8')) as { version?: string };
+  const pkg = JSON.parse(readFileSync(join(hostPackageRoot, 'package.json'), 'utf8')) as { version?: string };
   return pkg.version ?? '0.0.0-unknown';
 }
 

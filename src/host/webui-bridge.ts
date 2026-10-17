@@ -23,7 +23,7 @@
  *
  * 职责（装配桥五面）：conversation 栈五动词 → WebuiDeps 三窄面映射（词面
  * 独立律的装配侧互证——compat 互证 18a-3' 两方向例锁死，见测试件）+
- * staticDir 探测（dist/webui 共生形；缺席诚实 API-only 不虚报）+ token
+ * staticDir 探测（dist/src/webui 共生形；缺席诚实 API-only 不虚报）+ token
  * 一次性披露（stderr 缺省——「监听 ⇒ 鉴权」面本体保证恒在场，令牌只此
  * 一次显示；token 生成归面）+ backend 通道挂接（UiBackend 第四实装 claim
  * 桥——共用挂载段接线）+ stop 进运行时退出序 closer（注册序在
@@ -92,7 +92,7 @@ export interface WebuiBridgeOptions {
   readonly runtime: HostRuntime;
   /** 监听端口（缺省 7860 恒回环——WEBUI_DEFAULT_PORT） */
   readonly port?: number;
-  /** 静态面目录覆盖（测试注入；缺省探测 dist/webui——缺席 API-only） */
+  /** 静态面目录覆盖（测试注入；缺省探测 dist/src/webui——缺席 API-only） */
   readonly staticDir?: string;
   /**
    * 新会话工作区根锚点（缺省 process.cwd()）。CL-A2 补位：与 serve/mcp/
@@ -226,7 +226,7 @@ export interface WebuiFaceMountOptions {
   readonly stack: ConversationStack;
   /** 承载面（sdk HTTP 面——路由经 face.register 直注；daemon 形即 daemon face） */
   readonly face: SdkHttpFaceHandle;
-  /** 静态面目录覆盖（测试注入；缺省探测 dist/webui——缺席 API-only） */
+  /** 静态面目录覆盖（测试注入；缺省探测 dist/src/webui——缺席 API-only） */
   readonly staticDir?: string;
   /**
    * @ 文件段补全锚（缺省 process.cwd()——与浏览器会话 workspaceRoot 缺省
@@ -674,9 +674,11 @@ function bridgeDeps(
 }
 
 /**
- * 静态面目录探测：构建共生形 dist/host → dist/webui（SPA index.html 在场
- * 才启用；缺席 = API-only 形——/ 与未知路径 404，诚实不虚报）。测试态
- * （tsx 直跑 src）src/webui 无 index.html 自动落 API-only。
+ * 静态面目录探测：构建共生形本模块旁 webui/ 邻位（2026-10-17 ④试点件迁移
+ * 落码批后 = dist/src/host → dist/src/webui——rootDir 仓根化产物布局，
+ * 邻位关系不变；SPA index.html 在场才启用；缺席 = API-only 形——/ 与未知
+ * 路径 404，诚实不虚报）。测试态（tsx 直跑 src）src/webui 无 index.html
+ * 自动落 API-only。
  */
 function resolveStaticDir(): string | undefined {
   const candidate = join(dirname(fileURLToPath(import.meta.url)), '..', 'webui');

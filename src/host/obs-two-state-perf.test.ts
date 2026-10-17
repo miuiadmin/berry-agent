@@ -31,7 +31,7 @@ import { Engine, MemoryTerminalIO, type Renderable } from '../channels/engine/in
 import { TuiBackend } from '../channels/tui/index.js';
 import type { SessionEvent } from '../contracts/index.js';
 import { openStore, SESSION_ARCHIVED_AT_MIGRATION, SESSION_ARCHIVE_MIGRATION, type Store } from '../persist/index.js';
-import { createObsService, type ObsService } from '../obs/index.js';
+import { createObsService, type ObsService } from '../../plugins/obs/index.js';
 
 /* ---------------- 帽值（码面定值——07 §4.1 回填落点） ---------------- */
 

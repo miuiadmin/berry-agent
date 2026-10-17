@@ -8,7 +8,7 @@
  * GOAL_NOT_FOUND 管幽灵 goalId；GOAL_GOAL_INVALID 管行载荷词法。
  * 本文件由模块公开面 index.ts 引入（注册纪律：import 发生才注册）。
  */
-import { registerErrorCodes } from '../contracts/index.js';
+import { registerErrorCodes } from '../../src/contracts/index.js';
 
 registerErrorCodes([
   {

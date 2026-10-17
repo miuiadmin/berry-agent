@@ -13,7 +13,7 @@
  * 先例；obs 会话维工具族 execute 内执法）。
  * 本文件由模块公开面 index.ts 引入（注册纪律：import 发生才注册）。
  */
-import { registerErrorCodes } from '../contracts/index.js';
+import { registerErrorCodes } from '../../src/contracts/index.js';
 
 registerErrorCodes([
   {

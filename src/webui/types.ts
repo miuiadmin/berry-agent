@@ -384,7 +384,7 @@ export interface WebuiDeps {
    * 缺席 = 零订阅零帧（旧装配兼容——纯 API-only 形无收场行）。
    */
   readonly askSettled?: (listener: (notice: AskSettledNotice & { sessionId: string }) => void) => () => void;
-  /** SPA 静态面目录（生产 dist/webui/；缺席 = API-only 形，/ 与未知路径 404） */
+  /** SPA 静态面目录（生产 dist/src/webui/；缺席 = API-only 形，/ 与未知路径 404） */
   readonly staticDir?: string;
 }
 

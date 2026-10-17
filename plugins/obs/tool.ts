@@ -6,7 +6,7 @@
  * 是模型读观测面动作，零写权。装载归批 12 装配面（createObsQueryTool
  * 工厂——与 createFetchTool 同款接线位）。
  */
-import { BaseError, type AgentToolResult, type ToolDefinition } from '../contracts/index.js';
+import { BaseError, type AgentToolResult, type ToolDefinition } from '../../src/contracts/index.js';
 import { Type } from 'typebox';
 import type { ObsEventsRow, ObsQueryRow, ObsService, ObsUsageRow } from './types.js';
 
