@@ -1754,6 +1754,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       //（seq+level+text 直展——collectSessionNotices 收集位已坏形防御跳过，
       // 本层零过滤零闸知识，backend 收到干净子集）
       noticesOf: (sessionId) => stack.noticesOf(sessionId).map(({ seq, level, text }) => ({ seq, level, text })),
+      // 评审 findings 全序列数据源（35 池件 9——投影/回看重建路）：窄形映射
+      //（seq+findings 深拷贝直展——collectSessionReviews 收集位已坏形两级防御
+      // 跳过，本层零过滤零闸知识，backend 收到干净子集）
+      reviewsOf: (sessionId) =>
+        stack.reviewsOf(sessionId).map(({ seq, findings }) => ({ seq, findings: findings.map((f) => ({ ...f })) })),
       // 持久化分项目输入历史（B1——07 §4.1 呈现面件 2 定形注③种写双路）：
       // 域键 = 启动锚工作区根（session.workspaceRoot——resume/--session 续接
       // 会话根与 openStartupSession 缺省 cwd 归一两路均已 canonical 归一形；

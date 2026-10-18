@@ -72,4 +72,10 @@ registerErrorCodes([
     description:
       'session/notice 事件载荷非法（level 出四档闭集 info/success/warn/error 或 text 非串）——append 面校验抛出位（坏形不入账；collect 读面同形防御跳过不炸呈现，fail-loud 归 append 面；挖掘 53 轮件 C 入册——SANDBOX_MODE_INVALID fail-loud 律同源承袭，纯逻辑面归 conversation 事件面族而写点 = host 装配位通知腿）',
   },
+  {
+    code: 'SESSION_REVIEW_PAYLOAD_INVALID',
+    module: 'conversation',
+    description:
+      'session/review 事件载荷非法（findings 非数组/元素六员〔title·file·start·end·priority·body〕缺一/行号非正整数或 start>end/priority 出三档闭集 info/warn/error）——append 面校验抛出位（坏形不入账；collect 读面两级防御跳过——事件级 findings 非数组跳整条、条目级坏形跳单条，呈现面收到干净子集不炸；35 池件 9 入册——SESSION_NOTICE_PAYLOAD_INVALID 律同源承袭；调用方 = 渠道/插件侧多源，本件只落契约与呈现写点不接线）',
+  },
 ]);

@@ -2040,6 +2040,13 @@
       "desc": "会话停靠（无人值守深化批 u-3 2026-09-11——04 §5 停靠升格定形注②；05 §1.1 词行）：载荷 {reason}（v1 单值 budget——预算语境停靠；触发形态非穷举：记账刹停/budgetExceeded 复验/起跑前池检拒/issue 悬置同词承载）；写入者 = 编排层停靠登记位（run 在飞时先 driver.abort() 协作中止、收口后落词）；fold 语义 = 尾条即停靠（SessionLiveState paused 档推导判据）；恢复不设对称词——唤醒消息（user/message source=budget-extended）落账尾条翻位即恢复 running，resumed 词不立；载体 = 会话流"
     },
     {
+      "symbol": "session/review",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "评审 findings 结构化呈现（35 池件 9 残余价值面入册——池定谳不迁 prose 嵌入语法：宿主有工具调用/事件通道，机器数据不过 prose，只做结构化契约呈现）：载荷 {findings 数组——元素 {title, file（相对工作区根）, start, end（1 起行号，start==end 呈现收单行形）, priority（三档闭集 info/warn/error——不承袭 notice 四档：finding 是问题陈述非成事回执，success 档无义）, body}}；永不进模型历史（log-only——不做模型 prompt 约定面）；调用方 = 渠道/插件侧多源（本件只落宿主契约与呈现，写点不接线——与 session/notice host 单写者律分立，词身份仍核心词拒装载面伪造）；append 面坏形 fail-loud（SESSION_REVIEW_PAYLOAD_INVALID），collect 读面坏形防御跳过（notice 同律）；消费面 = transcript review 块（07 §4.1 durable 非消息源块族第六员）+ conversation 栈 reviewsOf 读面"
+    },
+    {
       "symbol": "session/thinking-level",
       "module": "session-events",
       "tier": "stable",

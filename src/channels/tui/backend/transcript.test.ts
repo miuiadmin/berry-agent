@@ -3016,6 +3016,55 @@ describe('sliceHistoryWindow 轮次边界切窗（挖掘 52 轮件 A——回看
     expect(older.messages.map((m) => m.seq)).toEqual([0, 1]);
     expect(older.notices).toEqual([{ seq: 0, level: 'info', text: '首锚' }]); // 只在此页呈现一次
   });
+
+  // ── reviews 族随律镜像（gateC P3②——notice 族两把锁随族迁移：空域在场性
+  // 与最早页下界两新增行（35 池件 9）此前仅 typecheck 保形零行为锁） ──
+
+  /** 评审条目速构（ReviewFindingItem 最小形——切片面只读 seq/findings 结构） */
+  const rvFinding = (title: string) => ({
+    title,
+    file: 'src/a.ts',
+    start: 1,
+    end: 2,
+    priority: 'info' as const,
+    body: '',
+  });
+
+  it('空域 reviews 在场性镜像：beforeSeq ≤ 首消息 seq = 空窗 + 在场族收 []、缺席族恒 undefined', () => {
+    const all = turns(2);
+    const page = sliceHistoryWindow(all, 0, { cap: 10, reviews: [{ seq: 0, findings: [rvFinding('x')] }] });
+    expect(page.messages).toEqual([]);
+    expect(page.nextBeforeSeq).toBeNull();
+    expect(page.reviews).toEqual([]); // 在场族空切片（空域早退位镜像——loadProjection 参照旧）
+    expect(page.decisions).toBeUndefined(); // 缺席族恒缺席
+  });
+
+  it('reviews 最早页下界放宽 + 不外溢：先于首消息的评审卡首窗全量、非最早页零跨页重复', () => {
+    // 同机制随律（07 §4.1 五族统一批注）——若 reviews 切片腿独立漂移（漏放宽
+    // 或误全程放宽）本测红：修前红锚 = 下界 firstSeq → seq 0 卡任何页不可见
+    const all = [seqMsg(userMsg('问0'), 1), seqMsg(assistantMsg('答0'), 2)];
+    const page = sliceHistoryWindow(all, Number.POSITIVE_INFINITY, {
+      cap: 10,
+      reviews: [
+        { seq: 0, findings: [rvFinding('先于首问')] }, // 空会话先落块后聊天形
+        { seq: 2, findings: [rvFinding('窗内')] },
+      ],
+    });
+    expect(page.nextBeforeSeq).toBeNull(); // start===0 最早页
+    expect(page.reviews).toEqual([
+      { seq: 0, findings: [rvFinding('先于首问')] }, // 最早页下界取 0——首窗全量
+      { seq: 2, findings: [rvFinding('窗内')] },
+    ]);
+    // 非最早页下界不动（窗首 seq 含端）——先于首窗的卡零跨页重复呈现
+    //（notices 不外溢先例同形：turns(3) 尾窗 cap=4 窗首 seq 2）
+    const all2 = turns(3); // seq 0..5
+    const tail = sliceHistoryWindow(all2, Number.POSITIVE_INFINITY, {
+      cap: 4,
+      reviews: [{ seq: 0, findings: [rvFinding('首锚')] }],
+    });
+    expect(tail.messages.map((m) => m.seq)).toEqual([2, 3, 4, 5]); // 非最早页（nextBeforeSeq=2）
+    expect(tail.reviews).toEqual([]); // seq 0 卡属更早页——本窗不重复
+  });
 });
 
 /* ---------------- 宿主通知块（挖掘 53 轮件 C——notice durable 族第五员） ---------------- */
@@ -3113,7 +3162,7 @@ describe('LiveTranscript 宿主通知块（挖掘 53 轮件 C——session/notic
     expect(ask1).toBeGreaterThan(0); // 速构健全（首 user 是问0）
   });
 
-  it('重建腿固定序末位：同 seq 跨族邻接 decisions → modelChanges → notices（07 §4.1 四队列定序）+ 零 seq 消息降级尾 flush', () => {
+  it('重建腿固定序：同 seq 跨族邻接 decisions → modelChanges → notices → reviews（07 §4.1 五队列定序——35 池件 9 reviews 增末位）+ 零 seq 消息降级尾 flush', () => {
     const t = new LiveTranscript();
     t.loadProjection(
       [
@@ -3124,10 +3173,12 @@ describe('LiveTranscript 宿主通知块（挖掘 53 轮件 C——session/notic
       undefined,
       [{ seq: 0, model: 'p/m' }],
       [{ seq: 0, level: 'info', text: '通知' }],
+      [{ seq: 0, findings: [{ title: '评审', file: 'a.ts', start: 1, end: 1, priority: 'info', body: '' }] }],
     );
-    // seq 0 三族邻接（decisions+modelChanges+notices）：四队列固定序——决策 → 切线 → 通知
-    const kinds = t.snapshot.slice(0, 3).map((b) => b.kind);
-    expect(kinds).toEqual(['approval-decision', 'model-change', 'notice']);
+    // seq 0 四族邻接（decisions+modelChanges+notices+reviews）：五队列固定序
+    // ——决策 → 切线 → 通知 → 评审
+    const kinds = t.snapshot.slice(0, 4).map((b) => b.kind);
+    expect(kinds).toEqual(['approval-decision', 'model-change', 'notice', 'review']);
     // 零 seq 降级：消息全无 seq 形——notice 全量尾 flush（诚实不丢）
     const bare = new LiveTranscript();
     bare.loadProjection([userMsg('问0'), assistantMsg('答0')] as never, undefined, undefined, undefined, [
@@ -3144,6 +3195,155 @@ describe('LiveTranscript 宿主通知块（挖掘 53 轮件 C——session/notic
       { seq: 0, level: 'info', text: '升级提示' },
     ]);
     expect(t.snapshot.some((b) => b.kind === 'notice')).toBe(true); // 重建自 collect 同集——repaint 不消失
+  });
+});
+
+/* ---------------- 评审 findings 块（35 池件 9——review durable 族第六员） ---------------- */
+
+describe('LiveTranscript 评审 findings 块（35 池件 9——session/review durable）', () => {
+  /** finding 速构（六员全列——collectSessionReviews 净化产物形） */
+  const rv = (partial: Partial<Extract<TranscriptBlock, { kind: 'review' }>['findings'][number]> = {}) => ({
+    title: '未处理空值',
+    file: 'src/example.ts',
+    start: 10,
+    end: 10,
+    priority: 'warn' as const,
+    body: '',
+    ...partial,
+  });
+
+  /** 评审块速构（渲染面直锁） */
+  const reviewBlock = (findings: readonly ReturnType<typeof rv>[]): TranscriptBlock => ({
+    kind: 'review',
+    seq: 1,
+    findings,
+    theme: DEFAULT_THEME,
+  });
+
+  it('卡式呈现：头行 `• 评审发现 N 项`（• dim + 词 bold）+ 条目分条（三档头符·档位色·单行形/行域形·路径剥 ./ 前缀·位置段 dim）', () => {
+    const lines = renderBlockStyledLines(
+      reviewBlock([
+        rv({ priority: 'info', title: '命名可读性', file: './src/info.ts' }),
+        rv({ priority: 'warn', title: '未处理空值', file: 'src/example.ts' }),
+        rv({ priority: 'error', title: '越界访问', file: 'src/deep/mod.ts', start: 100, end: 120 }),
+      ]),
+      100,
+      false,
+    );
+    // 头行 + 三条目（空 body 零行——不占虚行）
+    expect(lines).toHaveLength(4);
+    expect(lines[0]!.plain).toBe('• 评审发现 3 项');
+    expect(lines[0]!.runs[0]).toMatchObject({ start: 0, end: 1, style: { dim: true } }); // • dim
+    expect(lines[0]!.runs[1]).toMatchObject({ start: 2, end: 2 + '评审发现 3 项'.length, style: { bold: true } }); // 词 bold
+    // info 档：• 头符 secondary + 单行形（start==end 收 `${start}`）+ 剥 `./` 前缀
+    expect(lines[1]!.plain).toBe('  • 命名可读性 · src/info.ts:10');
+    expect(lines[1]!.runs[0]).toMatchObject({ start: 2, end: 3, style: { fg: DEFAULT_THEME.secondary } });
+    // warn 档：⚠ 头符 error 借键（notice level 同律——主题无 warn 专用键）
+    expect(lines[2]!.plain).toBe('  ⚠ 未处理空值 · src/example.ts:10');
+    expect(lines[2]!.runs[0]).toMatchObject({ start: 2, end: 3, style: { fg: DEFAULT_THEME.error } });
+    // error 档：✗ 头符 error + 行域形（start!=end 展开 `${start}-${end}`）
+    expect(lines[3]!.plain).toBe('  ✗ 越界访问 · src/deep/mod.ts:100-120');
+    expect(lines[3]!.runs[0]).toMatchObject({ start: 2, end: 3, style: { fg: DEFAULT_THEME.error } });
+    // 位置段 dim（标题默认前景——载荷主体；尾段含路径定位）
+    const tail = lines[2]!.runs[lines[2]!.runs.length - 1]!;
+    expect(tail.style.dim).toBe(true);
+    expect(tail.start).toBe(4 + '未处理空值'.length + 3); // ` · ` 分隔后
+    expect(tail.end).toBe(lines[2]!.plain.length);
+  });
+
+  it('正文形：四空格缩进 dim + 逐行消毒（异源可写面 OSC/C0 不入屏账）+ 多行分线 + 空白行跳过 + 空标题折叠跳 ` · `', () => {
+    const lines = renderBlockStyledLines(
+      reviewBlock([
+        rv({
+          title: '',
+          file: 'src/a.ts',
+          priority: 'info',
+          body: '第一行\n\n第二行 q\x1b]52;c;aGk=\x07 尾',
+        }),
+      ]),
+      100,
+      false,
+    );
+    // 头行 + 空标题折叠条目（`  • src/a.ts:10`——无 ` · ` 分隔、整尾 dim）+ 两行正文（空行跳过——卡内不落虚行）
+    expect(lines.map((line) => line.plain)).toEqual([
+      '• 评审发现 1 项',
+      '  • src/a.ts:10',
+      '    第一行',
+      '    第二行 q 尾', // OSC 52 整段剥除 + 换行分线
+    ]);
+    // 正文行 dim + 缩进后起点（4 空格占位）
+    expect(lines[2]!.runs[0]).toMatchObject({ start: 4, end: lines[2]!.plain.length, style: { dim: true } });
+    // 空标题形：条目行首游程仍是头符档位色、尾段从 file 起 dim
+    expect(lines[1]!.runs[0]).toMatchObject({ start: 2, end: 3, style: { fg: DEFAULT_THEME.secondary } });
+    const tail = lines[1]!.runs[lines[1]!.runs.length - 1]!;
+    expect(tail.start).toBe(4);
+    expect(tail.style.dim).toBe(true);
+  });
+
+  it('正文按宽折行（wrapText 单源——columns-4 缩进占位；条目单行制不预截走出口帽）', () => {
+    // 窄宽 12：正文折宽 8——20 字符 ASCII 折三行；条目行走出口帽（截断不在本锁射程）
+    const lines = renderBlockStyledLines(reviewBlock([rv({ body: 'a'.repeat(20) })]), 12, false);
+    const bodyLines = lines.filter((line) => line.plain.startsWith('    '));
+    expect(bodyLines.map((line) => line.plain)).toEqual(['    aaaaaaaa', '    aaaaaaaa', '    aaaa']);
+    // 每行宽恰帽内（4 缩进 + 8 折宽 = 12 列帽）
+    for (const line of bodyLines) expect(line.plain.length).toBeLessThanOrEqual(12);
+  });
+
+  it('dialogueBlockCount 计入（排除式计数只除会话头卡——review 在册占帽）', () => {
+    expect(dialogueBlockCount([reviewBlock([rv()])])).toBe(1);
+  });
+
+  it('直播腿：appendReview 槽感知——槽开期 splice 到 streaming 槽前一位（槽恒居尾）、槽关期常序尾落', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_end', message: assistantMsg('答') });
+    const before = dialogueBlockCount(t.snapshot);
+    t.appendReview({ seq: 3, findings: [rv({ title: '关槽形' })] });
+    expect(t.snapshot[t.snapshot.length - 1]).toMatchObject({ kind: 'review', seq: 3 });
+    expect(dialogueBlockCount(t.snapshot)).toBe(before + 1); // 块账在册
+    // 槽开期（mid-run 评审形）：message_start 开槽后追加——块须在槽之前一位
+    apply(t, { type: 'message_start', role: 'assistant' });
+    expect(t.snapshot[t.snapshot.length - 1]!.kind).toBe('streaming');
+    t.appendReview({ seq: 4, findings: [rv({ title: '开槽形' })] });
+    expect(t.snapshot[t.snapshot.length - 1]!.kind).toBe('streaming'); // 槽恒居尾（尾块判不破）
+    expect(t.snapshot[t.snapshot.length - 2]).toMatchObject({ kind: 'review', seq: 4 });
+  });
+
+  it('重建腿：loadProjection reviews 归位——逐消息前 flush（先于其后首条消息）+ 尾 flush 诚实不丢', () => {
+    const t = new LiveTranscript();
+    t.loadProjection(
+      [
+        { ...userMsg('问0'), seq: 1 },
+        { ...assistantMsg('答0'), seq: 2 },
+        { ...userMsg('问1'), seq: 3 },
+      ] as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [
+        { seq: 0, findings: [rv({ title: '先于首问' })] },
+        { seq: 2, findings: [rv({ title: '两问之间' })] }, // flush 在 seq<3 边界（问1 前）
+        { seq: 9, findings: [rv({ title: '晚于全部' })] }, // 尾 flush
+      ],
+    );
+    const titles = t.snapshot
+      .filter((b): b is Extract<TranscriptBlock, { kind: 'review' }> => b.kind === 'review')
+      .flatMap((b) => b.findings.map((f) => f.title));
+    expect(titles).toEqual(['先于首问', '两问之间', '晚于全部']);
+    expect(t.snapshot[0]).toMatchObject({ kind: 'review' }); // user 块（问0）之前
+    const between = t.snapshot.findIndex((b) => b.kind === 'review' && b.findings.some((f) => f.title === '两问之间'));
+    const ask1 = t.snapshot.findIndex((b) => b.kind === 'user' && (b as { text: string }).text.includes('问1'));
+    expect(ask1).toBeGreaterThan(between); // 问1 块在评审卡后（flush 先于消息）
+  });
+
+  it('直播/重建同集锁：appendReview 落块后 loadProjection 同参重建——块仍在（durable 族非 live-only）', () => {
+    const t = new LiveTranscript();
+    t.appendReview({ seq: 0, findings: [rv({ title: '评审结论' })] });
+    expect(t.snapshot.some((b) => b.kind === 'review')).toBe(true);
+    t.loadProjection([{ ...userMsg('问0'), seq: 1 }] as never, undefined, undefined, undefined, undefined, [
+      { seq: 0, findings: [rv({ title: '评审结论' })] },
+    ]);
+    expect(t.snapshot.some((b) => b.kind === 'review')).toBe(true); // 重建自 collect 同集——repaint 不消失
   });
 });
 

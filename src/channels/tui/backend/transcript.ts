@@ -284,6 +284,27 @@ export type TranscriptBlock =
     }
   | {
       /**
+       * 评审 findings 块（35 池件 9——05 §1.1 session/review 词条）：评审
+       * 结论（机器结构化数据——池定谳不过 prose，走 durable 事件载体）
+       * session/review 事件的转录呈现（durable 非消息源块族第六员——
+       * notice 之后；直播腿 appendReview、重建腿 loadProjection 按 seq
+       * 归位）。卡式多行：头行 `• 评审发现 N 项`（• dim + 词 bold——todo
+       * 快照卡头同谱）+ 条目行（两空格缩进 + 三档头符 •/⚠/✗ + 标题 +
+       * ` · ` + `file:行域`——单行形 start==end 收 `${start}` 否则
+       * `${start}-${end}`；档位语义色 info→secondary / warn·error→error
+       * 借键〔notice level 同律〕、位置段 dim）+ 正文行（四空格缩进、逐行
+       * 消毒+按宽 wrap）。**槽感知直播腿** splice-before-slot
+       * （appendNotice 同形）。
+       */
+      readonly kind: 'review';
+      /** durable 位锚（session/review 事件 seq——呈现不消费） */
+      readonly seq: number;
+      /** findings 条目集（collectSessionReviews 净化产物——六员良形） */
+      readonly findings: readonly ReviewFindingItem[];
+      readonly theme: ResolvedTheme;
+    }
+  | {
+      /**
        * 问答落史行块（挖掘 36 轮 [2]——07 §4.1 问答落史行词条）：ctx.ui 阻塞
        * 三件（confirm/select/input）收场的即时一行落史——ask 收场单汇点
        * （UiCore）经 dispatch 总线词 ask/settled 回灌的 **live-only 旁支**：
@@ -392,20 +413,53 @@ export interface NoticeLineInput {
 }
 
 /**
- * 分页页载荷（挖掘 52 轮件 A——回看器分页加载）：一窗消息 + 四族随窗切片 +
+ * 评审 finding 条目窄形（35 池件 9）：title/file/start/end/priority/body 六员
+ * ——conversation 侧 ReviewFindingData 的结构子集（channels/tui 禁 import
+ * conversation〔02 §4.1 边表〕，结构视界桥接——文件内导出窄形同律）。
+ */
+export interface ReviewFindingItem {
+  /** 条目标题（呈现面消毒+一行化——块内存原文） */
+  readonly title: string;
+  /** 相对工作区根路径（呈现面剥 `./` 前缀显示） */
+  readonly file: string;
+  /** 起始行号（1 起——start==end 呈现收单行形） */
+  readonly start: number;
+  /** 结束行号（1 起含端点） */
+  readonly end: number;
+  /** 档位（三档闭集——conversation REVIEW_PRIORITIES 结构同源） */
+  readonly priority: 'info' | 'warn' | 'error';
+  /** 正文（多行自由文本——呈现面逐行消毒+缩进+按宽 wrap） */
+  readonly body: string;
+}
+
+/**
+ * 评审卡注入窄形（35 池件 9）：投影/回看路的评审载荷（seq 归位锚 +
+ * findings 条目集）——直播腿追加（appendReview）与重建腿归位
+ * （loadProjection reviews 参）两消费位同形；theme 由 LiveTranscript 自持
+ * （消费位不传）。文件内导出窄形——contracts 零改（NoticeLineInput 同律）。
+ */
+export interface ReviewLineInput {
+  /** 归位锚（session/review 事件 durable seq） */
+  readonly seq: number;
+  readonly findings: readonly ReviewFindingItem[];
+}
+
+/**
+ * 分页页载荷（挖掘 52 轮件 A——回看器分页加载）：一窗消息 + 五族随窗切片 +
  * 更早页游标。切窗产物 = sliceHistoryWindow 单源（host 装配闭包铸造、viewer
  * 每窗独立 loadProjection 消费——零承接账）。文件内导出型——contracts 零改
- * （四族窄形同律：channels/tui 域私有呈现数据形；notices 增员 = 挖掘 53 轮
- * 件 C）。
+ * （五族窄形同律：channels/tui 域私有呈现数据形；notices 增员 = 挖掘 53 轮
+ * 件 C、reviews 增员 = 35 池件 9）。
  */
 export interface HistoryPageData {
   /** 窗内消息（升序——必带 seq 形；切窗源 = 投影快照数组恒带） */
   readonly messages: readonly (AgentMessage & { readonly seq: number })[];
-  /** 四族随窗切片（seq 域 [窗首消息 seq, beforeSeq)——与消息同窗归位） */
+  /** 五族随窗切片（seq 域 [窗首消息 seq, beforeSeq)——与消息同窗归位） */
   readonly decisions?: readonly ApprovalDecisionLineInput[];
   readonly todoSnapshots?: readonly TodoSnapshotLineInput[];
   readonly modelChanges?: readonly ModelChangeLineInput[];
   readonly notices?: readonly NoticeLineInput[];
+  readonly reviews?: readonly ReviewLineInput[];
   /** 更早页游标（下一页拉取的 beforeSeq——本窗首消息 seq）；null = 已到最早 */
   readonly nextBeforeSeq: number | null;
 }
@@ -556,6 +610,63 @@ function noticeLine(block: Extract<TranscriptBlock, { kind: 'notice' }>): Styled
       { start: head.length, end: plain.length, style: DIM_STYLE },
     ],
   };
+}
+/**
+ * 评审三档头符表（35 池件 9）：info=•（提示非成败——与 notice info 同符同
+ * 谱）、warn=⚠、error=✗（NOTICE_SYMBOLS 同符族——success 档缺席：finding
+ * 是问题陈述非成事回执，三档闭集无成事档）。
+ */
+const REVIEW_SYMBOLS: Readonly<Record<'info' | 'warn' | 'error', string>> = { info: '•', warn: '⚠', error: '✗' };
+
+/**
+ * 评审卡行集（35 池件 9——渲染本体）：卡头 `• 评审发现 N 项`（• dim 前缀 +
+ * 词 bold——todo 快照卡头同谱）+ 条目行（两空格缩进 + 三档头符语义色
+ * 〔info→secondary / warn·error→error 借键——notice level 同律，主题无
+ * warn 专用键〕+ 标题〔消毒+一行化〕+ ` · ` + `file:行域`〔dim——路径剥
+ * `./` 前缀显示；行域 start==end 收单行形 `${start}` 否则 `${start}-${end}`；
+ * 空标题折叠跳 ` · ` 分隔〕）+ 正文行（四空格缩进、逐行消毒、按宽 wrap
+ * 〔columns-4——缩进占位〕、dim；空白行跳过——卡内不落虚行，空 body 零行）。
+ * 条目行单行制无预截——超宽走出口帽 capStyledLine 整字截断（简行族同律）；
+ * 正文是唯一折行面（自由文本长于行宽是常态非病态）。
+ */
+function renderReviewLines(block: Extract<TranscriptBlock, { kind: 'review' }>, columns: number): StyledLine[] {
+  const head = `评审发现 ${block.findings.length} 项`;
+  const lines: StyledLine[] = [
+    {
+      plain: `• ${head}`,
+      runs: [
+        { start: 0, end: 1, style: DIM_STYLE },
+        { start: 2, end: 2 + head.length, style: BOLD_STYLE },
+      ],
+    },
+  ];
+  const oneLine = (text: string) => sanitizeDisplayText(text).replace(/\s*[\n\r]+\s*/g, ''); // 消毒+一行化
+  for (const finding of block.findings) {
+    const symbol = REVIEW_SYMBOLS[finding.priority];
+    const fg: ColorValue = finding.priority === 'info' ? block.theme.secondary : block.theme.error; // warn·error 借键同色
+    const title = oneLine(finding.title);
+    // 路径剥 `./` 前缀显示（契约面收原形——工作区根相对形的最短人读形）
+    const file = oneLine(finding.file).replace(/^\.\//, '');
+    const loc = finding.start === finding.end ? `${finding.start}` : `${finding.start}-${finding.end}`;
+    const tail = `${file}:${loc}`;
+    const plain = title === '' ? `  ${symbol} ${tail}` : `  ${symbol} ${title} · ${tail}`;
+    const runs: StyleRun[] = [{ start: 2, end: 3, style: Object.freeze({ fg }) }];
+    // 尾段 dim 只覆位置段（标题是载荷主体保持默认前景；` · ` 分隔不戴色）；
+    // 空标题折叠形尾段即裸位置、dim 从 4 起
+    const tailStart = title === '' ? 4 : 4 + title.length + 3; // `  X ` 占 4、` · ` 占 3
+    if (tailStart < plain.length) runs.push({ start: tailStart, end: plain.length, style: DIM_STYLE });
+    lines.push({ plain, runs });
+    // 正文：逐行消毒（异源可写面——OSC/C0 不入屏账）+ 空白行跳过 + 按宽
+    // wrap（columns-4：缩进占位——wrapText 纯文本无样式，行级 DIM 全段）
+    for (const source of finding.body.split(/\r?\n/)) {
+      const clean = sanitizeDisplayText(source).trim();
+      if (clean === '') continue;
+      for (const text of wrapText(clean, Math.max(4, columns - 4))) {
+        lines.push({ plain: `    ${text}`, runs: [{ start: 4, end: 4 + text.length, style: DIM_STYLE }] });
+      }
+    }
+  }
+  return lines;
 }
 /**
  * 问答落史行构造（挖掘 36 轮 [2]——词面单源）：首游程两态词（↳ 已回复 /
@@ -942,6 +1053,11 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number,
       // capStyledLine 整字截断）+ 块前垫（R-1 制度行）；durable 归位块
       //（repaint 重建自 collect 同集——非 live-only 族）
       return withPad([noticeLine(block)], leadingGap);
+    case 'review':
+      // 评审 findings 块（35 池件 9）：卡式多行（卡头+条目+正文——正文是
+      // 唯一折行面按 columns wrap；条目单行制走出口帽）+ 块前垫（R-1 制度
+      // 行）；durable 归位块（repaint 重建自 collect 同集——非 live-only 族）
+      return withPad(renderReviewLines(block, columns), leadingGap);
     case 'ask-decision':
       // 问答落史行（挖掘 36 轮 [2]）：单行制（无折行族——超宽走出口帽
       // capStyledLine 整字截断）+ 块前垫（R-1 制度行）；live-only 旁支
@@ -1539,11 +1655,11 @@ export function forkEditAnchorsOf(messages: readonly (AgentMessage & { readonly 
  *
  * 算法：beforeSeq 域（seq < beforeSeq 升序子集——Infinity = 全量尾窗）→ 尾端
  * 起 cap 条 → 窗首非 user 消息向前推移到最近轮次边界（轮次完整性优先于页帽
- * ——可超帽；推到 0 = 域内到头即全集最早）。四族随窗同 seq 域切片
+ * ——可超帽；推到 0 = 域内到头即全集最早）。五族随窗同 seq 域切片
  * [最早页 0 / 其余页窗首消息 seq, beforeSeq)——窗内归位锚完整、窗前事件不
  * 漏入（loadProjection flush 语义正交）；最早页下界取 0（挖掘 53 轮件 C
- * ——先于首消息的族块首窗全量呈现，四族统一）。空域 = 空窗 +
- * nextBeforeSeq=null。
+ * ——先于首消息的族块首窗全量呈现，五族统一〔35 池件 9 reviews 增族随律〕
+ * ）。空域 = 空窗 + nextBeforeSeq=null。
  */
 export function sliceHistoryWindow(
   messages: readonly (AgentMessage & { readonly seq: number })[],
@@ -1551,11 +1667,12 @@ export function sliceHistoryWindow(
   deps: {
     /** 页消息条数帽（HISTORY_PAGE_MESSAGES——参数化供测试注小值） */
     readonly cap: number;
-    /** 四族全序列（升序——切片随窗；缺席 = 页上恒缺席） */
+    /** 五族全序列（升序——切片随窗；缺席 = 页上恒缺席） */
     readonly decisions?: readonly ApprovalDecisionLineInput[];
     readonly todoSnapshots?: readonly TodoSnapshotLineInput[];
     readonly modelChanges?: readonly ModelChangeLineInput[];
     readonly notices?: readonly NoticeLineInput[];
+    readonly reviews?: readonly ReviewLineInput[];
   },
 ): HistoryPageData {
   // beforeSeq 域（Infinity 尾窗免过滤直取全量）
@@ -1569,6 +1686,7 @@ export function sliceHistoryWindow(
       ...(deps.todoSnapshots !== undefined ? { todoSnapshots: [] } : {}),
       ...(deps.modelChanges !== undefined ? { modelChanges: [] } : {}),
       ...(deps.notices !== undefined ? { notices: [] } : {}),
+      ...(deps.reviews !== undefined ? { reviews: [] } : {}),
     };
   }
   let start = Math.max(0, domain.length - deps.cap);
@@ -1576,10 +1694,10 @@ export function sliceHistoryWindow(
   while (start > 0 && !rendersAsUserBlock(domain[start]!)) start -= 1;
   const window = domain.slice(start);
   const firstSeq = window[0]!.seq;
-  // 四族同域切片（上界 beforeSeq：域内事件全 < beforeSeq）；最早页（start===0）
+  // 五族同域切片（上界 beforeSeq：域内事件全 < beforeSeq）；最早页（start===0）
   // 下界放宽取 0——seq 早于首条消息的族块旧语义不属任何页（空会话先落块后
   // 聊天形：主屏有块回看器任何页无块，与 durable 块件义矛盾），首窗全量呈现
-  //（四族统一——model-change 先于首问潜伏边同修）；其余页下界窗首 seq 含端
+  //（五族统一——model-change 先于首问潜伏边同修）；其余页下界窗首 seq 含端
   // 不动（族块零跨页重复）
   const lower = start === 0 ? 0 : firstSeq;
   const inWindow = (seq: number): boolean => seq >= lower && seq < beforeSeq;
@@ -1590,6 +1708,7 @@ export function sliceHistoryWindow(
     ...(deps.todoSnapshots !== undefined ? { todoSnapshots: deps.todoSnapshots.filter((d) => inWindow(d.seq)) } : {}),
     ...(deps.modelChanges !== undefined ? { modelChanges: deps.modelChanges.filter((d) => inWindow(d.seq)) } : {}),
     ...(deps.notices !== undefined ? { notices: deps.notices.filter((d) => inWindow(d.seq)) } : {}),
+    ...(deps.reviews !== undefined ? { reviews: deps.reviews.filter((d) => inWindow(d.seq)) } : {}),
   };
 }
 
@@ -1861,6 +1980,28 @@ export class LiveTranscript {
     this.trimToCap();
   }
 
+  /**
+   * 直播腿评审卡追加（35 池件 9——渠道/插件侧经装配位闭包消费）：槽感知
+   * 归位两形 appendNotice 同形（splice-before-slot / 常序尾落）。**块账
+   * 在册**（占 blockCap 帽）非瞬时行路——repaint 投影重建自愈
+   * （loadProjection 按 seq 归位同构）。调用位过滤（聚焦限定）归装配闭包位。
+   */
+  appendReview(entry: ReviewLineInput): void {
+    const block: TranscriptBlock = {
+      kind: 'review',
+      seq: entry.seq,
+      findings: entry.findings.map((finding) => ({ ...finding })),
+      theme: this.theme,
+    };
+    // 尾块判与 message_update 同源双判（slotOpen 不变式由开槽/摘槽位维护）
+    if (this.slotOpen && this.blocks[this.blocks.length - 1]?.kind === 'streaming') {
+      this.blocks.splice(this.blocks.length - 1, 0, block); // 槽之前一位——槽恒居尾
+    } else {
+      this.blocks.push(block); // 槽关闭期常序尾落
+    }
+    this.trimToCap();
+  }
+
   /** 块账最后 todo-snapshot 块（闸比较态真源——倒扫首中） */
   private lastTodoSnapshotBlock(
     blocks: readonly TranscriptBlock[],
@@ -1893,10 +2034,13 @@ export class LiveTranscript {
    * 扫尾全 flush + 消息零 seq 降级尾 flush 同律。
    * notices（挖掘 53 轮件 C——宿主通知块重建腿）：逐消息前 flush 队首
    * seq < 该消息 seq 的通知块（decisions 同实现形、分立队列、无闸直落）；
-   * 同一消息边界四队列固定序 decisions → modelChanges → todoSnapshots →
-   * notices（07 §4.1 定序——跨族同 seq 邻接是罕见形，固定序近似与
+   * 同一消息边界五队列固定序 decisions → modelChanges → todoSnapshots →
+   * notices → reviews（07 §4.1 定序——跨族同 seq 邻接是罕见形，固定序近似与
    * decisions/todo 既有注记同类）；扫尾全 flush + 消息零 seq 降级尾 flush
    * 同律。
+   * reviews（35 池件 9——评审卡重建腿）：逐消息前 flush 队首 seq < 该消息
+   * seq 的评审卡（decisions 同实现形、分立队列、无闸直落、固定序末位）；
+   * 扫尾全 flush + 消息零 seq 降级尾 flush 同律。
    */
   loadProjection(
     messages: readonly (AgentMessage & { readonly seq?: number })[],
@@ -1904,6 +2048,7 @@ export class LiveTranscript {
     todoSnapshots?: readonly TodoSnapshotLineInput[],
     modelChanges?: readonly ModelChangeLineInput[],
     notices?: readonly NoticeLineInput[],
+    reviews?: readonly ReviewLineInput[],
   ): void {
     const rebuilt: TranscriptBlock[] = [];
     this.pendingCalls.clear(); // 配对账随投影重建（走查中 assistant 入账、toolResult 出账）
@@ -1953,12 +2098,27 @@ export class LiveTranscript {
         rebuilt.push({ kind: 'notice', seq: entry.seq, level: entry.level, text: entry.text, theme: this.theme });
       }
     };
+    // 评审归位队列（升序同律——35 池件 9；decisions 同实现形、无闸直落、
+    // 固定序末位；条目防御归 collect 面——重建路收净化子集）
+    const reviewQueue = [...(reviews ?? [])].sort((a, b) => a.seq - b.seq);
+    const flushReviewsBefore = (limit: number): void => {
+      while (reviewQueue.length > 0 && reviewQueue[0]!.seq < limit) {
+        const entry = reviewQueue.shift()!;
+        rebuilt.push({
+          kind: 'review',
+          seq: entry.seq,
+          findings: entry.findings.map((finding) => ({ ...finding })),
+          theme: this.theme,
+        });
+      }
+    };
     for (const message of messages) {
       if (message.seq !== undefined) {
         flushDecisionsBefore(message.seq);
         flushModelChangesBefore(message.seq);
         flushTodoSnapshotsBefore(message.seq);
-        flushNoticesBefore(message.seq); // 固定序末位（07 §4.1 四队列定序）
+        flushNoticesBefore(message.seq); // 07 §4.1 五队列定序第四位
+        flushReviewsBefore(message.seq); // 固定序末位（07 §4.1 五队列定序——35 池件 9）
       }
       switch (message.role) {
         case 'user': {
@@ -2010,6 +2170,17 @@ export class LiveTranscript {
     // 零 seq 消息降级尾 flush 同在此（诚实不丢）
     for (const entry of noticeQueue) {
       rebuilt.push({ kind: 'notice', seq: entry.seq, level: entry.level, text: entry.text, theme: this.theme });
+    }
+    // 评审尾 flush（35 池件 9）：晚于全部消息的评审卡——同先于组窗收口
+    //（直播路评审落块在装配闭包、组卡收口在 agent_end——尾序同构）；零 seq
+    // 消息降级尾 flush 同在此（诚实不丢）
+    for (const entry of reviewQueue) {
+      rebuilt.push({
+        kind: 'review',
+        seq: entry.seq,
+        findings: entry.findings.map((finding) => ({ ...finding })),
+        theme: this.theme,
+      });
     }
     // 组窗走查毕收口（直播路 agent_end 收口位的投影对位——末段窗
     // 不滞留；先于孤儿 ⚙ 扫描：组卡位在前、孤儿兜底在后与直播路同序）

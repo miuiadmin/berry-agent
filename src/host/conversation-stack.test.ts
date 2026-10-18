@@ -41,7 +41,7 @@ import {
 } from '../persist/index.js';
 
 import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
-import { appendSessionNotice, setSessionModel } from '../conversation/index.js';
+import { appendSessionNotice, appendSessionReview, setSessionModel } from '../conversation/index.js';
 import {
   aggregateBackgroundSpentToday,
   aggregateSessionSpent,
@@ -2386,6 +2386,27 @@ describe('会话模型档位 durable 化（挖掘 52 轮件 B——session/model
       [seqA, 'info', '新版本可用'],
       [seqB, 'warn', '令牌临期'],
     ]); // 升序 + 载荷三字段全息（seq 归位锚随事件位真值）
+    await rt.shutdown();
+  });
+
+  it('reviewsOf 双事实读面（39 池 35 承件 9）：appendSessionReview 落 durable → 驱动活体位全序列升序（TUI review 块数据源——notice 栈级锁镜像）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigTwoModelStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    // durable 评审（conversation 公开面——评审数据多源，findings 六员全列形）
+    const seqA = appendSessionReview(stack.driverOf(session.sessionId)!.session, [
+      { title: '未处理空值', file: 'src/info.ts', start: 10, end: 10, priority: 'info', body: '建议补空判' },
+    ]);
+    const seqB = appendSessionReview(stack.driverOf(session.sessionId)!.session, [
+      { title: '越界写', file: './src/exec.ts', start: 3, end: 8, priority: 'error', body: '必须修' },
+      { title: '注释缺席', file: 'src/agent.ts', start: 42, end: 45, priority: 'warn', body: '中文注释纪律' },
+    ]);
+    const entries = stack.reviewsOf(session.sessionId);
+    expect(entries.map((entry) => [entry.seq, entry.findings.length, entry.findings[0]!.title])).toEqual([
+      [seqA, 1, '未处理空值'],
+      [seqB, 2, '越界写'],
+    ]); // 升序 + 逐条 findings 条目计数（多条目差分锁）
+    expect(entries[1]!.findings[1]).toMatchObject({ file: 'src/agent.ts', start: 42, end: 45, priority: 'warn' }); // 次条载荷保真（./ 前缀契约面收原形）
     await rt.shutdown();
   });
 

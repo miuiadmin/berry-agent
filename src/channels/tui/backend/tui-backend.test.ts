@@ -7858,6 +7858,58 @@ describe('TuiBackend appendNoticeLine（挖掘 53 轮件 C——块账追加即�
   });
 });
 
+/* ---------------- 评审 findings 块（35 池件 9）——直播追加公开面 + 重建装配锁 ---------------- */
+
+describe('TuiBackend appendReviewLine（35 池件 9——块账追加即入帧）', () => {
+  it('评审卡落帧：头行 + 条目 + 正文缩进（块账路——同步直出即入帧）', () => {
+    const { io, backend } = makeBackend();
+    backend.appendReviewLine({
+      seq: 0,
+      findings: [
+        {
+          title: '未处理空值',
+          file: './src/example.ts',
+          start: 10,
+          end: 12,
+          priority: 'warn',
+          body: '该分支可能收到空值。',
+        },
+      ],
+    });
+    const out = stripAnsi(io.bytes);
+    expect(out).toContain('• 评审发现 1 项');
+    // 路径剥 ./ 前缀 + 行域形 + 正文 4 空格缩进
+    expect(out).toContain('⚠ 未处理空值 · src/example.ts:10-12');
+    expect(out).toContain('    该分支可能收到空值。');
+  });
+});
+
+describe('TuiBackend reviewsOf 装配（35 池件 9——重建路数据源注入）', () => {
+  it('onRepaint 投影重建带评审卡：reviewsOf 注入位→私有字段→loadProjection 第 6 参全链在帧（装配缺口锁）', () => {
+    // 装配缺口锁（单测假注入绿掩盖装配缺口律）：漏 onRepaint 位接线则块只
+    // 在直播腿在场、repaint 即消失——本锁钉重建腿四焊接点之一（onRepaint）
+    const { io, backend } = makeBackend({
+      reviewsOf: () => [
+        {
+          seq: 0,
+          findings: [{ title: '越界访问', file: 'src/mod.ts', start: 3, end: 3, priority: 'error', body: '' }],
+        },
+      ],
+    });
+    io.bytes = '';
+    backend.onRepaint(SESSION, [{ role: 'user', content: '问', timestamp: 1, seq: 1 }] as never, null);
+    expect(stripAnsi(io.bytes)).toContain('• 评审发现 1 项');
+    expect(stripAnsi(io.bytes)).toContain('✗ 越界访问 · src/mod.ts:3'); // 单行形（start==end）
+  });
+
+  it('缺席源 no-op：未注入 reviewsOf 时 onRepaint 零异常零评审卡（兼容锁）', () => {
+    const { io, backend } = makeBackend();
+    io.bytes = '';
+    backend.onRepaint(SESSION, [{ role: 'user', content: '问', timestamp: 1 }], null);
+    expect(stripAnsi(io.bytes)).not.toContain('评审发现');
+  });
+});
+
 /* ---------------- 问答落史行（挖掘 36 轮 [2]）——直播追加公开面 ---------------- */
 
 describe('TuiBackend appendAskDecisionLine（挖掘 36 轮 [2]——块账追加即入帧）', () => {

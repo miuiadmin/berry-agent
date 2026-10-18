@@ -1,5 +1,5 @@
 /**
- * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——40 核心词全列，
+ * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——41 核心词全列，
  * compaction 三词 2026-09-06 纵切批增补、compaction/fallback 2026-09-09
  * U4 落码批入册、session/thinking-level 同日遗漏
  * 审计批回填〔05 行 66 agent 纵切批已定名而注册表漏登〕、plugin/opens·
@@ -10,7 +10,7 @@
  * 补注册〔c-1 立词而注册表漏行——/plugins config 表单腿 e2e 走真装配
  * audit 词汇闸 fail-loud 抓出；核心词 34〕、compaction/skip 2026-09-13
  * obs-b 压缩判据观测批入册〔05 §1.1 五门 skip 词——fire 而被门挡才落；
- * 核心词 35〕、session/model 2026-10-16 挖掘 52 轮件 B 入册〔05 §1.1 档位族第三员——sandbox/mode·session/thinking-level 同形；07:244「durable 事件流照记与 ctrl+p model-cycle 同口径」句由超前承诺转实；核心词 36〕、session/notice 2026-10-16 挖掘 53 轮件 C 入册〔05 §1.1 会话级宿主通知 durable 化——升级提示首例；07:347 重建路四刀与 §8.5 第 6 条提示形双动作改述同批；核心词 37〕、marketplace/sources 2026-10-16 硬伤处置第三批·⑤辅件B笔入册〔05 §1.1 铸族注升格——marketplace 源添加 provenance 审计词；载体 = audit_events；写点 = 源管理命令面 add 成功尾恰一笔、失败路径零落账、装源不挂 door；核心词 38〕、plugin/grants 2026-10-16 硬伤处置第三批·①段一笔入册〔05 §1.1 行 80 写根交集族——grants 装载深校验+交集入账审计词；销 12a 欠账；载体 = audit_events；写点 = boot 装载序深校验+选锚求交尾 diff 幂等——有变才落、锚切换/根变落新条、交集变空落 [] 收口；拒载行零审计；核心词 39〕、plugin/server-loaded 2026-10-18 沙箱立题批次 3·R2 落码笔入册〔05 §1.1 ⑤C 升格行——MCP-server 形插件装载 provenance 审计词（manifest 可选 server 声明块装载位，03 §10.1 R2）；载体 = audit_events；写点 = 装载序此形插件装载成功尾恰一笔、非 diff 幂等；confine? v1 恒缺席〔写点时点早于异步 confine 执行〕；核心词 40〕）。
+ * 核心词 35〕、session/model 2026-10-16 挖掘 52 轮件 B 入册〔05 §1.1 档位族第三员——sandbox/mode·session/thinking-level 同形；07:244「durable 事件流照记与 ctrl+p model-cycle 同口径」句由超前承诺转实；核心词 36〕、session/notice 2026-10-16 挖掘 53 轮件 C 入册〔05 §1.1 会话级宿主通知 durable 化——升级提示首例；07:347 重建路四刀与 §8.5 第 6 条提示形双动作改述同批；核心词 37〕、marketplace/sources 2026-10-16 硬伤处置第三批·⑤辅件B笔入册〔05 §1.1 铸族注升格——marketplace 源添加 provenance 审计词；载体 = audit_events；写点 = 源管理命令面 add 成功尾恰一笔、失败路径零落账、装源不挂 door；核心词 38〕、plugin/grants 2026-10-16 硬伤处置第三批·①段一笔入册〔05 §1.1 行 80 写根交集族——grants 装载深校验+交集入账审计词；销 12a 欠账；载体 = audit_events；写点 = boot 装载序深校验+选锚求交尾 diff 幂等——有变才落、锚切换/根变落新条、交集变空落 [] 收口；拒载行零审计；核心词 39〕、plugin/server-loaded 2026-10-18 沙箱立题批次 3·R2 落码笔入册〔05 §1.1 ⑤C 升格行——MCP-server 形插件装载 provenance 审计词（manifest 可选 server 声明块装载位，03 §10.1 R2）；载体 = audit_events；写点 = 装载序此形插件装载成功尾恰一笔、非 diff 幂等；confine? v1 恒缺席〔写点时点早于异步 confine 执行〕；核心词 40〕、session/review 2026-10-18 35 池件 9 落码批入册〔05 §1.1 评审 findings 结构化呈现残余价值面——机器数据不过 prose 只做结构化契约呈现；owner conversation 多源（渠道/插件侧调用——本件只落契约与呈现写点不接线）；核心词 41〕）。
  *
  * 双入口纪律：核心词汇本表静态声明（含类别/归属/语义），插件扩展经
  * registerEventType 显式注册；session append 词汇检查（未注册类型抛
@@ -220,6 +220,14 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     tier: 'stable',
     description:
       '会话级宿主通知 durable 化（挖掘 53 轮件 C 入册——05 §1.1「升级提示首例」兑现；升级提示按版本去重一次〔update-check.json〕而瞬时行滚出即永失、repaint persist 档不跨 reload——诚实 durable 须事件背书〔52B model-change 同构〕）：载荷 {level（四档 info/success/warn/error——contracts NotifyLevel 同源）, text}；单写者 = host 装配位通知腿（插件面零写入位）；随锚会话不跨会话广播；非档位字段、不入 session_meta_changed {field} 镜像族（session/model 行同判语——呈现驱动走装配位直调 + collect 重建双路）；消费面 = transcript notice 块（07 §4.1 durable 非消息源块族第五员）',
+  },
+  {
+    type: 'session/review',
+    category: 'log-only',
+    owner: 'conversation',
+    tier: 'stable',
+    description:
+      '评审 findings 结构化呈现（35 池件 9 残余价值面入册——池定谳不迁 prose 嵌入语法：宿主有工具调用/事件通道，机器数据不过 prose，只做结构化契约呈现）：载荷 {findings 数组——元素 {title, file（相对工作区根）, start, end（1 起行号，start==end 呈现收单行形）, priority（三档闭集 info/warn/error——不承袭 notice 四档：finding 是问题陈述非成事回执，success 档无义）, body}}；永不进模型历史（log-only——不做模型 prompt 约定面）；调用方 = 渠道/插件侧多源（本件只落宿主契约与呈现，写点不接线——与 session/notice host 单写者律分立，词身份仍核心词拒装载面伪造）；append 面坏形 fail-loud（SESSION_REVIEW_PAYLOAD_INVALID），collect 读面坏形防御跳过（notice 同律）；消费面 = transcript review 块（07 §4.1 durable 非消息源块族第六员）+ conversation 栈 reviewsOf 读面',
   },
   {
     type: 'llm/usage',

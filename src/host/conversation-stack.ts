@@ -67,6 +67,7 @@ import {
   foldApprovalDecisions,
   collectModelChanges,
   collectSessionNotices,
+  collectSessionReviews,
   foldCallLedger,
   foldSessionModel,
   foldSessionSandboxMode,
@@ -83,6 +84,7 @@ import type {
   FoldedApprovalDecision,
   ModelChangeEntry,
   NoticeEntry,
+  ReviewEntry,
   RunSettledReceipt,
   SubmitOptions,
   SubmitResult,
@@ -347,6 +349,13 @@ export interface ConversationStack {
    * 双事实纪律 modelChangesOf 同款（驱动活体优先、未开回库装载）。
    */
   noticesOf(sessionId: string): readonly NoticeEntry[];
+  /**
+   * 评审 findings 全序列读面（35 池件 9——TUI review 块数据源）：
+   * collectSessionReviews 单源扫日志全部 session/review → [{seq,
+   * findings}] 升序（收集位坏形两级防御跳过、遮蔽事件跳过——呈现面
+   * fail-open）；双事实纪律 noticesOf 同款（驱动活体优先、未开回库装载）。
+   */
+  reviewsOf(sessionId: string): readonly ReviewEntry[];
   /**
    * 思考档位栈基线活读（2026-09-17 会话档位切换面批 F1）：装配面原始值的
    * 透传读面——会话生效档以 `foldSessionThinkingLevel(session.events()) ??
@@ -2012,6 +2021,14 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     noticesOf(sessionId: string): readonly NoticeEntry[] {
       const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
       return collectSessionNotices(log.events());
+    },
+    // 评审 findings 全序列读面（35 池件 9——TUI review 块数据源）：双事实
+    // 源解析 noticesOf 一字不差（驱动活体优先、未开回库装载），collect
+    // 单源在 conversation 模块（坏形两级防御跳过 + 遮蔽跳过——呈现面
+    // fail-open，闸知识零携带）。
+    reviewsOf(sessionId: string): readonly ReviewEntry[] {
+      const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
+      return collectSessionReviews(log.events());
     },
     // 模型旋钮（07 §4.1 R5 挂账解挂批；挖掘 52 轮件 B 翻档后 = 栈基线位）：
     // 内存换档不落事件——消费位 = defaultModel 闭包/fold 缺席回落位/配置面

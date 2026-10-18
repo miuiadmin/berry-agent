@@ -106,6 +106,13 @@ export { collectModelChanges, foldSessionModel, setSessionModel } from './sessio
 // 本面纯逻辑归 conversation 事件面族，host 跨模块消费走本公开面）
 export type { NoticeEntry, SessionNoticeEventData } from './session-notice.js';
 export { appendSessionNotice, collectSessionNotices } from './session-notice.js';
+// 评审 findings 结构化呈现 durable 面（35 池件 9 残余价值面——05 §1.1
+// session/review 行兑现：append 面 + collect 全序列读面〔transcript review
+// 块重建腿数据源〕；池定谳机器数据不过 prose 只做结构化契约呈现——调用方
+// = 渠道/插件侧多源（写点不接线，本件只落宿主契约与呈现；不做模型
+// prompt 约定面——log-only 永不进模型历史））
+export type { ReviewEntry, ReviewFindingData, ReviewPriority, SessionReviewEventData } from './session-review.js';
+export { appendSessionReview, collectSessionReviews, REVIEW_PRIORITIES } from './session-review.js';
 // 审批三件 + open 域装配（11e：fresh 作用域审批 wiring + fs/检索/bash/todo 组装面）
 export type { SessionApprovalOptions, SessionApprovalWiring } from './approval-wiring.js';
 export { wireSessionApproval } from './approval-wiring.js';

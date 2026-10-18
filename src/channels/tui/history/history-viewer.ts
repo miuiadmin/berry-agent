@@ -50,6 +50,7 @@ import type {
   HistoryPageData,
   ModelChangeLineInput,
   NoticeLineInput,
+  ReviewLineInput,
   TodoSnapshotLineInput,
 } from '../backend/transcript.js';
 import type { StyledLine } from '../backend/ansi-rows.js';
@@ -87,6 +88,11 @@ export interface HistoryViewerOptions {
    * 按 seq 归位；缺席 = 既有零通知块形（兼容锁——旧装配/测试零扰动）
    */
   readonly notices?: readonly NoticeLineInput[];
+  /**
+   * 评审卡数据（35 池件 9——reviewsOf 同源注入）：loadProjection 按 seq
+   * 归位；缺席 = 既有零评审卡形（兼容锁——旧装配/测试零扰动）
+   */
+  readonly reviews?: readonly ReviewLineInput[];
   /** 行集构建折宽锚（开屏时终端列宽——渲染期 ScrollView 按实际 region 宽重折） */
   readonly columns: number;
   /** markdown 主题（批 10i——行集构建档与主屏同板；缺席 DEFAULT_THEME 旧形） */
@@ -297,9 +303,9 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
 
   /**
    * 页级行集构建（挖掘 52 轮件 A——构造首窗与 prepend 页共用单源）：页消息
-   * 独立 LiveTranscript（Infinity 帽）+ loadProjection（四族随窗归位——notices
-   * 增员 = 挖掘 53 轮件 C）→ 逐块带样式行 + user 块行位账。页间零承接账
-   * ——切窗四族切片已保证归位锚域完整。
+   * 独立 LiveTranscript（Infinity 帽）+ loadProjection（五族随窗归位——notices
+   * 增员 = 挖掘 53 轮件 C、reviews 增员 = 35 池件 9）→ 逐块带样式行 + user
+   * 块行位账。页间零承接账——切窗五族切片已保证归位锚域完整。
    */
   private buildPageRows(page: {
     readonly messages: readonly AgentMessage[];
@@ -307,9 +313,17 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     readonly todoSnapshots?: readonly TodoSnapshotLineInput[];
     readonly modelChanges?: readonly ModelChangeLineInput[];
     readonly notices?: readonly NoticeLineInput[];
+    readonly reviews?: readonly ReviewLineInput[];
   }): { styled: StyledLine[]; userRows: { from: number; to: number }[]; lower: string[] } {
     const transcript = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY, theme: this.pageTheme });
-    transcript.loadProjection(page.messages, page.decisions, page.todoSnapshots, page.modelChanges, page.notices);
+    transcript.loadProjection(
+      page.messages,
+      page.decisions,
+      page.todoSnapshots,
+      page.modelChanges,
+      page.notices,
+      page.reviews,
+    );
     const styled: StyledLine[] = [];
     const userRows: { from: number; to: number }[] = [];
     for (const block of transcript.snapshot) {
