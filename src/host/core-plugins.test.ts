@@ -237,11 +237,17 @@ async function bootCore(
   warnings: string[];
   commands: string[];
   commandSpecs: { name: string; handler: CommandHandler }[];
+  /** 真形命令注册表（63 轮件 B——Map 双路径镜像：注册 set / disposer delete） */
+  commandRegistry: Map<string, CommandHandler>;
   boot: Awaited<ReturnType<typeof bootPlugins>>;
 }> {
   const warnings: string[] = [];
   const commands: string[] = [];
   const commandSpecs: { name: string; handler: CommandHandler }[] = [];
+  // 63 轮件 B：commands/commandSpecs 捕获数组只进不出（既有在场断言面不变），
+  // 本 Map 是「进程级注册表 + disposer 唯一注销路径」契约（03 §1.3）的真行为
+  // 镜像——register 返回真 disposer（delete 腿），插件级回卷测试断言注销位
+  const commandRegistry = new Map<string, CommandHandler>();
   const scope = Scope.createRoot();
   const dispatch = new EventDispatch();
   // issue 件前件（批 19e）：真 Job 注册表 provide（assembly 同构——件
@@ -264,11 +270,15 @@ async function bootCore(
     dispatch,
     commands: {
       // 命令注册捕获桩（memory-export/import 与 /tick 注册面断言 + handler
-      // 真调用用——通道行为面归 channels 域）
+      // 真调用用——通道行为面归 channels 域）；63 轮件 B 起返回真 disposer
+      // （commandRegistry delete 腿）——插件级回卷（apply 返回函数调它）可观测
       register: (name: string, handler: CommandHandler) => {
         commands.push(name);
         commandSpecs.push({ name, handler });
-        return () => undefined;
+        commandRegistry.set(name, handler);
+        return () => {
+          commandRegistry.delete(name); // 真注销腿——03 §1.3 disposer 唯一注销路径
+        };
       },
     },
     llm: { registerProvider: () => () => undefined },
@@ -319,7 +329,7 @@ async function bootCore(
     warn: (message) => warnings.push(message),
     fs,
   });
-  return { scope, dispatch, warnings, commands, commandSpecs, boot };
+  return { scope, dispatch, warnings, commands, commandSpecs, commandRegistry, boot };
 }
 
 /** 恒答审批呈现面（write 类工具守门放行桩——审批装配测试同款，应答 = 'approve' 字面） */
@@ -3753,6 +3763,23 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(scope.tryGet('mcp')).toBeDefined(); // mcp/lsp 只闸 exec 管道——不连坐
     expect(scope.tryGet('lsp')).toBeDefined();
     expect(boot.tools.definitions().map((d) => d.name)).toContain('diagnostics');
+  });
+
+  it('browser 件卸载回卷（63 轮件 B）：apply 尾返回 disposer 调 registerCommand 注销——unload 后 /browser 命令面随代消失', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-brdisp-'));
+    dirs.push(dataDir);
+    const { commandRegistry, boot } = await bootCore(dataDir);
+
+    // 装载面：/browser 命令入册（commands 注册表进程级 Map——03 §1.3）
+    expect(commandRegistry.has('browser')).toBe(true);
+
+    // 卸载/换代路径 = report.unload LIFO 调 apply 返回的插件级 disposer（03
+    // §1.3）；disposer 内调 registerCommand 返回的 Disposer → 命令面消失。
+    // 修前 apply 丢弃返回值（undefined）——loader invokeApply 形判不入回卷栈，
+    // 命令永不消失（生命周期半态：卸载/换代后 /browser 残留）
+    const receipt = await boot.report.unload();
+    expect(receipt.disposed).toContain('core:browser'); // apply 返回函数在册（回卷栈有本件行）
+    expect(commandRegistry.has('browser')).toBe(false); // 注册表查无 browser——命令面真消失
   });
 
   it('MCP 坏形 config（core:mcp 行 servers 非对象）→ core 行 fail-loud 拒启（MCP_CONFIG_INVALID）', async () => {

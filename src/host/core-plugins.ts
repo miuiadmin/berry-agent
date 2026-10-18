@@ -3090,7 +3090,11 @@ function makeBrowserPlugin(deps: CorePluginHostDeps): CorePluginReference {
 
       // /browser install（下载原语——域白名单/TOFU 账本执法归 install 件；
       // 结果与错误均折人读文本经 notify 归因 'browser' 投递）
-      context.channels.registerCommand(
+      // 63 轮件 B：捕获 registerCommand 返回的 Disposer——commands 注册表是
+      // 进程级 Map、disposer 是唯一注销路径（03 §1.3）；兄弟件先例 memory/
+      // tick/goal/rewind/mcp danger/lsp 均捕获，本件曾丢弃 = 卸载/换代后
+      // /browser 命令残留（生命周期半态）
+      const disposeBrowserCmd = context.channels.registerCommand(
         'browser',
         async (args) => {
           if (args.argv[0] !== 'install') {
@@ -3114,6 +3118,13 @@ function makeBrowserPlugin(deps: CorePluginHostDeps): CorePluginReference {
       );
 
       context.provide('browser', service);
+
+      // 63 轮件 B：插件级回卷腿（apply 返回函数 = 本插件 disposer——03 §1.3）
+      // ——卸载或 /reload 换代时注销 /browser 命令（同 memory 件 apply 尾
+      // return 块先例形：context.provide 之后收尾）
+      return () => {
+        disposeBrowserCmd();
+      };
     },
   };
 }
