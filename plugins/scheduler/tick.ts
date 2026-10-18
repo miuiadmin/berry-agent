@@ -134,6 +134,13 @@ function tickAdd(rest: readonly string[], deps: TickCommandDeps): string {
     cwd: cwd ?? null,
     enabled: enable,
   });
+  // 建行即启用一步形戳引擎重排下一醒（与上文 enable/disable 动词同族——add
+  // --enable 即「建行 + enable」合步，启停面既接的即接语义在建行道不缺位）：
+  // 不戳则引擎 pending 轮询定时钉死旧拍，亚分钟级 schedule 首醒最长拖
+  // MAX_POLL_MS 60s belt。建行在前、戳在后（poke 重排重读 earliestNextFire
+  // ——须读到新行）；停用建行（nextFireAt 空——无排刻）不戳；addJob 抛错
+  // （守卫拒——行未建）由 runTickCommand 折文本，本位零到达不戳。
+  if (row.nextFireAt !== null) deps.engine.poke();
   const next = row.nextFireAt ? `下次到点 ${renderFireAt(row.nextFireAt)}` : '停用态（enable 后排刻）';
   return `✓ 已建任务 ${row.name}（${formatSchedule(row.schedule)}）——${next}`;
 }

@@ -174,6 +174,35 @@ describe('动词分派与守卫折文本', () => {
     expect(pokeSpy).toHaveBeenCalledTimes(2);
   });
 
+  /**
+   * add --enable 后 engine.poke 被调（件C——「建行即启用」一步形与启停同族
+   * 即接引擎下一醒）。修前红：tickAdd 零 poke——启用态行已排 next_fire_at
+   * 而引擎 pending 轮询定时钉死旧拍，亚分钟级 schedule 首醒最长拖
+   * MAX_POLL_MS 60s belt。
+   */
+  it('add --enable 建行后戳引擎且戳在 addJob 后；停用建行/建行抛错不戳（修前红：poke 未调）', async () => {
+    const svc = fakeService();
+    const engine = fakeEngine();
+    const addJobSpy = vi.spyOn(svc, 'addJob');
+    const pokeSpy = vi.spyOn(engine, 'poke');
+    const d = deps(svc, engine);
+    // 启用建行（every:5s 亚分钟级——首醒拖 60s 损害面最大形）戳一拍
+    await runTickCommand(['add', 'j', 'every:5s', 'p', '--enable'], d);
+    expect(pokeSpy).toHaveBeenCalledTimes(1); // 修前：零调用
+    // 戳在建行之后——poke 重排重读 earliestNextFire 须见新行，序错即排错拍
+    expect(pokeSpy.mock.invocationCallOrder[0]).toBeGreaterThan(addJobSpy.mock.invocationCallOrder[0]!);
+    // 停用建行（nextFireAt 空——无排刻）不误戳：poke 计数不增
+    await runTickCommand(['add', 'k', 'every:10m', 'p'], d);
+    expect(pokeSpy).toHaveBeenCalledTimes(1);
+    // 建行抛错（守卫拒——行未建）不戳且错误折文本回执
+    svc.addJob = () => {
+      throw new BaseError('SCHEDULER_SCHEDULE_INVALID', 'schedule 串「nonsense」坏形');
+    };
+    const rejected = await runTickCommand(['add', 'x', 'nonsense', 'p', '--enable'], d);
+    expect(rejected).toContain('SCHEDULER_SCHEDULE_INVALID');
+    expect(pokeSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('动词名缺席折用法错文本', async () => {
     const out = await runTickCommand(['rm'], deps(fakeService(), fakeEngine()));
     expect(out).toContain('SCHEDULER_JOB_INVALID');

@@ -11,6 +11,7 @@ import { ephemeralSecretKey, openStore, type Store } from '../../src/persist/ind
 import { SCHEDULER_MIGRATION } from './migration.js';
 import { createSchedulerEngine, MAX_POLL_MS, type SchedulerEngine, type TimerSeam } from './engine.js';
 import { createSchedulerService, type JobsDao, type SchedulerService } from './service.js';
+import { runTickCommand } from './tick.js';
 import type { RunnerFactory, RunnerHandle, RunnerRequest } from './runner.js';
 import type { GateFacts } from './gates.js';
 import type { JobRow, RunOutcome } from './types.js';
@@ -372,6 +373,33 @@ describe('启停与幽灵守卫', () => {
     service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p' });
     engine.poke();
     expect(timers.seq).toBeGreaterThan(before);
+  });
+});
+
+/**
+ * add --enable 建行即戳行为锁（件C——命令面直跑：/tick add --enable 后
+ * 引擎 pending 轮询即时重排）。修前红：tickAdd 零 poke——空表起跑后 belt
+ * 巡检拍（MAX_POLL_MS 60s）钉死，every:5s 亚分钟级首醒须拖满 belt。假钟
+ * 全控时序：建行拍恰为 5s（5.5s 为真钟近似口径——夹取下限不入场，delta
+ * 5000ms 原样落拍）。
+ */
+describe('add --enable 建行即戳（件C——命令面行为锁）', () => {
+  it('运行中 add every:5s --enable → 轮询重排 5s 拍非 60s belt 拍，首醒即触（修前红：belt 拍钉死）', async () => {
+    const { service, engine, timers, runner } = assemble();
+    engine.start();
+    // 空表起跑——earliest null 落 belt 巡检拍（60s）
+    expect([...timers.pending.values()].map((t) => t.ms)).toEqual([MAX_POLL_MS]);
+    // 建行即启用一步形走命令面正门（service.addJob 直呼绕过 tick 面零戳面）
+    const out = await runTickCommand(['add', 'j', 'every:5s', 'p', '--enable'], { service, engine });
+    expect(out).toContain('下次到点'); // 启用即排刻（建行确成）
+    const pollMs = [...timers.pending.values()].map((t) => t.ms);
+    expect(pollMs).toContain(5000); // 5s 亚分钟拍在场（修前：仅 60s belt 拍）
+    expect(pollMs).not.toContain(MAX_POLL_MS); // 旧 belt 拍已摘——不再空等
+    // 推到 5s 拍 → sweep → 首醒 clock 道（非等 60s 拍）
+    advance(5000);
+    timers.fireEarliest();
+    await vi.waitFor(() => expect(runner.requests).toHaveLength(1));
+    expect(runner.requests[0]?.trigger).toBe('clock');
   });
 });
 
