@@ -19,6 +19,17 @@ import type { WebFetchService } from './types.js';
 const TOOL_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] as const;
 
 /**
+ * 工具面墙钟帽 30s（03 §10.3 安全卫生条 2026-10-18 60 轮定形注）：模型
+ * fetch 工具调用恒携 per-call 预算——任意公网页面全跳链（重定向 5 跳 +
+ * 每跳守卫 DNS 解析 + 体读取）的墙钟兜底；undici 缺省 headersTimeout/
+ * bodyTimeout 只卡首字节/块间，慢滴形可无限拖住模型工具调用（run 级协作
+ * signal 是中断轴非墙钟）。量级拍板：模型清单拉取腿 8s（交互向导步）/
+ * browser 元数据 60s 两先例之间——模型主动取页比交互步宽容、比后台元
+ * 数据拉取紧。
+ */
+export const WEB_FETCH_TOOL_TIMEOUT_MS = 30_000;
+
+/**
  * fetch 工具定义工厂（装载批由装配根经插件注册面挂入工具注册表）。
  * @param service 三消费面共用的 execute 载体（与 ctx.fetch 服务同一实例）
  */
@@ -59,6 +70,10 @@ export function createFetchTool(service: WebFetchService): ToolDefinition {
           ...(headers ? { headers } : {}),
           ...(body !== undefined ? { body } : {}),
           ...(toolCtx.signal ? { signal: toolCtx.signal } : {}),
+          // 工具面墙钟帽恒携（单源常量——模型 fetch 调用不无限等）；run 级
+          // 协作 signal 与墙钟轴分立正交：run 取消即时断、墙钟到点兜底断
+          // （两轴在服务面 AbortSignal.any 合流进每跳 init）
+          timeoutMs: WEB_FETCH_TOOL_TIMEOUT_MS,
           consumer: 'tool',
         });
         // 元信息头 + 分隔线 + 正文（截断记显式披露——模型自知内容不完整）

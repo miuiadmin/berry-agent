@@ -1,12 +1,12 @@
 /**
  * fetch 工具件测试——schema 收紧 + 服务包装面（isError 数据面/元信息头拼装/
- * consumer 与 signal 透传）。服务本体零 mock 重打——桩停在 WebFetchService
- * 注入位（工具件与服务的分界即注桩位）。
+ * consumer 与 signal 透传、墙钟帽恒携）。服务本体零 mock 重打——桩停在
+ * WebFetchService 注入位（工具件与服务的分界即注桩位）。
  */
 import { describe, expect, it } from 'vitest';
 import { Value } from 'typebox/value';
 import { BaseError } from '../../src/contracts/index.js';
-import { createFetchTool } from './tool.js';
+import { createFetchTool, WEB_FETCH_TOOL_TIMEOUT_MS } from './tool.js';
 import type { WebFetchInit, WebFetchResponse, WebFetchService } from './types.js';
 
 /** 服务桩工厂：捕获完整入参、按脚本回放应答/异常 */
@@ -130,6 +130,33 @@ describe('execute——成功腿', () => {
       body: 'b',
       signal: controller.signal,
     });
+  });
+
+  it('工具面恒携墙钟帽（缺省预算 30s——03 §10.3 60 轮定形注单源常量）', async () => {
+    const calls: Array<{ url: string; init: WebFetchInit }> = [];
+    const tool = createFetchTool(
+      stubService(
+        [
+          {
+            url: 'x',
+            finalUrl: 'x',
+            status: 200,
+            contentType: '',
+            body: '',
+            truncated: false,
+            bytes: 0,
+            redirects: 0,
+          },
+        ],
+        calls,
+      ),
+    );
+    await tool.execute({ url: 'https://example.com/' }, { toolCallId: 'tc-cap' });
+    // 修前红：工具面未携预算——init.timeoutMs undefined（慢滴形可无限拖住
+    // 模型工具调用；run 级协作 signal 非墙钟）
+    expect(calls[0]?.init.timeoutMs).toBe(WEB_FETCH_TOOL_TIMEOUT_MS);
+    // 量级锁：模型清单拉取腿 8s / browser 元数据 60s 两先例之间的定形值
+    expect(WEB_FETCH_TOOL_TIMEOUT_MS).toBe(30_000);
   });
 });
 

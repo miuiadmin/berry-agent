@@ -3,7 +3,8 @@
  * resolveDns/now/sink 皆桩，网络面零真实外联）。
  *
  * 覆盖：在飞门拒/URL 与协议拒/私网双查/重定向逐跳复检与跳数帽/字节帽截断
- * （含多字节劈尾回退）/归因落账三结局（ok/blocked/error）。
+ * （含多字节劈尾回退）/归因落账三结局（ok/blocked/error）/per-call 墙钟
+ * 预算（外层 race 兜全链——03 §10.3 安全卫生条 2026-10-18 60 轮定形注）。
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -500,5 +501,105 @@ describe('卫生件 3 连接级钉死（DNS rebinding TOCTOU 闭合——rb 批�
       /* 卫生拦截预期路径 */
     });
     expect(pinnedAddressesOf('blocked-pin.rb-batch.test')).toBeUndefined();
+  });
+});
+
+describe('per-call 墙钟预算（03 §10.3 安全卫生条 2026-10-18 60 轮定形注——外层 race 兜全链）', () => {
+  /**
+   * 悬挂哨兵形：被测 promise 若零 settle（修前形——timeoutMs 无消费腿全链
+   * 永悬），2s 哨兵先胜返回 'HANG'——断言即红而不吊满 15s testTimeout
+   * （红形可即录；每测试独立 service 实例，悬置任务无跨例泄漏）。
+   */
+  function withHangSentinel(pending: Promise<unknown>, sentinelMs = 2_000): Promise<string> {
+    return Promise.race([
+      pending.then(
+        () => 'settled',
+        (error: unknown) => `rejected:${error instanceof Error ? error.message : String(error)}`,
+      ),
+      new Promise<string>((resolve) => setTimeout(() => resolve('HANG'), sentinelMs)),
+    ]);
+  }
+
+  it('守卫 DNS 腿永悬：帽点拒不永挂（缩帽 50ms——修前 init.timeoutMs 无消费腿全链永悬）', async () => {
+    const records: WebAttributionRecord[] = [];
+    const service = createWebFetchService({
+      ...baseInit,
+      // 永不结算的 DNS 桩：守卫腿（assertPublicHost await）先于任何 fetch、
+      // 不受 fetch init signal 管——只有外层 race 帽能兜住（channel-models
+      // R-2 同判：AbortSignal 只进 fetch init 不辖前置守卫腿）
+      resolveDns: () => new Promise<string[]>(() => {}),
+      sink: (r) => records.push(r),
+    });
+    const outcome = await withHangSentinel(service.fetch('https://hang-dns.example.com/', { timeoutMs: 50 }));
+    // 修前红形：'HANG'（timeoutMs 无人消费——全链零时钟永悬）
+    expect(outcome).not.toBe('HANG');
+    expect(outcome.startsWith('rejected:')).toBe(true);
+    // 帽点拒句面（人话化秒形——模型可见错误文案）
+    expect(outcome).toContain('墙钟');
+    // 普通失败落账（超时非卫生拦截——error 结局无码）
+    expect(records[0]).toMatchObject({ outcome: 'error', url: 'https://hang-dns.example.com/', bytes: 0 });
+    expect(records[0]?.errorCode).toBeUndefined();
+  });
+
+  it('fetch 腿永悬（慢滴形）：帽点拒 + 帽钟已并流进跳 init', async () => {
+    const calls: Array<{ url: string; init?: WebFetchInit }> = [];
+    const service = createWebFetchService({
+      ...baseInit,
+      // 永不结算的 fetch 桩——慢滴形谱（undici 缺省 headersTimeout/
+      // bodyTimeout 只卡首字节/块间，拦不住全程；桩面恒不协作 signal，
+      // 只剩 race 腿与帽钟可断）
+      fetchImpl: async (url, init) => {
+        calls.push({ url, ...(init ? { init: init as WebFetchInit } : {}) });
+        return new Promise<Response>(() => {});
+      },
+    });
+    const outcome = await withHangSentinel(service.fetch('https://hang-fetch.example.com/', { timeoutMs: 50 }));
+    expect(outcome).not.toBe('HANG'); // 修前红：'HANG'（同上）
+    expect(outcome).toContain('墙钟');
+    // 无调用方 signal 时帽钟直供跳 init（AbortSignal.timeout 同钟——观测点
+    // 已过帽点，aborted 恒真）
+    const hopInit = calls[0]?.init as { signal?: AbortSignal } | undefined;
+    expect(hopInit?.signal).toBeDefined();
+    expect(hopInit?.signal?.aborted).toBe(true);
+  });
+
+  it('调用方 signal 合流中断锁：run 取消即时断（墙钟远未到点——两轴分立正交）', async () => {
+    const controller = new AbortController();
+    const calls: Array<{ url: string; init?: WebFetchInit }> = [];
+    const service = createWebFetchService({
+      ...baseInit,
+      // 桩仿真真 fetch 协作面：signal abort 即拒（undici 同语义面）
+      fetchImpl: async (url, init) => {
+        calls.push({ url, ...(init ? { init: init as WebFetchInit } : {}) });
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('This operation was aborted')));
+        });
+      },
+    });
+    const pending = service.fetch('https://abort.example.com/', {
+      signal: controller.signal,
+      timeoutMs: 60_000, // 墙钟远未到点——此断源纯 run 轴
+    });
+    // 等首跳 fetch 起飞（signal 已并流进跳 init）再取消
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    const error = await pending.catch((e: unknown) => e);
+    expect((error as Error).message).toBe('This operation was aborted');
+    // 跳 init 的 signal = 合流面（AbortSignal.any 产物——非调用方原生
+    // signal 直通；修前红：直通形 toBe 相等）
+    const hopInit = calls[0]?.init as { signal?: AbortSignal } | undefined;
+    expect(hopInit?.signal).not.toBe(controller.signal);
+    expect(hopInit?.signal?.aborted).toBe(true);
+  });
+
+  it('零时钟面不变：无预算无 signal → 跳 init 零 signal 位（服务内不设时钟立场维持）', async () => {
+    const calls: Array<{ url: string; init?: WebFetchInit }> = [];
+    const service = createWebFetchService({
+      ...baseInit,
+      fetchImpl: scriptedFetch([new Response('ok')], calls),
+    });
+    await service.fetch('https://plain.example.com/');
+    const hopInit = calls[0]?.init as { signal?: AbortSignal } | undefined;
+    expect(hopInit?.signal).toBeUndefined();
   });
 });

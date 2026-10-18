@@ -31,8 +31,17 @@ export interface WebFetchInit {
   headers?: Record<string, string>;
   /** 请求体（字符串形；303/浏览器兼容改写时丢弃） */
   body?: string;
-  /** 中止信号（调用方协作面——超时归调用方/管道预算，服务内不自带时钟） */
+  /** 中止信号（调用方协作中断面——run 级取消轴；墙钟轴另立：显式 timeoutMs 预算或调用方自带，服务内不自起时钟） */
   signal?: AbortSignal;
+  /**
+   * per-call 墙钟预算毫秒值（03 §10.3 安全卫生条 2026-10-18 60 轮定形注——
+   * **显式由调用方授予**：服务内自设时钟不设、只代持调用方显式预算）。
+   * 在场时外层 race 同帽兜全链（守卫 DNS 腿 + 全部重定向跳 + 体读取——
+   * AbortSignal 只进 fetch init 不辖前置守卫腿），帽钟并与 signal 合流进
+   * 每跳 fetch init（真连接到点即断——慢滴形兜底）；缺席 = 零时钟（预算
+   * 归调用方自带的既有分层不变）。
+   */
+  timeoutMs?: number;
   /** 消费面标注（归因落账用；缺省 'service'） */
   consumer?: WebConsumer;
 }
