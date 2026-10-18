@@ -385,6 +385,38 @@ function sendError(res: ServerResponse, status: number, code: string, message: s
   res.end(JSON.stringify({ kind: 'error', code, message }));
 }
 
+/**
+ * 面级请求异常兜底（dispatch 逃逸异常的收线——sock/tcp 两监听器共用单源；
+ * 64 轮件 C——03 §10.6 批注「面级兜底已发头形不 writeHead」）。
+ *
+ * 判据三档分立：
+ * - **已完应答**（writableEnded）：应答字节已尽、异常发生在收尾后——不动连接
+ *   （destroy 反连坐在途读侧——RST 可撤内核缓冲未读尽的应答字节）；
+ * - **已发头未完流**（headersSent——SSE openSse 构造即 writeHead(200)+
+ *   flushHeaders 等）：状态码位已用尽，再 writeHead 同步抛 ERR_HTTP_HEADERS_SENT
+ *   ——在 .catch 回调内抛即逃成 unhandledRejection（crash 编舞击杀常驻
+ *   daemon——64 轮件 C 缺陷形），改 res.destroy() 拆线收口（读侧即时收线）；
+ * - **未发头**：维持 writeHead(500)+end 纯文本（500 兜底契约不变）。
+ * writableEnded 不作发头判据（end() 前恒 false 不辨已发头——原缺陷根因）。
+ */
+function fallbackOnRequestError(
+  label: 'sock' | 'tcp',
+  res: ServerResponse,
+  err: unknown,
+  warn: (message: string) => void,
+): void {
+  warn(`${label} 面请求处理异常：${err instanceof Error ? err.message : String(err)}`);
+  // 已完应答早退：warn 已记，连接保持原状（无收线动作）
+  if (res.writableEnded) return;
+  if (res.headersSent) {
+    // 已发头未完流：writeHead 二次调必抛——destroy 拆线是唯一不抛的收线形
+    res.destroy();
+    return;
+  }
+  res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+  res.end('internal error');
+}
+
 /** 监听器安全档（sock = 本地信任边界免防线 / tcp = Host/Origin 防线 + 挂载规则分账） */
 interface ListenerSecurity {
   readonly label: 'sock' | 'tcp';
@@ -920,11 +952,8 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
     const sockSecurity: ListenerSecurity = { label: 'sock', loopback: true }; // sock = 本地文件权限信任边界，挂全路由
     sockServer = createServer((req, res) => {
       void dispatch(req, res, sockSecurity).catch((err: unknown) => {
-        warn(`sock 面请求处理异常：${err instanceof Error ? err.message : String(err)}`);
-        if (!res.writableEnded) {
-          res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
-          res.end('internal error');
-        }
+        // 面级兜底单源（判据分立——已发头 destroy 收线不 writeHead，64 轮件 C）
+        fallbackOnRequestError('sock', res, err, warn);
       });
     });
     servers.push({ server: sockServer, security: sockSecurity });
@@ -944,11 +973,8 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
     };
     const server = createServer((req, res) => {
       void dispatch(req, res, security).catch((err: unknown) => {
-        warn(`tcp 面请求处理异常：${err instanceof Error ? err.message : String(err)}`);
-        if (!res.writableEnded) {
-          res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
-          res.end('internal error');
-        }
+        // 面级兜底单源（判据分立——已发头 destroy 收线不 writeHead，64 轮件 C）
+        fallbackOnRequestError('tcp', res, err, warn);
       });
     });
     servers.push({ server, security });

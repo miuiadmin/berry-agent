@@ -14,6 +14,8 @@
  * ⑥helper 三件（readBody 排空纪律 413 / verifyToken / openSse 帧形与收口）
  * + isClosed 扩展路由 503 同律 + 多监听并存（sock 缺席 / TCP×N）
  * ⑦flaky 真案锁（连接 host 缺省钉 v4 字面——[::1] 同号端口劫持面闭死）
+ * + handler 异常面级兜底判据分立（已发头 destroy 收线零逃逸 / 未发头 500
+ *   纯文本——64 轮件 C，03 §10.6 批注「面级兜底已发头形不 writeHead」）
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request as httpRequest, createServer } from 'node:http';
@@ -520,6 +522,76 @@ describe('sdk/http 路由扩展位（18a-1）', () => {
       controller.abort();
       vi.useRealTimers();
       detach();
+    }
+  });
+
+  it('handler 异常面级兜底判据分立：已发头 destroy 收线零逃逸；未发头仍 500 纯文本（64 轮件 C）', async () => {
+    // 修前缺陷形：SSE 开流（openSse 构造即 writeHead(200)+flushHeaders——头已
+    // 发）后 handler 抛，旧兜底判 res.writableEnded（end() 前恒 false）误入
+    // writeHead(500) 分支——已发头再 writeHead 同步抛 ERR_HTTP_HEADERS_SENT，
+    // 在 .catch 回调内抛即逃成 unhandledRejection（crash 编舞击杀常驻 daemon），
+    // 且流无人收线（ping 保活、读侧恒悬挂）。修后契约（03 §10.6 批注）：已发头
+    // 改 res.destroy() 拆线收口；未发头维持 writeHead(500)+end 纯文本。
+    const detachSse = face.register({
+      method: 'GET',
+      path: '/api/sse-throw',
+      auth: { mode: 'open', purpose: 'static-shell' },
+      handler: (_req, res, ctx) => {
+        ctx.openSse(res); // 开流即发头——异常发生在头已发之后
+        throw new Error('boom-after-open');
+      },
+    });
+    const detachPlain = face.register({
+      method: 'GET',
+      path: '/api/plain-throw',
+      auth: { mode: 'open', purpose: 'static-shell' },
+      handler: () => {
+        throw new Error('boom-before-head'); // 未 writeHead 未开流——头未发
+      },
+    });
+    // 逃逸异常捕获位：process 级 unhandledRejection 真监听（修前红判据——旧兜
+    // 底 writeHead 二次调同步抛恰落此账；测试内装内卸不外溢）
+    const escaped: unknown[] = [];
+    const onEscaped = (reason: unknown): void => {
+      escaped.push(reason);
+    };
+    process.on('unhandledRejection', onEscaped);
+    try {
+      // —— 已发头形：开流后抛 → destroy 收线（socket closed 形）+ 零逃逸 ——
+      const controller = new AbortController();
+      const res = await fetch(`http://127.0.0.1:${port()}/api/sse-throw`, { signal: controller.signal });
+      expect(res.status).toBe(200); // 头已发（SSE 开流词面）——destroy 不追撤已发头
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+      const reader = res.body!.getReader();
+      // 读侧收线判据：destroy 即时拆线——读腿必速结（干净 EOF 或连接拆线错形皆
+      // 合法）；修前红 = 逃逸后无人收线、流挂 ping 保活读腿恒悬挂（2s 帽不结）
+      const settled = await Promise.race([
+        reader.read().then(
+          () => true,
+          () => true,
+        ),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2_000)),
+      ]);
+      expect(settled).toBe(true);
+      // 微任务/宏任务排空后查逃逸账（unhandledRejection 在拒绝被弃后下一拍发）
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(escaped).toHaveLength(0);
+      controller.abort();
+      // warn 面保留：判据分立不削传输级诊断（handler 抛因入 warn 行）
+      expect(warnings.some((w) => w.includes('boom-after-open'))).toBe(true);
+
+      // —— 未发头形：handler 直抛 → 维持 500 纯文本（既有兜底契约不变）——
+      const res500 = await rawRequest({ port: port() }, 'GET', '/api/plain-throw', {});
+      expect(res500.status).toBe(500);
+      expect(res500.body).toBe('internal error');
+      expect(warnings.some((w) => w.includes('boom-before-head'))).toBe(true);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(escaped).toHaveLength(0); // 两形皆零逃逸
+    } finally {
+      process.off('unhandledRejection', onEscaped);
+      detachSse();
+      detachPlain();
     }
   });
 
