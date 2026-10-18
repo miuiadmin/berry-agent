@@ -377,6 +377,34 @@ describe('读出消毒罩工具面（06 §8.2——批 18c-4：历史入库敏�
   });
 });
 
+describe('版本链行读出消毒（68 轮件 E③——§8.2 单源零第二消毒路径）', () => {
+  it('红锁C：链行 summary 含密钥样串 → 详查与谱系渲染遮蔽（与现行行同一消毒函数同遮蔽形——修前裸呈）', async () => {
+    const { dao, tools } = setup();
+    const id = seed(dao);
+    const secret = 'sk-abcdefghijklmnopqrstuv';
+    // 直改 SQL 制造存量遗留链行（写前扫描只拒新写——存量在读出面拦截）
+    store!.sqlite().prepare('UPDATE memory_versions SET summary = ? WHERE memory_id = ?').run(`token ${secret}`, id);
+    const detail = await run(byName(tools, 'memory_read'), { id });
+    expect(detail.isError).toBe(false);
+    // 遮蔽形对齐 entryLine 既有括注（说面不说值；保留 r 行其余操作面）
+    expect(detail.text).toContain('summary=（内容含疑似敏感串已遮蔽——openai-style-key');
+    expect(detail.text).not.toContain(secret);
+    const lin = await run(byName(tools, 'memory_lineage'), { id });
+    expect(lin.isError).toBe(false);
+    expect(lin.text).toContain('summary=（内容含疑似敏感串已遮蔽——openai-style-key');
+    expect(lin.text).not.toContain(secret);
+  });
+
+  it('对照正锁：干净链行 summary 照常裸呈（消毒不吞正常审计面）', async () => {
+    const { dao, tools } = setup();
+    const id = seed(dao);
+    const detail = await run(byName(tools, 'memory_read'), { id });
+    expect(detail.text).toContain('summary=user prefers pnpm for package management');
+    const lin = await run(byName(tools, 'memory_lineage'), { id });
+    expect(lin.text).toContain('summary=user prefers pnpm for package management');
+  });
+});
+
 describe('条目行时效标注（06 §6 p-1——工具面列表行 updated= 键值后缀，ISO 绝对形）', () => {
   it('memory_write 回执与 memory_read 简报行均带 updated=<ISO UTC>（入库时点冻结）', async () => {
     const { tools } = setup();

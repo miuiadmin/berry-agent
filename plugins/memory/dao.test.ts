@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ephemeralSecretKey, openStore, type Store } from '../../src/persist/index.js';
 import { createMemoryDao, uuidv7, type MemoryDao } from './dao.js';
 import { MEMORY_MIGRATIONS } from './migration.js';
-import type { MemoryCandidate } from './types.js';
+import type { MemoryCandidate, MemoryExportRow } from './types.js';
 
 let dir: string;
 let store: Store | null = null;
@@ -457,6 +457,123 @@ describe('批 ev-1 lineage 谱系查询（三链一读）', () => {
     const orphan = dao.ingest(candidate({ summary: 'orphan successor entry', content: 'orphan body' })).id;
     sql(`UPDATE memories SET status = 'dismissed', superseded_by = ? WHERE id = ?`, 'llm:m_absent', orphan);
     expect(dao.lineage(orphan).successor).toEqual({ marker: 'llm:m_absent' });
+  });
+});
+
+describe('68 轮件 E 版本链两闸（写前扫描辖 versions 嵌套列 + 回滚腿兜闸）', () => {
+  /** 导入行构造件（缺省现行面干净形） */
+  function exportRow(overrides: Partial<MemoryExportRow> = {}): MemoryExportRow {
+    return {
+      id: 'm-import-1',
+      owner_key: 'global',
+      kind: 'preference',
+      summary: 'imported clean summary',
+      content: 'imported clean content',
+      confidence: 0.8,
+      evidence_count: 1,
+      status: 'active',
+      superseded_by: null,
+      source_refs: [],
+      created_at: nowMs,
+      updated_at: nowMs,
+      usage_count: 0,
+      last_used_at: null,
+      frozen: false,
+      ttl_days: null,
+      expires_at: null,
+      ...overrides,
+    };
+  }
+
+  it('红锁A：随包版本链行 summary 含密钥样串 → 导入整行拒 MEMORY_SECRET_DETECTED（修前嵌套链行零扫描直插）', () => {
+    const dao = openDao();
+    const secret = 'ghp_0123456789abcdefghijklmnopqrstuvwxyz0123';
+    let err: unknown;
+    try {
+      dao.importInsert(
+        exportRow({
+          versions: [
+            {
+              id: 'mv-import-1',
+              revision: 1,
+              cause: 'insert',
+              reason: null,
+              owner_key: 'global',
+              kind: 'preference',
+              summary: `token 是 ${secret}`,
+              content: 'legacy clean body',
+              confidence: 0.8,
+              evidence_count: 1,
+              created_at: nowMs,
+            },
+          ],
+        }),
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toMatchObject({ code: 'MEMORY_SECRET_DETECTED' });
+    // 整行拒写（事务回滚）——主表与版本链零落库
+    expect(count('memories')).toBe(0);
+    expect(count('memory_versions')).toBe(0);
+    // warn 诊断不带密钥本体（log-only 通道说面不说值——与现行面同律）
+    expect(warn).toHaveBeenCalled();
+    expect(warn.mock.calls.flat().join('\n')).not.toContain(secret);
+  });
+
+  it('对照正锁：干净随包链照常导入重建（链行原值直搬零受影响）', () => {
+    const dao = openDao();
+    const ok = dao.importInsert(
+      exportRow({
+        versions: [
+          {
+            id: 'mv-ok-1',
+            revision: 1,
+            cause: 'insert',
+            reason: null,
+            owner_key: 'global',
+            kind: 'preference',
+            summary: 'clean chain summary',
+            content: 'clean chain body',
+            confidence: 0.8,
+            evidence_count: 1,
+            created_at: nowMs,
+          },
+        ],
+      }),
+    );
+    expect(ok).toBe(true);
+    expect(dao.versions('m-import-1')).toHaveLength(1);
+  });
+
+  it('红锁B：存量遗留未扫链行回滚 → 拒 MEMORY_SECRET_DETECTED（修前版本内容直升现行面 + FTS 投影）', () => {
+    const dao = openDao();
+    const out = dao.ingest(candidate()); // v1 干净（现行面干净）
+    const secret = 'ghp_0123456789abcdefghijklmnopqrstuvwxyz0123';
+    // 直改 SQL 预置未扫版本行（模拟件 E①闸上线前的存量遗留链行）
+    sql(
+      `INSERT INTO memory_versions (id, memory_id, revision, owner_key, kind, summary, content,
+                                    confidence, evidence_count, cause, reason, created_at)
+       VALUES (?, ?, 2, 'global', 'preference', ?, 'legacy body', 0.8, 1, 'merge', NULL, ?)`,
+      'mv-legacy-2',
+      out.id,
+      `token 是 ${secret}`,
+      nowMs,
+    );
+    expect(() => dao.restore(out.id, 2)).toThrowError(expect.objectContaining({ code: 'MEMORY_SECRET_DETECTED' }));
+    // 回滚被拒——现行面未被密钥串覆写、FTS 投影未写入
+    expect(dao.get(out.id)!.summary).toBe('user prefers pnpm for package management');
+    expect(ftsHits('token')).toBe(0);
+  });
+
+  it('对照正锁：干净链行回滚照常（回滚腿兜闸不吞正常恢复面）', () => {
+    const dao = openDao();
+    const out = dao.ingest(candidate({ confidence: 0.5 }));
+    nowMs += 1000;
+    dao.ingest(candidate({ confidence: 0.9 })); // exact 合并 → v2
+    nowMs += 1000;
+    const row = dao.restore(out.id, 1); // 回滚到干净 v1
+    expect(row.confidence).toBe(0.5);
   });
 });
 

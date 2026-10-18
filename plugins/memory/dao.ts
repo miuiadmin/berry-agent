@@ -843,6 +843,19 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       // 无链条目带版本拒 / revision 越界——同码（版本缺席是统一执法面）
       throw new BaseError('MEMORY_REVISION_NOT_FOUND', `版本缺席：${id}#revision=${revision}`);
     }
+    // —— 回滚腿写前扫描（06 §8 2026-10-19 挖掘 68 轮件 E 批注②）：回滚是写
+    // 路径——版本内容升为现行面 + FTS 投影，不是纯读；存量库遗留未扫链行
+    // （批注①闸上线前入库）在此兜闸。写语句（FTS 删旧投影/六列回写/新投影）
+    // 前对回滚目标 v.summary/v.content 同扫，命中即拒——与入库单点同码同律
+    // （MEMORY_SECRET_DETECTED）、诊断不带密钥本体。
+    const rollbackHits = [...scanForSecrets(v.summary), ...scanForSecrets(v.content)];
+    if (rollbackHits.length > 0) {
+      const patterns = rollbackHits.map((h) => h.pattern).join(', ');
+      warn(
+        `[memory] 回滚腿写前 secret 扫描命中拒写：pattern=${patterns}（id：${id}#revision=${revision}）——疑似密钥本体不入诊断`,
+      );
+      throw new BaseError('MEMORY_SECRET_DETECTED', `回滚腿写前 secret 扫描命中拒写（pattern：${patterns}）`);
+    }
     const rid = (stmtGetRowid.get(id) as { rid: number }).rid;
     // FTS external-content 同步：删旧投影（携旧值）→ 六列回写 → 插新投影
     stmtFtsDelete.run(rid, row.summary, row.content);
@@ -954,6 +967,25 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       const patterns = [...summaryHits, ...contentHits].map((h) => h.pattern).join(', ');
       warn(`[memory] 导入行写前 secret 扫描命中拒写：pattern=${patterns}（id：${row.id}）——疑似密钥本体不入诊断`);
       throw new BaseError('MEMORY_SECRET_DETECTED', `导入行写前 secret 扫描命中拒写（pattern：${patterns}）`);
+    }
+    // —— 随包版本链行同扫（06 §8 2026-10-19 挖掘 68 轮件 E 批注①——写前扫描
+    // 辖 versions 嵌套列）：「导入面即写入面」不含「历史事实」豁免——revision
+    // 原值直搬是搬运语义、非密钥豁免语义；扫位前置于任何写语句，任一命中整行
+    // 拒写（事务回滚不留部分态），与现行面同码同律（MEMORY_SECRET_DETECTED）、
+    // warn 诊断不带密钥本体。存量库遗留未扫链行由 restore 回滚腿兜闸（批注②）。
+    const versionFaceHits: string[] = [];
+    if (row.versions) {
+      for (const v of row.versions) {
+        versionFaceHits.push(
+          ...scanForSecrets(v.summary).map((h) => h.pattern),
+          ...scanForSecrets(v.content).map((h) => h.pattern),
+        );
+      }
+    }
+    if (versionFaceHits.length > 0) {
+      const patterns = [...new Set(versionFaceHits)].join(', ');
+      warn(`[memory] 导入行版本链写前 secret 扫描命中拒写：pattern=${patterns}（id：${row.id}）——疑似密钥本体不入诊断`);
+      throw new BaseError('MEMORY_SECRET_DETECTED', `导入行版本链写前 secret 扫描命中拒写（pattern：${patterns}）`);
     }
     // —— 域不变量兜底（闭集/owner 形/区间——词法全清单在 port；此处防直调坏形破库）
     const problems: string[] = [];
