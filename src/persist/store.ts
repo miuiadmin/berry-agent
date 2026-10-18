@@ -463,6 +463,11 @@ export function openStore(options: OpenStoreOptions = {}): Store {
       const backupPath = `${dbPath}.bak-v${version}`;
       rmSync(backupPath, { force: true });
       db.exec(`VACUUM INTO '${backupPath.replaceAll("'", "''")}'`);
+      // 备份承载全量操作者数据——权限面与主库一致（05 §6.6）：VACUUM INTO 走
+      // SQLite open(2) 以 0644 & ~umask 建新文件，宽 umask 下裸落他户可读
+      // （「原件上锁、副本敞开」倒挂且备份长期留存）。repair 紧随写后——与
+      // rmSync+VACUUM 同序，重跑覆盖重建仍被修复（与主库/派生库/密钥三处同式）
+      repairFileMode(backupPath, '迁移前备份文件', warn);
       warn(`[persist] 迁移前备份：${dbPath} → ${backupPath}（从 v${version} 升到 v${headVersion}）`);
     }
     for (const migration of chain) {

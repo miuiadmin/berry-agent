@@ -6,7 +6,7 @@
  * 分层纪律：真 better-sqlite3 临时目录库（非 mock 物理层——门禁序与事务
  * 语义只在真库上可断言）；词汇注册表用测试插件词补 FTS 索引面样本。
  */
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -227,6 +227,32 @@ describe('开库门禁序（05 §6.4/§6.5）', () => {
     expect((second.connection.prepare(`SELECT id FROM migrated_marker`).get() as { id: number }).id).toBe(7);
     // 迁移前备份在场（.bak-v1）
     expect(existsSync(`${path}.bak-v1`)).toBe(true);
+  });
+
+  it('迁移前备份文件权限 0600（05 §6.6——备份承载全量操作者数据，权限面与主库一致）', () => {
+    const path = join(dir, 'migrate-bak-mode.db');
+    // v1 基线旧版库形（同缺口迁移测两段开库法）
+    const first = open({ dbPath: path, migrations: [] });
+    first.close();
+    // 钉宽 umask：VACUUM INTO 走 SQLite open(2) 以 0644 & ~umask 建新文件——
+    // 显式钉 022 防 CI 窄 umask（077）环境下修前形恰好 0600 假绿
+    const prevUmask = process.umask(0o022);
+    try {
+      const second = open({
+        dbPath: path,
+        migrations: [
+          { version: 2, name: 'test-bak-mode', sql: `CREATE TABLE bak_mode_marker (id INTEGER PRIMARY KEY);` },
+        ],
+      });
+      expect(second.headVersion).toBe(2);
+      const backupPath = `${path}.bak-v1`;
+      expect(existsSync(backupPath)).toBe(true);
+      // 修前形：备份裸落 0644（「原件上锁、副本敞开」权限倒挂——全量对话史+
+      // 凭证密文快照他户可读且长期留存暴露）；修后 repairFileMode 补 0600
+      expect(statSync(backupPath).mode & 0o777).toBe(0o600);
+    } finally {
+      process.umask(prevUmask);
+    }
   });
 
   it('全新库豁免迁移前备份（十六役补扫 N10）：带链首开零 .bak 残留零误导 warn，迁移链照跑', () => {

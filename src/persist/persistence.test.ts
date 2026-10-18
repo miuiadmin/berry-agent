@@ -354,6 +354,25 @@ describe('透传面', () => {
     expect(p.store.getSessionRow(log.sessionId)?.title).toBe('新题');
   });
 
+  it('stageSessionTitle 不变锁：attach 闭包携带旧题（非 null 形）flush 不回写（57 轮件②注释勘正——durable 正确性单源预落行 + upsert COALESCE 库值恒胜出）', async () => {
+    const p = open({ dbPath: join(dir, 'stage-title-closure.db') });
+    // 带显式旧题的零消息新会话：attachSession 的 onAppend 闭包捕获的旧
+    // registration.title='旧题'（非 null——旧题若回写才可观测，比上测的
+    // undefined 旧题形更强的锁面）
+    const log = p.createSession({ origin: 'conversation', workspaceRoot: '/ws/stc', title: '旧题' });
+    expect(p.stageSessionTitle(log.sessionId, '新题')).toBe(true);
+    expect(p.store.getSessionRow(log.sessionId)?.title).toBe('新题');
+    // enqueue+flush：写队列笔携带 attach 时捕获的旧 registration（闭包参数
+    // 绑定——registrations 换槽不达闭包，enqueue 路径不读 map 槽）——旧题
+    // 落行靠 writeTuple upsert 的 title=COALESCE(库值, excluded) 库值恒胜出
+    // 挡住，新题保持
+    oneTurn(log, '首问');
+    await p.flush();
+    const row = p.store.getSessionRow(log.sessionId);
+    expect(row?.title).toBe('新题');
+    expect(row?.firstQuestionSummary).toBe('首问');
+  });
+
   it('archiveSession 三态：archived/unarchived 位翻 + missing（53 轮件 B——位翻非删行零 flush）', async () => {
     let clock = 5_000;
     const p = Persistence.open({

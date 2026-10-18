@@ -365,12 +365,18 @@ export class Persistence {
   /**
    * 活体会话待落题更新（2026-09-30 人面改名批——/rename 零消息会话兜底）：
    * createSession 零 I/O（行首事件才落库），TUI 刚开的新会话行尚不在库——
-   * updateSessionTitle 对其 misses。本面在活体 registration 在册时：①改挂
-   * 活体 registration.title（后续 enqueue 现取新值）；②registerSessionRow
-   * 立即预落行（幂等 ON CONFLICT DO NOTHING——写队列已排队的旧 registration
-   * 项 flush 落行时行已在、不回写旧题，pending 窗竞态结构性关死）。显式
-   * 改名才走此面——「createSession 零 I/O」承诺不破（无人改名的空会话行
-   * 仍不落）。不在册（跨进程/未知 id）返 false 诚实 miss。
+   * updateSessionTitle 对其 misses。本面在活体 registration 在册时：①registration
+   * 面更新（registrations 换槽新值——map 槽全类唯一后续读者是本面自身的在册
+   * 守卫（第二次改名时的展开基），私有面无外泄读位；loadSession 重附着**不
+   * 读此槽**（其 registration 从库行现拼、新题经②预落行到达）；**不达 enqueue
+   * 路径**：attachSession 的 onAppend 闭包捕获 attach 时的 registration 参数
+   * 绑定，此处 registrations.set 只换 map 槽位不达闭包，后续 enqueue 携带旧
+   * 对象、不消费此槽）；②registerSessionRow
+   * 立即预落行（幂等 ON CONFLICT DO NOTHING + writeTuple upsert 的
+   * title=COALESCE 库值恒胜出不回写——写队列已排队的旧 registration 项 flush
+   * 落行时行已在、旧题不落，pending 窗竞态结构性关死）。durable 正确性单源②
+   * （①非其依赖）。显式改名才走此面——「createSession 零 I/O」承诺不破（无人
+   * 改名的空会话行仍不落）。不在册（跨进程/未知 id）返 false 诚实 miss。
    */
   stageSessionTitle(sessionId: string, title: string): boolean {
     this.ensureOpen();
