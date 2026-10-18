@@ -82,6 +82,12 @@ export interface SchedulerEngineDeps {
    * 0 信号探活：ESRCH = 死、EPERM = 活但非己属。测试注假件零真信号）
    */
   isPidAlive?: (pid: number) => boolean;
+  /**
+   * 本引擎进程 pid（缺省真身 process.pid——甲案宿主单实例形）。67 轮批注乙
+   * 测试注异 pid 模拟乙案并存双实例（同进程内两引擎互视为「他进程」——
+   * 跨进程判占/让位判定的测试驱动面）；生产恒缺省。
+   */
+  pid?: number;
 }
 
 /** scheduler 引擎公开面 */
@@ -116,6 +122,8 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
   const maxConcurrent = deps.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
   const gateFacts = deps.gateFacts ?? (() => ({}));
   const isPidAlive = deps.isPidAlive ?? realIsPidAlive;
+  // 本实例 pid（缺省真身 process.pid；测试注异 pid 模拟乙案并存双实例——见 deps.pid 注释）
+  const ownPid = deps.pid ?? processPid;
 
   /** 同名在飞注册表（键=行名——抢占判据面） */
   const active = new Map<string, RunnerHandle>();
@@ -211,7 +219,7 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       // 记回收（settleGated 形不动 last_fire_at——非真跑）。与关系保守判：
       // 活 + 超钟形（pid 复用误判险）不清、下轮 fire 的 setActive 覆写自愈。
       for (const row of dao.list()) {
-        if (row.activePid === null || row.activePid === processPid) continue; // 己 pid = 甲案在飞（进程内注册表管辖）
+        if (row.activePid === null || row.activePid === ownPid) continue; // 己 pid = 甲案在飞（进程内注册表管辖）
         const startedAtMs = row.activeStartedAt !== null ? Date.parse(row.activeStartedAt) : 0;
         const expired = Date.parse(now()) - startedAtMs > wallTimeoutMs;
         if (!expired || isPidAlive(row.activePid)) continue;
@@ -287,6 +295,25 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       let outcome: RunOutcome;
       try {
         outcome = await handle.settled;
+      } catch (err) {
+        // settled 破约折 error 结局照结算（04 §12 律 3 67 轮批注甲——一切收场
+        // 形必结算）：runner settled 契约恒 resolve，真拒绝形 = run 回执真拒绝
+        // 穿透（scheduler-tick runSession 尾段 submitText 回执——配置坏词
+        // THINKING_LEVEL_INVALID 等非瞬态族）。修前裸 await 拒绝穿透 finally
+        // 只清账不结算——next 不推进、last_fire_at 恒空（cooldown 闸失判据）
+        // → 行持续 due 每 MIN_POLL_MS 重 fire：每拍新 durable 会话无界累积 +
+        // 热循环刷屏。折 exit_code/1 error 结局（词形对齐 runSession failed
+        // 分支），结算单点不因收场形旁路；外层 doSweep catch 不再是承接面。
+        const msg = err instanceof Error ? err.message : String(err);
+        outcome = {
+          reason: 'exit_code',
+          exitCode: 1,
+          // 摘要整串截 200（types RunOutcome.error 文档帽——前缀「run 回执拒绝：」
+          // 计入帽内，避免 msg 段恰 200 时整串超帽）
+          error: `run 回执拒绝：${msg}`.slice(0, 200),
+          trigger,
+          finishedAt: now(),
+        };
       } finally {
         timers.clear(wallHandle);
         active.delete(name);
@@ -328,9 +355,10 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
 
   /**
    * 关键段（同名链内互斥执行）：执行前抢占同任务旧实例 → 闸评估（clock/cron
-   * 道；manual 直通）→ 跨进程在飞判定 → spawn → active 注册 + claim 记账。
-   * 段内单次抢占检查即完整：注册在本段尾、持链期间无人能再注册——后来者
-   * 排在链上，恢复时读到的是本段新实例（杀旧起新——抢占语义不变）。
+   * 道；manual 直通）→ 跨进程在飞判定 + 条件判占（claim 先行——67 轮批注乙）
+   * → spawn（拒绝回卷）→ active 注册 + 起跑记账。段内单次抢占检查即完整：
+   * 注册在本段尾、持链期间无人能再注册——后来者排在链上，恢复时读到的是
+   * 本段新实例（杀旧起新——抢占语义不变）。
    */
   async function beginInstance(row: JobRow, trigger: TriggerKind, stillOwn: () => boolean): Promise<BeginResult> {
     const name = row.name;
@@ -361,30 +389,79 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
         }
       }
       const firedAt = now();
+      // 判定基面重读（67 轮批注乙）：上方抢占可能 await 过收场尾（旧实例
+      // finally 已清 activePid），行快照 row 系 doSweep/fireNow 读面——占用
+      // 判据与判占期望值须取当下库面（陈旧快照会误让位/误期望致 claim 恒败）
+      const current = dao.get(name) ?? row;
       // 跨进程在飞判定（定形注③乙案并存窗的引擎侧对偶——u-2）：行 activePid
       // 非空非己且活体未超墙钟 = 乙案子进程（或他宿主）真在飞 → 本轮让位
       // （gated 记结局 + 推进，不 kill 不双跑——跨进程 kill 有 pid 复用误杀
       // 险，「执行前抢占」条款对跨进程实例不越权；子进程侧对偶 = run-entry
-      // --tick 让位律，双向对称）。死/超钟形不拦（settle 段覆写自愈）。
-      if (row.activePid !== null && row.activePid !== processPid && isPidAlive(row.activePid)) {
-        const startedAtMs = row.activeStartedAt !== null ? Date.parse(row.activeStartedAt) : 0;
+      // --tick 让位律，双向对称）。死/超钟残账不拦——经下方条件判占接管
+      // （接管失败 = 他实例竞速先占，同走让位收口）。
+      if (current.activePid !== null && current.activePid !== ownPid) {
+        const startedAtMs = current.activeStartedAt !== null ? Date.parse(current.activeStartedAt) : 0;
         const expired = Date.parse(now()) - startedAtMs > wallTimeoutMs;
-        if (!expired) {
+        if (isPidAlive(current.activePid) && !expired) {
           const next = nextFireAt(row.schedule, new Date(firedAt));
           const outcome: RunOutcome = {
             trigger,
             reason: 'gated',
-            error: `另一进程实例正在运行（activePid ${row.activePid}）——本轮让位不双跑`,
+            error: `另一进程实例正在运行（activePid ${current.activePid}）——本轮让位不双跑`,
             finishedAt: firedAt,
           };
           dao.settleGated(name, outcome, next, now());
           return { kind: 'done', outcome };
         }
       }
-      const handle = await runner.spawn({ row, trigger, wallTimeoutMs });
+      // 条件判占（67 轮批注乙——claim 先行）：判定过即条件 UPDATE 原子判占，
+      // 期望值 = 判定基面的 activePid（null = 空面首占；死/超钟残账 = 在册
+      // 旧值接管）。竞速负者（他实例已判占/已自清）让位不双跑——乙案并存窗
+      // check-then-act 双穿（读行判定 → spawn/wake 长窗 → setActive 追认）的
+      // 收口位：spawn/wake 移 claim 后，双侧恰一胜者。
+      if (!dao.claimActive(name, ownPid, firedAt, firedAt, current.activePid)) {
+        const next = nextFireAt(row.schedule, new Date(firedAt));
+        const outcome: RunOutcome = {
+          trigger,
+          reason: 'gated',
+          error: '另一进程实例已判占（activePid 竞速）——本轮让位不双跑',
+          finishedAt: firedAt,
+        };
+        dao.settleGated(name, outcome, next, now());
+        return { kind: 'done', outcome };
+      }
+      // spawn 拒绝回卷（67 轮批注乙——claim 先行对偶）：修前裸 await 拒绝穿
+      // 透 fireRow 由 doSweep catch-warn 兜——行零结算永 due 每拍重试；claim
+      // 已落则占用滞留死账。折 spawn 结局（types 词域真源——「子进程没起来」
+      // 专值；CLI abortTick/scheduler-tick 同概念形同词；gated 留让位/零跑判定
+      // 族——推进 next 行下拍再试）+ 回卷清账（吞错同下方记账位——清账失败
+      // 由僵行清扫自愈，结局仍照结算）
+      let handle: RunnerHandle;
+      try {
+        handle = await runner.spawn({ row, trigger, wallTimeoutMs });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        try {
+          dao.setActive(name, null, null, now()); // 回卷清账（claim 对偶）
+        } catch (clearErr) {
+          warn(
+            `[scheduler] activePid 回卷清账失败（任务 ${name}，降 warn——残留账由僵行清扫自愈）：${clearErr instanceof Error ? clearErr.message : String(clearErr)}`,
+          );
+        }
+        const rollbackNext = nextFireAt(row.schedule, new Date(now()));
+        const outcome: RunOutcome = {
+          trigger,
+          reason: 'spawn',
+          error: `run 起跑失败（spawn 拒绝）：${msg}`.slice(0, 200),
+          finishedAt: now(),
+        };
+        dao.settleGated(name, outcome, rollbackNext, now());
+        return { kind: 'done', outcome };
+      }
       active.set(name, handle);
-      // claim-then-advance 记账（定形注③）：fire 起跑落 activePid（runner 句柄
-      // pid——甲案宿主 pid/乙案子进程 pid）+ 起跑墙钟；settle 清（对偶位）。
+      // claim-then-advance 记账（定形注③）：spawn 成功后覆写自占位为 runner
+      // 句柄 pid（甲案 = 宿主 pid 同值幂等；乙案 spawn 形 = 子进程 pid 真值）
+      // + 起跑墙钟；settle 清（对偶位）。
       // 记账吞错（挖掘 21 轮件10——与 settle 对偶位同律）：dao 瞬态错
       // （SQLITE_BUSY/IOERR——跨进程写 jobs 表系 04 §12 设计内场景）穿透即
       // fireRow 抛——active 表项已落而 tail 未返 spawned 不接管清账 → 表项
@@ -424,10 +501,12 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
           if (active.has(row.name) || reserved.has(row.name)) continue;
           if (launched >= maxConcurrent) break; // 帽满留 due——下轮 sweep 补觉（定时夹取防自旋）
           launched += 1;
-          // 火种链防崩（G1）：fireRow 体内 runner.spawn / handle.settled / dao 结算
-          // 写库任一拒绝，void 调用无接即 unhandledRejection——崩溃编舞 exit(1)
-          // 会连杀在飞会话（无人值守宿主不可接受）。catch 记账（行名+火种）不
-          // 重抛：单行单次失败不阻轮询编舞（结算未推进的行下轮 sweep 照常补觉）。
+          // 火种链防崩（G1）：fireRow 体内 dao 结算写库等任一拒绝，void 调用
+          // 无接即 unhandledRejection——崩溃编舞 exit(1) 会连杀在飞会话（无人
+          // 值守宿主不可接受）。catch 记账（行名+火种）不重抛：单行单次失败
+          // 不阻轮询编舞（结算未推进的行下轮 sweep 照常补觉）。67 轮批注甲/乙
+          // 后 runner spawn/settled 拒绝已折结局照结算（不再依赖本 catch 补觉
+          // ——本位收容面收窄为 dao 写库等残余异常）。
           void fireRow(row, 'clock').catch((err) => {
             warn(
               `[scheduler] fire 失败（任务 ${row.name}，clock 道）：${err instanceof Error ? err.message : String(err)}`,

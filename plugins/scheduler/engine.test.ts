@@ -10,7 +10,7 @@ import { pid as processPid } from 'node:process';
 import { ephemeralSecretKey, openStore, type Store } from '../../src/persist/index.js';
 import { SCHEDULER_MIGRATION } from './migration.js';
 import { createSchedulerEngine, MAX_POLL_MS, type SchedulerEngine, type TimerSeam } from './engine.js';
-import { createSchedulerService, type JobsDao, type SchedulerService } from './service.js';
+import { createSchedulerService, JobsDao, type SchedulerService } from './service.js';
 import { runTickCommand } from './tick.js';
 import type { RunnerFactory, RunnerHandle, RunnerRequest } from './runner.js';
 import type { GateFacts } from './gates.js';
@@ -155,6 +155,12 @@ function assemble(
 /** 时钟步进（毫秒） */
 function advance(ms: number): void {
   nowMs += ms;
+}
+
+/** 微任务排空两轮（异步 fire 链落拍——promise 链穿透/结算判定前排干） */
+async function drainMicrotasks(): Promise<void> {
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
 }
 
 describe('start 重启补推进', () => {
@@ -561,19 +567,13 @@ describe('时钟回拨窗（注入假钟——回拨不重触发、恢复后 swe
  * process 级 unhandledRejection 且 warn 零呼；修后 warn 记账（行名+错误）不重抛。
  */
 describe('sweep 火种链防崩（void fireRow 拒绝必接）', () => {
-  /** 微任务排空两轮（promise 链拒绝穿透 / catch 到位判定前先排干） */
-  async function drainMicrotasks(): Promise<void> {
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-  }
-
-  it('runner.spawn 拒绝：warn 记账（行名+错误）不穿透 unhandledRejection', async () => {
+  it('runner.spawn 拒绝：回卷清账 + spawn 结局推进（67 轮批注乙——claim 先行对偶），无 unhandledRejection', async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on('unhandledRejection', onUnhandled);
     try {
       const boom = new Error('spawn-boom');
-      const { service, engine } = assemble({
+      const { service, dao, engine } = assemble({
         spawnOverride: () => Promise.reject(boom),
       });
       service.addJob({ name: 'j', schedule: 'every:5s', prompt: 'p', enabled: true });
@@ -581,23 +581,27 @@ describe('sweep 火种链防崩（void fireRow 拒绝必接）', () => {
       advance(10_000);
       engine.sweep();
       await drainMicrotasks();
-      // 修前红锚：void fireRow 无 catch——warn 零呼 + 拒绝进 unhandledRejection
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('spawn-boom'));
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('j'));
+      // 修前红锚：拒绝直穿 fireRow（void 无接即 unhandledRejection）；修后
+      // spawn 抛折 spawn 结局回卷清账——行照结算（占位不滞留、next 推进）
       expect(unhandled).toHaveLength(0);
+      const row = dao.get('j');
+      expect(row?.lastOutcome?.reason).toBe('spawn');
+      expect(row?.lastOutcome?.error).toContain('spawn-boom');
+      expect(row?.nextFireAt).not.toBeNull();
+      expect(row?.activePid).toBeNull();
     } finally {
       process.off('unhandledRejection', onUnhandled);
     }
   });
 
-  it('handle.settled 拒绝同律：warn 记账不穿透（结算腿契约破约也不崩宿主）', async () => {
+  it('handle.settled 拒绝折 error 结局照结算（67 轮批注甲）：无 unhandledRejection、不依赖外层 catch 补觉', async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on('unhandledRejection', onUnhandled);
     try {
-      // 真 runner 契约 settled 永不 reject——此处故意破约（防御面测试：接缝
-      // 实装可换，引擎侧对 void 调用不赌下游契约）
-      const { service, engine } = assemble({
+      // 真 runner 契约 settled 永不 reject——此处故意破约（submitText 回执真
+      // 拒绝穿透 scheduler-tick runSession 尾段的形——配置坏词非瞬态族）
+      const { service, dao, engine } = assemble({
         spawnOverride: async () => ({
           pid: 900099,
           kill: () => undefined,
@@ -609,8 +613,12 @@ describe('sweep 火种链防崩（void fireRow 拒绝必接）', () => {
       advance(10_000);
       engine.sweep();
       await drainMicrotasks();
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('settled-boom'));
       expect(unhandled).toHaveLength(0);
+      // 拒绝折 error 结局（settleFire 落账）——warn 不再是承接面
+      const row = dao.get('j');
+      expect(row?.lastOutcome?.reason).toBe('exit_code');
+      expect(row?.lastOutcome?.error).toContain('settled-boom');
+      expect(row?.nextFireAt).not.toBeNull();
     } finally {
       process.off('unhandledRejection', onUnhandled);
     }
@@ -718,5 +726,236 @@ describe('轮询拍异常收口（dao 读抛错不炸进程不死钟）', () => 
     expect(timers.pending.size).toBe(1);
     const [belt] = timers.pending.values();
     expect(belt?.ms).toBe(MAX_POLL_MS);
+  });
+});
+
+/**
+ * 一切收场形必结算（04 §12 律 3 67 轮批注甲）：runner settled 契约破约形
+ * （submitText 回执真拒绝——配置坏词 THINKING_LEVEL_INVALID 等非瞬态族穿透
+ * scheduler-tick runSession 尾段）修前裸 await 穿透引擎尾段 finally 只清账
+ * 不结算——next 不推进、last_fire_at 恒空（cooldown 闸失判据）→ 行持续 due
+ * 每 MIN_POLL_MS 重 fire：每拍新 durable 会话行无界累积 + 热循环刷屏。修后
+ * 拒绝折 error 结局照走 settleFire——结算单点不因收场形旁路。
+ */
+describe('一切收场形必结算（67 轮批注甲）', () => {
+  it('settled 真拒绝折 error 结局：last_outcome 载拒绝因 + last_fire_at/next 推进 + 占用清 + 后续 sweep 不重 fire（修前红：穿透只清账不结算、每拍重 fire）', async () => {
+    // 计数形拒绝 runner：每 spawn 记数、settled 恒 reject（铸真拒绝形）
+    let spawns = 0;
+    const { service, dao, engine } = assemble({
+      spawnOverride: () => {
+        spawns += 1;
+        return Promise.resolve({
+          pid: 900500,
+          kill: () => undefined,
+          settled: Promise.reject(new Error('THINKING_LEVEL_INVALID: 思考档位词无效（铸）')),
+        });
+      },
+    });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    engine.start();
+    advance(10 * 60_000 + 1000);
+    engine.sweep();
+    await drainMicrotasks();
+    const row = dao.get('j');
+    // 修后锚①：拒绝折 error 结局照走 settleFire——词形对齐 runSession failed
+    // 分支（reason=exit_code / exitCode=1 / error 载拒绝因）
+    expect(row?.lastOutcome?.reason).toBe('exit_code');
+    expect(row?.lastOutcome?.exitCode).toBe(1);
+    expect(row?.lastOutcome?.error).toContain('run 回执拒绝');
+    expect(row?.lastOutcome?.error).toContain('THINKING_LEVEL_INVALID');
+    expect(row?.lastFireAt).not.toBeNull(); // 真跑面照推进（cooldown 闸判据复位）
+    // 修后锚②：next 推进至未来刻（修前红锚：不结算仍 due）
+    expect(row?.nextFireAt).not.toBeNull();
+    expect(Date.parse(row?.nextFireAt ?? '')).toBeGreaterThan(nowMs);
+    expect(row?.activePid).toBeNull(); // 清账对偶照走（finally 位不旁路）
+    // 锁2 热循环刹停：再 sweep 一拍不重 fire（next 未来——due 集不含该行；
+    // 修前红锚：行仍 due 每拍重 fire）
+    engine.sweep();
+    await drainMicrotasks();
+    expect(spawns).toBe(1);
+  });
+
+  it('正常收场形零变（防过修）：settled 正常 resolve → exit_code 结局 + preview 照带', async () => {
+    let spawns = 0;
+    const { service, dao, engine } = assemble({
+      spawnOverride: () => {
+        spawns += 1;
+        return Promise.resolve({
+          pid: 900501,
+          kill: () => undefined,
+          settled: Promise.resolve({
+            trigger: 'clock',
+            reason: 'exit_code',
+            exitCode: 0,
+            finalTextPreview: '正常收场',
+            finishedAt: '2026-09-07T08:00:00.000Z',
+          } satisfies RunOutcome),
+        });
+      },
+    });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    engine.start();
+    advance(10 * 60_000 + 1000);
+    engine.sweep();
+    await drainMicrotasks();
+    const row = dao.get('j');
+    expect(row?.lastOutcome?.reason).toBe('exit_code');
+    expect(row?.lastOutcome?.exitCode).toBe(0);
+    expect(row?.lastOutcome?.finalTextPreview).toBe('正常收场');
+    expect(row?.nextFireAt).toBe(new Date(nowMs + 600_000).toISOString());
+    expect(spawns).toBe(1);
+  });
+});
+
+/**
+ * claim 先行条件判占（04 §12 律 3 67 轮批注乙）：乙案并存形态（OS cron
+ * 分拍与引擎定时器在 next_fire_at 同刻唤醒）下，双侧「读行判定 → goal
+ * wake/用户行解析 → setActive」均不盖对方唤醒段（wake 读全量会话日志百
+ * ms-秒级窗）——check-then-act 双穿、activePid 恒空、双双 landed → 同
+ * goal 会话双进程双 run。修：判定过即条件 UPDATE 原子判占（SQLite 单写者
+ * 下两进程 UPDATE 串行恰一胜者）、wake 移 claim 后；未落地/让位/异常形
+ * 回卷清账 settleGated。
+ */
+describe('claim 先行条件判占（67 轮批注乙）', () => {
+  it('dao.claimActive 乐观锁原子性：两连接同期望 null 判占恰一胜；旧值接管形同律（修前红：无此方法）', () => {
+    // 两独立连接开同库（跨进程形——SQLite 单写者下两 UPDATE 串行恰一胜者）
+    const dbPath = join(dir, 'claim.db');
+    const s1 = openStore({
+      dbPath,
+      dataDir: join(dir, 'd1'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SCHEDULER_MIGRATION],
+    });
+    const s2 = openStore({
+      dbPath,
+      dataDir: join(dir, 'd2'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SCHEDULER_MIGRATION],
+    });
+    try {
+      const svc1 = createSchedulerService({
+        db: s1.sqlite(),
+        now: () => new Date(nowMs).toISOString(),
+        warn,
+        pathExists: () => true,
+      });
+      svc1.service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+      const dao2 = new JobsDao(s2.sqlite(), warn);
+      const t = new Date(nowMs).toISOString();
+      // 同期望 null 并发判占：恰一胜一败
+      const w1 = svc1.dao.claimActive('j', 910001, t, t, null);
+      const w2 = dao2.claimActive('j', 910002, t, t, null);
+      expect(w1).toBe(true); // 首判占胜
+      expect(w2).toBe(false); // 竞速负者（WHERE IS NULL 不匹配已占位）
+      expect(dao2.get('j')?.activePid).toBe(910001);
+      // 接管形：期望=在册旧值 → 覆写胜（死/超钟残账自愈）；期望=陈旧值 → 败
+      expect(dao2.claimActive('j', 910003, t, t, 910001)).toBe(true);
+      expect(svc1.dao.claimActive('j', 910004, t, t, 910001)).toBe(false);
+      expect(dao2.get('j')?.activePid).toBe(910003);
+    } finally {
+      s1.close();
+      s2.close();
+    }
+  });
+
+  /** 双引擎装配（同库同 dao、异注入 pid——乙案并存双实例形；runner 悬挂可计数） */
+  function assembleDualEngine(): {
+    service: SchedulerService;
+    dao: JobsDao;
+    engineA: SchedulerEngine;
+    engineB: SchedulerEngine;
+    countA: { n: number };
+    countB: { n: number };
+  } {
+    store = openStore({
+      dbPath: join(dir, 'dual.db'),
+      dataDir: join(dir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SCHEDULER_MIGRATION],
+    });
+    const { service, dao } = createSchedulerService({
+      db: store.sqlite(),
+      now: () => new Date(nowMs).toISOString(),
+      warn,
+      pathExists: () => true,
+    });
+    // 悬挂形 runner（在飞窗——settled 永不落，测试只断言起跑计数与账面）。
+    // 句柄 pid = 注入的本引擎 pid（对齐生产形——甲案 in-process runner 句柄
+    // pid 恒 = 宿主 pid，spawn 后记账覆写幂等不换主）
+    const makeRunner = (counter: { n: number }, pid: number): RunnerFactory => ({
+      async spawn() {
+        counter.n += 1;
+        return {
+          pid,
+          kill: () => undefined,
+          settled: new Promise<RunOutcome>(() => {}),
+        };
+      },
+    });
+    const countA = { n: 0 };
+    const countB = { n: 0 };
+    const clock = () => new Date(nowMs).toISOString();
+    const engineA = createSchedulerEngine({
+      dao,
+      runner: makeRunner(countA, 910001),
+      now: clock,
+      warn,
+      timers: new FakeTimers(),
+      isPidAlive: () => true, // 互见活体（乙案并存形——占用面判定真值）
+      pid: 910001,
+    });
+    const engineB = createSchedulerEngine({
+      dao,
+      runner: makeRunner(countB, 910002),
+      now: clock,
+      warn,
+      timers: new FakeTimers(),
+      isPidAlive: () => true,
+      pid: 910002,
+    });
+    return { service, dao, engineA, engineB, countA, countB };
+  }
+
+  it('乙案并存窗双穿收口：两引擎（异 pid）同 due 行同刻 sweep → 恰一 fire、败方让位 gated（修前红：判定窗不盖对方唤醒段双双 spawn 2）', async () => {
+    const { service, dao, engineA, engineB, countA, countB } = assembleDualEngine();
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    engineA.start();
+    engineB.start();
+    advance(10 * 60_000 + 1000);
+    engineA.sweep();
+    engineB.sweep(); // 同刻分拍（OS cron 与引擎定时器同拍唤醒形）
+    await drainMicrotasks();
+    // 修后：恰一 fire；修前红锚：双穿双跑（2 spawns）
+    expect(countA.n + countB.n).toBe(1);
+    const row = dao.get('j');
+    expect(row?.lastOutcome?.reason).toBe('gated'); // 败方让位照记结局
+    expect(row?.lastOutcome?.error).toContain('让位');
+    expect([910001, 910002]).toContain(row?.activePid); // 胜者占用面在册
+  });
+
+  it('胜者在飞悬挂：他引擎同刻/再拍 sweep 不 fire 不抢占——让位反复记 gated、占用面保持胜者 pid', async () => {
+    const { service, dao, engineA, engineB, countA, countB } = assembleDualEngine();
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    engineA.start();
+    engineB.start();
+    advance(10 * 60_000 + 1000);
+    // A 先起跑（悬挂在飞——claim 已落 activePid=910001）
+    engineA.sweep();
+    await drainMicrotasks();
+    expect(countA.n).toBe(1);
+    expect(dao.get('j')?.activePid).toBe(910001);
+    // B 在 A 在飞窗内 sweep 同行 → 让位不 fire（runner 计数不增）
+    engineB.sweep();
+    await drainMicrotasks();
+    expect(countB.n).toBe(0);
+    const row = dao.get('j');
+    expect(row?.lastOutcome?.reason).toBe('gated');
+    expect(row?.lastOutcome?.error).toContain('另一进程实例正在运行');
+    expect(row?.activePid).toBe(910001); // 让位不覆写胜者占用
+    // 再拍 belt 巡检同律（在飞窗内反复让位——不抢占不双跑）
+    engineB.sweep();
+    await drainMicrotasks();
+    expect(countB.n).toBe(0);
+    expect(dao.get('j')?.activePid).toBe(910001);
   });
 });

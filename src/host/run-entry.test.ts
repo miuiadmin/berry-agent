@@ -514,7 +514,7 @@ describe('runRunEntry --tick settle 落账（律 3 乙案侧：claim-then-advanc
       expect(row?.lastOutcome?.error).toContain('未唤醒');
       expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
       expect(row?.nextFireAt).not.toBeNull(); // next 照推进（行不再永 due）
-      expect(row?.activePid).toBeNull(); // 零 claim 零占用
+      expect(row?.activePid).toBeNull(); // 67 轮批注乙：claim 先行后未落地回卷清账（claim 对偶）
     } finally {
       await audit.shutdown();
     }
@@ -702,7 +702,10 @@ describe('runRunEntry --tick 行启停位（十六役补扫 N26——残留 OS c
       expect(row?.lastOutcome?.reason).toBe('gated'); // 结局照记（每次残触可见）
       expect((row?.lastOutcome as { gate?: string } | undefined)?.gate).toBe('job_disabled');
       expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
-      expect(row?.nextFireAt).toBeNull(); // 停用行不排刻（原样）
+      // 67 轮批注乙 S3：停用跳过形不携行快照 next 回写——settle 时刻现算
+      // （停用行快照常为 null/陈旧 due 值，原样回写与恢复期胜者结算竞速会
+      // 回退 next；enabled=0 行 due 面不消费该列，现算无害）
+      expect(row?.nextFireAt).not.toBeNull();
       expect(row?.activePid).toBeNull(); // 零 claim
     } finally {
       await audit.shutdown();
@@ -723,16 +726,32 @@ describe('runRunEntry --tick 行启停位（十六役补扫 N26——残留 OS c
 });
 
 describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿）', () => {
-  it('activePid 活体未超钟（ppid 占用）：yielded 让位退 0 + 结局照记 + next 原样', async () => {
+  it('activePid 活体未超钟（ppid 占用）：yielded 让位退 0 + 结局照记 + next 现算不携陈旧快照（67 轮批注乙 S3——修前红：past-due 快照原样回写）', async () => {
     const dataDir = tmpDir('run-data-');
     const jobWs = tmpDir('run-ws-');
     const seed = await seedAssembly(dataDir);
-    seed.scheduler.service.addJob({ name: 'yield-job', prompt: '例行巡检', cwd: jobWs, schedule: 'every:30m' });
+    seed.scheduler.service.addJob({
+      name: 'yield-job',
+      prompt: '例行巡检',
+      cwd: jobWs,
+      schedule: 'every:30m',
+      enabled: true,
+    });
     // 预置他实例占用：ppid = vitest 主进程（活体且必 ≠ 本 worker pid——
-    // realIsPidAlive 真身零 mock，探活面同生产）
+    // realIsPidAlive 真身零 mock，探活面同生产）；起跑钟 = 当前（未超钟）
     const t0 = new Date().toISOString();
     seed.scheduler.dao.setActive('yield-job', process.ppid, t0, t0);
-    const nextBefore = seed.scheduler.service.getJob('yield-job')?.nextFireAt;
+    // 行 next 预置 past-due（已过到点值）：胜者结算竞速窗的陈旧快照形——
+    // 修前让位 settleGated 携行快照 next 原样回写，会回退胜者（占用方）刚
+    // 推进的新 next（67 轮批注乙 S3 病灶：next 回退 + 行立即再 due 双跑窗）
+    const pastDue = new Date(Date.now() - 60_000).toISOString();
+    // dao 窄面（SchedulerTickSettleFace 四动词）无 next 单列写——直写库列
+    const seedDb = new Database(join(dataDir, 'sessions.db'));
+    try {
+      seedDb.prepare('UPDATE jobs SET next_fire_at = ? WHERE name = ?').run(pastDue, 'yield-job');
+    } finally {
+      seedDb.close();
+    }
     await seed.shutdown();
 
     const run = await rigRun({ message: '', flags: { tick: 'yield-job' }, dataDir, cwd: jobWs });
@@ -740,14 +759,17 @@ describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿�
     expect(run.err.text).toContain('本实例退出');
     expect(run.out.lines).toEqual([]); // 零跑零产物
 
-    // durable 断言：yielded 结局照记 + next 原样（不推进不重排）+ 占用面不动
+    // durable 断言：yielded 结局照记 + next 现算（settle 时刻取下一刻——不携
+    // past-due 陈旧快照回写）+ 占用面不动
     const audit = await seedAssembly(dataDir);
     try {
       const row = audit.scheduler.service.getJob('yield-job');
       expect(row?.lastOutcome?.reason).toBe('yielded');
       expect(row?.lastOutcome?.error).toContain(String(process.ppid));
       expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
-      expect(row?.nextFireAt).toBe(nextBefore); // 原样（无新信息不猜下一刻）
+      // 修后锚：next 现算为未来刻；修前红锚：原样回写 pastDue（陈旧快照）
+      expect(row?.nextFireAt).not.toBe(pastDue);
+      expect(Date.parse(row?.nextFireAt ?? '')).toBeGreaterThan(Date.now() - 1000);
       expect(row?.activePid).toBe(process.ppid); // 让位不越权清他人占用
     } finally {
       await audit.shutdown();
@@ -775,6 +797,35 @@ describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿�
     try {
       const row = audit.scheduler.service.getJob('stale-job');
       expect(row?.activePid).toBeNull();
+    } finally {
+      await audit.shutdown();
+    }
+  });
+});
+
+/**
+ * --tick 判占回卷（04 §12 律 3 67 轮批注乙 CLI 腿）：claim 先行（判定过即
+ * 条件 UPDATE 原子判占）移 goal/用户分支前——判占后一切早退形（goal 件缺席/
+ * 续接旗标不兼容/wake 抛错/wake 未落地）必须回卷清账 + gated 结算，否则
+ * activePid 滞留成死账（他实例让位律误判让位 + 僵行清扫窗内行饿死）。
+ */
+describe('runRunEntry --tick 判占回卷（67 轮批注乙：claim 先行 + 早退回卷）', () => {
+  it('goal 行 × 续接旗标不兼容（claim 后早退）：退 2 + 回卷清账 + gated 结局照记（修前红：claim 前早退零结算零回卷）', async () => {
+    const dataDir = tmpDir('run-data-');
+    const goal = await seedGoal(dataDir); // 活跃 goal + 挂钟行在场（daily@09:00）
+    const run = await rigRun({ message: '', flags: { tick: `goal-${goal.id}`, session: 'sess-x' }, dataDir });
+    // 配置不兼容档照旧退 2（回卷不改判档——只补清账与结算）
+    await expect(run.entry).resolves.toBe(2);
+    expect(run.err.text).toContain('不兼容');
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob(`goal-${goal.id}`);
+      expect(row?.lastOutcome?.reason).toBe('gated'); // 回卷 gated 结局照记（修前红锚：早退零结算）
+      expect(row?.lastOutcome?.error).toContain('不兼容');
+      expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
+      expect(row?.nextFireAt).not.toBeNull(); // next 照推进（行不永 due 反复过判占面）
+      expect(row?.activePid).toBeNull(); // 回卷清账（claim 对偶——不滞留死账）
     } finally {
       await audit.shutdown();
     }
@@ -809,7 +860,7 @@ describe('runRunEntry --tick 乙案双收口（65 轮件B：wake 兜错 + claim 
       expect(row?.lastOutcome?.error).toContain('唤醒判定失败');
       expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
       expect(row?.nextFireAt).not.toBeNull(); // next 照推进（行不再永 due 反复过 wake 面）
-      expect(row?.activePid).toBeNull(); // wake 在 claim 前——零 claim 零占用
+      expect(row?.activePid).toBeNull(); // 67 轮批注乙：claim 先行后兜错回卷清账（claim 对偶）
     } finally {
       await audit.shutdown();
     }

@@ -309,6 +309,9 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
     // 同律），恢复路径在 stderr 指路。
     if (!row.enabled && flags.readOnly) {
       const nowIso = new Date().toISOString();
+      // next 现算（04 §12 律 3 67 轮批注乙 S3）：停用跳过形不携行快照 next
+      // 回写——停用行快照常为 null/陈旧 due 值，原样回写与恢复期（enable 后）
+      // 胜者结算竞速会回退 next；enabled=0 行 due 面不消费该列，现算无害
       schedFace.dao.settleGated(
         row.name,
         {
@@ -318,7 +321,7 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
           error: '任务行处于停用态——残留 OS cron 条目触发，诚实跳过',
           finishedAt: nowIso,
         },
-        row.nextFireAt,
+        nextFireAt(row.schedule, new Date(nowIso)),
         nowIso,
       );
       err.write(
@@ -328,11 +331,13 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
     }
     // —— 让位律（u-2 定形注③乙案并存窗子进程侧腿——与引擎 fire 前跨进程
     // 在飞判定双向对称）：行 activePid 非空非己且活体未超墙钟 = 宿主甲案/
-    // 他乙案实例真在飞 → 本子进程诚实让位（yielded 结局、next 原样推进、
-    // 不动 last_fire_at、退出码 0——让位非失败零新错误码）；死残账（占位
-    // 进程已死）与超钟残账（活+超墙钟——pid 复用误判险不 yield）均清占用
-    // 照跑。跨进程不 kill（pid 复用误杀险——「执行前抢占」条款对跨进程实例
-    // 不越权）；残账兜底 = 引擎侧 start 僵行清扫与 fire 覆写自愈。
+    // 他乙案实例真在飞 → 本子进程诚实让位（yielded 结局、next 现算推进〔67
+    // 轮批注乙 S3——不携行快照陈旧 past-due 值回写，防回退占用方刚推进的
+    // 新 next 致行立即再 due 双跑窗〕、不动 last_fire_at、退出码 0——让位非
+    // 失败零新错误码）；死残账（占位进程已死）与超钟残账（活+超墙钟——pid
+    // 复用误判险不 yield）不在此清——经下方条件判占原子接管（接管败 = 他
+    // 实例竞速先占，让位收口）。跨进程不 kill（pid 复用误杀险——「执行前
+    // 抢占」条款对跨进程实例不越权）；残账兜底 = 引擎侧 start 僵行清扫。
     if (row.activePid !== null && row.activePid !== pid) {
       const nowIso = new Date().toISOString();
       const startedAtMs = row.activeStartedAt !== null ? Date.parse(row.activeStartedAt) : 0;
@@ -343,22 +348,67 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
           error: `另一实例正在运行（PID ${row.activePid}）——本实例退出，不重复执行`,
           finishedAt: nowIso,
         };
-        schedFace.dao.settleGated(row.name, outcome, row.nextFireAt, nowIso);
+        schedFace.dao.settleGated(row.name, outcome, nextFireAt(row.schedule, new Date(nowIso)), nowIso);
         err.write(`--tick 行「${row.name}」另一实例正在运行（PID ${row.activePid}）——本实例退出\n`);
         return 0;
       }
-      // 死残账/超钟残账：清占用照跑（引擎侧覆写自愈兜底）
-      schedFace.dao.setActive(row.name, null, null, nowIso);
     }
+    // —— 条件判占（67 轮批注乙——claim 先行）：判定过即条件 UPDATE 原子
+    // 判占（期望值 = 让位判定基面 row.activePid：null = 空面首占；死/超钟
+    // 残账 = 在册旧值接管——WHERE 带期望值，changes=1 即胜者），移 goal/
+    // 用户分支与 wake 判定之前。修前 claim 在 goal wake（读全量会话日志
+    // 百 ms-秒级窗）之后，与引擎侧读行判定互不盖对方唤醒段 → check-then-act
+    // 双穿、activePid 恒空双双 landed 同 goal 会话双进程双 run。SQLite 单写
+    // 者下两 UPDATE 串行恰一胜者；负者让位收口不双跑。
+    const claimAt = new Date().toISOString();
+    if (!schedFace.dao.claimActive(row.name, pid, claimAt, claimAt, row.activePid)) {
+      const outcome: RunOutcome = {
+        trigger: 'cron',
+        reason: 'yielded',
+        error: '另一实例已判占（activePid 竞速）——本实例退出，不重复执行',
+        finishedAt: claimAt,
+      };
+      schedFace.dao.settleGated(row.name, outcome, nextFireAt(row.schedule, new Date(claimAt)), claimAt);
+      err.write(`--tick 行「${row.name}」另一实例已判占（activePid 竞速）——本实例退出\n`);
+      return 0;
+    }
+    /**
+     * 判占回卷单点（67 轮批注乙）：claim 后一切早退形（goal 件缺席/续接旗标
+     * 不兼容/wake 抛错/wake 未落地）公共尾——清账（claim 对偶；清账失败留痕
+     * 不吞结算，残留占用由引擎侧僵行清扫自愈）+ gated 结算（next 现算——行
+     * 不永 due 反复过判占面）。非真跑不动 last_fire_at（gated 同律）。
+     */
+    const rollbackTickClaim = (error: string): void => {
+      const rollbackAt = new Date().toISOString();
+      try {
+        schedFace.dao.setActive(row.name, null, null, rollbackAt);
+      } catch (clearError) {
+        err.write(
+          `--tick 判占回卷清账失败（任务 ${row.name}——残留占用由引擎僵行清扫自愈）：${clearError instanceof Error ? clearError.message : String(clearError)}\n`,
+        );
+      }
+      schedFace.dao.settleGated(
+        row.name,
+        { trigger: 'cron', reason: 'gated', error: error.slice(0, 200), finishedAt: rollbackAt },
+        nextFireAt(row.schedule, new Date(rollbackAt)),
+        rollbackAt,
+      );
+    };
     if (row.builtin && row.name.startsWith('goal-')) {
       // goal 挂钟行：wake 判定先行（重绑护栏/唤醒预算/停滞硬停全在 goal 服务
       // 单源裁决）；goal 会话由裁决选取——续接族旗标显式拒（不静默忽略）
       const goalFace = scope.tryGet<GoalFace>('goal');
       if (goalFace === undefined) {
+        // 判占回卷（67 轮批注乙）：claim 已落——早退必须清账 + gated 结算
+        //（修前 claim 前早退零结算；占位滞留即死账——他实例让位误判 + 僵行
+        // 清扫窗内行饿死）
+        rollbackTickClaim('goal 定时行存在但 core:goal 插件未安装——配置不一致（goal 唤醒不可用，判占已回卷）');
         err.write('goal 定时行存在但 core:goal 插件未安装——配置不一致（goal 唤醒不可用）\n');
         return 2;
       }
       if (flags.session !== undefined || flags.continueLatest || flags.fork !== undefined) {
+        // 判占回卷（67 轮批注乙）：同上——claim 后早退公共尾
+        rollbackTickClaim('--tick goal 定时行与 --session/--continue/--fork 不兼容（goal 会话由唤醒机制自动选定）');
         err.write('--tick goal 定时行与 --session/--continue/--fork 不兼容（goal 会话由唤醒机制自动选定）\n');
         return 2;
       }
@@ -379,18 +429,8 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
         });
       } catch (error) {
         const wakeFailure = error instanceof Error ? error.message : String(error);
-        const gatedAt = new Date().toISOString();
-        schedFace.dao.settleGated(
-          row.name,
-          {
-            trigger: 'cron',
-            reason: 'gated',
-            error: `goal「${goalId}」唤醒判定失败（${wakeFailure}）`.slice(0, 200),
-            finishedAt: gatedAt,
-          },
-          nextFireAt(row.schedule, new Date(gatedAt)),
-          gatedAt,
-        );
+        // 判占回卷（67 轮批注乙）：claim 先行移 wake 前——兜错形补清账对偶
+        rollbackTickClaim(`goal「${goalId}」唤醒判定失败（${wakeFailure}）`);
         err.write(`goal「${goalId}」唤醒判定失败：${wakeFailure}\n`);
         return 0;
       }
@@ -398,19 +438,8 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
         // 诚实零跑：不落即本轮无事（inactive/stalled/wake_budget 各由 message
         // 说明）——零跑零账退 0。gated 结局照记 + next 推进（2026-09-13 修复批：
         // 引擎侧 spawnGoalRow gated 同律——乙案此前零 settle，行永 due 反复过
-        // wake 判定面）
-        const gatedAt = new Date().toISOString();
-        schedFace.dao.settleGated(
-          row.name,
-          {
-            trigger: 'cron',
-            reason: 'gated',
-            error: `goal「${goalId}」本轮未唤醒（${decision.reason}）`,
-            finishedAt: gatedAt,
-          },
-          nextFireAt(row.schedule, new Date(gatedAt)),
-          gatedAt,
-        );
+        // wake 判定面）；判占回卷（67 轮批注乙）：claim 先行补清账对偶
+        rollbackTickClaim(`goal「${goalId}」本轮未唤醒（${decision.reason}）`);
         err.write(`goal「${goalId}」本轮未唤醒（${decision.reason}）：${decision.message}\n`);
         return 0;
       }
@@ -421,9 +450,12 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       message = row.prompt;
       if (row.cwd !== null) cwdAnchor = row.cwd;
     }
-    // 起跑 claim（律 3 乙案侧——2026-09-13 修复批）：本 CLI 进程 pid 落占用面
-    // + 起跑钟；此后本 run 期引擎侧跨进程在飞判定见他实例让位、kill -9 残账
-    // 由僵行清扫回收（让位律由单向变双向真值）。收场对偶在 ⑨ settleTick。
+    // 起跑记账覆写（律 3 乙案侧——2026-09-13 修复批 + 67 轮批注乙）：判占已
+    // 于上方 claimActive 原子落账（本 pid 在册），此处覆写自占位为幂等自覆
+    // 写——承重面在 activeStartedAt 刷新为 run 起跑时刻（判占时刻先于 goal
+    // wake 判定窗，自杀钟/他实例让位律的超钟判据须锚 run 起跑而非判占）。
+    // 此后本 run 期引擎侧跨进程在飞判定见他实例让位、kill -9 残账由僵行
+    // 清扫回收（让位律由单向变双向真值）。收场对偶在 ⑨ settleTick。
     const firedAtIso = new Date().toISOString();
     schedFace.dao.setActive(row.name, pid, firedAtIso, firedAtIso);
     tickJob = { dao: schedFace.dao, row, firedAt: firedAtIso };

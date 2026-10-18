@@ -173,6 +173,39 @@ export class JobsDao {
       .prepare(`UPDATE jobs SET active_pid = ?, active_started_at = ?, updated_at = ? WHERE name = ?`)
       .run(pid, startedAt, updatedAt, name);
   }
+
+  /**
+   * 条件判占（04 §12 律 3 67 轮批注乙）：判定过即条件 UPDATE 原子判占——
+   * WHERE 带期望占用值（expectActivePid = null → IS NULL 首占；否则 = 旧值
+   * 接管形），changes === 1 即胜者。乙案并存窗（OS cron 分拍与引擎定时器同刻
+   * 唤醒）check-then-act 双穿的收口位：双侧「读行判定 → wake/解析 →
+   * setActive」的判定窗互不盖对方唤醒段（wake 读全量会话日志百 ms-秒级窗），
+   * 修前双双 claim-null 同 goal 会话双跑；修后 SQLite 单写者下两 UPDATE 串行
+   * 执行恰一胜者，负者让位（gated）不双跑。竞速负者不改任何行（败即无痕）。
+   */
+  claimActive(
+    name: string,
+    pid: number,
+    startedAt: string,
+    updatedAt: string,
+    expectActivePid: number | null,
+  ): boolean {
+    const result =
+      expectActivePid === null
+        ? this.db
+            .prepare(
+              `UPDATE jobs SET active_pid = ?, active_started_at = ?, updated_at = ?
+               WHERE name = ? AND active_pid IS NULL`,
+            )
+            .run(pid, startedAt, updatedAt, name)
+        : this.db
+            .prepare(
+              `UPDATE jobs SET active_pid = ?, active_started_at = ?, updated_at = ?
+               WHERE name = ? AND active_pid = ?`,
+            )
+            .run(pid, startedAt, updatedAt, name, expectActivePid);
+    return result.changes === 1; // 0 = 期望落空（他实例已判占/已自清）——竞速负者
+  }
 }
 
 /** jobs 表 DB 行形（蛇形列——fromDb 单源映射） */

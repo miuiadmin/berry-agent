@@ -1334,12 +1334,13 @@ function makeSubagentPlugin(deps: CorePluginHostDeps): CorePluginReference {
 }
 
 /**
- * 让位/清账三动词窄面（04 §12 定形注律 3 乙案执行面——settleGated/settleFire/
- * setActive；2026-09-13 复盘发现 ⑩ 收窄）：provide 域只裸这三法，jobs 表
- * 其余动词（insert/remove/setEnabled/advanceNextFire/读面族）经 service 正门
- * （幽灵名守卫/审计面在彼）不裸 DAO。
+ * 让位/清账/判占四动词窄面（04 §12 定形注律 3 乙案执行面——claimActive/
+ * settleGated/settleFire/setActive；2026-09-13 复盘发现 ⑩ 收窄 + 04 §12
+ * 67 轮批注乙扩一动词——claim 先行条件判占用）：provide 域只裸这四法，
+ * jobs 表其余动词（insert/remove/setEnabled/advanceNextFire/读面族）经
+ * service 正门（幽灵名守卫/审计面在彼）不裸 DAO。
  */
-export type SchedulerTickSettleFace = Pick<JobsDao, 'settleGated' | 'settleFire' | 'setActive'>;
+export type SchedulerTickSettleFace = Pick<JobsDao, 'claimActive' | 'settleGated' | 'settleFire' | 'setActive'>;
 
 /**
  * 'scheduler' 服务面（批 19c-2——goal 件迟到注入与宿主入口的消费位）。
@@ -1353,12 +1354,13 @@ export interface SchedulerFace {
   readonly goalJobs: GoalJobsFace;
   readonly engine: SchedulerEngine;
   /**
-   * jobs 表让位/清账窄面（u-2 定形注③ + 04 §12 律 3 乙案执行面——发现 ⑩
-   * 收窄为三动词 SchedulerTickSettleFace）：run-entry --tick 让位律的清账
-   * 消费位（乙案子进程读行判 activePid：活体未超钟 → yielded 让位；死/超钟
-   * → setActive 清账照跑）。引擎侧对偶判定在 engine.fireRow（同律单源
+   * jobs 表让位/清账/判占窄面（u-2 定形注③ + 04 §12 律 3 乙案执行面——发现 ⑩
+   * 收窄 + 67 轮批注乙扩 claimActive 为四动词 SchedulerTickSettleFace）：
+   * run-entry --tick 判占/让位律的消费位（乙案子进程读行判 activePid：活体
+   * 未超钟 → yielded 让位；判占过即 claimActive 条件 UPDATE 原子落账；死/
+   * 超钟 → 接管/清账照跑）。引擎侧对偶判定在 engine.fireRow（同律单源
    * realIsPidAlive）。运行时真身仍是 JobsDao 实例（结构满足窄面）——收窄
-   * 在类型面：provide 域插件消费只见三动词。
+   * 在类型面：provide 域插件消费只见四动词。
    */
   readonly dao: SchedulerTickSettleFace;
 }
