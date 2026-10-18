@@ -325,6 +325,40 @@ export default async function apply(ctx) { ctx.provide('depTag', tag); }
     expect(options.services.get('viaMain')).toBe(true);
   });
 
+  it('moduleCache 陈旧复用红锁：同径换树后新装载实例再载得新码（修前 require.cache 命中旧代红）', async () => {
+    // 68 轮件 H（03 §3.3 执法腿批注）：jiti moduleCache:true 借道 Node
+    // require.cache（进程级、跨 jiti 实例共享）——装载器每行新建 jiti 实例也
+    // 挡不住进程级命中。TUI 市场面板 in-process upgrade 同径换树（update 后
+    // 同 installPath 落新树）+ 自动 requestReload 链下，换代后重载命中 v1
+    // 缓存：词表账本记旧码、重载旧码续跑、升级静默 no-op 直至进程重启——
+    // 「重载即生效」承诺破。修法 = moduleCache:false（与 fsCache:false 同
+    // 「缓存命中即穿门/穿新」防线族）。本锁走转译腿（ESM 语法入口——jiti
+    // 自求值域，flag 生效面）；type:module 原生 ESM 腿走 Node ESM loader 缓存
+    // 该 flag 不破（批注挂账残差，不铸锁）
+    const dir = makePluginDir({
+      'package.json': JSON.stringify({ name: 'plug-gen', version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+      'entry.js': `export const gen = 'v1';\nexport default async function apply(ctx) { ctx.provide('genTag', gen); }\n`,
+    });
+    const pkg = { name: 'plug-gen', version: '1.0.0', berryAgent: { entry: 'entry.js' } };
+    // 第一代装载：得 v1
+    const first = rigOptions([diskRow('plug-gen', dir, pkg)]);
+    const report1 = await loadPlugins(first);
+    expect(report1.failed).toEqual([]);
+    expect(first.services.get('genTag')).toBe('v1');
+    await report1.unload();
+    // 同径换树：入口路径不变、内容换 v2（in-process upgrade 同径换树形）
+    writeFileSync(
+      join(dir, 'entry.js'),
+      `export const gen = 'v2';\nexport default async function apply(ctx) { ctx.provide('genTag', gen); }\n`,
+    );
+    // 新装载实例再载（每行新建 jiti——重载编舞真形）：须得 v2 新码
+    const second = rigOptions([diskRow('plug-gen', dir, pkg)]);
+    const report2 = await loadPlugins(second);
+    expect(report2.failed).toEqual([]);
+    expect(second.services.get('genTag')).toBe('v2'); // 修前红：require.cache 命中旧代恒 'v1'
+    await report2.unload();
+  });
+
   it('纯声明包（declared-payload）：零码装载——skills 随行激活', async () => {
     const dir = makePluginDir({
       'package.json': JSON.stringify({

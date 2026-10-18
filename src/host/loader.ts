@@ -593,7 +593,18 @@ async function loadDiskModule(
       virtualModules: faces,
       transform: opts.transform,
       interopDefault: true,
-      moduleCache: true,
+      // 陈旧模块复用防线（03 §3.3 执法腿批注 2026-10-19 挖掘 68 轮件 H）：
+      // moduleCache:true 借道 Node require.cache（进程级、跨 jiti 实例共享）——
+      // 本装载器每行新建 jiti 实例也挡不住进程级命中，in-process upgrade 同径
+      // 换树（update 后同 installPath 落新树）+ requestReload 链下重载命中旧代
+      // 缓存：词表账本记旧码、旧码续跑、升级静默 no-op 直至进程重启——「重载
+      // 即生效」承诺破（local 直引同律）。false 与 fsCache:false 同「缓存命中
+      // 即穿门/穿新」防线族：转译/CJS 腿每次求值即弃 require.cache 复用（同次
+      // 求值图内单例与 node_modules 依赖单例不受影响——链内局部缓存去重、原生
+      // 腿走 require/ESM loader 缓存）。残差注记：type:module 原生 ESM 腿走
+      // Node ESM loader 缓存（URL 键、进程级），该 flag 不破——完整收口需装载
+      // 代时间戳击穿后缀，挂账随真实换代案例再裁
+      moduleCache: false,
       fsCache: false, // 门禁身份不入缓存键——缓存命中即跳过 transform 穿门（03 §3.3 勘正）
     });
   let namespace: Record<string, unknown>;

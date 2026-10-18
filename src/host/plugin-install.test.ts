@@ -789,6 +789,32 @@ describe('update 分派（§5.4 按源）', () => {
     expect(after).toHaveLength(1); // upsert 后见胜出非追加
     expect(after[0]!.version).toBe('2.0.0');
   });
+
+  it('moduleCache 陈旧复用红锁：同径换树重收割须读新码 events（修前 require.cache 命中旧代红）', async () => {
+    // 68 轮件 H（03 §3.3 执法腿批注）：收割腿 jiti moduleCache:true 借道 Node
+    // require.cache（进程级、跨实例共享）——in-process upgrade 同径换树后重收割
+    // 命中 v1 缓存：词表账本记旧码 events、升级静默 no-op。修法 = moduleCache:
+    // false。同入口文件名（index.js）两代落位同 installPath——缓存键相同正是
+    // 缺陷链本形（既有换代用例分名分键绕开缓存，本锁钉同径真相）
+    const dataDir = dataDirOf('data-update-cache');
+    const v1Events = 'export const events = ["demo/old-only"];\nexport default function apply() {}\n';
+    const v2Events = 'export const events = ["demo/new-a", "demo/new-b"];\nexport default function apply() {}\n';
+    const rec1 = npmFakeSpawn(dataDir, { pkgJson: pluginPkgJson({ name: 'cache-pkg' }), indexJs: v1Events });
+    await installPlugin(depsOf(dataDir, rec1.spawn), 'npm:cache-pkg');
+    // update 同径换树：新树同入口名 index.js、内容换 v2——重收割须入账 v2 词表
+    const rec2 = npmFakeSpawn(dataDir, {
+      lockVersion: '2.0.0',
+      pkgJson: pluginPkgJson({ name: 'cache-pkg', version: '2.0.0' }),
+      indexJs: v2Events,
+    });
+    const updated = await updatePlugin(depsOf(dataDir, rec2.spawn), 'cache-pkg');
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.entry.declaredEvents).toEqual(['demo/new-a', 'demo/new-b']); // 修前红：require.cache 命中旧代恒 ['demo/old-only']
+    const after = entriesOf(dataDir).filter((e) => e.id === 'cache-pkg');
+    expect(after).toHaveLength(1);
+    expect(after[0]!.declaredEvents).toEqual(['demo/new-a', 'demo/new-b']); // 账本同步新码非鬼影
+  });
 });
 
 describe('npm 更新腿失败回迁旧树（修笔——先删后装失败 = 装机树尽失坏态）', () => {

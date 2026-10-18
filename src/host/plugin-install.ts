@@ -1011,7 +1011,9 @@ function harvestErrorMessage(err: unknown): string {
  * install 收割：jiti 求值入口模块读 `events` 导出（§1.3——装机零生效唯一
  * 例外）。与装载器同形：虚拟面四键直注（顶层 import 'berry-agent' 不炸）+
  * import 门禁 transform（03 §3.3 同律——装机时点不放宽）+ fsCache 关（门
- * 禁身份不入缓存键）+ **前置源扫腿**（2026-10-18 装载腿勘正的装机镜像）：
+ * 禁身份不入缓存键）+ moduleCache 关（2026-10-19 挖掘 68 轮件 H——陈旧模块
+ * 复用防线：true 借道进程级 require.cache，in-process upgrade 同径换树后重
+ * 收割命中旧代缓存，词表账本记旧码——设位行内注详）+ **前置源扫腿**（2026-10-18 装载腿勘正的装机镜像）：
  * jiti 对原生 ESM 求值路径（包清单 type:"module" 判 ESM 的入口——含原生
  * import 可达的 CJS 形）直接走原生 import()，transform 钩子结构性零调用
  * （tryNative 等公开旋钮均不达——装载腿探针实证，装机腿同构），字面量腿对
@@ -1075,7 +1077,14 @@ async function harvestEvents(
         ...gateContext,
       }),
       interopDefault: true,
-      moduleCache: true,
+      // 陈旧模块复用防线（03 §3.3 执法腿批注 2026-10-19 挖掘 68 轮件 H——
+      // 装载器 loadDiskModule 同笔同律）：moduleCache:true 借道 Node require.cache
+      // （进程级、跨 jiti 实例共享）——in-process upgrade 同径换树后重收割命中
+      // v1 缓存：词表账本记旧码 events/inject、升级静默 no-op。false 与 fsCache:
+      // false 同「缓存命中即穿门/穿新」防线族（转译/CJS 腿每次求值即弃复用）。
+      // 残差同律：type:module 原生 ESM 腿走 Node ESM loader 缓存，该 flag 不破
+      // （挂账随真实换代案例再裁）
+      moduleCache: false,
       fsCache: false, // 与装载器同律（门禁身份不入缓存键）
       virtualModules: await loadDefaultVirtualFaces(),
     });
