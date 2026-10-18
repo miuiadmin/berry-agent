@@ -3,8 +3,9 @@
  *
  * connect 编舞：spawn（exec 管道窄面 + 登记簿同册）→ stderr 转 logger
  * debug → initialize 握手（startup_timeout_sec 预算罩 spawn+握手全程）→
- * notifications/initialized → tools/list 分页跟尽（nextCursor 不跟即静默丢
- * 工具）。连接期任一步折 = MCP_CONNECT_FAILED（子进程收场不留孤儿）。
+ * notifications/initialized → tools/list 分页跟尽（nextCursor 不跟即静默
+ * 丢工具；跟尽带页数帽 65 轮件G——坏形 cursor 回环超帽 fail-loud 终止）。
+ * 连接期任一步折 = MCP_CONNECT_FAILED（子进程收场不留孤儿）。
  *
  * call：tools/call 落桥（tool_timeout_sec 逐台执法）；crash（载体 close）→
  * 在途请求拒 + onDown 通知（服务面撤工具）——不自动重连，复位走 /reload。
@@ -26,6 +27,17 @@ import {
 } from './types.js';
 import type { McpChildFace, McpServerConfig, McpServerTool, McpSpawnFace } from './types.js';
 
+/**
+ * tools/list 分页跟尽页数帽（65 轮件G——坏形服务端回环护栏）。
+ *
+ * 裁量：批量面 64 页先例同量级（plugins-cmd 遥测直查页护栏 64 / obs
+ * service 同律防坏游标死循环）——真分页形单服务器工具数十件量级、页大小
+ * 由服务端定，64 页足够容尽；坏形（nextCursor 回环/恒同值不推进）在此
+ * 收敛：超帽 fail-loud 终止发现腿（MCP_CONNECT_FAILED 走既有失败收口
+ * ——.catch 降 warn + ui.notify，页帽触发即发现失败非静默丢尾）。
+ */
+export const MCP_LIST_PAGE_LIMIT_DEFAULT = 64;
+
 /** 桥构造依赖（全可注入——测试零真进程依赖） */
 export interface McpBridgeDeps {
   /** spawn 窄面（结构兼容 exec 管道——组合根传真身） */
@@ -35,6 +47,8 @@ export interface McpBridgeDeps {
   readonly closeGraceMs?: number;
   /** clientInfo.version 披露（装配批对齐 package.json；缺省 '0.1.0'） */
   readonly clientVersion?: string;
+  /** tools/list 跟尽页数帽（缺省 64——MCP_LIST_PAGE_LIMIT_DEFAULT；测试注入小值） */
+  readonly listPageLimit?: number;
 }
 
 /** 单服务器桥公开面 */
@@ -139,9 +153,13 @@ export async function connectMcpServer(
     );
     connection.notify('notifications/initialized');
 
-    // ── tools/list 分页跟尽（nextCursor 不跟即静默丢工具——03 §10.1 明律） ──
+    // ── tools/list 分页跟尽（nextCursor 不跟即静默丢工具——03 §10.1 明律；
+    // 页帽护栏 65 轮件G：坏形服务端（cursor 回环/恒同值不推进）在无帽跟尽
+    // 下即无限循环——超帽 fail-loud 走连接期失败收口，非静默丢尾） ──
+    const pageLimit = deps.listPageLimit ?? MCP_LIST_PAGE_LIMIT_DEFAULT;
     const tools: McpServerTool[] = [];
     let cursor: string | undefined;
+    let pages = 0;
     do {
       const page = (await connection.request(
         'tools/list',
@@ -155,6 +173,16 @@ export async function connectMcpServer(
         }
       }
       cursor = typeof page?.nextCursor === 'string' ? page.nextCursor : undefined;
+      pages += 1;
+      if (cursor !== undefined && pages >= pageLimit) {
+        // 页帽尽而 cursor 仍在：坏形回环（或超帽巨集）——fail-loud 终止发现
+        // 腿（下方 catch 收口：failAll + 树杀；外层 discover .catch 降 warn
+        // + ui.notify——单服务器失败不阻同批其余的既有形保持）
+        throw new BaseError(
+          'MCP_CONNECT_FAILED',
+          `tools/list 分页护栏到顶（${server}，${pageLimit} 页尽而 cursor 仍在——服务端 cursor 回环/不推进），发现终止`,
+        );
+      }
     } while (cursor !== undefined);
     if (downReason !== undefined) {
       // 发现途中已死（竞速护栏——close 与末页响应近同时到）

@@ -60,6 +60,11 @@ class ScriptedChild implements McpChildFace {
   private readonly exitCallbacks: ((info: { code: number | null; spawnError?: Error }) => void)[] = [];
   /** 脚本开关：装死不答握手（失败腿用） */
   dead = false;
+  /**
+   * 脚本开关：tools/list 恒回同一 nextCursor（65 轮件G 坏形服务端——
+   * 回环/恒同值不推进；页帽腿测试用，缺省关 = 单页收尽）。
+   */
+  loopCursor = false;
   tools: readonly { name: string }[] = [];
 
   readonly stdin = {
@@ -73,7 +78,16 @@ class ScriptedChild implements McpChildFace {
           this.emit(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: {} }));
         } else if (msg.method === 'tools/list' && msg.id !== undefined) {
           const tools = this.tools.map((t) => ({ ...t, inputSchema: { type: 'object' } }));
-          this.emit(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { tools } }));
+          if (this.loopCursor) {
+            // 坏形开关在场 = 恒回同 cursor（回环不推进——页帽腿触发源）。
+            // 应答走 macrotask（真实 stdio 形）：同步应答会使回环 do-while
+            // 在微任务里饿死事件循环，限时 timer 全停摆（红不可采集）
+            setTimeout(() => {
+              this.emit(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { tools, nextCursor: 'same' } }));
+            }, 0);
+          } else {
+            this.emit(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { tools } }));
+          }
         }
       }
     },
@@ -326,5 +340,59 @@ describe('attachServer 受理位（R2 server 形插件装载）', () => {
     const child = children.get('mcp:plug-srv');
     child!.tools = [{ name: 'q' }];
     await until(() => registry.registered.some((d) => d.name === 'plug-srv__q'));
+  });
+});
+
+/** tools/list 页帽走既有失败收口（65 轮件G 锁① service 层——缺省帽真值跑） */
+describe('tools/list 页帽降级（65 轮件G）', () => {
+  it('回环 cursor 服务器超缺省帽（64）——走既有失败收口：notify + 不阻同行其余', { timeout: 3_000 }, async () => {
+    // 坏形服务端恒回同 cursor：无帽跟尽即发现腿挂死（永不收敛）。修后缺省
+    // 帽 64 页尽即 MCP_CONNECT_FAILED → discover .catch 降 warn + ui.notify
+    // （页帽触发即发现失败非静默丢尾）；同行其余服务器照注册。修前红形：
+    // 无帽回环不终止 → notified 永不含 bad → 本用例限时超时。
+    const { service, registry, notified, children } = makeService();
+    service.apply({ bad: SERVER_CONFIG(), good: SERVER_CONFIG() });
+    children.get('mcp:bad')!.loopCursor = true; // 坏形：恒回同 cursor
+    children.get('mcp:good')!.tools = [{ name: 'q' }];
+    await until(() => notified.some((m) => m.includes('bad')), 2_500);
+    expect(notified.find((m) => m.includes('bad'))).toContain('分页护栏到顶'); // 失败成因可辨
+    await until(() => registry.registered.some((d) => d.name === 'good__q')); // 同行其余照注册
+    expect(service.liveServers()).toEqual([{ server: 'good', toolCount: 1 }]); // 坏形台不入活表
+  });
+});
+
+/** 保留键 agent 拒载（65 轮件G 锁②——保留前缀撞形 fail-loud 在配置装载面） */
+describe('保留键 agent 拒载（65 轮件G）', () => {
+  it('apply 拒键 agent——MCP_CONFIG_INVALID + 指路改名 + 零 spawn（修前形=接受且工具静默消失）', () => {
+    // 键 agent 使复合工具名 agent__<tool> 正中宿主 agent_ 前缀保留闸
+    // （plugin-context.ts AGENT_TOOL_PREFIX）——注册面全体拒且用户只见工具
+    // 消失不见配置错。修形：配置装载校验位拒（fail-loud 在配置面、错族
+    // 指路改名，不在注册面事后拒）。修前红形：apply 接受且零报错。
+    const { service, children } = makeService();
+    expect(() => service.apply({ agent: SERVER_CONFIG() })).toThrowError(/agent/);
+    // 错误码 + 指路改名句（装载侧行级隔离收口判据）
+    try {
+      service.apply({ agent: SERVER_CONFIG() });
+      expect.unreachable('未拒');
+    } catch (err) {
+      expect((err as { code?: string }).code).toBe('MCP_CONFIG_INVALID');
+      expect((err as Error).message).toContain('改名'); // 指路改名
+      expect((err as Error).message).toContain('agent_'); // 撞形成因披露
+    }
+    expect(children.size).toBe(0); // 拒在装载面——零 spawn
+  });
+
+  it('attachServer 拒名 agent——server 形插件声明名同律（两消费路单点覆盖）', () => {
+    const { service, children } = makeService();
+    expect(() => service.attachServer('agent', SERVER_CONFIG())).toThrowError(/agent/);
+    expect(children.size).toBe(0); // 受理拒——零 spawn
+  });
+
+  it('非保留键照常受理（agent-2/AgentX 等词法合法键不受连坐）', () => {
+    // 保留名精确匹配 'agent'——词法合法的邻近键（agent-2、AgentX）复合名
+    // 不以 agent_ 开头（agent-2__t / AgentX__t），不撞保留前缀闸，须照常过
+    const { service, children } = makeService();
+    expect(() => service.apply({ 'agent-2': SERVER_CONFIG(), AgentX: SERVER_CONFIG() })).not.toThrow();
+    expect(children.size).toBe(2); // 两台照常起发现（词法合法不受连坐）
   });
 });

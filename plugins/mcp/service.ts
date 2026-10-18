@@ -16,6 +16,11 @@
  * crash：撤该服务器工具（重铺减源）+ ui.notify warn + 不自动重连（复位走
  * /reload）。作用域回卷：ctx.effect LIFO——各桥 close()（stdin.end 协议化
  * 告别 → 宽限 → killTree 树杀）异步起跑不阻塞回卷序。
+ *
+ * 受理位保留键拒（65 轮件G）：apply/attachServer 拒键 `agent`（复合工具名
+ * agent__* 正中宿主 agent_ 前缀保留闸——fail-loud 在配置装载面、错族指路
+ * 改名，不在注册面事后拒）；tools/list 跟尽页帽在桥侧（bridge.ts——超帽
+ * 走本文件 discover 既有失败收口）。
  */
 import { createLogger } from '../../src/context/index.js';
 import type { Logger } from '../../src/context/index.js';
@@ -26,6 +31,26 @@ import { buildMcpToolDefs } from './tools.js';
 import type { McpToolSource } from './tools.js';
 import type { McpConfig, McpRegisterToolsFace, McpScopeFace, McpServerConfig, McpSpawnFace } from './types.js';
 import { filterServerTools } from './tools.js';
+
+/**
+ * MCP 服务器保留键（65 轮件G——03 §10.1 键词法批注：保留前缀撞形补拒）。
+ *
+ * 键 `agent` 使复合工具名 `agent__<tool>` 正中宿主工具名保留前缀闸
+ * （AGENT_TOOL_PREFIX 'agent_'——防代理自造工具冒名 agent_ 族的注册面执
+ * 法），该服务器全体工具注册被拒且用户只见工具消失不见配置错——故在
+ * 配置装载校验位 fail-loud 拒（错族指路改名，不在注册面事后拒）。
+ */
+export const MCP_RESERVED_SERVER_NAME = 'agent';
+
+/** 保留键拒载（apply/attachServer 两受理位共用——精确匹配，邻近键不连坐） */
+function assertServerNameNotReserved(server: string): void {
+  if (server === MCP_RESERVED_SERVER_NAME) {
+    throw new BaseError(
+      'MCP_CONFIG_INVALID',
+      `MCP 服务器键「${MCP_RESERVED_SERVER_NAME}」为保留名——复合工具名 agent__<tool> 正中宿主 agent_ 前缀保留闸（该服务器全体工具会被注册面拒、工具静默消失），请改名（任意非 agent 的 [A-Za-z0-9-]+ 键）`,
+    );
+  }
+}
 
 /** 服务装配依赖（全窄面注入——词面独立律） */
 export interface McpServiceDeps {
@@ -166,6 +191,10 @@ export function createMcpService(deps: McpServiceDeps): McpService {
 
   const service: McpService = {
     apply(config) {
+      // 保留键前置拒（65 轮件G——先校验后动作：坏配置整单拒，旧桥不拆）。
+      // 抛 MCP_CONFIG_INVALID → 装配侧行级装载失败收口（与 normalizeMcpConfig
+      // 坏形同语义——/reload 时刻可修）
+      for (const server of Object.keys(config)) assertServerNameNotReserved(server);
       shutdownAll(); // config 整值替换语义——旧桥全撤再发现（§5.3）
       // 占用账重置为 config 键集（整值替换同律）：受理位从零起算——已受理
       // 的 server 形插件服务器随旧桥全撤不复活（v1 无运行期重 apply 路径；
@@ -184,6 +213,9 @@ export function createMcpService(deps: McpServiceDeps): McpService {
     },
 
     attachServer(server, config, spawn) {
+      // 保留键前置拒（65 轮件G——词法保留位结构性不可用，先于占用账判）；
+      // 抛 MCP_CONFIG_INVALID → 装载序行级隔离收口（该插件行装载失败）
+      assertServerNameNotReserved(server);
       // 撞名响亮拒（config 键 ∪ 已受理名——防互蔽静默顶活表；装载序行级
       // 隔离由调用方收口为该插件行装载失败）
       if (claimedNames.has(server)) {

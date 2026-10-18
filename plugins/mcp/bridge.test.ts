@@ -148,6 +148,44 @@ describe('connectMcpServer 连接编舞', () => {
     await bridge.close();
   });
 
+  it(
+    'tools/list 页帽——回环 cursor（恒同值不推进）超帽 fail-loud 终止（65 轮件G 锁①）',
+    { timeout: 2_000 },
+    async () => {
+      // 坏形服务端恒回同一 nextCursor：无帽跟尽即无限循环（发现腿挂死——
+      // apply 尾后台连接永不收敛）。页帽注入小值 3 测（缺省 64——批量面
+      // 64 页先例同量级裁量）；超帽走连接期失败收口：MCP_CONNECT_FAILED +
+      // 子进程树杀不留孤儿（外层 discover .catch 降 warn + ui.notify——
+      // 页帽触发即发现失败非静默丢尾）。修前红形：小帽注入被忽略 →
+      // 回环不终止 → 本用例限时超时。
+      const { spawn, child } = makeFakeSpawn();
+      let listCalls = 0;
+      child.onServerLine = (line) => {
+        const msg = JSON.parse(line) as { id?: number; method?: string };
+        if (msg.method === 'initialize' && msg.id !== undefined) {
+          child.emit(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: {} }));
+        } else if (msg.method === 'tools/list' && msg.id !== undefined) {
+          listCalls += 1;
+          // 坏形应答：恒回同一 cursor——回环不推进。应答走 macrotask（真实
+          // stdio 形——帧异步到达）：否则假子进程同步应答使回环 do-while 在
+          // 微任务里饿死事件循环，连本用例的限时 timer 都停摆（红不可采集）
+          setTimeout(() => {
+            child.emit(
+              JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { tools: [{ name: 'a' }], nextCursor: 'same' } }),
+            );
+          }, 0);
+        }
+      };
+      const pending = connectMcpServer('demo', BASE_CONFIG, { spawn, listPageLimit: 3 });
+      await expect(pending).rejects.toMatchObject({
+        code: 'MCP_CONNECT_FAILED',
+        message: expect.stringContaining('分页护栏到顶'),
+      });
+      expect(listCalls).toBe(3); // 帽值即末页——恰发 3 页不多发
+      await until(() => child.killed, 1_000); // 连接期失败收场树杀（不留孤儿）
+    },
+  );
+
   it('注入腿 verbatim 透传锁——config env 引用形原文直达 spawn 面（桥不展开）', async () => {
     // 03 §10.9 注入腿（c-4）：@credentials:<name> 引用形在配置/桥/registry
     // 任何一环恒保持原文——展开唯一执法点 = exec buildChildEnv spawn 时刻。
