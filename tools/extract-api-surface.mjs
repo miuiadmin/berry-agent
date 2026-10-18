@@ -1774,13 +1774,17 @@ export function classifyFaceDiff(prev, next) {
 /**
  * 包版本比较（归档族排序单源）：`MAJOR.MINOR.PATCH[-prerelease]` 数值段比较，
  * prerelease 形排在同名 release 之前（0.1.0-alpha.1 < 0.1.0——npm 语义同向）。
+ * 预发布段按 '.' 分标识符**逐段比**（npm semver 律）：双数值段 → 数值比较
+ * （跨位数不借字典序——alpha.9 < alpha.10，字典序 '9'>'1' 会错序选错「最新
+ * 归档」基准档，查 9 面动号不动真红静默漏报）；数值段 < 字母段；双字母段 →
+ * 字典序；逐段全等而段数少者在前（alpha < alpha.1）。
  * 非 compareApiVersions 复用：归档文件名锚是**包版本**（三段 + 预发布后缀），
  * 不是 API 版本（两段整数）——两坐标系不同物，各持各比较。
  * @param {string} a 左版本串
  * @param {string} b 右版本串
  * @returns {number} a<b 负 / a>b 正 / 相等 0
  */
-function pkgVersionCompare(a, b) {
+export function pkgVersionCompare(a, b) {
   const [va, preA] = a.split('-');
   const [vb, preB] = b.split('-');
   const sa = va.split('.').map(Number);
@@ -1791,7 +1795,27 @@ function pkgVersionCompare(a, b) {
   if (preA === undefined && preB === undefined) return 0;
   if (preA === undefined) return 1; // release > prerelease
   if (preB === undefined) return -1;
-  return preA < preB ? -1 : preA > preB ? 1 : 0;
+  // 预发布标识符逐段比（npm semver 律——见函数头注释四规则）
+  const idsA = preA.split('.');
+  const idsB = preB.split('.');
+  for (let i = 0; i < Math.max(idsA.length, idsB.length); i++) {
+    const x = idsA[i];
+    const y = idsB[i];
+    if (x === undefined) return -1; // 短段在前（alpha < alpha.1）
+    if (y === undefined) return 1;
+    const xNum = /^\d+$/.test(x);
+    const yNum = /^\d+$/.test(y);
+    if (xNum && yNum) {
+      const diff = Number(x) - Number(y); // 双数值段——数值比较（9 < 10）
+      if (diff !== 0) return diff;
+    } else if (xNum !== yNum) {
+      return xNum ? -1 : 1; // 数值段 < 字母段
+    } else if (x !== y) {
+      return x < y ? -1 : 1; // 双字母段——字典序
+    }
+    // 该段相等——续比下一段
+  }
+  return 0;
 }
 
 /**

@@ -15,6 +15,7 @@ import {
   sliceInterfaceMembers,
   findExportedInterfaces,
   serializeSurface,
+  pkgVersionCompare,
 } from './extract-api-surface.mjs';
 import { renderFaceDecls, declareKeysOf } from './generate-api-decls.mjs';
 import { stripExperimentalSections } from './api-doc-sections.mjs';
@@ -550,6 +551,27 @@ describe('抽取器纯函数单元锁', () => {
     // 永负、后续 interface 认定失明——回补后 B 正常收
     const barrelSrc = "export { A } from './a.js';\nexport interface B { y: number }";
     expect([...findExportedInterfaces(barrelSrc).keys()]).toEqual(['B']);
+  });
+
+  it('pkgVersionCompare：预发布段按 npm 语义逐标识符比（修前红：整段字典序跨位数错序——alpha.9 判大于 alpha.10，「最新归档」选错基准档）', () => {
+    // 数值标识符跨位数——数值比较非字典（'9' > '1' 字典序把 9 判大于 10）
+    expect(pkgVersionCompare('0.1.0-alpha.9', '0.1.0-alpha.10')).toBeLessThan(0);
+    expect(pkgVersionCompare('0.1.0-alpha.2', '0.1.0-alpha.10')).toBeLessThan(0);
+    expect(pkgVersionCompare('0.1.0-alpha.10', '0.1.0-alpha.9')).toBeGreaterThan(0);
+    // prerelease < 同名 release（npm 同向）
+    expect(pkgVersionCompare('0.1.0-alpha.1', '0.1.0')).toBeLessThan(0);
+    expect(pkgVersionCompare('0.1.0', '0.1.0-alpha.1')).toBeGreaterThan(0);
+    // 双字母段字典序
+    expect(pkgVersionCompare('0.1.0-alpha.1', '0.1.0-beta')).toBeLessThan(0);
+    // 数值段 < 字母段（npm 律）
+    expect(pkgVersionCompare('0.1.0-alpha.1', '0.1.0-alpha.beta')).toBeLessThan(0);
+    // 逐段全等而段数少者在前（alpha < alpha.1）
+    expect(pkgVersionCompare('0.1.0-alpha', '0.1.0-alpha.1')).toBeLessThan(0);
+    // 主三段数值比较 + 相等形归 0
+    expect(pkgVersionCompare('0.1.0', '0.2.0')).toBeLessThan(0);
+    expect(pkgVersionCompare('0.2.1', '0.10.0')).toBeLessThan(0);
+    expect(pkgVersionCompare('0.1.0-alpha.1', '0.1.0-alpha.1')).toBe(0);
+    expect(pkgVersionCompare('0.1.0', '0.1.0')).toBe(0);
   });
 
   it('stripExperimentalSections：标记行起至同级标题豁免 + 句中字面不算标记', () => {
