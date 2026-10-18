@@ -23,8 +23,10 @@ export default defineConfig({
     // 落码批 rootDir 仓根化（tsconfig.build rootDir "." → 产物 dist/src/**
     // + dist/plugins/** 双区布局；服务端 dist/plugins/webui/*.js 与本 SPA
     // dist/plugins/webui/index.html+assets 同目录共生——文件名不相撞）。
-    // emptyOutDir 只许在 build 链首位跑——npm run build 已序制为
-    // build:webui → tsc → emit-api-decls（后写者不被清）。
+    // emptyOutDir 只许在 build 链写 dist 的各步中居首——npm run build 已序制为
+    // 恒清 dist（2026-10-18 批次 4 裁决一：build 脚本前置 node -e rmSync 全清，
+    // 增量构建旧布局孤儿目录根治——恒清在前，本步为其后首写步）→ build:webui
+    // → tsc → emit-api-decls（后写者不被清）。
     outDir: '../../../dist/plugins/webui',
     emptyOutDir: true,
   },

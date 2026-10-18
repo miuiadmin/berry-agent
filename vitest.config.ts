@@ -45,6 +45,10 @@ export default defineConfig({
             'src/**/*.test.ts',
             'packages/berry-agent-sdk/src/**/*.test.ts',
             'plugins/**/*.test.ts',
+            // build 链恒清回归锁（2026-10-18 批次 4 裁决一）：机械腿抽
+            // package.json build 串断言清前缀在场 + 行为腿 spawn 夹具证清
+            // 命令真能删旧布局孤儿——root/SDK 双包三脚本面。
+            'tools/build-clean.test.mjs',
             // telegram-channel 范式件生命周期锁（examples 域首个 vitest 收录件）：
             // 该件断言面落在真宿主契约上（真 createPluginContext 门检 + 真
             // TriggerRegistry 三闸——装配 rig import src，拷走即失真），故逐件
