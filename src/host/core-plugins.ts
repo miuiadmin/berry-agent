@@ -2035,7 +2035,17 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         const scope = service.goalScopeFor(event.sessionId);
         if (scope === undefined) return; // 非 goal 域会话不辖
         if (!service.budgetExceeded(scope.goalId)) return; // 未超帽——正常收口
-        void parkGoalForBudget(scope.goalId);
+        // 浮动 promise 拒面接驳（58 轮 L1-1）：parkGoalForBudget 内场可拒
+        // （service.parkForBudget 的 GOAL_NOT_FOUND 幽灵守卫 / appendPaused 落词
+        // 位抛、广播 register 位）——纯 void 无接驳即 unhandledRejection → 崩溃
+        // 编舞 exit(1) 杀整个 daemon（在飞会话连坐——1895 位注释同害谱）；
+        // 1866 位「自动唤醒后重新停靠」镜像先例同形。warn 走件内 warn 出口
+        // （logger + notify 双发）——人工复位道 /goal wake 指引保持
+        void parkGoalForBudget(scope.goalId).catch((err: unknown) => {
+          warn(
+            `[goal] 预算超帽自动停靠失败（人工道 /goal wake 仍在）：${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
       });
 
       // provide 投影律（03 §10.5 s 批补注②——danger 先例同律）：service 腿按

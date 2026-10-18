@@ -67,7 +67,13 @@ import { bootPlugins } from './plugin-boot.js';
 import type { PluginBootFs } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
 import { assembleOpenTools } from '../conversation/open-tools.js';
-import type { ContextTransformInput, ExecToolService, PreStepInput } from '../conversation/index.js';
+import type {
+  AgentService,
+  ContextTransformInput,
+  ExecToolService,
+  PreStepInput,
+  RunSettledEvent,
+} from '../conversation/index.js';
 import { AGENT_PRE_STEP_EVENT, CONTEXT_TRANSFORM_EVENT } from '../conversation/index.js';
 import type { SkillsRegistry } from '../../plugins/skills/index.js';
 import { createSessionsFace, type SessionsFace, type SessionsDriverOf } from './sessions-face.js';
@@ -170,6 +176,13 @@ interface DepsForTest {
   budgetBroadcast?: BudgetBroadcastFace;
   /** u-3 对话栈投影（parkIfBudgetExhausted 池检 + 唤醒提交面） */
   conversationStack?: ConversationStack;
+  /**
+   * 'agent' 席服务面注入（58 轮件②——onRunSettled 收口现判腿测试位）：
+   * bootCore 装载前 scope.provide('agent')——core 件装载期 tryGet 即得
+   * （生产 = assembly 装配根 provideAgentService 同位）；缺席 = 既有 rig 形
+   * （goal 件 offSettlePark 订阅面不挂——goal3 例 2604 位注记）
+   */
+  agent?: AgentService;
   checkpointSession?: SessionContextFace;
   checkpointFork?: RewindForkFace;
   focusSessionId?: () => string | undefined;
@@ -236,6 +249,10 @@ async function bootCore(
   if (coreDeps.issueSession !== undefined) {
     provideJobsService(scope, createJobRegistry({ warn: () => undefined }));
   }
+  // 'agent' 席测试注入（58 轮件②——DepsForTest.agent 注记同源）：provide 先于
+  // 装载，core 件装载期 tryGet('agent') 即得（fork 链上溯见根）——goal 件
+  // offSettlePark 收口现判订阅面由此真挂上
+  if (coreDeps.agent !== undefined) scope.provide('agent', coreDeps.agent);
   // sessions 服务面（CL-E rig 改造批——03 §4.5 定形注 ag 批 cs-D2）：受局面
   // 注入形与生产装载同构（assembly.ts options.sessions 先例）——不再走已废止
   // 的共享根 scope.provide('sessions') 旧形；plugin-boot 装载序逐插件
@@ -2609,6 +2626,90 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
 
     broadcast.dispose();
     await persistence.close();
+  });
+
+  it('goal 收口现判停靠浮动 promise 拒面接驳（58 轮 L1-1）：parkForBudget 落词位抛错经 catch 落 warn 双发——无 unhandledRejection 外漏 + 人工道 /goal wake 指引在场', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-goal6-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session = new SessionLog({ sessionId: 's-goal6' });
+    // 落词位注入抛错腿（mock 停在注入缝——GoalSessionFace.appendPaused 是
+    // service deps 注入位，非内部模块 mock）：parkForBudget 三动作中 disable
+    // 已防御吞（service 846 位），落词位抛即 parkGoalForBudget 拒——修前
+    // 收口位纯 void 无接驳 = unhandledRejection（崩溃编舞 exit(1) 触发面）
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-goal6' ? session.events() : []),
+      length: (sid) => (sid === 's-goal6' ? session.events().length : 0),
+      appendPaused: () => {
+        throw new Error('落词通道炸了（测试注入）');
+      },
+    };
+    // agent 服务面替身（'agent' 席注入——捕获订阅供测试直接回调，模拟
+    // notifyRunSettled 逐订阅者触发形；registerMessageRole 空实现非本例射程）
+    const settleHandlers: Array<(event: RunSettledEvent) => void> = [];
+    const fakeAgent: AgentService = {
+      registerMessageRole: () => () => undefined,
+      onRunSettled: (handler) => {
+        settleHandlers.push(handler);
+        return () => undefined;
+      },
+    };
+    const notified: Array<[string, string]> = [];
+    let svc: GoalService | undefined;
+    // unhandledRejection 观测位（修前红锚之二：浮动 promise 拒面外漏即捕获）
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      await bootCore(
+        dataDir,
+        memoryFs(),
+        {},
+        {
+          sqlite: () => persistence.store.sqlite(),
+          goalSession,
+          agent: fakeAgent,
+          notify: (source, message) => notified.push([source, message]),
+          goalServiceSink: (service) => {
+            svc = service;
+          },
+        },
+      );
+
+      // goal 域会话 + 记账跨帽（cap=1 一笔即超）——收口现判两前置全真
+      const row = await svc!.activate({
+        sessionId: 's-goal6',
+        objective: '浮动 promise 接驳锁目标',
+        schedule: 'every:60s',
+        budgetMessagesCap: 1,
+      });
+      svc!.recordTurn(row.id);
+      expect(svc!.budgetExceeded(row.id)).toBe(true);
+
+      // 模拟 run 终态（notifyRunSettled 同形——快照遍历逐订阅者回调）：
+      // goal 件收口现判腿起跑 parkGoalForBudget——disable 防御吞后落词位抛
+      const settled: RunSettledEvent = { result: { status: 'completed' }, sessionId: 's-goal6' };
+      for (const handler of [...settleHandlers]) handler(settled);
+
+      // 修后绿锚：拒面经 catch 落 warn——notify 缝（'goal' 归因）双发可断
+      await until(() => notified.some(([source, message]) => source === 'goal' && message.includes('自动停靠失败')));
+      const warnMessage = notified
+        .filter(([source, message]) => source === 'goal' && message.includes('自动停靠失败'))
+        .map(([, message]) => message)[0]!;
+      expect(warnMessage).toContain('/goal wake'); // 人工复位道指引（1866 位镜像先例同律）
+      expect(warnMessage).toContain('落词通道炸了'); // 拒因如实透传（Error.message 形）
+      // 修前红锚之二：无 unhandledRejection 外漏（daemon exit(1) 的触发面清零）
+      await new Promise((resolve) => void setTimeout(resolve, 50)); // 微任务 + 事件循环窗
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled);
+      await persistence.close();
+    }
   });
 
   it('goal 停靠唤醒触发时失效门（sweep12 L2 场景 A）：manual /goal wake 人工接管后陈旧广播 entry 只摘双侧登记零 submit——已复活 goal 不双跑', async () => {
