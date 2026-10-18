@@ -13,7 +13,11 @@
  *
  * 三族匹配器（04 §9 粘性段定形③，族分派沿旧）：
  * - fs 族（write / edit）：条目 pattern = 路径前缀（相对则锚 workspace）——
- *   本次调用**全部**写目标都落在前缀内才命中（多路径 all-or-nothing，保守）；
+ *   量词按 decision 分立（2026-10-18 61 轮批勘正——保守方向 allow=多问、
+ *   deny=多拦）：**allow 条目全称 every**（全部写目标落前缀内才命中免问——
+ *   一目标在外仍照问）、**deny 条目存在 some**（任一写目标落前缀内即硬拒
+ *   ——与 §7 carve-out「逐路径独立判定、多文件补丁不部分放行」同语义；修
+ *   前 every 形使 deny 条目被多写目标稀释，用户主权硬拒被静默旁路）；
  * - bash 族：条目 pattern = 命令词干（≤2 词：命令 [子命令]）——剥壳语义全
  *   集见 commandStem（环境变量前缀剥除 / shell 包装穿透一层 / 管道与串接
  *   即不可判定 / 任何 flag 即不可判定——v1 无「已知 flag 白名单」，白名单
@@ -146,10 +150,10 @@ function tierIncluded(entry: ToolPolicyEntry, callEffect: ToolEffect): boolean {
   return entry.decision === 'deny' ? callRank >= entryRank : callRank <= entryRank;
 }
 
-/** 三族匹配分派（fs 前缀 all-or-nothing / bash 词干 / 整名族） */
+/** 三族匹配分派（fs 前缀量词按 decision 分立 / bash 词干 / 整名族） */
 function entryMatches(entry: ToolPolicyEntry, input: ToolPolicyInput): boolean {
   if (FS_WRITE_TOOLS.has(entry.tool)) {
-    return fsPrefixHit(entry.pattern, input);
+    return fsPrefixHit(entry.pattern, entry.decision, input);
   }
   if (entry.tool === 'bash') {
     const command = input.bashCommand ?? '';
@@ -159,8 +163,20 @@ function entryMatches(entry: ToolPolicyEntry, input: ToolPolicyInput): boolean {
   return true;
 }
 
-/** fs 族判定：全部写目标落在条目前缀内（前缀到路径分隔边界——/app 不匹配 /apple）；pattern 缺席/不可解析 = 条目无效 = 不命中 */
-function fsPrefixHit(pattern: string | undefined, input: ToolPolicyInput): boolean {
+/**
+ * fs 族判定：前缀解析单源（前缀到路径分隔边界——/app 不匹配 /apple），量词按
+ * 条目方向分立（04 §9 12f-4 pattern 段 2026-10-18 勘正——保守方向 allow=多问、
+ * deny=多拦）：allow 条目全称 every（全部写目标落前缀内才命中免问——一目标
+ * 在外仍照问，免问面不多放）；deny 条目存在 some（任一写目标落前缀内即命中
+ * 硬拒——与 §7 carve-out「逐路径独立判定、多文件补丁不部分放行」同语义，
+ * 修前 every 形使 deny 条目被多写目标稀释，用户主权硬拒被静默旁路）。
+ * pattern 缺席/不可解析 = 条目无效 = 不命中。
+ */
+function fsPrefixHit(
+  pattern: string | undefined,
+  decision: ToolPolicyEntry['decision'],
+  input: ToolPolicyInput,
+): boolean {
   if (typeof pattern !== 'string' || pattern.length === 0) return false;
   const paths = input.writePaths ?? [];
   if (paths.length === 0) return false; // 无写意图不归本族（整名语义由他族条目表达）
@@ -171,7 +187,9 @@ function fsPrefixHit(pattern: string | undefined, input: ToolPolicyInput): boole
   } catch {
     return false; // pattern 不可解析 = 条目无效 = 不命中
   }
-  return paths.every((p) => p === prefix || p.startsWith(prefix + sep));
+  const withinPrefix = (p: string): boolean => p === prefix || p.startsWith(prefix + sep);
+  // 量词分叉（见头注）：deny = some（任一在内即硬拒）/ allow = every（全部在内才免问）
+  return decision === 'deny' ? paths.some(withinPrefix) : paths.every(withinPrefix);
 }
 
 /** 不可判定字符集：管道 / 串接 / 重定向 / 命令替换 / 换行——任一出现即照问 */

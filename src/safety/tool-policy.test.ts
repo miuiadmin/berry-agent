@@ -83,6 +83,86 @@ describe('fs 族匹配', () => {
   });
 });
 
+/* ---------------- 量词分叉（2026-10-18 61 轮批勘正——04 §9 12f-4 pattern 段） ---------------- */
+
+describe('fs 族量词按 decision 分立（allow 全称 every / deny 存在 some）', () => {
+  it('deny 条目存在量词 some：edit 多文件补丁掺一条前缀外路径仍硬拒（修前 every 稀释——用户主权硬拒被静默旁路）', () => {
+    const entries: ToolPolicyEntry[] = [{ tool: 'edit', pattern: 'dist', decision: 'deny' }];
+    // 混合写目标：一条落 dist 前缀内、一条落前缀外——deny 任一在内即命中
+    expect(
+      matchToolPolicy(
+        entries,
+        {
+          tool: 'edit',
+          effect: 'write',
+          workspace: ws,
+          writePaths: [join(ws, 'dist', 'a.js'), join(ws, 'src', 'b.ts')],
+        },
+        NOW,
+      ),
+    ).toMatchObject({ index: 0, entry: { decision: 'deny' } });
+  });
+
+  it('deny 条目全部写目标在前缀外仍 miss（存在量词不虚张拒绝面）', () => {
+    const entries: ToolPolicyEntry[] = [{ tool: 'write', pattern: 'dist', decision: 'deny' }];
+    expect(
+      matchToolPolicy(
+        entries,
+        {
+          tool: 'write',
+          effect: 'write',
+          workspace: ws,
+          writePaths: [join(ws, 'src', 'a.ts'), join(ws, 'docs', 'b.md')],
+        },
+        NOW,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('deny 全内路径命中维持（量词分叉不破单路径/全内拒绝面）', () => {
+    const entries: ToolPolicyEntry[] = [{ tool: 'write', pattern: 'dist', decision: 'deny' }];
+    expect(
+      matchToolPolicy(
+        entries,
+        { tool: 'write', effect: 'write', workspace: ws, writePaths: [join(ws, 'dist', 'a.js')] },
+        NOW,
+      ),
+    ).toMatchObject({ index: 0 });
+  });
+
+  it('反向锁：allow 条目 + 混合路径仍 miss（免问面不多放——一目标在外仍照问）', () => {
+    const entries: ToolPolicyEntry[] = [{ tool: 'edit', pattern: 'src', decision: 'allow' }];
+    expect(
+      matchToolPolicy(
+        entries,
+        {
+          tool: 'edit',
+          effect: 'write',
+          workspace: ws,
+          writePaths: [join(ws, 'src', 'a.ts'), join(ws, 'dist', 'b.js')],
+        },
+        NOW,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('纯内路径 allow 命中不破（全称量词维持——既有免问面行为不变）', () => {
+    const entries: ToolPolicyEntry[] = [{ tool: 'write', pattern: 'dist', decision: 'allow' }];
+    expect(
+      matchToolPolicy(
+        entries,
+        {
+          tool: 'write',
+          effect: 'write',
+          workspace: ws,
+          writePaths: [join(ws, 'dist', 'a.js'), join(ws, 'dist', 'b.js')],
+        },
+        NOW,
+      ),
+    ).toMatchObject({ index: 0 });
+  });
+});
+
 /* ---------------- bash 族：命令词干 ---------------- */
 
 describe('bash 族匹配（matchToolPolicy + commandStem 同源）', () => {
