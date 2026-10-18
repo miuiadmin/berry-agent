@@ -1290,6 +1290,53 @@ describe('runTuiEntry 装配序', () => {
     }
   });
 
+  // ── leader copy 分支浮动 promise 拒面接驳锁（59 轮件 A-1——58 轮件② 同族）：
+  // onLeaderBranch('copy') → dispatchAnchored('/copy') 是 async 命令面，命令
+  // 处理器可抛——修前裸 void 弃置 = unhandledRejection（崩溃编舞 exit(1)
+  // 触发面）。镜像 tui-backend typed 路既有形（submitText 命令腿 .catch →
+  // notify + foldErrorText——「命令异常：」前缀单源）：拒面落错误回执不静默
+  // 不崩进程。命令异常注入位 = 命令面后写胜出（03 §2.7 同名换装正道——
+  // onStack 注入面拿真装配栈注册抛错处理器）。 ──
+  it('ctrl+x c 命令异常拒面：/copy 处理器抛错经 catch 落错误回执（命令异常：单源前缀）——零 unhandledRejection 外漏', async () => {
+    // unhandledRejection 观测位（修前红锚之二：浮动 promise 拒面外漏即捕获）
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const t = await rigEntry(rigDir('entry-copy-err-data-'), rigDir('entry-copy-err-ws-'), {
+        onStack: (stack) => {
+          // 命令面后写胜出（03 §2.7——同名换装显式正道）：抛错处理器复刻
+          // 命令处理器异常形（mock 停在命令注册注入位，非生产面改签）
+          stack.channels.commands.register(
+            'copy',
+            async () => {
+              throw new Error('copy 命令炸了（测试注入）');
+            },
+            '测试换装（命令异常拒面锁）',
+          );
+        },
+      });
+      t.io.send('hi\r'); // 一轮对话（run settle 后闲态——leader arm 五闸开）
+      await until(() => stripAnsi(t.io.output).includes('ok'));
+      await tick();
+      t.io.output = '';
+      t.io.send('\x18'); // ctrl+x——leader arm
+      t.io.send('c'); // copy 分支字母 → onLeaderBranch('copy') → dispatchAnchored('/copy')
+      // 修后绿锚：拒面经 catch 落 notify 错误回执（typed 路「命令异常：」前缀单源）
+      await until(() => stripAnsi(t.io.output).includes('命令异常：'));
+      const receipt = stripAnsi(t.io.output);
+      expect(receipt).toContain('copy 命令炸了（测试注入）'); // foldErrorText Error 腿免前缀直呈 message
+      await new Promise((resolve) => void setTimeout(resolve, 50)); // 拒面传播 + unhandledRejection 判定窗
+      expect(unhandled).toEqual([]); // 修前红锚（主锁）：零外漏（daemon exit(1) 触发面清零）
+      t.io.send('\x04');
+      expect(await t.entry).toBe(0);
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled); // 先解绑防污染其它例
+    }
+  });
+
   // ── 剪贴板图片直贴真装配锁（gateD P3③——ASM-1 反制）：imageIntake 闭包
   //（admitPasteImages 受理链 + stack.attachments + sessionModelOf 能力面）+
   // onSubmit 第四参 + tui-entry 宽形 content 组装三级焊接面任一拆线则本测
@@ -2626,8 +2673,10 @@ describe('foldErrorText 收口与行为件（alpha.33 处置批 Lane2）', () =>
     // A 族六折点收口（thinking/sandbox/marketplace/update/wizard/stderr）：
     // 调用位 7 处 = 既有切换回执 1 + 新收 6（修前仅 1 处——单源律残漏面）；
     // +1 = mode-cycle 档位循环 fold 坏词回执（2026-10-05 ZCode 对标批——
-    // onModeCycle 同 openSandboxPanel 律）→ 8
-    expect(source.split('foldErrorText(').length - 1).toBe(8);
+    // onModeCycle 同 openSandboxPanel 律）→ 8；
+    // +1 = leader copy 分支浮动 promise 拒面回执（59 轮件 A-1——「命令异常：」
+    // 前缀单源镜像 tui-backend typed 路）→ 9
+    expect(source.split('foldErrorText(').length - 1).toBe(9);
     // #9 /jobs 弃接布尔收口：副屏占用降级回执接线（修前 run 体 void 直弃）
     expect(source.split("panelBusyNotice('后台任务页')").length - 1).toBe(1);
     // #11 模型切换动作单源：回执模板字面量恰一处（修前 onModelCycle 与

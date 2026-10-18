@@ -622,7 +622,17 @@ export class ConversationDriver {
         ? { ...event, durationMs: Math.max(0, Date.now() - this.runTurnsStartedAt) }
         : event;
     this.wiring.onEvent(enriched);
-    if (this.options.onEvent !== undefined) void this.options.onEvent(enriched);
+    // 外部汇异步腿兜底（59 轮件 A-2——浮动 promise 收口）：AgentEventSink
+    // 契约容 Promise 返值，裸 void 弃置 = 异步拒面无人接 → unhandledRejection
+    // → 崩溃编舞 exit(1) 连坐 daemon 在飞会话。只兜异步腿——调用求值在
+    // Promise.resolve 入参位，同步抛不进 catch、继续沿 durable 腿语义传播
+    // 不动；镜像 conversation-stack 外部汇位同族守卫（Promise.resolve(...)
+    // .catch + warn 隔离——「sink 返回 Promise 的异步腿同样兜住」注同律）
+    if (this.options.onEvent !== undefined) {
+      void Promise.resolve(this.options.onEvent(enriched)).catch((err: unknown) => {
+        this.warnFace(`外部事件汇异步抛错（已隔离）：${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
   };
 
   /**

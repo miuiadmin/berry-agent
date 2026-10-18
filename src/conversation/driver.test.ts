@@ -2927,6 +2927,44 @@ describe('ConversationDriver 宿主凭证刷新联动腿（04 §3.3 条 8——B
   });
 });
 
+/* ---------------- 外部事件汇异步腿隔离（59 轮件 A-2——浮动 promise 收口） ---------------- */
+
+describe('ConversationDriver 外部事件汇异步腿隔离（59 轮件 A-2）', () => {
+  it('onEvent 返 rejected promise 经 catch 落 warnFace（已隔离）——零 unhandledRejection 外漏（修前必红）', async () => {
+    // AgentEventSink 契约容 Promise 返值（contracts/agent-events——void/Promise
+    // 双形兼容）：修前 `void this.options.onEvent(enriched)` 裸弃置 = 异步拒面
+    // 无人接 → unhandledRejection → 崩溃编舞 exit(1) 连坐 daemon 在飞会话
+    //（conversation-stack 外部汇位 Promise.resolve(...).catch 同族守卫的驱动
+    // 侧缺口位——本例补锁）。unhandledRejection 探针镜像 58 轮件② goal 停靠
+    // catch 测试形（core-plugins.test.ts 同款）
+    const warns: string[] = [];
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const { driver } = makeDriver({
+        scripts: [assistant({ content: [{ type: 'text', text: '答' }] })],
+        warn: (message) => warns.push(message), // warnFace 注入位（护栏落点收账）
+        // 汇注入位（options.onEvent 契约面）：每事件返 rejected promise——异步腿炸形
+        onEvent: () => Promise.reject(new Error('外部汇异步炸了（测试注入）')),
+      });
+      const result = await driver.submit('问');
+      expect(result.status).toBe('completed'); // 隔离不连坐 run 收口（durable 腿照旧）
+      await new Promise((resolve) => void setTimeout(resolve, 50)); // 微任务 + unhandledRejection 判定窗
+      // 修前红锚（主锁）：浮动 promise 拒面外漏即 daemon 崩溃编舞触发面——零外漏
+      expect(unhandled).toEqual([]);
+      // 修后绿锚：拒面经 catch 落 warnFace（「已隔离」报备 + 拒因如实透传）
+      const isolated = warns.filter((message) => message.includes('外部事件汇异步抛错（已隔离）'));
+      expect(isolated.length).toBeGreaterThanOrEqual(1);
+      expect(isolated[0]).toContain('外部汇异步炸了（测试注入）'); // Error.message 形如实透传
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled); // 先解绑防污染其它例
+    }
+  });
+});
+
 /* ---------------- mid-convo 工具面通告（pi-3 件 B——03 §2.8 换装时点通告通道） ---------------- */
 
 describe('ConversationDriver mid-convo 工具面通告（pi-3 件 B）', () => {

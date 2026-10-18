@@ -384,11 +384,33 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
       });
     };
 
+    /**
+     * runRound fire-and-forget 单源收口（59 轮件 A-3——浮动 promise 三位收口；
+     * 58 轮件② goal 停靠 catch 同族镜像）：runRound 的 try 只包 submit 位，
+     * parkNow 落词（session.append 写链熔断 PERSIST_WRITE_EXHAUSTED 可同步
+     * 抛）与 finish（manager.retire 排干可同步重抛）都在 try 外——裸 void
+     * 弃置 = unhandledRejection（崩溃编舞 exit(1) 杀整个 daemon，在飞会话
+     * 连坐）；且 finish 内 settleOutcome 在 retire 之后，retire 抛则 outcome
+     * promise 永悬（编排层 await 永挂）。拒面双收口：warn 留痕 + outcome 裸
+     * settle 兜底（deferred 双 resolve 幂等无害——finish 半程形 finished=true
+     * 而 settleOutcome 未达同样被兜；messagesUsed() 此刻现读事件账，值诚实）。
+     */
+    const fireRound = (text: string, source: EventSource, backgroundWake: boolean): void => {
+      void runRound(text, source, backgroundWake).catch((err: unknown) => {
+        warn(`issue 会话 run 收口异常（防御位）：${err instanceof Error ? err.message : String(err)}`);
+        settleOutcome({
+          status: 'failed',
+          messagesUsed: messagesUsed(),
+          reason: `会话编排异常（防御位）：${err instanceof Error ? err.message : String(err)}`,
+        });
+      });
+    };
+
     const entry: ParkedEntry = {
       wake() {
         parked.delete(entry); // 先摘（再停靠时 parkNow 重登记——双侧同笔）
         broadcast.unregister(entry);
-        void runRound(WAKE_MESSAGE, WAKE_SOURCE, true);
+        fireRound(WAKE_MESSAGE, WAKE_SOURCE, true);
       },
       dispose() {
         finish({
@@ -399,7 +421,7 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
     };
 
     // 首轮起跑（fire——outcome promise 即回执，编排层自行 await）
-    void runRound(req.prompt, ISSUE_SUBMIT_SOURCE, false);
+    fireRound(req.prompt, ISSUE_SUBMIT_SOURCE, false);
     return { sessionId, outcome };
   }
 

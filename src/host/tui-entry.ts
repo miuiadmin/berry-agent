@@ -1949,7 +1949,15 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           return;
         }
         if (branch === 'copy') {
-          void dispatchAnchored('/copy');
+          // 浮动 promise 拒面接驳（59 轮件 A-1——58 轮件② 同族）：dispatchAnchored
+          // → dispatchCommand → 命令处理器可抛（后写胜出换装面/命令面异常），裸
+          // void 弃置 = unhandledRejection → 崩溃编舞 exit(1) 杀整个 daemon。
+          // 镜像同库 typed 路既有形（tui-backend submitText 命令腿 .catch →
+          // notify + foldErrorText）：「命令异常：」前缀单源，拒面落错误回执
+          // 不静默不崩进程。
+          void dispatchAnchored('/copy').catch((err: unknown) => {
+            backend.notify(`命令异常：${foldErrorText(err)}`, { level: 'error' });
+          });
           return;
         }
         localCommands.find((command) => command.name === branch)?.run();

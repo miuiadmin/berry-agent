@@ -34,11 +34,15 @@ import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-
 import type { ToolDefinition } from '../contracts/index.js';
 import { fauxProvider } from '../llm/index.js';
 
-import { createConversationStack, type ConversationStackOptions } from './conversation-stack.js';
+import {
+  createConversationStack,
+  type ConversationStack,
+  type ConversationStackOptions,
+} from './conversation-stack.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { createIssueSessionFactory } from './issue-session.js';
-import { createBudgetBroadcast } from './budget-broadcast.js';
+import { createBudgetBroadcast, type BudgetBroadcastEntry } from './budget-broadcast.js';
 
 /* ---------------- 测试基建（subagent-factory.test.ts 同款形） ---------------- */
 
@@ -697,5 +701,201 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     expect(injected?.type).toBe('user/message');
     factory.dispose();
     await rt.shutdown();
+  });
+
+  // ── 浮动 promise 三位收口（59 轮件 A-3——58 轮件② goal 停靠 catch 同族）：
+  // runRound 的 try 只包 submit 位，parkNow 落词（session.append 写链熔断
+  // PERSIST_WRITE_EXHAUSTED 可同步抛）与 finish（manager.retire 排干可同步
+  // 重抛）都在 try 外——修前两处 `void runRound(...)` 裸弃置 = 拒面无人接
+  // → unhandledRejection（崩溃编舞 exit(1) 杀 daemon）+ outcome 永悬（编排层
+  // await 永挂）。mock 只停在 deps 注入位（stack.manager/driver.session 桩
+  // ——goal 件 fakeConversationStack 同族先例）；unhandledRejection 探针镜像
+  // 58 轮件② 测试形。 ──
+
+  it('⑩ 浮动 promise 收口·首跑位（59 轮件 A-3）：parkNow 落词位抛错（写链熔断形）经 fireRound catch 落 warn + outcome 兜底 failed——零 unhandledRejection', async () => {
+    // 首跑位（原 :402）：canAfford false → 起跑前池检 → parkNow 落词位抛
+    //（append 桩注入——PERSIST_WRITE_EXHAUSTED 同步抛形的复刻）
+    const events: Array<{ type: string; data?: unknown; time: number }> = [
+      { type: 'assistant/message', data: { content: [{ type: 'text', text: 'ok' }] }, time: Date.now() },
+    ];
+    const fakeDriver = {
+      session: {
+        append: (_type: string, _data: unknown) => {
+          throw new Error('写链熔断（测试注入）');
+        },
+        events: () => events,
+      },
+      submit: async () => ({ status: 'completed' }),
+      abort: () => {},
+    };
+    const fakeStack = {
+      manager: {
+        create: () => ({ driver: fakeDriver, sessionId: 's-issue-a3a' }),
+        retire: () => {},
+      },
+    } as unknown as ConversationStack;
+    const warns: string[] = [];
+    // unhandledRejection 观测位（修前红锚之一：浮动 promise 拒面外漏即捕获）
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    let factory: ReturnType<typeof createIssueSessionFactory> | undefined;
+    try {
+      factory = createIssueSessionFactory({
+        stack: fakeStack,
+        canAfford: () => false, // 起跑前池尽——parkNow 即触发（首跑位）
+        warn: (m) => warns.push(m),
+        pollMs: 5,
+      });
+      const { outcome } = await factory.startHeadless({
+        cwd: '/tmp/ws-a3a',
+        prompt: '首跑任务',
+        budgetMessages: 50,
+        tools: [],
+      });
+      await new Promise((resolve) => void setTimeout(resolve, 50)); // 拒面传播 + unhandledRejection 判定窗
+      expect(unhandled).toEqual([]); // 修前红锚之一：零外漏（daemon exit(1) 触发面清零）
+      // 修后绿锚一：warn 留痕（防御位报备 + 拒因如实透传）
+      expect(warns.some((m) => m.includes('issue 会话 run 收口异常（防御位）') && m.includes('写链熔断'))).toBe(true);
+      // 修后绿锚二：outcome 兜底 failed（修前红锚之二：永悬 → settle 超时）
+      const result = await settle(outcome);
+      expect(result.status).toBe('failed');
+      expect(result.status === 'failed' && result.reason).toContain('会话编排异常（防御位）');
+      expect(result.status === 'failed' && result.reason).toContain('写链熔断');
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled); // 先解绑防污染其它例
+      factory?.dispose();
+    }
+  });
+
+  it('⑪ 浮动 promise 收口·唤醒位（59 轮件 A-3）：wake() 再停靠落词位抛错同经 fireRound catch——warn + outcome failed + 零外漏', async () => {
+    // 唤醒位（原 :391）与首跑位同一 catch 单源：首停靠落词成功 → 广播注入
+    // 面捕获 entry → 手动 wake()（watcher 电平判触发形的 seam 复刻）→ 唤醒轮
+    // 起跑前池检再停靠 → 复停靠窗落词位抛
+    const events: Array<{ type: string; data?: unknown; time: number }> = [];
+    let appendBroken = false;
+    const fakeDriver = {
+      session: {
+        append: (type: string, data: unknown) => {
+          if (appendBroken) throw new Error('复停靠写链熔断（测试注入）');
+          events.push({ type, data, time: Date.now() });
+        },
+        events: () => events,
+      },
+      submit: async () => ({ status: 'completed' }),
+      abort: () => {},
+    };
+    const fakeStack = {
+      manager: {
+        create: () => ({ driver: fakeDriver, sessionId: 's-issue-a3b' }),
+        retire: () => {},
+      },
+    } as unknown as ConversationStack;
+    const registered: BudgetBroadcastEntry[] = [];
+    const broadcast = {
+      register: (entry: BudgetBroadcastEntry) => registered.push(entry),
+      unregister: (_entry: BudgetBroadcastEntry) => {},
+      size: () => registered.length,
+      dispose: () => {},
+    };
+    const warns: string[] = [];
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    let factory: ReturnType<typeof createIssueSessionFactory> | undefined;
+    try {
+      factory = createIssueSessionFactory({
+        stack: fakeStack,
+        canAfford: () => false, // 恒池尽：首停靠即成立；唤醒轮起跑前池检同判尽 → 复停靠
+        warn: (m) => warns.push(m),
+        pollMs: 5,
+        broadcast, // 注入面（deps 位）：捕获 entry 供手动 wake
+      });
+      const { outcome } = await factory.startHeadless({
+        cwd: '/tmp/ws-a3b',
+        prompt: '唤醒任务',
+        budgetMessages: 50,
+        tools: [],
+      });
+      await until(() => registered.length === 1); // 首停靠落登记（首笔落词成功）
+      appendBroken = true; // 复停靠窗写链熔断 armed
+      registered[0]!.wake(); // 唤醒位触发（watcher 电平判同形——先摘登记再 runRound）
+      await new Promise((resolve) => void setTimeout(resolve, 50)); // 拒面传播 + 判定窗
+      expect(unhandled).toEqual([]); // 修前红锚之一：唤醒位浮动 promise 拒面零外漏
+      expect(warns.some((m) => m.includes('issue 会话 run 收口异常（防御位）') && m.includes('复停靠写链熔断'))).toBe(
+        true,
+      );
+      const result = await settle(outcome); // 修前红锚之二：永悬 → settle 超时
+      expect(result.status).toBe('failed');
+      expect(result.status === 'failed' && result.reason).toContain('会话编排异常（防御位）');
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled);
+      factory?.dispose();
+    }
+  });
+
+  it('⑫ finish 半程兜底（59 轮件 A-3）：retire 同步重抛（排干炸形）→ outcome 裸 settle 不永悬 + warn + 零外漏', async () => {
+    // finish 内 settleOutcome 在 retire 之后——retire 抛则 finished=true 而
+    // settleOutcome 未达：修前 outcome promise 永悬（编排层 await 永挂）+
+    // unhandledRejection 双漏；fireRound catch 的裸 settleOutcome 兜底
+    //（deferred 双 resolve 幂等无害——messagesUsed() 此刻值诚实）
+    const events: Array<{ type: string; data?: unknown; time: number }> = [
+      { type: 'assistant/message', data: { content: [{ type: 'text', text: 'ok' }] }, time: Date.now() },
+    ];
+    const fakeDriver = {
+      session: {
+        append: () => {},
+        events: () => events,
+      },
+      submit: async () => ({ status: 'completed' }),
+      abort: () => {},
+    };
+    let retired = false;
+    const fakeStack = {
+      manager: {
+        create: () => ({ driver: fakeDriver, sessionId: 's-issue-a3c' }),
+        retire: (_sessionId: string) => {
+          retired = true;
+          throw new Error('排干重抛（测试注入）');
+        },
+      },
+    } as unknown as ConversationStack;
+    const warns: string[] = [];
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    let factory: ReturnType<typeof createIssueSessionFactory> | undefined;
+    try {
+      factory = createIssueSessionFactory({
+        stack: fakeStack,
+        canAfford: () => true, // 起跑 → completed → finish → retire 重抛（半程形）
+        warn: (m) => warns.push(m),
+        pollMs: 5,
+      });
+      const { outcome } = await factory.startHeadless({
+        cwd: '/tmp/ws-a3c',
+        prompt: '半程收口任务',
+        budgetMessages: 50,
+        tools: [],
+      });
+      await new Promise((resolve) => void setTimeout(resolve, 50)); // 拒面传播 + 判定窗
+      expect(unhandled).toEqual([]); // 修前红锚之一：retire 拒面零外漏
+      const result = await settle(outcome); // 修前红锚之二：settleOutcome 未达 → 永悬 → settle 超时
+      expect(result.status).toBe('failed');
+      expect(result.status === 'failed' && result.reason).toContain('会话编排异常（防御位）');
+      expect(result.status === 'failed' && result.reason).toContain('排干重抛');
+      expect(result.status === 'failed' && result.messagesUsed).toBe(1); // 此刻值诚实（事件账现读）
+      expect(retired).toBe(true); // finish 前半程已执行（半程形非全弃）
+      expect(warns.some((m) => m.includes('issue 会话 run 收口异常（防御位）'))).toBe(true);
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled);
+      factory?.dispose();
+    }
   });
 });
