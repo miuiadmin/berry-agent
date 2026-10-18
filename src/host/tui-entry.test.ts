@@ -1287,6 +1287,64 @@ describe('runTuiEntry 装配序', () => {
       vi.unstubAllEnvs();
     }
   });
+
+  // ── 剪贴板图片直贴真装配锁（gateD P3③——ASM-1 反制）：imageIntake 闭包
+  //（admitPasteImages 受理链 + stack.attachments + sessionModelOf 能力面）+
+  // onSubmit 第四参 + tui-entry 宽形 content 组装三级焊接面任一拆线则本测
+  // 红——backend 级假 onSubmit 捕获恒绿不可代。ctrl+v 读链在 rig 不可确定性
+  // 驱动（darwin 真身 osascript 产机器剪贴板真值）——路径变体面同链覆盖
+  //（clipboardImageReader 读链本体单测在 clipboard-image.test 全锁） ──
+  it('粘贴图片路径变体真装配：真 PNG 落盘 → bracketed paste → 提交 → durable user/message 块数组含 image-ref', async () => {
+    const dataDir = rigDir('entry-pimg-data-');
+    const wsDir = rigDir('entry-pimg-ws-');
+    // 自铸最小 PNG（attachment-intake.test pngWithDimensions 同款——魔数 8 字节
+    // + IHDR 1x1；CRC 不进受理链判据零填；位深/色型等 IHDR 余字节不进判据）
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(1, 0); // 宽 1
+    ihdr.writeUInt32BE(1, 4); // 高 1（尺寸门 ≤8192 恒过）
+    const chunk = Buffer.concat([Buffer.alloc(4), Buffer.from('IHDR', 'ascii'), ihdr]);
+    chunk.writeUInt32BE(13, 0); // 段长（IHDR 定长 13）
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk]);
+    const file = join(wsDir, 'probe.png');
+    writeFileSync(file, png);
+    // 视觉模型声明：能力门在受理时点按模型 input 快照执法——缺声明即拒
+    //（rigEntry 硬编 models:[{id}] 无 input，故本测自带 inline 装配——:1592 自救腿同形）
+    const faux = fauxProvider({ provider: 'faux-img', models: [{ id: 'm1', input: ['text', 'image'] }] });
+    faux.setResponses([() => messageOf(), () => messageOf()]);
+    const io = new FakeTerminalIO();
+    let runtimeRef: HostRuntime | undefined;
+    const entry = runTuiEntry({
+      flags: { noPlugins: false, debug: false },
+      io,
+      cwd: wsDir,
+      version: 'test',
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-img/m1',
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
+      onRuntime: (rt) => void (runtimeRef = rt),
+    });
+    await io.ready();
+    io.send('看这张图'); // 文本先行——占位行随后插非熔接形（提交剥除语义可断言）
+    io.send(`\x1b[200~${file}\x1b[201~`); // bracketed paste 真绝对路径 → 层④变体面拦截
+    await until(() => stripAnsi(io.output).includes('[图片]')); // 受理链全跑 + 占位入稿
+    io.send('\r'); // 提交（占位剥除 + 暂存消费 + 宽形 content 组装）
+    await until(() => stripAnsi(io.output).includes('ok')); // run settle（应答上屏）
+    // durable 真值先读后退（exit 路自 flush；此处显式屏障取写后即读位）
+    await runtimeRef!.persistence.flush();
+    const events = runtimeRef!.persistence.queryEvents({ types: ['user/message'], sinceMs: 0 }).events;
+    const withBlocks = events.filter((e) => Array.isArray((e.data as { content?: unknown }).content));
+    expect(withBlocks).toHaveLength(1); // 恰一笔块数组形（纯文本会话其余为 string 形）
+    const blocks = (withBlocks[0]!.data as { content: readonly unknown[] }).content;
+    expect(blocks[0]).toEqual({ type: 'text', text: '看这张图' }); // 文本块先行（tui-entry 组装序）
+    const ref = blocks[1] as { type: string; ref: string; mimeType: string; bytes: number };
+    expect(ref.type).toBe('image-ref');
+    expect(ref.ref).toMatch(/^sha256:[0-9a-f]{64}$/); // 真受理链内容寻址铸键
+    expect(ref.mimeType).toBe('image/png');
+    expect(ref.bytes).toBe(png.length); // 载荷字节真值（魔数/尺寸门全过的在盘原像）
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
 });
 
 describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {

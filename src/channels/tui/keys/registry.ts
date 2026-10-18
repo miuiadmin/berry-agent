@@ -136,6 +136,17 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
     keys: ['alt+up'],
     overridable: true,
   },
+  // 剪贴板图片直贴（TUI 剪贴板图片直贴批——35 池件 2 + 39 轮 normalize_pasted_path
+  // 变体面）：ctrl+v 读剪贴板图入稿占位（读链/受理链双 DI 缝——缺席键不劫持）；
+  // 文本粘贴走 bracketed paste 通道零争键（cmd+v / ctrl+shift+v 不经本册位）。
+  // 增册至 41（07 §4.1 R5 词条同笔）
+  {
+    id: 'editor.paste-image',
+    scope: 'editor',
+    label: '粘贴剪贴板图片',
+    keys: ['ctrl+v'],
+    overridable: true,
+  },
   { id: 'editor.new-line', scope: 'editor', label: '换行', keys: ['shift+enter', 'ctrl+j'], overridable: true },
   // 外部编辑器（挖掘 31 轮 [9]——codex external_editor 对标：ctrl+g 挂起主屏
   // 交出子进程，草稿播种临时 .md、退出读回整替；规范 07 §5 词条）

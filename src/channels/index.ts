@@ -91,6 +91,10 @@ export { homeRelativePath } from './tui/panels/status-viewer.js';
 export { createDefaultGitQuery } from './tui/status/branch-stats.js';
 // 原生剪贴板腿真身工厂（挖掘 40 轮件 A——host 装配注入；计划纯函数/桩面测试直测不经此）
 export { createDefaultNativeClipboardSpawn } from './tui/backend/native-clipboard.js';
+// 剪贴板图片读器真身工厂（TUI 剪贴板图片直贴批——host 装配注入；计划纯函数/
+// 占位剥除/路径变体面测试直测不经此——backend 两 seam 消费）
+export { createClipboardImageReader } from './tui/backend/clipboard-image.js';
+export type { ClipboardImagePayload, ClipboardImageReader } from './tui/backend/clipboard-image.js';
 // 高度帽公式（R3 批 10j 引入；第六轮批 D2 起 host 装配注入已撤——backend 构造期/resize 现值单源；本转发位留 SDK 公开面）
 export { editorHeightCap } from './tui/index.js';
 // fuzzy 子序列过滤（R6 批 10j——host 命令名补全源消费）

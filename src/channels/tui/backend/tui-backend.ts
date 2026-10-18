@@ -166,6 +166,16 @@ import {
 import { gitHeadSuffix, readGitHead, type GitHeadInfo } from '../status/footer.js';
 import { computeBranchStats, type GitQuery } from '../status/branch-stats.js';
 import { planNativeClipboard, type NativeClipboardSpawn } from './native-clipboard.js';
+import {
+  COMPOSER_IMAGE_PLACEHOLDER,
+  PASTE_IMAGE_MAX_STAGED,
+  pastedImagePath,
+  readImageFilePayload,
+  splitImageMarkerLines,
+  type ClipboardImagePayload,
+  type ClipboardImageReader,
+} from './clipboard-image.js';
+import type { ImageRefContent } from '../../../contracts/index.js';
 import { StatusViewer, type StatusPanelData } from '../panels/status-viewer.js';
 import { DebugViewer, type DebugPanelData } from '../panels/debug-viewer.js';
 import { GuideViewer, type GuidePanelData } from '../panels/guide-viewer.js';
@@ -244,8 +254,16 @@ export interface TuiBackendOptions {
    * 装配向接线柄（07 §4.3 两柄）：提交（非命令形文本——驱动 conversation）。
    * 第三参候跑标记（挂账解挂批 2026-09-15——alt+enter 提交形）：随
    * SubmitOptions.queueFollowUp 同义透传（busy 期排队候 run 终态种子新 run）。
+   * 第四参剪贴板图（TUI 剪贴板图片直贴批——ctrl+v 直贴/路径变体面两路共出）：
+   * 受理链铸形的 image-ref 引用块族（image-only 合法——空文本不铸空块）；
+   * 缺席/空数组 = 纯文本旧形零漂移。
    */
-  readonly onSubmit?: (sessionId: string, text: string, opts?: EditorSubmitOptions) => void;
+  readonly onSubmit?: (
+    sessionId: string,
+    text: string,
+    opts?: EditorSubmitOptions,
+    images?: readonly ImageRefContent[],
+  ) => void;
   /** 装配向接线柄：打断当前 run（ctrl+c——run 打断经装配侧折入 ask 链收口） */
   readonly onInterrupt?: (sessionId: string) => void;
   /**
@@ -406,6 +424,24 @@ export interface TuiBackendOptions {
    * 与确认形分派在封装内）。
    */
   readonly nativeClipboardSpawn?: NativeClipboardSpawn;
+  /**
+   * 剪贴板图片读器 seam（TUI 剪贴板图片直贴批——ctrl+v 直贴读链）：
+   * () → base64 载荷或 null（null = 无图/无命令/读失败/超时四静默形合流——
+   * 调用方零弹错零入稿）。**缺席 = ctrl+v 键不劫持零行为变**（测试基线零真
+   * 子进程纪律；生产装配显式传 createClipboardImageReader() 真身——平台矩阵
+   * 计划 + spawn 2s 超时帽 + 临时 PNG 用后即删，nativeClipboardSpawn 同形）。
+   */
+  readonly clipboardImageReader?: ClipboardImageReader;
+  /**
+   * 图片受理缝（TUI 剪贴板图片直贴批——ctrl+v 直贴与路径变体面共消费）：
+   * 载荷清单 → image-ref 引用块族。真身 = host 装配闭包 admitPasteImages
+   * （受理链单源：能力门→数量帽→base64→字节帽→魔数→MIME→尺寸→内容寻址
+   * 落盘——webui-bridge submitPrompt 同构）；**拒形上抛**（AttachmentIntake
+   * RejectionError 用户面中文文案）由 backend 分诊：ctrl+v 路就地 notify 呈报
+   * （显式图片意图）、路径变体面静默回退原文本粘贴。channels 不 import host
+   * （28 席 DAG）——载荷/引用块均结构类型桥接。**缺席 = 两路整体关**。
+   */
+  readonly imageIntake?: (images: readonly ClipboardImagePayload[]) => readonly ImageRefContent[];
   /**
    * 持久化史透传（B1——07 §4.1 呈现面件 2 定形注⑦种写双路）：seed = 启动
    * 种子（host 装配根构造期一次 recentTexts〔启动锚根〕满灌——编辑器内存
@@ -954,7 +990,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly autocompleteCompleter: AutocompleteCompleter;
   private readonly stack = new OverlayStack();
   /** 装配柄（07 §4.3 两柄 + 命令柄 + 模型循环柄〔挂账解挂批 2026-09-15〕+ 档位模式循环柄〔2026-10-05 ZCode 对标批〕） */
-  private readonly onSubmit: ((sessionId: string, text: string, opts?: EditorSubmitOptions) => void) | undefined;
+  private readonly onSubmit:
+    | ((sessionId: string, text: string, opts?: EditorSubmitOptions, images?: readonly ImageRefContent[]) => void)
+    | undefined;
   private readonly onInterrupt: ((sessionId: string) => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
   private readonly onModelCycle: (() => void) | undefined;
@@ -1415,6 +1453,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly gitQuery: GitQuery | undefined;
   /** 原生剪贴板执行器注入（挖掘 40 轮件 A——第⓪层腿；undefined = 腿缺席零行为变） */
   private readonly nativeClipboardSpawn: NativeClipboardSpawn | undefined;
+  /** 剪贴板图片读器注入（TUI 剪贴板图片直贴批；undefined = ctrl+v 键不劫持零行为变） */
+  private readonly clipboardImageReader: ClipboardImageReader | undefined;
+  /** 图片受理缝注入（TUI 剪贴板图片直贴批；undefined = ctrl+v/路径变体面两路整体关） */
+  private readonly imageIntake: ((images: readonly ClipboardImagePayload[]) => readonly ImageRefContent[]) | undefined;
+  /**
+   * 暂存图清单（读得图受理铸形后、提交消费前的驻留位）：稿面 `[图片]` 占位行
+   * 是其可见代理——提交期占位行计数 × 本清单长度取小定附图数（占位行删除/撤销
+   * 即解除挂附）；每提交清账不跨提交滞留。
+   */
+  private stagedImages: ImageRefContent[] = [];
+  /** ctrl+v 读链在飞位（防重入——异步读期同键再按零响应） */
+  private pasteImageInFlight = false;
   /** 进程信号 seam（挖掘 41 轮件 III——真挂起 SIGTSTP/SIGCONT；缺省真 process 封装） */
   private readonly processSignals: ProcessSignalsSeam;
 
@@ -1433,6 +1483,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.gitQuery = options.gitQuery;
     // 原生剪贴板腿 seam（40 轮件 A）：同律缺席不造真身——生产装配显式传真身
     this.nativeClipboardSpawn = options.nativeClipboardSpawn;
+    // 剪贴板图片两 seam（TUI 剪贴板图片直贴批）：同律缺席不造真身——生产装配
+    // 显式传真身（createClipboardImageReader / admitPasteImages 闭包）
+    this.clipboardImageReader = options.clipboardImageReader;
+    this.imageIntake = options.imageIntake;
     // 进程信号 seam（41 轮件 III）：缺省真 process 封装（真挂起生产路——
     // 自发 SIGTSTP + SIGCONT 订阅）；测试注入受控桩
     this.processSignals = options.processSignals ?? makeProcessSignals();
@@ -4114,6 +4168,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         void this.openExternalEditor();
         return;
       }
+      // 剪贴板图片直贴（TUI 剪贴板图片直贴批——ctrl+v）：读链+受理缝双在场才
+      // 劫键（缺席透传编辑器——无绑定归终局丢弃，seam 关 = 功能关）；input-ask
+      // 应答窗让位（应答车道同 ctrl+g 判）；回搜态让位（稿位被预览占据——搜索
+      // 态守卫族同款）；在飞位防重入（异步读期同键再按零响应）。异步读不阻塞
+      // 编辑器——回执期入稿（四静默形零弹错零入稿）
+      if (
+        this.inputAsk === null &&
+        !this.externalEditorInFlight &&
+        !this.editor.isSearchingHistory() &&
+        !this.pasteImageInFlight &&
+        this.clipboardImageReader !== undefined &&
+        this.imageIntake !== undefined &&
+        this.keymap.actionMatches(ev, 'editor.paste-image')
+      ) {
+        this.handlePasteImageKey();
+        return;
+      }
       // 后台任务段光标翻页态（界面美化役批6——UX 批6 B 件）：alt+↑/↓ 段内
       // 移动光标（直达判形）；jobs 段在场且有行才劫（空段/注入缺席透传——
       // 既有键语义零扰动）；enter 光标激活期开 /jobs 副屏定位在选任务（未激活
@@ -4180,6 +4251,21 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       !(this.editor.model.getLines()[0] ?? '').startsWith('/')
     ) {
       this.awaitingEcho = true;
+    }
+    // 粘贴路径变体面（39 轮 normalize_pasted_path——TUI 剪贴板图片直贴批）：
+    // bracketed paste 文本恰为图片绝对路径/file:// URL 且文件在场（四族扩展名
+    // + 5MiB 帽预检 + 受理链铸形）→ 转附件占位（与 ctrl+v 路同受理链同入稿形
+    // 单源）；一切拒形（非路径/非四族/文件缺席/超帽/受理拒）静默回退原文本
+    // 粘贴——旧粘贴行为零漂移。ask 应答窗让位（应答可能是路径文本本体——劫走
+    // 即污染应答稿）；回搜态让位（query 输入面——搜索态守卫族）
+    if (
+      ev.kind === 'paste' &&
+      this.inputAsk === null &&
+      !this.editor.isSearchingHistory() &&
+      this.imageIntake !== undefined &&
+      this.tryPasteImagePath(ev.text)
+    ) {
+      return;
     }
     // 开搜转移检测（挖掘 31 轮 [3]）：层④调用前后搜态对照——开搜瞬间撤补全
     // 防抖窗与弹层（弹层锚在草稿前缀，搜索态稿件被预览占据锚即失效）
@@ -4296,28 +4382,36 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.touchFixed();
       return;
     }
+    // —— 暂存图消费（TUI 剪贴板图片直贴批）：占位行计数 × 暂存数取小定附图数
+    // + 占位行剥除（暂存空不剥——手敲 `[图片]` 文本零误伤）。本位在 ask 收窗
+    // 后、退出词/本地命令/`!` 直达前——剥除形单文本流贯通下游全分支（占位随
+    // 草稿属提交语义，命令形吞稿路径图一并弃——「[图片]+/cmd」极端混合稿的可
+    // 接受形）。暂存每提交清账（未附图一并弃——不跨提交滞留：防陈图错挂后续
+    // 提交）
+    const staged = this.consumeStagedImages(text);
+    const submitText = staged.text;
     // 退出词先于通道命令分发（前端生命周期词不进通道核命令表——07 §4.1
     // 2026-09-15 /exit 批定形注：本地终局消费，永不兜底进模型消息）
-    if (this.maybeHandleExitWord(text)) {
+    if (this.maybeHandleExitWord(submitText)) {
       return;
     }
     // TUI 本地命令族拦截（07 §4.1 命令面增补批——副屏/瞬时交互族同律：
     // 通道命令分发前本地终局消费，webui 面零污染）
-    if (this.maybeHandleLocalCommand(text)) {
+    if (this.maybeHandleLocalCommand(submitText)) {
       return;
     }
     // shell 直达拦截（47 轮件 B——`!` 起头本地终局消费族：/exit 同律不穿透
     // 不兜底进模型消息；分支序 = '!' 判先、停机闸后——与 onSubmit 闸同构，
     // 闸在判据后只兜最终落点不前置吞后续 '/' 路由）
-    if (this.maybeHandleBangCommand(text)) {
+    if (this.maybeHandleBangCommand(submitText)) {
       return;
     }
-    if (text.startsWith('/') && this.dispatchCommand !== undefined) {
-      this.dispatchCommand(text)
+    if (submitText.startsWith('/') && this.dispatchCommand !== undefined) {
+      this.dispatchCommand(submitText)
         .then((handled) => {
           // lifecycle 闸（迟到续链防——头注窄窗形）：续链后到时已停机则不触
           // 达 onSubmit（false 兜底与闸合判——两条件皆真才落）
-          if (!handled && this.running) this.onSubmit?.(this.sessionId, text, opts); // 未命中兜底（03 §2.2 驱动侧语义）
+          if (!handled && this.running) this.onSubmit?.(this.sessionId, submitText, opts, staged.images); // 未命中兜底（03 §2.2 驱动侧语义）
         })
         .catch((err: unknown) => {
           // 命令处理器异常不静默不崩进程——呈现面兜底（命令面纪律归命令面）；
@@ -4328,7 +4422,125 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       return;
     }
     // lifecycle 闸（同上——同步停机形防：onQuit 直停装配下第二命直落位同闸）
-    if (this.running) this.onSubmit?.(this.sessionId, text, opts);
+    if (this.running) this.onSubmit?.(this.sessionId, submitText, opts, staged.images);
+  }
+
+  /* ---------------- 剪贴板图片直贴（ctrl+v 读链 + 路径变体面 + 提交消费） ---------------- */
+
+  /**
+   * ctrl+v 键路（TUI 剪贴板图片直贴批）：异步读剪贴板不阻塞编辑器 → 有图受理
+   * 入稿占位。四静默形（无图/无命令/读失败/超时）零弹错零入稿——缝契约 null
+   * 合流 + 异常面兜底同静默。在飞位由路由层门控 + finally 复位双保险。
+   */
+  private handlePasteImageKey(): void {
+    const reader = this.clipboardImageReader;
+    if (reader === undefined || this.pasteImageInFlight) return; // 路由层双 seam 门后的防御位
+    this.pasteImageInFlight = true;
+    void Promise.resolve(reader())
+      .then((payload) => {
+        if (payload === null) return; // 四静默形——零弹错零入稿
+        if (this.inputAsk !== null || this.editor.isSearchingHistory() || this.externalEditorInFlight) {
+          return;
+        }
+        // 回执期状态复查（冷读闸 P3①——ask 竞窗）：读链在飞最长 2s，期间
+        // input-ask 开窗（应答车 setText('') 清稿复用主编辑器）后回执落地
+        // 会把占位插进应答稿、且 ask 分支先返不消费暂存——应答原文带字面
+        // 占位上行 + 真图静默孤儿化。复查路由层同判（ask 窗/回搜态/外编
+        // 在飞任一在场 = 意图已让位）——静默弃，与四静默形同姿态。
+        this.stageClipboardImage(payload);
+      })
+      .catch(() => undefined) // 读器异常面同静默（缝契约四静默形的兜底位）
+      .finally(() => {
+        this.pasteImageInFlight = false;
+      });
+  }
+
+  /**
+   * 受理入稿（ctrl+v 路）：受理缝铸引用块 → 暂存清单 + 稿面插占位行。
+   * 拒形就地 notify 呈报——ctrl+v 是显式图片意图，静默丢图反成暗亏（路径变体
+   * 面保守静默分立——两路姿态分职）；foldErrorText 折面（AttachmentIntake
+   * RejectionError 用户面中文文案单源）。
+   */
+  private stageClipboardImage(payload: ClipboardImagePayload): void {
+    const intake = this.imageIntake;
+    if (intake === undefined) return;
+    // 每消息累积帽（冷读闸 P3②）：超帽在受理前拒——先受理后弃会孤儿化已
+    // 落盘附件。ctrl+v 显式图片意图 → notify 呈报（与受理拒同姿态分职）。
+    if (this.stagedImages.length >= PASTE_IMAGE_MAX_STAGED) {
+      this.notify(`图片未附加：一条消息最多带 ${PASTE_IMAGE_MAX_STAGED} 张图片`, { level: 'error' });
+      return;
+    }
+    let refs: readonly ImageRefContent[];
+    try {
+      refs = intake([payload]);
+    } catch (err: unknown) {
+      this.notify(`图片未附加：${foldErrorText(err)}`, { level: 'error' });
+      return;
+    }
+    if (refs.length === 0) return; // 空回执防御位（受理缝契约：非空即铸或抛）
+    this.stagedImages.push(...refs);
+    this.insertImagePlaceholder();
+  }
+
+  /**
+   * 稿面插 `[图片]` 独占占位行：insertPaste 标记支路同款省侧劈行形（行首免
+   * 前导/行尾免尾随换行——不留空行残骸），经 paste 事件单源路入模——undo
+   * 单步可撤 + onChange 记账 + 标记行守卫族全量复用（不用 setText：其清粘贴
+   * 标记登记不可追加形）。
+   */
+  private insertImagePlaceholder(): void {
+    const cursor = this.editor.model.getCursor();
+    const line = this.editor.model.getLines()[cursor.line] ?? '';
+    const atStart = cursor.col === 0;
+    const atEnd = cursor.col >= line.length;
+    this.editor.handleEvent({
+      kind: 'paste',
+      text: `${atStart ? '' : '\n'}${COMPOSER_IMAGE_PLACEHOLDER}${atEnd ? '' : '\n'}`,
+    });
+    this.touchFixed();
+  }
+
+  /**
+   * 路径变体面（39 轮 normalize_pasted_path）：粘贴文本恰为在场图片路径 →
+   * 受理入稿返 true（消费不透传）；一切拒形返 false（静默回退原文本粘贴——
+   * 旧行为零漂移）。受理拒也回退（变体面无显式图片意图——保守姿态与 ctrl+v
+   * 路分职）。
+   */
+  private tryPasteImagePath(text: string): boolean {
+    const intake = this.imageIntake;
+    if (intake === undefined) return false;
+    const path = pastedImagePath(text);
+    if (path === null) return false;
+    const payload = readImageFilePayload(path);
+    if (payload === null) return false;
+    // 每消息累积帽（冷读闸 P3②）：变体面保守姿态——超帽静默回退原文本粘贴
+    if (this.stagedImages.length >= PASTE_IMAGE_MAX_STAGED) return false;
+    let refs: readonly ImageRefContent[];
+    try {
+      refs = intake([payload]);
+    } catch {
+      return false; // 受理拒静默回退原文本粘贴
+    }
+    if (refs.length === 0) return false;
+    this.stagedImages.push(...refs);
+    this.insertImagePlaceholder();
+    return true;
+  }
+
+  /**
+   * 提交期暂存图消费：占位行计数 × 暂存数取小定附图数（占位行删除/撤销即解除
+   * 挂附——删占位是唯一的撤附交互面）+ 占位行剥除 + 清账。暂存空不剥（手敲
+   * `[图片]` 文本零误伤——剥除只在真有暂存图的提交发生）；占位多于暂存时剥
+   * 全部占位（手敲+直贴混合稿归直贴数——保守防幽灵占位）。
+   */
+  private consumeStagedImages(text: string): { text: string; images: readonly ImageRefContent[] } {
+    const staged = this.stagedImages;
+    if (staged.length === 0) return { text, images: [] };
+    this.stagedImages = []; // 每提交清账（未附图一并弃——不跨提交滞留）
+    const split = splitImageMarkerLines(text);
+    const attachCount = Math.min(split.markerCount, staged.length);
+    if (attachCount === 0) return { text, images: [] };
+    return { text: split.text, images: staged.slice(0, attachCount) };
   }
 
   /**

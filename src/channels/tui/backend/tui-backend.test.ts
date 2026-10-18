@@ -37,6 +37,7 @@ import type { AgentEvent } from '../../../agent/index.js';
 import type {
   AgentMessage,
   AssistantMessage,
+  ImageRefContent,
   JobEntry,
   UiCallLedgerEntry,
   UiRewindPreview,
@@ -44,6 +45,7 @@ import type {
   UiUsageSummary,
 } from '../../../contracts/index.js';
 import { BaseError } from '../../../contracts/index.js';
+import type { ClipboardImagePayload } from './clipboard-image.js';
 
 const COLS = 80;
 const ROWS = 10;
@@ -8246,5 +8248,303 @@ describe('TuiBackend 交互屏开屏 typeahead 竞窗（pending lone-ESC 隔离�
     io.emitInput('?\x03'); // 同一 stdin chunk：'?'（text 事件——开屏触发）+ ctrl+c（key 事件——尾随）
     expect(io.bytes).toContain('\x1b[?1049h'); // 副屏已进（触发事件已路由完开屏编舞）
     expect(calls.interrupted).toEqual(['s1']); // 尾随事件经 flushDecoderEvents 既有批次路由走旧屏层①——不进副屏
+  });
+});
+
+/* ================= TUI 剪贴板图片直贴（35 池件 2 + 39 轮 normalize_pasted_path 变体面） ================= */
+
+describe('TuiBackend 剪贴板图片直贴（ctrl+v 读链 + 路径变体面 + 提交消费律）', () => {
+  /** 微任务排空（读器 promise 链 then/finally 全微任务——setImmediate 宏任务界冲净链） */
+  const flushMicrotasks = async (): Promise<void> => {
+    for (let i = 0; i < 8; i += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+  };
+
+  /** 最小 PNG 魔数字节（受理缝是假桩不做魔数执法——载荷只认往返） */
+  const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]);
+
+  /** image-ref 引用块桩（sha256 内容寻址键形——契约面字面量） */
+  const refBlock = (n: number): ImageRefContent => ({
+    type: 'image-ref',
+    ref: `sha256:${String(n).repeat(64)}`,
+    mimeType: 'image/png',
+    bytes: PNG_BYTES.length,
+  });
+
+  /** 提交捕获形（第四参 images 断言位） */
+  interface PasteSubmission {
+    text: string;
+    images: readonly ImageRefContent[] | undefined;
+  }
+
+  it('ctrl+v 有图：占位行入稿 + 提交链携 images（image-only 合法——空文本剥占位）', async () => {
+    const submissions: PasteSubmission[] = [];
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock(1)],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16'); // ctrl+v（C0 0x16 → key {v, ctrl}）
+    await flushMicrotasks(); // 读器 promise 链回执
+    pump();
+    expect(io.bytes).toContain('[图片]'); // 占位行已入稿（空稿独占——无前后换行残骸）
+    io.emitInput('\r');
+    pump();
+    expect(submissions).toEqual([{ text: '', images: [refBlock(1)] }]); // 占位剥除 + 暂存附图随提交
+  });
+
+  it('ctrl+v 无图（null）与读失败（reject）两静默：零占位零弹错，普通提交零漂移', async () => {
+    const submissions: PasteSubmission[] = [];
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => null,
+      imageIntake: () => [refBlock(1)],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16');
+    await flushMicrotasks();
+    pump();
+    expect(io.bytes).not.toContain('[图片]'); // 无图静默——零入稿
+    io.emitInput('普通文本\r');
+    pump();
+    expect(submissions).toEqual([{ text: '普通文本', images: [] }]); // 纯文本提交零漂移（暂存空图位空数组）
+  });
+
+  it('读失败（执行器异常面）同静默：键无效不炸会话', async () => {
+    const submissions: PasteSubmission[] = [];
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => {
+        throw new Error('clipboard boom');
+      },
+      imageIntake: () => [refBlock(1)],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16');
+    await flushMicrotasks();
+    pump();
+    expect(io.bytes).not.toContain('[图片]');
+    io.emitInput('ok\r');
+    pump();
+    expect(submissions).toEqual([{ text: 'ok', images: [] }]);
+  });
+
+  it('双贴两图 + 手敲文本混合稿：占位全剥、文本保留、两图按序随提交', async () => {
+    const submissions: PasteSubmission[] = [];
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock(7)],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('看这张'); // 文本先行（贴图在光标后劈行独占——文本行不被并入）
+    io.emitInput('\x16');
+    await flushMicrotasks();
+    io.emitInput('\x16');
+    await flushMicrotasks();
+    pump();
+    expect(io.bytes).toContain('看这张');
+    io.emitInput('\r');
+    pump();
+    expect(submissions).toEqual([{ text: '看这张', images: [refBlock(7), refBlock(7)] }]);
+  });
+
+  it('占位删除即解除挂附（清账律）：贴图后清稿改投纯文本 → 图不随行（暂存不跨提交滞留）', async () => {
+    const submissions: PasteSubmission[] = [];
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock(2)],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16');
+    await flushMicrotasks();
+    io.emitInput('\x15'); // ctrl+u 删至行首——单行稿即清空（占位行删 = 解除挂附交互面）
+    io.emitInput('纯文本\r');
+    pump();
+    expect(submissions).toEqual([{ text: '纯文本', images: [] }]); // 无占位 → 零附图 + 暂存清账
+  });
+
+  it('手敲占位词面零误伤（暂存空不剥）：无图提交 `[图片]` 原文直通', async () => {
+    const submissions: PasteSubmission[] = [];
+    const { io, pump } = makeInteractive({
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('[图片]\r');
+    pump();
+    expect(submissions).toEqual([{ text: '[图片]', images: [] }]); // 手敲文本非占位代理——原文不剥
+  });
+
+  it('seam 缺席 = 功能关：ctrl+v 不劫不炸，编辑器打字/提交零扰动', async () => {
+    const { io, calls, pump } = makeInteractive();
+    io.emitInput('\x16');
+    await flushMicrotasks();
+    io.emitInput('hi\r');
+    pump();
+    expect(io.bytes).not.toContain('[图片]');
+    expect(calls.submitted).toEqual([['s1', 'hi']]);
+  });
+
+  it('受理拒（ctrl+v 路 = 显式图片意图）：error 瞬时行呈报 + 稿面零占位', async () => {
+    const submissions: PasteSubmission[] = [];
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => {
+        throw new Error('当前模型不支持图片输入');
+      },
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16');
+    await flushMicrotasks();
+    pump();
+    expect(io.bytes).toContain('图片未附加'); // foldErrorText 折面回执（前缀断言——词面整句不断言）
+    expect(io.bytes).not.toContain('[图片]'); // 受理拒零入稿
+    io.emitInput('文字\r');
+    pump();
+    expect(submissions).toEqual([{ text: '文字', images: [] }]);
+  });
+
+  it('路径变体面（normalize_pasted_path）：bracketed paste 恰为在场图片绝对路径 → 转附件占位（路径文本不入稿）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clip-path-'));
+    try {
+      const file = join(dir, 'shot.png');
+      writeFileSync(file, PNG_BYTES);
+      const intakeCalls: ClipboardImagePayload[] = [];
+      const submissions: PasteSubmission[] = [];
+      const { io, pump } = makeInteractive({
+        imageIntake: (images) => {
+          intakeCalls.push(...images);
+          return [refBlock(3)];
+        },
+        onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+      });
+      io.emitInput(`\x1b[200~${file}\x1b[201~`);
+      pump();
+      expect(io.bytes).toContain('[图片]'); // 已转占位
+      expect(io.bytes).not.toContain(file); // 路径文本不入稿
+      io.emitInput('\r');
+      pump();
+      expect(intakeCalls).toEqual([{ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }]); // 受理缝收到文件载荷
+      expect(submissions).toEqual([{ text: '', images: [refBlock(3)] }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('路径变体面：file:// URL 形同转（fileURLToPath 归一）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clip-path-'));
+    try {
+      const file = join(dir, 'shot.jpeg');
+      writeFileSync(file, PNG_BYTES);
+      const submissions: PasteSubmission[] = [];
+      const { io, pump } = makeInteractive({
+        imageIntake: () => [refBlock(4)],
+        onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+      });
+      io.emitInput(`\x1b[200~file://${file}\x1b[201~`);
+      pump();
+      expect(io.bytes).toContain('[图片]');
+      io.emitInput('\r');
+      pump();
+      expect(submissions).toEqual([{ text: '', images: [refBlock(4)] }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('路径变体面拒形静默回退：缺席路径不转（原文本粘贴旧行为零漂移）', async () => {
+    const submissions: PasteSubmission[] = [];
+    const { io, pump } = makeInteractive({
+      imageIntake: () => [refBlock(5)],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    const absent = join(tmpdir(), 'clip-absent-图', 'nope.png');
+    io.emitInput(`\x1b[200~${absent}\x1b[201~`);
+    pump();
+    expect(io.bytes).not.toContain('[图片]');
+    expect(io.bytes).toContain(absent); // 原文本入稿（旧行为）
+    io.emitInput('\r');
+    pump();
+    expect(submissions).toEqual([{ text: absent, images: [] }]);
+  });
+
+  it('ask 应答窗让位（两路同判）：应答期 ctrl+v 与图片路径粘贴都归应答车道——占位零劫持', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clip-ask-'));
+    try {
+      const file = join(dir, 'ask.png');
+      writeFileSync(file, PNG_BYTES);
+      const { io, backend, pump } = makeInteractive({
+        clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+        imageIntake: () => [refBlock(6)],
+      });
+      const asked = backend.input('哪个文件？');
+      pump();
+      io.emitInput('\x16'); // ctrl+v 应答期让位
+      await flushMicrotasks();
+      io.emitInput(`\x1b[200~${file}\x1b[201~`); // 路径粘贴应答期让位——路径文本本体就是应答
+      pump();
+      io.emitInput('\r');
+      pump();
+      await expect(asked).resolves.toBe(file); // 应答 = 路径原文（未被劫转附件）
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('读链回执期 ask 竞窗（冷读闸 P3①——修前红）：挂起读期开应答窗 → 回执静默弃（应答稿零占位、暂存零污染后续稿）', async () => {
+    const submissions: PasteSubmission[] = [];
+    let resolveRead: ((payload: ClipboardImagePayload | null) => void) | undefined;
+    const { io, backend, pump } = makeInteractive({
+      // 手持回执（生产 2s 读窗内开 ask 的现实场景——run 期贴图应答「哪个文件？」）
+      clipboardImageReader: () =>
+        new Promise<ClipboardImagePayload | null>((resolve) => {
+          resolveRead = resolve;
+        }),
+      imageIntake: () => [refBlock(9)],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16'); // 触发挂起读（回执由测试手持——竞窗在飞位）
+    const asked = backend.input('哪个文件？'); // 读在飞期开 ask 窗
+    pump();
+    resolveRead!({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' });
+    await flushMicrotasks();
+    pump();
+    expect(io.bytes).not.toContain('[图片]'); // 回执竞窗静默弃——应答稿零占位污染
+    io.emitInput('文字应答\r');
+    pump();
+    await expect(asked).resolves.toBe('文字应答'); // 应答原文干净（无字面占位）
+    io.emitInput('后续稿\r'); // 暂存未入（弃在入栈前）——后续提交零陈图
+    pump();
+    expect(submissions).toEqual([{ text: '后续稿', images: [] }]);
+  });
+
+  it('每消息累积 4 图帽（冷读闸 P3②——修前红）：第 5 张 ctrl+v notify 拒 + 变体面超帽静默回退原文本（恰 4 图随行）', async () => {
+    const submissions: PasteSubmission[] = [];
+    const dir = mkdtempSync(join(tmpdir(), 'clip-cap-'));
+    try {
+      const file = join(dir, 'over.png');
+      writeFileSync(file, PNG_BYTES);
+      const { io, pump } = makeInteractive({
+        clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+        imageIntake: () => [refBlock(1)],
+        onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+      });
+      for (let i = 0; i < 4; i += 1) {
+        io.emitInput('\x16');
+        await flushMicrotasks();
+      }
+      pump();
+      io.emitInput('\x16'); // 第 5 张——累积超帽（受理链单次调用帽拦不住的形）
+      await flushMicrotasks();
+      pump();
+      expect(io.bytes).toContain('图片未附加'); // 显式意图拒形呈报（受理拒同姿态——前缀断言律）
+      // 变体面超帽——静默回退原文本粘贴。粘贴体带前导换行：回退插入位在光标
+      // （恰在第 4 条占位行尾），前导换行使路径独占新行——不与占位熔接成非独占
+      // 行（熔接形不计占位、按取小律挂 3 图，另行合理非本测意图）。长路径接排
+      // 在占位行后被视口折行，回退真值由提交侧断言。
+      io.emitInput(`\x1b[200~\n${file}\x1b[201~`);
+      pump();
+      io.emitInput('\r');
+      pump();
+      // 四占位剥除 + 路径文本保留 + 恰 4 图随行（帽语义 = webui「每消息恒 ≤4」对齐）
+      expect(submissions).toEqual([{ text: file, images: [refBlock(1), refBlock(1), refBlock(1), refBlock(1)] }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

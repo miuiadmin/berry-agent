@@ -170,9 +170,9 @@ describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字�
 });
 
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
-  it('册数 40：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影三席（B4 同批；挖掘 36 轮批 [2] c 扩集）+ 外部编辑器（挖掘 31 轮 [9]）+ 历史回搜两席（挖掘 31 轮 [3]）+ 回看器回溯席（挖掘 36 轮末件 [5]——history 域首枚）+ 真挂起（挖掘 41 轮件 III global.suspend）+ 弹回排队末条（挖掘 47 轮件 A）', () => {
-    // 修前红锚：册数 39（editor.queue-edit-last 增册前）
-    expect(ACTION_CATALOG).toHaveLength(40);
+  it('册数 41：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影三席（B4 同批；挖掘 36 轮批 [2] c 扩集）+ 外部编辑器（挖掘 31 轮 [9]）+ 历史回搜两席（挖掘 31 轮 [3]）+ 回看器回溯席（挖掘 36 轮末件 [5]——history 域首枚）+ 真挂起（挖掘 41 轮件 III global.suspend）+ 弹回排队末条（挖掘 47 轮件 A）+ 剪贴板图片直贴（TUI 剪贴板图片直贴批）', () => {
+    // 修前红锚：册数 40（editor.paste-image 增册前）
+    expect(ACTION_CATALOG).toHaveLength(41);
     // 弹回席（47 轮件 A）：editor 域可覆盖 + alt+up 单键
     const editLast = ACTION_CATALOG.find((d) => d.id === 'editor.queue-edit-last');
     expect(editLast).toMatchObject({ scope: 'editor', keys: ['alt+up'], overridable: true });
@@ -204,6 +204,10 @@ describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模�
     // 真源 = history-viewer text 路单字符镜像（'?' help 投影位同构）
     const forkEdit = ACTION_CATALOG.find((d) => d.id === 'history.fork-edit');
     expect(forkEdit).toMatchObject({ scope: 'history', keys: ['e'], overridable: true });
+    // 剪贴板图片直贴席（TUI 剪贴板图片直贴批——ctrl+v；可覆盖位，文本粘贴走
+    // bracketed paste 通道零争键）
+    const pasteImage = ACTION_CATALOG.find((d) => d.id === 'editor.paste-image');
+    expect(pasteImage).toMatchObject({ scope: 'editor', keys: ['ctrl+v'], overridable: true });
   });
 
   it('alt+enter 命中候跑动作（与 editor.submit 键序分立——enter 不误触）', () => {
@@ -220,6 +224,12 @@ describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模�
     const remapped = new Keymap({ 'global.model-cycle': 'ctrl+n' });
     expect(remapped.rejections).toEqual([]);
     expect(remapped.actionMatches(key('n', { ctrl: true }), 'global.model-cycle')).toBe(true);
+  });
+
+  it('ctrl+v 命中剪贴板图片直贴（裸 v 不误触——编辑器打字零扰动；文本粘贴走 bracketed paste 通道不争键）', () => {
+    const map = new Keymap();
+    expect(map.actionMatches(key('v', { ctrl: true }), 'editor.paste-image')).toBe(true);
+    expect(map.actionMatches(key('v'), 'editor.paste-image')).toBe(false); // 裸 v 是打字
   });
 
   it('他动作挪上 alt+enter 撞候跑缺省 → conflict 拒载（候跑缺省位不裸让）', () => {

@@ -51,12 +51,15 @@ import {
 import type { AskSettledNotice, AutocompleteItem, TerminalIO } from '../channels/index.js';
 import {
   ASK_SETTLED_EVENT,
+  createClipboardImageReader,
   createDefaultGitQuery,
   createDefaultNativeClipboardSpawn,
   gitHeadCompactLabel,
   homeRelativePath,
   readGitHead,
 } from '../channels/index.js';
+import { admitPasteImages } from './attachment-intake.js';
+import type { TextContent, UserMessage } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import {
   APPROVAL_SETTLED_EVENT,
@@ -1593,7 +1596,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     };
     const backend = new TuiBackend(io, {
       sessionId: session.sessionId,
-      onSubmit: (sessionId, text, opts) => {
+      onSubmit: (sessionId, text, opts, images) => {
         // 焦点纯投影面补开（R7 批 10k 陈化翻档 2026-10-04）：focus 只投影
         // 不开驱动（/sessions 选定现走 resumeSession 恒开——切焦即续接；
         // 插件/嵌装 registerSession+focus 投影路不开），投影面选定旧会话
@@ -1612,11 +1615,19 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         // 单行回执撤除；「busy 判据先于 submitText 读」知识点随回执一并退
         // 役（面板数据真源 = 驱动在队快照逐帧观察，非提交期采样）。
         // 候跑标记透传（SubmitOptions.queueFollowUp——04 §4）：普通形不带 opts
-        // 保持旧调用形（undefined 与 {} 对驱动同义，零扰动）
+        // 保持旧调用形（undefined 与 {} 对驱动同义，零扰动）。
+        // 剪贴板图提交组装（TUI 剪贴板图片直贴批——webui-bridge submitPrompt
+        // 同构）：无图 = 原样 string 旧形零漂移；有图 = 文本块先行（空文本不铸
+        // 空块——image-only 合法形 03 §10.4 ②）+ 引用块随后（受理链在入稿位
+        // 已铸形——此处只组装，二次受理不存在）
+        const content: UserMessage['content'] =
+          images !== undefined && images.length > 0
+            ? [...(text.length > 0 ? [{ type: 'text', text } as TextContent] : []), ...images]
+            : text;
         const run =
           opts?.queueFollowUp === true
-            ? stack.submitText(sessionId, text, { queueFollowUp: true })
-            : stack.submitText(sessionId, text); // fire-and-forget——回执经信封回流
+            ? stack.submitText(sessionId, content, { queueFollowUp: true })
+            : stack.submitText(sessionId, content); // fire-and-forget——回执经信封回流
         // 全域清扫 G1-#1 提交 run 结算锚：settled promise 在桥接落账
         // （noteRunSettled → bridgeUsageLedger 推进会话累计缓存）之后 resolve——
         // promise 回调序结构性保证本刷新读到含本 run 的累计值（agent_end 信封
@@ -1882,6 +1893,26 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // xclip/clip.exe 首选；生产显式开——backend seam 缺省缺席保测试基线
       // 零真进程，失败落穿 OSC 52 三层终端介导原序）
       nativeClipboardSpawn: createDefaultNativeClipboardSpawn(),
+      // 剪贴板图片读器真身（TUI 剪贴板图片直贴批——ctrl+v 读链）：平台矩阵计划
+      // （SSH 跳过 / darwin osascript 临时 PNG / linux wl-paste→xclip 回落）+
+      // spawn 2s 超时帽 + 临时文件用后即删；生产显式开——backend seam 缺省缺席
+      // 保测试基线零真子进程（nativeClipboardSpawn 同形）
+      clipboardImageReader: createClipboardImageReader(),
+      // 图片受理缝真身（TUI 剪贴板图片直贴批——ctrl+v 与路径变体面共消费）：
+      // admitPasteImages 受理链单源闭包（webui-bridge submitPrompt 同构——能力
+      // 门→数量帽→base64→字节帽→魔数→MIME→尺寸→内容寻址落盘铸 image-ref
+      // 引用块）；拒形上抛由 backend 分诊（ctrl+v 路 notify / 变体面静默回退）。
+      // sessionId 现取焦点位（受理时点会话——onModelCycle 取数同律）
+      imageIntake: (images) =>
+        admitPasteImages({
+          sessionId: stack.channels.focusedId ?? session.sessionId,
+          images,
+          store: stack.attachments,
+          capability: {
+            modelOf: (sid) => stack.sessionModelOf(sid),
+            modelInfoOf: (modelId) => stack.llm.getModel(modelId),
+          },
+        }),
       // `?` 闲态教学键柄（V-3 注⑦④——text 路分诊）：与 /help 命令同一开屏
       // 本体（上 openHelpPanel 闭包）；backend 空稿闲态门控后回调（层③.7）
       onHelpShortcut: () => openHelpPanel(),
