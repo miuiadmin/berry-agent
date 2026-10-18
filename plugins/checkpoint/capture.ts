@@ -43,14 +43,18 @@ export function createCapture(store: CheckpointStore, opts: CaptureOptions = {})
   const now = opts.now ?? Date.now;
   const newId = opts.newId ?? randomUUID;
   return async ({ sessionId, boundarySeq, workspaceRoot, trigger, protectId }) => {
-    // 段一：枚举 + 单遍读哈希（IO 失败由 walk/readWorkspaceFile 折 CAPTURE_FAILED）
+    // 段一：枚举 + 单遍读哈希（IO 失败由 walk/readWorkspaceFile 折 CAPTURE_FAILED；
+    // 字节双帽在 walk 枚举面 stat 先行执法——超帽拒快照 fail-closed）
     const walked = await walkWorkspaceFiles(workspaceRoot);
-    const entries: { path: string; hash: string; bytes: number }[] = [];
+    const entries: { path: string; hash: string; bytes: number; mode: number }[] = [];
     for (const file of walked) {
       const content = await readWorkspaceFile(file.absPath);
       const hash = contentHash(content);
       await store.writeBlob(hash, content);
-      entries.push({ path: file.path, hash, bytes: content.byteLength });
+      // bytes 记读时真值（blob 实际内容——与哈希同源）；mode 记枚举时整理形
+      // 权限位（65 轮件D——restore 写回后按位 chmod 还原：0755 不失执行位、
+      // 0600 不放宽；旧 manifest 无 mode 位 = 缺席回落现状形）
+      entries.push({ path: file.path, hash, bytes: content.byteLength, mode: file.mode });
     }
 
     // 段二：manifest 落仓（id = uuid——/rewind 作用目标键）

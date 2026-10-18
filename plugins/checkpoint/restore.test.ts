@@ -4,13 +4,13 @@
  * veto 不回滚文件 / blob 缺席 STORE_CORRUPT / 拍摄前屏障（05 §5.3 D② 治本批
  * ——pre-rewind 保底拍前对发起会话排干 write-behind 在队事件）。
  */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCapture } from './capture.js';
-import { openCheckpointStore, type CheckpointStore } from './store.js';
+import { contentHash, openCheckpointStore, type CheckpointStore } from './store.js';
 import { previewRewind, restoreRewind } from './restore.js';
 import { CHECKPOINT_RETENTION_PER_WORKSPACE } from './types.js';
 import type { RewindForkFace } from './types.js';
@@ -308,6 +308,68 @@ describe('restoreRewind（段二——三步序）', () => {
     await expect(restoreRewind({ store, fork }, m1.id)).rejects.toMatchObject({
       code: 'CHECKPOINT_STORE_CORRUPT',
     });
+  });
+});
+
+describe('mode 保真（65 轮件D——写回保真补 mode 维：0755 不失执行位、0600 不放宽）', () => {
+  it('0755 脚本 rewind 后仍 0755：manifest 记整理形 mode + 写回后按位 chmod 还原（修前红：manifest 无 mode 位 + 写回落缺省位失执行位）', async () => {
+    if (process.platform === 'win32') return; // chmod 位在 win 无义——跳过
+    await put('run.sh', 'v1');
+    await chmod(join(ws, 'run.sh'), 0o755);
+    const m1 = await capture()({ sessionId: 's1', boundarySeq: 0, workspaceRoot: ws, trigger: 'mutation' });
+    // 红锚一：manifest files[] 记录 mode 位（stat.mode & 0o777 整理形）
+    expect(m1.files.find((f) => f.path === 'run.sh')?.mode).toBe(0o755);
+    await put('run.sh', 'v2');
+    await chmod(join(ws, 'run.sh'), 0o644);
+    const { fork } = fakeFork();
+    const receipt = await restoreRewind({ store, fork }, m1.id);
+    expect(await read('run.sh')).toBe('v1');
+    // 红锚二：写回后 mode 还原（修前 writeFile 缺省位 = 0644——执行位丢失）
+    expect(statSync(join(ws, 'run.sh')).mode & 0o777).toBe(0o755);
+    expect(receipt).toMatchObject({ restoredCount: 1 });
+  });
+
+  it('0600 敏感文件 rewind 后不放宽（修前红：写回落缺省 0644 = 权限放宽实害）', async () => {
+    if (process.platform === 'win32') return; // chmod 位在 win 无义——跳过
+    await put('secret.conf', 'v1');
+    await chmod(join(ws, 'secret.conf'), 0o600);
+    const m1 = await capture()({ sessionId: 's1', boundarySeq: 0, workspaceRoot: ws, trigger: 'mutation' });
+    await put('secret.conf', 'v2-mutated');
+    await chmod(join(ws, 'secret.conf'), 0o644);
+    const { fork } = fakeFork();
+    await restoreRewind({ store, fork }, m1.id);
+    expect(await read('secret.conf')).toBe('v1');
+    expect(statSync(join(ws, 'secret.conf')).mode & 0o777).toBe(0o600);
+  });
+
+  it('旧 manifest 无 mode 位 = 缺席回落现状形不误伤（恢复照常、不施加 chmod——回落锁）', async () => {
+    if (process.platform === 'win32') return; // chmod 位在 win 无义——跳过
+    // 手铸 65 轮件D 之前的旧形态 manifest（files[] 无 mode 位）——不误伤承诺：
+    // 恢复照常完成；mode 缺席 = 不 chmod（落 tmp 写位缺省形 0666 & ~umask，
+    // 非保留快照前原位——原位信息在旧 manifest 中不存在，回落 = 现状形）
+    const content = Buffer.from('legacy-v1', 'utf8');
+    const hash = contentHash(content);
+    await store.writeBlob(hash, content);
+    await store.saveManifest({
+      id: 'legacy01',
+      sessionId: 's1',
+      boundarySeq: 0,
+      workspaceRoot: ws,
+      capturedAt: 1_000,
+      trigger: 'mutation',
+      files: [{ path: 'legacy.txt', hash, bytes: content.byteLength }],
+    });
+    // 载入面：mode 位缺席透传 undefined（回落判据的型面）
+    expect((await store.loadManifest('legacy01')).files[0]?.mode).toBeUndefined();
+    await put('legacy.txt', 'mutated');
+    await chmod(join(ws, 'legacy.txt'), 0o600); // 现状位前置——回落不追溯此位
+    const { fork } = fakeFork();
+    const receipt = await restoreRewind({ store, fork }, 'legacy01');
+    expect(await read('legacy.txt')).toBe('legacy-v1'); // 内容照常恢复
+    // 不施加 chmod：终位 = tmp 写位缺省形（0666 & ~umask）——施加任何按位
+    // chmod（含「保留现状位 0600」变体）都与缺省形分叉即红
+    expect(statSync(join(ws, 'legacy.txt')).mode & 0o777).toBe(0o666 & ~process.umask());
+    expect(receipt).toMatchObject({ restoredCount: 1 });
   });
 });
 

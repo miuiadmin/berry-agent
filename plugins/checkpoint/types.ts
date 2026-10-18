@@ -13,6 +13,26 @@ export const CHECKPOINT_RETENTION_PER_WORKSPACE = 10;
 /** 单次快照 walk 文件帽（防误指巨型目录炸快照——超帽捕获失败 fail-closed） */
 export const CHECKPOINT_WALK_FILE_CAP = 100_000;
 
+/**
+ * 单文件字节帽（65 轮件D——捕获面字节维配额）：50 MiB 量级裁量。计数帽
+ * 不辖字节维——GB 级单文件无界整读入内存即 OOM 连坐炸宿主。50 MiB 的裁量
+ * 理由：常规文本工作区（源码/文档/配置，node_modules 已剪枝）单文件远小于
+ * 此量级；越界者多为数据集/媒体/盘映像形，不属于「工作区状态全恢复」的
+ * 快照承诺域。超帽 fail-closed 拒快照（CHECKPOINT_CAPTURE_FAILED 响亮回执
+ * ——非静默截断）；帽在 walk 枚举面 stat 先行执法（读前拒——读后拒为时
+ * 已晚，OOM 已发生）。
+ */
+export const CHECKPOINT_SINGLE_FILE_BYTE_CAP = 50 * 1024 * 1024;
+
+/**
+ * 单快照总量字节帽（65 轮件D）：512 MiB 量级裁量。与文件帽同量级自洽
+ * （10 万文件 × 均值 ~5 KiB ≈ 500 MiB）；快照域是文本工作区状态全恢复的
+ * 承诺、非备份系统——越界 = 疑似误指巨型目录，同码 fail-closed 拒快照
+ * （响亮回执）。帽辖单次快照的 walk 域字节累计（manifest files 各 bytes
+ * 之和的上界），blob 内容寻址去重令实际落盘量 ≤ 该账。
+ */
+export const CHECKPOINT_SNAPSHOT_TOTAL_BYTE_CAP = 512 * 1024 * 1024;
+
 /** manifest 触发形（mutation = 变异前拍；pre-rewind = rewind 段二保底拍） */
 export type CheckpointTrigger = 'mutation' | 'pre-rewind';
 
@@ -21,6 +41,13 @@ export interface CheckpointFileEntry {
   readonly path: string;
   readonly hash: string;
   readonly bytes: number;
+  /**
+   * 权限位整理形（stat.mode & 0o777——65 轮件D 写回保真补 mode 维）：可选
+   * 位——65 轮件D 之前落册的旧 manifest 缺席 = 回落现状形（restore 不施加
+   * chmod，不误伤）；在场时 restore 写回后按位 chmod 还原（0755 脚本不失
+   * 执行位、0600 敏感文件不放宽）。
+   */
+  readonly mode?: number;
 }
 
 /** 快照 manifest（快照仓的目录面——files 即恢复清单） */

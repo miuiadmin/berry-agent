@@ -130,6 +130,80 @@ describe('walkWorkspaceFiles 遍历语义', () => {
   });
 });
 
+describe('gitignore 转义形（65 轮件D——\\! 字面叹号名不反转）', () => {
+  it('\\!name.env = 字面叹号名文件应被忽略——不得剥转义成否定锚（修前红：剥壳后裸 ! 重投被解析为否定，叹号名文件反被入册）', async () => {
+    await writeFile(join(dir, '.gitignore'), '\\!name.env\n', 'utf8');
+    await put('!name.env', 'bang');
+    await put('name.env', 'plain');
+    const files = await walkWorkspaceFiles(dir);
+    // git 语义：\!name.env 忽略字面名 !name.env；name.env 不受影响
+    expect(files.map((f) => f.path).sort()).toEqual(['.gitignore', 'name.env']);
+  });
+
+  it('\\! 与忽略族同册不成否定连坐：*.env + \\!keep.env 下 keep.env 仍被忽略（修前红：剥壳 !keep.env 成否定——keep.env 被误解除忽略入册）', async () => {
+    await writeFile(join(dir, '.gitignore'), '*.env\n\\!keep.env\n', 'utf8');
+    await put('a.env', 'a');
+    await put('keep.env', 'keep');
+    await put('!keep.env', 'bang');
+    const files = await walkWorkspaceFiles(dir);
+    // 三个 .env 全在忽略域：a.env/keep.env 由 *.env；!keep.env 字面名由 \!keep.env
+    expect(files.map((f) => f.path).sort()).toEqual(['.gitignore']);
+  });
+
+  it('根锚定转义形 \\!/x 字面重投：忽略路径 !/x（! 目录下文件），根层字面 !x 名不受辖（闸D P4 勘正锁——转置形 /\\!x 改配根层 !x 名，git check-ignore 亲证偏离）', async () => {
+    await writeFile(join(dir, '.gitignore'), '\\!/bang.txt\n', 'utf8');
+    await put('!bang.txt', 'root-literal-bang');
+    await put('!/bang.txt', 'in-bang-dir');
+    await put('plain.txt', 'p');
+    const files = await walkWorkspaceFiles(dir);
+    // git 真语义：\!/bang.txt 忽略路径 !/bang.txt（! 目录下 bang.txt）；
+    // 根层字面叹号名 !bang.txt 不受辖（转置形 /\!bang.txt 才配它——非 git 语义）
+    expect(files.map((f) => f.path).sort()).toEqual(['!bang.txt', '.gitignore', 'plain.txt']);
+  });
+
+  it('嵌套锚定转义形前缀化同判：sub/.gitignore \\!/x 忽略 sub/!/x，sub 域字面 !x 名不受辖（字面重投 sub/\\!/x）', async () => {
+    await put('sub/.gitignore', '\\!/deep.txt\n');
+    await put('sub/!deep.txt', 'literal-bang-name');
+    await put('sub/!/deep.txt', 'in-bang-dir');
+    await put('sub/plain.txt', 'p');
+    const files = await walkWorkspaceFiles(dir);
+    expect(files.map((f) => f.path).sort()).toEqual(['sub/!deep.txt', 'sub/.gitignore', 'sub/plain.txt']);
+  });
+
+  it('嵌套 .gitignore 转义形前缀化同判（sub/\\!x 前缀化后 sub 域内字面叹号名被忽略、深层同配）', async () => {
+    await put('sub/.gitignore', '\\!bang.txt\n');
+    await put('sub/!bang.txt', 'bang');
+    await put('sub/plain.txt', 'p');
+    await put('sub/deep/!bang.txt', 'deep-bang');
+    const files = await walkWorkspaceFiles(dir);
+    expect(files.map((f) => f.path).sort()).toEqual(['sub/.gitignore', 'sub/plain.txt']);
+  });
+});
+
+describe('字节配额帽（65 轮件D——计数帽不辖字节维的补面；真 OOM 不可测，注入小值锁拒快照判据）', () => {
+  it('单文件超帽 fail-closed 拒快照：CAPTURE_FAILED 响亮回执（修前红：字节维缺席不拒）', async () => {
+    await put('big.bin', 'x'.repeat(100));
+    await put('small.txt', 'x');
+    await expect(walkWorkspaceFiles(dir, 1_000, { singleFile: 50, total: 10_000 })).rejects.toMatchObject({
+      code: 'CHECKPOINT_CAPTURE_FAILED',
+    });
+  });
+
+  it('单快照总量超帽 fail-closed：单文件各在帽内、累计越界同拒（修前红：无总量维）', async () => {
+    await put('a.bin', 'x'.repeat(40));
+    await put('b.bin', 'x'.repeat(40));
+    await expect(walkWorkspaceFiles(dir, 1_000, { singleFile: 50, total: 50 })).rejects.toMatchObject({
+      code: 'CHECKPOINT_CAPTURE_FAILED',
+    });
+  });
+
+  it('恰在帽内（== 帽值）不拒——超帽判据为严格大于', async () => {
+    await put('exact.bin', 'x'.repeat(50));
+    const files = await walkWorkspaceFiles(dir, 1_000, { singleFile: 50, total: 50 });
+    expect(files.map((f) => f.path)).toEqual(['exact.bin']);
+  });
+});
+
 describe('readWorkspaceFile', () => {
   it('常规读回字节', async () => {
     await put('a.txt', 'hello');

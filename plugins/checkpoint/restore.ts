@@ -10,7 +10,9 @@
  *      （rewind 自身可回退——痕迹可清算；拍摄前先排干发起会话 write-behind
  *      在队事件——05 §5.3 D② 治本批：boundarySeq 拍下即有 durable 承载）；
  *   ② 文件恢复——逐 manifest 条目 tmp+rename 原子写（哈希同则不写——
- *      保 mtime；缺席父目录 mkdir recursive）+ walk 域内真恢复（manifest
+ *      保 mtime；缺席父目录 mkdir recursive；mode 位在场时写回后按位
+ *      chmod 还原——65 轮件D 写回保真：0755 不失执行位、0600 不放宽；
+ *      旧 manifest 无 mode 位 = 缺席回落现状形）+ walk 域内真恢复（manifest
  *      外文件删除 + 空目录自底向上清剪、根不删）。中途崩溃重跑同
  *      manifest 幂等收敛（v1 诚实边界：无整事务原子性，靠逐文件原子 +
  *      重跑收敛）；
@@ -25,7 +27,7 @@
  * 源会话 durable 日志短于 manifest.boundarySeq 时 fork 逃 plain Error，
  * 文件已恢复、分支未建——vetoReason 诚实报部分态与出路，见③腿内注）。
  */
-import { mkdir, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { BaseError } from '../../src/contracts/index.js';
@@ -99,13 +101,22 @@ async function currentHashes(root: string): Promise<Map<string, string>> {
   return out;
 }
 
-/** 逐文件 tmp+rename 原子写（与 store.atomicWrite 同 idiom——恢复面独立成文） */
-async function atomicWriteFile(absPath: string, content: Buffer): Promise<void> {
+/**
+ * 逐文件 tmp+rename 原子写（与 store.atomicWrite 同 idiom——恢复面独立成文）。
+ * mode 在场时写回后按位 chmod 还原（65 轮件D——写回保真补 mode 维：0755
+ * 脚本不失执行位、0600 敏感文件不放宽；chmod 在 rename 后对终名执法——精确
+ * 位不经 umask 折损）。mode 缺席（65 轮件D 之前旧 manifest）= 不施加 chmod
+ * 缺席回落现状形（tmp 写位缺省形）不误伤。
+ */
+async function atomicWriteFile(absPath: string, content: Buffer, mode?: number): Promise<void> {
   try {
     await mkdir(dirname(absPath), { recursive: true });
     const tmp = `${absPath}.rewind-tmp-${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
     await writeFile(tmp, content);
     await rename(tmp, absPath);
+    // mode 还原（65 轮件D）：chmod 在 rename 后对终名执法（tmp 的写位缺省
+    // 形先落地、终位由本腿精确还原因 umask 折损的权限位）
+    if (mode !== undefined) await chmod(absPath, mode);
   } catch (err) {
     throw restoreFailed(`写 ${absPath}（${err instanceof Error ? err.message : String(err)}）`);
   }
@@ -198,13 +209,14 @@ export async function restoreRewind(deps: RewindRestoreDeps, id: string): Promis
     let untouchedCount = 0;
 
     // ②a 逐 manifest 条目：哈希同不动（保 mtime）；异/缺席读 blob 原子写回
+    // （mode 位在场时写回后按位 chmod 还原——65 轮件D；缺席回落现状形）
     for (const entry of manifest.files) {
       if (current.get(entry.path) === entry.hash) {
         untouchedCount += 1;
         continue;
       }
       const content = await deps.store.readBlob(entry.hash); // STORE_CORRUPT fail-loud 直通
-      await atomicWriteFile(join(manifest.workspaceRoot, ...entry.path.split('/')), content);
+      await atomicWriteFile(join(manifest.workspaceRoot, ...entry.path.split('/')), content, entry.mode);
       restoredCount += 1;
     }
 

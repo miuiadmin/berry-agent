@@ -232,6 +232,25 @@ describe('manifest CRUD', () => {
     expect((await store.loadManifest('okpath')).files[0]?.path).toBe('sub/dir/a.txt');
   });
 
+  it('files[].mode 可选位往返（65 轮件D——capture 整理形 & 0o777；修前红：校验白名单剥 mode 位，落册即失）', async () => {
+    const m = manifest({ id: 'mmode', files: [{ path: 'run.sh', hash: 'a'.repeat(64), bytes: 1, mode: 0o755 }] });
+    await store.saveManifest(m);
+    expect(await store.loadManifest('mmode')).toEqual(m);
+  });
+
+  it('files[].mode 坏形 = STORE_CORRUPT（非整数/负值/越 0o777 界——fail-loud 拒误读）', async () => {
+    await mkdir(join(store.baseDir, 'manifests'), { recursive: true });
+    const base = manifest({ id: 'badmode' });
+    for (const bad of [0o1000, '0755', -1, 1.5]) {
+      await writeFile(
+        join(store.baseDir, 'manifests', 'badmode.json'),
+        JSON.stringify({ ...base, files: [{ path: 'a.txt', hash: 'a'.repeat(64), bytes: 1, mode: bad }] }),
+        'utf8',
+      );
+      await expect(store.loadManifest('badmode')).rejects.toMatchObject({ code: 'CHECKPOINT_STORE_CORRUPT' });
+    }
+  });
+
   it('坏 JSON = STORE_CORRUPT', async () => {
     await mkdir(join(store.baseDir, 'manifests'), { recursive: true });
     await writeFile(join(store.baseDir, 'manifests', 'bad.json'), '{not json', 'utf8');

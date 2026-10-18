@@ -128,7 +128,15 @@ function validateManifest(raw: unknown, source: string): CheckpointManifest {
     if (typeof e.hash !== 'string' || !BLOB_HASH_RE.test(e.hash)) throw corrupt(`${source} files[${i}].hash 格式异常`);
     if (typeof e.bytes !== 'number' || !Number.isInteger(e.bytes) || e.bytes < 0)
       throw corrupt(`${source} files[${i}].bytes 格式异常`);
-    return { path: e.path, hash: e.hash, bytes: e.bytes };
+    // mode 可选位（65 轮件D——写回保真补 mode 维）：在场须为 0..0o777 整数
+    // （capture 整理形 & 0o777——setuid/sticky 等高位不属快照域）；缺席 =
+    // 旧 manifest 回落形（undefined 原样透传——restore 不施加 chmod）
+    const mode = e.mode;
+    if (mode !== undefined && (typeof mode !== 'number' || !Number.isInteger(mode) || mode < 0 || mode > 0o777))
+      throw corrupt(`${source} files[${i}].mode 格式异常（须为 0..0o777 整数——整理形 & 0o777）`);
+    return mode === undefined
+      ? { path: e.path, hash: e.hash, bytes: e.bytes }
+      : { path: e.path, hash: e.hash, bytes: e.bytes, mode };
   });
   return {
     id,
