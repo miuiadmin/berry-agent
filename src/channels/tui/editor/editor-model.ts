@@ -808,21 +808,23 @@ export class EditorModel {
 
   /**
    * 跳首行（模态编辑批——39 池 P4·L，07 §4.1 R5 mode 域：gg 落位原语）。
-   * 列夹目标行行尾（超长列钳位——目标行短于现列时不悬空）。
+   * 列夹目标行行尾（超长列钳位——目标行短于现列时不悬空）+ 字素校准
+   *（68 轮件 F 批注——跨行落位字素校准律：见 calibrateColToGrapheme 头注）。
    */
   moveToFirstLine(): void {
     this.lastAction = null;
     this.state.cursorLine = 0;
-    this.setCursorCol(Math.min(this.state.cursorCol, (this.state.lines[0] ?? '').length));
+    this.setCursorCol(this.calibrateColToGrapheme(this.state.lines[0] ?? '', this.state.cursorCol));
   }
 
   /**
-   * 跳末行（模态编辑批：G 落位原语）。列夹目标行行尾（同 moveToFirstLine）。
+   * 跳末行（模态编辑批：G 落位原语）。列夹目标行行尾 + 字素校准（同
+   * moveToFirstLine——68 轮件 F 两原语同修）。
    */
   moveToLastLine(): void {
     this.lastAction = null;
     this.state.cursorLine = this.state.lines.length - 1;
-    this.setCursorCol(Math.min(this.state.cursorCol, (this.state.lines[this.state.cursorLine] ?? '').length));
+    this.setCursorCol(this.calibrateColToGrapheme(this.state.lines[this.state.cursorLine] ?? '', this.state.cursorCol));
   }
 
   /**
@@ -1165,6 +1167,27 @@ export class EditorModel {
   private setCursorCol(col: number): void {
     this.state.cursorCol = col;
     this.preferredVisualCol = null;
+  }
+
+  /**
+   * 跨行落位列钳位 + 字素校准（68 轮件 F 批注——编辑器跨行落位字素校准律）：
+   * 长度夹取只保证不越行尾，不保证落字素边界——源/目标行字素布局错位时同列
+   * 位可落代理对/组合簇中段（半字落位其上 x 定位 / backspace 经字素边界函数
+   * 定界撕裂字素、孤立代理对上泛稿件——违头注「光标恒在字素边界」契约）。
+   * 校准形同 jumpToChar（判据复用同 import 两函数）：所属字素〔起点 =
+   * prevGraphemeBoundary(钳位值)、终点 = nextGraphemeBoundary(起点)〕越过
+   * 钳位值即中段——吸所属字素起点；钳位值本就是边界时字素终点恰等钳位值、
+   * 不校准（幂等——0 / 行长 / 行内字素界天然边界原样保持，裸 prevGrapheme-
+   * Boundary 形会把边界位错缩一字素）。
+   */
+  private calibrateColToGrapheme(line: string, col: number): number {
+    const clamped = Math.min(col, line.length);
+    if (clamped > 0) {
+      const gStart = prevGraphemeBoundary(line, clamped);
+      const gEnd = nextGraphemeBoundary(line, gStart);
+      if (gEnd > clamped) return gStart; // 中段落位——吸所属字素起点
+    }
+    return clamped; // 天然边界（含 col 0 与行长）——校准幂等直返
   }
 
   /** 落位目标视觉行（sticky 列决策——显示列制；越界 no-op） */

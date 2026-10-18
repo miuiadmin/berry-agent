@@ -1242,6 +1242,49 @@ describe('EditorModel 模态原语（moveToFirstLine / moveToLastLine / deleteCu
     expect(n.getCursor()).toEqual({ line: 1, col: 1 }); // 列 2 > 末行长 1 → 夹 1
   });
 
+  it('moveToFirstLine：跨行落位字素校准——源行边界列在目标行落代理对中段时吸所属字素起点（68 轮件 F）', () => {
+    // 首行 'a😀b'（表情 [1,3)）、次行 'ab😀'（表情 [2,4)）：次行 col 2 = 表情
+    // 起点合法边界；同列位 2 在首行落表情代理对中段——修前 (0,2) 半字落位红
+    const m = modelWith('a😀b\nab😀'); // setText 光标 (1,4)
+    m.moveLeft(); // (1,2)：次行表情起点（合法字素边界）
+    m.moveToFirstLine();
+    expect(m.getCursor()).toEqual({ line: 0, col: 1 }); // 吸所属字素起点（表情 [1,3)）
+  });
+
+  it('moveToLastLine：跨行落位字素校准——镜像形（68 轮件 F）', () => {
+    // 首行 'ab😀'（表情 [2,4)）、次行 'a😀b'（表情 [1,3)）：首行 col 2 = 表情
+    // 起点合法边界；同列位 2 在末行落表情代理对中段——修前 (1,2) 半字落位红
+    const m = modelWith('ab😀\na😀b'); // setText 光标 (1,4)
+    m.moveHome(); // (1,0)
+    m.moveUp(); // (0,0)
+    m.moveRight(); // (0,1)
+    m.moveRight(); // (0,2)：首行表情起点（合法字素边界）
+    m.moveToLastLine();
+    expect(m.getCursor()).toEqual({ line: 1, col: 1 }); // 吸所属字素起点（表情 [1,3)）
+  });
+
+  it('moveToFirstLine/moveToLastLine：钳位值天然边界校准幂等——ASCII 位/字素界/行尾夹取不后缩（68 轮件 F 正锁）', () => {
+    // ASCII 行：钳位 col 2 在 'abcd' 是天然边界——校准幂等不后缩（防「过度
+    // 校准」回归：裸 prevGraphemeBoundary 形会把 col 2 错缩到 1）
+    const m = modelWith('abcd\nab'); // setText 光标 (1,2)
+    m.moveToFirstLine();
+    expect(m.getCursor()).toEqual({ line: 0, col: 2 });
+    // 目标行表情起点边界（'ax😀' 表情 [2,4)、col 2 = 起点）同幂等——不吸前字素
+    const n = modelWith('ax😀\nabcdefgh'); // setText 光标 (1,8)
+    n.moveHome(); // (1,0)
+    n.moveRight(); // (1,1)
+    n.moveRight(); // (1,2)
+    n.moveToFirstLine();
+    expect(n.getCursor()).toEqual({ line: 0, col: 2 });
+    // 行尾夹取（钳位值 = 目标行行长 = 天然边界）——既有夹尾语义保持
+    const q = modelWith('ab\nabcd'); // setText 光标 (1,4)
+    q.moveToFirstLine();
+    expect(q.getCursor()).toEqual({ line: 0, col: 2 }); // 夹至首行行尾不后缩
+    const p = modelWith('abcd\nab'); // setText 光标 (1,2)
+    p.moveToLastLine();
+    expect(p.getCursor()).toEqual({ line: 1, col: 2 }); // G 侧同律（列 ≤ 末行行长保持）
+  });
+
   it('deleteCurrentLine：中位行删除光标落删除位行首 + undo 单步回', () => {
     const m = modelWith('aaa\nbbb\nccc'); // 末行
     m.moveToFirstLine();
