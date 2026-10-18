@@ -170,13 +170,17 @@ function defaultIsAlive(pid: number): boolean {
 
 /**
  * daemon 身份判据（纯函数——第十五役 α3 pid 复用防线）：命令行双特征
- * ——含 serve 子命令词 + 含宿主入口特征（bin 装机形 …/dist/src/host/main.js
- * 与 dev 形 …/src/host/main.ts 共 'host/main' 片；或路径含 berry-agent 包名
- * ——值位 magic 串同 `~/.berry-agent` 族）。双特征齐方判真身；单特征不判
- * （'npm run serve' 类无关进程不含入口特征——拒误认）。
+ * ——含 serve 子命令词 + 含宿主入口特征（'host/main' 片单源——bin/npm/npx
+ * 各真形 argv[1] 解析后 realpath 均含该片段；2026-10-19 挖掘 68 轮件 A 批注：
+ * 裸 berry-agent 子串备选废弃——数据目录路径 ~/.berry-agent/serve/daemon.log
+ * 同时满足旧双特征（serve 目录段词界 + 包名子串），daemon 猝死残留 pid 被
+ * 系统复用给 tail/grep/vim 排查进程即过判 → stop 误杀无辜进程（违「宁漏停
+ * 不误杀」）；废弃最坏形 = 异形入口漏认，漏停可重启兜底，向保守侧）。
+ * 双特征齐方判真身；单特征不判（'npm run serve' 类无关进程不含入口特征
+ * ——拒误认）。
  */
 export function daemonCommandIsSelf(command: string): boolean {
-  return /\bserve\b/.test(command) && (command.includes('host/main') || command.includes('berry-agent'));
+  return /\bserve\b/.test(command) && command.includes('host/main');
 }
 
 /**

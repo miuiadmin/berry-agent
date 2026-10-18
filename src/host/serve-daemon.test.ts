@@ -130,21 +130,40 @@ describe('三足迹与 pid 登记原语', () => {
 });
 
 describe('daemonCommandIsSelf（pid 复用防线判据——命令行双特征）', () => {
-  it('真身形：bin 装机路径 / dev tsx 路径均判真', () => {
-    // bin 装机形（npm 全局——路径含包名与 dist/src/host/main.js）
+  it('真身形：bin 装机 / dev tsx / npx 缓存 realpath 均含 host/main 片判真（入口特征单源）', () => {
+    // bin 装机形（npm 全局——入口特征 = 路径含 dist/src/host/main.js 片；
+    // 07 §5 serve stop 条款批注 2026-10-19 挖掘 68 轮件 A：入口特征只认
+    // host/main 单源——bin/npm/npx 各真形 argv[1] 解析后 realpath 均含该片段）
     expect(
       daemonCommandIsSelf('node /usr/local/lib/node_modules/berry-agent/dist/src/host/main.js serve --daemon'),
     ).toBe(true);
-    // dev 形（tsx——入口 src/host/main.ts，路径不含包名但含 host/main）
+    // dev 形（tsx——入口 src/host/main.ts，含 host/main 片）
     expect(daemonCommandIsSelf('node /repo/node_modules/tsx/dist/cli.mjs /repo/src/host/main.ts serve --daemon')).toBe(
       true,
     );
+    // npx 缓存形（~/.npm/_npx/<hash>/node_modules/ 下 realpath——同样含片段）
+    expect(
+      daemonCommandIsSelf('node /Users/x/.npm/_npx/e7ab1c0f/node_modules/berry-agent/dist/src/host/main.js serve'),
+    ).toBe(true);
   });
 
   it('无关进程形：缺任一特征判非（拒误认）', () => {
     expect(daemonCommandIsSelf('npm run serve')).toBe(false); // serve 词在、入口特征缺席
     expect(daemonCommandIsSelf('nginx -c /etc/serve.conf')).toBe(false); // serve.conf 词界命中但非本宿主
     expect(daemonCommandIsSelf('node /repo/src/host/main.js tui')).toBe(false); // 入口在但非 serve 子命令
+  });
+
+  it('误杀洞红锁：数据目录路径排查形（tail/grep/vim 追 daemon 日志）判非——裸 berry-agent 子串备选废弃（修前 true 红）', () => {
+    // 67→68 轮件 A（07 §5 serve stop 条款尾批注）：daemon 猝死（SIGKILL/OOM/
+    // 掉电不走自清 closer）残留 pid 登记被系统复用给排查死 daemon 的第一动作
+    // 族——命令行携带数据目录路径 ~/.berry-agent/serve/daemon.log，该路径同时
+    // 命中词界 serve（serve 目录段）与 berry-agent 裸子串（修前备选特征），
+    // 误判真身 → stop SIGTERM→10s 窗→SIGKILL 升格误杀无辜进程——违「宁漏停
+    // 不误杀」。修法 = 入口特征只认 host/main 单源；废弃最坏形 = 异形入口漏认
+    // （漏停可重启兜底，保守侧）
+    expect(daemonCommandIsSelf('tail -f /Users/x/.berry-agent/serve/daemon.log')).toBe(false);
+    expect(daemonCommandIsSelf('grep BUSY /Users/x/.berry-agent/serve/daemon.log')).toBe(false);
+    expect(daemonCommandIsSelf('vim /Users/x/.berry-agent/serve/daemon.log')).toBe(false);
   });
 });
 
