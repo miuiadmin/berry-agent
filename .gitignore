@@ -30,3 +30,6 @@ berry-agent-private/
 # 公开版 AGENTS.md（对外 AI 代理指引）入库不忽略（2026-09-15 贡献流程批）
 AGENTS.local.md
 CLAUDE.md
+
+# vitest 运行期缓存目录（本地测试产物——61 轮批首见显形，ignore 行加固）
+.vitest/
