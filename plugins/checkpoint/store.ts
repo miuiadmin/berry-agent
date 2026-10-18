@@ -145,7 +145,10 @@ function validateManifest(raw: unknown, source: string): CheckpointManifest {
 async function atomicWrite(absPath: string, data: Buffer | string): Promise<void> {
   await mkdir(join(absPath, '..'), { recursive: true });
   const tmp = `${absPath}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
-  await writeFile(tmp, data);
+  // 敏感产物落盘 0600（05 §6.6——2026-10-18 60 轮 L2 批扩列）：blobs 全量
+  // 工作区文件内容明文 + manifest 恢复清单，建即 0600——mode 落 tmp 写位、
+  // 随 rename 承袭终名；「建即」辖建时点，在场旧文件不追溯。
+  await writeFile(tmp, data, { mode: 0o600 });
   await rename(tmp, absPath);
 }
 

@@ -200,7 +200,10 @@ export function appendToolPolicyEntry(dataDir: string, draft: ToolPolicyDraft): 
   // 原子替换：临时文件写全量后 rename——撕裂窗口不暴露半文件（用户资产完整性）
   mkdirSync(dataDir, { recursive: true });
   const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify({ entries }, null, 2)}\n`, 'utf8');
+  // 敏感产物落盘 0600 纵深档（05 §6.6——2026-10-18 60 轮 L2 批扩列）：
+  // tool-policy.json 是操作者策略表，建即 0600——mode 落 tmp 写位、随 rename
+  // 承袭终名（settings-store 同式先例）；「建即」辖建时点，在场旧文件不追溯。
+  writeFileSync(tmp, `${JSON.stringify({ entries }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   renameSync(tmp, path);
   return 'appended';
 }

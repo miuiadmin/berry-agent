@@ -407,7 +407,10 @@ export async function createBrowserPage(deps: BrowserPageDeps): Promise<BrowserP
       await deps.fs.mkdir(dir, { recursive: true });
       shotSeq += 1;
       const path = `${dir}/shot-${now()}-${shotSeq}.png`;
-      await deps.fs.writeFile(path, Buffer.from(data, 'base64'));
+      // 敏感产物落盘 0600（05 §6.6——2026-10-18 60 轮 L2 批扩列）：截图是
+      // 操作者浏览数据图像副本，建即 0600——mode 经 BrowserFsFace 可选
+      // options 位透传（生产 fsp 直透）；在场旧文件不追溯。
+      await deps.fs.writeFile(path, Buffer.from(data, 'base64'), { mode: 0o600 });
       // 滚动清理：超保留量弃最旧（文件名时序序——字典序即时间序）
       const names = (await deps.fs.readdir(dir)).filter((n) => n.endsWith('.png')).sort();
       for (const victim of names.slice(0, Math.max(0, names.length - BROWSER_SCREENSHOT_KEEP))) {

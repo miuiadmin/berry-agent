@@ -168,7 +168,13 @@ export interface BrowserFsFace {
   /** 存在性探针（ENOENT reject） */
   access(path: string): Promise<void>;
   readFile(path: string, encoding: 'utf8'): Promise<string>;
-  writeFile(path: string, data: string | Uint8Array): Promise<void>;
+  /**
+   * 写文件（可选 options 位承载 mode——面镜像 node:fs/promises 子面，生产
+   * fsp 直透）：截图写位经此传 0600（05 §6.6——2026-10-18 60 轮 L2 批扩列
+   * 敏感产物落盘 0600：建即 0600、随 rename 承袭、在场旧文件不追溯——语义
+   * 归扩列注）。可选位不破注入面兼容（缺省桩零感知）。
+   */
+  writeFile(path: string, data: string | Uint8Array, options?: { mode?: number }): Promise<void>;
   mkdir(path: string, options: { recursive: true }): Promise<unknown>;
   readdir(path: string): Promise<readonly string[]>;
   stat(path: string): Promise<{ isFile(): boolean }>;

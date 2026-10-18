@@ -519,6 +519,30 @@ describe('createBrowserPage', () => {
     await page2.close();
   });
 
+  it('screenshot 敏感产物落盘 0600（05 §6.6——60 轮 L2 批扩列）：writeFile 第三参 mode 经面透传（生产 fsp 直透）', async () => {
+    // 捕获锁（本位不真盘——BrowserFsFace 注入桩捕获 writeFile 第三参）：
+    // 截图是操作者浏览数据图像副本，05 §6.6 敏感产物族建即 0600；mode 经
+    // 面可选 options 位承载（面镜像 node:fs/promises 子面——生产 fsp 直透）。
+    // 修前红：面无 options 位、page 调两参形——捕获 undefined 非 0o600。
+    const pngBase64 = Buffer.from('fakepng').toString('base64');
+    const writes: Array<{ path: string; mode: number | undefined }> = [];
+    const fs: BrowserFsFace = {
+      ...makeFs().fs,
+      // 第三参显式注形：修前（面无第三参）可赋值（可选尾参不破两参签名），
+      // 修后与面 options 位同形——红绿两态皆编译
+      writeFile: async (path: string, _data: string | Uint8Array, options?: { mode?: number }) => {
+        writes.push({ path, mode: options?.mode });
+      },
+    };
+    const { conn } = makeConn(choreo((method) => (method === 'Page.captureScreenshot' ? { data: pngBase64 } : {})));
+    const page = await createBrowserPage({ conn, fs, dataDir: '/data', web: makeWeb().web, clock: () => 7 });
+    await page.screenshot();
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toBe('/data/browser/screenshots/shot-7-1.png');
+    expect(writes[0]?.mode).toBe(0o600);
+    await page.close();
+  });
+
   it('console：混合回流折串 + 未捕获异常 + 环形超帽弃最旧 + 异会话帧不收', async () => {
     const { conn, emit } = makeConn(choreo());
     const page = await createBrowserPage({ conn, fs: makeFs().fs, dataDir: '/data', web: makeWeb().web });

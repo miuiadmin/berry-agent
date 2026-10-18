@@ -3,7 +3,7 @@
  * （05 §5.3 批 15d）。
  */
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -172,6 +172,27 @@ describe('blob 仓', () => {
     await store.deleteBlob(hash);
     await store.deleteBlob(hash);
     expect(await store.listBlobHashes()).toEqual([]);
+  });
+
+  it('敏感产物落盘 0600（05 §6.6——60 轮 L2 批扩列）：blob 与 manifest 的 tmp 写位 mode 随 rename 承袭终名', async () => {
+    // 修前红：atomicWrite writeFile(tmp, data) 无 mode——缺省 0666 & ~umask
+    //（钉 022 下即 0644）。blobs 是全量工作区文件内容明文、manifest 是恢复
+    // 清单——05 §6.6 敏感产物族建即 0600：mode 落 tmp 写位、随 rename 承袭
+    // 终名；「建即」辖建时点，在场旧文件不追溯（58/59 轮同族锁同律）。
+    // 钉宽 umask：缺省建文件走 0666 & ~umask——显式钉 022 防 CI 窄 umask
+    //（077）环境下修前形恰好 0600 假绿（persist store.test 同律）；修后显式
+    // 0600 位不受 umask 放宽（umask 只清位不置位，0600 无群/他位可清）。
+    const prevUmask = process.umask(0o022);
+    try {
+      const content = Buffer.from('mode-lock');
+      const hash = contentHash(content);
+      await store.writeBlob(hash, content);
+      await store.saveManifest(manifest({ id: 'mmode', files: [{ path: 'x.txt', hash, bytes: content.byteLength }] }));
+      expect(statSync(join(store.baseDir, 'blobs', hash.slice(0, 2), hash)).mode & 0o777).toBe(0o600);
+      expect(statSync(join(store.baseDir, 'manifests', 'mmode.json')).mode & 0o777).toBe(0o600);
+    } finally {
+      process.umask(prevUmask);
+    }
   });
 });
 

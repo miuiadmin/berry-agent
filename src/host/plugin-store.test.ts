@@ -8,7 +8,7 @@
  *
  * fs 全内存注入（真盘语义的 Map 形还原——测试零真盘零 spawn）。
  */
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -17,6 +17,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 
 import { readEnabledRows } from './plugin-boot.js';
+import { enabledYamlPath } from './manifest.js';
 import {
   assertInsideInstallSubtree,
   assertInsidePluginData,
@@ -26,6 +27,7 @@ import {
   installPathForLocal,
   installPathForNpm,
   isInstallStructurePath,
+  ledgerPath,
   mountRow,
   pluginDataDir,
   readEnabledRowsForEdit,
@@ -606,6 +608,36 @@ describe('defaultStoreFs 读侧错误码分档（ENOENT 静默缺席 / 其余点
       expect(message).toContain('按空处理'); // 后果直白（装机记录/启用清单面）
     } finally {
       warn.mockRestore();
+    }
+  });
+});
+
+describe('敏感产物落盘 0600 纵深档（05 §6.6——60 轮 L2 批扩列）：atomicWrite 单形连带两消费', () => {
+  /** 本 describe 真盘 tmp（例外位：mode 断言须真盘 statSync——内存 Map 形无属位） */
+  const realDirs: string[] = [];
+  afterAll(() => {
+    for (const dir of realDirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('ledger.json 与 enabled.yaml 的 tmp 写位 mode 随 rename 承袭终名（per-caller mode 分叉不作）', () => {
+    // 修前红：缺省实现 write 是裸 writeFileSync(path, text) 无 mode——缺省
+    // 0666 & ~umask（钉 022 下即 0644）。enabled.yaml 行内 config 无「不得含
+    // 鉴权材料」定性护栏、可含第三方服务凭证；ledger.json 是装机溯源账——
+    // 05 §6.6 纵深档族建即 0600：两文件同经 atomicWrite 单形连带（分叉不
+    // 作），mode 落 tmp 写位、随 rename 承袭终名；「建即」辖建时点，在场
+    // 旧文件不追溯。钉宽 umask 防 CI 窄 umask（077）下修前形恰好 0600 假绿；
+    // 修后显式 0600 位不受 umask 放宽。
+    const dir = mkdtempSync(join(tmpdir(), 'berry-store-mode-'));
+    realDirs.push(dir);
+    const prevUmask = process.umask(0o022);
+    try {
+      const fs = createPluginStoreFs(); // 缺省真盘实现（真装配写路径）
+      upsertLedgerEntry(dir, entry({ id: 'a' }), fs);
+      expect(mountRow(dir, 'a', { token: 'third-party-secret' }, fs).ok).toBe(true);
+      expect(statSync(ledgerPath(dir)).mode & 0o777).toBe(0o600);
+      expect(statSync(enabledYamlPath(dir)).mode & 0o777).toBe(0o600);
+    } finally {
+      process.umask(prevUmask);
     }
   });
 });

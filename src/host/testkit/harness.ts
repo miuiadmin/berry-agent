@@ -242,7 +242,9 @@ export function realStoreFs(): PluginStoreFs {
         return null;
       }
     },
-    write: (path, text) => writeFileSync(path, text, 'utf8'),
+    // options 位随 60 轮件B 扩面同步追平——镜像 defaultStoreFs 透传形
+    // （atomicWrite 经此传 0600；掉位则 testkit 路写盘退 0644 与产码分叉）。
+    write: (path, text, options) => writeFileSync(path, text, options),
     rename: (from, to) => renameSync(from, to),
     mkdir: (path, options) => mkdirSync(path, options),
     rm: (path, options) => rmSync(path, options),

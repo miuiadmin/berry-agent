@@ -51,7 +51,13 @@ export function createProcessRegistry(options: RegistryOptions = {}): ProcessReg
     const tmp = `${filePath}.tmp`;
     persistChain = persistChain.then(async () => {
       try {
-        await writeFile(tmp, `${JSON.stringify(snapshot satisfies RegistryFile)}\n`, 'utf8');
+        // 敏感产物落盘 0600（05 §6.6——2026-10-18 60 轮 L2 批扩列）：登记簿
+        // 是全量 argv 审计面，建即 0600——mode 落 tmp 写位、随 rename 承袭
+        // 终名；「建即」辖建时点，在场旧文件不追溯。
+        await writeFile(tmp, `${JSON.stringify(snapshot satisfies RegistryFile)}\n`, {
+          encoding: 'utf8',
+          mode: 0o600,
+        });
         await rename(tmp, filePath);
       } catch (error) {
         logger.warn('登记簿持久化失败（容错降级——内存账仍准确）', {

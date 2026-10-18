@@ -7,7 +7,7 @@
  * 真盘临时目录（文件 IO 件全栈惯例）：读侧缺席/好形/文件级坏形/行级坏形
  * 四态 + 写侧追加/幂等/坏形拒写三态 + 原子替换不留 tmp 残 + 更名迁移三锁。
  */
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -190,6 +190,22 @@ describe('appendToolPolicyEntry 写侧（04 §9 定形块写侧律——唯一�
       { tool: 'write', pattern: '/w/ok.md', decision: 'allow' },
       { tool: 'bash', pattern: 'npm test', decision: 'allow' },
     ]); // 坏行不进重写产物（读侧已剔——写侧只见好行）
+  });
+
+  it('敏感产物落盘 0600 纵深档（05 §6.6——60 轮 L2 批扩列）：tmp 写位 mode 随 rename 承袭终名', () => {
+    // 修前红：writeFileSync(tmp, …, 'utf8') 无 mode——缺省 0666 & ~umask
+    //（钉 022 下即 0644）。tool-policy.json 是操作者策略表——05 §6.6 纵深档
+    // 族建即 0600：mode 落 tmp 写位、随 rename 承袭终名（settings-store 59
+    // 轮同式先例）；「建即」辖建时点，在场旧文件不追溯。钉宽 umask 防 CI
+    // 窄 umask（077）下修前形恰好 0600 假绿；修后显式 0600 位不受 umask 放宽。
+    const dir = tmpDir('al-mode-');
+    const prevUmask = process.umask(0o022);
+    try {
+      expect(appendToolPolicyEntry(dir, { tool: 'write', pattern: '/w/a.md' })).toBe('appended');
+      expect(statSync(join(dir, TOOL_POLICY_BASENAME)).mode & 0o777).toBe(0o600);
+    } finally {
+      process.umask(prevUmask);
+    }
   });
 });
 

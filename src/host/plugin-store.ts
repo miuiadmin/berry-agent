@@ -46,7 +46,13 @@ import type { EnabledRow } from './manifest.js';
 export interface PluginStoreFs {
   /** 读文本（缺席 = null——ENOENT 同义） */
   readonly read: (path: string) => string | null;
-  readonly write: (path: string, text: string) => void;
+  /**
+   * 写文本（可选 options 位承载 mode——缺省实现透传 writeFileSync options）：
+   * atomicWrite 经此传 0600（05 §6.6——2026-10-18 60 轮 L2 批扩列敏感产物
+   * 落盘 0600：建即 0600、随 rename 承袭、在场旧文件不追溯——语义归扩列
+   * 注）。可选位不破注入面兼容（内存桩零感知）。
+   */
+  readonly write: (path: string, text: string, options?: { readonly mode?: number }) => void;
   readonly rename: (from: string, to: string) => void;
   readonly mkdir: (path: string, options: { readonly recursive: true }) => void;
   readonly rm: (path: string, options: { readonly recursive: true; readonly force: true }) => void;
@@ -99,7 +105,7 @@ function defaultStoreFs(): PluginStoreFs {
         return null;
       }
     },
-    write: (path, text) => writeFileSync(path, text),
+    write: (path, text, options) => writeFileSync(path, text, options),
     rename: (from, to) => renameSync(from, to),
     mkdir: (path, options) => mkdirSync(path, options),
     rm: (path, options) => rmSync(path, options),
@@ -117,7 +123,12 @@ function defaultStoreFs(): PluginStoreFs {
 /** 原子写（tmp+rename——§5.4 账本写面条款；同目录 tmp 保 rename 同卷原子性） */
 function atomicWrite(fs: PluginStoreFs, path: string, text: string): void {
   const tmp = `${path}.tmp-${process.pid}`;
-  fs.write(tmp, text);
+  // 敏感产物落盘 0600 纵深档（05 §6.6——2026-10-18 60 轮 L2 批扩列）：
+  // enabled.yaml（行内 config 无「不得含鉴权材料」定性护栏、可含第三方服务
+  // 凭证）与 ledger.json（装机溯源账）两消费同享——atomicWrite 单形连带，
+  // per-caller mode 分叉不作；mode 落 tmp 写位、随 rename 承袭终名；「建即」
+  // 辖建时点，在场旧文件不追溯。
+  fs.write(tmp, text, { mode: 0o600 });
   fs.rename(tmp, path);
 }
 
