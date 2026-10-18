@@ -1955,6 +1955,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.cancelTimer('tick'); // 任务行转轮停摆（防后台空转——复起重摆）
     this.cancelTimer('escape'); // lone-ESC 窗收口（decoder 已弃在途态）
     this.disarmLeaderWindow(); // leader 待续窗收口（B4——复起后陈窗不续，挂起期提示定时器零后台空转）
+    // 待靶臂/组字呈现同收（56 轮闸 P2——与 activateAskLayer 同判据两路同治）：
+    // 副屏期主编辑器输入流已断流，「续收」结构性不可达——陈臂劫复起后首
+    // 字素（jumpToChar 吞字）、组字悬空残呈两泄漏面同形。decoder 侧预编辑
+    // 已随 discardPending 全丢，此处补 editor 侧两窄面（幂等无害）。单点
+    // 覆盖 model-picker/themes//diff/外编挂起等全部副屏与交出路。
+    this.editor.cancelPendingJump();
+    this.editor.clearPendingPreedit();
     // 硬退复原钩换挂起档（不 disarm）：副屏 Engine 的 exit 钩只复原其屏形
     //（LEAVE_MODES[alt] + raw），本件挂起期保活的终端级写点无人接管——挂起档
     // 收口体见 armSuspendExitRestore
@@ -3875,6 +3882,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     }
     this.pauseElapsedClock(); // 应答车开窗——耗时暂停（挖掘 31 轮 [8]：浮层等待期不计）
     this.editor.setText(''); // 应答起始清框（草稿让位——提交路模型自清）
+    this.stagedImages = []; // 暂存图同笔让位（56 轮闸 P2）：应答提交走 ask 早退支不经 consumeStagedImages——不清则陈账孤儿化（无占位提交=图静默消失；先再贴新图则 min 帽顶掉旧账反挂错图）。图随稿弃与 ctrl+v/路径变体两贴图路对 inputAsk 的让位姿态对齐（草稿车道一票让位）
+    this.disarmLeaderWindow(); // leader 待续窗同收（56 轮闸 P3）：开窗前武装的 2s 窗跨窗滞留——分支字母虽有 inputAsk 闸挡（leaderBranchGatesOpen），闲态 ESC 被⓪ cancel 消费吞一击 + 提示位陈显待续态；开窗即拥有完整键面（陈窗不跨窗续）
     // 应答车占位文换装（挖掘 29 轮件 4）：enter 是收窗非提交——composer 缺省
     // 「输入消息…」在应答窗误导；opts.placeholder 透传优先、缺席用应答缺省
     this.editor.setPlaceholder(ask.placeholder ?? INPUT_ASK_PLACEHOLDER_TEXT);
@@ -3893,6 +3902,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const next = this.inputQueue.shift();
     if (next !== undefined) this.activateInputAsk(next);
     else {
+      // 收场对称位 lone-ESC 挂起同收（56 轮件 ④——54B 补两开窗位漏收本位）：
+      // 应答窗期按下、判定窗（30ms）定时器在飞的 ESC 在收场后到点 settle 成
+      // 键落回主屏键面（busy 时直落打断腿）——用户已答完问，陈键改写为打断
+      // 意图。与开窗位同律（activateInputAsk）；接续位（next !== undefined）
+      // 不走本位——接续的 activateInputAsk 开窗位已同收。取消定时器在前
+      // （漏收则 settle 恒无挂起、空转无害）。收场三汇点（submit / 激活态
+      // abort / 停机后迟到 abort）同走本位——单一收口覆盖三路。
+      this.cancelTimer('escape');
+      this.decoder.discardPendingEscape();
       this.editor.setPlaceholder(undefined); // 应答车退役——占位文回 composer 缺省（队列接续时 activate 再换装）
       this.editor.setSensitive(false); // 敏感模式复位（挖掘 37 轮件 3——队列空退役位；接续窗 activate 按新 ask 重设）
       // 模态编辑恢复（冷读闸 P1 对称位——与占位文/敏感位同「空队退役」时序）：
@@ -4390,6 +4408,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * （pendingOps/needFixed）→ repaint → 补吐。
    */
   private authoritativeRepaint(): void {
+    // 浮层挂起期不可达定谳（56 轮件 ③——本收口无 suspendedMain 闸非疏漏）：
+    // 唯二触发路 = 路由层③.5 的 ctrl+t / ctrl+o 两键（toggleThinking /
+    // toggleToolCards 单源，别无调用方），两键在两类浮层挂起期的命运——
+    // - suspendedMain 态（副屏 / 外编 / 挂壳）：suspendMain 已解订输入——stdin
+    //   事件零到达，键面整体不存在；
+    // - ask 浮层态（askApproval / SelectPanel 族）：面板不置 suspendedMain
+    //   （主屏固定区组成、editor 仍渲染），但路由层② overlay 栈模态独占先吃
+    //   （栈非空恒返 true）——ctrl+t/o 到不了层③.5。
+    // 故「repaint 位在浮层挂起期恒不达」，无须闸。对照 onRepaint / handleResize
+    // 两路保留 suspendedMain 闸：其触发源不全是键（present 流式重渲 / 终端
+    // resize 信号），浮层期外部可达、须闸。inputAsk 应答车期两键可达——但
+    // 应答车非挂起态（主屏全活：editor 渲染 + 提交键面照常），重画合法。
     const rescued = this.collectAllTransients();
     this.transientLanded = rescued.length > 0;
     this.syncEmptyGuide();
@@ -4834,11 +4864,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 开层位 lone-ESC 挂起隔离（39 池 P4 typeahead 竞窗批）：开层前按下的
     // ESC 判定窗（30ms）定时器尚在飞——不隔离则窗到点 settle 成键经层②占焦
     // 面板裁决（SelectPanel escape → 保守值 '' → cancel）：用户从未见过面板
-    // 即被陈键收场。弃置与换防吞在途同律（suspendMain 先例）；粘贴/预编辑
-    // 态不动（窄面只弃这一种 pending 态）。取消定时器在前（漏收则 settle
-    // 恒无挂起、空转无害）。
+    // 即被陈键收场。弃置与换防吞在途同律（suspendMain 先例）；取消定时器在
+    // 前（漏收则 settle 恒无挂起、空转无害）。
     this.cancelTimer('escape');
     this.decoder.discardPendingEscape();
+    this.disarmLeaderWindow(); // leader 待续窗同收（56 轮闸 P3）：层⓪ 先于层② 分诊——闲态窗内 ESC 被⓪ cancel 消费吞一击（面板 ESC 失灵）；分支字母虽有 stack 闸挡，开层即拥有完整键面（陈窗不跨层续——suspendMain/stop 收口同律）
+    // 引臂窗残位同收（56 轮件 ②——54B 只收 lone-ESC）：ctrl+] 待靶臂与 IME
+    // 组字态跨层存活是陈态泄漏——面板期事件先经路由层⓪/①再入层②模态吃尽
+    // （⓪ 的 leader 窗即此缝——上方同收），对编辑器态「续收」结构性不可达
+    //（对照 inputAsk 位：应答车续用主编辑器，续收真可达、不动）。
+    // 陈臂泄漏面 = 收场后首字素被劫为跳靶（静默吞字）；组字泄漏面 = 面板期
+    // 按键触发的冲刷提交被吃尽后 model 悬空预编辑残呈（裁决事件永无到达位）。
+    // 粘贴蓄积仍不动——跨层粘贴体整段原子交付归层面板吃（56 轮件 ① 定谳，
+    // 非劈叉残臂）。收场位（真句柄 close）无对称收集需求：面板期键面被吃尽，
+    // 臂/组字无从新装，可装态只可能在开层前——本位单点覆盖。
+    this.editor.cancelPendingJump();
+    this.decoder.discardPendingPreedit();
+    this.editor.clearPendingPreedit();
     this.askLayerOwner = waiter;
     this.pauseElapsedClock(); // 模态浮层开层——耗时暂停（挖掘 31 轮 [8]：浮层等待期不计）
     // 模态浮层开层即收补全弹层（与 input() 路「应答期弹层抑制」同形——组 2

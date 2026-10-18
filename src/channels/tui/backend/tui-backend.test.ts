@@ -8251,6 +8251,186 @@ describe('TuiBackend 交互屏开屏 typeahead 竞窗（pending lone-ESC 隔离�
   });
 });
 
+/* ================= 56 轮件 2——ask 邻位三件 + 收场对称第四员（54 轮 penB 挂账 + gateB P3③） ================= */
+
+// 机制背景（54 轮 penB 两开窗位 lone-ESC 隔离的后续定谳批）：
+// - ① 开层期粘贴体中段残臂假设证伪：bracketed paste 在 decoder 内整段蓄积、
+//   PASTE_END 到达才单原子交付（4MiB 防护帽前无中段冲刷路）——「部分事件已
+//   入旧屏管线、部分归新层」的劈叉形结构性不存在。跨层粘贴体整段归
+//   PASTE_END 交付时刻的屏面（尾事件归属，与 lone-ESC「settle 时刻归属」
+//   同律）：面板期到达 = 层②模态独占吃尽；应答车期到达 = 整段入应答稿
+//   （54B「续收」立场的落码锁）。
+// - ② 引臂窗残位（本批修）：ctrl+] 待靶臂（editor.jumpPending）与 IME 组字
+//   态（decoder 会话态 + model 悬空预编辑）跨面板存活是陈态泄漏——面板期
+//   一切事件被层②吃尽，「续收」结构性不可达；收场后陈臂劫首字素 / 组字
+//   冲 flush 提交被吃尽后悬空预编辑残呈。ask 开层位同收（臂清 + 组字丢弃）；
+//   inputAsk 位不动（应答车续用主编辑器，续收真可达——setText 清臂 +
+//   组字续收两既有位，本批落锁）。
+// - ③ repaint 无 suspendedMain 闸：定谳注释位（authoritativeRepaint）——
+//   推证见该处注释。
+// - ④ 收场对称（本批修）：54B 只收两开窗位，漏收 input 应答车「空队退役」
+//   收场位——应答窗期按下、判定窗在飞的 ESC 在收场后到点 settle 落主屏
+//   （busy 态打断腿）：用户已答完问，陈键改写为打断意图。
+
+describe('TuiBackend ask 邻位三件 + 收场对称（56 轮件 2——粘贴体归属 / 引臂残位 / 空队退役对称）', () => {
+  it('①粘贴体跨层整段归属：面板开层期到达的粘贴体被层②整段吃尽——无中段残臂落主稿（原子性锁）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    io.emitInput('\x1b[200~前半'); // 粘贴头段（PASTE_END 未至——decoder 蓄积中，零事件交付）
+    pump();
+    const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    pump(); // 面板开层（蓄积中的粘贴体不劈叉——头段不预入旧屏管线）
+    io.emitInput('后半\x1b[201~'); // 尾段 + PASTE_END → 头尾合体单原子 paste 事件 → 层②面板吃尽
+    pump();
+    io.bytes = '';
+    io.emitInput('\r'); // 面板功能完好——enter 批准
+    pump();
+    await expect(p).resolves.toBe('approve');
+    pump();
+    expect(io.bytes).toContain('输入消息'); // 防空洞：composer 行本窗口确有重写（占位文在场）
+    expect(io.bytes).not.toContain('前半'); // 残臂假设（头段已入旧屏主稿）证伪的观测面
+    expect(io.bytes).not.toContain('后半'); // 整段随层面板期归属——无任何残段落主稿
+  });
+
+  it('①粘贴体跨窗续收：input 应答车开窗期到达的粘贴体整段入应答稿（54B 续收立场锁）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    io.emitInput('\x1b[200~答'); // 头段（开窗前蓄积——彼时屏面无窗）
+    pump();
+    const p = backend.input('补充说明？');
+    pump(); // 应答车开窗（清稿不动粘贴态——54B 窄面立场）
+    io.emitInput('案\x1b[201~'); // 尾段 → 头尾合体单原子 paste 事件 → 层④应答车收
+    pump();
+    io.emitInput('\r'); // enter 收窗提交应答
+    pump();
+    await expect(p).resolves.toBe('答案'); // 整段续收入应答——不丢头、不劈叉
+  });
+
+  it('②引臂窗残位：ctrl+] 待靶臂跨面板存活劫收场后首字素（修前红：陈臂吞字）', async () => {
+    const { io, backend, calls, pump } = makeInteractive();
+    io.emitInput('\x1d'); // ctrl+] → jump-forward 武装（下一可打印字素为跳靶）
+    pump();
+    const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    pump(); // 面板开层——修前：待靶臂无同收位，跨层存活成陈态
+    io.emitInput('\r'); // 批准收场（面板键面）
+    pump();
+    await expect(p).resolves.toBe('approve');
+    io.emitInput('a\r'); // 收场后首字素——修前被陈臂劫为跳靶（'a' 不入稿）、enter 空稿零提交
+    pump();
+    expect(calls.submitted).toEqual([['s1', 'a']]); // 修前红位：submitted 空账——'a' 被陈臂吞
+  });
+
+  it('②同族位：input 应答车开窗清稿连带清待靶臂（setText 单源——既有位锁）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    io.emitInput('\x1d'); // 武装待靶臂
+    pump();
+    const p = backend.input('补充说明？');
+    pump(); // 开窗位 setText('') 清稿连带清臂（editor.setText 内置——本批落锁既有位）
+    io.emitInput('a\r'); // 'a' 入应答稿非跳靶 → enter 提交
+    pump();
+    await expect(p).resolves.toBe('a');
+  });
+
+  it('②IME 组字跨面板：开层同收组字态（丢弃）——收场后无悬空预编辑残呈（修前红）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    io.emitInput('\x1b[0;;20013u'); // '中' 单发提交（正文入稿——kitty 首达零延迟交付）
+    pump();
+    io.emitInput('\x1b[0;;20013:22269u'); // '中国' 前缀链 → 回溯开 session → 组字态（preedit '中国'）
+    pump();
+    io.bytes = '';
+    const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    pump(); // 面板开层——修前：组字态无同收位，跨层悬空
+    io.emitInput('\r'); // 批准收场——修前：flushImeOnInterrupt 先冲 '中国' 为提交（被面板吃尽）→ 预编辑永无裁决位
+    pump();
+    await expect(p).resolves.toBe('approve');
+    pump();
+    expect(io.bytes).toContain('中'); // 防空洞：composer 行本窗口确有重写（开层前已提交的正文在场）
+    expect(io.bytes).not.toContain('国'); // 修前红位：悬空预编辑 '国' 残呈在 composer
+  });
+
+  it('②IME 组字跨窗续收：应答车开窗不动组字态——冲刷提交整段落应答稿（54B 续收立场锁）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    io.emitInput('\x1b[0;;20013u'); // '中' 单发提交（正文入稿）
+    pump();
+    io.emitInput('\x1b[0;;20013:22269u'); // 组字态 '中国'（preedit）
+    pump();
+    const p = backend.input('补充说明？');
+    pump(); // 应答车开窗：清稿不动组字态（54B 窄面立场——续收语境）
+    io.emitInput('\r'); // enter 打断组字：flushImeOnInterrupt 先冲 '中国' 为提交 → 层④应答车收 → enter 提交
+    pump();
+    await expect(p).resolves.toBe('中国'); // 组字整段续收入应答——不丢、不悬空
+  });
+
+  /* 56 轮闸清偿批主会话补锁：② 副屏挂起位同收（P2——suspendMain 单点，model-picker//diff/外编/挂 shell 全同律）+ ⑤ leader 待续窗跨层同收（P3） */
+
+  it('②副屏挂起位同收待靶臂：suspendMain 清 editor 侧陈臂——复起后首字素不被劫（修前红：陈臂吞字）', async () => {
+    const { io, backend, calls, pump } = makeInteractive();
+    io.emitInput('\x1d'); // ctrl+] → jump-forward 武装（下一可打印字素为跳靶）
+    pump();
+    backend.openHistory('s1', [{ role: 'user', content: '回看正文', timestamp: 1 }]);
+    pump(); // 副屏挂起——decoder 侧随 discardPending 全丢，修前：editor 侧待靶臂无同收位跨屏滞留
+    io.emitInput('q'); // 回看器键面退出（onExit → closeAlt → resumeMain 复起）
+    pump();
+    io.emitInput('a\r'); // 复起后首字素——修前被陈臂劫为跳靶（'a' 不入稿）、enter 空稿零提交
+    pump();
+    expect(calls.submitted).toEqual([['s1', 'a']]); // 修前红位：submitted 空账——'a' 被陈臂吞
+  });
+
+  it('②副屏挂起位同收组字态：suspendMain 清悬空预编辑——复起后稳态帧无残呈（修前红）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    io.emitInput('\x1b[0;;20013u'); // '中' 单发提交（正文入稿）
+    pump();
+    io.emitInput('\x1b[0;;20013:22269u'); // 组字态 '中国'（preedit 悬空——副屏期无裁决位）
+    pump();
+    backend.openHistory('s1', [{ role: 'user', content: '回看正文', timestamp: 1 }]);
+    pump();
+    io.emitInput('q'); // 键面退出 → 复起全帧重画
+    pump();
+    io.bytes = ''; // 观测窗只辖复起后稳态续帧——复起爆内先写投影 stale 行（组字陈态）再被权威重建同爆覆写自纠，同爆双写肉眼不可见，不断言爆内字节
+    io.emitInput('x'); // 复起后继续输入——修前：model 悬空预编辑不清则国字续呈于每一后续帧
+    pump();
+    expect(io.bytes).toContain('中x'); // 防空洞：复起后输入照常入稿（编辑器功能完好）
+    expect(io.bytes).not.toContain('国'); // 修前红位：组字跨屏陈态续呈
+  });
+
+  it('⑤leader 待续窗跨 ask 层同收：闲态武装的 2s 窗开层即卸——面板 ESC 不被⓪ 吞击（修前红：陈窗吞一击）', async () => {
+    const { io, backend, clock, pump } = makeInteractive({ onLeaderBranch: () => {} }); // 族激活（柄在场——层⓪ 头参与分诊）
+    io.emitInput('\x18'); // ctrl+x → leader 待续窗武装（闲态空稿——2s 窗在飞）
+    pump();
+    const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    pump(); // 面板开层——修前：陈窗无同收位跨层滞留（分支字母虽有 stack/inputAsk 闸挡）
+    io.emitInput('\x1b'); // 面板 ESC（取消语义）——修前：⓪ cancel 分诊先于层② 消费吞一击
+    pump();
+    escapePump(clock); // lone-ESC 判定窗到点 settle 成键（面板收到 ESC 的唯一路——漏此步则修前修后同悬，红绿失效）
+    await expect(p).resolves.toBe('cancel'); // 修前红位：ESC 被陈窗吞 → 面板悬置至超时
+  });
+
+  it('④收场对称：input 空队退役位同收应答窗期陈 ESC——不落主屏打断（修前红：陈键打断 run）', async () => {
+    const { io, backend, clock, calls, pump } = makeInteractive();
+    emit(backend, { type: 'agent_start' }); // 忙态在身——escape 栈空时落打断腿
+    const ac = new AbortController();
+    const p = backend.input('补充说明？', { signal: ac.signal });
+    pump();
+    io.emitInput('\x1b'); // 应答窗期按下——lone-ESC 判定窗挂起（30ms 定时器在飞）
+    clock.advance(10); // 窗内——收场事件到达（signal abort 的时序位）
+    ac.abort(); // 收场（同步收口路：inputAsk=null + continueInputQueue 空队退役）
+    await expect(p).resolves.toBe('');
+    escapePump(clock); // 判定窗到点——修前：settle 成键落入已收场的主屏键面（busy → 打断）
+    expect(calls.interrupted).toEqual([]); // 修前红位：ask 收场后陈键改写为打断意图
+  });
+
+  it('④对照锚（收场后新按键归主屏键面——既有键面不随本批变）：退役位同收只辖应答窗期陈键', async () => {
+    const { io, backend, clock, calls, pump } = makeInteractive();
+    emit(backend, { type: 'agent_start' });
+    const ac = new AbortController();
+    const p = backend.input('补充说明？', { signal: ac.signal });
+    pump();
+    ac.abort(); // 收场（无在飞陈键）
+    await expect(p).resolves.toBe('');
+    io.emitInput('\x1b'); // 收场【后】新按——本就归主屏键面
+    escapePump(clock);
+    expect(calls.interrupted).toEqual(['s1']); // 忙态 escape 打断照旧
+  });
+});
+
 /* ================= TUI 剪贴板图片直贴（35 池件 2 + 39 轮 normalize_pasted_path 变体面） ================= */
 
 describe('TuiBackend 剪贴板图片直贴（ctrl+v 读链 + 路径变体面 + 提交消费律）', () => {
@@ -8358,6 +8538,30 @@ describe('TuiBackend 剪贴板图片直贴（ctrl+v 读链 + 路径变体面 + �
     io.emitInput('纯文本\r');
     pump();
     expect(submissions).toEqual([{ text: '纯文本', images: [] }]); // 无占位 → 零附图 + 暂存清账
+  });
+
+  it('ask 应答窗让位清暂存图账（56 轮闸 P2）：陈图不劫后续提交——再贴新图按新账随行（修前红：min 帽顶掉旧账反挂错图）', async () => {
+    const submissions: PasteSubmission[] = [];
+    let seq = 0; // 逐贴产异图（图 1 → 图 2——陈账/新账可分辨）
+    const { io, backend, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock((seq += 1))],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16'); // ctrl+v → 图 1 暂存 + [图片] 占位入稿
+    await flushMicrotasks();
+    pump();
+    const p = backend.input('补充说明？'); // ask 应答窗开（setText 清稿——占位随之灭）
+    pump();
+    io.emitInput('答\r'); // 应答提交（ask 早退支——不经 consumeStagedImages）
+    pump();
+    await expect(p).resolves.toBe('答');
+    io.emitInput('\x16'); // 再贴图 2（新账应唯一）
+    await flushMicrotasks();
+    pump();
+    io.emitInput('\r'); // 主稿提交（空文本剥占位 + 暂存附图随行）
+    pump();
+    expect(submissions).toEqual([{ text: '', images: [refBlock(2)] }]); // 修前红位：陈账在前——min 帽顶掉旧账反挂图 1
   });
 
   it('手敲占位词面零误伤（暂存空不剥）：无图提交 `[图片]` 原文直通', async () => {

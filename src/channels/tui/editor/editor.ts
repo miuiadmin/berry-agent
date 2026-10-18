@@ -237,6 +237,28 @@ export class Editor implements Renderable {
   }
 
   /**
+   * 待靶臂主动同收（56 轮件 ②——ask 开层位陈臂清理）：解除 jump 待靶态。
+   * setText 的顺带清（挖掘 26 轮 [2]）覆盖「清稿」语境；本面覆盖「不清稿、
+   * 只解除悬置态」语境——模态面板开层：面板期一切事件被层②吃尽，「下一
+   * 字素为靶」的续收结构性不可达，臂跨层存活即陈态（收场后首字素被劫）。
+   * 纯态清零操作面（幂等——未武装调用零副作用）。
+   */
+  cancelPendingJump(): void {
+    this.jumpPending = null;
+  }
+
+  /**
+   * 悬空预编辑呈现面同收（56 轮件 ②——ask 开层位组字态丢弃的呈现半边）：
+   * 清 model 挂起预编辑。与 decoder.discardPendingPreedit 配对消费（decoder
+   * 清组字会话态、本面清呈现态）——单收一半会造劈叉：只清会话 = 冲刷裁决
+   * 事件缺席而呈现悬空；只清呈现 = 会话续走而下发组字另起。消费语境同
+   * cancelPendingJump（模态面板开层——组字续收结构性不可达）。
+   */
+  clearPendingPreedit(): void {
+    this.model.setPreedit(null);
+  }
+
+  /**
    * 历史回搜态在场查询（挖掘 31 轮 [3]）：backend 七守卫门判（escape 让路 /
    * 教学键 / leader arm / 补全抑制等）需感知搜索期——搜索态事件被编辑器
    * 吃尽、稿件被预览占据，上层分诊须让位（hasPendingJump 同形语义化查询面）。

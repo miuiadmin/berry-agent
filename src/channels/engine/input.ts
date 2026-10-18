@@ -570,6 +570,20 @@ export class InputDecoder {
     this.escPendingAt = null;
   }
 
+  /**
+   * 组字态窄面丢弃（56 轮件 ②——ask 开层位同收）：只清 IME 挂起预编辑（组字
+   * session 态），不触粘贴蓄积 / lone-ESC 挂起 / 文本游程（窄面纪律与
+   * discardPendingEscape 同律——每面只辖一种 pending 态）。消费语境 = 模态
+   * 面板开层：面板期一切事件被 overlay 层吃尽，组字「续收」结构性不可达——
+   * 开层即弃，防面板期冲刷提交被吃尽后预编辑悬空（裁决事件永无到达位）。
+   * 对照 inputAsk 位：应答车续用主编辑器，组字续收真可达、不动本面。
+   * lastCsi0 不清：跟随窗 100ms 内的前缀链回溯只影响后续到达的分诊（等同
+   * 主流终端单发提交形），开层时刻的到达序无回溯义务。
+   */
+  discardPendingPreedit(): void {
+    this.preedit = null;
+  }
+
   /** 游程冲刷：地面态连续可打印合并成一个 text 事件（提交/打字不撕裂） */
   private flushTextRun(): void {
     if (this.textRun.length > 0) {
