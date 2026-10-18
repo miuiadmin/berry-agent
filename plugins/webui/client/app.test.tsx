@@ -1216,6 +1216,47 @@ describe('WebUiRoot零会话态提交（十六役补扫 N6——输入不静默�
     await new Promise((r) => setTimeout(r, 30)); // 让潜在的错误拽位 setState 落地
     expect(FakeEventSource.instances.some((s) => s.url.includes('s-a'))).toBe(false);
   });
+
+  it('回显落位以活动会话为界（挖掘 64 轮件G）：竞窗内已选他会话——回执回显不越界落他会话正文（修前红：幻影行冒充他会话正文且无吸收路径），内容仍进新会话', async () => {
+    primeZeroSession();
+    apiMock.submit.mockResolvedValue(undefined);
+    // 首调（submit 腿自动开新）挂起；挂起窗内用户点「+ 新会话」（按钮腿，
+    // 第二调）立即成活 s-b——选中已落 s-b（当前正文面 = s-b）
+    let releaseA!: (id: string) => void;
+    const pendingA = new Promise<string>((r) => {
+      releaseA = r;
+    });
+    let calls = 0;
+    apiMock.createSession.mockImplementation(() => {
+      calls += 1;
+      return calls === 1 ? pendingA : Promise.resolve('s-b');
+    });
+    render(<WebUiRoot />);
+    await screen.findByText('暂无会话——点「+ 新会话」开一个');
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '竞窗回显' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await waitFor(() => {
+      expect(apiMock.createSession).toHaveBeenCalledTimes(1); // submit 腿挂起中
+    });
+    // 挂起窗内用户开新并选中 s-b（他会话正文面就位——幻影行的落点）
+    fireEvent.click(screen.getByRole('button', { name: '+ 新会话' }));
+    await waitFor(() => {
+      expect(FakeEventSource.instances.some((s) => s.url === '/api/sessions/s-b/events')).toBe(true);
+    });
+    // submit 腿回执到达：修前红——回显腿无守卫，echoedUserMessage 把回显叠进
+    // s-b 的 messages（幻影行冒充 s-b 正文且无吸收路径——镜像只扇 s-a 流、
+    // pendingEchoes 永不配对，投影重载对「在途回显」保位不撤）；修后——
+    // prev.activeId === sessionId 才回显（不回显即不记账），切回 s-a 时投影
+    // 重载自会带出正文
+    releaseA('s-a');
+    await waitFor(() => {
+      // 内容仍进新会话（21 轮件7 拍板维持——提交目标不随焦点让位漂移）
+      expect(apiMock.submit).toHaveBeenCalledWith('s-a', '竞窗回显', expect.stringMatching(/.+/));
+    });
+    await new Promise((r) => setTimeout(r, 30)); // 让潜在的越界回显 setState 落地
+    expect(screen.queryByText('竞窗回显')).toBeNull(); // 当前他会话正文无幻影行
+  });
 });
 
 describe('WebUiRoot稳态周期复拉（十六役补扫 N22/N23——跨会话审批可见性 + 清单运行期刷新）', () => {

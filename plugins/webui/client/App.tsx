@@ -615,7 +615,19 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
     const echoTimestamp = Date.now();
     // 回显带附件占位 token（图块补位——镜像吸收与投影对账两路共键）；附件
     // 数透传（imageCount），App 不持有 dataURL 形状知识
-    setState((prev) => echoedUserMessage(prev, sessionId, text, echoTimestamp, attachments?.length ?? 0));
+    // 回显落位以活动会话为界（64 轮件G——03 §10.4 批注）：竞窗形（零会话态
+    // 自动开新挂起窗内用户已选他会话——21 轮件7 让位不拽拍板形）下 sessionId
+    // 已非活动会话，无条件入账 = 幻影行冒充他会话正文且无吸收路径（镜像只扇
+    // newId 流、pendingEchoes 永不配对，投影重载对「在途回显」保位不撤）——
+    // 守卫 prev.activeId === sessionId 才回显；不回显即不记账（pendingEchoes
+    // 与 lastUserAt 同守卫内原样返回天然不动），切回时投影重载自会带出正文。
+    // 内容提交目标不受此守卫影响（api.submit 恒收 sessionId——提交目标不随
+    // 焦点让位漂移，21 轮件7 拍板维持）
+    setState((prev) =>
+      prev.activeId === sessionId
+        ? echoedUserMessage(prev, sessionId, text, echoTimestamp, attachments?.length ?? 0)
+        : prev,
+    );
     // 提交调用面：纯文恒三参（既有调用契约零漂移）；带附件四参（chip 原形
     // 透传——空数组形 Composer 侧已不触发，api 层另有空数组零漂移防线）
     const submitted =
