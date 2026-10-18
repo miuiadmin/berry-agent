@@ -72,7 +72,11 @@ export interface PluginRouteBindingInput {
 interface PluginRouteEntry {
   readonly pluginId: string;
   readonly descriptor: SdkRouteDescriptor;
-  /** 面在场受理时的活面摘除 fn（pending 态缺席——构造期路由经 routes 注入位自摘） */
+  /**
+   * 面在场受理时的活面摘除 fn（晚注册路受理即得；构造期注入路的摘除 fn
+   * 被开面序丢弃——attachFace 按键回绑补全〔67 轮批注〕，否则 releaseFor
+   * 只清账不摘挂：旧 handler 滞留活面 + 换代重注册撞活面表 throw）
+   */
   removeLive?: () => void;
 }
 
@@ -189,6 +193,19 @@ export function createPluginRouteRegistry(options: PluginRouteRegistryOptions = 
     attachFace(face) {
       if (liveFace === face) return; // 幂等保真（同面重复挂接 no-op）
       liveFace = face;
+      // —— 构造期注入路由的摘除 fn 回绑（03 §10.6 67 轮批注）：开面序
+      // `for (descriptor of routes) register(descriptor)` 丢弃返款摘除 fn，
+      // pending 期入账条目恒无 removeLive——releaseFor 只清账不摘挂（旧
+      // handler 滞留活面：uninstall 后仍 200）且换代重注册撞活面注册表
+      // throw（apply 整体失败直到重启）。本位按键向面查取既有摘除 fn 入账
+      // （只绑不摘——查取后 releaseFor/摘除 fn 即可连带摘挂）；已绑条目
+      // （晚注册路）与面内无此键形（键属他面）均不动 ——
+      for (const [key, entry] of [...entries]) {
+        if (entry.removeLive !== undefined) continue;
+        const remover = face.routeRemoverOf(key);
+        if (remover === undefined) continue;
+        entries.set(key, { ...entry, removeLive: remover });
+      }
     },
 
     detachFace() {

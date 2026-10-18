@@ -9,7 +9,9 @@
  * 路径零审计/摘除后重注册新账）④两时点 replay 真 face e2e（pending→
  * snapshot 构造期注入→start→fetch 200；attachFace 后受理→晚注册 fetch 200；
  * attachFace 幂等；摘除 fn→404；releaseFor→活面摘挂+重注册可；detachFace→
- * 回 pending；/reload 合成形：releaseFor+门撤→重注册现判现拒）。
+ * 回 pending；/reload 合成形：releaseFor+门撤→重注册现判现拒；构造期注入
+ * 路摘除回绑：releaseFor 连带摘挂→404 + 换代重注册不撞活面表〔67 轮批注
+ * ——修前 handler 滞留/重注册 throw 两缺陷形〕）。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -336,6 +338,70 @@ describe('两时点 replay（真 face e2e——受理与挂载解耦全链）', 
     // 新代重注册可（数帽分帐随 release 归零 + 键已释放）
     bind(registry, 'p').register(baseDescriptor({ path: '/a' }));
     expect(used).toHaveLength(4); // 3 笔首发 + 1 笔新代
+  });
+
+  // —— 构造期注入路活面摘除回绑（67 轮批注——pending 期入账条目无
+  // removeLive 的两缺陷形锁）：受理先于开面（三入口结构性时序）→ snapshot
+  // 注入构造期 routes 位（开面序丢弃摘除 fn）→ attachFace 后 releaseFor
+  // 须连带摘挂。修前：账面清而活面 handler 滞留（uninstall 后仍 200）+
+  // 换代重注册撞活面注册表 throw（apply 整体失败直到重启）——
+  /** 构造期注入路装具：受理（pending）→ 开面（snapshot 注入）→ 挂接 */
+  async function constructorPathRig(
+    gen: 'gen1' | 'gen2' = 'gen1',
+  ): Promise<{ registry: ReturnType<typeof createPluginRouteRegistry>; url: (p: string) => string; token: string }> {
+    const { registry } = makeRegistry();
+    bind(registry, 'p').register(
+      baseDescriptor({
+        path: '/gen',
+        handler: (_req, res) => {
+          res.writeHead(200);
+          res.end(gen);
+        },
+      }),
+    );
+    const face = createSdkHttpFace({
+      config: { tcp: { host: '127.0.0.1', port: 0 } },
+      bridge: makeBridge(),
+      routes: [...registry.snapshot()], // 构造期 replay（受理器外的第二真源缺口）
+    });
+    faces.push(face);
+    const { url, token } = await startFace(face);
+    registry.attachFace(face); // 三入口消费形（开面后挂接）
+    return { registry, url, token };
+  }
+
+  it('锁1 构造期注入路 releaseFor 连带摘挂：→ 404（修前红：handler 滞留活面仍 200）', async () => {
+    const { registry, url, token } = await constructorPathRig('gen1');
+    const headers = { authorization: `Bearer ${token}` };
+    expect((await fetch(url('/plugins/p/gen'), { headers })).status).toBe(200); // 先证在场
+
+    registry.releaseFor('p'); // 卸载/换代回收腿——修前：条目无 removeLive 只清账
+    // 修前红：账面已空而活面 handler 滞留 → 200；修后回绑摘除 fn → 404
+    expect((await fetch(url('/plugins/p/gen'), { headers })).status).toBe(404);
+    expect(registry.snapshot()).toHaveLength(0); // 账面同空（两锁共证）
+  });
+
+  it('锁2 构造期注入路换代重注册：同键重注册可达 + 新代 handler 应答（修前红：撞活面表 throw）', async () => {
+    const { registry, url, token } = await constructorPathRig('gen1');
+    const headers = { authorization: `Bearer ${token}` };
+    expect((await fetch(url('/plugins/p/gen'), { headers })).status).toBe(200);
+
+    registry.releaseFor('p'); // 旧代回收（disposer 腿——bootPlugins fork.effect 同款）
+    // 新代重注册同 method+path：修前红——活面注册表键未释放，受理 ⑤
+    // liveFace.register 撞「路由重复注册」throw（apply 整体失败直到重启）
+    expect(() =>
+      bind(registry, 'p').register(
+        baseDescriptor({
+          path: '/gen',
+          handler: (_req, res) => {
+            res.writeHead(200);
+            res.end('gen2');
+          },
+        }),
+      ),
+    ).not.toThrow();
+    const res = await fetch(url('/plugins/p/gen'), { headers });
+    expect(await res.text()).toBe('gen2'); // 新代 handler 应答（旧代滞留即 'gen1'）
   });
 
   it('detachFace：面收口后受理回 pending 态（snapshot 在账、无活面挂载）', async () => {

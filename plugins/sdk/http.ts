@@ -156,6 +156,13 @@ export interface SdkHttpFaceHandle {
   readonly token: string;
   /** 晚注册位（两注册入口之二——claim 桥同款晚绑；返摘除 fn） */
   register: SdkRouteRegistrar;
+  /**
+   * 已注册路由摘除 fn 查取（键 = `${method} ${path}`——register 返款同账）。
+   * 只查不摘（查取位消费方 = 受理器 attachFace 回绑：构造期 routes 注入位
+   * 的摘除 fn 被开面序丢弃，受理器账面回绑后 releaseFor 方可连带摘挂——
+   * 03 §10.6 67 轮批注）；键不在本面注册表 = undefined。
+   */
+  routeRemoverOf(key: string): (() => void) | undefined;
   /** 监听就绪（sock 可选 + TCP 单/多；陈旧 sock 死迹自动清） */
   start(): Promise<SdkListenInfo>;
   /** 收场序：停心跳 → 全流收口（含扩展路由 SSE 流）→ dispose（在飞 ask unavailable + core.close）→ 关监听 → 清 sock 足迹 */
@@ -733,6 +740,11 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
   const catchAllRoutes: CompiledRoute[] = [];
   /** 注册键账（`${method} ${path}` 双键唯一——重复注册 fail-loud） */
   const routeKeys = new Set<string>();
+  /**
+   * 注册键 → 摘除 fn 账（routeRemoverOf 查取位单源——摘除 fn 执行时联动
+   * 清本账，防已摘键滞留查取面返回死 fn）
+   */
+  const routeRemovals = new Map<string, () => void>();
 
   /** 注册（两入口共享实现）：校验编译 → 入表；返摘除 fn（摘后 404 同未注册、键释放可重注册） */
   const register: SdkRouteRegistrar = (descriptor) => {
@@ -743,11 +755,14 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
     routeKeys.add(compiled.key);
     const table = compiled.segments.includes(WILDCARD_SEGMENT) ? catchAllRoutes : namedRoutes;
     table.push(compiled);
-    return () => {
+    const removal = (): void => {
       routeKeys.delete(compiled.key);
+      routeRemovals.delete(compiled.key);
       const at = table.indexOf(compiled);
       if (at !== -1) table.splice(at, 1);
     };
+    routeRemovals.set(compiled.key, removal);
+    return removal;
   };
   for (const descriptor of options.routes ?? []) register(descriptor);
 
@@ -1019,6 +1034,8 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
     core,
     token,
     register,
+    // 摘除 fn 查取位（受理器 attachFace 回绑消费——67 轮批注；只查不摘）
+    routeRemoverOf: (key: string): (() => void) | undefined => routeRemovals.get(key),
     start: async (): Promise<SdkListenInfo> => {
       // —— 挂载规则 warn（start 时一行——非回环 TCP × loopbackOnly 路由在场）——
       const hasLoopbackOnly =
