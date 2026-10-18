@@ -2,7 +2,9 @@
  * berry-agent-sdk/stdio — spawn serve stdio 传输（批 13f-3）。
  *
  * spawn 子进程（缺省 process.execPath + 调用方给 args——serve 形态如
- * `['<主包>/dist/host/main.js', 'serve']`，安装布局由调用方知悉、本件不猜）、
+ * `['<主包>/dist/src/host/main.js', 'serve']`〔入口路径真源 = 主包
+ * package.json `bin.berry`——构建产物树在 dist/src/ 下〕，安装布局由
+ * 调用方知悉、本件不猜）、
  * stdin/stdout 行帧 NDJSON（编解码复用主仓 channels jsonl 件——行安全转义
  * 与分帧单源，零第二套）。
  *

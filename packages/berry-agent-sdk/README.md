@@ -20,8 +20,9 @@ npm install berry-agent-sdk
 import { createSdkClient, spawnServeTransport } from 'berry-agent-sdk';
 
 const transport = spawnServeTransport({
-  // 默认 command = process.execPath（node 直跑形）；args 由调用方知悉安装布局
-  args: ['<berry-agent 包路径>/dist/host/main.js', 'serve'],
+  // 默认 command = process.execPath（node 直跑形）；入口路径 = 主包 bin 真源
+  // （package.json「bin.berry」→ dist/src/host/main.js）
+  args: ['<berry-agent 包路径>/dist/src/host/main.js', 'serve'],
 });
 
 const client = createSdkClient(transport);
@@ -69,10 +70,16 @@ await client.close();
 - `spawnServeTransport({ args, … })` / `httpSdkTransport({ socketPath | host+port, token })`
   —— 两实装同 `SdkTransport` 三种抽象：请求形（单帧返回）、无返回形
   （interrupt）、直播形（SSE / 线内 hello，replay-end 后建立）。
-- 类型面：`AgentEvent` / `ApprovalAskAnswer` / `SdkRequest` / `SdkWireFrame` /
-  `SdkAckFrame` / `SdkEntriesFrame` / `SdkSessionsFrame` / `SdkSessionsResult` /
-  `SdkSessionSummary` / `SdkDurableEntry` / `SdkEventFrame` / `SdkHelloFrame` /
-  `SdkErrorFrame` / `SDK_PROTOCOL_VERSION`。
+- 类型面（与 `src/index.ts` 桶导出对拍——增删导出须同笔改本清单）：客户端面
+  `SdkFrameListener` / `SdkLiveHandle` / `SdkLiveParams` / `SdkTransport` /
+  `SdkClient` / `SdkPromptInput` / `SdkPromptImage` / `SdkEntriesInput` /
+  `SdkSessionsResult`；线协议/契约面 `AgentEvent` / `ApprovalAskAnswer` /
+  `SdkRequest` / `SdkWireFrame` / `SdkAckFrame` / `SdkEntriesFrame` /
+  `SdkSessionsFrame` / `SdkSessionSummary` / `SdkDurableEntry` / `SdkEventFrame` /
+  `SdkHelloFrame` / `SdkErrorFrame` / `SdkHeartbeatStage` / `SdkHeartbeatFrame` /
+  `SdkReplayEndFrame` / `SdkDecideResultFrame` / `SdkAskFrame`；传输选项面
+  `SpawnServeOptions` / `SdkStdioTransport` / `HttpSdkOptions`；值常量
+  `SDK_FRAME_KINDS` / `SDK_PROTOCOL_VERSION`。
 
 ## 状态
 

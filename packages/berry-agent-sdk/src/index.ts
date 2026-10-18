@@ -8,7 +8,7 @@
  * 用法骨架：
  * ```ts
  * import { createSdkClient, spawnServeTransport } from 'berry-agent-sdk';
- * const transport = spawnServeTransport({ args: ['<主包>/dist/host/main.js', 'serve'] });
+ * const transport = spawnServeTransport({ args: ['<主包>/dist/src/host/main.js', 'serve'] });
  * const client = createSdkClient(transport);
  * const ack = await client.prompt({ content: '你好' });
  * const handle = await client.subscribe({ sessionId: ack.sessionId }, (frame) => { … });
