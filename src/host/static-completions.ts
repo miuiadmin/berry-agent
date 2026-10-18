@@ -98,7 +98,7 @@ const VERB_META: Readonly<Record<string, readonly [string, boolean]>> = {
 };
 
 /**
- * 命令参数源（R6 批 10j）——**静态面**：四命令子动词首参 + 深位枚举
+ * 命令参数源（R6 批 10j）——**静态面**：五命令子动词首参 + 深位枚举
  * （approval preset 预设名 / doors open·close 能力名——枚举单源 = safety
  * 预设表与 contracts 面目录）。插件 id、回退点 id、会话 id、goal id 四
  * 活体位归 {@link liveCommandArgumentItems}（挂账解挂批 2026-09-15 落地

@@ -1837,12 +1837,12 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         ],
         // 参数段源（R6 批 10j 装配接线）：活体位先行（挂账解挂批 2026-09-15
         // ——plugins id / rewind id 两尾参位），null = 位外/依赖缺席归静态面
-        // （四命令子动词首参 + 深位枚举——原行为零扰动）
+        // （五命令子动词首参 + 深位枚举——原行为零扰动）
         commandArguments: (command, query, priorArgs) => {
           // 活体值源三位合流（plugins id / rewind id / 会话 id——07 §4.1 R6 +
           // 命令面增补批 C2 + 2026-09-30 会话管理命令批批2 /resume 扩词）：位裁
           // 与条目铸造全在 live-completions 件，null = 位外/依赖缺席归静态面
-          // （四命令子动词首参 + 深位枚举——原行为零扰动）
+          // （五命令子动词首参 + 深位枚举——原行为零扰动）
           const live = liveCommandArgumentItems(command, query, priorArgs, liveCompletionDeps);
           if (live !== null) return live;
           return commandArgumentItems(command, query, priorArgs);
