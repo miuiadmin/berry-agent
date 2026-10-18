@@ -10,6 +10,10 @@
  * ⑤订阅生命周期与真观众同步（流撤即退订 / prompt-only 孤儿即清 / SSE 在场
  * 则保留）
  * ⑥体限幅 413 ⑦sock 面接入（Unix socket 真请求 + 陈旧死迹自动清）
+ * ⑧受理段注册码收容（03 §10.6 67 轮批注——三传输同律）：受理腿经装配桥
+ * 撞注册码族 BaseError 按请求折 error 帧码直出（POST 腿走 sendError 映射、
+ * SSE 建流腿流内 reason 帧优雅收线）；非注册码裸 Error 维持 500 纯文本
+ * 兜底（负向维持锁）。
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
@@ -19,6 +23,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { SdkDurableEntry, SdkWireFrame } from '../../src/channels/index.js';
+import { BaseError } from '../../src/contracts/index.js';
 import { createSdkHttpFace, PROMPT_BODY_LIMIT_BYTES, type SdkHttpFaceHandle, type SdkListenInfo } from './http.js';
 import type { SdkHttpBridge } from './types.js';
 
@@ -572,6 +577,108 @@ describe('sdk/http 体限幅注入位', () => {
     } finally {
       await face.stop();
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('sdk/http 受理段注册码收容（67 轮批注——三传输同律：stdio/MCP 面同律完形）', () => {
+  /**
+   * 自起面装具：桥面 queryEntries 铸损形（受理腿真触达库面读位——hello 重放
+   * 腿与 POST /v1/entries 腿共用此桥位）。其余桥面原样（会话宇宙走内存桩——
+   * sessionStateOf 过 open 才触达 queryEntries，非 SESSION_NOT_FOUND 早退）。
+   */
+  async function corruptFace(errFactory: () => never): Promise<{
+    face: SdkHttpFaceHandle;
+    stub: BridgeStub;
+    dir: string;
+    headers: Record<string, string>;
+    port: number;
+  }> {
+    const stub = makeBridge();
+    stub.setSession('s-1', 'open', [entry(0)]);
+    const bridge: SdkHttpBridge = {
+      ...stub.bridge,
+      queryEntries: errFactory as unknown as SdkHttpBridge['queryEntries'],
+    };
+    const dir = await mkdtemp(join(tmpdir(), 'sdk-http-contain-'));
+    const face = createSdkHttpFace({
+      config: { socketPath: join(dir, 'x.sock'), tcp: { host: '127.0.0.1', port: 0 } },
+      bridge,
+    });
+    const info = await face.start();
+    return {
+      face,
+      stub,
+      dir,
+      port: info.tcp[0]!.port,
+      headers: {
+        'content-type': 'application/json',
+        'x-sdk-protocol': '1',
+        authorization: `Bearer ${face.token}`,
+      },
+    };
+  }
+
+  it('锁1 POST 腿撞注册码：sendError 映射位码直出（修前红：兜底腿 text/plain 500 码丢失）', async () => {
+    const rig = await corruptFace(() => {
+      throw new BaseError('PERSIST_DATA_CORRUPT', '[PERSIST_DATA_CORRUPT] 测试铸损');
+    });
+    try {
+      const res = await fetch(`http://127.0.0.1:${rig.port}/v1/entries`, {
+        method: 'POST',
+        headers: rig.headers,
+        body: JSON.stringify({ sessionId: 's-1', since: 0 }),
+      });
+      const text = await res.text();
+      // 修前红：fallbackOnRequestError 未发头腿 writeHead(500) text/plain
+      // 'internal error'——注册码与帧形全丢（content-type 断言即红）
+      expect(res.headers.get('content-type')).toContain('application/json');
+      expect(res.status).toBe(500); // PERSIST_DATA_CORRUPT 未列映射表 → ?? 500
+      expect(JSON.parse(text)).toMatchObject({ kind: 'error', code: 'PERSIST_DATA_CORRUPT' });
+    } finally {
+      await rig.face.stop();
+      await rm(rig.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('锁2 SSE 建流腿撞注册码：流内 error 帧理由载荷 + 优雅收线（修前红：裸拆线零理由）', async () => {
+    const rig = await corruptFace(() => {
+      throw new BaseError('PERSIST_DATA_CORRUPT', '[PERSIST_DATA_CORRUPT] 测试铸损');
+    });
+    let sse: SseReader | undefined;
+    try {
+      // after=-1 触发重放腿 → queryEntries 同步抛（此时 hello 帧已入流、头已发）
+      sse = await openSse(rig.port, '?sessionId=s-1&after=-1', rig.headers);
+      expect(await sse.next()).toMatchObject({ kind: 'hello', sessionId: 's-1' }); // hello 先达（帧序锚）
+      // 修前红：异常逃逸 → headersSent 腿裸 destroy——error 帧永不达（nextOf 超时 undefined）
+      const errFrame = await sse.nextOf('error');
+      expect(errFrame).toMatchObject({ kind: 'error', sessionId: 's-1', code: 'PERSIST_DATA_CORRUPT' });
+      // reason 帧后优雅收线（EOF 达读者——对照修前 destroy 形 ended()=false）
+      expect(await sse.ended()).toBe(true);
+    } finally {
+      sse?.abort();
+      await rig.face.stop();
+      await rm(rig.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('锁3 非注册码裸 Error 维持锁：500 纯文本兜底形不变（收容律不吞真 bug 面）', async () => {
+    const rig = await corruptFace(() => {
+      throw new Error('真 bug 面');
+    });
+    try {
+      const res = await fetch(`http://127.0.0.1:${rig.port}/v1/entries`, {
+        method: 'POST',
+        headers: rig.headers,
+        body: JSON.stringify({ sessionId: 's-1', since: 0 }),
+      });
+      const text = await res.text();
+      expect(res.status).toBe(500);
+      expect(res.headers.get('content-type')).toContain('text/plain'); // 兜底契约不变
+      expect(text).toBe('internal error');
+    } finally {
+      await rig.face.stop();
+      await rm(rig.dir, { recursive: true, force: true });
     }
   });
 });

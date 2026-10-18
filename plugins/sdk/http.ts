@@ -63,6 +63,7 @@ import type {
   SdkWireOptions,
   UiBackend,
 } from '../../src/channels/index.js';
+import { BaseError } from '../../src/contracts/index.js';
 import {
   generateToken,
   isLoopbackHost,
@@ -396,7 +397,12 @@ function sendError(res: ServerResponse, status: number, code: string, message: s
  *   flushHeaders 等）：状态码位已用尽，再 writeHead 同步抛 ERR_HTTP_HEADERS_SENT
  *   ——在 .catch 回调内抛即逃成 unhandledRejection（crash 编舞击杀常驻
  *   daemon——64 轮件 C 缺陷形），改 res.destroy() 拆线收口（读侧即时收线）；
- * - **未发头**：维持 writeHead(500)+end 纯文本（500 兜底契约不变）。
+ * - **未发头**：受理段注册码收容分档（03 §10.6 67 轮批注——三传输同律）：
+ *   注册码族 BaseError（已识故障态）走 sendError 映射位——码直出 + 帧形
+ *   同构（与 respondCollected 单源映射 HTTP_STATUS_BY_CODE；缺省档分立——
+ *   本腿未列码 ?? 500〔受理段异常族 5xx 语义合理〕、彼腿 ?? 400〔请求级
+ *   拒答形〕，见行内注）；
+ *   非注册码异常维持 writeHead(500)+end 纯文本（500 兜底契约不变）。
  * writableEnded 不作发头判据（end() 前恒 false 不辨已发头——原缺陷根因）。
  */
 function fallbackOnRequestError(
@@ -405,12 +411,21 @@ function fallbackOnRequestError(
   err: unknown,
   warn: (message: string) => void,
 ): void {
-  warn(`${label} 面请求处理异常：${err instanceof Error ? err.message : String(err)}`);
+  warn(
+    `${label} 面请求处理异常${err instanceof BaseError ? `（注册码收容：${err.code}）` : ''}：${err instanceof Error ? err.message : String(err)}`,
+  );
   // 已完应答早退：warn 已记，连接保持原状（无收线动作）
   if (res.writableEnded) return;
   if (res.headersSent) {
     // 已发头未完流：writeHead 二次调必抛——destroy 拆线是唯一不抛的收线形
     res.destroy();
+    return;
+  }
+  // 注册码族：sendError 映射位码直出（映射表与逐请求错误帧腿单源同表；缺省
+  // 档分立是有意的——本腿未列码 ?? 500（受理段异常族语义 5xx 合理）、
+  // respondCollected 未列码 ?? 400（请求级拒答形），勿「统一」）
+  if (err instanceof BaseError) {
+    sendError(res, HTTP_STATUS_BY_CODE[err.code] ?? 500, err.code, err.message);
     return;
   }
   res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
@@ -678,6 +693,20 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
         ...(after !== undefined ? { after } : {}),
         ...(noDelta !== undefined ? { noDelta } : {}),
       });
+    } catch (err) {
+      // —— 受理段注册码收容（03 §10.6 67 轮批注——三传输同律）：hello 重放
+      // 腿经装配桥触达库面读，损坏会话日志抛注册码族 BaseError。此时头已发
+      // （SseStream 构造即 writeHead(200)）、hello 帧已入流——异常若逃逸到
+      // dispatch 兜底只能走 headersSent 腿裸 destroy，客户端收 200 头 +
+      // hello 帧 + 断线零理由载荷。已识故障态按请求收容：error 帧写流内
+      // （reason 载荷码直出——SDK 客户端 openLive 可 reject 而非悬挂）+
+      // 优雅收线（NDJSON 收口形，与 !helloAccepted 档同款）。非注册码异常
+      // 原样上抛——交面级兜底维持崩溃编排 fail-loud ——
+      if (!(err instanceof BaseError)) throw err;
+      stream.write({ kind: 'error', sessionId, code: err.code, message: err.message });
+      stream.close();
+      res.end();
+      return;
     } finally {
       scopeStack.pop();
     }
