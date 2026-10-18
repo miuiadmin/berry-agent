@@ -9095,6 +9095,34 @@ describe('TuiBackend 剪贴板图片直贴（ctrl+v 读链 + 路径变体面 + �
     expect(submissions).toEqual([{ text: '/unregistered', images: [refBlock(2)] }]);
   });
 
+  it('占位+斜杠命令混合稿的等回声预置门净稿化（63 轮件 G——修前红：原始 line0 占位词面漏判斜杠 → awaitingEcho 误置、命令族零回声块无复位源 → 空态引导压到次键）', async () => {
+    // 判据位与执法消费位同源（61 轮件 C 谱——本笔是该谱在回声预置面的对齐）：
+    // 预置门斜杠判据须看剥占位后的净稿首行——与提交位 handleSubmit 同稿面
+    // （consumeStagedImages 剥 `[图片]` 占位 → dispatchCommand 按净稿分发）。
+    // 「[图片] + 换行 + /help」混合稿 enter 时刻原始 line0 是占位词面非斜杠，
+    // 旧直判据此误置 awaitingEcho；命令族本地终局消费零用户块回声——抑制位
+    // 无复位源（settle 需对话块 >0、非空稿键入才清），空态引导被压到次键。
+    const dispatched: string[] = [];
+    const { io, calls, pump } = makeInteractive(
+      {
+        clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+        imageIntake: () => [refBlock(11)],
+        dispatchCommand: async (input) => {
+          dispatched.push(input);
+          return true; // 已注册并受理——本地终局消费（命令形吞稿零兜底）
+        },
+      },
+      GUIDE_ROWS, // 14 行屏——转录区容得下 5 行空态引导（门控语义可观测形）
+    );
+    io.emitInput('\x16'); // ctrl+v → 图暂存 + [图片] 占位行入稿（空稿独占）
+    await flushMicrotasks(); // 读器 promise 链回执
+    io.emitInput('\n/help\r'); // 混合稿：占位行 + 换行 + 斜杠命令行 → 提交
+    pump();
+    expect(dispatched).toEqual(['/help']); // 命令按剥占位净稿分发（防空洞断言——提交确达命令柄）
+    expect(calls.submitted).toEqual([]); // 受理形终局消费——不兜底进模型消息（/exit 同律）
+    expect(io.bytes).toContain('输入消息开始对话'); // 修前红位：预置门未误置——命令清稿后引导即复现（非等回声窗）
+  });
+
   it('提交入史净稿律（56 轮件 1e——修前红：占位词面原样入册）：↑ 召回回灌净稿无占位 + image-only 不入册 + 手敲零误伤', async () => {
     // 判据（重发即真值）：历史条目语义 = 可重发的真值稿——图不随史重建（暂存
     // 不入册），召回回灌若带字面 `[图片]` 行则重发时 resend 幻影占位文本（暂存

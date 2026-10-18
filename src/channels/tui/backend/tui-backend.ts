@@ -4454,7 +4454,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.inputAsk === null &&
       !this.editor.isSearchingHistory() &&
       !this.editor.model.isEmpty() &&
-      !(this.editor.model.getLines()[0] ?? '').startsWith('/')
+      // 斜杠判据净稿化（63 轮件 G——判据位与执法消费位同源〔61 轮件 C 谱〕）：
+      // 提交位 handleSubmit 先 consumeStagedImages 剥 `[图片]` 占位再按净稿分
+      // 发命令族——「占位 + 换行 + /命令」混合稿原始 line0 是占位词面非斜杠，
+      // 直判会误置 awaitingEcho（命令族零用户块回声——抑制位永锁、空态引导
+      // 压到次键）。暂存在场按剥占位净稿首行判（echoGateFirstLine——与
+      // historyText 同源 splitImageMarkerLines 变换）；暂存空保持原 line0 直
+      // 判（手敲 `[图片]` 文本零误伤）
+      !this.echoGateFirstLine().startsWith('/')
     ) {
       this.awaitingEcho = true;
     }
@@ -4774,6 +4781,19 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (this.stagedImages.length === 0 || prev === next) return;
     if (this.editor.isSearchingHistory() || this.editor.model.isBrowsingHistory() || next === '') return;
     this.stagedImages = dropStagedImagesForDeletedMarkers(prev, next, this.stagedImages);
+  }
+
+  /**
+   * 等回声预置门的斜杠判据首行（63 轮件 G）：暂存图在场时与提交流同源变换
+   * （splitImageMarkerLines 剥占位——historyText 缝 / consumeStagedImages 同族）
+   * 取净稿首行，令「图片占位 + 换行 + /命令」混合稿按净稿命令形判、不置
+   * awaitingEcho（命令族本地终局消费零用户块回声——置位即永锁引导）；暂存空
+   * 恒原始首行（手敲 `[图片]` 文本零误伤——剥除只在真有暂存图的提交发生）。
+   */
+  private echoGateFirstLine(): string {
+    const lines = this.editor.model.getLines();
+    if (this.stagedImages.length === 0) return lines[0] ?? '';
+    return splitImageMarkerLines(lines.join('\n')).text.split('\n')[0] ?? '';
   }
 
   /**
