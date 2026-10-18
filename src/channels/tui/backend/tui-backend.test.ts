@@ -5808,6 +5808,30 @@ describe('TuiBackend copyToClipboard 分诊（挖掘 38 轮件 A——tmux 三�
       expect(call[2]).toMatchObject({ timeout: 5_000, killSignal: 'SIGKILL' });
     }
   });
+
+  it('帽点被杀回执形（59 轮件 D-2 回执面锁）：probe status null（5s 帽 SIGKILL 强杀形）→ ?? -1 归一 → 分诊落 DCS 降级腿', () => {
+    vi.stubEnv('TMUX', '/tmp/tmux-0,123,0');
+    // 不注入 tmuxSpawn——backend 落缺省真身 defaultTmuxSpawn → 截获 spawnSync；
+    // 帽点被杀真身回执形：status=null + error 置位（timeout 到点信号杀——
+    // 既非 0 也非通常失败形的第三态），stdout 空；归一 ?? -1 在封装内
+    //（tui-backend.ts defaultTmuxSpawn），归一值才进分诊比较
+    spawnSyncStub.mockImplementationOnce(() => ({
+      status: null,
+      stdout: '',
+      stderr: '',
+      error: new Error('spawnSync tmux ETIMEDOUT'),
+    }));
+    const { io, backend, pump } = makeInteractive();
+    const r = backend.writeClipboard('s1', 'hi');
+    pump();
+    expect(r).toEqual({ status: 'written' }); // 降级非拒亦非炸——错误不外抛（外抛即冻结整屏）
+    expect(spawnSyncStub).toHaveBeenCalledTimes(1); // probe 即止——非 0 归一不试 load-buffer（off 例同律）
+    // DCS 包裹形直穿（分诊落点 buildOsc52CopyDcs——内层 ESC 双写防提前终结，
+    // 与 probe off 例同形字节锚。注：双写形 `\x1b\x1b]52;…` 以第二个 ESC 起
+    // 仍含裸形子串，「非裸直写」不可用 not.toContain 裸形判——整形锚即区分）；
+    // 守护形 = 帽点分支被等价重构删除/改判时红
+    expect(io.bytes).toContain(`\x1bPtmux;\x1b\x1b]52;c;${Buffer.from('hi').toString('base64')}\x07\x1b\\`);
+  });
 });
 
 describe('TuiBackend copyToClipboard 第⓪层原生腿（挖掘 40 轮件 A——SSH 判定 + 平台矩阵首选，07 §4.1 件 8 括注第⓪层）', () => {

@@ -2963,6 +2963,32 @@ describe('ConversationDriver 外部事件汇异步腿隔离（59 轮件 A-2）',
       process.removeListener('unhandledRejection', onUnhandled); // 先解绑防污染其它例
     }
   });
+
+  it('onEvent 同步抛仍真传播：错误照旧穿透到 submit 拒面 + 零「已隔离」报备（同步腿不进 catch——不变式锁）', async () => {
+    // 产码不变式（driver.ts onLiveEvent 59 轮件 A-2 收口形）：`void Promise
+    // .resolve(this.options.onEvent(enriched)).catch(...)` 刻意只兜异步腿——
+    // 调用求值在 Promise.resolve 入参位，同步抛**不进 catch**、沿 durable 腿
+    // 语义原样上抛（emit 同步调用无守卫 → runTurns 无 catch → launch 结算链
+    // 拒面 rethrow → submit 拒面）。被 `.then().catch()` 化等价重构穿透时
+    // 零红——本例补锁该不变式（锁强度补全非修 bug：守护形 = 重构穿透时红）
+    const warns: string[] = [];
+    const { driver } = makeDriver({
+      scripts: [assistant({ content: [{ type: 'text', text: '答' }] })], // 恒不达——首事件即炸（脚本仅在位防「脚本耗尽」噪音）
+      warn: (message) => warns.push(message), // warnFace 注入位（「已隔离」报备收账面）
+      // 汇注入位（options.onEvent 契约面）：同步 throw 形——首事件（种子
+      // message_start 经 onLiveEvent）求值即抛
+      onEvent: () => {
+        throw new Error('同步炸（测试注入）');
+      },
+    });
+    // 同步抛穿透观测位 = submit 拒面（kick 缺闸直通腿：launch 同步段抛转拒绝
+    // promise——崩溃投递三路径统一注的既有语义；若 catch 化吞掉同步抛，此
+    // 断言红——错误被隔离成 warn 时 submit 不再拒）
+    await expect(driver.submit('问')).rejects.toThrow('同步炸（测试注入）');
+    // 同步腿不进 catch：零「已隔离」报备（进 catch = 不变式破——同步抛被吞
+    // 成 warn 报备，拒面随之消失）
+    expect(warns.filter((message) => message.includes('外部事件汇异步抛错（已隔离）'))).toEqual([]);
+  });
 });
 
 /* ---------------- mid-convo 工具面通告（pi-3 件 B——03 §2.8 换装时点通告通道） ---------------- */
