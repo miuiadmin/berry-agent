@@ -48,6 +48,28 @@ import type {
 import { BaseError } from '../../../contracts/index.js';
 import { CLIPBOARD_IMAGE_UNSUPPORTED_TEXT, type ClipboardImagePayload } from './clipboard-image.js';
 
+/**
+ * spawnSync 定向单点桩（59 轮件 D-2 回归锁）：vi.mock 截获
+ * node:child_process 的 spawnSync——默认透传真身（本文件全部既有用例经
+ * seam 注入桩零真子进程，透传只保形不改行为），帽锁用例以
+ * mockImplementationOnce 定向覆写即弃（当笔消费即还原委托形——断言红态
+ * 也不泄漏给后续用例）。vi.hoisted 共享柄：mock 工厂注册位与用例断言位
+ * 持同一 mock 实例（工厂内不能引用外部变量的提升律绕道）。
+ */
+const { spawnSyncStub, realChildProcess } = vi.hoisted(() => {
+  // 真身寄存位（mock 工厂 importOriginal 后回填——委托闭包调时解析）
+  const realChildProcess: { spawnSync?: (...invoke: unknown[]) => unknown } = {};
+  const spawnSyncStub = vi.fn((...invoke: unknown[]) => realChildProcess.spawnSync!(...invoke));
+  return { spawnSyncStub, realChildProcess };
+});
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  // 双转型只过类型关（@types 重载面 vs 宽松委托形）——运行期即真身引用
+  realChildProcess.spawnSync = actual.spawnSync as unknown as (...invoke: unknown[]) => unknown;
+  return { ...actual, spawnSync: spawnSyncStub };
+});
+
 const COLS = 80;
 const ROWS = 10;
 const SESSION = 'sess-aaaaaaaaaa';
@@ -5767,6 +5789,24 @@ describe('TuiBackend copyToClipboard 分诊（挖掘 38 轮件 A——tmux 三�
     backend.writeClipboard('s1', 'hi');
     pump();
     expect(io.bytes).toContain(`\x1bPtmux;\x1b\x1b]52;c;${Buffer.from('hi').toString('base64')}\x07\x1b\\`);
+  });
+
+  it('击杀通道锁（59 轮件 D-2）：缺省真身 defaultTmuxSpawn 两笔 spawnSync 均带 5s 帽 + SIGKILL——死 socket 悬挂不冻结整屏', () => {
+    vi.stubEnv('TMUX', '/tmp/tmux-0,123,0');
+    // 不注入 tmuxSpawn——backend 落缺省真身 defaultTmuxSpawn → 截获位的
+    // spawnSync；定向覆写回执形（probe 带尾随换行真形——trim 归一在封装内）
+    spawnSyncStub.mockImplementationOnce(() => ({ status: 0, stdout: 'on\n', stderr: '' }));
+    spawnSyncStub.mockImplementationOnce(() => ({ status: 0, stdout: '', stderr: '' }));
+    const { backend } = makeInteractive();
+    const r = backend.writeClipboard('s1', 'hi');
+    expect(r).toEqual({ status: 'written' }); // probe on + load 0——tmux 面转发成功早退
+    // 通道锁（58 轮件③ 击杀通道锁同形镜像）：spawnSync 唯有 timeout 在场才
+    // 到点杀（原生层点火——JS 线程同步阻塞不影响其计时）；killSignal=SIGKILL
+    // 非 SIGTERM（悬挂子进程可忽略 SIGTERM）；两笔（预检 + load-buffer）均须携带
+    expect(spawnSyncStub).toHaveBeenCalledTimes(2);
+    for (const call of spawnSyncStub.mock.calls) {
+      expect(call[2]).toMatchObject({ timeout: 5_000, killSignal: 'SIGKILL' });
+    }
   });
 });
 

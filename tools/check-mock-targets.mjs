@@ -48,7 +48,14 @@ const REPO_ROOT = process.env.CHECK_MOCKS_ROOT ?? fileURLToPath(new URL('..', im
  *   23d5f04 引入缺席未注，挖掘 33 轮补册）；
  * - '../blocks/word-diff.js'：diff-viewer.test.ts 计数缝（visual-lines 先例
  *   同形——spread 全真导出 + diffWords 计数后原样转发，perf 锁「组体缓存命中
- *   零 DP 重跑」；挖掘 50 轮件 A 随批入册）。
+ *   零 DP 重跑」；挖掘 50 轮件 A 随批入册）；
+ * - 'node:child_process'：native-clipboard.test.ts / tui-backend.test.ts
+ *   击杀通道锁 ×2（59 轮件D 随批入册——断言 spawnSync 第三参帽与杀通道：
+ *   vi.hoisted 共享桩缺省全参透传真身 + mockImplementationOnce 即弃，零行为
+ *   替身（native-clipboard 7/7、tui-backend 480/480 全绿实证零附带）；两处
+ *   皆通道后端「真身工厂」导出面——不加注入缝参免改产码签名（与 59 轮件C
+ *   dangerPushBranch execFileImpl 注入缝分立裁量：彼为 host 内部函数转导出
+ *   顺带缝、此为后端工厂导出面零参形），与 node:crypto/fs 先例同族）。
  * 扩展本表须同批注缺席原因（为何该目标允许文件级 vi.mock）。
  */
 const MOCK_TARGET_WHITELIST = new Set([
@@ -58,6 +65,7 @@ const MOCK_TARGET_WHITELIST = new Set([
   '../channels/index.js',
   'node:fs',
   '../blocks/word-diff.js',
+  'node:child_process',
 ]);
 
 /**

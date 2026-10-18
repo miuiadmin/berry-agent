@@ -37,6 +37,16 @@ export type NativeClipboardSpawn = (plan: NativeClipboardPlan, text: string) => 
 type EnvLike = Record<string, string | undefined>;
 
 /**
+ * 确认形子进程帽（59 轮件 D-1）：spawnSync 同步阻塞事件循环——无帽时确认形
+ * 子进程悬挂（如 xclip 撞死 DISPLAY 连接停顿）即 TUI 整屏冻结（帧/输入/信号
+ * 全停；同步阻塞期任何 JS 侧定时器永不点火——tools/spawn-sync-cap.mjs 头注
+ * CI 死寂实证同源谱）。pbcopy/xclip/clip.exe 皆即写即退本地工具——5s 帽内
+ * 恒达，帽点只拦病理性悬挂；killSignal=SIGKILL 非 SIGTERM（悬挂子进程可
+ * 忽略 SIGTERM）。
+ */
+const NATIVE_CLIPBOARD_TIMEOUT_MS = 5_000;
+
+/**
  * 平台矩阵计划：非 SSH 本地会话且矩阵命中 → 计划；否则 null（腿缺席）。
  *
  * 分诊序（07 §4.1 第⓪层条款）：
@@ -78,14 +88,19 @@ export function planNativeClipboard(
  *   自管存活，写出尽力记账恒 'ok'（spawn 自身报错才 'failed'——确认不可
  *   得，detach 形语义即尽力）；stdin pipe 写入选区文本（≤64 KiB 选区帽
  *   同界，OS pipe 缓冲域内）、EPIPE 吞（子进程先退非错误面）。
+ *   **帽不辖 detach 形**（分立注释）：spawn 异步不阻塞事件循环、父进程
+ *   unref 后永不等待子进程——无冻结面可防，下述 5s 帽只加在确认形。
  * - **pbcopy/xclip/clip.exe → 确认形**：spawnSync 喂 stdin、stdio 全
  *   ignore（抑子进程 stderr 污染屏面——TUI 原始终端模式下一行杂音即破相），
- *   error 缺席且 status 0 → 'ok'。
+ *   **5s 帽 + SIGKILL 强杀**（59 轮件 D-1——帽在原生层点火，JS 线程同步
+ *   阻塞不影响其计时；帽点 result.error=ETIMEDOUT 在场 → 'failed' 诚实
+ *   落穿终端介导三层原序），error 缺席且 status 0 → 'ok'。
  */
 export function createDefaultNativeClipboardSpawn(): NativeClipboardSpawn {
   return (plan, text) => {
     if (plan.command === 'wl-copy') {
-      // detach 形：不等待退出——前台持选区不退出是 wl-copy 机制非挂死
+      // detach 形：不等待退出——前台持选区不退出是 wl-copy 机制非挂死；
+      // 帽不辖本形（spawn 异步不阻塞事件循环——确认形 5s 帽只管 spawnSync 腿）
       let spawned = true;
       try {
         const child = spawn(plan.command, plan.args, {
@@ -105,6 +120,10 @@ export function createDefaultNativeClipboardSpawn(): NativeClipboardSpawn {
     const result = spawnSync(plan.command, plan.args, {
       input: text,
       stdio: ['pipe', 'ignore', 'ignore'],
+      // 5s 帽 + SIGKILL 强杀（59 轮件 D-1）：无帽则悬挂子进程同步冻结整屏；
+      // 帽点 error=ETIMEDOUT 在场 → 下方 'failed' 返路诚实落穿（不静默吞）
+      timeout: NATIVE_CLIPBOARD_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
     });
     return result.error === undefined && result.status === 0 ? 'ok' : 'failed';
   };

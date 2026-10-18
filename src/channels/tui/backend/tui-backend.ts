@@ -398,7 +398,8 @@ export interface TuiBackendOptions {
    * tmux 子进程执行器（挖掘 38 轮件 A——OSC 52 tmux 三层分诊）：args +
    * 可选 stdin 文本 → { status, stdout }。缺省真身封装 spawnSync（stdout
    * **trim 归一在封装内**——spawnSync 输出带尾随换行，分诊比较裸值
-   * 'on'/'external'/'off'）；测试装配注入受控桩（MemoryTerminalIO 零真
+   * 'on'/'external'/'off'；**5s 帽 + SIGKILL**——59 轮件 D-2，死 socket
+   * 悬挂不冻结整屏）；测试装配注入受控桩（MemoryTerminalIO 零真
    * 进程纪律——externalEditor seam 同例）。
    */
   readonly tmuxSpawn?: (args: readonly string[], input?: string) => { status: number; stdout: string };
@@ -689,13 +690,30 @@ const DEFAULT_FPS_CAP = 60;
 const RESIZE_DEBOUNCE_MS = 75;
 
 /**
+ * tmux 子进程帽（59 轮件 D-2）：defaultTmuxSpawn 的 spawnSync 同步阻塞事件
+ * 循环——tmux 常态毫秒级快返，但死 socket 形可挂（server 停摆/套接字残废），
+ * 无帽即 TUI 整屏冻结（帧/输入/信号全停）。帽在原生层点火（JS 线程同步阻塞
+ * 不影响其计时——tools/spawn-sync-cap.mjs 头注同源谱）；killSignal=SIGKILL
+ * 非 SIGTERM（悬挂子进程可忽略 SIGTERM）。
+ */
+const TMUX_SPAWN_TIMEOUT_MS = 5_000;
+
+/**
  * tmux 子进程缺省真身（件 A 分诊 seam）：spawnSync 阻塞形（复制是用户显式
  * 动作、tmux 子进程毫秒级——codex 同阻塞形）；**stdout trim 归一在此**
  * （spawnSync 输出带尾随换行——'external\n'/'off\n'，分诊比较裸值）。
- * spawn 失败（无 tmux 可执行）→ status -1（分诊落 DCS 降级腿）。
+ * spawn 失败（无 tmux 可执行）/ 帽点被杀 → status -1（分诊落 DCS 降级腿
+ * ——死 socket 悬挂 5s 帽强杀后诚实降级，不冻结整屏）。
  */
 function defaultTmuxSpawn(args: readonly string[], input?: string): { status: number; stdout: string } {
-  const r = spawnSync('tmux', args, { input, encoding: 'utf8' });
+  const r = spawnSync('tmux', args, {
+    input,
+    encoding: 'utf8',
+    // 5s 帽 + SIGKILL 强杀（59 轮件 D-2）：死 socket 悬挂不冻结整屏；
+    // 帽点 r.status=null → 下方 ?? -1 → 分诊落 DCS 降级腿（诚实失败不静默吞）
+    timeout: TMUX_SPAWN_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+  });
   return { status: r.status ?? -1, stdout: (r.stdout ?? '').trim() };
 }
 /**
