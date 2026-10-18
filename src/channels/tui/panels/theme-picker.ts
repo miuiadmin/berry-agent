@@ -24,6 +24,7 @@ import { hintLine } from '../keys/hint.js';
 import {
   activeRowStyleOf,
   CURSOR_MARK,
+  fitIndicatorViewport,
   headStyleOf,
   moreHint,
   PICKER_HEAD_MARK,
@@ -208,25 +209,14 @@ export class ThemePicker implements OverlayContent {
       } else {
         // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：视口 ≥3 行且溢出
         // 才立——窗上/下方还有条目时各留一行 dim 边行「↑/↓ N 更多」（todo-panel
-        // 溢出行先例形）；预留行挤压后光标跟随（指示行不遮在选行）
-        const indicatorsOn = viewHeight >= 3 && this.entries.length > viewHeight;
-        let cap = viewHeight; // 条目实占行数（扣除指示预留）
-        for (let round = 0; round < 3; round++) {
-          const topReserve = indicatorsOn && this.offset > 0;
-          const afterTop = viewHeight - (topReserve ? 1 : 0);
-          const bottomReserve = indicatorsOn && this.entries.length - this.offset - afterTop > 0;
-          cap = afterTop - (bottomReserve ? 1 : 0);
-          // 光标恒在收窄窗内（越窗提窗——预留翻转后再收敛，三轮封顶）
-          if (this.cursor < this.offset) {
-            this.offset = this.cursor;
-            continue;
-          }
-          if (this.cursor >= this.offset + cap) {
-            this.offset = this.cursor - cap + 1;
-            continue;
-          }
-          break;
-        }
+        // 溢出行先例形）；预留行挤压后光标跟随（指示行不遮在选行）。
+        // 39 池 P4 件：三行预留收窄窗收敛段收编 panel-chrome 共享段
+        // fitIndicatorViewport（session-picker 同构消费——件间不一致封堵）；
+        // 本段收敛行为零变（既有指示测试为锁）
+        const fit = fitIndicatorViewport(viewHeight, this.offset, this.cursor, this.entries.length);
+        this.offset = fit.offset;
+        const indicatorsOn = fit.on;
+        const cap = fit.cap; // 条目实占行数（扣除指示预留）
         let displayRow = region.row + 1;
         if (indicatorsOn && this.offset > 0) {
           buffer.writeText(displayRow, region.col, moreHint('↑', this.offset), HINT_STYLE);

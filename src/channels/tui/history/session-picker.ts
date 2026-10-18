@@ -43,6 +43,16 @@
  *   （by id——退态前光标行经 sessions.findIndex 找回，找不到回退 0）；
  *   query 变更 cursor 归 0 + 预览联动；空结果「（无匹配会话）」诚实行 +
  *   导航段让位；头行 `N/M 匹配 · query` 形（截断披露与匹配计数并存）；
+ * - **视口溢出指示与位置读数**（39 池 P4 件——「会话清单无视口外溢出指示与
+ *   位置读数」对齐 theme-picker 件族形）：视口 ≥3 行且清单溢出时上/下 dim
+ *   边行「↑/↓ N 更多」（panel-chrome 溢出指示统一律——三行预留收窄窗收敛
+ *   段提为共享段 fitIndicatorViewport 单源〔theme-picker 同构消费，件间不
+ *   一致封堵〕；溢出时视口让一行给边行、预留翻转后光标重夹取〔指示行不遮
+ *   在选行〕、条目+边行实占恰满视口〔占位行/预览区起位零迁移〕；不足视口/
+ *   矮窗零边行）；底行键面提示右缘 dim 位置读数 `(cursor+1)/n`（picker 是
+ *   光标窗口非 ScrollView——离散行序直读免 percent 算术；行源 visibleSessions
+ *   单源〔搜索过滤随动〕；空清单/搜索零命中态读数不现〔无行可读〕；行宽
+ *   窄于地板 24 读数退场提示独占——viewer 底行读数同律）；
  * - **退出键面**：q/Esc 取消退出、Ctrl+C 打断、Ctrl+D 退出进程（先收副屏
  *   再转退出柄）——副屏键面补丁三件套与件 8 同律。
  */
@@ -61,7 +71,14 @@ import type {
 import { hintLine } from '../keys/hint.js';
 import { foldErrorText } from '../../service.js';
 import { DIM_STYLE } from '../../engine/index.js';
-import { CURSOR_MARK, HEAD_MARKS, activeRowStyleOf, stepCursorWrap } from '../panels/panel-chrome.js';
+import {
+  CURSOR_MARK,
+  HEAD_MARKS,
+  activeRowStyleOf,
+  fitIndicatorViewport,
+  moreHint,
+  stepCursorWrap,
+} from '../panels/panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 切换器装配选项 */
@@ -161,6 +178,13 @@ const WARN_MARK = '⚠';
 const PREVIEW_CAP = 6;
 /** 近底预取阈值（挖掘 51 轮件 A——视口距底 ≤N 行触发续页拉；codex LOAD_NEAR_THRESHOLD 同值，改裁为视口距底形〔更早预取〕） */
 const LOAD_NEAR_THRESHOLD = 5;
+/**
+ * 底行读数让位地板（39 池 P4 件——panel-chrome renderViewerHintBar 的
+ * SCROLL_PERCENT_FLOOR_WIDTH 同值同律：行宽低于此值读数让位、键面提示独占
+ * 〔提示行是不可省铬〕；各持本地常量因两读数语域分立〔离散行序 vs 连续
+ * 百分比〕，值同律非同源）。
+ */
+const READOUT_FLOOR_WIDTH = 24;
 /** 预览缓存态（呈现即缓存——三占位态与成功态同账） */
 type PreviewState =
   | { readonly status: 'loading' }
@@ -462,10 +486,28 @@ export class SessionPicker implements OverlayContent {
         // 空结果诚实行（挖掘 43 轮件 C——空态行同位同形先例 dim）
         buffer.writeText(region.row + 1, region.col, fitLine('（无匹配会话）', region.width), HINT_STYLE);
       } else {
-        for (let i = 0; i < viewHeight; i++) {
-          const index = this.offset + i;
+        // 溢出指示收窄窗（39 池 P4 件——共享段单源收敛：视口 ≥3 行且溢出才立
+        // 边行；预留行挤压后光标跟随〔指示行不遮在选行〕；条目+边行实占恰满
+        // viewHeight——下方占位行/预览区起位零迁移；行源 visible 单源〔搜索
+        // 过滤随动〕；边行走 fitLine … 收口〔X-5 非条目行律〕）
+        const fit = fitIndicatorViewport(viewHeight, this.offset, this.cursor, visible.length);
+        this.offset = fit.offset;
+        let displayRow = region.row + 1;
+        if (fit.on && fit.offset > 0) {
+          buffer.writeText(displayRow, region.col, fitLine(moreHint('↑', fit.offset), region.width), HINT_STYLE);
+          displayRow++;
+        }
+        for (let i = 0; i < fit.cap; i++) {
+          const index = fit.offset + i;
           if (index >= visible.length) break;
-          this.renderRow(buffer, region.row + 1 + i, region.col, region.width, index, visible);
+          this.renderRow(buffer, displayRow, region.col, region.width, index, visible);
+          displayRow++;
+        }
+        if (fit.on) {
+          const below = visible.length - (fit.offset + fit.cap);
+          if (below > 0) {
+            buffer.writeText(displayRow, region.col, fitLine(moreHint('↓', below), region.width), HINT_STYLE);
+          }
         }
       }
     }
@@ -518,7 +560,25 @@ export class SessionPicker implements OverlayContent {
               segments.push('q/esc 返回');
               return hintLine(...segments);
             })();
-    buffer.writeText(region.row + region.height - 1, region.col, fitLine(bottomHint, region.width), HINT_STYLE);
+    // 底行提示 + 右缘位置读数（39 池 P4 件）：键面如实——缺席保持原形不虚报；
+    // 读数 `(cursor+1)/n` dim 右对齐（picker 是光标窗口非 ScrollView——离散
+    // 行序直读免 percent 算术，与 viewer 底行 NN% 读数语域分立）；行源
+    // visible 单源（搜索过滤随动）；空清单/搜索零命中态不现（无行可读）；
+    // 窄于地板读数退场提示独占（renderViewerHintBar 同律——提示行是不可省铬）；
+    // 双段排版走 fitRowSegments 单源（右段预算 + 左段帽——负起列结构性封堵
+    // 继承；确认视图无清单光标面不评读数）
+    const readout =
+      visible.length > 0 && region.width >= READOUT_FLOOR_WIDTH ? `${this.cursor + 1}/${visible.length}` : undefined;
+    const bottomFit = fitRowSegments(bottomHint, readout, region.width);
+    buffer.writeText(region.row + region.height - 1, region.col, bottomFit.left, HINT_STYLE);
+    if (bottomFit.rightWidth > 0) {
+      buffer.writeText(
+        region.row + region.height - 1,
+        region.col + region.width - bottomFit.rightWidth,
+        bottomFit.right,
+        HINT_STYLE,
+      );
+    }
   }
 
   /**

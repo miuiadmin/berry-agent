@@ -188,7 +188,9 @@ describe('SessionPicker 行呈现', () => {
     // 左段 10 列 · 右段 20 列右对齐（col 40）→ 中间 30 空格
     expect(readRow(grid, 1, 60)).toBe('›   调 TUI' + ' '.repeat(30) + '09-15 10:30 aaa11111');
     expect(readRow(grid, 2, 60)).toBe('  ● 旧会话' + ' '.repeat(30) + '09-15 09:05 bbb22222');
-    expect(readRow(grid, 5, 60)).toBe('↑↓ 移动 · enter 切换 · q/esc 返回');
+    // 底行 = 键面提示 + 右缘位置读数（39 池 P4 件——两载同行右对齐：左段 33
+    // 列 + 间隔 24 列 + 读数 3 列 = 60；读数 (cursor+1)/n 随光标单源）
+    expect(readRow(grid, 5, 60)).toBe('↑↓ 移动 · enter 切换 · q/esc 返回' + ' '.repeat(24) + '1/2');
   });
 
   it('时间列相对时分档 + ≥7d 回退绝对（挖掘 35 轮 B10——分档边界锁）', () => {
@@ -327,23 +329,32 @@ describe('SessionPicker 行呈现', () => {
     expect(readRow(g2, 1, width).endsWith('…')).toBe(true);
   });
 
-  it('视口跟随：光标移出窗下沿 → 窗口下移（光标恒可见）', () => {
+  it('视口跟随：光标移出窗下沿 → 窗口下移（光标恒可见——39 池 P4 件溢出边行随动）', () => {
     const many = Array.from({ length: 10 }, (_, i) => row({ id: `id-${i}-00000000`, title: `行${i}` }));
     const { picker, onSelect } = makePicker(many);
-    const grid = new CellGrid(40, 5); // 视口 3 行
-    picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
-    expect(readRow(grid, 1, 40)).toContain('行0'); // offset 0
+    // 逐渲染新格（边行短于条目行——复用格留旧尾段，theme-picker paint 同形）
+    const paint = (): CellGrid => {
+      const grid = new CellGrid(40, 5); // 视口 3 行
+      picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
+      return grid;
+    };
+    const first = paint();
+    expect(readRow(first, 1, 40)).toContain('行0'); // offset 0
+    expect(readRow(first, 3, 40)).toBe('↓ 8 更多'); // 锚顶：下边行（10-2 实占）
     picker.handleEvent(k('down'));
     picker.handleEvent(k('down'));
-    picker.handleEvent(k('down')); // 光标 3 → 窗 [1,3]
-    picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
-    expect(readRow(grid, 1, 40)).toContain('行1'); // offset 1——行0 出窗
-    expect(readRow(grid, 3, 40)).toContain('›'); // 光标行在窗内末行
+    picker.handleEvent(k('down')); // 光标 3 → 收窄窗单行 [3,3]
+    const mid = paint();
+    expect(readRow(mid, 1, 40)).toBe('↑ 3 更多'); // 行0 出窗——上边行计数
+    expect(readRow(mid, 1, 40)).not.toContain('行0');
+    expect(readRow(mid, 2, 40)).toContain('›'); // 光标行在收窄窗内（指示不遮在选行）
+    expect(readRow(mid, 2, 40)).toContain('行3');
+    expect(readRow(mid, 3, 40)).toBe('↓ 6 更多'); // 10-4 实占
     picker.handleEvent(k('up'));
     picker.handleEvent(k('up'));
-    picker.handleEvent(k('up')); // 光标 0 → 窗回 [0,2]
-    picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
-    expect(readRow(grid, 1, 40)).toContain('行0');
+    picker.handleEvent(k('up')); // 光标 0 → 窗回锚顶 [0,1]
+    const back = paint();
+    expect(readRow(back, 1, 40)).toContain('行0');
     void onSelect;
   });
 });
@@ -379,20 +390,24 @@ describe('SessionPicker 滚轮消费', () => {
   it('滚轮 = 光标 ±3 行（经既有夹取与视口跟随——↑↓ 同路；修前红：wheel 零动作）', () => {
     const many = Array.from({ length: 12 }, (_, i) => row({ id: `id-${i}-00000000`, title: `行${i}` }));
     const { picker } = makePicker(many);
-    const grid = new CellGrid(40, 5); // 视口 3 行
-    picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
-    expect(readRow(grid, 1, 40)).toContain('行0'); // offset 0
+    // 逐渲染新格（边行短于条目行——复用格留旧尾段）
+    const paint = (): CellGrid => {
+      const grid = new CellGrid(40, 5); // 视口 3 行
+      picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
+      return grid;
+    };
+    expect(readRow(paint(), 1, 40)).toContain('行0'); // offset 0
     picker.handleEvent(wheel('wheel-down')); // 光标 0 → 3（夹取同 ↓×3）
-    picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
-    expect(readRow(grid, 1, 40)).toContain('行1'); // 视口跟随 offset 1——修前零动作红锚
-    expect(readRow(grid, 1, 40)).not.toContain('行0');
-    expect(readRow(grid, 3, 40)).toContain('›'); // 光标行（行3）在窗内末行
+    const mid = paint();
+    expect(readRow(mid, 1, 40)).toBe('↑ 3 更多'); // 视口跟随 offset 3——修前零动作红锚（边行计数形）
+    expect(readRow(mid, 1, 40)).not.toContain('行0');
+    expect(readRow(mid, 2, 40)).toContain('›'); // 光标行（行3）在收窄窗内
+    expect(readRow(mid, 2, 40)).toContain('行3');
+    expect(readRow(mid, 3, 40)).toBe('↓ 8 更多'); // 12-4 实占
     picker.handleEvent(wheel('wheel-up')); // 光标 3 → 0
-    picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
-    expect(readRow(grid, 1, 40)).toContain('行0'); // 回锚顶
+    expect(readRow(paint(), 1, 40)).toContain('行0'); // 回锚顶
     picker.handleEvent(wheel('wheel-up')); // 越界夹取——停首行不循环
-    picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
-    expect(readRow(grid, 1, 40)).toContain('行0');
+    expect(readRow(paint(), 1, 40)).toContain('行0');
   });
 
   it('空表滚轮零动作吞（不炸不动作）', () => {
@@ -1470,5 +1485,134 @@ describe('SessionPicker 归档与视图切换（53 轮件 B——位翻非删行
     const text = paint(picker);
     expect(text).toContain('甲'); // 行集不动
     expect(text).not.toContain('已归档'); // 视图未切
+  });
+});
+
+/* ---------------- 视口溢出指示与位置读数（39 池 P4 件——theme-picker 同构对齐） ---------------- */
+
+describe('SessionPicker 视口溢出指示与位置读数（39 池 P4 件）', () => {
+  /** 12 行集（60×6——头底各 1 → 视口 4 行；12 > 4 溢出立边行） */
+  const many = Array.from({ length: 12 }, (_, i) => row({ id: `vp-${i}-00000000`, title: `行${i}` }));
+
+  /** 定形渲染逐行读（内容断言便捷——readRow 同源 trimEnd） */
+  const paintLines = (picker: SessionPicker, width = 60, height = 6): string[] => {
+    const grid = new CellGrid(width, height);
+    picker.render(grid, { row: 0, col: 0, width, height });
+    return Array.from({ length: height }, (_, r) => readRow(grid, r, width));
+  };
+
+  it('锚顶：无上边行、下边行「↓ N 更多」dim——条目+边行实占恰满视口', () => {
+    const { picker } = makePicker(many);
+    const lines = paintLines(picker); // 视口 4：3 条目 + 下边行
+    expect(lines[1]).toContain('行0'); // 首条目贴视口顶
+    expect(lines[2]).toContain('行1');
+    expect(lines[3]).toContain('行2');
+    expect(lines[4]).toBe('↓ 9 更多'); // 12-3 实占（下边行占视口末行——零行外溢）
+    expect(lines[1]).not.toContain('更多'); // 锚顶无上边行
+    // dim 边行（提示族样式——theme-picker 边行同律）
+    const grid = new CellGrid(60, 6);
+    picker.render(grid, { row: 0, col: 0, width: 60, height: 6 });
+    expect(grid.getCell(4, 0)?.style?.dim).toBe(true);
+  });
+
+  it('中部：上/下双边行 + 光标行夹在中间恒可见（指示行不遮在选行）', () => {
+    const { picker } = makePicker(many);
+    paintLines(picker); // 先渲染定窗（首渲染前击键以陈窗高 1 夹取——theme-picker 中部档同序律）
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('down')); // 光标 5 → 收窄窗 [4,5]
+    const lines = paintLines(picker);
+    expect(lines[1]).toBe('↑ 4 更多');
+    expect(lines[2]).toContain('行4');
+    expect(lines[3]).toContain('›'); // 光标行（行5）在收窄窗内
+    expect(lines[3]).toContain('行5');
+    expect(lines[4]).toBe('↓ 6 更多');
+  });
+
+  it('到底：上边行「↑ N 更多」、下边行撤（窗贴尾——尾行后零残行）', () => {
+    const { picker } = makePicker(many);
+    picker.handleEvent(k('end')); // 光标 11
+    const lines = paintLines(picker);
+    expect(lines[1]).toBe('↑ 10 更多');
+    expect(lines[2]).toContain('行10');
+    expect(lines[3]).toContain('›');
+    expect(lines[3]).toContain('行11');
+    expect(lines[4]).toBe(''); // 贴尾无下边行（offset 10 + cap 3 已越尾——空行如实）
+  });
+
+  it('不足视口：清单全显零边行（原形——「更多」词零出现）', () => {
+    const three = [row({ id: 'fit-a-00000000', title: '甲' }), row({ id: 'fit-b-00000000', title: '乙' })];
+    const { picker } = makePicker(three);
+    const lines = paintLines(picker); // 视口 4 > 2 行——全显
+    expect(lines[1]).toContain('甲');
+    expect(lines[2]).toContain('乙');
+    expect(lines.slice(1, 5).join('\n')).not.toContain('更多');
+  });
+
+  it('矮窗：视口 <3 行零边行（12 行集溢出但不立——既有矮窗形零漂）', () => {
+    const { picker } = makePicker(many);
+    const lines = paintLines(picker, 60, 4); // 视口 2
+    expect(lines[1]).toContain('行0');
+    expect(lines[2]).toContain('行1');
+    expect(lines[1]).not.toContain('更多');
+    expect(lines[2]).not.toContain('更多');
+  });
+
+  it('读数随光标步进：底行右缘 (cursor+1)/n 与键面提示同行共存', () => {
+    const { picker } = makePicker(many);
+    let lines = paintLines(picker);
+    expect(lines[5]).toContain('q/esc 返回'); // 键面提示在（同行左段）
+    expect(lines[5]).toMatch(/1\/12$/); // 首行光标
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('down'));
+    lines = paintLines(picker);
+    expect(lines[5]).toMatch(/3\/12$/); // 步进随动
+    picker.handleEvent(k('end'));
+    lines = paintLines(picker);
+    expect(lines[5]).toMatch(/12\/12$/); // 尾行
+    picker.handleEvent(k('home'));
+    lines = paintLines(picker);
+    expect(lines[5]).toMatch(/1\/12$/); // 回首
+  });
+
+  it('空态零读数：空清单底行原形 / 搜索零命中读数不现（无行可读）', () => {
+    const { picker } = makePicker([]);
+    expect(paintLines(picker, 60, 5)[4]).toBe('q/esc 返回'); // 空清单零读数（原形字节不变）
+    const { picker: searching } = makePicker([
+      row({ id: 'sea111111111', title: '修复甲' }),
+      row({ id: 'docs22222222', title: '写文档' }),
+    ]);
+    searching.handleEvent(k('/'));
+    searching.handleEvent({ kind: 'text', text: 'zzz' }); // 零命中
+    const lines = paintLines(searching, 60, 5);
+    expect(lines[1]).toContain('（无匹配会话）');
+    expect(lines[4]).not.toMatch(/\d\/\d+$/); // 零命中零读数
+  });
+
+  it('搜索过滤后读数随 visibleSessions 单源：分母 = 匹配数、退搜索保位分子回全表序', () => {
+    const { picker } = makePicker([
+      row({ id: 'sea111111111', title: '修复甲' }),
+      row({ id: 'docs22222222', title: '写文档' }),
+      row({ id: 'zzz333333333', title: '整理甲' }),
+    ]);
+    picker.handleEvent(k('/'));
+    picker.handleEvent({ kind: 'text', text: '甲' }); // 2 命中（修复甲 + 整理甲）
+    let lines = paintLines(picker);
+    expect(lines[5]).toMatch(/1\/2$/); // 分母 = 匹配 2（非全表 3）——visible 单源
+    picker.handleEvent(k('down')); // 过滤表光标 1（整理甲）
+    lines = paintLines(picker);
+    expect(lines[5]).toMatch(/2\/2$/);
+    picker.handleEvent(k('escape')); // 退搜索保位 by id（整理甲 = 全表序 2）
+    lines = paintLines(picker);
+    expect(lines[5]).toMatch(/3\/3$/); // 回全表：分母 3 + 保位分子 3
+  });
+
+  it('窄窗地板退场：宽 20 < 地板 24——读数缺席键面独占（viewer 底行读数同律）', () => {
+    const { picker } = makePicker(many);
+    const lines = paintLines(picker, 20, 6);
+    expect(lines[5]).not.toMatch(/\d+\/\d+$/); // 读数退场
+    expect(lines[5]).toContain('移动'); // 键面提示独占（不可省铬——首段存活）
   });
 });

@@ -66,6 +66,55 @@ export function moreHint(arrow: '↑' | '↓', count: number): string {
   return `${arrow} ${count} 更多`;
 }
 
+/** picker 族溢出指示视口收敛产出形（fitIndicatorViewport 返回——消费位按 cap 实占 + on 判边行在立） */
+export interface IndicatorViewportFit {
+  /** 收敛后视口首行（光标恒在收窄窗内——预留行不遮在选行） */
+  readonly offset: number;
+  /** 条目实占行数（扣除上/下边行预留——条目+边行实占恰满视口，零行外溢） */
+  readonly cap: number;
+  /** 边行在立判据（视口 ≥3 行且溢出——矮窗/不足视口零边行原窗直排） */
+  readonly on: boolean;
+}
+
+/**
+ * picker 族溢出指示视口收敛（39 池 P4 件收编单源）：溢出时视口上/下各让一行
+ * 给 dim 边行「↑/↓ N 更多」（moreHint 单源词面）；预留翻转可能把光标挤出
+ * 收窄窗——逐轮重夹取收敛（预留位随 offset 变动重算，三轮封顶防振荡）。
+ * 消费位约定：先经全窗 clampOffset（maxOffset 上界），再入本段；返回 offset
+ * 回写调用方视口位（render 内收敛——与 clampOffset 同一 offset 账）。
+ * 谱系：界面美化役 2026-10-01 美学批在 theme-picker 首创（「三行预留收窄窗」
+ * ——溢出时视口让一行给边行），rewind/model picker 同构复写；本段将其提为
+ * 共享段（stepCursorWrap 收编同谱——件间不一致封堵），offset/cursor/count
+ * 三参同一行空间即可（model picker 组头展开行空间同适）。
+ */
+export function fitIndicatorViewport(
+  viewHeight: number,
+  offset: number,
+  cursor: number,
+  count: number,
+): IndicatorViewportFit {
+  const on = viewHeight >= 3 && count > viewHeight;
+  let off = offset;
+  let cap = viewHeight;
+  for (let round = 0; round < 3; round++) {
+    const topReserve = on && off > 0;
+    const afterTop = viewHeight - (topReserve ? 1 : 0);
+    const bottomReserve = on && count - off - afterTop > 0;
+    cap = afterTop - (bottomReserve ? 1 : 0);
+    // 光标恒在收窄窗内（越窗提窗/压窗——预留翻转后再收敛，三轮封顶）
+    if (cursor < off) {
+      off = cursor;
+      continue;
+    }
+    if (cursor >= off + cap) {
+      off = cursor - cap + 1;
+      continue;
+    }
+    break;
+  }
+  return { offset: off, cap, on };
+}
+
 /**
  * picker 族光标步进单源（挖掘 35 轮 B6——codex scroll_state 单步环绕/翻页
  * 夹取分立律 berry 化）：|delta|=1 **环绕**（顶行 ↑ 绕底、底行 ↓ 绕顶——长
