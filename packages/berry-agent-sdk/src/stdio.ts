@@ -214,6 +214,7 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
   // —— 终局：exit 正常位；spawn 失败形（ENOENT 等）exit 不触发——error/close 兜底 -1 ——
   let exited = false;
   let exitCode: number | undefined; // 终局码（门检报因携带——settle 内先于 exited 置位）
+  let closed = false; // 收口位（close() 已调）——门检读位（64 轮件 B：收口后新事务同律即拒）
   const exitedPromise = new Promise<number>((resolve) => {
     const settle = (code: number): void => {
       if (exited) return;
@@ -233,9 +234,13 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
 
   // —— 建立即连接级握手（03 §10.6 ⑤ 定形补笔）：串行链头位——先于任何请求帧 ——
   let handshakeError: SdkError | undefined; // 版本错配毒丸——此后一切事务面 fail-loud 拒用传输
-  /** 事务面门检（fail-loud 先于写 stdin）：毒丸/终局任一在场即拒新事务 */
+  /** 事务面门检（fail-loud 先于写 stdin）：毒丸/收口/终局任一在场即拒新事务 */
   const transactionGate = (): SdkError | undefined => {
     if (handshakeError !== undefined) return handshakeError;
+    // 收口后新事务同律即拒（64 轮件 B——与 HTTP 形 61 轮件 D-2 对称）：close()
+    // 已调、子进程 exit 未至的窗内写已 end 的 stdin 是伪成功——写失败被 stdin
+    // error 监听吞 warn、Promise 照 resolve（服务端从未收到行）——诚实拒
+    if (closed) return new SdkError('SDK_TRANSPORT', '传输已收口（close 已调）——新事务不受理');
     if (exited) return new SdkError('SDK_TRANSPORT', `子进程已退出（code=${exitCode}）——传输不可再用`);
     return undefined;
   };
@@ -300,7 +305,6 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
   };
 
   // —— 收口（幂等）：收线 + 监听解挂；终局 = 子进程退出码 ——
-  let closed = false;
   const transport: SdkStdioTransport = {
     exited: exitedPromise,
     request: (req: SdkRequest) => {
@@ -355,9 +359,20 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
                 }
                 highWaterSeq = (frame as { highWaterSeq: number }).highWaterSeq;
                 inflight = {
-                  expect: new Set(['replay-end']),
+                  // 建流第二段错误帧同律入期望集（64 轮件 A）：宿主 wire-core
+                  // handleHello 游标非法形在 hello 应答后紧跟 error 即拒订阅
+                  // （无 replay-end）——修前期望集只认 replay-end，错误帧被投
+                  // 订阅面：建流 Promise 永挂 + 串行链整链死锁
+                  expect: new Set(['replay-end', 'error']),
                   anchor: params.sessionId,
                   resolve: (marker) => {
+                    if (marker.kind === 'error') {
+                      // 建流期任一段错误帧到达 = 回滚入账 + 帧码三参 reject（第一
+                      // 段既有 error 拒绝腿同款——HTTP 形同律）——链续走
+                      rollback();
+                      reject(new SdkError(marker.code, marker.message, marker.sessionId));
+                      return;
+                    }
                     onFrame(marker); // 界标帧入监听面（重放段全量承诺）后再立柄
                     resolve({
                       sessionId: params.sessionId,

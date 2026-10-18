@@ -157,6 +157,58 @@ rl.on('line', (line) => {
 });
 `;
 
+/**
+ * 应答机变体（挖掘 64 轮件 A）：连接级握手正常；s-cursor 会话订阅对齐宿主
+ * wire-core handleHello 游标非法真形——hello 帧先应答、紧跟 SDK_CURSOR_INVALID
+ * 错误帧（会话域错误帧恒携请求 sessionId）、无 replay-end、此后静默；sessions
+ * 常规应答（建流拒绝后「链续走」断言用）。
+ */
+const CURSOR_REJECT_SCRIPT = `
+const rl = require('node:readline').createInterface({ input: process.stdin });
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+rl.on('line', (line) => {
+  let req; try { req = JSON.parse(line); } catch { return; }
+  if (req.verb === 'hello') {
+    if (req.sessionId === undefined) {
+      out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: '', highWaterSeq: 0 });
+      return;
+    }
+    if (req.sessionId === 's-cursor') {
+      // 游标非法即拒订阅（wire-core handleHello 同形）：hello 已应答在先、
+      // error 紧跟其后、无 replay-end——建流第二段窗的错误帧真形
+      out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: req.sessionId, highWaterSeq: 3 });
+      out({ kind: 'error', code: 'SDK_CURSOR_INVALID', message: '订阅游标非法（after 越过高水位）：after=' + req.after + ' 高水位=3', sessionId: req.sessionId });
+      return;
+    }
+    return;
+  }
+  if (req.verb === 'sessions') {
+    out({ kind: 'sessions', sessions: [], total: 0 });
+  }
+});
+`;
+
+/**
+ * 应答机变体（挖掘 64 轮件 B）：连接级握手 + sessions 常规；stdin EOF 后拖延
+ * 400ms 才退出——制造「close() 已调、子进程 exit 未至」的窗（窗内新事务写已
+ * end 的 stdin 即伪成功形）。
+ */
+const LINGER_EXIT_SCRIPT = `
+const rl = require('node:readline').createInterface({ input: process.stdin });
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+rl.on('line', (line) => {
+  let req; try { req = JSON.parse(line); } catch { return; }
+  if (req.verb === 'hello' && req.sessionId === undefined) {
+    out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: '', highWaterSeq: 0 });
+    return;
+  }
+  if (req.verb === 'sessions') {
+    out({ kind: 'sessions', sessions: [], total: 0 });
+  }
+});
+rl.on('close', () => setTimeout(() => process.exit(0), 400)); // EOF 后拖延退出——收口窗
+`;
+
 /** 等直播帧到齐（轮询 setImmediate/短眠——子进程异步面） */
 async function waitFor(ready: () => boolean, budgetMs = 4000): Promise<void> {
   const start = Date.now();
@@ -440,5 +492,45 @@ describe('多订阅会话锚路由（sweep10 件2——修前三形锁：改道/
     } finally {
       await transport.close();
     }
+  });
+});
+
+describe('建流期错误帧与收口门检（挖掘 64 轮件 A+B——修前：第二段建流永挂/收口窗 send 伪成功）', () => {
+  it('建流第二段协议错误帧：hello 后紧跟 error 即拒订阅——帧码 reject + 链续走（修前红：Promise 悬挂不落定 + 整链死锁）', async () => {
+    const transport = spawnServeTransport({ args: ['-e', CURSOR_REJECT_SCRIPT] });
+    try {
+      // 修前红面：第二段期望集只认 replay-end——error 帧投订阅面、建流 Promise
+      // 悬挂不落定（withDeadline 超期以 Error resolve，rejects 断言即红）
+      await expect(
+        withDeadline(transport.openLive({ sessionId: 's-cursor', after: 99 }, () => {})),
+      ).rejects.toMatchObject({
+        name: 'SdkError',
+        code: 'SDK_CURSOR_INVALID',
+        sessionId: 's-cursor',
+      });
+      // 链续走：后续一笔 request 正常收发证明链未死（修前：前一事务不落定致串
+      // 行链整链死锁——此断言同红；client 层解包应答帧——total 位即到线证据）
+      const client = createSdkClient(transport);
+      expect(await withDeadline(client.sessions())).toMatchObject({ total: 0 });
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it('收口后新事务即拒：close 已调、exit 未至窗内 send 立即 SDK_TRANSPORT（修前红：写已 end 的 stdin 伪成功 resolve）', async () => {
+    const transport = spawnServeTransport({ args: ['-e', LINGER_EXIT_SCRIPT] });
+    // 先证握手落定（一笔 sessions 正常收发——收口窗的确定性前提；client 层
+    // 解包应答帧——total 位即到线证据）
+    const client = createSdkClient(transport);
+    expect(await withDeadline(client.sessions())).toMatchObject({ total: 0 });
+    // 收口不 await——EOF 在途、子进程拖延退出的窗内发新事务（send/interrupt 形）：
+    // 修前红面——门检不读 closed 位，写已 end 的 stdin 失败被吞 warn、send 照
+    // resolve（伪成功——服务端从未收到行）
+    const closing = transport.close();
+    await expect(transport.send({ verb: 'interrupt', sessionId: 's-1' })).rejects.toMatchObject({
+      name: 'SdkError',
+      code: 'SDK_TRANSPORT',
+    });
+    await closing; // 窗闭合（拖延退出落定）——close 正常收尾
   });
 });
