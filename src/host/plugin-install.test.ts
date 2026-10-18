@@ -884,8 +884,10 @@ describe('npm 更新腿失败回迁旧树（修笔——先删后装失败 = 装
 
   it('收割失败（新入口求值抛）：旧树回迁（同根三失败路径之三）——修前红', async () => {
     const dataDir = dataDirOf('data-upd-fail-harvest');
-    // seed 装纯声明包（零码收割——入口路径从未被求值，规避 jiti/Node 进程级
-    // 模块缓存命中旧模块的假形：收割缓存命中会静默成功，失败路径测不到）
+    // seed 装纯声明包（零码收割——入口路径从未被求值，规避 Node 进程级模块
+    // 缓存命中旧模块的假形：收割缓存命中会静默成功，失败路径测不到。jiti 编译
+    // 腿 68 轮件H 后 per-instance 隔离已不命中，本防线对原生腿〔type:module/
+    // 纯 CJS 走 Node 装载器〕仍必要）
     const { tree, pkgJson } = await seedOldTree(
       dataDir,
       'failharv-pkg',
@@ -1162,9 +1164,12 @@ describe('git 执行器编舞（假 spawn——clone/checkout/rev-parse 零真�
 
   it('update 换代重收割：inject 预收割位随新码真相改写（新码不导出 inject = 账行剥旧位，不残留鬼影信号）', async () => {
     const { dataDir, gitTmp } = gitDirs('inject-strip');
-    // 两代入口文件名分立（old/new）：装机树换代落位同路径，jiti/Node 进程级
-    // 模块缓存（moduleCache 跨实例共享）对同路径重求值返回旧命名空间——换代
-    // 差异被缓存吞掉测不到（seedGitOldTree 头注同谱），分名即分缓存键
+    // 两代入口文件名分立（old/new）：装机树换代落位同路径。68 轮件H 后 jiti
+    // 编译腿 moduleCache:false——收割位每次 createJiti 新实例局部缓存，同路径
+    // 重求值已重编译见新码；原生腿（type:module ESM loader / 无 ESM 语法纯
+    // CJS 走 Node require）仍是进程级缓存对同路径返回旧命名空间——换代差异
+    // 被吞测不到（seedGitOldTree 头注同谱）。分名即分缓存键：对原生腿必要、
+    // 对编译腿无害双保险（本夹具 CJS+ESM 语法=编译腿）
     const generationSpawn = (entryFile: string, entryJs: string): SpawnRunner => ({
       run: (cmd, args) => {
         if (cmd !== 'git') return Promise.reject(new Error(`假 spawn 不受理 ${cmd}`));
@@ -1247,8 +1252,9 @@ describe('git 更新腿失败回迁旧树（修笔——runGitInstall 克隆成�
   /**
    * 预装健康旧树速记：git 直装成功（返回旧树路径与旧 package.json 原文——
    * 回迁断言锚）。pkgJson 可注入纯声明包形（收割失败腿用——seed 零码收割，
-   * 规避 jiti/Node 进程级模块缓存：入口从未被求值即无缓存条目，新版坏入口
-   * 的求值抛才是真收割失败，非缓存命中的静默成功）。
+   * 规避 Node 进程级模块缓存：入口从未被求值即无缓存条目，新版坏入口
+   * 的求值抛才是真收割失败，非缓存命中的静默成功。jiti 编译腿 68 轮件H
+   * 后 per-instance 隔离，防线对原生腿仍必要）。
    */
   async function seedGitOldTree(
     dataDir: string,
