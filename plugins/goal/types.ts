@@ -202,7 +202,13 @@ export interface GoalSummarizerFace {
 /** 唤醒裁决（wake 公开面返回——落地与否与拒因，调用方决定后续编排） */
 export interface WakeDecision {
   readonly landed: boolean;
-  readonly reason: 'ok' | 'inactive' | 'stalled' | 'wake_budget';
+  /**
+   * 拒因词域（snake 同族）：inactive=终态护栏 / stalled=停滞硬停 /
+   * wake_budget=唤醒预算帽 / session_unreadable=读史兜（65 轮件A——04 §12
+   * 重绑护栏批注「会话删除形同律」：goal 绑定会话已删除（会话文件缺席，
+   * 读史 PERSIST_DATA_CORRUPT 抛错族）属旧唤醒不落地，折诚实 gated 回执）。
+   */
+  readonly reason: 'ok' | 'inactive' | 'stalled' | 'wake_budget' | 'session_unreadable';
   readonly message: string;
   /** 裁决后的 goal 行快照（停滞硬停等带内状态变化回读面） */
   readonly goal: GoalRow;

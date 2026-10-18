@@ -698,7 +698,26 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
           goal: row,
         };
       }
-      const fingerprint = progressFingerprint(foldGoalTodos(deps.session.events(row.sessionId), row.activatedSeq));
+      // 读史兜（65 轮件A——04 §12 重绑护栏批注「会话删除形同律」）：goal
+      // 绑定会话已删除（会话文件缺席）时读史抛 PERSIST_DATA_CORRUPT 族——
+      // 裸穿即 wake 整体抛出，消费位（引擎扫描 spawnGoalRow / CLI --tick 腿）
+      // 炸后行零结算（last_fire_at 不推进、行永 due → MIN_POLL_MS 最小轮询
+      // 钟重触发告警循环）。读史失败折诚实 gated 回执（landed=false、独立
+      // reason 词 session_unreadable——与 inactive/stalled 同命名域），manual/
+      // clock 两道同折（折叠位在终态守卫后、双道分岔前的唯一读史位）。
+      let fingerprint: string;
+      try {
+        fingerprint = progressFingerprint(foldGoalTodos(deps.session.events(row.sessionId), row.activatedSeq));
+      } catch (error) {
+        const summary = error instanceof Error ? error.message : String(error);
+        warn(`[goal] 读史兜：goal「${goalId}」绑定会话 ${row.sessionId} 读史失败——唤醒折 gated 不落地：${summary}`);
+        return {
+          landed: false,
+          reason: 'session_unreadable',
+          message: `goal「${goalId}」绑定会话 ${row.sessionId} 读史失败（${summary}）——唤醒未执行`,
+          goal: row,
+        };
+      }
       const progressed = row.lastFingerprint === null ? true : fingerprint !== row.lastFingerprint;
 
       // manual 道：手动起闹——停滞/预算双复位 + 挂钟复活（用户显式意图，双帽不辖）。

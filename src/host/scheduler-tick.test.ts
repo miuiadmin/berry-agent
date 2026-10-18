@@ -431,6 +431,27 @@ describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
     expect((await bare.settled).exitCode).toBe(0);
   });
 
+  // 65 轮件A 纵深兜（04 §12 批注「引擎扫描位对单行 wake 抛错包隔离」）：
+  // service 层已折读史失败 gated 回执，此处兜 wake 抛错形——修前裸 await
+  // 即 reject 直穿 spawn → 引擎 fireRow catch-warn-only 吞炸后行零结算
+  // （last_fire_at 不推进、行永 due → MIN_POLL_MS 最小轮询钟重触发告警
+  // 循环）。折 gated 结局走 settleGated（推进 next_fire_at）——单行异常
+  // 不洞穿扫描循环。修前红：reject 直穿 rig.spawn。
+  it('goal 挂钟行：wake 抛错 → 防御折 gated 不抛穿扫描循环（65 轮件A——修前红：reject 直穿 spawn）', async () => {
+    const goal: GoalWakeFace = {
+      wake: async () => {
+        throw new Error('会话 sess-x 不存在（读未保存 id 或已删除——调用序检视）');
+      },
+    };
+    const rig = unitRig({ goal });
+    const handle = await rig.spawn(jobRow('goal-g6', { builtin: true })); // 修前红位：reject 在此直穿
+    const outcome = await handle.settled;
+    expect(outcome.reason).toBe('gated'); // settleGated 形——行推进 next 不永 due
+    expect(outcome.error).toContain('不存在'); // 错因摘要诚实入局
+    expect(rig.fake.submits).toHaveLength(0); // 零提交——不进模型
+    expect(rig.warns.some((m) => m.includes('SCHEDULER_GOAL_WAKE_FAILED'))).toBe(true); // 亮拒留痕
+  });
+
   it('issue-poll：pollOnce 摘要入 finalTextPreview（零模型——定形注②正位）', async () => {
     const issue: IssuePollFace = {
       pollOnce: async () => ({

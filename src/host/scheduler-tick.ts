@@ -198,13 +198,32 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
         error: 'goal 插件未安装——定时行配置漂移（wake 判定链不可用）',
       });
     }
-    const decision = await goal.wake(goalId, {
-      // 引擎载体归因（与 run-entry --tick 形同串——tick:<行名> 可审计）
-      trigger: 'clock',
-      attribution: `tick:${row.name}`,
-    });
+    // 纵深兜（65 轮件A——04 §12 批注「引擎扫描位对单行 wake 抛错包隔离」）：
+    // service 层已折读史失败 gated 回执，此处兜它族抛错形——修前裸 await 即
+    // reject 直穿 spawn，引擎 fireRow catch-warn-only 吞炸后行零结算
+    // （last_fire_at 不推进、行永 due → MIN_POLL_MS 最小轮询钟重触发告警
+    // 循环）。折 gated 结局走 settleGated（推进 next_fire_at）——单行异常
+    // 不洞穿扫描循环。
+    let decision: Awaited<ReturnType<GoalWakeFace['wake']>>;
+    try {
+      decision = await goal.wake(goalId, {
+        // 引擎载体归因（与 run-entry --tick 形同串——tick:<行名> 可审计）
+        trigger: 'clock',
+        attribution: `tick:${row.name}`,
+      });
+    } catch (err) {
+      const summary = err instanceof Error ? err.message : String(err);
+      warn(
+        `[SCHEDULER_GOAL_WAKE_FAILED] goal 行「${row.name}」唤醒判定抛错（防御折 gated——不洞穿扫描循环）：${summary}`,
+      );
+      return settledHandle(trigger, {
+        reason: 'gated',
+        error: `goal「${goalId}」唤醒判定抛错（防御折 gated）：${summary}`,
+      });
+    }
     if (!decision.landed) {
-      // 诚实零跑：不落即本轮无事（inactive/stalled/wake_budget 各由 message 说明）
+      // 诚实零跑：不落即本轮无事（inactive/stalled/wake_budget/
+      // session_unreadable〔65 轮件A 读史兜〕各由 message 说明）
       return settledHandle(trigger, {
         reason: 'gated',
         error: `goal「${goalId}」本轮未唤醒（${decision.reason}）：${decision.message}`,

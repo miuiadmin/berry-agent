@@ -39,10 +39,26 @@ afterEach(() => {
 /** 假会话日志读面（内存事件数组——seq 按数组下标单源） */
 class FakeSession implements GoalSessionFace {
   private readonly logs = new Map<string, SessionEvent[]>();
+  /**
+   * 已删除会话名册（65 轮件A 读史兜锁）：标记后 events/length 读面抛
+   * PERSIST_DATA_CORRUPT 族——镜像 persistence.loadSession 真身（会话行
+   * 缺席即删会话形，「读未保存 id 或已删除」同串）。
+   */
+  private readonly deleted = new Set<string>();
+  /** 标记会话删除（此后读面全抛——goal 绑定会话蒸发的 durable 形） */
+  deleteSession(sessionId: string): void {
+    this.deleted.add(sessionId);
+  }
   events(sessionId: string): readonly SessionEvent[] {
+    if (this.deleted.has(sessionId)) {
+      throw new BaseError('PERSIST_DATA_CORRUPT', `会话 ${sessionId} 不存在（读未保存 id 或已删除——调用序检视）`);
+    }
     return this.logs.get(sessionId) ?? [];
   }
   length(sessionId: string): number {
+    if (this.deleted.has(sessionId)) {
+      throw new BaseError('PERSIST_DATA_CORRUPT', `会话 ${sessionId} 不存在（读未保存 id 或已删除——调用序检视）`);
+    }
     return (this.logs.get(sessionId) ?? []).length;
   }
   appendPaused(sessionId: string): void {
@@ -649,6 +665,39 @@ describe('wake（双帽 + 停滞硬停 + 归因落账）', () => {
     expect(calls).toContain(`enable:${goal.id}`); // 挂钟复活
     const rows = service.wakes(goal.id);
     expect(rows.at(-1)).toMatchObject({ trigger: 'manual', attribution: '/goal wake' });
+  });
+
+  // 65 轮件A 读史兜（04 §12 重绑护栏批注「会话删除形同律」）：goal 绑定会话
+  // 已删除（会话文件缺席——读史 PERSIST_DATA_CORRUPT 抛错族）属旧唤醒不
+  // 落地：wake 读史失败折诚实 gated 回执（landed=false、独立 reason 词
+  // session_unreadable——与 inactive/stalled 同命名域），manual/clock 两道
+  // 同折（折叠位在终态守卫后、双道分岔前的读史位）。修前红：读史抛错裸穿
+  // wake 整体抛出——引擎扫描位 catch-warn-only 吞炸后行零结算（last_fire_at
+  // 不推进、行永 due → MIN_POLL_MS 最小轮询钟重触发告警循环）。
+  it('读史兜 clock 道：绑定会话已删除（events 抛 PERSIST_DATA_CORRUPT）→ 折诚实 gated 回执不抛穿（修前红：抛穿）', async () => {
+    const { service, session } = openService();
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    session.deleteSession('s1'); // goal 绑定会话删除——读史位起抛
+    const decision = await service.wake(goal.id, { trigger: 'clock', attribution: 'tick:goal-g1' });
+    expect(decision).toMatchObject({ landed: false, reason: 'session_unreadable' });
+    expect(decision.message).toContain('s1'); // 错因摘要入回执（诚实面）
+    expect(decision.goal.id).toBe(goal.id); // goal 行快照在场（与终态 inactive 分支同形）
+    expect(service.get(goal.id)).toMatchObject({ status: 'active', stallStreak: 0 }); // 行态不动（读失败非计数事件）
+    expect(service.wakes(goal.id)).toEqual([]); // 折叠轮不落归因账
+    expect(warn).toHaveBeenCalled(); // 亮拒留痕（删会话行 = 配置漂移面）
+  });
+
+  it('读史兜 manual 道同折：读史失败先于 manual 分岔——挂钟不复活、计数不动、不落账（修前红：抛穿）', async () => {
+    const { service, face, calls, session } = openService();
+    await service.attachGoalJobsFace(face);
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    await service.wake(goal.id, { trigger: 'clock', attribution: 'job' }); // 基线（读史正常）
+    session.deleteSession('s1');
+    const decision = await service.wake(goal.id, { trigger: 'manual', attribution: '/goal wake' });
+    expect(decision).toMatchObject({ landed: false, reason: 'session_unreadable' });
+    expect(calls).not.toContain(`enable:${goal.id}`); // 折叠先于 manual 分岔——挂钟不复活
+    expect(service.get(goal.id)).toMatchObject({ stallStreak: 0, wakeStreak: 0 }); // 计数不动（基线轮复位余像）
+    expect(service.wakes(goal.id)).toHaveLength(1); // 仅基线轮在账——折叠轮不落
   });
 });
 
