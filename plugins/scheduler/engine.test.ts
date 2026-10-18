@@ -959,3 +959,132 @@ describe('claim 先行条件判占（67 轮批注乙）', () => {
     expect(dao.get('j')?.activePid).toBe(910001);
   });
 });
+
+/**
+ * 清账对偶律（04 §12 律 3 68 轮批注丙——判占者方清己账）：claimActive 条件
+ * 判占的对偶缺位——修前引擎尾段 finally 清账 / start() 僵行清扫清账两腿均
+ * 无条件 setActive，可抹他进程新落 claim（被抹后该实例真在飞而行面 idle →
+ * 第三进程再判占同名双跑）。收口 = clearActiveIf(name, expectPid) 条件
+ * UPDATE：期望匹配方真清、易主即弃清不抹。
+ */
+describe('清账对偶律（68 轮批注丙——判占者方清己账）', () => {
+  it('dao.clearActiveIf 条件清账：期望匹配真清（changes=1）；易主弃清（changes=0）不抹新 claim——claimActive 的对偶位（修前红：无此方法）', () => {
+    const { service, dao } = assemble();
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const t = new Date(nowMs).toISOString();
+    dao.claimActive('j', 700001, t, t, null); // 占位在册
+    expect(dao.clearActiveIf('j', 700001, t)).toBe(true); // 己账真清
+    expect(dao.get('j')?.activePid).toBeNull();
+    expect(dao.get('j')?.activeStartedAt).toBeNull();
+    dao.claimActive('j', 700002, t, t, null); // 他进程新占
+    expect(dao.clearActiveIf('j', 700001, t)).toBe(false); // 期望陈旧（易主）——弃清不抹
+    expect(dao.get('j')?.activePid).toBe(700002); // 新 claim 保住
+  });
+
+  it('红锁A：start 僵行清扫——快照→清账窗内他进程接管落新 pid 后，清扫弃清弃结算不抹新 claim（修前红：无条件清账抹成 null + 给在飞行记 killed 结局）', () => {
+    // daoWrap 注入位（既有 seam）：包 dao.list——真 list 返回快照（activePid=999）
+    // 后立即以 expect=999 条件判占落 777，确定性压缩「快照→清账窗内接管」
+    // （真身窗 = list 返回到清账语句之间的竞速窗）
+    let tookOver = false;
+    const { service, dao, engine } = assemble({
+      isPidAlive: () => false, // 快照 pid 999 判死（死账形）
+      wallTimeoutMs: 30_000,
+      daoWrap: (raw) =>
+        new Proxy(raw, {
+          get(target, prop) {
+            if (prop === 'list') {
+              return (...args: Parameters<JobsDao['list']>) => {
+                const rows = target.list(...args);
+                const t = new Date(nowMs).toISOString();
+                tookOver = target.claimActive('j', 777, t, t, 999);
+                return rows;
+              };
+            }
+            return Reflect.get(target, prop) as unknown;
+          },
+        }),
+    });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const old = new Date(nowMs - 60_000).toISOString();
+    dao.setActive('j', 999, old, old); // 死 + 超钟残账（快照观察面）
+    engine.start();
+    expect(tookOver).toBe(true); // 窗内接管确落（expect=999 胜）
+    const row = dao.get('j');
+    expect(row?.activePid).toBe(777); // 修前红锚：无条件清账抹成 null
+    expect(row?.activeStartedAt).not.toBeNull(); // 新 claim 起跑钟保住
+    expect(row?.lastOutcome).toBeNull(); // 易主整让——不给他进程在飞行记 killed 结局
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('僵行清扫让位'));
+  });
+
+  it('红锁B：fireRowTail 尾段清账——A 悬挂被 B 接管后 A 尾段不抹 B 新 claim（修前红：无条件清账抹成 null）', async () => {
+    // 真 JobsDao 双引擎（pid 注缝 111/222——乙案并存双实例形）
+    store = openStore({
+      dbPath: join(dir, 'clear-tail.db'),
+      dataDir: join(dir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SCHEDULER_MIGRATION],
+    });
+    const { service, dao } = createSchedulerService({
+      db: store.sqlite(),
+      now: () => new Date(nowMs).toISOString(),
+      warn,
+      pathExists: () => true,
+    });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const clock = () => new Date(nowMs).toISOString();
+    // A 引擎 runner：settled 悬挂 + 测试可控放行（句柄 pid = A 注缝 pid——甲案
+    // 同值形：spawn 后记账覆写幂等不换主）
+    let spawnedA = 0;
+    let resolveA!: (o: RunOutcome) => void;
+    const runnerA: RunnerFactory = {
+      async spawn() {
+        spawnedA += 1;
+        return {
+          pid: 111,
+          kill: () => undefined,
+          settled: new Promise<RunOutcome>((r) => {
+            resolveA = r;
+          }),
+        };
+      },
+    };
+    const runnerB: RunnerFactory = {
+      async spawn() {
+        return { pid: 222, kill: () => undefined, settled: new Promise<RunOutcome>(() => {}) };
+      },
+    };
+    const engineA = createSchedulerEngine({
+      dao,
+      runner: runnerA,
+      now: clock,
+      warn,
+      timers: new FakeTimers(),
+      pid: 111,
+    });
+    const engineB = createSchedulerEngine({
+      dao,
+      runner: runnerB,
+      now: clock,
+      warn,
+      timers: new FakeTimers(),
+      pid: 222,
+    });
+    // A 起跑（manual 直通）：claim 落 111 → 悬挂在 handle.settled
+    const pa = engineA.fireNow('j', 'manual');
+    await vi.waitFor(() => {
+      expect(spawnedA).toBe(1);
+      expect(dao.get('j')?.activePid).toBe(111);
+    });
+    // B 接管（A 账鲜活未超钟——让位判定 !expired 短路不拦，残账判定过即
+    // 条件判占 expect=111 落 222——同 claimActive 接管形）
+    const pb = engineB.fireNow('j', 'manual');
+    await vi.waitFor(() => expect(dao.get('j')?.activePid).toBe(222));
+    // 放行 A 尾段：A 收场清账面对的是 B 的新 claim——不得抹
+    resolveA({ trigger: 'manual', reason: 'exit_code', exitCode: 0, finishedAt: clock() });
+    const outcomeA = await pa;
+    expect(outcomeA.reason).toBe('exit_code'); // A 自身结算照走（settle 行为本笔不动）
+    expect(dao.get('j')?.activePid).toBe(222); // 修前红锚：A 尾段无条件清账抹成 null
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('清账让位'));
+    void pb; // B 悬挂在飞不收场（悬挂 promise 同 assembleDualEngine 形——进程收尾自理）
+  });
+});

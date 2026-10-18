@@ -377,11 +377,17 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
      * 不兼容/wake 抛错/wake 未落地）公共尾——清账（claim 对偶；清账失败留痕
      * 不吞结算，残留占用由引擎侧僵行清扫自愈）+ gated 结算（next 现算——行
      * 不永 due 反复过判占面）。非真跑不动 last_fire_at（gated 同律）。
+     * 条件清账（68 轮批注丙——清账对偶律）：期望值 = 本 CLI 判占 pid——claim
+     * 后 wake 窗内他实例（引擎/他 CLI）可对死/超钟残账条件判占接管落新 pid，
+     * 修前无条件清账抹其新 claim（被抹后该实例真在飞而行面 idle → 第三进程
+     * 再判占同名双跑）；changes=0 即易主——留新占用不抹（留痕），结算照走。
      */
     const rollbackTickClaim = (error: string): void => {
       const rollbackAt = new Date().toISOString();
       try {
-        schedFace.dao.setActive(row.name, null, null, rollbackAt);
+        if (!schedFace.dao.clearActiveIf(row.name, pid, rollbackAt)) {
+          err.write(`--tick 判占回卷清账让位（任务 ${row.name}——占用已易主，留新占用不抹）\n`);
+        }
       } catch (clearError) {
         err.write(
           `--tick 判占回卷清账失败（任务 ${row.name}——残留占用由引擎僵行清扫自愈）：${clearError instanceof Error ? clearError.message : String(clearError)}\n`,

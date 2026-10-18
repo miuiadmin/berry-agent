@@ -206,6 +206,27 @@ export class JobsDao {
             .run(pid, startedAt, updatedAt, name, expectActivePid);
     return result.changes === 1; // 0 = 期望落空（他实例已判占/已自清）——竞速负者
   }
+
+  /**
+   * 条件清账（04 §12 律 3 68 轮批注丙——清账对偶律「判占者方清己账」）：
+   * claimActive 的对偶位——清账腿同样条件 UPDATE 带期望占用值（expectPid =
+   * 清账方 claim 时/快照观察到的 pid），WHERE 带期望值、changes === 1 即
+   * 真清（己账）。乙案并存窗（A 超钟被 B 接管、A 尾段清账/清扫/回卷后到）
+   * 的收口位：修前三清账点位无条件 setActive，A 的清账直接抹 B 经 claimActive
+   * 新落的 claim——被抹后 B 真在飞而行面 idle，第三进程再判占同名双跑（恰是
+   * 条件判占所防之事被清账腿回穿）。changes === 0 即行已易主（他进程已接管
+   * 残账落新 pid）或已自清——弃清不抹，调用方按点位取舍（僵行清扫位整让、
+   * 尾段/回卷位留新 claim 留痕）。
+   */
+  clearActiveIf(name: string, expectPid: number, updatedAt: string): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE jobs SET active_pid = NULL, active_started_at = NULL, updated_at = ?
+         WHERE name = ? AND active_pid = ?`,
+      )
+      .run(updatedAt, name, expectPid);
+    return result.changes === 1; // 0 = 期望落空（他进程已接管/已自清）——弃清不抹
+  }
 }
 
 /** jobs 表 DB 行形（蛇形列——fromDb 单源映射） */

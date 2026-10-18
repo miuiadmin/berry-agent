@@ -223,13 +223,24 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
         const startedAtMs = row.activeStartedAt !== null ? Date.parse(row.activeStartedAt) : 0;
         const expired = Date.parse(now()) - startedAtMs > wallTimeoutMs;
         if (!expired || isPidAlive(row.activePid)) continue;
+        // 条件清账（68 轮批注丙——清账对偶律）：期望值 = 快照观察到的死 pid。
+        // 快照→清账窗内他进程可经 beginInstance 条件判占接管死/超钟残账落新
+        // pid——修前无条件清账直接抹其新 claim（被抹后该实例真在飞而行面
+        // idle → 第三进程再判占同名双跑）。changes=0 即易主——清账与 settle
+        // 双弃整让（settle 会给他进程在飞行记 killed 结局 + 携行快照陈旧
+        // next 回写，皆非本引擎该做的事），warn 留痕
+        if (!dao.clearActiveIf(row.name, row.activePid, now())) {
+          warn(
+            `[scheduler] 僵行清扫让位：${row.name}（快照 activePid ${row.activePid} 已易主——他进程已接管残账，本轮弃清弃结算）`,
+          );
+          continue;
+        }
         const outcome: RunOutcome = {
           trigger: 'clock',
           reason: 'killed',
           error: `僵行回收（activePid ${row.activePid} 已死且超墙钟——乙案子进程 kill -9 残账/宿主重启旧账）`,
           finishedAt: now(),
         };
-        dao.setActive(row.name, null, null, now());
         dao.settleGated(row.name, outcome, row.nextFireAt, now());
         warn(`[scheduler] 僵行清扫：${row.name}（activePid ${row.activePid} 死 + 超墙钟——行回 idle 可重发）`);
       }
@@ -291,7 +302,7 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
     try {
       const begun = await enqueueName(name, (stillOwn) => beginInstance(row, trigger, stillOwn));
       if (begun.kind === 'done') return begun.outcome; // 闸拦/跨进程让位——已结算直收
-      const { handle, firedAt, wallHandle } = begun;
+      const { handle, firedAt, wallHandle, claimedPid } = begun;
       let outcome: RunOutcome;
       try {
         outcome = await handle.settled;
@@ -317,11 +328,26 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       } finally {
         timers.clear(wallHandle);
         active.delete(name);
+        // 条件清账（68 轮批注丙——清账对偶律·真对偶位）：期望值 = 本 fire 落账
+        // 的占用 pid（claim 时 ownPid、spawn 后记账号覆写为 runner 句柄 pid——
+        // 取本 fire 最后写入值；甲案同值幂等、乙案 spawn 形 = 子进程 pid）。A
+        // 超钟被 B 接管后 A 尾段修前无条件清账会抹 B 的新 claim（B 真在飞而
+        // 行面 idle → 第三进程再判占同名双跑——旧注释自称「claim 对偶」实为
+        // 谎，本笔补真对偶）。changes=0 = 易主或已自清（乙案子进程收场自清后
+        // 的幂等对账）——留新 claim 不抹；真易主（他 pid 在册）才 warn 留痕，
+        // 已自清（NULL）静默不刷屏
         // 清账吞错（挖掘 21 轮件10——fire 起跑记账对偶位同律）：durable 清账
         // 抛错不吞已结算 outcome（穿透即调用方收 reject、结果丢失）——降
         // warn，残留 durable 账由跨进程「死/超钟不拦」+ 僵行清扫自愈
         try {
-          dao.setActive(name, null, null, now()); // durable 在飞占用面清账（claim 对偶）
+          if (!dao.clearActiveIf(name, claimedPid, now())) {
+            const after = dao.get(name);
+            if (after !== undefined && after.activePid !== null) {
+              warn(
+                `[scheduler] activePid 清账让位（任务 ${name}——占用已易主 pid ${after.activePid}，留新 claim 不抹）`,
+              );
+            }
+          }
         } catch (err) {
           warn(
             `[scheduler] activePid 清账失败（任务 ${name}，降 warn——残留账由僵行清扫自愈）：${err instanceof Error ? err.message : String(err)}`,
@@ -343,13 +369,19 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
     }
   }
 
-  /** 关键段产物：起跑注册完（含墙钟守卫柄——随注册同步挂，盖住链跳窗）/ 闸拦·跨进程让位已结算（fireRowTail 直收） */
+  /**
+   * 关键段产物：起跑注册完（含墙钟守卫柄——随注册同步挂，盖住链跳窗）/
+   * 闸拦·跨进程让位已结算（fireRowTail 直收）。claimedPid = 本 fire 落账的
+   * durable 占用 pid（claim 时 ownPid、spawn 后记账号覆写为 runner 句柄
+   * pid）——尾段条件清账的期望值（68 轮批注丙——判占者方清己账）。
+   */
   type BeginResult =
     | {
         readonly kind: 'spawned';
         readonly handle: RunnerHandle;
         readonly firedAt: string;
         readonly wallHandle: unknown;
+        readonly claimedPid: number;
       }
     | { readonly kind: 'done'; readonly outcome: RunOutcome };
 
@@ -478,7 +510,11 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       // 随注册同步挂（段体内——不落 fireRowTail 的链返回 await 后一跳）：守卫
       // 面更宽（盖住段收场到尾段接管间的链跳窗），同步可见面与旧 fireRow 齐
       const wallHandle = timers.set(wallTimeoutMs, () => handle.kill('timeout'));
-      return { kind: 'spawned', handle, firedAt, wallHandle };
+      // 本 fire 落账的占用 pid（claim 写 ownPid、记账号覆写为句柄 pid——取最后
+      // 写入值；乙案 spawn 形句柄 pid 缺席 null 时留在 ownPid）——尾段条件清账
+      // 的期望值（68 轮批注丙：清账腿只清己账，易主即弃清不抹新 claim）
+      const claimedPid = handle.pid !== null ? handle.pid : ownPid;
+      return { kind: 'spawned', handle, firedAt, wallHandle, claimedPid };
     } finally {
       // 段体收场同步出册（仍是在飞段则让位后继自理——见 enqueueName 注释）
       if (stillOwn()) nameChains.delete(name);

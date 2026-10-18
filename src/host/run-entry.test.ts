@@ -745,7 +745,7 @@ describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿�
     // 修前让位 settleGated 携行快照 next 原样回写，会回退胜者（占用方）刚
     // 推进的新 next（67 轮批注乙 S3 病灶：next 回退 + 行立即再 due 双跑窗）
     const pastDue = new Date(Date.now() - 60_000).toISOString();
-    // dao 窄面（SchedulerTickSettleFace 四动词）无 next 单列写——直写库列
+    // dao 窄面（SchedulerTickSettleFace 五动词——68 轮批注丙扩 clearActiveIf）无 next 单列写——直写库列
     const seedDb = new Database(join(dataDir, 'sessions.db'));
     try {
       seedDb.prepare('UPDATE jobs SET next_fire_at = ? WHERE name = ?').run(pastDue, 'yield-job');
@@ -826,6 +826,52 @@ describe('runRunEntry --tick 判占回卷（67 轮批注乙：claim 先行 + 早
       expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
       expect(row?.nextFireAt).not.toBeNull(); // next 照推进（行不永 due 反复过判占面）
       expect(row?.activePid).toBeNull(); // 回卷清账（claim 对偶——不滞留死账）
+    } finally {
+      await audit.shutdown();
+    }
+  });
+});
+
+/**
+ * --tick 判占回卷清账对偶（04 §12 律 3 68 轮批注丙——判占者方清己账）：
+ * claim 后他进程可对死/超钟残账条件判占接管落新 pid——回卷腿修前无条件
+ * setActive 会抹其新 claim（被抹后该实例真在飞而行面 idle → 第三进程再
+ * 判占同名双跑）。回卷清账须条件化：期望 = 本 CLI 判占 pid，易主即弃清。
+ */
+describe('runRunEntry --tick 判占回卷清账对偶（68 轮批注丙——判占者方清己账）', () => {
+  it('红锁C：claim 后他进程接管（active_pid 易主 999）——回卷清账不抹新占用，结算照走（修前红：无条件清账抹成 null）', async () => {
+    const dataDir = tmpDir('run-data-');
+    const goal = await seedGoal(dataDir); // 活跃 goal + 挂钟行在场（daily@09:00）
+    // 行漂移形（wake 顶面 dao.get 缺行抛 GOAL_NOT_FOUND）——claim 后必经回卷腿
+    const db = new Database(join(dataDir, 'sessions.db'));
+    try {
+      db.prepare('DELETE FROM goals WHERE id = ?').run(goal.id);
+      // 「claim 后 SQL 直改 active_pid=999」的确定性压缩形：claim→回卷之间零
+      // 宏任务边界（同步块 + 微任务链——进程内测试窗内插针不可达），以
+      // AFTER UPDATE 触发器把接管写在 claim 语句原子上（NEW.active_pid =
+      // 本 CLI pid 即改 999——「快照→回卷窗内他进程条件判占接管」的窗内真值
+      // 形；触发器子改不计外层 changes——判占胜者判定不受扰，已实测）
+      db.exec(
+        `CREATE TRIGGER takeover_after_claim AFTER UPDATE OF active_pid ON jobs
+         WHEN NEW.active_pid = ${process.pid} AND NEW.active_pid IS NOT NULL
+         BEGIN UPDATE jobs SET active_pid = 999 WHERE name = NEW.name; END`,
+      );
+    } finally {
+      db.close();
+    }
+
+    const run = await rigRun({ message: '', flags: { tick: `goal-${goal.id}` }, dataDir });
+    await expect(run.entry).resolves.toBe(0); // wake 兜错退 0 照旧（回卷不改判档）
+    expect(run.err.text).toContain('唤醒判定失败');
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob(`goal-${goal.id}`);
+      expect(row?.activePid).toBe(999); // 修前红锚：无条件回卷清账抹成 null——新占用保住
+      expect(row?.lastOutcome?.reason).toBe('gated'); // 回卷结算照记（settle 行为本笔不动）
+      expect(row?.lastOutcome?.error).toContain('唤醒判定失败');
+      expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
+      expect(row?.nextFireAt).not.toBeNull(); // next 照推进
     } finally {
       await audit.shutdown();
     }
