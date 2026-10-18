@@ -157,6 +157,14 @@ export interface PluginLedgerEntry {
   readonly installPath: string;
   /** install 时收割入口模块 events 导出（§5.4 词表账本） */
   readonly declaredEvents: readonly string[];
+  /**
+   * install 时收割入口模块 inject 导出（66 轮件G——§5.4 inject 预收割同笔）：
+   * 装载排序位（loader Kahn 轮次）对磁盘插件行的 inject 信号唯一来自本位
+   * （入口模块装载期才可求值——排序位不得为排序而装载）。缺席视零 inject
+   * 排序（两段式不变：排序位尽力、装载位执法）；坏形拒装在收割腿
+   * （PLUGIN_SHAPE_INVALID 同族），读侧宽容消毒（照 declaredEvents 形）。
+   */
+  readonly inject?: readonly string[];
   /** 市场溯源（§9.6 mp-3）：name = 市场名、entry = catalog 条目名——uninstall 寻址与呈现用 */
   readonly market?: PluginLedgerMarket;
 }
@@ -252,6 +260,11 @@ function checkEntryShape(entry: unknown): PluginLedgerEntry | null {
     declaredEvents: Array.isArray(r['declaredEvents'])
       ? r['declaredEvents'].filter((e): e is string => typeof e === 'string')
       : [],
+    // inject 预收割位（66 轮件G——§5.4）：在场才携带（重建对象显式列位律——
+    // 缺席不凭空造位）；消毒照 declaredEvents 现形——数组滤逐项 string，非
+    // 数组手编坏形宽容视零（undefined，不整账本 invalid——排序信号失真只降
+    // 级为行序装载，装机真相不吞）
+    ...(Array.isArray(r['inject']) ? { inject: r['inject'].filter((v): v is string => typeof v === 'string') } : {}),
     ...(market !== undefined ? { market } : {}),
   };
 }

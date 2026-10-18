@@ -610,6 +610,51 @@ describe('local 源与收割真跑（本地 fixture 零网络）', () => {
     if (!outcome.ok) return;
     expect(outcome.entry.declaredEvents).toEqual(['selfdep/event']);
   });
+
+  it('inject 导出同笔收割入账（66 轮件G——03 §5.4 预收割位：排序信号在装机时点缓存；修前红：账行无 inject 位）', async () => {
+    const dataDir = dataDirOf('data-inject-harvest');
+    const src = localFixture(
+      'inject-ok',
+      pluginPkgJson({ name: 'inject-ok-pkg' }),
+      `export const events = ['demo/event-a'];\nexport const inject = ['b-svc', 'c-svc'];\nexport default function apply() {}\n`,
+    );
+    const outcome = await installPlugin(depsOf(dataDir, noopSpawn), `local:${src}`);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.entry.declaredEvents).toEqual(['demo/event-a']);
+    // 修前红位：账行 inject 位缺席（undefined）——预收割三断点之一（收割腿）
+    expect(outcome.entry.inject).toEqual(['b-svc', 'c-svc']);
+    // 落盘真源同核：ledger.json 条目带 inject 键
+    const onDisk = JSON.parse(readFileSync(ledgerPath(dataDir), 'utf8')) as Array<Record<string, unknown>>;
+    expect(onDisk[0]!['inject']).toEqual(['b-svc', 'c-svc']);
+  });
+
+  it('inject 坏形（非字符串数组）= 收割失败拒装同族（PLUGIN_SHAPE_INVALID）+ 坏形不落账', async () => {
+    const dataDir = dataDirOf('data-inject-bad');
+    const src = localFixture(
+      'badinject',
+      pluginPkgJson({ name: 'badinject-pkg' }),
+      `export const inject = 'oops';\nexport default function apply() {}\n`,
+    );
+    const outcome = await installPlugin(depsOf(dataDir, noopSpawn), `local:${src}`);
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('inject 导出须为字符串数组');
+    expect(existsSync(join(src, 'index.js'))).toBe(true); // local 直引永不删
+    expect(entriesOf(dataDir).some((e) => e.id === 'badinject-pkg')).toBe(false); // 坏形不落账
+  });
+
+  it('inject 导出缺席 = 账行无 inject 位（缺席视零 inject 排序——不凭空造空数组入账）', async () => {
+    const dataDir = dataDirOf('data-inject-absent');
+    const src = localFixture('noinject', pluginPkgJson({ name: 'noinject-pkg' }), INDEX_WITH_EVENTS);
+    const outcome = await installPlugin(depsOf(dataDir, noopSpawn), `local:${src}`);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.entry.inject).toBeUndefined();
+    const onDisk = JSON.parse(readFileSync(ledgerPath(dataDir), 'utf8')) as Array<Record<string, unknown>>;
+    expect(onDisk).toHaveLength(1); // 独立数据目录——单条目即本件
+    expect('inject' in onDisk[0]!).toBe(false); // 键位缺席（非空数组占位）
+  });
 });
 
 describe('装机收割腿前置源扫（type:module 原生 ESM 求值路径——2026-10-18 装载腿勘正的装机镜像：jiti 原生 ESM 零调 transform，装机时点三道白名单整体失效）', () => {
@@ -1087,6 +1132,61 @@ describe('git 执行器编舞（假 spawn——clone/checkout/rev-parse 零真�
     expect(rec.argvLog).toHaveLength(6);
     expect(gitTmpResidue(gitTmp)).toEqual([]);
     expect(existsSync(join(dataDir, 'plugins', 'git', 'github.com', 'o', 'r', 'package.json'))).toBe(true);
+  });
+
+  it('update 换代重收割：inject 预收割位随新码真相改写（新码不导出 inject = 账行剥旧位，不残留鬼影信号）', async () => {
+    const { dataDir, gitTmp } = gitDirs('inject-strip');
+    // 两代入口文件名分立（old/new）：装机树换代落位同路径，jiti/Node 进程级
+    // 模块缓存（moduleCache 跨实例共享）对同路径重求值返回旧命名空间——换代
+    // 差异被缓存吞掉测不到（seedGitOldTree 头注同谱），分名即分缓存键
+    const generationSpawn = (entryFile: string, entryJs: string): SpawnRunner => ({
+      run: (cmd, args) => {
+        if (cmd !== 'git') return Promise.reject(new Error(`假 spawn 不受理 ${cmd}`));
+        if (args[0] === 'clone') {
+          const target = args[args.length - 1]!;
+          mkdirSync(target, { recursive: true });
+          writeFileSync(join(target, 'package.json'), pluginPkgJson({ name: 'demo-pkg', main: entryFile }));
+          writeFileSync(join(target, entryFile), entryJs);
+          return Promise.resolve({ stdout: '', stderr: '' });
+        }
+        if (args[2] === 'checkout') return Promise.resolve({ stdout: '', stderr: '' });
+        if (args[2] === 'rev-parse') return Promise.resolve({ stdout: 'fake-commit-9999\n', stderr: '' });
+        return Promise.reject(new Error(`假 spawn 不识别 git 子命令：${args.join(' ')}`));
+      },
+    });
+    // 旧版：入口导出 inject（预收割入账）
+    const first = await installPlugin(
+      depsOf(
+        dataDir,
+        generationSpawn(
+          'old-entry.js',
+          `export const inject = ['old-svc'];\nexport const events = ['demo/event-a'];\nexport default function apply() {}\n`,
+        ),
+        { tmpRoot: gitTmp },
+      ),
+      'git:https://github.com/o/r.git#v1.2.0',
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.entry.inject).toEqual(['old-svc']); // 首装入账
+    // 新版：上游去掉 inject 导出（...current 展开携带旧位即鬼影——须显式剥）
+    const updated = await updatePlugin(
+      depsOf(
+        dataDir,
+        generationSpawn(
+          'new-entry.js',
+          `export const events = ['demo/event-a'];\nexport default function apply() {}\n`,
+        ),
+        { tmpRoot: gitTmp },
+      ),
+      'demo-pkg',
+    );
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.entry.inject).toBeUndefined(); // 换代剥旧位（缺席如实缺席）
+    const after = entriesOf(dataDir).filter((e) => e.id === 'demo-pkg');
+    expect(after).toHaveLength(1);
+    expect(after[0]!.inject).toBeUndefined();
   });
 
   it('直装腿私网豁免锁（§9.6 market 腿裁决——market 注记缺席 = 用户手打显式动作，SSRF 守卫不辖）', async () => {

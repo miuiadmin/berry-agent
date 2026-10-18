@@ -433,6 +433,63 @@ describe('装机账本读侧（03 §5.4——warn 降级与 installPath 解析�
   });
 });
 
+describe('磁盘插件 inject 预收割（66 轮件G——03 §5.4 装机账本预收割位驱动 Kahn 排序）', () => {
+  /** 磁盘插件 fixture 清单速记（berryAgent.entry 指定入口——entry-file 形） */
+  const injectPkg = (name: string): string =>
+    JSON.stringify({ name, version: '1.0.0', berryAgent: { entry: 'entry.js' } });
+
+  it('跨重启形：账本 inject 位驱动重排——依赖方行序在前也由供给方先装（修前红：行序即装载序，依赖方折 PLUGIN_INJECT_UNRESOLVED）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'host-plugin-boot-inject-'));
+    dirs.push(dataDir);
+    // 依赖方 dep-a：入口模块声明硬依赖 b-svc（named export inject——装载位执法面）
+    const dirA = join(dataDir, 'plugins', 'node_modules', 'dep-a');
+    mkdirSync(dirA, { recursive: true });
+    writeFileSync(join(dirA, 'package.json'), injectPkg('dep-a'));
+    writeFileSync(join(dirA, 'entry.js'), `export const inject = ['b-svc'];\nexport default async () => {};\n`);
+    // 供给方 svc-b：apply 期 ctx.provide b-svc（Kahn 落服务后解锁依赖方轮次）
+    const dirB = join(dataDir, 'plugins', 'node_modules', 'svc-b');
+    mkdirSync(dirB, { recursive: true });
+    writeFileSync(join(dirB, 'package.json'), injectPkg('svc-b'));
+    writeFileSync(
+      join(dirB, 'entry.js'),
+      `export default async (ctx) => {\n  ctx.provide('b-svc', { tag: 'from-b' });\n};\n`,
+    );
+    // 行序故意反排：dep-a 在前（排序真值检验——修前行序即装载序，dep-a 先装必折）
+    writeFileSync(join(dataDir, 'enabled.yaml'), enabledYaml('  - id: dep-a\n  - id: svc-b\n'));
+    // 账本 inject 预收割位（install 期收割缓存的跨重启载体——66 轮件G 接线面）
+    writeFileSync(
+      join(dataDir, 'plugins', 'ledger.json'),
+      JSON.stringify({
+        'dep-a': { installPath: 'plugins/node_modules/dep-a', inject: ['b-svc'] },
+        'svc-b': { installPath: 'plugins/node_modules/svc-b' },
+      }),
+    );
+    const boot = await bootPlugins(rigBoot(dataDir).options);
+    expect(boot.report.failed).toEqual([]); // 修前红：dep-a 折 PLUGIN_INJECT_UNRESOLVED（可满足装载序明明存在）
+    // 装载序 = 服务可用性驱动（svc-b 先装供给、dep-a 后装消费）——activated 序即证
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['svc-b', 'dep-a']);
+  });
+
+  it('账本 inject 坏形（非数组）= 读侧宽容视零（不 brick——行序自洽照常装载）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'host-plugin-boot-inject-tol-'));
+    dirs.push(dataDir);
+    const dir = join(dataDir, 'plugins', 'node_modules', 'tol-a');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'package.json'), injectPkg('tol-a'));
+    writeFileSync(join(dir, 'entry.js'), `export default async () => {};\n`);
+    writeFileSync(join(dataDir, 'enabled.yaml'), enabledYaml('  - id: tol-a\n'));
+    // 手编坏形 inject（非字符串数组）——读侧消毒照 declaredEvents 宽容形：视零
+    // inject 排序，不拒启不 brick（模块内无 inject 声明即无装载位执法面）
+    writeFileSync(
+      join(dataDir, 'plugins', 'ledger.json'),
+      JSON.stringify({ 'tol-a': { installPath: 'plugins/node_modules/tol-a', inject: 'oops' } }),
+    );
+    const boot = await bootPlugins(rigBoot(dataDir).options);
+    expect(boot.report.failed).toEqual([]);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['tol-a']);
+  });
+});
+
 describe('boot-failures 记账与清名（§5.7 档②）', () => {
   it('loader 行失败启动横幅点名（obs-a——装载序尾逐行 warn 与合成失败行同形 + 账本落错误文本）', async () => {
     const fs = memoryFs({

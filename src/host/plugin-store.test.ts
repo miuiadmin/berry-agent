@@ -129,9 +129,30 @@ describe('装机账本读侧（宽容两式）', () => {
     expect(read.ok && read.entries).toHaveLength(1);
     expect(read.ok && read.entries[0]!.ref).toBe('npm:a@2');
   });
+
+  it('手编坏形 inject（非数组/数组掺非串）= 宽容消毒不整账本 invalid（66 轮件G——视零 inject 排序）', () => {
+    // 非数组形：整条目照读、inject 位折 undefined（不 invalid——与 declaredEvents
+    // 非数组折 [] 同宽容档，坏形不吞装机真相）
+    const rawNotArray = JSON.stringify([{ ...entry({ id: 'a' }), inject: 'oops' } as unknown as PluginLedgerEntry]);
+    const readA = readLedger('/data', memFs({ '/data/plugins/ledger.json': rawNotArray }));
+    expect(readA.ok).toBe(true);
+    expect(readA.ok && readA.entries[0]!.inject).toBeUndefined();
+    // 数组掺非串：滤后保真（declaredEvents 消毒同形——逐项 string 才留）
+    const rawMixed = JSON.stringify([{ ...entry({ id: 'b' }), inject: ['svc-x', 7] } as unknown as PluginLedgerEntry]);
+    const readB = readLedger('/data', memFs({ '/data/plugins/ledger.json': rawMixed }));
+    expect(readB.ok && readB.entries[0]!.inject).toEqual(['svc-x']);
+  });
 });
 
 describe('装机账本写侧（条目数组形单源）', () => {
+  it('inject 预收割位读写往返保真（66 轮件G——§5.4 排序信号跨重启载体）', () => {
+    const fs = memFs();
+    writeLedger('/data', [entry({ id: 'a', inject: ['svc-x', 'svc-y'] })], fs);
+    // 写侧入账 → 读侧（checkEntryShape 重建）携带——往返不丢位
+    const entries = ledgerEntriesOf('/data', fs);
+    expect(entries[0]!.inject).toEqual(['svc-x', 'svc-y']);
+  });
+
   it('writeLedger 恒出数组形 + 原子写无 tmp 残留', () => {
     const fs = memFs();
     writeLedger('/data', [entry({ id: 'a' })], fs);

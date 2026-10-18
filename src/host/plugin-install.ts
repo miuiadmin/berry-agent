@@ -381,15 +381,16 @@ export async function installPlugin(
       message: `插件 ${manifest.id} 已安装（源 ${ledgerRead.entries.find((e) => e.id === manifest.id)!.source}）——换版本走 update，先卸走 uninstall`,
     };
   }
-  // 收割（§5.4 词表账本——装机零生效唯一例外：仅模块求值读 events 导出）
+  // 收割（§5.4 词表账本——装机零生效唯一例外：仅模块求值读 events/inject 导出）
   let declaredEvents: readonly string[];
+  let declaredInject: readonly string[] | undefined;
   try {
-    declaredEvents = await harvestEvents(
+    ({ events: declaredEvents, inject: declaredInject } = await harvestEvents(
       deps,
       resolveInstallPath(deps.dataDir, product.installPath),
       product.installPath,
       manifest,
-    );
+    ));
   } catch (err) {
     rollbackInstall(deps, product.installPath);
     return {
@@ -410,6 +411,8 @@ export async function installPlugin(
     installedAt: now().toISOString(),
     installPath: product.installPath,
     declaredEvents,
+    // inject 预收割位入账（66 轮件G——§5.4）：缺席不入账（视零 inject 排序）
+    ...(declaredInject !== undefined ? { inject: declaredInject } : {}),
     ...(opts.market !== undefined ? { market: opts.market } : {}),
   };
   upsertLedgerEntry(deps.dataDir, entry, deps.fs);
@@ -1020,16 +1023,30 @@ function harvestErrorMessage(err: unknown): string {
  * 道②未接线放行，受门拒载归装载期执法（03 §3.3 快照装载时点律）。纯声明
  * 包（declared-payload）零码收割；server 形（server-declared）同律空操作
  * ——无入口可求值（03 §10.1 R2）。非字符串数组 events 导出 = 收割失败
- * （词表账本容不得坏形）。
+ * （词表账本容不得坏形）。同笔收割 `inject` 导出（66 轮件G——§5.4 inject
+ * 预收割同笔）：磁盘插件行的装载排序位（loader Kahn 轮次）对 inject 信号
+ * 唯一来自装机账本预收割位——本腿同一次求值顺读 inject（形态执法与装载位
+ * asStringArray 同律：数组且逐项 string；坏形拒装同族 PLUGIN_SHAPE_INVALID；
+ * 缺席 = undefined 不入账，视零 inject 排序——两段式不变：排序位尽力、
+ * 装载位执法）。
  */
+/** 收割产物：events 词表 + inject 预收割位（inject 缺席 = undefined 不入账） */
+interface HarvestProduct {
+  readonly events: readonly string[];
+  readonly inject: readonly string[] | undefined;
+}
+
 async function harvestEvents(
   deps: InstallExecutorDeps,
   pluginDir: string,
   installPath: string,
   manifest: PluginManifest,
-): Promise<readonly string[]> {
+): Promise<HarvestProduct> {
   if (manifest.entryPlan.kind === 'declared-payload' || manifest.entryPlan.kind === 'server-declared') {
-    return []; // 纯声明包零码收割；server 形同律空操作（03 §10.1 R2——无入口可求值，declaredEvents 缺席合法）
+    // 纯声明包零码收割；server 形同律空操作（03 §10.1 R2——无入口可求值，
+    // declaredEvents 缺席合法；inject 同律缺席——server 形排序位恒 ['mcp']
+    // 结构性桥依赖，账本位不参与）
+    return { events: [], inject: undefined };
   }
   const entryFile = manifest.entryPlan.kind === 'entry-file' ? manifest.entryPlan.entry : resolvePkgMain(pluginDir);
   const entryId = join(pluginDir, entryFile);
@@ -1081,14 +1098,27 @@ async function harvestEvents(
     );
   }
   const events = namespace['events'];
-  if (events === undefined) return [];
-  if (!Array.isArray(events) || events.some((e) => typeof e !== 'string' || e.length === 0)) {
+  if (events === undefined && namespace['inject'] === undefined) return { events: [], inject: undefined };
+  if (events !== undefined && (!Array.isArray(events) || events.some((e) => typeof e !== 'string' || e.length === 0))) {
     throw new BaseError(
       'PLUGIN_SHAPE_INVALID',
       `入口 events 导出须为字符串数组（插件 ${manifest.id}）——事件词表不容格式异常`,
     );
   }
-  return events as readonly string[];
+  // inject 同笔收割（66 轮件G——§5.4）：形态执法与装载位 asStringArray 同律
+  // （数组且逐项 string）——装机时点坏形拒装（PLUGIN_SHAPE_INVALID 同族），
+  // 缺席 = undefined 不入账（视零 inject 排序）
+  const inject = namespace['inject'];
+  if (inject !== undefined && (!Array.isArray(inject) || inject.some((v) => typeof v !== 'string'))) {
+    throw new BaseError(
+      'PLUGIN_SHAPE_INVALID',
+      `入口 inject 导出须为字符串数组（插件 ${manifest.id}）——排序预收割不容格式异常`,
+    );
+  }
+  return {
+    events: (events ?? []) as readonly string[],
+    inject: inject as readonly string[] | undefined,
+  };
 }
 
 /* ---------------- update 分派（§5.4 按源） ---------------- */
@@ -1298,13 +1328,14 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
     };
   }
   let declaredEvents: readonly string[];
+  let declaredInject: readonly string[] | undefined;
   try {
-    declaredEvents = await harvestEvents(
+    ({ events: declaredEvents, inject: declaredInject } = await harvestEvents(
       deps,
       resolveInstallPath(deps.dataDir, product.installPath),
       product.installPath,
       manifest,
-    );
+    ));
   } catch (err) {
     rollbackInstall(deps, product.installPath);
     return {
@@ -1321,12 +1352,17 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
       // 幂等收敛位兜底（见 stageOldTreeForUpdate 残影清扫）
     }
   }
+  // 换代重收割：旧条目 inject 预收割位显式剥除（66 轮件G——...current 展开
+  // 会携带旧装机物声明，新码不再导出 inject 时账行必须如实缺席——预收割位
+  // 反映当前装机物真相，陈旧残留 = 排序位读鬼影信号）
+  const { inject: _staleInject, ...carried } = current;
   const entry: PluginLedgerEntry = {
-    ...current,
+    ...carried,
     commit: product.commit,
     installedAt: (deps.now ?? (() => new Date()))().toISOString(),
     installPath: product.installPath,
     declaredEvents,
+    ...(declaredInject !== undefined ? { inject: declaredInject } : {}),
   };
   upsertLedgerEntry(deps.dataDir, entry, deps.fs);
   // 换装成功事实（05 §1.1）：git 溢词形 {id, from?, to}——但 git 源

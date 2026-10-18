@@ -1756,9 +1756,14 @@ export function readEnabledRows(
   return { rows: result.rows, doors: result.doors };
 }
 
-/** 装机账本条目（读侧最小面——只消费 installPath；完整条目形归 §5.4 install 批） */
+/**
+ * 装机账本条目（读侧最小面——installPath + inject 预收割位；完整条目形归
+ * §5.4 install 批）。inject 位消费：resolveDiskRow 透传入计划行（66 轮件G
+ * ——磁盘插件行 Kahn 排序的 inject 信号唯一来自账本预收割位）。
+ */
 interface LedgerEntryLike {
   readonly installPath?: unknown;
+  readonly inject?: unknown;
 }
 
 /**
@@ -2053,6 +2058,11 @@ function resolveDiskRow(
     ...(row.disabled !== undefined ? { disabled: row.disabled } : {}),
     // 开门授予位透传（批 U2 读侧——值域已过 parseEnabledRows 行校验，此处零复验）
     ...(row.opens !== undefined ? { opens: row.opens } : {}),
+    // inject 预收割位透传（66 轮件G——§5.4 照 opens 现形条件展开）：排序位
+    // （Kahn）信号唯一来自账本；读侧消毒照 declaredEvents 宽容形——账本是
+    // 手编面，数组滤逐项 string 才透传，缺席/坏形视零 inject 排序（两段式
+    // 不变：排序位尽力、装载位执法——模块内 inject 真实执法在装载步）
+    ...(Array.isArray(entry.inject) ? { inject: entry.inject.filter((v): v is string => typeof v === 'string') } : {}),
   };
   return { spec };
 }
