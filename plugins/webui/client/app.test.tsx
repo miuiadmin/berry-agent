@@ -693,6 +693,70 @@ describe('WebUiRoot新建会话腿失败处置（全文件唯一裸调用腿收�
   });
 });
 
+describe('WebUiRoot新建会话选中竞窗（68 轮件B——守卫从「凡非 null 即让位」勘正为「窗内漂移才让位」）', () => {
+  /** 双会话就绪桩（首载自动选首会话 s-1——常态 activeId 非 null 形） */
+  function primeTwoSessions(): void {
+    apiMock.probeAuthed.mockResolvedValue(true);
+    apiMock.listSessions.mockResolvedValue({
+      sessions: [
+        { id: 's-1', title: '会话一', lastActivityAt: 2 },
+        { id: 's-2', title: '会话二', lastActivityAt: 1 },
+      ],
+      total: 2,
+    });
+    apiMock.fetchMessages.mockResolvedValue([]);
+    apiMock.todo.mockResolvedValue(null);
+    apiMock.listApprovals.mockResolvedValue([]);
+    apiMock.getSessionTiers.mockResolvedValue(TIERS);
+  }
+
+  it('常态点「+ 新会话」：resolve 后选中新会话（修前红：首载自动选首会话后 activeId 恒非 null——守卫恒 no-op，开新零效果、每点一次服务端多造一个孤儿会话）', async () => {
+    primeTwoSessions();
+    apiMock.createSession.mockResolvedValue('s-new');
+    render(<WebUiRoot />);
+    await screen.findAllByText('会话一');
+    // 常态已选中确认：s-1 活体流在场（首载自动选首会话——凡库中有会话
+    // activeId 恒非 null，即修前守卫恒让位的误伤面）
+    await waitFor(() => {
+      expect(FakeEventSource.instances.some((s) => s.url === '/api/sessions/s-1/events')).toBe(true);
+    });
+    fireEvent.click(screen.getByRole('button', { name: '+ 新会话' }));
+    // 选中切到新会话：s-new 活体流接线（修前：POST 成功后清单刷新但焦点
+    // 不动——点「+ 新会话」对用户零效果）
+    await waitFor(() => {
+      expect(FakeEventSource.instances.some((s) => s.url === '/api/sessions/s-new/events')).toBe(true);
+    });
+  });
+
+  it('挂起窗内用户已选他会话：resolve 后让位不拽回（21 轮件7 让位语义保持——快照守卫只收窄误伤面不废让位）', async () => {
+    primeTwoSessions();
+    // 点击腿挂起（挂起窗 = 点「+ 新会话」到 POST resolve 之间）
+    let release!: (id: string) => void;
+    const pending = new Promise<string>((r) => {
+      release = r;
+    });
+    apiMock.createSession.mockReturnValueOnce(pending);
+    render(<WebUiRoot />);
+    await screen.findAllByText('会话一');
+    await waitFor(() => {
+      expect(FakeEventSource.instances.some((s) => s.url === '/api/sessions/s-1/events')).toBe(true);
+    });
+    fireEvent.click(screen.getByRole('button', { name: '+ 新会话' })); // 点击时快照 s-1
+    // 挂起窗内用户点选会话二（焦点漂移——让位判据成立：选中是用户意图不代言）
+    fireEvent.click(screen.getByRole('button', { name: '会话二' }));
+    await waitFor(() => {
+      expect(FakeEventSource.instances.some((s) => s.url === '/api/sessions/s-2/events')).toBe(true);
+    });
+    release('s-new');
+    await new Promise((r) => setTimeout(r, 30)); // 让潜在的拽位 setState 落地
+    // 不拽回：s-new 流不接线 + 焦点仍驻会话二（s-2 流未被拆）
+    expect(FakeEventSource.instances.some((s) => s.url === '/api/sessions/s-new/events')).toBe(false);
+    expect(FakeEventSource.instances.filter((s) => s.url === '/api/sessions/s-2/events').every((s) => !s.closed)).toBe(
+      true,
+    );
+  });
+});
+
 describe('WebUiRoot审批清单投影复拉（服务端现行 pending 清单即真源）', () => {
   it('复拉 keyed 对账：异口已决条目连续两拍未见随复拉出清，幻影卡不驻留（E4 同族两拍律——第九轮 laneE2 件2）', async () => {
     // 两条现行 pending（审批栏跨会话全量呈现——清单不按会话过滤）

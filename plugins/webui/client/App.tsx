@@ -462,12 +462,18 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
 
   /** 开新会话（POST → 清单刷新 → 选中新 id；失败不静默——401 失效路由 / 其余通知条） */
   const createSession = useCallback(() => {
+    // 点击时选中快照（68 轮件B）：竞窗守卫判据从「凡非 null 即让位」勘正为
+    // 「窗内漂移才让位」——首载自动选首会话后 activeId 恒非 null，旧判据下
+    // 常态点「+ 新会话」恒 no-op（开新零效果、每点一次服务端多造一个孤儿
+    // 会话）；快照与 updater 时值一致 = 焦点未被用户动过，照选新 id
+    const activeAtClick = state.activeId;
     void api
       .createSession()
       .then((sessionId) => {
-        // 竞窗守卫（挖掘 21 轮件7）：挂起窗内用户已选他会话则让位不拽——
-        // 选中是用户意图不代言；仅仍处零会话态时选中新 id
-        setState((prev) => (prev.activeId === null ? setActiveSession(prev, sessionId) : prev));
+        // 竞窗守卫（挖掘 21 轮件7 勘正）：挂起窗内焦点漂移（用户已选他会话
+        // 或已清选）则让位不拽——选中是用户意图不代言；未漂移（含零会话态
+        // null 照选）选中新 id
+        setState((prev) => (prev.activeId === activeAtClick ? setActiveSession(prev, sessionId) : prev));
         loadSessions();
       })
       .catch((err: unknown) => {
@@ -480,7 +486,7 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
         }
         setState((prev) => pushedNotice(prev, '新建会话失败——请重试', 'error'));
       });
-  }, [loadSessions, onAuthLost]);
+  }, [state.activeId, loadSessions, onAuthLost]);
 
   /**
    * 删除会话（2026-10-07 会话删除编排批——确认编舞在 App）：行内删除键
