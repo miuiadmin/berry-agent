@@ -10,7 +10,10 @@
  * llm/usage 落账（callId `run:<sid>:<seq>` 幂等身份 + priority background）+
  * tick 双形态（用户行 prompt/cwd/source='schedule' 落账；行缺席退 2；件缺席
  * 退 2；goal 挂钟行 wake 不落诚实零跑退 0、wake 落地续接 goal 会话 +
- * recordTurn 记账 durable 读回〔批 #99 上移驱动 settled 链〕）+ provider
+ * recordTurn 记账 durable 读回〔批 #99 上移驱动 settled 链〕）+ 乙案双收口
+ * （65 轮件B：wake reject 兜错 gated 退 0——行漂移形；claim 后自杀钟
+ * tickWallTimeoutMs 注入提速形驱动——缺省 FIRE_WALL_TIMEOUT_MS 同机制：
+ * 到点协作中止 + settle timeout 终态）+ provider
  * unconfigured 产品级文案（07 §5）+ 退出码三态。
  *
  * 断言只对行为与结构位（禁断言 AI 生成文本——'ok'/'例行巡检' 等均为测试
@@ -139,6 +142,8 @@ async function rigRun(opts: {
   dataDir?: string;
   responses?: readonly PiAssistantMessage[];
   model?: string;
+  /** 自杀钟毫秒注入位（65 轮件B ②——tickWallTimeoutMs seam 透传；测试提速形） */
+  wallMs?: number;
   /** env 面（缺省 {} 隔离——预算旋钮等 BERRY_AGENT_* 测试注入位） */
   env?: Record<string, string | undefined>;
 }) {
@@ -158,6 +163,7 @@ async function rigRun(opts: {
     env: opts.env ?? {},
     stdout: out.stream,
     stderr: err.stream,
+    ...(opts.wallMs !== undefined ? { tickWallTimeoutMs: opts.wallMs } : {}),
   });
   return { entry, out, err, dataDir, cwd, faux };
 }
@@ -769,6 +775,107 @@ describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿�
     try {
       const row = audit.scheduler.service.getJob('stale-job');
       expect(row?.activePid).toBeNull();
+    } finally {
+      await audit.shutdown();
+    }
+  });
+});
+
+describe('runRunEntry --tick 乙案双收口（65 轮件B：wake 兜错 + claim 后自杀钟）', () => {
+  it('wake reject（goals 行漂移）：诚实 gated 记账 + 退 0（修前红：裸 await 抛穿崩溃档退 1 零结算——行永 due cron 每轮照炸）', async () => {
+    const dataDir = tmpDir('run-data-');
+    // 活跃 goal + 挂钟行在场；漂移形 = goals 行被删而挂钟行残留——wake 顶面
+    // dao.get 缺行抛 GOAL_NOT_FOUND（真抛非 mock——读史失败族由件A 折
+    // landed=false，行漂移形仍走 reject，CLI 腿兜错独立成立）
+    const goal = await seedGoal(dataDir);
+    const db = new Database(join(dataDir, 'sessions.db'));
+    try {
+      db.prepare('DELETE FROM goals WHERE id = ?').run(goal.id);
+    } finally {
+      db.close();
+    }
+
+    const run = await rigRun({ message: '', flags: { tick: `goal-${goal.id}` }, dataDir });
+    // 修前红锚：wake 抛错直穿 executeRun → 外层崩溃档（run 执行失败 + 退 1 +
+    // 行零结算）；修后 = 判定失败非执行失败——gated 结局照记 + 零跑退 0
+    await expect(run.entry).resolves.toBe(0);
+    expect(run.err.text).toContain('唤醒判定失败');
+    expect(run.out.lines).toEqual([]); // 零跑零产物
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob(`goal-${goal.id}`);
+      expect(row?.lastOutcome?.reason).toBe('gated'); // 失败折 gated 结局（与不落地分支同形）
+      expect(row?.lastOutcome?.error).toContain('唤醒判定失败');
+      expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
+      expect(row?.nextFireAt).not.toBeNull(); // next 照推进（行不再永 due 反复过 wake 面）
+      expect(row?.activePid).toBeNull(); // wake 在 claim 前——零 claim 零占用
+    } finally {
+      await audit.shutdown();
+    }
+  });
+
+  it('自杀钟（修前红）：claim 同拍挂钟到点后 run 被协作中止 + settle timeout 终态', async () => {
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({
+      name: 'wall-job',
+      prompt: '例行巡检',
+      cwd: jobWs,
+      schedule: 'every:30m',
+      enabled: true,
+    });
+    const nextBefore = seed.scheduler.service.getJob('wall-job')?.nextFireAt;
+    await seed.shutdown();
+
+    // 墙钟注入提速（tickWallTimeoutMs seam——引擎 deps.wallTimeoutMs 同形）：
+    // 缺省 30 分钟不可等；机制同帽源不因注入变语义（claim 同拍挂钟/到点
+    // 协作中止/settle timeout 三环全同）。不用全局 fake timers 推进 30min——
+    // 全栈插件世界（scheduler 引擎钟/shutdown 帽）同窗引爆，run 在钟响前即
+    // 被无关环境态击落（实证：'No more faux responses queued' 噪声失败）
+    const WALL_MS = 4_000;
+    // 响应只认中止信号放行（生产 llm 层 signal honor 行为——真协作中止面）；
+    // 入场即 aborted 形也记 hit（钟在 ⑥ 前段先响 → 迟到消费位中止 → 首调
+    // 即见 aborted——两形皆协作中止真达模型层信号面）
+    let abortHit = false;
+    const run = await rigRun({ message: '', flags: { tick: 'wall-job' }, dataDir, cwd: jobWs, wallMs: WALL_MS });
+    run.faux.setResponses([
+      (_context, options) =>
+        new Promise<PiAssistantMessage>((resolve) => {
+          const finish = (): void => resolve(messageOf());
+          const signal = (options as { signal?: AbortSignal } | undefined)?.signal;
+          if (signal === undefined) return; // 无信号形挂起——绿路径必有信号（buildPiOptions 透传）
+          if (signal.aborted) {
+            abortHit = true;
+            finish();
+            return;
+          }
+          signal.addEventListener(
+            'abort',
+            () => {
+              abortHit = true;
+              finish();
+            },
+            { once: true },
+          );
+        }),
+    ]);
+    // 真实时钟等钟响窗（claim + WALL_MS < 此处等待——钟到点必已执法）
+    await new Promise((resolve) => setTimeout(resolve, WALL_MS + 2_000));
+    expect(abortHit).toBe(true); // 修前红锚：钟缺席 → 中止永不上门（run 照常挂起）
+
+    await expect(run.entry).resolves.toBe(1); // aborted → 退出码 1（failed/aborted 同档）
+    expect(run.err.text).toContain('墙钟'); // stderr 诚实句
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob('wall-job');
+      expect(row?.lastOutcome?.reason).toBe('timeout'); // 引擎 kill→settle 同源 reason 词（不另造词）
+      expect(row?.lastOutcome?.error).toContain('墙钟超时'); // 动词形镜像（scheduler-tick killedReason 折叠形）
+      expect(row?.lastFireAt).not.toBeNull(); // timeout 非 gated——真跑面 settleFire 推进
+      expect(row?.activePid).toBeNull(); // claim 清账对偶
+      expect(Date.parse(row?.nextFireAt ?? '')).toBeGreaterThan(Date.parse(nextBefore ?? '')); // next 推进
     } finally {
       await audit.shutdown();
     }

@@ -87,6 +87,11 @@ export interface RunEntryOptions {
   readonly stderr?: Writable;
   /** keepalive 节拍毫秒（text/json 档 stderr 活体行；缺省 5000；测试提速注入位） */
   readonly keepaliveIntervalMs?: number;
+  /**
+   * --tick 自杀钟毫秒（65 轮件B ②：缺省 FIRE_WALL_TIMEOUT_MS〔30 分钟〕；
+   * 引擎 deps.wallTimeoutMs 同源的测试提速注入位——机制同帽源不因注入变语义）。
+   */
+  readonly tickWallTimeoutMs?: number;
   /** webui 开面回执（`--port` 在场时开面后回调——测试拿实配端口与 token） */
   readonly onWebuiOpen?: (info: WebuiOpenInfo) => void;
 }
@@ -229,11 +234,32 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   // 空转）。本批兑现双向：起跑 claim（activePid = 本 CLI pid——引擎侧跨进程
   // 在飞判定与僵行清扫由此见本实例）+ 收场 settle（真跑 settleFire 三笔推进
   // / 零跑 gated settleGated 只推进 next）。乙案形态引擎不在环——CLI 是该
-  // fire 的唯一记账方 ——
+  // fire 的唯一记账方；65 轮件B：唯一记账方也是唯一墙钟执法方——claim 同
+  // 拍自挂自杀钟（定形注④乙案形，见 wallGuard 注）——
   let tickJob: { dao: SchedulerTickSettleFace; row: JobRow; firedAt: string } | undefined;
+  /**
+   * 自杀钟（65 轮件B ②——04 §12 无人值守执行链定形注④〔65 轮件B 批注〕：
+   * 引擎不在环形态〔cron 直起 `run --tick`〕下墙钟执法者 = 子进程自身）：
+   * claim 同拍挂 FIRE_WALL_TIMEOUT_MS 同源钟（测试经 tickWallTimeoutMs 注入
+   * 提速——引擎 deps.wallTimeoutMs 同形），到点协作中止当前 run + settle
+   * timeout 终态。缺位实害 = 合法超帽长跑被他实例让位律/残账检查判「超钟
+   * 残账」清占用并发起跑——同一 fire 双跑。正常收场与各早退路径全经
+   * settleTick 清钟（单点）；崩溃/信号路径不达结算——钟 unref 悬挂不拖
+   * 进程退出（与 claim 残账同由僵行清扫兜底）。
+   */
+  let wallGuard: ReturnType<typeof setTimeout> | undefined;
+  /** 自杀钟已响位（⑨' settle 折 timeout 判据——引擎 kill→settle 的 reason 覆写同律） */
+  let wallFired = false;
+  /** 自杀钟中止目标（③ 会话选定后落值——钟响即 interrupt 本会话） */
+  let wallGuardSessionId: string | undefined;
   /** 结算单点（单笔幂等——settle 后再呼零副作用；非 tick 形恒零副作用） */
   const settleTick = (outcome: RunOutcome): void => {
     if (tickJob === undefined) return;
+    // 清钟在先（一切结算路径的公共尾——settle 即 fire 收场，钟已无执法对象）
+    if (wallGuard !== undefined) {
+      clearTimeout(wallGuard);
+      wallGuard = undefined;
+    }
     const { dao, row, firedAt } = tickJob;
     tickJob = undefined;
     const nowIso = new Date().toISOString();
@@ -337,12 +363,37 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
         return 2;
       }
       const goalId = row.name.slice('goal-'.length);
-      const decision = await goalFace.service.wake(goalId, {
-        // tick 载体即挂钟等价触发（CLI 手点与引擎 spawn 同 argv 不可分——归
-        // clock 道落账，归因串带行名可审计）
-        trigger: 'clock',
-        attribution: `tick:${row.name}`,
-      });
+      // wake 兜错（65 轮件B ①——04 §12 65 轮件A 批注「两腿同律」句的 CLI 侧
+      // 腿）：wake 判定链抛错（行漂移形 dao 缺行等——读史失败族由 goal 件
+      // 折 landed=false，此处兜其余一切 reject）裸 await 会直穿整 CLI——
+      // 行零结算（无 gated 记账、next 不推进），cron 每轮照起照炸。失败折
+      // 诚实 gated 结局（与下方不落地分支同形：gated + next 推进）+ stderr
+      // 诚实句 + 退 0（判定失败非执行失败——零跑零账同档）。
+      let decision: Awaited<ReturnType<typeof goalFace.service.wake>>;
+      try {
+        decision = await goalFace.service.wake(goalId, {
+          // tick 载体即挂钟等价触发（CLI 手点与引擎 spawn 同 argv 不可分——归
+          // clock 道落账，归因串带行名可审计）
+          trigger: 'clock',
+          attribution: `tick:${row.name}`,
+        });
+      } catch (error) {
+        const wakeFailure = error instanceof Error ? error.message : String(error);
+        const gatedAt = new Date().toISOString();
+        schedFace.dao.settleGated(
+          row.name,
+          {
+            trigger: 'cron',
+            reason: 'gated',
+            error: `goal「${goalId}」唤醒判定失败（${wakeFailure}）`.slice(0, 200),
+            finishedAt: gatedAt,
+          },
+          nextFireAt(row.schedule, new Date(gatedAt)),
+          gatedAt,
+        );
+        err.write(`goal「${goalId}」唤醒判定失败：${wakeFailure}\n`);
+        return 0;
+      }
       if (!decision.landed) {
         // 诚实零跑：不落即本轮无事（inactive/stalled/wake_budget 各由 message
         // 说明）——零跑零账退 0。gated 结局照记 + next 推进（2026-09-13 修复批：
@@ -376,6 +427,16 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
     const firedAtIso = new Date().toISOString();
     schedFace.dao.setActive(row.name, pid, firedAtIso, firedAtIso);
     tickJob = { dao: schedFace.dao, row, firedAt: firedAtIso };
+    // 自杀钟挂钟（claim 同拍——与 activeStartedAt 同钟同帽源：他实例让位律/
+    // 残账检查以起跑钟 + FIRE_WALL_TIMEOUT_MS 判超帽清占用照跑，本实例必须
+    // 保证到点已停——否则「活+超钟」被清占用即同一 fire 双跑）。到点协作
+    // 中止当前 run（scheduler-tick kill 形同源 stack.interrupt——定形注④
+    // 甲案形；跨进程自杀不可达，子进程内协作中止即乙案 kill 等价）。
+    wallGuard = setTimeout(() => {
+      wallFired = true;
+      if (wallGuardSessionId !== undefined) stack.interrupt(wallGuardSessionId);
+    }, options.tickWallTimeoutMs ?? FIRE_WALL_TIMEOUT_MS);
+    wallGuard.unref?.(); // 崩溃/信号路径不清钟——不拖进程生命周期（keepalive 同律）
   }
 
   // —— ② --background 预检（04 §5 后台道预算闸门——拒在起跑前，零跑零账）——
@@ -445,6 +506,13 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
     sessionId = forked.sessionId;
   } else {
     sessionId = stack.manager.create({ workspaceRoot }).sessionId;
+  }
+  // 自杀钟中止目标落值（③ 尾——会话已选定，此后钟响即 interrupt 本会话）。
+  // 钟在提交前先响的病理形不在即刻补 interrupt——此刻 run 未起跑（无
+  // activeController 且 kick 未入队，interrupt 落 idle no-op 即请求丢失）；
+  // 由 ⑥ 提交后的 wallFired 迟到消费位统一兜（见 submit 后 latch）
+  if (flags.tick !== undefined) {
+    wallGuardSessionId = sessionId;
   }
 
   // —— ④ --port 咬合（18a-3' 三入口咬合——run 形与 serve 前台同段：面与 run
@@ -571,6 +639,12 @@ ${schemaRaw}
     // 理论不达防御：③四形必落驱动——到达即装配 bug，fail-loud（经外层崩溃档）
     throw new Error(`会话 ${sessionId} 无驱动——提交不可达`);
   }
+  // 自杀钟迟到消费位（65 轮件B ②）：钟在 ①–⑥ 期（装配/fork/--port 前段
+  // 吃满墙钟）先响而 run 未起跑——callback 期 interrupt 落 idle no-op 请求
+  // 丢失；提交后 kick 已入队（queuedKickCount ≥ 1）或 run 已在飞，此刻补
+  // interrupt 必达（排队期中止记忆位 / activeController 直达二形其一）——
+  // fire 超帽不续跑
+  if (flags.tick !== undefined && wallFired) stack.interrupt(sessionId);
   let result: SubmitResult;
   try {
     result = await runPromise;
@@ -655,11 +729,20 @@ ${schemaRaw}
 
   // —— ⑨' tick settle（律 3 乙案侧收场腿——2026-09-13 修复批）：终态镜像落
   // jobs 行（completed→exit_code 0+preview / failed→exit_code 1+error /
-  // truncated·aborted→killed；preview 帽 200 与 RunOutcome 契约同值）。崩溃/
-  // 信号路径不达本段——claim 残账由引擎僵行清扫回收（律 3 既有兜底语义）——
+  // truncated·aborted→killed / 自杀钟已响→timeout〔65 轮件B ②——底层终态
+  // 无论何形折 timeout：引擎 kill→settle 的 reason 覆写同律，scheduler-tick
+  // killedReason 折叠形镜像〕；preview 帽 200 与 RunOutcome 契约同值）。
+  // 崩溃/信号路径不达本段——claim 残账由引擎僵行清扫回收（律 3 既有兜底
+  // 语义）——
   if (tickJob !== undefined) {
     const finishedAt = new Date().toISOString();
-    if (finalStatus === 'completed') {
+    if (wallFired) {
+      // 自杀钟已响：协作中止的 fire 级终态（reason/动词形与引擎 kill('timeout')
+      // →runner settle 同源同形——不另造词）；退出码仍由 ⑨ 按 run 本体终态
+      // 映射（aborted→1），settle 只改 fire 级记账面
+      err.write('已达单次运行墙钟上限（30 分钟）——协作中止本次运行（timeout）\n');
+      settleTick({ trigger: 'cron', reason: 'timeout', error: '被中止（墙钟超时）', finishedAt });
+    } else if (finalStatus === 'completed') {
       // 冷读①（2026-09-15 批）：exitCode 用计算后变量——schema 失败叠加退 1
       // 在 ⑨½ 落位，此前此处硬编码 0 即账实分离；error 位载码（200 帽同族）
       const outcome: RunOutcome = { trigger: 'cron', reason: 'exit_code', exitCode, finishedAt };
