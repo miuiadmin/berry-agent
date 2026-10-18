@@ -32,7 +32,7 @@
  *   与引号形）。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region, Renderable } from '../../engine/index.js';
-import { ellipsize, stringWidth } from '../../engine/index.js';
+import { ellipsize, splitGraphemes, stringWidth } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { EditorModel } from '../editor/editor-model.js';
 import type { AutocompleteResult } from './provider.js';
@@ -192,6 +192,14 @@ export class AutocompletePopup implements Renderable {
    * 命中段 bold / 其余默认前景逐段写（列位 = stringWidth 前缀显示宽）。
    * 降级整行默认前景三形：空 query、无命中（源以非 label 键过滤——id 形）、
    * label 截断形（… 收口——命中位越 … 即失真，半亮误导诚实降级）。
+   *
+   * 命中游程字素对齐（67 轮批注）：游程最小单元 = 字素（宽度引擎
+   * splitGraphemes 单源切分），不按 UTF-16 码元推进——fuzzy 回射位只含码点
+   * 起点，星面字素（emoji 代理对）与组合簇的次码元不在 hit 集，按码元推进
+   * 会在码点起点+1 断段、slice 劈孤立代理（终端 UTF-8 出两 U+FFFD 替换
+   * 符）/独立组合符占幻影格（cursor 多推一格、desc 列右漂）。段文本恒为
+   * 整字素拼接（游程边界只落字素边界）；单元命中判据 = 素内任一码元起点
+   * ∈ hit——组合符不可独立呈现，整簇同档是显示层正形。
    */
   private writeLabelWithHits(
     buffer: CellBuffer,
@@ -210,16 +218,36 @@ export class AutocompletePopup implements Renderable {
     }
     buffer.writeText(row, col, ROW_INDENT); // 缩进默认前景（命中游程只辖 label 段）
     const hit = new Set(positions);
+    // 字素切分 + 各字素在 label 的 UTF-16 起点位（hit 集是码元位坐标——起点位
+    // 数组是两坐标系间的映射面）
+    const graphemes = splitGraphemes(label);
+    const starts: number[] = [];
+    let pos = 0;
+    for (const g of graphemes) {
+      starts.push(pos);
+      pos += g.length;
+    }
+    // 单元命中判据（闭包）：字素 [start, start+len) 内任一码元起点 ∈ hit 即整
+    // 素 bold——星面对的起点码元、组合簇内任一被命中的码点都归整素同档
+    const graphemeHit = (i: number): boolean => {
+      const from = starts[i]!;
+      const to = from + graphemes[i]!.length;
+      for (let p = from; p < to; p++) {
+        if (hit.has(p)) return true;
+      }
+      return false;
+    };
     let cursor = col + ROW_INDENT.length;
-    let start = 0;
-    while (start < label.length) {
-      const bold = hit.has(start);
-      let endAt = start + 1;
-      while (endAt < label.length && hit.has(endAt) === bold) endAt++;
-      const segment = label.slice(start, endAt);
+    let i = 0;
+    while (i < graphemes.length) {
+      const bold = graphemeHit(i);
+      let endAt = i + 1;
+      while (endAt < graphemes.length && graphemeHit(endAt) === bold) endAt++;
+      // 段文本 = 整字素拼接（slice 到下一字素起点——天然整簇不劈半）
+      const segment = label.slice(starts[i]!, endAt < graphemes.length ? starts[endAt]! : label.length);
       buffer.writeText(row, cursor, segment, bold ? HIT_STYLE : undefined);
       cursor += stringWidth(segment); // 列位按显示宽推进（CJK/emoji 宽字素对齐）
-      start = endAt;
+      i = endAt;
     }
   }
 

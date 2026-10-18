@@ -334,6 +334,124 @@ describe('AutocompletePopup 命中字符 bold（挖掘 29 轮批 C 件 a——�
   });
 });
 
+/* ---------------- 命中游程字素对齐（67 轮——游程最小单元改字素） ---------------- */
+
+/** 枚举行内孤立代理半格（长度 1 的 UTF-16 代理码元——游程劈半病真身） */
+function loneSurrogateCells(grid: CellGrid, row: number, width: number): string[] {
+  const found: string[] = [];
+  for (let col = 0; col < width; col++) {
+    const g = grid.getCell(row, col)?.grapheme;
+    if (g !== undefined && g.length === 1) {
+      const code = g.charCodeAt(0);
+      if (code >= 0xd800 && code <= 0xdfff) found.push(g); // 高/低代理码区
+    }
+  }
+  return found;
+}
+
+/** 枚举行内独立组合符格（U+0300-036F 单独占格——幻影格病真身） */
+function loneCombiningCells(grid: CellGrid, row: number, width: number): string[] {
+  const found: string[] = [];
+  for (let col = 0; col < width; col++) {
+    const g = grid.getCell(row, col)?.grapheme;
+    if (g !== undefined && g.length === 1) {
+      const code = g.charCodeAt(0);
+      if (code >= 0x0300 && code <= 0x036f) found.push(g); // 组合附加符号区
+    }
+  }
+  return found;
+}
+
+describe('AutocompletePopup 命中游程字素对齐（67 轮）', () => {
+  // 修前病：游程按 UTF-16 码元推进，而 fuzzy 回射位只含码点起点——星面字素
+  // （emoji 代理对）在起点+1 断段、slice 劈孤立代理（终端出两 U+FFFD 替换
+  // 符）；组合簇劈两段（独立组合符占幻影格、cursor 多推一格、desc 列右漂）。
+  // 修后游程最小单元 = 字素（整素成段、素内任一码元起点命中即整素 bold——
+  // 组合符不可独立呈现，整簇同档是显示层正形）。断言锁 cell 层文本与样式档
+  // （HIT_STYLE 施加面），不锁实现内部结构。
+  it('锁1 代理对整素不劈半：query 命中 emoji → 完整字素成段且命中格 bold、行内零孤立代理半（修前红：🎉 被劈成两半格）', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    // 'a🎉b'：🎉 = U+1F389 两码元代理对；query '🎉' 命中其起点码元（fuzzy
+    // 回射只含码点起点——次码元不在 hit 集，修前游程在起点+1 断段）
+    popup.applyResult({
+      items: [
+        { label: 'other', replacement: 'other' },
+        { label: 'a🎉b', replacement: 'a🎉b' },
+      ],
+      query: '🎉',
+      replaceStart: 0,
+      replaceEnd: 1,
+    });
+    const grid = new CellGrid(20, 2);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 2 });
+    // 逐格枚举断言（行文本拼接会把两代理半拼回伪合法串——必须按格判）
+    expect(loneSurrogateCells(grid, 1, 20)).toEqual([]); // 修前红：['\ud83c', '\udf89']
+    // 完整 🎉 在场（首格 col 3 = 缩进 2 + 'a' 1）且命中段整素 bold
+    expect(grid.getCell(1, 3)?.grapheme).toBe('🎉');
+    expect(grid.getCell(1, 3)?.style?.bold).toBe(true);
+    // 宽字素续格（col 4，宽 2 第二列）同 bold 档——整素两格同受 HIT_STYLE
+    expect(grid.getCell(1, 4)?.style?.bold).toBe(true);
+    expect(grid.getCell(1, 4)?.grapheme).toBe(''); // 续格空串占位（width 0——网格契约）
+    // 'b' 紧随续格落 col 5（cursor 按整素显示宽 2 推进）
+    expect(grid.getCell(1, 5)?.grapheme).toBe('b');
+    expect(grid.getCell(1, 5)?.style?.bold).toBeUndefined(); // b 未命中默认前景
+  });
+
+  it('锁2 组合簇整簇同档：query 命中簇首码元 → 整簇串同格同 bold、cursor 按整簇宽推进零幻影格', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    // 'caféx'：e（U+0065）+ 组合锐音符（U+0301）合成一字素；query 'e'
+    // 命中簇首码元——修前游程把簇劈成 'e'（bold）+ 独立组合符（非 bold 幻影格）
+    popup.applyResult({
+      items: [
+        { label: 'other', replacement: 'other' },
+        { label: 'caféx', replacement: 'x' },
+      ],
+      query: 'e',
+      replaceStart: 0,
+      replaceEnd: 1,
+    });
+    const grid = new CellGrid(20, 2);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 2 });
+    // 簇格（col 5 = 缩进 2 + caf 3）：整簇串一格且 bold（修前红：格内只 'e'、
+    // 组合符漂到次格非 bold）
+    expect(grid.getCell(1, 5)?.grapheme).toBe('é');
+    expect(grid.getCell(1, 5)?.style?.bold).toBe(true);
+    // cursor 按整簇显示宽推进（stringWidth('é') = 1）：'x' 紧邻簇格落
+    // col 6（修前红：独立组合符占 col 6 幻影格、x 漂到 col 7——desc 列右漂同源）
+    expect(grid.getCell(1, 6)?.grapheme).toBe('x');
+    expect(grid.getCell(1, 6)?.style?.bold).toBeUndefined(); // x 未命中默认前景
+    expect(grid.getCell(1, 7)?.grapheme).toBe(' '); // 幻影格防线：col 7 回归空格（未写）
+    // 行内零独立组合符格（组合符不可独立呈现——整簇同档的显示层正形）
+    expect(loneCombiningCells(grid, 1, 20)).toEqual([]);
+  });
+
+  it('锁3 ASCII 路不漂：纯 ASCII 命中游程逐格 bold 档不变（防过修回归锁）', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [
+        { label: '/plugins', replacement: '/plugins' },
+        { label: '/plg-x', replacement: '/plg-x' },
+      ],
+      query: 'plg',
+      replaceStart: 0,
+      replaceEnd: 4,
+    });
+    const grid = new CellGrid(20, 2);
+    popup.render(grid, { row: 0, col: 0, width: 20, height: 2 });
+    // 语义等价性：ASCII 逐码点即逐字素——游程单元改字素后档位分布不得漂移
+    //（与上方「挖掘 29 轮批 C 件 a」例同形互证）
+    expect(grid.getCell(1, 2)?.style?.bold).toBeUndefined(); // '/' 未中
+    expect(grid.getCell(1, 3)?.style?.bold).toBe(true); // p 命中
+    expect(grid.getCell(1, 4)?.style?.bold).toBe(true); // l 命中
+    expect(grid.getCell(1, 5)?.style?.bold).toBe(true); // g 命中
+    expect(grid.getCell(1, 6)?.style?.bold).toBeUndefined(); // '-' 未中
+    expect(grid.getCell(1, 7)?.style?.bold).toBeUndefined(); // 'x' 未中
+  });
+});
+
 describe('AutocompletePopup 空条目诚实反馈（空结果诚实行律）', () => {
   // 注（2026-10-04 空态反馈批）：本 describe 两件是直喂 applyResult 的单元面
   // 锁（measure/render 空分支形为）——生产链锁（provider 空条目透传 → 弹层
