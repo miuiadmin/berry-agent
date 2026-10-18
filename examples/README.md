@@ -1,14 +1,17 @@
-# examples —— 插件模板两形 + 范式件一形
+# examples —— 插件模板两形 + 范式件两形
 
-示例插件三件——**最小代码插件**与**纯技能包**两模板形（兼 testkit 断言
+示例插件四件——**最小代码插件**与**纯技能包**两模板形（兼 testkit 断言
 矩阵的 fixture——对真模板跑全绿），加 **notify 范式件**（能力示范件：
-run 收口单向推送，不在 testkit 矩阵内）。
+run 收口单向推送，不在 testkit 矩阵内）与 **telegram-channel 范式件**
+（双向渠道示范件：TG `/start` 起无头会话绑定 chat、终态推回 + 短指令
+审批，同样不在 testkit 矩阵内）。
 
 | 件                                              | 形态                                      | 装载语义                                                                                                 |
 | ----------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | [`minimal-code-plugin/`](./minimal-code-plugin) | 代码插件（`entry` 指向入口文件）          | default export 的 async 函数装载即执行，注册面在 `ctx` 上打开                                            |
 | [`pure-skill-pack/`](./pure-skill-pack)         | 纯声明包（`skills` 目录声明、无 `entry`） | 零码装载——包主入口不执行，`skills/` 下每个同名目录即一个技能                                             |
 | [`notify-plugin/`](./notify-plugin)             | 范式件（代码插件 + 开门/凭证/配置全链）   | 订阅 run 收口推 SMTP/Telegram；须开门 `grants.node-builtins` + `sessions.observe-cross`（见件内 README） |
+| [`telegram-channel/`](./telegram-channel)       | 范式件（代码插件 + 双向渠道/审批往返）    | TG `/start` 起无头会话绑定 chat，run 终态推回 + 短指令审批；须开门 `channels.ui-backend` + `triggers.start-run` + `grants.node-builtins`（见件内 README） |
 
 ## 试跑（零装机）
 
@@ -21,6 +24,9 @@ berry --plugin-file ./examples/pure-skill-pack
 
 # 范式件——run 收口通知（试件形动作即授予：零开门可装载；无真实配置时见降级 warn）
 berry --plugin-file ./examples/notify-plugin
+
+# 双向渠道范式件——TG /start 起会 + 终态推回（试件形动作即授予；无 token 时见缺凭证降级 warn）
+berry --plugin-file ./examples/telegram-channel
 ```
 
 `--plugin-file` 为纯内存注入（装载计划 `_quick_test` 行，退出即消失——
@@ -29,8 +35,8 @@ local:<绝对路径>`。
 
 ## 市场目录试跑（local 源）
 
-本目录自带一份市场 catalog（`.claude-plugin/marketplace.json`——三件
-三条目），可零网络走完 local 源市场全链：
+本目录自带一份市场 catalog（`.claude-plugin/marketplace.json`——四件
+四条目），可零网络走完 local 源市场全链：
 
 ```bash
 berry marketplace add ./examples                        # 添加本地市场源
@@ -39,9 +45,10 @@ berry marketplace install minimal-code-plugin@berry-agent-examples  # 经市场�
 ```
 
 marketplace install 恒走既有 plugins install 四件套——只装不启，启用仍走
-`berry plugins mount <id>`（三件装机 id 即各自 package.json 名：
+`berry plugins mount <id>`（四件装机 id 即各自 package.json 名：
 `berry-agent-example-minimal-code` / `berry-agent-example-pure-skill` /
-`berry-agent-example-notify`——notify 件的开工门与凭证录入见其件内
+`berry-agent-example-notify` / `berry-agent-example-telegram-channel`——
+notify 与 telegram-channel 两件的开门与凭证录入见各自件内
 README；词法见仓库文档 usage.md「marketplace 市场聚合」节）。
 
 更多面（工具/凭证/HTTP 路由/跨会话操控/配置声明/测试与发布……）见仓库文档

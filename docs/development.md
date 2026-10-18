@@ -35,7 +35,7 @@ npm install
 ```bash
 npm run typecheck       # 门禁一：tsc --noEmit（root + SDK 包测试配置 + webui 客户端三段）
 npm test                # 门禁二：vitest run
-npm run lint:topology   # 门禁三：模块 DAG 边表 + API 治理面 + 词汇查项门禁
+npm run lint:topology   # 门禁三：模块 DAG 边表 + API 治理面 + 词汇查项 + 钩子覆盖门禁
 npm run format:check    # 门禁四：prettier 检查
 ```
 

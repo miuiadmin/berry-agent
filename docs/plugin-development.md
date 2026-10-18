@@ -523,8 +523,8 @@ alpha 期的诚实口径——不渲染繁荣，也不自贬：
 
 - **npm 是主市场**：`berry-agent-plugin` keyword 检索即生态全集。当前第三方件为零，这是**有意等待**而非缺口——manifest `api` 块兼容执法在首个正式版（dist-tag `latest`）点火，点火前进场的第三方件须自担版本断裂风险，生态起步以点火日为界更干净；
 - **市场聚合零门槛、宿主不运营**：任一 git 仓或本地目录放一份 catalog（见下[发布](#发布)节市场仓段）即可聚合分发。宿主不运营官方市场仓、不预置默认源——用户显式 `berry marketplace add` 才入场，无推送、无默认加载；
-- **本地零网络全链试跑**：本仓 [examples/](../examples/) 自带一份双条目 catalog——`berry marketplace add ./examples` → `discover` → `install` 即走完 local 源市场全链；
-- **官方件即首批样例**：16 件 `core:` 插件与第三方同装载纪律、同审计（装载机制如实双轨：官方件引用形直调、第三方磁盘装载；官方件高危面经宿主装配裁决豁免门检），本身就是「插件能长成什么样」的狗粮样例；通知类范式件随路线图落地（无人值守「跑完主动找人」切面）。
+- **本地零网络全链试跑**：本仓 [examples/](../examples/) 自带一份四条目 catalog（两模板件 + notify / telegram-channel 两范式件）——`berry marketplace add ./examples` → `discover` → `install` 即走完 local 源市场全链；
+- **官方件即首批样例**：16 件 `core:` 插件与第三方同装载纪律、同审计（装载机制如实双轨：官方件引用形直调、第三方磁盘装载；官方件高危面经宿主装配裁决豁免门检），本身就是「插件能长成什么样」的狗粮样例；通知类范式件已落地 examples（notify / telegram-channel 两件——无人值守「跑完主动找人」切面）。
 
 ## 发布
 
@@ -544,7 +544,7 @@ alpha 期的诚实口径——不渲染繁荣，也不自贬：
 3. **生命周期证明**：testkit 八行全绿，回执贴 README；
 4. **secret 零明文**：`configSchema` `secret` 型键不携明文值（package.json 与 enabled.yaml 双源均拒——装载即红）。
 
-**另入第三方市场仓（可选）**：npm 之外，插件也可经由任一自建市场仓聚合分发——市场仓即一份 catalog 索引（`marketplace.json` 条目表，每条目 `name` + `source` 源指针〔npm 包名/git url+sha/相对子目录〕；catalog 文件嵌套于仓内 `.omp-plugin/` 或 `.claude-plugin/` 目录——双路径读序前者优先、后者回落，与 [usage.md](usage.md#marketplace-市场聚合) 同源），宿主侧 `berry marketplace add <仓址>` 后即可 `discover` / `install`（词法见 [usage.md](usage.md#marketplace-市场聚合)）；TUI 用户也可在会话内 `/marketplace` 市场副屏直接安装/卸载/更新（与 CLI 同服务面——见 [usage.md](usage.md#marketplace-市场聚合)）。本仓 [examples/](../examples/) 即一份可零网络试跑的本地市场仓（`berry marketplace add ./examples`——两模板件双条目）；npm 包仍是装机物本体——市场仓只提供目录聚合，不改变三源分发纪律。
+**另入第三方市场仓（可选）**：npm 之外，插件也可经由任一自建市场仓聚合分发——市场仓即一份 catalog 索引（`marketplace.json` 条目表，每条目 `name` + `source` 源指针〔npm 包名/git url+sha/相对子目录〕；catalog 文件嵌套于仓内 `.omp-plugin/` 或 `.claude-plugin/` 目录——双路径读序前者优先、后者回落，与 [usage.md](usage.md#marketplace-市场聚合) 同源），宿主侧 `berry marketplace add <仓址>` 后即可 `discover` / `install`（词法见 [usage.md](usage.md#marketplace-市场聚合)）；TUI 用户也可在会话内 `/marketplace` 市场副屏直接安装/卸载/更新（与 CLI 同服务面——见 [usage.md](usage.md#marketplace-市场聚合)）。本仓 [examples/](../examples/) 即一份可零网络试跑的本地市场仓（`berry marketplace add ./examples`——四件四条目：两模板件 + notify / telegram-channel 两范式件）；npm 包仍是装机物本体——市场仓只提供目录聚合，不改变三源分发纪律。
 
 ## 最小完整示例
 
@@ -585,6 +585,6 @@ export default async function apply(ctx, config) {
 
 ## 下一步
 
-- [examples/](../examples/)——两形插件模板（最小代码插件 / 纯技能包），`--plugin-file` 直接试跑；
+- [examples/](../examples/)——四形示例件（最小代码插件 / 纯技能包两模板 + notify 单向通知 / Telegram 双向渠道两范式件），`--plugin-file` 直接试跑；
 - [开发指南](./development.md)——本仓开发约定与门禁；
 - [运维手册](./operations.md)——enabled.yaml 运维与插件故障排查。
