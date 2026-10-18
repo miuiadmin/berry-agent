@@ -27,7 +27,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
@@ -188,6 +188,121 @@ describe('runServeStatus（只读探活——05 §6.6 豁免面）', () => {
     });
     expect(code).toBe(0);
     expect(lines[0]).toContain('活跃会话 3');
+  });
+
+  // —— 62 轮件 D 回归锁族：fetchSessionCount 缺省真 HTTP 腿。修前
+  // ServeStatusOptions.fetchSessionCount 注释承诺「缺省真 HTTP」但全树零缺省
+  // 实现、生产接线（main runServeStatus 只传 dataDir）零注入 → 可选链恒
+  // undefined → sock 面真实可达仍恒报「n/a（sock 面不可达）」假诊断——
+  // 「从未发起查询」不得伪报「查询失败」。
+  describe('缺省真 HTTP 腿（62 轮件 D）', () => {
+    // 真环资源账：per-test 造的 sock 服务端与临时目录统一 afterEach 清
+    // （server.close + rmSync——sock 文件 close 不自删须显删）
+    let server: Server | undefined;
+    const dirs: string[] = [];
+    afterEach(async () => {
+      if (server !== undefined) {
+        await new Promise<void>((resolve) => server!.close(() => resolve()));
+        server = undefined;
+      }
+      for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+      dirs.length = 0;
+    });
+
+    it('真监听 + env token：不注入 fetchSessionCount → 缺省腿真查 GET /v1/sessions 报活跃会话数', async () => {
+      const dataDir = mkdtempSync(join(tmpdir(), 'daemon-status-live-'));
+      dirs.push(dataDir);
+      const paths = daemonPaths(dataDir);
+      mkdirSync(paths.dir, { recursive: true }); // sock 监听前置：serve/ 目录须在场
+      const token = 'tok-status-live';
+      // 线观测位（服务端收账——鉴权头/路径在锁 ① 核；请求没真发出则观测位空）
+      const seen: { auth?: string; url?: string } = {};
+      const srv: Server = createServer((req, res) => {
+        seen.auth = req.headers.authorization;
+        seen.url = req.url;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify([{ id: 'a' }, { id: 'b' }]));
+      });
+      server = srv;
+      await new Promise<void>((resolve) => srv.listen(paths.sockPath, resolve));
+      const fs = memFs({ [paths.pidPath]: '{"pid":123,"startedAt":0}\n' });
+      const lines: string[] = [];
+      const code = await runServeStatus({
+        dataDir,
+        env: { BERRY_AGENT_SDK_TOKEN: token },
+        now: () => 0,
+        isAlive: () => true,
+        identityCheck: () => true,
+        fs,
+        write: (l) => lines.push(l),
+        // 刻意不注入 fetchSessionCount——锁的就是缺省真腿（修前可选链恒 undefined）
+      });
+      expect(code).toBe(0);
+      // 修前红锚：修前该行是「活跃会话 n/a（sock 面不可达）」——可达伪报不可达
+      expect(lines[0]).toContain('活跃会话 2');
+      expect(seen.auth).toBe(`Bearer ${token}`); // 缺省腿真发了查询（非伪报）
+      expect(seen.url).toBe('/v1/sessions');
+    });
+
+    it('真帧形（kind sessions + total 全量位）+ 版本头：对真 daemon 应答形可用，计数取 total', async () => {
+      // 真 daemon 的 GET /v1/sessions 应答不是裸数组而是 sessions 帧
+      // （{kind:'sessions', sessions:[…], total:全量}——protocol.ts
+      // SdkSessionsFrame：total 服务端恒发，sessions 是最近 100 截断窗）；
+      // 且面级 versionGate 每请求必携 x-sdk-protocol（缺席即 400 拒）。裸数组
+      // 例只锁腿真通，本例锁生产真形两契约：帧形计数 + 版本头在场。
+      const dataDir = mkdtempSync(join(tmpdir(), 'daemon-status-frame-'));
+      dirs.push(dataDir);
+      const paths = daemonPaths(dataDir);
+      mkdirSync(paths.dir, { recursive: true });
+      const token = 'tok-status-frame';
+      const seen: { auth?: string; url?: string; proto?: string | string[] } = {};
+      const srv: Server = createServer((req, res) => {
+        seen.auth = req.headers.authorization;
+        seen.url = req.url;
+        seen.proto = req.headers['x-sdk-protocol'];
+        res.writeHead(200, { 'content-type': 'application/json' });
+        // 截断窗只 1 条、全量 7——计数须取 total 位（sessions.length 会误报 1）
+        res.end(JSON.stringify({ kind: 'sessions', sessions: [{ id: 'a' }], total: 7 }));
+      });
+      server = srv;
+      await new Promise<void>((resolve) => srv.listen(paths.sockPath, resolve));
+      const fs = memFs({ [paths.pidPath]: '{"pid":123,"startedAt":0}\n' });
+      const lines: string[] = [];
+      const code = await runServeStatus({
+        dataDir,
+        env: { BERRY_AGENT_SDK_TOKEN: token },
+        now: () => 0,
+        isAlive: () => true,
+        identityCheck: () => true,
+        fs,
+        write: (l) => lines.push(l),
+      });
+      expect(code).toBe(0);
+      expect(lines[0]).toContain('活跃会话 7'); // total 全量位优先（截断窗不缩水计数）
+      expect(seen.proto).toBe('1'); // 版本头每请求必携（缺席真面即 400 拒）
+      expect(seen.url).toBe('/v1/sessions');
+    });
+
+    it('sock 面不可达：缺省腿折 undefined 如实 n/a 且不挂起（错误径快返）', async () => {
+      const dataDir = mkdtempSync(join(tmpdir(), 'daemon-status-dead-'));
+      dirs.push(dataDir);
+      const paths = daemonPaths(dataDir);
+      // 无监听：sock 路径连不通（connect ENOENT 快返径）；pid 登记在场使探活路
+      // 走到查询位。per-test 时限 10s 帽（腿内 5s 帽的外层兜底——不挂起证）
+      const fs = memFs({ [paths.pidPath]: '{"pid":123,"startedAt":0}\n' });
+      const lines: string[] = [];
+      const code = await runServeStatus({
+        dataDir,
+        env: { BERRY_AGENT_SDK_TOKEN: 'tok-status-dead' },
+        now: () => 0,
+        isAlive: () => true,
+        identityCheck: () => true,
+        fs,
+        write: (l) => lines.push(l),
+      });
+      expect(code).toBe(0);
+      expect(lines[0]).toContain('n/a（sock 面不可达）'); // 如实降级不炸不挂
+    }, 10_000);
   });
 
   it('未跑退 1；坏登记同码 1 且注记可清', async () => {

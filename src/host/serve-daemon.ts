@@ -41,13 +41,17 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { stderr as defaultStderr } from 'node:process';
 
 import { resolveDataDir } from '../persist/index.js';
+import { SDK_PROTOCOL_VERSION } from '../channels/index.js';
 import {
   createSdkHttpFace,
   judgeListenConfig,
+  SDK_HTTP_ENDPOINTS,
+  SDK_PROTOCOL_HEADER,
   type PluginRouteRegistry,
   type SdkHttpFaceHandle,
   type SdkHttpListenConfig,
@@ -249,8 +253,74 @@ export interface ServeStatusOptions {
   readonly fs?: DaemonFs;
   /** 输出面（缺省 process.stderr 之外的报告行走 stdout——注入收行） */
   readonly write?: (line: string) => void;
-  /** 经 sock 面 GET /v1/sessions 计数（缺省真 HTTP；注入收假） */
+  /** 经 sock 面 GET /v1/sessions 计数（缺省真 HTTP——defaultFetchSessionCount；注入收假） */
   readonly fetchSessionCount?: (sockPath: string, token: string) => Promise<number | undefined>;
+}
+
+/**
+ * sock 面 GET /v1/sessions 计数缺省真身（62 轮件 D）——注释承诺缺省真 HTTP
+ * 须有真身，「从未发起查询」不得伪报「查询失败」；异常/非 200/坏 JSON/超时
+ * 一律折 undefined 如实 n/a。真面两契约并守（词面单源消费不复制——
+ * SDK_HTTP_ENDPOINTS/SDK_PROTOCOL_HEADER/SDK_PROTOCOL_VERSION）：
+ * - 鉴权头 Bearer 形恒携（10.4「监听 ⇒ 鉴权」）；
+ * - 版本头 x-sdk-protocol 每请求必携（面级 versionGate 缺席即 400 拒——
+ *   只发鉴权头对真 daemon 仍 400，故缺省腿必携版本头）。
+ * 计数取 sessions 帧 total 全量位（服务端恒发；sessions 是最近 100 截断窗
+ * ——total ?? sessions.length 回退同 SDK 客户端定形），兼容裸数组应答形；
+ * 超时 5s 帽（60 轮子进程腿帽同律）帽内无应答即销请求。一次性查询腿
+ * agent 关闭（不入全局连接池——免 status 命令退场被 keep-alive 池 socket 拖住）。
+ */
+function defaultFetchSessionCount(sockPath: string, token: string): Promise<number | undefined> {
+  return new Promise((resolve) => {
+    const req = httpRequest(
+      {
+        socketPath: sockPath,
+        path: SDK_HTTP_ENDPOINTS.sessions,
+        headers: {
+          authorization: `Bearer ${token}`,
+          [SDK_PROTOCOL_HEADER]: String(SDK_PROTOCOL_VERSION),
+        },
+        timeout: 5_000, // 5s 帽——超时触发 timeout 事件（不自动销），下方显式 destroy
+        agent: false, // 一次性查询腿（见件注）
+      },
+      (res) => {
+        // 聚合响应体（utf8 分片累加——end 即完整）
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => {
+          body += chunk;
+        });
+        res.on('error', () => resolve(undefined)); // 流中途错——同折 undefined（不挂起）
+        res.on('end', () => {
+          if (res.statusCode !== 200) {
+            resolve(undefined); // 非 200 = 查询失败形（如实 n/a）
+            return;
+          }
+          try {
+            const parsed: unknown = JSON.parse(body);
+            if (Array.isArray(parsed)) {
+              resolve(parsed.length); // 裸数组形：整包即清单（长度即计数）
+              return;
+            }
+            if (typeof parsed === 'object' && parsed !== null) {
+              // 真帧形：kind sessions + total 全量位（截断窗 sessions 仅回退）
+              const frame = parsed as { kind?: unknown; sessions?: unknown; total?: unknown };
+              if (frame.kind === 'sessions' && Array.isArray(frame.sessions)) {
+                resolve(typeof frame.total === 'number' ? frame.total : frame.sessions.length);
+                return;
+              }
+            }
+            resolve(undefined); // 200 但不可计数形（非清单载荷）
+          } catch {
+            resolve(undefined); // 坏 JSON 折 undefined（如实 n/a）
+          }
+        });
+      },
+    );
+    req.on('timeout', () => req.destroy()); // 帽内无应答——销请求转 error 径收口
+    req.on('error', () => resolve(undefined)); // 连接错/帽内销毁——一律如实 n/a
+    req.end();
+  });
 }
 
 /**
@@ -280,7 +350,10 @@ export async function runServeStatus(options: ServeStatusOptions): Promise<numbe
   const token = env.BERRY_AGENT_SDK_TOKEN;
   let sessionsText = 'n/a（自动 token 形态无查询凭证——配 BERRY_AGENT_SDK_TOKEN 可查）';
   if (token !== undefined && token !== '') {
-    const count = await options.fetchSessionCount?.(paths.sockPath, token);
+    // 缺省真腿兜底（62 轮件 D）：注入位优先，缺席走 defaultFetchSessionCount
+    // ——修前可选链恒 undefined，sock 面可达仍伪报「sock 面不可达」。
+    const fetcher = options.fetchSessionCount ?? defaultFetchSessionCount;
+    const count = await fetcher(paths.sockPath, token);
     sessionsText = count === undefined ? 'n/a（sock 面不可达）' : String(count);
   }
   write(`运行中（pid ${probe.record?.pid}，uptime ${uptimeSec}s，活跃会话 ${sessionsText}）`);
