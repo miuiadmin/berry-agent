@@ -11,10 +11,13 @@
  * - 呈现件自保（io 写出抛错不外炸——assembly 层隔离之外的兜底层）；
  * - plugin id 控制字节剥除（写侧防御——id 溢控制字节不透传终端）；
  * - 启动行保活（界面美化役——ready 收尾后等量换行推入 scrollback；
- *   失败路 ready 未达零推块）。
+ *   失败路 ready 未达零推块）；
+ * - 引导面帧动画段（39 池 P4）：帧推进锁（tick N 次沿表环回）+ 门禁静态
+ *   锁（禁用形恒首帧零定时器）+ tick 泄漏锁（stop 后无在飞定时器）+ 族形
+ *   自检（三族 8..12 帧单字素零重复）。
  */
 import { describe, expect, it } from 'vitest';
-import { BootAnimation } from './boot-animation.js';
+import { BOOT_FRAME_FAMILIES, BOOT_FRAME_TICK_MS, BootAnimation, GuideFrameAnimation } from './boot-animation.js';
 
 /** 收集型写入面（io / stderr 两位通用） */
 function sink(): { writes: string[]; write: (text: string) => void } {
@@ -282,5 +285,144 @@ describe('BootAnimation 启动行保活（界面美化役——ready 推入 scro
       const code = ch.codePointAt(0)!;
       expect(code === 0x0a || (code >= 0x20 && code !== 0x7f)).toBe(true);
     }
+  });
+});
+
+/** 手动调度器（帧动画确定性驱动——schedule 记账 + fire 逐拍 + 泄漏锁观测） */
+function manualFrameScheduler(): {
+  schedule: (fn: () => void, ms: number) => unknown;
+  cancel: (handle: unknown) => void;
+  fire: () => void;
+  pending: () => number;
+  intervals: () => number[];
+} {
+  const queue: Array<{ id: number; fn: () => void; ms: number }> = [];
+  const intervals: number[] = [];
+  let nextId = 1;
+  return {
+    schedule: (fn, ms) => {
+      const id = nextId++;
+      queue.push({ id, fn, ms });
+      intervals.push(ms);
+      return id;
+    },
+    cancel: (handle) => {
+      const at = queue.findIndex((e) => e.id === handle);
+      if (at >= 0) queue.splice(at, 1);
+    },
+    fire: () => {
+      const head = queue.shift();
+      head?.fn();
+    },
+    pending: () => queue.length,
+    intervals: () => intervals,
+  };
+}
+
+describe('引导面帧动画段（39 池 P4——boot/onboarding 可选 ASCII 帧动画）', () => {
+  it('帧推进锁：start 首帧 + tick N 次（N=帧长）沿表环回恰归首帧——序即表序，节拍恒 80ms 锚', () => {
+    const clock = manualFrameScheduler();
+    const anim = new GuideFrameAnimation({ schedule: clock.schedule, cancel: clock.cancel });
+    const frames: string[] = [];
+    anim.onAdvance = (frame) => frames.push(frame);
+    anim.start();
+    expect(clock.pending()).toBe(1); // 门开首拍即摆
+    // 烧 orbit 帧长（12）拍——交付序 = 表序 + 环回首帧（帧推进锁）
+    for (let i = 0; i < BOOT_FRAME_FAMILIES.orbit.length; i++) clock.fire();
+    expect(frames).toEqual([...BOOT_FRAME_FAMILIES.orbit, BOOT_FRAME_FAMILIES.orbit[0]]);
+    // 每拍一摆（首拍 + 每烧一拍复摆自重排）——自重排节拍不丢
+    expect(clock.pending()).toBe(1);
+    // 节拍锚值锁：摆拍间隔恒 BOOT_FRAME_TICK_MS 且值 = 80（07 §4.1 件 12 帧距定值同源）
+    expect(BOOT_FRAME_TICK_MS).toBe(80);
+    for (const ms of clock.intervals()) expect(ms).toBe(BOOT_FRAME_TICK_MS);
+  });
+
+  it('族选形：family=bar/bar 外族各自查本族表推进（缺省 orbit）', () => {
+    const clock = manualFrameScheduler();
+    const anim = new GuideFrameAnimation({ family: 'bar', schedule: clock.schedule, cancel: clock.cancel });
+    const frames: string[] = [];
+    anim.onAdvance = (frame) => frames.push(frame);
+    anim.start();
+    clock.fire();
+    expect(frames).toEqual([BOOT_FRAME_FAMILIES.bar[0], BOOT_FRAME_FAMILIES.bar[1]]); // bar 表推进（非缺省族）
+    // 缺省族 = orbit（构造无 family 走 DEFAULT_BOOT_FRAME_FAMILY）
+    const clock2 = manualFrameScheduler();
+    const anim2 = new GuideFrameAnimation({ schedule: clock2.schedule, cancel: clock2.cancel });
+    const frames2: string[] = [];
+    anim2.onAdvance = (frame) => frames2.push(frame);
+    anim2.start();
+    expect(frames2).toEqual([BOOT_FRAME_FAMILIES.orbit[0]]);
+  });
+
+  it('族形自检：三族各 8..12 帧、全帧单字素（\\r 覆写定宽前提）、族内多态（镜像波重复字素合法——环回节奏靠序不靠唯一样）', () => {
+    for (const frames of Object.values(BOOT_FRAME_FAMILIES)) {
+      expect(frames.length).toBeGreaterThanOrEqual(8);
+      expect(frames.length).toBeLessThanOrEqual(12);
+      expect(new Set(frames).size).toBeGreaterThanOrEqual(5); // 族内多态（镜像波 5+ 态——非退化表）
+      for (const frame of frames) expect([...frame].length).toBe(1); // 恒单字素单列宽
+    }
+  });
+
+  it('门禁静态锁（禁用形恒首帧）：start 只出首帧零定时器，tick no-op 帧指针停首帧', () => {
+    const clock = manualFrameScheduler();
+    const anim = new GuideFrameAnimation({ animationsEnabled: false, schedule: clock.schedule, cancel: clock.cancel });
+    const frames: string[] = [];
+    anim.onAdvance = (frame) => frames.push(frame);
+    anim.start();
+    anim.tick(); // 门禁形推帧 no-op（帧指针停首帧）
+    anim.tick();
+    expect(frames).toEqual([BOOT_FRAME_FAMILIES.orbit[0]]); // 恒首帧（唯一一帧交付）
+    expect(anim.frame).toBe(BOOT_FRAME_FAMILIES.orbit[0]);
+    expect(clock.pending()).toBe(0); // 零定时器（门禁形不摆拍）
+    expect(anim.isTicking).toBe(false);
+  });
+
+  it('tick 泄漏锁（离开引导面后无在飞定时器）：stop 收口在飞拍 + 幂等 + 未摆 no-op', () => {
+    const clock = manualFrameScheduler();
+    const anim = new GuideFrameAnimation({ schedule: clock.schedule, cancel: clock.cancel });
+    anim.onAdvance = () => {};
+    anim.start();
+    expect(anim.isTicking).toBe(true);
+    clock.fire(); // 推一帧 + 复摆（自重排——在飞拍换新）
+    expect(anim.isTicking).toBe(true);
+    anim.stop();
+    expect(anim.isTicking).toBe(false);
+    expect(clock.pending()).toBe(0); // 在飞定时器收口（离开引导面零泄漏）
+    anim.stop(); // 幂等：二次停摆零炸零残留
+    expect(clock.pending()).toBe(0);
+    // 未摆 no-op 形：start 前停摆零炸（isTicking 恒 false）
+    const bare = new GuideFrameAnimation({ schedule: clock.schedule, cancel: clock.cancel });
+    bare.stop();
+    expect(bare.isTicking).toBe(false);
+    // 停摆后 start 复开（门开形复摆——引导面重入形不锁死）
+    anim.start();
+    expect(anim.isTicking).toBe(true);
+    anim.stop();
+    expect(clock.pending()).toBe(0);
+  });
+
+  // 冷读闸 P3 回归锁（交付回调内 stop 的「交付即收场」形）：旧形 arm() 回调
+  // tick() 后无条件复摆——onAdvance 内调 stop 后仍摆一拍僵尸定时器（isTicking
+  // 后置条件破）；start() 首帧交付内 stop 同族。修前红实录：两形 isTicking
+  // 均为 true 且 clock.pending() ≥ 1（僵尸拍在飞）。
+  it('交付回调内 stop 收口不复活：帧交付即收场零僵尸拍（isTicking 后置条件守恒）', () => {
+    const clock = manualFrameScheduler();
+    // 形一：start 首帧交付回调内 stop——不摆拍直收
+    const first = new GuideFrameAnimation({ schedule: clock.schedule, cancel: clock.cancel });
+    first.onAdvance = () => first.stop();
+    first.start();
+    expect(first.isTicking).toBe(false);
+    expect(clock.pending()).toBe(0);
+    // 形二：第二帧交付回调内 stop——推帧后收口不复摆
+    const later = new GuideFrameAnimation({ schedule: clock.schedule, cancel: clock.cancel });
+    let deliveries = 0;
+    later.onAdvance = () => {
+      deliveries += 1;
+      if (deliveries >= 2) later.stop(); // 首帧（start 同步）不动、第二帧（tick 交付）收场
+    };
+    later.start();
+    clock.fire(); // 第二帧交付 → 回调内 stop → 复摆位须复查 running（旧形此处摆僵尸拍）
+    expect(later.isTicking).toBe(false);
+    expect(clock.pending()).toBe(0);
   });
 });

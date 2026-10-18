@@ -41,6 +41,7 @@ import {
   foldErrorText,
   formatTokensCompact,
   fuzzyFilter,
+  GuideFrameAnimation,
   listCustomThemeNames,
   loadCustomThemeColors,
   normalizeOnboardingKey,
@@ -2109,7 +2110,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // 主屏（防注入测试死锁）。检测腿现算（modelCredentialStatus——派生态零
     // 哨兵），unconfigured 才进；quit = 不起 TUI 干净退 0（finally shutdown
     // 六步照走）；setup = 起屏后即开向导（ob-3 /setup 已入册 localCommands
-    // ——hasSetupWizard 恒真全形）。
+    // ——hasSetupWizard 恒真全形）。面板带引导面帧动画段（39 池 P4 · M）：
+    // wait 行 80ms 帧动画（boot 帧表单源），动效门 animationsEnabled 单值
+    // 注入（与主屏动效同一把门——settings animations 键 + env 逐次覆盖），
+    // 面板决策收口 finally 停摆（引导面独占期外零在飞定时器——帧预算零主屏边）。
     const onboardingKeySource =
       options.onboardingKey !== undefined
         ? options.onboardingKey
@@ -2133,6 +2137,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         modelSpec,
         providerId,
         ...(envNames.length > 0 ? { envExample: envNames[0] } : {}),
+        // 引导面帧动画段（39 池 P4）：门开 = wait 行 `\r` 整行重写 80ms 帧动画；
+        // 门禁形（animations=false）= 帧指针停首帧静态呈现零定时器
+        frameAnimation: new GuideFrameAnimation({ animationsEnabled }),
       });
       if (decision === 'quit') {
         return 0; // 面板期退出 = 不起 TUI 干净退（closer 内出屏复原 + shutdown 六步照走）

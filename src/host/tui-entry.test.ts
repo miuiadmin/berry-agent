@@ -16,6 +16,8 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import type { TerminalIO } from '../channels/index.js';
+// 引导面帧动画段帧表（39 池 P4 真装配锁断言——深面 import 走测试文件豁免律）
+import { BOOT_FRAME_FAMILIES } from '../channels/tui/boot/boot-animation.js';
 import { BaseError } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
@@ -1956,6 +1958,32 @@ describe('启动引导面板（ob-2——07 §4.1 呈现面件 11 双层制第�
     expect(await entry).toBe(0); // 面板 q 直接收口（backend 未起）
     expect(io.output).not.toContain('\x1b[?2004h'); // bracketed paste 进屏字节缺席 = 未起屏证
     expect(io.output).toContain('还没配置 API key'); // 面板行仍落屏（先写后读）
+  });
+
+  // 39 池 P4 真装配锁：引导面帧动画段经 tui-entry 铸门注入（动效门缺省开）——
+  // wait 行首帧真落 io（帧字素 = boot 帧表 orbit 族首帧单源；测试跨模块深面
+  // import 走 harness 豁免律），决策收口闭合换行。
+  it('帧动画段真装配：wait 行首帧落屏（orbit 族单源）+ \\r 整行重写位 + 决策收口闭合换行', async () => {
+    const dataDir = rigDir('tui-onboard-frame-data-');
+    const ws = rigDir('tui-onboard-frame-ws-');
+    const faux = fauxProvider({ provider: 'faux-entry', models: [{ id: 'm1' }] });
+    const io = new FakeTerminalIO();
+    const entry = runTuiEntry({
+      flags: { noPlugins: false, debug: false },
+      io,
+      cwd: ws,
+      version: 'test',
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-entry/m1',
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
+      onboardingKey: async () => 'q',
+    });
+    expect(await entry).toBe(0);
+    // 真装配锁：段注入在场（缺席 = 无 wait 行——单测假注入掩盖装配缺口的反律）
+    expect(io.output).toContain(`\r${BOOT_FRAME_FAMILIES.orbit[0]} 等待选择…`);
+    // 收口闭合：wait 行尾随换行（后续写出起于新行——离开引导面零悬行）
+    expect(io.output).toContain(`${BOOT_FRAME_FAMILIES.orbit[0]} 等待选择…\n`);
   });
 
   it('ready 态（env 键在场）：面板缺席直进主屏（键源零调用）', async () => {

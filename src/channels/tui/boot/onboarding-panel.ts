@@ -12,10 +12,14 @@
  *   ——双态双发不合并；
  * - /setup 选项降级缺席律：向导命令不在场（ob-3 落地前单发窗）→ 两选项形
  *   （enter 跳过 / q 退出），在场 → 三选项形（enter 向导 / s 跳过 / q 退出）；
+ * - 可选帧动画段（39 池 P4 · M）：装配位注入 GuideFrameAnimation——wait 行
+ *   `\r` 整行重写呈现（帧表/节拍/动效门全归段——本件零帧表内嵌零定时器
+ *   知识）；决策收口 finally 停摆零泄漏；段缺席 = 静态面板零行为变；
  * - 态可入面、值与凭证恒不入面（/status 凭证态行同律）；
  * - 检测恒派生态现算（面板判定在装配位 modelCredentialStatus——本件收结果
  *   不查源，credentials/changed seam 订阅不设）。
  */
+import type { GuideFrameAnimation } from './boot-animation.js';
 
 /** 面板决策（装配位消费：quit = 不起 TUI 干净退 0；setup = 起屏后即开向导；skip = 直进主屏） */
 export type OnboardingDecision = 'setup' | 'skip' | 'quit';
@@ -34,6 +38,12 @@ export interface OnboardingPanelOptions {
   readonly providerId: string;
   /** env 例键（providerApiKeyEnvNames 首键——缺席 = env 途径句降，凭证表途径恒在） */
   readonly envExample?: string;
+  /**
+   * 引导面帧动画段（可选——装配位注入；39 池 P4）：在场时行集落屏后开动
+   * wait 行动画，决策收口停摆。注入段归本件独占接管（onAdvance 由本件覆
+   * 写——呈现归面板）；缺席 = 零行为变（既有静态面板形）。
+   */
+  readonly frameAnimation?: GuideFrameAnimation;
 }
 
 /**
@@ -87,14 +97,33 @@ export function normalizeOnboardingKey(data: string): string {
  * 面板主循环：写出行集后循环读键至合法决策（ctrl+c/esc/q = quit——面板期
  * 退出即整进程退出，无主屏可回；enter = 全形 setup / 降级形 skip；s = skip
  * 两形同收——键词汇单源（降级形行集只广而告之 enter/q，s 不另立拒面））。
- * 未识别键静默再读（面板无输入回显位、行集不重绘）。
+ * 未识别键静默再读（面板无输入回显位、行集不重绘）。可选帧动画段在场时：
+ * 行集落屏后开动 wait 行（`\r` 前缀整行重写——帧字素恒单列宽、文案定宽，
+ * 覆写无残影；CR 非 CSI/OSC，面板 cooked 窗与单键读 raw 窗两态同义），
+ * 决策收口 finally 停摆 + 收尾换行（离开引导面零在飞定时器 + wait 行闭合
+ * 后续写出起于新行——帧预算引导面独占、零主屏边）。
  */
 export async function runOnboardingPanel(o: OnboardingPanelOptions): Promise<OnboardingDecision> {
   o.write(`${buildOnboardingLines(o).join('\n')}\n`);
-  for (;;) {
-    const key = await o.readKey();
-    if (key === 'q' || key === 'escape' || key === 'ctrl+c') return 'quit';
-    if (key === 'enter') return o.hasSetupWizard ? 'setup' : 'skip';
-    if (key === 's') return 'skip';
+  // 帧动画段接管呈现：逐帧交付回调 self-格式化（段只持帧序/节拍/门）
+  const anim = o.frameAnimation;
+  if (anim !== undefined) {
+    anim.onAdvance = (frame) => o.write(`\r${frame} 等待选择…`);
+    anim.start();
+  }
+  try {
+    for (;;) {
+      const key = await o.readKey();
+      if (key === 'q' || key === 'escape' || key === 'ctrl+c') return 'quit';
+      if (key === 'enter') return o.hasSetupWizard ? 'setup' : 'skip';
+      if (key === 's') return 'skip';
+    }
+  } finally {
+    // 离开引导面收口：先停 tick（在飞定时器收口——幂等零泄漏），再闭合
+    // wait 行（收尾换行——主屏起屏 ED(2) 前的窗交接净位）
+    if (anim !== undefined) {
+      anim.stop();
+      o.write('\n');
+    }
   }
 }

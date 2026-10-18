@@ -49,6 +49,10 @@ export type { TerminalIO } from './engine/index.js';
 // 供数面 hooks 的呈现侧落点）
 export { BootAnimation } from './tui/index.js';
 export type { BootAnimationOptions } from './tui/index.js';
+// 引导面帧动画段（39 池 P4——tui 面转发；tui-entry 装配位消费：onboarding
+// wait 行 80ms 帧动画，动效门单值注入与主屏同一把门）
+export { GuideFrameAnimation } from './tui/index.js';
+export type { BootFrameFamily, GuideFrameAnimationOptions } from './tui/index.js';
 // token 紧凑值形单源转发（R-10 退出收尾摘要 tui-entry 消费——真源 tui
 // usage-viewer，注释见导出位）
 export { formatTokensCompact } from './tui/index.js';
