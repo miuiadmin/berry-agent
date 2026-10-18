@@ -263,6 +263,21 @@ describe('run 命令族', () => {
     expectUsage(['run', 'a', 'b'], '位置参数数目不符');
   });
 
+  it('run 空串消息 = 用法错退 2（shell 变量展开为空常见形——修前恰一词空串过 arity 闸直送引擎）', () => {
+    // 修前红锚：expectArity 只数词数——run '' 恰一词过闸，空提示词照送引擎
+    expectUsage(['run', ''], '空串');
+    // 裸终结符后空串同拒（literals 收纳同位——执法②不豁免空串）
+    expectUsage(['run', '--', ''], '空串');
+    // 正常消息不受影响（恰一非空照旧 ok——空串拒不误伤）
+    const ok = parseCli(['run', 'hi']);
+    expect(ok.ok).toBe(true);
+    if (ok.ok && ok.command.kind === 'run') {
+      expect(ok.command.message).toBe('hi');
+    } else {
+      expect.unreachable('run 正常消息解析应成功');
+    }
+  });
+
   it('--fork 不带值 = 取 cwd 最新分叉', () => {
     const r = parseCli(['run', 'hi', '--fork']);
     expect(r.ok).toBe(true);

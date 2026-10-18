@@ -393,6 +393,14 @@ function parseRun(rest: readonly string[]): CliParseResult {
   }
   const msg = tickName !== undefined ? ([] as string[]) : expectArity(scan.literals, 1, 1, 'berry run "<message>"');
   if ('exitCode' in msg) return msg;
+  // 非 tick 形空串消息拒（本笔修形）：expectArity 只数词数——shell 变量展开为
+  // 空（run "$msg" 而 msg 未赋值/空）恰落一词空串照过闸，空提示词直送引擎
+  // 无意义且难排查；用法错退 2（同 --sdk-port 前台拒族档）
+  if (tickName === undefined && msg[0] === '') {
+    return usageFail(
+      'message 不能为空串（shell 变量展开为空常见于此——检查变量赋值或传字面消息）——用法：berry run "<message>"',
+    );
+  }
   const has = (b: string) => scan.booleans.has(b);
   // 互斥组执法（执法⑤）：--ephemeral × 续接族 + --tick/--background（续接族里 --session/--fork 是取值旗标——判在场看 values）
   if (has('ephemeral')) {
@@ -445,7 +453,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
     pluginFile: scan.values.get('plugin-file'),
   };
   // tick 形 message 置空串（CliCommand 契约 string 必填保持——run-entry 按
-  // flags.tick 判到点形态，不消费 message 位；非 tick 形 arity 已保恰一非空）
+  // flags.tick 判到点形态，不消费 message 位；非 tick 形空串已在上方单判拒）
   const command: CliCommand = { kind: 'run', message: msg[0] ?? '', flags };
   return finish(scan, command);
 }
