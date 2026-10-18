@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { SPAWN_SYNC_CAP } from './spawn-sync-cap.mjs';
+
 /**
  * 模块 DAG 拓扑门禁 spawn 自测（07 篇 §7.4 #10——「不进门禁的守护炮静默
  * 过期」教训：扫描逻辑静默退化先在测试面红）。
@@ -31,6 +33,7 @@ function runCheck(fixture) {
     cwd: REPO_ROOT,
     env: { ...process.env, ...(fixture ? { CHECK_TOPOLOGY_ROOT: fixture } : {}) },
     encoding: 'utf8',
+    ...SPAWN_SYNC_CAP,
   });
   return { status: r.status ?? -1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
@@ -251,6 +254,7 @@ describe('check-topology 守护炮自测（spawn 全闸形态）', () => {
       cwd: REPO_ROOT,
       env: { ...process.env, CHECK_TOPOLOGY_ROOT: root },
       encoding: 'utf8',
+      ...SPAWN_SYNC_CAP,
     });
     const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
     expect(r.status).toBe(1);

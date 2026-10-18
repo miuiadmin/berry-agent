@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { SPAWN_SYNC_CAP } from './spawn-sync-cap.mjs';
+
 /**
  * build 链恒清回归锁（2026-10-18 批次 4 裁决一；立题档 00-立题-core件迁
  * plugins目录-20261016 批次 4）——④迁移批 ROUTE A rootDir 仓根化（产物
@@ -89,7 +91,7 @@ describe('build 链恒清——行为腿（清命令字面真能删种子孤儿�
         mkdirSync(dirname(p), { recursive: true });
         writeFileSync(p, 'x\n');
       }
-      const r = spawnSync(process.execPath, ['-e', cleanCode], { cwd: root, encoding: 'utf8' });
+      const r = spawnSync(process.execPath, ['-e', cleanCode], { cwd: root, encoding: 'utf8', ...SPAWN_SYNC_CAP });
       return {
         status: r.status ?? -1,
         orphanGone: !existsSync(join(root, orphanRel)),

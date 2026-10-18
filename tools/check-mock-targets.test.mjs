@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { SPAWN_SYNC_CAP } from './spawn-sync-cap.mjs';
 import { scanViolations, stripComments } from './check-mock-targets.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -32,6 +33,7 @@ function runCheck(fixture) {
     cwd: REPO_ROOT,
     env: { ...process.env, ...(fixture ? { CHECK_MOCKS_ROOT: fixture } : {}) },
     encoding: 'utf8',
+    ...SPAWN_SYNC_CAP,
   });
   return { status: r.status ?? -1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }

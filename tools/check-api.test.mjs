@@ -18,6 +18,7 @@ import {
 } from './extract-api-surface.mjs';
 import { renderFaceDecls, declareKeysOf } from './generate-api-decls.mjs';
 import { stripExperimentalSections } from './api-doc-sections.mjs';
+import { SPAWN_SYNC_CAP } from './spawn-sync-cap.mjs';
 
 /** 仓库根（测试文件位置上两级） */
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -40,6 +41,10 @@ function runCheck(env = {}) {
     cwd: REPO_ROOT,
     env: { ...process.env, ...env },
     encoding: 'utf8',
+    // 子进程帽（单源 tools/spawn-sync-cap.mjs——CI darwin 死寂实证
+    // run 39108786016）：spawnSync 同步阻塞期 testTimeout 永不点火，无帽
+    // 即子进程不退 = 全 job 死寂 15min；帽点 SIGKILL 强杀转响红
+    ...SPAWN_SYNC_CAP,
   });
   return { status: r.status ?? -1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
@@ -377,6 +382,35 @@ describe(
       expect(out).toContain('API_TEST_1');
       // 注释免疫 + 干净实参：API_TEST_2 构造点不红（词法小扫描器只收实参区字面量）
       expect(out).not.toContain('API_TEST_2');
+    });
+
+    it('子进程帽锁（CI darwin 死寂实证 run 39108786016）：挂死子进程帽点被杀非死寂 + 六闸 spawn 位源面全带帽', () => {
+      // 机制面：spawnSync 原生 timeout 在原生层点火——JS 线程同步阻塞期间照杀
+      //（testTimeout 定时器在阻塞期永不点火，帽是唯一防线；修前形态 = 无帽，
+      // 子进程偶发不退即整 job 死寂 15min 实证）。缩帽 1.5s 实证免全速等待
+      const t0 = Date.now();
+      const r = spawnSync(process.execPath, ['-e', 'setInterval(() => {}, 1e9)'], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        ...SPAWN_SYNC_CAP,
+        timeout: 1_500,
+      });
+      expect(Date.now() - t0).toBeLessThan(10_000); // 帽点有界返回（非挂起）
+      expect(r.status).toBeNull(); // 非自然退出
+      expect(r.signal).toBe('SIGKILL'); // 强杀信号名面
+      // 源面点名（查 7 卫生锁同形）：六闸测试件的 spawnSync 位全带帽——
+      // 任一撤帽（回退修前形）即本腿红，静默缝不复发
+      const roster = [
+        'tools/check-api.test.mjs',
+        'tools/check-topology.test.mjs',
+        'tools/check-vocab.test.mjs',
+        'tools/check-hook-coverage.test.mjs',
+        'tools/check-mock-targets.test.mjs',
+        'tools/build-clean.test.mjs',
+      ];
+      for (const rel of roster) {
+        expect(readFileSync(join(REPO_ROOT, rel), 'utf8'), rel).toContain('...SPAWN_SYNC_CAP');
+      }
     });
   },
 );

@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { SPAWN_SYNC_CAP } from './spawn-sync-cap.mjs';
+
 // 活词派发覆盖率锁守护炮自测（07 篇 §7.4 #10 env 根缝惯例——CHECK_HOOK_
 // COVERAGE_ROOT 注入夹具根逐形验红；净树腿不注 env 走真仓验绿）。
 
@@ -41,6 +43,7 @@ function runCheck(root) {
     cwd: REPO_ROOT,
     env: { ...process.env, ...(root ? { CHECK_HOOK_COVERAGE_ROOT: root } : {}) },
     encoding: 'utf8',
+    ...SPAWN_SYNC_CAP,
   });
   return { status: r.status, out: (r.stdout ?? '') + (r.stderr ?? '') };
 }
