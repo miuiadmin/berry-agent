@@ -553,7 +553,10 @@ async function runNpmInstall(
     parsed.version !== undefined ? `${parsed.pkg}@${parsed.version}` : parsed.pkg,
   ];
   try {
-    await deps.spawn.run('npm', argv, {});
+    // npm 网络腿长动作帽（600s）：CLI 面 plugin-tools.ts npm/git 腿同帽先例
+    // （其注释自称「与 plugin_install 同帽」——本位兑现）。缺省执行器到点
+    // SIGTERM 击杀——空对象第三参 = 无杀通道，网络悬挂腿永挂。
+    await deps.spawn.run('npm', argv, { timeoutMs: 600_000 });
   } catch (err) {
     throw new BaseError('PLUGIN_INSTALL_FAILED', npmFailureMessage(err, buildMinReleaseAgeFlags(deps).join(' ')), {
       cause: err,

@@ -6,7 +6,8 @@
  *   （`--print0` 收割、旗标面对齐内建三律——`--hidden` 收隐藏文件 / `--exclude`
  *   node_modules / .git / .gitignore 常量剪枝钉位〔忽略机元数据不入 @ 条目
  *   池，两腿同构〕/ 缺省尊重 .gitignore / 缺省不跟随符号链）；
- *   缺席 / spawn 失败 / 非零退出一律降级内建（补全失败不呈报律——不呈报不打断输入）。
+ *   缺席 / spawn 失败 / 非零退出 / 行走悬挂触帽（FD_WALK_TIMEOUT_MS——
+ *   帽点降级内建）一律降级内建（补全失败不呈报律——不呈报不打断输入）。
  * - **内建腿**：04 篇遍历语义**第四副本**（同笔同判——gitignore 逐目录前缀化 +
  *   `node_modules`/`.git` 常量剪枝 + 符号链不跟随；判据账册 06 §11.1 / 05 §5.3
  *   同笔四副本）。收集面仅常规文件（补全定位用途——目录经段导航腿可达）。
@@ -31,6 +32,13 @@ export const REPO_INDEX_FILE_CAP = 20000;
 /** per-root 缓存 TTL 缺省 ms（同上——码面单源） */
 export const REPO_INDEX_TTL_MS = 30000;
 
+/**
+ * fd 腿行走帽缺省（ms）——fd `--max-results` 有界收割本地快，10s = 慢机
+ * 余量；帽点 = 降级非错误（settle(null) → 内建行走，与 spawn 失败同语义
+ * ——补全失败不呈报律）。
+ */
+export const FD_WALK_TIMEOUT_MS = 10_000;
+
 /** 常量剪枝目录（无论 .gitignore 写没写——04 篇遍历语义） */
 const PRUNE_DIRS = new Set(['node_modules', '.git']);
 
@@ -51,6 +59,8 @@ export interface RepoFileIndexOptions {
   readonly fileCap?: number;
   /** per-root 缓存 TTL ms（缺省 REPO_INDEX_TTL_MS；0 = 每查重走——测试形） */
   readonly ttlMs?: number;
+  /** fd 腿行走帽 ms（缺省 FD_WALK_TIMEOUT_MS——测试注入缩帽形） */
+  readonly fdWalkTimeoutMs?: number;
   /** 时钟注入（缺省 Date.now——TTL 测试可控） */
   readonly now?: () => number;
 }
@@ -205,6 +215,7 @@ export class RepoFileIndex {
   private readonly fdPathOverride: string | undefined;
   private readonly fileCap: number;
   private readonly ttlMs: number;
+  private readonly fdWalkTimeoutMs: number;
   private readonly now: () => number;
   /** per-root 缓存（在途条目无 settledAt；结算后带 settledAt 供 TTL 判读） */
   private readonly cache = new Map<string, { settledAt?: number; promise: Promise<RepoFileIndexSnapshot> }>();
@@ -213,6 +224,7 @@ export class RepoFileIndex {
     this.fdPathOverride = options?.fdPath;
     this.fileCap = options?.fileCap ?? REPO_INDEX_FILE_CAP;
     this.ttlMs = options?.ttlMs ?? REPO_INDEX_TTL_MS;
+    this.fdWalkTimeoutMs = options?.fdWalkTimeoutMs ?? FD_WALK_TIMEOUT_MS;
     this.now = options?.now ?? Date.now;
   }
 
@@ -265,7 +277,7 @@ export class RepoFileIndex {
 
   /**
    * fd 子进程收割：`--max-results cap+1` 探针同截断侦测语义。null = 失败
-   * （spawn 失败 / 非零退出）——调用方降级内建。
+   * （spawn 失败 / 非零退出 / 行走悬挂触帽）——调用方降级内建。
    */
   private fdWalk(fdPath: string, root: string): Promise<readonly string[] | null> {
     return new Promise((settle) => {
@@ -286,9 +298,23 @@ export class RepoFileIndex {
       ]);
       const chunks: Buffer[] = [];
       child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+      // 悬挂帽：子进程悬挂（stdout 永不 close——僵死 fd/管道塞死形）时
+      // in-flight promise 共享位（snapshot 同根共享）将永久死面；到点
+      // SIGKILL 击杀（SIGTERM 可被僵死子进程忽略——tools/spawn-sync-cap.mjs
+      // 头注同理由）+ settle(null) 降级内建行走（帽点 = 降级位非错误位）。
+      // Promise 单射 absorbs 双 settle：error/close 先到则 clearTimeout 撤
+      // 帽，帽先到则后至的 close（击杀产物）自然落空。
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        settle(null);
+      }, this.fdWalkTimeoutMs);
       // spawn 失败（不在场/不可执行）与 close 双 settle 由 Promise 单射吸收
-      child.on('error', () => settle(null));
+      child.on('error', () => {
+        clearTimeout(timer);
+        settle(null);
+      });
       child.on('close', (code) => {
+        clearTimeout(timer);
         if (code !== 0) {
           settle(null); // 非零退出——降级
           return;

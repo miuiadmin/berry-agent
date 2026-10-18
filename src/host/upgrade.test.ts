@@ -168,6 +168,23 @@ describe('resolveRegistryRoot（两腿同源律——用户 registry 解析）',
     const result = await resolveRegistryRoot(fakeSpawn(new Error('npm not found')));
     expect(result).toEqual({ root: 'https://registry.npmjs.org', fallback: true });
   });
+
+  it('registry 解析腿超时帽锁：第三参 timeoutMs=5_000（与 fetch 腿同帽——修前红：无 timeoutMs，npm 悬挂腿永挂）', async () => {
+    // 第三参捕获账（镜像 58 轮件③击杀通道锁形）：缺省执行器唯有 timeoutMs
+    // 在场才到点击杀；同文件 fetch 腿已有 5s AbortSignal 帽（UPDATE_CHECK_
+    // TIMEOUT_MS 同值）——本腿同帽，超时/失败 → 既有 catch 回退官方源腿
+    const optsLog: Array<{ readonly timeoutMs?: number }> = [];
+    const spawn: SpawnRunner = {
+      run: (_cmd, _args, opts) => {
+        optsLog.push({ timeoutMs: opts.timeoutMs });
+        return Promise.resolve({ stdout: 'https://registry.example.com\n', stderr: '' });
+      },
+    };
+    const result = await resolveRegistryRoot(spawn);
+    expect(result).toEqual({ root: 'https://registry.example.com', fallback: false });
+    expect(optsLog).toHaveLength(1);
+    expect(optsLog[0]!.timeoutMs).toBe(5_000);
+  });
 });
 
 // —— fetchDistTags：只读 GET + 帽 + 形校验 ————————————————————

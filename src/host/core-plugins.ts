@@ -1624,7 +1624,7 @@ export interface GoalFace {
 /**
  * boot 重挂尾窗宽（goal L4-1 与 issue 停靠恢复批共用——04 §5 停靠登记
  * daemon 重启恢复律：装载期尾词回扫的尾窗 W 条。锚 obs-b STATE_SCAN_WINDOW
- * 同值另裁——判据射界分立〔05 §388 对端注：obs-b 猝死中断态推导与本处恢复
+ * 同值另裁——判据射界分立〔05 §4 L4-1 对端注：obs-b 猝死中断态推导与本处恢复
  * 判据两实现禁互相调用/复用；goal 与 issue 两恢复判据同族同集，跳过判定
  * 单源共用不破射界〕）。
  */
@@ -2503,20 +2503,36 @@ function runIssueVerify(req: { cwd: string; command: string; timeoutMs: number }
 }
 
 /**
+ * git push 执行体注入面（缺省 execFile 真身——测试桩在此单点注入，断言
+ * options 帽参数；生产装配零变化）。
+ */
+export type PushExecFile = typeof execFile;
+
+/**
  * push 执行腿（04 §13 create/push 执行面——宿主 spawn 真身）。token 经
  * `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` env 注入
  * `http.https://github.com/.extraheader`（`AUTHORIZATION: basic base64(
  * x-access-token:token)`）——明文只进子进程环境，argv/日志恒不见值（凭据
  * 纪律：值永不呈现）。URL 锚钉 https://github.com/——不污染其他远域。
  */
-function dangerPushBranch(req: { token: string; worktreePath: string; branch: string }): Promise<void> {
+export function dangerPushBranch(
+  req: { token: string; worktreePath: string; branch: string },
+  execFileImpl: PushExecFile = execFile,
+): Promise<void> {
   const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${req.token}`).toString('base64')}`;
   return new Promise((resolve, reject) => {
-    execFile(
+    execFileImpl(
       'git',
       ['push', 'origin', req.branch],
       {
         cwd: req.worktreePath,
+        // 击杀通道帽（04 §13 执行面 + 59 轮件C 异步腿帽族）：300s 镜像同族网络腿 git
+        // 帽（plugin-install GIT_CLONE_TIMEOUT_MS 300s 同值）；SIGKILL 镜像
+        // tools/spawn-sync-cap.mjs 头注理由——SIGTERM 可被僵死子进程忽略，
+        // 强杀兜底。token 在 env 的网络推送腿悬挂 = token 载程永悬，帽到点
+        // 击杀即收口；超时形态 err 非 null → 下方既有 reject 路诚实收口。
+        timeout: 300_000,
+        killSignal: 'SIGKILL',
         env: {
           ...process.env,
           GIT_CONFIG_COUNT: '1',

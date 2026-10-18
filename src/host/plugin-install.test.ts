@@ -415,6 +415,27 @@ describe('npm 执行器编舞（假 spawn——argv 与落账可测，零真网�
     expect(existsSync(join(dataDir, 'plugins', 'node_modules', 'dup-pkg'))).toBe(false);
     expect(entriesOf(dataDir).map((e) => e.id)).toContain('dup-pkg');
   });
+
+  it('npm install 腿超时帽锁：第三参 timeoutMs=600_000（CLI 面 plugin_update 同帽先例兑现——修前红：空对象第三参无帽，悬挂腿永挂）', async () => {
+    const dataDir = dataDirOf('data-install-cap');
+    const rec = npmFakeSpawn(dataDir, { pkgJson: pluginPkgJson({ name: 'cap-pkg' }) });
+    // 第三参捕获账：包装假 spawn 逐笔记 options（对拍 timeoutMs——镜像 58 轮
+    // 件③ market git 腿击杀通道锁形：缺省执行器唯有 timeoutMs 在场才到点
+    // SIGTERM 击杀，空对象第三参 = 无杀通道）
+    const optsLog: Array<{ readonly timeoutMs?: number }> = [];
+    const wrapped: SpawnRunner = {
+      run: (cmd, args, opts) => {
+        optsLog.push({ timeoutMs: opts.timeoutMs });
+        return rec.spawn.run(cmd, args, opts);
+      },
+    };
+    const outcome = await installPlugin(depsOf(dataDir, wrapped), 'npm:cap-pkg');
+    expect(outcome.ok).toBe(true);
+    expect(optsLog).toHaveLength(1);
+    // 同帽先例：plugin-tools.ts CLI 面 npm/git 腿 timeoutMs: 600_000（其注释
+    // 自称「与 plugin_install 同帽」——本锁兑现该句）
+    expect(optsLog[0]!.timeoutMs).toBe(600_000);
+  });
 });
 
 describe('npm 失败两形分流（非旗标失败零指路 + 真拒装等窗龄指路）', () => {

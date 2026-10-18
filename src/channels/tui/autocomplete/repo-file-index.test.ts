@@ -27,15 +27,21 @@ function makeTmpDir(): string {
   return dir;
 }
 
-/** fd 桩铸造：ok 桩 print0 输出哨兵路径并计数；fail 桩非零退出 */
-function writeFdStub(mode: 'ok' | 'fail'): string {
-  const script = path.join(makeTmpDir(), mode === 'ok' ? 'fd-ok.cjs' : 'fd-fail.cjs');
+/** fd 桩铸造：ok 桩 print0 输出哨兵路径并计数；fail 桩非零退出；hang 桩写哨兵后悬挂（stdout 长期不 close，自限 4s 退防真挂） */
+function writeFdStub(mode: 'ok' | 'fail' | 'hang'): string {
+  const script = path.join(makeTmpDir(), mode === 'ok' ? 'fd-ok.cjs' : mode === 'fail' ? 'fd-fail.cjs' : 'fd-hang.cjs');
   const body =
     mode === 'ok'
       ? '#!/usr/bin/env node\n' +
         "require('node:fs').appendFileSync(process.argv[1] + '.count', 'x');\n" +
         "process.stdout.write('fd-only-sentinel.ts\\0');\n"
-      : '#!/usr/bin/env node\nprocess.exit(1);\n';
+      : mode === 'fail'
+        ? '#!/usr/bin/env node\nprocess.exit(1);\n'
+        : // 悬挂形：写完哨兵不退出——stdout 不 close（子进程悬挂的本体形）；
+          // 自限 4s 退（红跑不真挂死 worker——修前红 = fd 腿结果直透非帽降级）
+          '#!/usr/bin/env node\n' +
+          "process.stdout.write('fd-hang-sentinel.ts\\0');\n" +
+          'setTimeout(() => process.exit(0), 4000);\n';
   writeFileSync(script, body);
   chmodSync(script, 0o755); // shebang 可执行位（CI macos/linux 通行）
   return script;
@@ -91,6 +97,20 @@ describe('RepoFileIndex fd 腿优先与降级', () => {
     // 相对路径 fdPath——非绝对判读为缺席（走内建）
     const viaRelative = await new RepoFileIndex({ fdPath: 'fd-not-absolute', ttlMs: 0 }).snapshot(root);
     expect(viaRelative.files).toEqual(['real.ts']);
+  });
+
+  it('悬挂帽锁：子进程悬挂（stdout 永不 close）→ 帽到点 SIGKILL + settle(null) 降级内建（修前红：无帽 = fd 腿结果直透非降级）', async () => {
+    const root = makeTmpDir();
+    writeFileSync(path.join(root, 'real.ts'), '');
+    // 注入缩帽 150ms（帽值注入位——mock 只停注入位）；hang 桩写哨兵后悬挂
+    // 4s 自退：修前无帽时悬挂期间 promise 不结算、桩自退后 fd 结果直透；
+    // 修后帽到点击杀降级——与 spawn 失败同语义（补全失败不呈报律）
+    const snap = await new RepoFileIndex({
+      fdPath: writeFdStub('hang'),
+      ttlMs: 0,
+      fdWalkTimeoutMs: 150,
+    }).snapshot(root);
+    expect(snap.files).toEqual(['real.ts']); // 内建行走降级（真树上真文件）——非 fd 哨兵直透
   });
 });
 

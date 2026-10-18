@@ -56,8 +56,8 @@ import type { SdkHttpFaceHandle } from '../../plugins/sdk/index.js';
 import { SessionLog } from '../session/index.js';
 import { createJobRegistry, provideJobsService } from '../../plugins/subagent/index.js';
 
-import { createCorePlugins } from './core-plugins.js';
-import type { GoalFace, IssueSessionReadsFace, SchedulerFace } from './core-plugins.js';
+import { createCorePlugins, dangerPushBranch } from './core-plugins.js';
+import type { GoalFace, IssueSessionReadsFace, PushExecFile, SchedulerFace } from './core-plugins.js';
 import type { BudgetBroadcastFace } from './budget-broadcast.js';
 import { createBudgetBroadcast } from './budget-broadcast.js';
 import type { ConversationStack } from './conversation-stack.js';
@@ -4096,6 +4096,25 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(notifyLog.at(-1)!.message).toContain('未知动词');
 
     // dispose 收口：件卸载后命令摘除（disposer 进 apply 返回值——bootCore 桩不验，此处结构已证）
+  });
+
+  it('danger push 腿帽锁：execFile options 带 timeout+SIGKILL 击杀通道（修前红：无 timeout/killSignal——token 在 env 的网络推送腿悬挂即 token 载程永悬）', async () => {
+    // 注入位单点桩（PushExecFile 缺省真身——生产装配零变化）：记账 cmd/args/
+    // options 后按成功形回调——真断言到参数非空锁
+    const calls: Array<{ cmd: string; args: string[]; options: Record<string, unknown> }> = [];
+    const stub = ((cmd: string, args: readonly string[], options: Record<string, unknown>, callback: unknown) => {
+      calls.push({ cmd, args: [...args], options });
+      (callback as (err: Error | null, stdout: string, stderr: string) => void)(null, '', '');
+    }) as unknown as PushExecFile;
+    await dangerPushBranch({ token: 'gh-token', worktreePath: join(tmpdir(), 'berry-wt'), branch: 'feat-x' }, stub);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.cmd).toBe('git');
+    expect(calls[0]!.args).toEqual(['push', 'origin', 'feat-x']); // token 不进 argv（env 注入律）
+    // 击杀通道：300s 帽镜像同族网络腿 git 帽（plugin-install GIT_CLONE_TIMEOUT_MS
+    // 300s 同值）；SIGKILL 镜像 tools/spawn-sync-cap.mjs 头注理由（SIGTERM 可被
+    // 僵死子进程忽略）。超时形态 err 非 null → 既有 reject 路诚实收口。
+    expect(calls[0]!.options.timeout).toBe(300_000);
+    expect(calls[0]!.options.killSignal).toBe('SIGKILL');
   });
 
   it('注册表单源形：件名清单（逐纵切笔入册——批 19a—19e 十五件 + c-3 credentials 增席：exec/web/skills/memory/subagent/scheduler/mcp/browser/lsp/goal/checkpoint/sdk/webui/obs/issue/credentials 十六件齐册）', () => {

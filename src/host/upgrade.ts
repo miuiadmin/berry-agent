@@ -174,7 +174,13 @@ export interface RegistryRoot {
  */
 export async function resolveRegistryRoot(spawn: SpawnRunner): Promise<RegistryRoot> {
   try {
-    const { stdout } = await spawn.run('npm', ['config', 'get', 'registry'], { cwd: undefined });
+    // 与 fetch 腿同帽（UPDATE_CHECK_TIMEOUT_MS 同源 5s——本腿原缺席帽：npm
+    // 悬挂时本 promise 永挂）；缺省执行器到点击杀；超时/失败 → 既有 catch
+    // 回退官方源腿（fallback 注记如实呈现）
+    const { stdout } = await spawn.run('npm', ['config', 'get', 'registry'], {
+      cwd: undefined,
+      timeoutMs: UPDATE_CHECK_TIMEOUT_MS,
+    });
     const trimmed = stdout.trim();
     if (/^https?:\/\//.test(trimmed)) {
       return { root: trimmed.replace(/\/+$/, ''), fallback: false };
