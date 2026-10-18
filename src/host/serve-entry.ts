@@ -122,7 +122,7 @@ export type ServeBridgeDeps = Omit<SdkWireDeps, 'decideApproval' | 'onSubscribed
  *   拦截）；routedChannel 按受理时刻 driver.running 推导（03 §10.6 注记）；
  *   归因 `channel:sdk` + messageId→dedupeKey 落账（05 §3.5 两词一字段两面）。
  *   登记键律（CL-A2）：workspaceRoot 同过 canonicalWorkspaceRoot（context
- *   单源——06 §74 解析律）落库。四桥（serve stdio / mcp / webui / daemon）
+ *   单源——06 §3 canonical 解析律）落库。四桥（serve stdio / mcp / webui / daemon）
  *   全经本桥登记，canonical 化在此单源执法——查询侧（openStartupSession /
  *   scheduler-tick / sessions 命令族）已同键同律；raw cwd（symlink 别名、
  *   子目录启动等非 canonical 形）直落会致 store 精确串匹配 miss——续接

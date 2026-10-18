@@ -349,7 +349,7 @@ export function cardBodyStyledOf(text: string): StyledCardBody {
 }
 
 /**
- * diff 档卡体存账行帽（挖掘 48 轮件 A——07 §191 翻档）：edit patch 体行帽
+ * diff 档卡体存账行帽（挖掘 48 轮件 A——07 §4.1 翻档）：edit patch 体行帽
  * 2000 分立（头 1000 + 省略标记 + 尾 1000），cardBodyOf 主位与三同律位维持
  * 帽 200。动因 = 超帽 patch 中段在存账层永久不可见（ctrl+o 展开只渲染帽内
  * 存账行——/diff 副屏虽全量，主屏滚动回看审不到中段）；2000 档宽松 10 倍

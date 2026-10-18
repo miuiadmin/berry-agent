@@ -225,7 +225,7 @@ export interface ConversationStackOptions {
   readonly budgetAdvisory?: (sessionId: string, backgroundLane: boolean) => string | null;
   /**
    * run 结算回执钩（批 #99——goal 前台记账腿三入口统一）：驱动 launch settled
-   * 链内嵌发射（assistant/message 窗扫计数 + userInitiated 归因——04 §176
+   * 链内嵌发射（assistant/message 窗扫计数 + userInitiated 归因——04 §5
    * 记账单位），组合根闭包接 recordTurn；钩内异常驱动侧自防炸（warn 不炸收场）。
    */
   readonly onRunSettled?: (sessionId: string, receipt: RunSettledReceipt) => void;

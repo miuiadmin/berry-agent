@@ -402,7 +402,7 @@
       "module": "berry-agent",
       "tier": "stable",
       "since": "1.0",
-      "desc": "单次 LLM 请求上下文（StreamFn 第一参数；04 §3.1）",
+      "desc": "单次 LLM 请求上下文（StreamFn 第一参数；04 §3）",
       "kind": "interface",
       "sig": "2311128ee588af65"
     },

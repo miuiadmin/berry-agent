@@ -230,7 +230,7 @@ export interface ToolFaceChangeNotice {
   removedToolNames: string[];
 }
 
-/** 单次 LLM 请求上下文（StreamFn 第一参数；04 §3.1） */
+/** 单次 LLM 请求上下文（StreamFn 第一参数；04 §3） */
 export interface LlmContext {
   systemPrompt?: string;
   messages: Message[];
