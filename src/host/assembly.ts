@@ -447,7 +447,25 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 漂移（凭证人面写路径平权）——
     const credentialsWrite = {
       store: runtime.persistence.store,
-      onCredentialChanged: (payload: CredentialChangedPayload) => audit.append('credentials/changed', { ...payload }),
+      // credentials/changed 审计 seam 失败隔离壳（63 轮件 D——05 §1.1 先行批
+      // 注已就位）：audit 直写腿（better-sqlite3 同步 INSERT）磁盘满/IO 错
+      // 同步抛时，裸 seam 会沿消费面同一 try 洞穿进失败结算 catch——凭证值
+      // 已先成功落库（credentials/refresh 刷新链轮换写、/plugins config
+      // 表单入盒等 credentialsWrite 四消费面），却因审计 append 抛被误结算
+      // failed/未完整收口，且回读身份比对（新值已落库 ≠ 起飞前快照）伪报
+      // 「窗内已换值（再授权）」。与下方 auditSink 生命周期壳同形同款
+      // （:513-521——同款壳族 :1721-1728 等）：落账失败 warn 留痕——主流程
+      // 不受影响（凭证值已生效不回滚）。capability/used 等其它 seam 本笔
+      // 不动（宁缺毋滥——主会话裁量留档）。
+      onCredentialChanged: (payload: CredentialChangedPayload) => {
+        try {
+          audit.append('credentials/changed', { ...payload });
+        } catch (err) {
+          logger.warn(
+            `凭证审计落账失败（credentials/changed）：${err instanceof Error ? err.message : String(err)}——主流程不受影响`,
+          );
+        }
+      },
     };
 
     // —— 装载史世代面（05 §9 load_generations——装载史批 h-3 写点接线）：

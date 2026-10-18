@@ -2510,6 +2510,87 @@ describe('/plugins config 表单与 ctx.ui 问询 e2e（ix-4——表单写读�
       await assembly.runtime.shutdown();
     }
   });
+
+  it('credentials/changed 审计 seam 落账失败被隔离——表单成功结算不被洞穿（63 轮件 D：凭证值已入盒但审计 append 抛时不得误结算失败）', async () => {
+    const dir = tmpDir('host-asm-ix4-credaudit-');
+    const seenConfigs: unknown[] = [];
+    const cfgDemo: CorePluginReference = {
+      name: 'cfgdemo',
+      configSchema: [
+        { key: 'token', type: 'secret' },
+        {
+          key: 'mode',
+          type: 'select',
+          default: 'fast',
+          options: [
+            { value: 'fast', label: '快' },
+            { value: 'slow', label: '慢' },
+          ],
+        },
+      ],
+      apply: async (_ctx, config) => {
+        seenConfigs.push(config);
+        return undefined;
+      },
+    };
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [cfgDemo],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 前置：初始装载健康（单件全启）
+      expect(assembly.pluginCounts).toEqual({ total: 1, enabled: 1, failed: 0 });
+
+      // 失败注入：BEFORE INSERT RAISE(ABORT) 触发器使 audit.append（同步
+      // INSERT 腿）恰抛——磁盘满/IO 错同步抛形的最小注入。不取 DROP TABLE
+      // 形：表整个没了会连尾读 SELECT（listRecent/lastOf）一起炸——成功尾
+      // 自动链 reapply 装载序里 opens/doors/生命周期三 diff 的尾读全走
+      // SELECT（稳态零落账），DROP 形会引入与本 seam 无关的连带失败淹没
+      // 断言面；触发器形只打写腿、尾读零扰，恰好复现「值写成功 + 审计写
+      // 失败」的竞窗现场。
+      assembly.runtime.persistence.store.connection.exec(
+        "CREATE TRIGGER cred_audit_io_fail BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT, 'simulated audit io failure'); END",
+      );
+      // 注入面自证（防恒绿锁）：触发器在位时 append 必抛——注入静默失效则此
+      // 断言先红，红得诚实
+      expect(() =>
+        createAuditFace(assembly.runtime.persistence.store.sqlite()).append('credentials/changed', {}),
+      ).toThrow('simulated audit io failure');
+
+      const notified: string[] = [];
+      const calls = {
+        confirms: [] as string[],
+        inputs: [] as Array<[string, unknown]>,
+        selects: [] as Array<[string, string[]]>,
+      };
+      assembly.stack.channels.addBackend(
+        askScriptBackend({ inputs: ['sekret-iofail'], confirms: [], selects: ['slow'] }, notified, calls),
+      );
+      // 表单腿触发 credentialsWrite 消费面：secret 先真库入盒（store 写成功
+      // 落库）→ onCredentialChanged 审计 append 抛（注入在位）——修前裸 seam
+      // 沿表单 try 洞穿进失败结算 catch
+      expect(await assembly.stack.channels.dispatchCommand('/plugins config core:cfgdemo', 'sess-cred-io')).toBe(true);
+      // 不洞穿①：回执正常成功结算（修前红 = 落入「表单未完整收口」失败结算
+      // ——写已成功却谎报失败）
+      expect(notified.some((t) => t.includes('已更新 core:cfgdemo 配置'))).toBe(true);
+      expect(notified.some((t) => t.includes('表单未完整收口'))).toBe(false);
+      // 不洞穿②：凭证值已落库不回滚（审计失败不折抵写事实——值恒已生效）
+      expect(assembly.runtime.persistence.store.getCredential('plugin:core:cfgdemo', 'config:token')?.apiKey).toBe(
+        'sekret-iofail',
+      );
+      // 不洞穿③：成功尾自动链换代照常收口（进程不崩的装配级投影）——新代
+      // apply 实参带 secret 凭证直取注回（写读闭环与好形测试同律）
+      await assembly.reloader.settle();
+      expect(assembly.pluginCounts).toEqual({ total: 1, enabled: 1, failed: 0 });
+      expect(seenConfigs.at(-1)).toEqual({ token: 'sekret-iofail', mode: 'slow' });
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
 });
 
 /* ------------- skills 双注入位与自愈重注入装配锁（⑤ 批——06 §11.5/§11.6） ------------- */
