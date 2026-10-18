@@ -5,7 +5,7 @@
  * 假后端是 UiBackend 接口的内存测试替身（本仓接口——非模型层 mock，纪律
  * 不破）；阻塞应答经 deferred 手控，模拟真实后端「signal abort 收保守值」。
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 import { createChannels, foldErrorText } from './service.js';
 import type {
@@ -262,6 +262,53 @@ describe('多会话注册与信封分流', () => {
     s.removeBackend('tui');
     s.emit(env('x', { type: 'agent_start' }));
     expect(b.envelopes.length).toBe(1);
+  });
+
+  it('emit 扇出逐后端异常隔离（03 §2.2 批注——64 轮件 D）：首个插件后端 onEnvelope 同步抛 → 后序后端照收 + emit 不抛 + warn 落账', () => {
+    const s = createChannels();
+    // 宿主域一位 + 插件域两位（坏在前、好在后）——坏后端抛错只弃自己本帧，
+    // 不得截断扇出（后序后端丢信封）更不得直穿 emit 反卷驱动事件流
+    const host = fakeBackend('tui');
+    s.addBackend(host.backend);
+    const boom: UiBackend<never> = {
+      id: 'plugin-boom',
+      capabilities: {
+        notify: true,
+        confirm: false,
+        select: false,
+        input: false,
+        approval: false,
+        setStatus: false,
+        setWidget: false,
+      },
+      hasAudience: () => false,
+      notify: () => {},
+      // 呈现代码坏形模拟：插件后端 onEnvelope 同步抛（真实世界 = 插件渲染 bug）
+      onEnvelope: () => {
+        throw new Error('插件信封呈现炸');
+      },
+    };
+    s.registerPluginBackend(boom);
+    const tail = fakeBackend('plugin-tail');
+    s.registerPluginBackend(tail.backend);
+
+    const warns: string[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warns.push(args.map(String).join(' '));
+    });
+    try {
+      // 修前红：boom 的同步抛直穿 emit（本行反证）且后序 tail 零信封
+      expect(() => s.emit(env('x', { type: 'agent_start' }))).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    // 扇出不截断：坏后端之前的宿主位与之后的插件位都照收信封（双域统一隔离）
+    expect(host.envelopes.length).toBe(1);
+    expect(tail.envelopes.map((e) => e.env.sessionId)).toEqual(['x']);
+    // 诊断恰一条：含后端标识与原始错因（不吞错不刷屏）
+    expect(warns.length).toBe(1);
+    expect(warns[0]).toContain('plugin-boom');
+    expect(warns[0]).toContain('插件信封呈现炸');
   });
 });
 

@@ -713,8 +713,24 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     },
     emit(env) {
       const focused = registry.isFocused(env.sessionId);
-      // 信封路由双域合流扇出（聚焦全渲染/非聚焦摘要行——形态归后端）
-      for (const b of allBackends()) b.onEnvelope?.(env, focused);
+      // 信封路由双域合流扇出（聚焦全渲染/非聚焦摘要行——形态归后端）。
+      // 扇出逐后端异常隔离律（03 §2.2 registerUiBackend 批注——64 轮件 D）：
+      // 任一后端 onEnvelope 同步抛只折 warn 不上抛——抛错后端自弃本帧、后序
+      // 后端照收（隔离粒度 = 单后端单帧，扇出不截断）；异常若上抛会沿 onEvent
+      // 反卷驱动事件流杀在飞 run（loop 零 try/catch），宿主域与插件域统一
+      // 隔离不豁免。warn 通道 = 缺省 console.warn 最简形（leaf 位律——装配
+      // 根接 logger，plugin-boot/plugin-store 先例）；序号沿全量扇出序
+      // （宿主域在前、插件域后），标识 = 后端自报 id。
+      for (const [index, b] of allBackends().entries()) {
+        try {
+          b.onEnvelope?.(env, focused);
+        } catch (err) {
+          console.warn(
+            `[channels] 信封扇出后端 ${index}（${b.id}）抛错（已隔离）：` +
+              (err instanceof Error ? err.message : String(err)),
+          );
+        }
+      }
     },
     notify(sessionId, message, notifyOpts) {
       // notify 非阻塞不分会话呈现位——sessionId 位保留给呈现侧路由（后端自决）
