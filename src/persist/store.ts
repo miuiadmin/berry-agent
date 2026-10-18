@@ -146,6 +146,18 @@ export interface FtsGlobalHit {
   readonly body: string;
 }
 
+/**
+ * 首问扫描观测注入位的回调载荷（scanProbe——测试诊断面，05 §9 67 轮批注
+ * 负缓存锁的实扫记账形态）。
+ */
+export interface QuestionScanProbeInfo {
+  /** 实扫所属会话 */
+  readonly sessionId: string;
+  /** 实扫起点：null = 全量形（负缓存 watermark 缺席——存量库首写 / fork 种子
+   *  前缀首扫）；number = 增量形（自该 seq 之后扫——watermark 生效） */
+  readonly afterSeq: number | null;
+}
+
 /** openStore 选项 */
 export interface OpenStoreOptions {
   /** 库文件路径（':memory:' = 内存库——诊断形态；缺省 :memory:——host 装配根才落梯子） */
@@ -160,6 +172,9 @@ export interface OpenStoreOptions {
   readonly clock?: () => number;
   /** 凭证密钥注入（测试位；缺省：文件库 = 数据目录 loadOrCreateSecretKey，内存库 = 临时密钥） */
   readonly secretKey?: Buffer;
+  /** 首问扫描观测注入位（测试诊断面——每次实扫回调 afterSeq 形；缺省无回调
+   *  零开销。mock 只停注入位纪律的合法消费位——生产装配不接） */
+  readonly scanProbe?: (info: QuestionScanProbeInfo) => void;
 }
 
 /** queryEvents 缺省页帽与硬帽 */
@@ -491,7 +506,7 @@ export function openStore(options: OpenStoreOptions = {}): Store {
   // 凭证密钥：注入位 > 数据目录自举（文件库）/ 临时密钥（内存库——库亡密亡，
   // 不在盘上留无主密钥文件）
   const secretKey = options.secretKey ?? (inMemory ? ephemeralSecretKey() : loadOrCreateSecretKey(dataDir, warn));
-  return new Store(db, dbPath, headVersion, secretKey, warn, options.clock ?? (() => Date.now()));
+  return new Store(db, dbPath, headVersion, secretKey, warn, options.clock ?? (() => Date.now()), options.scanProbe);
 }
 
 /** 读 user_version（PRAGMA 读 simple 形态直回数值） */
@@ -571,6 +586,20 @@ export class Store implements WriteTarget {
   private readonly clock: () => number;
   /** per-session 已落账最大 seq（含毒丸 accountDropped 的跳记账） */
   private readonly cursors = new Map<string, number>();
+  /**
+   * 首问扫描负缓存 watermark（05 §9 67 轮批注——全机器源长存会话收口）：
+   * 会话 → 已扫空 seq 上界（「seq ≤ 上界的 user/message 行已扫且无真用户源」）。
+   * 已物化短路（专列非 NULL）对全机器源会话（issue/trigger 族——user/message
+   * 皆 plugin:/compaction 等机器源）永不触发，修前每写全量扫尽累计 O(n²) 且
+   * 同步事务内自放大；watermark 使后续写增量扫（WHERE seq > 上界）每写只扫
+   * 新增行。events append-only 行内容不变式下恒正确；出册三点与 cursors 同
+   * 生命周期——deleteSession 物理删（id 复用形旧界误吞新会话首问）/ retireCursor
+   * 退役（内存治理）/ loadEvents 撕裂尾 heal（append-only 破例路——游标回退
+   * 后重写行落在旧界内会被零扫臂误吞）。
+   */
+  private readonly questionScanMarks = new Map<string, number>();
+  /** 首问实扫观测注入位（openStore 构造传入——测试诊断面；缺省 undefined 零开销） */
+  private readonly scanProbe: ((info: QuestionScanProbeInfo) => void) | undefined;
   /** 预编译语句缓存（热路径免重复 prepare） */
   private readonly statements = new Map<string, Database.Statement>();
   private closed = false;
@@ -582,6 +611,7 @@ export class Store implements WriteTarget {
     secretKey: Buffer,
     warn: (message: string) => void,
     clock: () => number,
+    scanProbe?: (info: QuestionScanProbeInfo) => void,
   ) {
     this.db = db;
     this.dbPath = dbPath;
@@ -589,6 +619,7 @@ export class Store implements WriteTarget {
     this.secretKey = secretKey;
     this.warn = warn;
     this.clock = clock;
+    this.scanProbe = scanProbe;
   }
 
   /** 语句缓存取用（同 SQL 全生命期一个 prepared 对象） */
@@ -632,11 +663,17 @@ export class Store implements WriteTarget {
     // SQLITE_FULL 落 COMMIT 边界、批内后续条违约）时库内回滚而游标若已走，
     // 重试即被连续性断言误诊写序违约（真因被遮蔽——见 store.test.ts 回归锁）
     const batchCursors = new Map<string, number>();
+    // 首问负缓存 pending 批 Map（承 batchCursors 同例）：事务内
+    // firstQuestionOfferOf 记扫空 watermark，事务成功返回后统一合并进
+    // this.questionScanMarks——事务回滚自然弃（库行不落，内存负缓存不得先行，
+    // 否则回滚重写被负缓存零扫臂误吞首问物化）
+    const pendingQuestionMarks = new Map<string, number>();
     const tx = this.db.transaction(() => {
-      for (const write of writes) this.writeTuple(write, now, batchCursors);
+      for (const write of writes) this.writeTuple(write, now, batchCursors, pendingQuestionMarks);
     });
     tx();
     for (const [sessionId, seq] of batchCursors) this.cursors.set(sessionId, seq);
+    for (const [sessionId, seq] of pendingQuestionMarks) this.questionScanMarks.set(sessionId, seq);
   }
 
   /** 行写：毒丸诊断模式（单条独立事务——失败原样抛，分类归 write-behind） */
@@ -644,15 +681,23 @@ export class Store implements WriteTarget {
     this.ensureOpen();
     const now = this.clock();
     const batchCursors = new Map<string, number>();
+    // 首问负缓存 pending（writeEvents 同例——事务成功点合并、回滚自然弃）
+    const pendingQuestionMarks = new Map<string, number>();
     const tx = this.db.transaction(() => {
-      this.writeTuple(write, now, batchCursors);
+      this.writeTuple(write, now, batchCursors, pendingQuestionMarks);
     });
     tx();
     for (const [sessionId, seq] of batchCursors) this.cursors.set(sessionId, seq);
+    for (const [sessionId, seq] of pendingQuestionMarks) this.questionScanMarks.set(sessionId, seq);
   }
 
   /** 单事件元组写（批/行两模式共用体：events 行 + fts 对账 + sessions 推进） */
-  private writeTuple(write: EventWrite, now: number, batchCursors: Map<string, number>): void {
+  private writeTuple(
+    write: EventWrite,
+    now: number,
+    batchCursors: Map<string, number>,
+    pendingQuestionMarks: Map<string, number>,
+  ): void {
     const { sessionId, event, registration } = write;
     // 连续性断言游标：批内局部值优先（同批前条），否则内存真值（首遇仍经
     // cursorFor 从 sessions.last_seq 初始化）
@@ -698,7 +743,7 @@ export class Store implements WriteTarget {
     // 补位、已在场恒胜出（excluded.title 值域 = 显式题首登源 + loadSession 回传
     // 库行现值——残留值回传恒等无害；防御性定形）。快照列同律首登不回改——已
     // 物化值恒胜出，后续消息零覆盖。
-    const questionOffer = this.firstQuestionOfferOf(sessionId, event);
+    const questionOffer = this.firstQuestionOfferOf(sessionId, event, pendingQuestionMarks);
     this.stmt(
       `INSERT INTO sessions (id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -728,21 +773,46 @@ export class Store implements WriteTarget {
    * （旧版不物化、专列 NULL）在下次用户消息写时惰性回填真首条（§9「可从
    * 日志重新派生回填」律的写路兑现）。机器源行（compaction 载体等）逐行跳过。
    * 非用户消息事件短路零查；first_question_summary 已在场（非 NULL）同样短路
-   * 零扫——COALESCE 必保持现值，扫描结果无人消费（全机器源长存会话每写扫尽
-   * O(n²) 的收口；v13 分家后 title 在场**不再阻断**扫描——显式题行照样待快照
-   * 回填，过渡期 title 残留（旧版快照物化）行同路回填真首问，专列值与残留值
-   * 同派生函数同真源恒同，双份同值零危害）。
+   * 零扫——COALESCE 必保持现值，扫描结果无人消费。**短路只收口已物化会话**
+   * （05 §9 67 轮批注勘正——修前注释宣称「短路即 O(n²) 收口」系谎言）：全机器
+   * 源长存会话（issue/trigger 族——user/message 皆 plugin:/compaction 等机器
+   * 源，真用户源判据恒拒）专列恒 NULL、短路永不触发，修前每写全量扫尽累计
+   * O(n²)；由**扫描负缓存 watermark** 收口——会话内已扫空 seq 上界（seq ≤
+   * 上界的 user/message 行已扫且无真用户源），后续写增量扫（WHERE seq >
+   * 上界）每写只扫新增行；watermark 只在扫空记（命中即物化、专列短路接管
+   * 后续写），经批 Map pending 暂记、事务成功收敛点合并（承 batchCursors
+   * 先例——回滚自然弃）；fork/导入种子前缀首写全量扫一遍后 watermark 生效
+   * （语义不变仅重复扫消失）。v13 分家后 title 在场**不再阻断**扫描——显式
+   * 题行照样待快照回填，过渡期 title 残留（旧版快照物化）行同路回填真首问，
+   * 专列值与残留值同派生函数同真源恒同，双份同值零危害。
    */
-  private firstQuestionOfferOf(sessionId: string, event: SessionEvent): string | undefined {
+  private firstQuestionOfferOf(
+    sessionId: string,
+    event: SessionEvent,
+    pendingQuestionMarks: Map<string, number>,
+  ): string | undefined {
     if (event.type !== 'user/message') return undefined;
     // 已物化短路：行在场且专列非 NULL 即返回——与 COALESCE(专列, offer) 语义
-    // 等价（非 NULL 恒胜出）
+    // 等价（非 NULL 恒胜出）。命中路零扫描零记账（物化落专列后本短路接管后续写）
     const existing = this.stmt(`SELECT first_question_summary FROM sessions WHERE id = ?`).get(sessionId) as
       { first_question_summary: string | null } | undefined;
     if (existing !== undefined && existing.first_question_summary !== null) return undefined;
+    // 负缓存 watermark（67 轮批注）：批内 pending 优先（同批前条已扫空——批内
+    // 增量同效）、内存真值次之（既往事务成功点已合并的扫空界）。event.seq ≤
+    // 上界 = 本事件已落在已扫空区间，零扫描直接弃（append-only 常流不触此臂
+    // ——上界恒由更早写立而 seq 单调递增；系非 append-only 形的防御臂，彼路
+    // 〔撕裂尾 heal 重写等〕已在各自出册点清界）
+    const mark = pendingQuestionMarks.get(sessionId) ?? this.questionScanMarks.get(sessionId);
+    if (mark !== undefined && event.seq <= mark) return undefined;
+    // 实扫观测注入位（测试诊断面——mock 只停注入位；afterSeq null = 全量形
+    // 〔watermark 缺席：存量库首写 / fork 种子前缀首扫〕，number = 增量形起点）
+    this.scanProbe?.({ sessionId, afterSeq: mark ?? null });
+    // 增量扫描：WHERE seq > 上界（缺席以 -1 直通全量形——seq 域自 0 起，复合
+    // 主键 (session_id, seq) 上同为索引界扫描零残价）；本事件行已先行落账
+    // （含在扫描域内），命中即会话真首条
     const rows = this.stmt(
-      `SELECT data FROM events WHERE session_id = ? AND type = 'user/message' ORDER BY seq`,
-    ).iterate(sessionId) as Iterable<{ data: string }>;
+      `SELECT data FROM events WHERE session_id = ? AND type = 'user/message' AND seq > ? ORDER BY seq`,
+    ).iterate(sessionId, mark ?? -1) as Iterable<{ data: string }>;
     for (const row of rows) {
       let data: unknown;
       try {
@@ -751,8 +821,12 @@ export class Store implements WriteTarget {
         continue; // 坏行跳过（撕裂尾 heal 是 loadEvents 的执法域——此处只取首问不执法）
       }
       const summary = firstQuestionSummaryOf({ type: 'user/message', data });
+      // 命中不记账——物化落专列后由已物化短路接管后续写
       if (summary !== undefined) return summary;
     }
+    // 扫空：记 pending watermark = 本事件 seq（「seq ≤ 此值的 user/message 已扫
+    // 无真用户源」）——批 Map 暂记，事务成功收敛点合并（回滚自然弃）
+    pendingQuestionMarks.set(sessionId, event.seq);
     return undefined;
   }
 
@@ -848,6 +922,10 @@ export class Store implements WriteTarget {
       });
       heal();
       this.cursors.set(sessionId, firstBadSeq - 1);
+      // 首问负缓存出册：heal 删行 + 游标回退是 events append-only 的破例路——
+      // 残界 watermark 若高于 heal 位，重写行（seq ≤ 旧界）会被负缓存零扫臂
+      // 误吞首问物化；出册退全量扫（恢复路径一次性成本，语义无损）
+      this.questionScanMarks.delete(sessionId);
       this.warn(
         `[persist] 会话 ${sessionId} 撕裂尾截断：seq>=${firstBadSeq} 的 ${rows.length - events.length} 行残卷已清（恢复按干净前缀重放）`,
       );
@@ -1075,6 +1153,9 @@ export class Store implements WriteTarget {
     });
     const gone = tx();
     this.cursors.delete(sessionId);
+    // 首问负缓存同笔出册（cursors 同律）：会话行已物理删——同 id 复用形下旧
+    // watermark 会令新会话首写落在「已扫空区间」被零扫臂误吞首问物化
+    this.questionScanMarks.delete(sessionId);
     return gone;
   }
 
@@ -1087,11 +1168,14 @@ export class Store implements WriteTarget {
    * 游标键，排干前出册会被在队写复活）。续写安全性：游标缺席后首遇自
    * sessions.last_seq 重新初始化（cursorFor 既有 seeded 续写衔接形）——排干
    * 后 last_seq 已含全部在队事件，续写 seq 连续性断言不破。幂等——缺席键
-   * 零动作（deleteSession 路同键 double-delete 无害）。
+   * 零动作（deleteSession 路同键 double-delete 无害）。首问负缓存 watermark
+   * 同笔出册（同律内存治理——daemon tick 逐会话 retire 高频累积同害；出册只
+   * 损增量形，复续首写退全量扫一遍，语义无损）。
    */
   retireCursor(sessionId: string): void {
     this.ensureOpen();
     this.cursors.delete(sessionId);
+    this.questionScanMarks.delete(sessionId);
   }
 
   // ── session_fts 面（对账三档：写入档在写路径 / 删除档在 deleteSession）──────

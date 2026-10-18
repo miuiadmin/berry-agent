@@ -28,6 +28,7 @@ import {
   prepareWal,
   sessionDisplayTitleOf,
   type EventWrite,
+  type QuestionScanProbeInfo,
   type SessionRegistration,
   type Store,
 } from './store.js';
@@ -143,6 +144,8 @@ function open(options: {
   migrations?: readonly MigrationSpec[];
   warn?: (m: string) => void;
   clock?: () => number;
+  /** 首问扫描观测注入位（67 轮批注——负缓存锁的实扫记账诊断面） */
+  scanProbe?: (info: QuestionScanProbeInfo) => void;
 }): Store {
   const store = openStore({
     dbPath: options.dbPath,
@@ -151,6 +154,7 @@ function open(options: {
     migrations: options.migrations ?? [SESSION_ARCHIVE_MIGRATION, SESSION_ARCHIVED_AT_MIGRATION],
     warn: options.warn,
     clock: options.clock,
+    scanProbe: options.scanProbe,
   });
   stores.push(store);
   return store;
@@ -906,14 +910,14 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——v13 
 
   it('已物化短路：专列在场后后续 user/message 写零重扫（i1——首问扫描语句计数形）', () => {
     const store = open({ dbPath: join(dir, 'fq-short.db') });
-    // 拦截 Database：只包首问扫描语句（SQL 形唯一锚定）的 iterate 计数，
-    // 其余语句原样透传——写路语义零干扰
+    // 拦截 Database：只包首问扫描语句（SQL 形唯一锚定——67 轮负缓存形带
+    // `AND seq > ?` 增量谓词）的 iterate 计数，其余语句原样透传——写路语义零干扰
     const db = store.connection;
     let scanIterations = 0;
     const rawPrepare = db.prepare.bind(db);
     db.prepare = ((sql: string) => {
       const statement = rawPrepare(sql);
-      if (sql.includes("AND type = 'user/message' ORDER BY seq")) {
+      if (sql.includes("AND type = 'user/message' AND seq > ?")) {
         const rawIterate = statement.iterate.bind(statement);
         statement.iterate = ((...bindParameters: unknown[]) => {
           scanIterations += 1;
@@ -935,6 +939,72 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——v13 
     expect(scanIterations).toBe(1);
     // 短路不得破首登为准语义（COALESCE 值面不变——专列恒首问）
     expect(store.getSessionRow('s-fq-short')?.firstQuestionSummary).toBe('第一条真输入');
+  });
+
+  // ── 首问扫描负缓存（05 §9 67 轮批注——全机器源长存会话每写全量扫 O(n²) 收口）──
+
+  it('负缓存增量锁：连写机器源 user/message——首写全量扫、后两写增量扫（scanProbe 观测形；修前红：probe 零记账——无观测位且每写全量扫）', () => {
+    const records: QuestionScanProbeInfo[] = [];
+    const store = open({ dbPath: join(dir, 'fq-negcache.db'), scanProbe: (info) => records.push(info) });
+    const log = new SessionLog({ sessionId: 'fq-negcache' });
+    // 三条机器源 user/message（compaction/plugin:/schedule——真用户源判据恒拒形，
+    // 即 issue/trigger 族全机器源会话的最小形：专列永不物化、已物化短路永不触发）
+    log.append('user/message', { content: '[summary] 第一轮摘要', source: 'compaction' });
+    store.writeEvents(writesFor('s-fq-neg', log.events()));
+    log.append('user/message', { content: '插件注入的输入', source: 'plugin:issue' });
+    store.writeEvents(writesFor('s-fq-neg', log.events().slice(1)));
+    log.append('user/message', { content: '到点自动起跑', source: 'schedule' });
+    store.writeEvents(writesFor('s-fq-neg', log.events().slice(2)));
+    // 全机器源：专列恒不物化（67 轮批注病灶面——短路条件对该类会话永不成立）
+    expect(store.getSessionRow('s-fq-neg')?.firstQuestionSummary).toBeUndefined();
+    // 修前红：openStore 无 scanProbe 注入位 → records 空（每写全量扫但无观测位）；
+    // 修后确定性形：首写全量（afterSeq null）+ 后两写增量（起点 = 前写 seq——
+    // 每写只扫新增行，O(n²) 累计收口）
+    expect(records.map((r) => r.afterSeq)).toEqual([null, 0, 1]);
+    expect(records.every((r) => r.sessionId === 's-fq-neg')).toBe(true);
+  });
+
+  it('负缓存不吞真首问：watermark 已立后真用户源到达——增量扫（seq > watermark）命中物化专列', () => {
+    const store = open({ dbPath: join(dir, 'fq-neg-real.db') });
+    const log = new SessionLog({ sessionId: 'fq-neg-real' });
+    // 两写机器源 user/message：负缓存 watermark 已立（seq ≤ 1 已扫空）
+    log.append('user/message', { content: '机器注入一', source: 'compaction' });
+    log.append('user/message', { content: '机器注入二', source: 'plugin:issue' });
+    store.writeEvents(writesFor('s-fq-nr', log.events()));
+    expect(store.getSessionRow('s-fq-nr')?.firstQuestionSummary).toBeUndefined();
+    // 真用户源到达（seq 2 > watermark 1）：增量扫必覆盖本条——负缓存不得把
+    // watermark 之后的新真用户输入误吞（首问快照正确性锁）
+    log.append('user/message', { content: '真用户的问题', source: 'user' });
+    store.writeEvents(writesFor('s-fq-nr', log.events().slice(2)));
+    expect(store.getSessionRow('s-fq-nr')?.firstQuestionSummary).toBe('真用户的问题');
+  });
+
+  it('存量库惰性回填不破锁：NULL 专列 + 真用户源事件行（旧版直插形）——新写全量形扫描回填真首条', () => {
+    const records: QuestionScanProbeInfo[] = [];
+    const store = open({ dbPath: join(dir, 'fq-legacy-null.db'), scanProbe: (info) => records.push(info) });
+    // 旧版写入形直插（seedLegacyRows 同式——writeTuple 之外的行不立 watermark）：
+    // sessions 行（专列 NULL、last_seq=0）+ 真用户源 user/message 行 seq 0
+    const db = store.connection;
+    db.prepare(
+      `INSERT INTO sessions (id, title, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq)
+       VALUES ('s-fq-l2', NULL, 'conversation', NULL, 0, NULL, 0, 0, 0)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO events (session_id, seq, time, type, data, ignorable) VALUES ('s-fq-l2', 0, 0, 'user/message', ?, 0)`,
+    ).run(JSON.stringify({ content: '存量时代的首问', source: 'user' }));
+    // 新写（seed 前缀衔接 seq 1——机器源）：watermark 缺席必全量形扫描
+    const log = new SessionLog({
+      sessionId: 'fq-l2',
+      seed: [{ type: 'user/message', seq: 0, time: 0, data: { content: '存量时代的首问', source: 'user' } }],
+    });
+    log.append('user/message', { content: '升级后的首条新写', source: 'compaction' });
+    store.writeEvents(writesFor('s-fq-l2', log.events().slice(1)));
+    // 防过修面（修前修后同绿）：回填真首条（直插存量行）而非本条——「可从日志
+    // 重新派生回填」律（:727-729 注释承诺）在负缓存形下不破
+    expect(store.getSessionRow('s-fq-l2')?.firstQuestionSummary).toBe('存量时代的首问');
+    // 观测面（修前红——同锁1 根因 scanProbe 未接线）：watermark 缺席 → 全量形
+    // （afterSeq null）
+    expect(records.map((r) => r.afterSeq)).toEqual([null]);
   });
 
   it('过渡残留 title 不阻断专列回填（v13 惰性腿翻新——修前短路条件看 title 非 NULL 不扫描）', () => {
