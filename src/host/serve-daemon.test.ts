@@ -303,6 +303,29 @@ describe('runServeStatus（只读探活——05 §6.6 豁免面）', () => {
       expect(code).toBe(0);
       expect(lines[0]).toContain('n/a（sock 面不可达）'); // 如实降级不炸不挂
     }, 10_000);
+
+    it('构造子同步抛形（token 含换行）：不炸 status 面——退 0 如实 n/a（63 轮件 A）', async () => {
+      // Node ClientRequest 构造子同步校验 header 值：authorization 值含
+      // 控制字符（token 尾随换行）即同步抛 ERR_INVALID_CHAR——executor 内
+      // 同步抛由 Promise 构造子收折为拒绝（闸 A 勘正——非同步上抛），调用
+      // 位 await 再抛。修前红锚：await runServeStatus 直接拒
+      // （ERR_INVALID_CHAR 崩）→ status 命令伪「未跑」档；修后构造失败也是
+      // 查询失败形，同折 undefined 如实 n/a。
+      // 无需起服务端——构造子抛在连接发起前，sock 路径真身无关。
+      const fs = memFs({ [paths.pidPath]: '{"pid":123,"startedAt":0}\n' });
+      const lines: string[] = [];
+      const code = await runServeStatus({
+        dataDir: '/data',
+        env: { BERRY_AGENT_SDK_TOKEN: 'tok-status-crlf\n' },
+        now: () => 0,
+        isAlive: () => true,
+        identityCheck: () => true,
+        fs,
+        write: (l) => lines.push(l),
+      });
+      expect(code).toBe(0);
+      expect(lines[0]).toContain('n/a（sock 面不可达）'); // 如实降级不炸命令面
+    });
   });
 
   it('未跑退 1；坏登记同码 1 且注记可清', async () => {

@@ -272,51 +272,63 @@ export interface ServeStatusOptions {
  */
 function defaultFetchSessionCount(sockPath: string, token: string): Promise<number | undefined> {
   return new Promise((resolve) => {
-    const req = httpRequest(
-      {
-        socketPath: sockPath,
-        path: SDK_HTTP_ENDPOINTS.sessions,
-        headers: {
-          authorization: `Bearer ${token}`,
-          [SDK_PROTOCOL_HEADER]: String(SDK_PROTOCOL_VERSION),
+    // 构造子同步抛收口（63 轮件 A）：Node ClientRequest 构造子同步校验
+    // header 值——authorization 值含控制字符（如 token 尾随换行）或超
+    // U+00FF 码点即同步抛 ERR_INVALID_CHAR；executor 内同步抛由 Promise
+    // 构造子收折为拒绝（闸 A 勘正——不穿破同步上抛），调用位 await 再抛，
+    // status 命令仍崩退 1 伪「未跑」档。构造子同步抛也是查询失败形——
+    // 同折 undefined 如实 n/a。
+    let req: ReturnType<typeof httpRequest>;
+    try {
+      req = httpRequest(
+        {
+          socketPath: sockPath,
+          path: SDK_HTTP_ENDPOINTS.sessions,
+          headers: {
+            authorization: `Bearer ${token}`,
+            [SDK_PROTOCOL_HEADER]: String(SDK_PROTOCOL_VERSION),
+          },
+          timeout: 5_000, // 5s 帽——超时触发 timeout 事件（不自动销），下方显式 destroy
+          agent: false, // 一次性查询腿（见件注）
         },
-        timeout: 5_000, // 5s 帽——超时触发 timeout 事件（不自动销），下方显式 destroy
-        agent: false, // 一次性查询腿（见件注）
-      },
-      (res) => {
-        // 聚合响应体（utf8 分片累加——end 即完整）
-        let body = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk: string) => {
-          body += chunk;
-        });
-        res.on('error', () => resolve(undefined)); // 流中途错——同折 undefined（不挂起）
-        res.on('end', () => {
-          if (res.statusCode !== 200) {
-            resolve(undefined); // 非 200 = 查询失败形（如实 n/a）
-            return;
-          }
-          try {
-            const parsed: unknown = JSON.parse(body);
-            if (Array.isArray(parsed)) {
-              resolve(parsed.length); // 裸数组形：整包即清单（长度即计数）
+        (res) => {
+          // 聚合响应体（utf8 分片累加——end 即完整）
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk: string) => {
+            body += chunk;
+          });
+          res.on('error', () => resolve(undefined)); // 流中途错——同折 undefined（不挂起）
+          res.on('end', () => {
+            if (res.statusCode !== 200) {
+              resolve(undefined); // 非 200 = 查询失败形（如实 n/a）
               return;
             }
-            if (typeof parsed === 'object' && parsed !== null) {
-              // 真帧形：kind sessions + total 全量位（截断窗 sessions 仅回退）
-              const frame = parsed as { kind?: unknown; sessions?: unknown; total?: unknown };
-              if (frame.kind === 'sessions' && Array.isArray(frame.sessions)) {
-                resolve(typeof frame.total === 'number' ? frame.total : frame.sessions.length);
+            try {
+              const parsed: unknown = JSON.parse(body);
+              if (Array.isArray(parsed)) {
+                resolve(parsed.length); // 裸数组形：整包即清单（长度即计数）
                 return;
               }
+              if (typeof parsed === 'object' && parsed !== null) {
+                // 真帧形：kind sessions + total 全量位（截断窗 sessions 仅回退）
+                const frame = parsed as { kind?: unknown; sessions?: unknown; total?: unknown };
+                if (frame.kind === 'sessions' && Array.isArray(frame.sessions)) {
+                  resolve(typeof frame.total === 'number' ? frame.total : frame.sessions.length);
+                  return;
+                }
+              }
+              resolve(undefined); // 200 但不可计数形（非清单载荷）
+            } catch {
+              resolve(undefined); // 坏 JSON 折 undefined（如实 n/a）
             }
-            resolve(undefined); // 200 但不可计数形（非清单载荷）
-          } catch {
-            resolve(undefined); // 坏 JSON 折 undefined（如实 n/a）
-          }
-        });
-      },
-    );
+          });
+        },
+      );
+    } catch {
+      resolve(undefined); // 构造子同步抛（ERR_INVALID_CHAR 等）= 查询失败形——如实 n/a 不炸命令面
+      return; // 构造失败无请求对象可挂监听——后续装配只应在构造成功后挂
+    }
     req.on('timeout', () => req.destroy()); // 帽内无应答——销请求转 error 径收口
     req.on('error', () => resolve(undefined)); // 连接错/帽内销毁——一律如实 n/a
     req.end();
