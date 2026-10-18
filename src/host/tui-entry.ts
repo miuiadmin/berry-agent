@@ -147,7 +147,7 @@ import type { PluginRouteRegistry } from '../../plugins/sdk/index.js';
 import type { ConversationStack, StartupSession } from './conversation-stack.js';
 import { providerApiKeyEnvNames } from './conversation-stack.js';
 import { runSetupWizard } from './setup-wizard.js';
-import { runCredentialsCommand } from '../../plugins/credentials/index.js';
+import { isSecretArgvSubmission, runCredentialsCommand } from '../../plugins/credentials/index.js';
 
 /**
  * 档位文案与回执单源已迁 host/session-tier-copy.ts（2026-09-18 webui 档位面
@@ -1797,8 +1797,12 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       //（ask 应答/退出词/本地命令三叉不达 onSubmit——镜像取编辑器级保普通形
       // 两集恒等；sensitive 形双跳第二跳〔挖掘 37 轮件 3——07 §4.1 两集分立
       // 律〕：编辑器已跳内存册、镜像钩携 sensitive 位仍达此——本回调判位跳
-      // SQLite persist，防跨进程回灌明文）；写失败 best-effort：warn 不阻塞
-      // 提交不呈用户面。
+      // SQLite persist，防跨进程回灌明文）；载密 argv 第三分诊类〔61 轮件 C
+      //——03 §10.9「argv 传值不落 durable」铁律编辑器执法面〕：谓词注入
+      // （channels 不 import plugins——判别真源 isSecretArgvSubmission 在
+      // 此装配位 import 注入，/credentials add 形内存册+镜像两跳全跳——较
+      // sensitive 更严：明文根本不出编辑器组件）；写失败 best-effort：warn
+      // 不阻塞提交不呈用户面。
       history: {
         seed: inputHistory.recentTexts(session.workspaceRoot),
         onRecord: (text, opts) => {
@@ -1818,6 +1822,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             logger.warn(`输入历史写入失败：${err instanceof Error ? err.message : String(err)}`);
           }
         },
+        // 载密 argv 判别（61 轮件 C 双闭锁）：命令自身域知识单源——本件
+        // import 注入（host→plugins 既有边，core-plugins credentials 同源）
+        secretSubmission: isSecretArgvSubmission,
       },
       autocomplete: {
         // 通道核命令表 + TUI 本地命令族 + TUI 本地退出词三源并流（07 §4.1

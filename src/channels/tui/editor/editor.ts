@@ -85,6 +85,16 @@ export interface EditorOptions {
    */
   onHistoryAdd?: (text: string, opts?: { sensitive?: boolean }) => void;
   /**
+   * 载密 argv 提交判别（61 轮件 C——argv 载密命令输入史双闭锁）：提交原文 →
+   * 是否载密命令形（消费例 = /credentials add——值经 argv 明文在场）。谓词
+   * 真 = 本条提交 addToHistory 与 onHistoryAdd 双跳全跳，较 sensitiveInput
+   * 更严：敏感形镜像钩携 sensitive 位仍发（明文达宿主回调、由回调自判跳
+   * 持久写）；载密形镜像钩也不发——明文不出编辑器组件。判别真源由宿主装配
+   * 注入（channels 不 import plugins——谓词经本 options 位进，DAG 零新边）；
+   * 缺席 = 无载密判别面旧行为零扰动。
+   */
+  secretSubmission?: (text: string) => boolean;
+  /**
    * 入史词面变换缝（56 轮件 1e——重发即真值律）：提交入册（内存册 + B1 镜像
    * 钩同源单值）前的词面变换。消费例 = 剪贴板图占位行剥除——暂存在场的提交
    * 入史剥 `[图片]` 占位行后净稿（图不随史重建，召回重发不携幻影占位词面）；
@@ -142,6 +152,8 @@ export class Editor implements Renderable {
   private readonly keymap: Keymap;
   /** 持久化史镜像钩（B1 写路——真入册时触发；缺席 = 纯内存旧形；sensitive 携位形见 EditorOptions 注） */
   private readonly onHistoryAdd: ((text: string, opts?: { sensitive?: boolean }) => void) | undefined;
+  /** 载密 argv 提交判别（61 轮件 C；缺席 = 无载密判别面——全部提交照常两跳） */
+  private readonly secretSubmission: ((text: string) => boolean) | undefined;
   /** 入史词面变换缝（56 轮件 1e——重发即真值；缺席 = 恒等旧形） */
   private readonly historyText: ((text: string) => string) | undefined;
   /** 模态态翻转通知（39 池 P4·L；缺席 = 纯逻辑件可裸构测） */
@@ -157,6 +169,7 @@ export class Editor implements Renderable {
     this.pageSize = Math.max(1, options.maxVisibleLines ?? 8);
     this.keymap = options.keymap ?? new Keymap();
     this.onHistoryAdd = options.onHistoryAdd;
+    this.secretSubmission = options.secretSubmission;
     this.historyText = options.historyText;
     this.model = new EditorModel();
     // 持久化史种子（B1 种子路）：构造期一次满灌——缺席 = 空史旧形
@@ -667,7 +680,10 @@ export class Editor implements Renderable {
    * sensitive 形双跳（挖掘 37 轮件 3——07 §4.1 两集分立律）：第一跳 = 内存册
    * 不入（addToHistory 跳过——↑ 回灌不泄；不入册即无从连续去重，同文多笔
    * 都镜像）；镜像钩携 sensitive 位仍发——第二跳由持久回调自判跳写（防跨
-   * 进程回灌明文——两级同笔闭环缺一即泄）。
+   * 进程回灌明文——两级同笔闭环缺一即泄）。载密 argv 第三分诊类（61 轮件
+   * C——双闭锁）：谓词真 = 双跳全跳（addToHistory 与 onHistoryAdd 都不
+   * 发——明文不出编辑器组件；较 sensitive 更严：sensitive 明文仍达宿主
+   * 回调由其自判，本类宿主回调零到达）。
    */
   private handleSubmit(opts?: EditorSubmitOptions): boolean {
     this.jumpPending = null;
@@ -690,7 +706,12 @@ export class Editor implements Renderable {
       // 内存册 + B1 镜像钩同源单值；变换后空串（image-only 稿）不入册不镜像
       //（与 trim 空闸同语义——空史目零意义）；onSubmit 恒收原稿（词面分诊归调用方）
       const historyText = this.historyText !== undefined ? this.historyText(text) : text;
-      if (historyText !== '') {
+      // 载密 argv 判别（61 轮件 C + 闸 P2 清偿）：判据位在**入史净稿**
+      // historyText（与命令分派 submitText 同源同值——56 轮 1e 占位行剥除后
+      // 判；mixed 草稿 '[图片]+/cmd' 分派序剥占位在先、命令真执行，原稿判据
+      // words[0]='[图片]' 漏判即净稿载密全文入两册）；谓词真 = 下面两跳整段全跳
+      const secretArgv = this.secretSubmission !== undefined && this.secretSubmission(historyText);
+      if (historyText !== '' && !secretArgv) {
         if (!this.sensitiveInput && this.model.addToHistory(historyText)) {
           this.onHistoryAdd?.(historyText);
         } else if (this.sensitiveInput) {

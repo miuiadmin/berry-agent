@@ -54,9 +54,12 @@ export { createRefreshChain, type RefreshChainDeps, type RefreshChainHandle } fr
 export { createEnvRefResolver, type EnvRefResolver } from './env-ref.js';
 // 人面命令（c-5——03 §10.9 写入面复合案）：双面共享纯逻辑底座（TUI
 // /credentials 与 CLI credentials 子命令族同源——动词语义/值域执法/结算
-// 文本单源；host 侧 core-plugins 注册 + credentials-cmd CLI 入口两消费位）
+// 文本单源；host 侧 core-plugins 注册 + credentials-cmd CLI 入口两消费位）；
+// isSecretArgvSubmission（61 轮件 C）= 载密 argv 编辑器输入史双闭锁判别
+// 谓词——host tui-entry 装配位 import 注入编辑器 options（第三消费位）
 export {
   CREDENTIALS_USAGE,
+  isSecretArgvSubmission,
   parseCredentialsArgv,
   runCredentialsCommand,
   type CredentialsCommandStore,

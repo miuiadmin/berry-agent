@@ -2963,6 +2963,43 @@ describe('持久化分项目输入历史（B1——07 §4.1 呈现面件 2 定�
     second.io.send('\x04');
     expect(await second.entry).toBe(0);
   });
+
+  it('载密 argv 双闭锁（61 轮件 C）：/credentials add 提交 → 两册均无全文（库零行 + 二启召回无）+ 命令照常执行', async () => {
+    const dataDir = rigDir('entry-ihC-data-');
+    const ws = rigDir('entry-ihC-ws-');
+    const first = await rigEntry(dataDir, ws);
+    // 普通消息先行：库面恰一行普通文（对照锚——跳史是载密形专属，非全提交面）
+    first.io.send('普通消息\r');
+    await until(() => first.faux.state.callCount >= 1);
+    await until(() => first.io.output.includes('ok'));
+    // 载密 argv 提交：真装配命令分派照常执行（core-plugins 注册表 →
+    // runCredentialsCommand 落凭证行）——跳史不跳命令（提交通道无短路）
+    first.io.send('/credentials add anthropic sk-plain-leak-9f2a\r');
+    await until(() => first.io.output.includes('已录入凭证')); // 命令执行锚（回执不含值——铁律）
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+    // 持久册（双跳第二跳位证）：库面只有普通消息行——载密全文零落库
+    //（commands.ts 铁律「argv 传值不落 durable——无明文留痕面」）
+    const probe = Persistence.open({
+      dbPath: resolveDatabasePathIn(dataDir),
+      dataDir,
+      migrations: HOST_MIGRATION_TAIL,
+    });
+    const rows = probe.store.connection.prepare('SELECT text FROM input_history ORDER BY id DESC').all() as {
+      text: string;
+    }[];
+    await probe.close();
+    expect(rows).toEqual([{ text: '普通消息' }]); // 修前红：载密全文同落库
+    // 内存册（双跳第一跳位证）：二启 ↑ 召回顶位 = 普通消息——载密词从未入册
+    const second = await rigEntry(dataDir, ws);
+    await until(() => second.io.output.includes('普通消息')); // resume 首画回读锚（启动完成）
+    second.io.send('\x1b[A'); // ↑ 空框直入历史回溯
+    await until(() => stripAnsi(second.io.output).includes('› 普通消息')); // 召回顶位非载密形
+    expect(stripAnsi(second.io.output)).not.toContain('sk-plain-leak-9f2a'); // 修前红：明文回灌
+    second.io.send('\x04');
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+  });
 });
 
 /* ================= /vim 模态编辑命令全链（39 池 P4·L——冷读闸 P3 接缝补锁） ================= */

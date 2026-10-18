@@ -529,6 +529,69 @@ describe('Editor 敏感形双跳第一跳（挖掘 37 轮件 3——07 §4.1 两
   });
 });
 
+describe('Editor 载密 argv 双闭锁（61 轮件 C——谓词真两跳全跳）', () => {
+  it('谓词真：addToHistory 与 onHistoryAdd 双不调 + onSubmit 照发（↑ 召回零原词）', () => {
+    const mirrored: string[] = [];
+    const submitted: string[] = [];
+    const editor = new Editor({
+      // 仿宿主装配形：真源 isSecretArgvSubmission 在 plugins 域——编辑器层
+      // 测试以同判替身锁 options 位契约不跨层 import（channels 禁 import
+      // plugins——拓扑边表）
+      secretSubmission: (t) => t.startsWith('/credentials '),
+      onSubmit: (t) => submitted.push(t),
+      onHistoryAdd: (t) => mirrored.push(t),
+      historySeed: ['seeded-top'],
+    });
+    editor.handleEvent(text('/credentials add anthropic sk-plain-leak-9f2a'));
+    editor.handleEvent(key('enter'));
+    // 双跳全跳（较 sensitive 双跳更严：镜像钩也不发——明文不出编辑器组件）
+    expect(mirrored).toEqual([]); // 修前红位：镜像照发收全文
+    expect(submitted).toEqual(['/credentials add anthropic sk-plain-leak-9f2a']); // 提交通道不因跳史短路
+    // 第一跳（内存册）：↑ 召回顶位仍是种子条——载密全文零入册（进程内回灌同防）
+    editor.handleEvent(key('up'));
+    expect(editor.getText()).toBe('seeded-top'); // 修前红位：召回载密全文
+  });
+
+  it('mixed 草稿（占位行 + 命令行）：判据位在入史净稿——占位剥除后判载密、双跳全跳（61 轮闸 P2 清偿）', () => {
+    const mirrored: string[] = [];
+    const editor = new Editor({
+      // 两缝同真源装配形（tui-backend 供 historyText 占位剥除、host 供谓词）
+      secretSubmission: (t) => t.startsWith('/credentials add'),
+      historyText: (t) => (t.startsWith('[图片]\n') ? t.slice('[图片]\n'.length) : t),
+      onHistoryAdd: (t) => mirrored.push(t),
+    });
+    // 分派序实证：占位行剥除在先、startsWith('/') 判在后——mixed 草稿命令真
+    // 执行（图随稿弃）；修前判据在原稿（words[0]='[图片]'）漏判 → 净稿全文
+    // （载密 argv）入两册
+    editor.handleEvent(text('[图片]\n/credentials add anthropic sk-plain-leak-9f2a'));
+    editor.handleEvent(key('enter'));
+    expect(mirrored).toEqual([]); // 修前红位：镜像收剥占位后的载密净稿
+    editor.handleEvent(key('up'));
+    expect(editor.getText()).toBe(''); // 内存册同零入（↑ 空史不召回）
+  });
+
+  it('谓词假：普通提交旧行为不动（入册 + 镜像照旧——非载密形零扰动）', () => {
+    const mirrored: string[] = [];
+    const editor = new Editor({
+      secretSubmission: (t) => t.startsWith('/credentials '),
+      onHistoryAdd: (t) => mirrored.push(t),
+    });
+    editor.handleEvent(text('/help'));
+    editor.handleEvent(key('enter'));
+    expect(mirrored).toEqual(['/help']); // 照常入册镜像
+    editor.handleEvent(key('up'));
+    expect(editor.getText()).toBe('/help'); // 照常召回
+  });
+
+  it('谓词缺席 = 旧行为零扰动（无载密判别面——全部提交照常两跳）', () => {
+    const mirrored: string[] = [];
+    const editor = new Editor({ onHistoryAdd: (t) => mirrored.push(t) });
+    editor.handleEvent(text('/credentials list'));
+    editor.handleEvent(key('enter'));
+    expect(mirrored).toEqual(['/credentials list']); // 缺席形照常（确定性测试基线不破）
+  });
+});
+
 describe('Editor 历史回搜（ctrl+r——挖掘 31 轮 [3]）', () => {
   /** 播种史装置：three 条新→旧（one/two/three 提交入册） */
   function editorWithHistory(): Editor {

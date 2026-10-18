@@ -7521,6 +7521,29 @@ describe('TuiBackend 持久化史透传（B1——07 §4.1 呈现面件 2 定形
     pump();
     expect(calls.submitted).toHaveLength(1);
   });
+
+  it('secretSubmission 透传（61 轮件 C——载密 argv 双闭锁中腿）：谓词真提交 onRecord 不触发、谓词假照旧镜像', () => {
+    const records: string[] = [];
+    const { io, calls, pump } = makeInteractive({
+      history: {
+        seed: [],
+        onRecord: (text) => records.push(text),
+        // 仿宿主装配注入形（真源 isSecretArgvSubmission 在 plugins 域——
+        // channels 禁 import plugins，谓词经 options 位进；backend 测试以
+        // 同判替身锁透传契约）
+        secretSubmission: (text) => text.startsWith('/credentials add'),
+      },
+    });
+    // 载密形：命令提交（dispatchCommand 缺席 → onSubmit 兜底）但双跳全跳
+    io.emitInput('/credentials add anthropic sk-plain-leak-9f2a\r');
+    pump();
+    expect(calls.submitted).toEqual([['s1', '/credentials add anthropic sk-plain-leak-9f2a']]); // 提交通道照发
+    expect(records).toEqual([]); // 修前红位：onRecord 镜像收全文
+    // 非载密形：照常镜像（零扰动）
+    io.emitInput('/credentials list\r');
+    pump();
+    expect(records).toEqual(['/credentials list']);
+  });
 });
 
 describe('TuiBackend 外部编辑器（挖掘 31 轮 [9]——ctrl+g 挂起交出形）', () => {

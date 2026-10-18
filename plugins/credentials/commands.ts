@@ -16,7 +16,9 @@
  *    治理面不随 namespace 分权；与 ctx.secrets 读腿的自域隔离分立两律）；
  *  - argv 传值不落 durable——channels 命令分派纯内存直达 handler（命令
  *    输入不进 conversation/durable 管线），CLI 同理；值经 argv 即进程内
- *    瞬态，写库即加密落盘，无明文留痕面。
+ *    瞬态，写库即加密落盘，无明文留痕面。编辑器输入史同律（61 轮件 C
+ *    双闭锁）：isSecretArgvSubmission 供 host 装配注入编辑器提交位——
+ *    add 形内存册/持久镜像两跳全跳。
  *
  * 窄面注入律（词面独立律——结构兼容 persist Store 凭证方法子集四法，
  * compat 互证归本件测试）：本件 DAG 无 host 边，宿主装配位传真身。
@@ -188,6 +190,26 @@ export function parseCredentialsArgv(
     };
   }
   return { ok: false, message: `未知子命令：${verb}（合法：add/list/rm/oauth）。\n${CREDENTIALS_USAGE}` };
+}
+
+/**
+ * argv 载密提交判别（61 轮件 C——「argv 传值不落 durable」铁律的编辑器执法
+ * 谓词；03 §10.9 写入面复合案尾 2026-10-18 批注）：编辑器提交原文 → 是否
+ * `/credentials add` 载密形。命令名 + add 子动词即真（值段任意形不判——引
+ * 号空格值/旗标交错都在第三词起）；list/rm/oauth 与裸 `/credentials` 不真
+ * （argv 无值——照常入史）；缺参 add（用户敲到一半提交）也真——宁可多跳
+ * 不可漏跳，漏跳即明文落 durable。词面最小实现（不引 channels tokenize
+ * 全器——本件 DAG 无 channels 边，谓词以词面语义对拍替代结构依赖）：命令名
+ * 整词比对（词法保证命令名自身无空白）+ 动词位剥**全部**引号字符（tokenize
+ * 段语义对拍——引号在段内只开关引用态永不入字，'""add'/'a"dd' 都切出
+ * 'add' 命令真执行；61 轮闸 P3 清偿：修前只剥首尾单枚，'""add' 剥成
+ * '"add' 漏判即明文入两册）。
+ */
+export function isSecretArgvSubmission(text: string): boolean {
+  // 首尾空白容错 + 空白归一切词（提交原文已 trim——此处再守一层纯函数自洽）
+  const words = text.trim().split(/\s+/);
+  const verb = (words[1] ?? '').replace(/["']/g, '');
+  return words[0] === '/credentials' && verb === 'add';
 }
 
 /**

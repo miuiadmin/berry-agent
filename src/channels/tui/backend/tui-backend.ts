@@ -467,6 +467,15 @@ export interface TuiBackendOptions {
   readonly history?: {
     readonly seed: readonly string[];
     readonly onRecord: (text: string, opts?: { sensitive?: boolean }) => void;
+    /**
+     * 载密 argv 提交判别（61 轮件 C——argv 载密命令输入史双闭锁）：谓词真 =
+     * 该条提交编辑器双跳全跳（内存册 addToHistory + onRecord 镜像均不触发）
+     * ——较 sensitive 携位形更严（sensitive 明文达 onRecord 由回调自判跳写，
+     * 本类回调零到达）。判别真源由宿主装配注入（/credentials add 形——host
+     * import 命令模块，channels 不 import plugins 零新 DAG 边）；缺席 = 无
+     * 载密判别面旧行为。
+     */
+    readonly secretSubmission?: (text: string) => boolean;
   };
   /** 调度注入（启用渲染合并 + fps 帽 + tick 自驱——缺省同步直出测试语义） */
   readonly schedule?: (fn: () => void, ms: number) => unknown;
@@ -1704,6 +1713,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       // 持久化史透传（B1）：缺席 = undefined 直落编辑器缺省（纯内存旧形）
       historySeed: options.history?.seed,
       onHistoryAdd: options.history?.onRecord,
+      // 载密 argv 判别透传（61 轮件 C）：谓词经 options 位进（channels 不
+      // import plugins——真源 isSecretArgvSubmission 由 host 装配注入）
+      secretSubmission: options.history?.secretSubmission,
       // 入史净稿缝（56 轮件 1e——重发即真值律）：暂存在场的提交入史剥 `[图片]`
       // 占位行后净稿（图不随史重建——召回重发不携幻影占位词面；内存册 + B1
       // 持久镜像同源单值）；暂存空恒等（手敲 `[图片]` 词面零误伤）。onSubmit

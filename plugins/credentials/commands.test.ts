@@ -14,6 +14,8 @@
  *  - list 全域列示 + expired 标注 + **值列直呈（全明文翻裁 2026-09-28——CLI 面同源翻；add 回执不回显维持 07 §7 CLI 表）** + 空表诚实空；
  *  - rm 命中（+审计 remove）与缺席（CREDENTIALS_NOT_FOUND 折文本 ok:false）；
  *  - parseCredentialsArgv 各失败形与成功形（TUI 面解析律）；
+ *  - isSecretArgvSubmission 载密判别（61 轮件 C——/credentials add 形真、
+ *    list/rm/oauth 与他命令不误伤）；
  *  - compat 互证：persist Store 结构可赋 CredentialsCommandStore（词面独立律）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -23,7 +25,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ephemeralSecretKey, openStore, type Store } from '../../src/persist/index.js';
 import { CREDENTIALS_MIGRATION } from './migration.js';
-import { parseCredentialsArgv, runCredentialsCommand, type CredentialsCommandStore } from './commands.js';
+import {
+  isSecretArgvSubmission,
+  parseCredentialsArgv,
+  runCredentialsCommand,
+  type CredentialsCommandStore,
+} from './commands.js';
 import type { CredentialChangedPayload } from './secrets.js';
 
 let dir: string;
@@ -318,6 +325,52 @@ describe('parseCredentialsArgv（TUI 面解析律）', () => {
       expect(parsed.ok).toBe(false);
       if (!parsed.ok) expect(parsed.message).toContain(keyword);
     }
+  });
+});
+
+describe('isSecretArgvSubmission（argv 载密判别——61 轮件 C 输入史双闭锁）', () => {
+  it('add 形全族真：值含引号空格 / 旗标随行 / 多空白 / 缺参 add（值未进场也判真——add 意图即载密面）', () => {
+    // 词面族：命令名 + add 子动词即真——值段任意形不判（引号空格值、旗标
+    // 交错都在第三词起）；缺参 add（用户敲到一半提交）同样跳史——宁可多跳
+    // 不可漏跳（漏跳 = 明文落 durable 恰是本件修的缺陷）
+    expect(isSecretArgvSubmission('/credentials add anthropic sk-live-secret-9f2a')).toBe(true);
+    expect(isSecretArgvSubmission('/credentials add my-name "值 含 空 格"')).toBe(true);
+    expect(isSecretArgvSubmission('/credentials add n v --namespace plugin:demo')).toBe(true);
+    expect(isSecretArgvSubmission('/credentials add n v --model-provider anthropic/model-x')).toBe(true);
+    expect(isSecretArgvSubmission('/credentials   add   n   v')).toBe(true); // 多空白归一
+    expect(isSecretArgvSubmission('  /credentials add n v  ')).toBe(true); // 首尾空白容错
+    expect(isSecretArgvSubmission('/credentials add')).toBe(true); // 缺参 add 意图形
+    expect(isSecretArgvSubmission('/credentials add only-name')).toBe(true);
+  });
+
+  it('动词位 tokenize 段语义对拍：段内引号只开关不入字（61 轮闸 P3 清偿——空引号段/段中引号形不漏判）', () => {
+    // tokenize（channels/commands.ts）段语义：引号字符只开关引用态、永不入
+    // 字——'""add' 与 'a"dd' 都切出 'add'，命令真执行 add；谓词动词位剥全部
+    // 引号字符同语义对拍（修前只剥首尾单枚——'""add' 剥成 '"add' 漏判即明文
+    // 入两册）
+    expect(isSecretArgvSubmission('/credentials ""add n v')).toBe(true); // 空引号段 + add
+    expect(isSecretArgvSubmission('/credentials a"dd n v')).toBe(true); // 段中引号（开闭同段）
+    expect(isSecretArgvSubmission("/credentials 'add' n v")).toBe(true); // 单引号包裹
+    expect(isSecretArgvSubmission('/credentials "add" n v')).toBe(true); // 双引号包裹（既有形）
+    // 非动词形不虚张：动词位引号剥净后非 add 即假（tokenize 同切 'list'）
+    expect(isSecretArgvSubmission('/credentials "li"st n v')).toBe(false);
+  });
+
+  it('非 add 动词不误伤：list / rm / oauth / 裸命令 / 用法错形（argv 无值——照常入史）', () => {
+    expect(isSecretArgvSubmission('/credentials list')).toBe(false);
+    expect(isSecretArgvSubmission('/credentials rm anthropic')).toBe(false);
+    expect(isSecretArgvSubmission('/credentials rm anthropic --namespace plugin:x')).toBe(false);
+    expect(isSecretArgvSubmission('/credentials oauth demo')).toBe(false);
+    expect(isSecretArgvSubmission('/credentials')).toBe(false); // 裸命令 = 用法错面，无值可泄
+    expect(isSecretArgvSubmission('/credentials bogus n v')).toBe(false); // 未知子命令
+  });
+
+  it('非本命令形不误伤：他命令 / 普通消息 / 前缀撞名（命令名整词比对）', () => {
+    expect(isSecretArgvSubmission('/help')).toBe(false);
+    expect(isSecretArgvSubmission('/memory-export')).toBe(false);
+    expect(isSecretArgvSubmission('/credentialsX add n v')).toBe(false); // 前缀撞名非整词
+    expect(isSecretArgvSubmission('普通消息 add n v')).toBe(false); // 非 / 起头
+    expect(isSecretArgvSubmission('')).toBe(false);
   });
 });
 
