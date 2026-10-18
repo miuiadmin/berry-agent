@@ -109,6 +109,12 @@ function makeDeps(opts?: {
    * 判 open 后受理前会话被删的 TOCTOU 窗，HTTP 面应折 404 not_found 与先决
    * 门同档——修前无 catch 走面级 500） */
   readonly raceGoneSubmit?: boolean;
+  /** 档位 PUT 竞窗收口形（68 轮件C）：桥 setThinkingLevel/setSandboxMode
+   *  入口 isOpen 复检 fail-loud 抛 SESSION_NOT_FOUND（submit 前置复检姊妹
+   *  守卫同码族）——先决门判 open 后受理前会话被删的 TOCTOU 窗，HTTP 面
+   *  应折 404 not_found 与先决门 missing 档同档（修前落 BaseError 宽 catch
+   *  折 400——码直出但状态码失档） */
+  readonly raceGoneTiers?: boolean;
   /** submit 受理拒形（桥 submitPrompt 抛 status 400 异常——AttachmentIntakeRejectionError
    *  鸭子形最小同构：件侧窄 catch 折 400 bad_request 的对拍锚，03 §10.4 ②） */
   readonly intakeReject?: string;
@@ -213,6 +219,11 @@ function makeDeps(opts?: {
       };
     },
     setThinkingLevel: (id: string, level: string) => {
+      // 竞窗收口形（68 轮件C）：受理入口 isOpen 复检 fail-loud（词法校验前
+      // ——submit 前置复检桩同位）最小同构：好词形也抛 SESSION_NOT_FOUND
+      if (opts?.raceGoneTiers === true) {
+        throw new BaseError('SESSION_NOT_FOUND', `会话已结束（${id}）——请刷新页面或重新打开会话`);
+      }
       if (!tierLevels.includes(level)) {
         throw new BaseError(
           'THINKING_LEVEL_INVALID',
@@ -223,6 +234,10 @@ function makeDeps(opts?: {
       return `思考级别：${level}（下一轮对话起生效；该级别是否生效随模型能力）`;
     },
     setSandboxMode: (id: string, mode: string) => {
+      // 竞窗收口形（68 轮件C）：同 setThinkingLevel 桩——受理入口复检先抛
+      if (opts?.raceGoneTiers === true) {
+        throw new BaseError('SESSION_NOT_FOUND', `会话已结束（${id}）——请刷新页面或重新打开会话`);
+      }
       if (!tierModes.includes(mode)) {
         throw new BaseError(
           'SANDBOX_MODE_INVALID',
@@ -1148,6 +1163,35 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     // 两态均不入账
     expect(stub.setLevels).toHaveLength(0);
     expect(stub.setModes).toHaveLength(0);
+  });
+
+  it('档位 PUT 竞窗收口：桥抛 SESSION_NOT_FOUND → 404 not_found（先决门 missing 档同档——submit 端点窄先例同形；修前红：落 BaseError 宽 catch 折 400，码直出但状态码失档）', async () => {
+    // 68 轮件C：先决门（sessionStateOf）判 open 与桥受理之间有删除竞窗
+    //（DELETE 并发先落）——桥切档入口 isOpen 复检 fail-loud 抛
+    // SESSION_NOT_FOUND（好词形也抛——复检先于词法校验），HTTP 面须窄 catch
+    // 折 404 not_found 与先决门 missing 档同档（submit 端点竞窗收口先例
+    // 同形）；修前 BaseError 宽 catch 一律 400——error 词 SESSION_NOT_FOUND
+    // 直出而状态码失档（资源不在场误报为客户端请求错）
+    const rigged = await rig(makeDeps({ raceGoneTiers: true }).deps);
+    try {
+      const thinking = await fetch(`http://127.0.0.1:${rigged.port}/api/sessions/s-1/thinking-level`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${rigged.token}` },
+        body: JSON.stringify({ level: 'high' }),
+      });
+      expect(thinking.status).toBe(404); // 修前红：400
+      expect(await thinking.json()).toMatchObject({ error: 'not_found' }); // 修前红：error=SESSION_NOT_FOUND
+      const sandbox = await fetch(`http://127.0.0.1:${rigged.port}/api/sessions/s-1/sandbox-mode`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${rigged.token}` },
+        body: JSON.stringify({ mode: 'read-only' }),
+      });
+      expect(sandbox.status).toBe(404); // 修前红：400
+      expect(await sandbox.json()).toMatchObject({ error: 'not_found' }); // 修前红：error=SESSION_NOT_FOUND
+    } finally {
+      rigged.webui.detach();
+      await rigged.face.stop();
+    }
   });
 
   it('档位面 PUT 体帽：描述符显式设值（sdk 面 10MiB 缺省不渗透——冷读 F2）超帽 413', async () => {

@@ -727,6 +727,14 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
         const receipt = tiers.setThinkingLevel(sessionId, levelBody.value.level);
         sendJson(res, 200, { receipt });
       } catch (err) {
+        // 竞窗收口窄 catch（68 轮件C）：先决门判 open 与受理之间会话被删
+        //（DELETE 并发先落）——桥入口 isOpen 复检 fail-loud 抛
+        // SESSION_NOT_FOUND，折 404 not_found 与先决门 missing 档同档
+        //（submit 端点窄先例同形——码不吞档、message 人读因透传）
+        if (err instanceof BaseError && err.code === 'SESSION_NOT_FOUND') {
+          sendError(res, 404, 'not_found', err.message);
+          return;
+        }
         // 坏词 fail-loud：BaseError 码族词面呈现不吞码（THINKING_LEVEL_INVALID
         // ——HTTP 面不吞码，02 §5.3）；非 BaseError 异常如实上抛走面级 500
         if (err instanceof BaseError) {
@@ -765,6 +773,13 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
         const receipt = tiers.setSandboxMode(sessionId, modeBody.value.mode);
         sendJson(res, 200, { receipt });
       } catch (err) {
+        // 竞窗收口窄 catch（68 轮件C）：thinking-level PUT 同形——桥入口
+        // isOpen 复检 fail-loud 抛 SESSION_NOT_FOUND 折 404 not_found
+        //（先决门 missing 档同档、submit 端点窄先例同形）
+        if (err instanceof BaseError && err.code === 'SESSION_NOT_FOUND') {
+          sendError(res, 404, 'not_found', err.message);
+          return;
+        }
         // 坏词 fail-loud：SANDBOX_MODE_INVALID 码族词面呈现（同 thinking 律）
         if (err instanceof BaseError) {
           sendError(res, 400, err.code, err.message);
