@@ -320,55 +320,98 @@ export function createLspService(deps: LspServiceDeps): LspService {
   /* ---------------- 诊断注入面（tools_post_execute 消费） ---------------- */
 
   const inject = {
+    /**
+     * 诊断注入（03 §10.2「全部路径并发 + 单竞速钟」执法位）：三段编舞——
+     * 段一全路径并发预同步（路由/读盘/didOpen|didChange——不等待诊断，逐
+     * 路径失败隔离折 skip/预热注记）；段二全部 waitDiagnostics 同拍起跑 +
+     * 单一竞速钟总帽（全批共享同一截止时刻——N 路径总等待收敛为 1 钟，钟值
+     * = diagClock() 单源 min(配置, 3500ms 硬帽)）；段三按路径序收段（预热
+     * 注记与诊断段/超钟点名保持既有路径序形）。
+     */
     async injectDiagnostics(paths: readonly string[]): Promise<readonly string[]> {
       const segments: string[] = [];
       let itemBudget = LSP_DIAGNOSTICS_MAX_ITEMS; // 条目上限：单次注入合计
       let bytesBudget = LSP_DIAGNOSTICS_SEGMENT_LIMIT_BYTES; // 总段 ≤4KiB 合计
-      for (const path of paths) {
+
+      /** 段一产物：诊断等待位 / 直出段（预热注记）/ 跳过 */
+      type Prepared =
+        | { kind: 'wait'; path: string; inst: LspInstance; uri: string; version: number }
+        | { kind: 'segment'; text: string }
+        | { kind: 'skip' };
+
+      /** 单路径预同步（不等待诊断——等待统一归段二单钟管束） */
+      const prepareOne = async (path: string): Promise<Prepared> => {
         const abs = await resolveAbs(path);
-        if (!(await isInsideRoot(abs))) continue; // 根外写入不诊断
+        if (!(await isInsideRoot(abs))) return { kind: 'skip' }; // 根外写入不诊断
         const server = routeServer(config, abs);
-        if (server === null) continue; // 无路由跳过（工具面才响亮——注入面静默增益）
+        if (server === null) return { kind: 'skip' }; // 无路由跳过（工具面才响亮——注入面静默增益）
         /** 首触一次性「预热中」注记（server 维度） */
-        const noteWarm = (): void => {
-          if (warmNoted.has(server)) return;
+        const noteWarm = (): Prepared => {
+          if (warmNoted.has(server)) return { kind: 'skip' };
           warmNoted.add(server);
-          segments.push(`[lsp] 语言服务器 ${server} 预热中——本批写入暂不注入诊断（后续写入自动注入）`);
+          return {
+            kind: 'segment',
+            text: `[lsp] 语言服务器 ${server} 预热中——本批写入暂不注入诊断（后续写入自动注入）`,
+          };
         };
         const entry = instances.get(server);
         if (entry === undefined) {
           // 未活：fire-and-forget 后台预热（失败计数归 getInstance——此处吞）
           void getInstance(server).catch(() => undefined);
-          noteWarm();
-          continue;
+          return noteWarm();
         }
         if (entry.state === 'starting') {
           // 预热在途：跳过注入（不 await 握手——竞速钟预算不留给等待）
-          noteWarm();
-          continue;
+          return noteWarm();
         }
         let inst: LspInstance;
         try {
           inst = await entry.promise; // live——已 resolve 零等待
         } catch {
-          continue; // 结算竞速兜底（正常不可达——live 态 promise 已 resolve）
+          return { kind: 'skip' }; // 结算竞速兜底（正常不可达——live 态 promise 已 resolve）
         }
         let text: string;
         try {
           text = (await deps.fs.readFile(abs)).toString('utf8');
         } catch {
-          continue; // 读盘失败（写后即删等）——跳过
+          return { kind: 'skip' }; // 读盘失败（写后即删等）——跳过
         }
         const uri = pathToFileURL(abs).href;
         const version = inst.syncDocument(uri, text, abs);
-        const items = await inst.waitDiagnostics(uri, version, diagClock());
+        return { kind: 'wait', path, inst, uri, version };
+      };
+
+      // 段一：全路径并发预同步（逐路径失败隔离——单路径折 skip/注记不洞穿全批）
+      const prepared = await Promise.all(paths.map((path) => prepareOne(path)));
+
+      // 段二：单竞速钟总帽——截止时刻全批唯一（起拍同刻；各路径剩余预算对齐
+      // 同一截止，只见减不见增——任一路径等待不得越过单钟）
+      const deadline = Date.now() + diagClock();
+      const waitResults = await Promise.all(
+        prepared.map(async (p) => {
+          if (p.kind !== 'wait') return null;
+          const budget = Math.max(0, deadline - Date.now());
+          const items = await p.inst.waitDiagnostics(p.uri, p.version, budget);
+          return { p, items };
+        }),
+      );
+
+      // 段三：按路径序收段（与既有串行形的段序完全同形）
+      for (let i = 0; i < prepared.length; i++) {
+        const p = prepared[i]!;
+        if (p.kind === 'segment') {
+          segments.push(p.text);
+          continue;
+        }
+        if (p.kind === 'skip') continue;
+        const items = waitResults[i]!.items;
         if (items === null) {
           // 超钟诚实降级：逐路径点名「未及回流」——不得并成全清宣称
-          segments.push(`[lsp] ${path}：诊断未及回流（${diagClock()}ms 竞速钟尽）`);
+          segments.push(`[lsp] ${p.path}：诊断未及回流（${diagClock()}ms 竞速钟尽）`);
           continue;
         }
         if (items.length === 0) continue; // 全清零噪音——不注入
-        const segment = formatDiagnosticsSegment(uri, items, { itemsCap: itemBudget, bytesCap: bytesBudget });
+        const segment = formatDiagnosticsSegment(p.uri, items, { itemsCap: itemBudget, bytesCap: bytesBudget });
         if (segment.usedItems === 0) continue; // 预算尽（一条未放）——不再注段
         itemBudget -= segment.usedItems;
         bytesBudget -= Buffer.byteLength(segment.text, 'utf8');

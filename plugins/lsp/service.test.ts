@@ -613,6 +613,32 @@ describe('诊断注入面（tools_post_execute waterfall）', () => {
     expect((posted.result.content[1] as { text: string }).text).toContain('未及回流');
   });
 
+  it('多路径竞速钟收敛单钟：两路径超钟不吃两钟（03 §10.2 全部路径并发 + 单竞速钟）', async () => {
+    // 修前红锁：串行形两路径各吃满额钟（总等待 ≥ 2×钟）；修后全路径并发 +
+    // 单竞速钟总帽（总等待 ≈ 1×钟）。钟取 100ms——阈值 180ms 居中，两侧各留
+    // 约 80ms 余量（Node 定时不早燃——串行形必 ≥200ms，不生假红）
+    const h = makeHarness({ tsserver: TSSERVER }, 100); // 单竞速钟 100ms
+    h.fs.files.set('/ws/a.ts', 'let a = 1;');
+    h.fs.files.set('/ws/b.ts', 'let b = 2;');
+    const pending = h.service.tools.diagnostics('a.ts'); // 预热 tsserver 至 live
+    await untilSpawned(h);
+    autoScript(h.children[0]!, () => []);
+    await pending;
+    // 换脚本：不再发诊断——两路径双双超钟（a 的 didChange 抬 version 后无对齐帧、b 首开无帧）
+    h.children[0]!.onServerMsg = () => {};
+    const startedAt = Date.now();
+    const segments = await h.service.inject.injectDiagnostics(['/ws/a.ts', '/ws/b.ts']);
+    const elapsed = Date.now() - startedAt;
+    // 超钟路径逐一点名「未及回流」（路径序保持——不得并成全清宣称）
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toContain('a.ts');
+    expect(segments[0]).toContain('未及回流');
+    expect(segments[1]).toContain('b.ts');
+    expect(segments[1]).toContain('未及回流');
+    // 单竞速钟总帽：总等待收敛单钟（串行违形式 ≥ 2×100ms 必红）
+    expect(elapsed).toBeLessThan(180);
+  }, 10_000);
+
   it('根外写入不诊断；无路由静默跳过', async () => {
     const h = makeHarness({ tsserver: TSSERVER });
     await warm(h);
