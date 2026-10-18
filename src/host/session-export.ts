@@ -174,6 +174,9 @@ export function renderSessionJsonl(input: SessionExportInput): string {
  * 落盘腿：`数据目录/exports/<会话id>-<时间戳>.md|.jsonl`（目录递归建；覆写同刻
  * 同名文件——时间戳含毫秒，实战不可撞）。返回落盘路径（回执/CLI 输出共用）。
  * format 缺省 markdown——既有调用面（TUI /export 与缺省 CLI）行为完全不变。
+ *
+ * 落盘律（05 §6.6 敏感产物落盘 0600——58 轮 L3-1）：会话导出明文承载操作者
+ * 数据，建即 0600（与 diagnostics/ 姊妹族 {@link writeDiagnosticsFile} 同律）。
  */
 export function writeSessionExport(
   dataDir: string,
@@ -184,7 +187,25 @@ export function writeSessionExport(
   mkdirSync(dir, { recursive: true });
   const body = format === 'jsonl' ? renderSessionJsonl(input) : renderSessionMarkdown(input);
   const path = join(dir, `${input.meta.sessionId}-${fileStampOf(input.now)}.${format === 'jsonl' ? 'jsonl' : 'md'}`);
-  writeFileSync(path, body, 'utf8');
+  // 05 §6.6：mode 显式 0600（umask 022 下缺省 0644——敏感产物族仅属主可读写）
+  writeFileSync(path, body, { encoding: 'utf8', mode: 0o600 });
+  return path;
+}
+
+/**
+ * 诊断反馈包落盘腿（05 §6.6 敏感产物落盘 0600——58 轮 L3-1）：
+ * `数据目录/diagnostics/feedback-<时间戳>.md`（目录递归建；时间戳 = exports/
+ * 同一 ISO 压形律 {@link fileStampOf}）。tui-entry /feedback 面 writeFile 闭包
+ * 消费（原内联同形拷贝收口单源——fileStampOf 单源先例延伸）；诊断包明文承载
+ * 操作者数据（会话事件快照/环境摘要/日志尾），建即 0600——与 writeSessionExport
+ * （exports/）姊妹族同律。返回落盘路径（回执串在 tui-entry 侧拼装）。
+ */
+export function writeDiagnosticsFile(dataDir: string, content: string, now: number): string {
+  const dir = join(dataDir, 'diagnostics');
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `feedback-${fileStampOf(now)}.md`);
+  // 05 §6.6：mode 显式 0600（umask 022 下缺省 0644——敏感产物族仅属主可读写）
+  writeFileSync(path, content, { encoding: 'utf8', mode: 0o600 });
   return path;
 }
 

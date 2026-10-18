@@ -8,7 +8,7 @@
  * fail-loud 回执。事件构造直用 contracts SessionEvent（deriveMessages 真
  * fold——拼装格式锁在投影真源之上，非 mock 投影）。
  */
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -26,6 +26,7 @@ import {
   runSessionExportCommand,
   scanSessionExportFlags,
   SESSION_EXPORT_USAGE,
+  writeDiagnosticsFile,
   writeSessionExport,
   type SessionExportCommandDeps,
 } from './session-export.js';
@@ -271,6 +272,15 @@ describe('writeSessionExport 落盘腿', () => {
     expect(readFileSync(path, 'utf8')).toBe(renderSessionMarkdown(input)); // 两面同源
   });
 
+  it('敏感产物落盘 0600（05 §6.6）：exports/ 产物建即仅属主可读写', () => {
+    // 修前红：现状 writeFileSync 缺省 mode（umask 022 下 0644）——会话导出明文
+    // 承载操作者数据，05 §6.6 敏感产物族恒 0600
+    const dataDir = mkdtempSync(join(tmpdir(), 'session-export-mode-'));
+    dirs.push(dataDir);
+    const path = writeSessionExport(dataDir, { events: [], meta: { sessionId: 's-mode' }, now: NOW });
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+  });
+
   it('format jsonl：落盘 .jsonl 且内容 = jsonl 单源全文；缺省（不传 format）= markdown 既有行为完全不变', () => {
     // 修前红：writeSessionExport 尚无 format 参——jsonl 造不出（产物恒 .md）
     const dataDir = mkdtempSync(join(tmpdir(), 'session-export-jsonl-'));
@@ -284,6 +294,22 @@ describe('writeSessionExport 落盘腿', () => {
     const mdPath = writeSessionExport(dataDir, input);
     expect(mdPath.endsWith('.md')).toBe(true);
     expect(readFileSync(mdPath, 'utf8')).toBe(renderSessionMarkdown(input));
+  });
+});
+
+describe('writeDiagnosticsFile 诊断包落盘腿（05 §6.6 敏感产物 0600——tui-entry writeFile 闭包单源收口）', () => {
+  it('diagnostics/feedback-<时间戳>.md 落盘 0600 + 返回路径即落盘路径', () => {
+    // 修前红：writeDiagnosticsFile 尚未导出——import 位即编译红（新导出函数锁）
+    const dataDir = mkdtempSync(join(tmpdir(), 'diagnostics-write-'));
+    dirs.push(dataDir);
+    const path = writeDiagnosticsFile(dataDir, '# 诊断包内容', NOW);
+    // 文件名形：feedback-<ISO 压形时间戳>.md（fileStampOf 单源——exports/ 同压形律）
+    expect(path).toBe(join(dataDir, 'diagnostics', 'feedback-2026-09-16T00-00-00-000Z.md'));
+    // 返回路径即落盘路径（tui-entry 回执串消费位零二次拼接）
+    expect(existsSync(path)).toBe(true);
+    expect(readFileSync(path, 'utf8')).toBe('# 诊断包内容');
+    // 05 §6.6：诊断反馈包族建即 0600（umask 022 下缺省 0644 即红）
+    expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 });
 

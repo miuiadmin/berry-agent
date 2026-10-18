@@ -109,7 +109,7 @@ import {
 } from '../llm/index.js';
 import { fetchChannelModels } from './channel-models-fetch.js';
 import { daemonPaths } from './serve-daemon.js';
-import { fileStampOf } from './session-export.js';
+import { writeDiagnosticsFile } from './session-export.js';
 import {
   compareSemverFull,
   createNodeUpdateCheckFs,
@@ -1282,11 +1282,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           if (dataDir === null) {
             return '导出失败：当前为内存模式，没有数据目录可保存诊断包';
           }
-          const dir = join(dataDir, 'diagnostics');
-          mkdirSync(dir, { recursive: true });
-          const stamp = fileStampOf(Date.now()); // 单源引形（session-export fileStampOf——exports/ 落盘同一压形律；本处原内联同形拷贝已收口）
-          const path = join(dir, `feedback-${stamp}.md`);
-          writeFileSync(path, content, 'utf8');
+          // 落盘单源收口（58 轮 L3-1）：writeDiagnosticsFile（session-export——
+          // 05 §6.6 敏感产物 0600 律 + fileStampOf 压形单源；本处原内联 mkdir +
+          // writeFileSync 同形拷贝收口，fileStampOf 既有单源先例延伸）
+          const path = writeDiagnosticsFile(dataDir, content, Date.now());
           return `已导出诊断包 → ${path}（只保存在本机，不会上传）`;
         },
       });

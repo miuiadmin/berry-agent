@@ -12,7 +12,7 @@
  * 字节 fixture 任意造（嗅探在受理链 03 §10.4 ②——本面信任入参字节与 ext，
  * 不验魔数；白名单执法仅为纵深）。
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
@@ -86,6 +86,18 @@ describe('写幂等（03 §10.4 ③）', () => {
   it('落盘形结构锁：<dataDir>/attachments/<hex>.<ext>', () => {
     const { ref } = store.write(PNG_BYTES, 'png');
     expect(readFileSync(join(dir, 'data', 'attachments', `${hexOf(ref)}.png`))).toEqual(Buffer.from(PNG_BYTES));
+  });
+});
+
+describe('敏感产物落盘 0600（05 §6.6）', () => {
+  it('write() 后终名 statSync 断言 0600（rename 承袭律——断言终名即锁 temp 写位 mode）', () => {
+    // 修前红：现状 temp 写位缺省 mode（umask 022 下 0644）——renameSync 承袭后
+    // 终名 0644；附件库族明文承载操作者数据，05 §6.6 恒 0600
+    const { ref } = store.write(PNG_BYTES, 'png');
+    const path = join(dir, 'data', 'attachments', `${hexOf(ref)}.png`);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    // temp 残名不在场（rename 已收敛——终名即唯一落盘位）
+    expect(existsSync(`${path}.tmp`)).toBe(false);
   });
 });
 

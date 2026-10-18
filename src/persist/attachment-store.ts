@@ -127,7 +127,9 @@ export function createAttachmentStore(dataDir: string): AttachmentStore {
       // 同进程单线程写（单写者 = 宿主装配根）+ 同 hex 恒同字节（sha256），
       // temp 名碰撞也收敛同内容，无需随机后缀
       const tmp = `${target}.tmp`;
-      writeFileSync(tmp, bytes);
+      // 05 §6.6 敏感产物落盘 0600（58 轮 L3-1）：mode 落 temp 写位、随 rename
+      // 承袭终名——附件库明文承载操作者数据，仅属主可读写（umask 022 下缺省 0644）
+      writeFileSync(tmp, bytes, { mode: 0o600 });
       renameSync(tmp, target);
       return { ref: `sha256:${hex}`, bytes: bytes.byteLength };
     },
