@@ -61,10 +61,13 @@ describe(
   'check-api 十查红绿证（spawn 全闸形态）',
   // spawn 全闸腿 = 子进程真跑全仓扫描，CI 慢机实测 14-23s（本机 ~3s）——全局
   // 15s 兜底帽必撞（2026-09-15 CI run 34852040696 双平台红实证：macos 23s /
-  // ubuntu 15.8s 超 Test timed out in 15000ms）。本 describe 整族放 60s 单点帽：
+  // ubuntu 15.8s 超 Test timed out in 15000ms）。本 describe 整族放单点帽：
   // 只放 spawn 形腿，纯函数件（scanTopLevelExports 等）仍守全局兜底——CI 档
-  // 放大非断言值，超时不掩盖回归语义（慢≠错，错另有窄断言把门）
-  { timeout: 60_000 },
+  // 放大非断言值，超时不掩盖回归语义（慢≠错，错另有窄断言把门）。帽修 II
+  // （run 39124698758 两连击）后子进程帽 120s——单测帽须高于子进程帽（150s =
+  // 120s + 断言/落盘开销；查 12 双 spawn 腿最坏同步序列亦在帽内——同步阻塞期
+  // testTimeout 定时器永不点火，帽点返回后断言先行结算）
+  { timeout: 150_000 },
   () => {
     it('净树恒绿（零问题静默过）', () => {
       const { status, out } = runCheck();
@@ -399,6 +402,10 @@ describe(
       expect(Date.now() - t0).toBeLessThan(10_000); // 帽点有界返回（非挂起）
       expect(r.status).toBeNull(); // 非自然退出
       expect(r.signal).toBe('SIGKILL'); // 强杀信号名面
+      // 帽校准下限锁（帽修 II——run 39124698758 两连击重校准 60s→120s）：darwin
+      // 运行器壁钟尖刺窗下 60s 三倍余量被撞穿（两发不同腿、旁证全绿），缩回
+      // 60s 即复发——下限锁防静默回退（后续上调不受此锁牵制）
+      expect(SPAWN_SYNC_CAP.timeout).toBeGreaterThanOrEqual(120_000);
       // 源面点名（查 7 卫生锁同形）：六闸测试件的 spawnSync 位全带帽——
       // 任一撤帽（回退修前形）即本腿红，静默缝不复发
       const roster = [
