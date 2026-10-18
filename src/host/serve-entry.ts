@@ -14,10 +14,11 @@
  *
  * 传输环（03 §10.6 件身份条：stdio JSONL 归宿主 serve）：入站
  * splitWireLines 分帧 → decodeWireLine → core.handleRequest（坏行 warn 跳过
- * 不杀连接）；出站 sink = stdout 直写，`write` 返回 false 即背压（帧入线核
- * 有界队列），'drain' 事件 → core.drain()；ENOBUFS/EAGAIN 族按瞬时拥塞退避
- * 重试（pi output-guard 三件套执法位——宿主 serve 即执法宿主），其余写错
- * 传输面坏死收场退 1。
+ * 不杀连接；受理段注册码 BaseError 按请求收容折 error 帧续答——66 轮件 D，
+ * 非注册码异常维持崩溃编排 fail-loud）；出站 sink = stdout 直写，`write`
+ * 返回 false 即背压（帧入线核有界队列），'drain' 事件 → core.drain()；
+ * ENOBUFS/EAGAIN 族按瞬时拥塞退避重试（pi output-guard 三件套执法位——
+ * 宿主 serve 即执法宿主），其余写错传输面坏死收场退 1。
  *
  * 旗标：--no-delta 作连接缺省 noDelta（07 §5——hello 显式携值胜出）；
  * --port 开统一 HTTP 面 TCP 人面（18a-3' 三入口咬合——stdio 线与 TCP 面
@@ -50,7 +51,7 @@ import type {
   SdkWireDeps,
   SdkWireFrame,
 } from '../channels/index.js';
-import type { SessionEvent } from '../contracts/index.js';
+import { BaseError, type SessionEvent } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { sanitizeTitleText, sessionDisplayTitleOf } from '../persist/index.js';
 
@@ -412,7 +413,35 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
           logger.warn('收到帧形行（服务端只受理请求行）——跳过');
           continue;
         }
-        handle.core.handleRequest(decoded);
+        // —— 受理段注册码收容（03 §10.6 66 轮件 D 批注「stdio 面请求受理
+        // 异常收容律——已识故障态按请求收容」）：handleRequest 经装配桥触达
+        // 库面读——损坏会话日志的中段残卷在 loadEvents 抛注册码族 BaseError
+        // （PERSIST_DATA_CORRUPT 宁拒勿删；hello/getEntries 重放腿与 prompt
+        // 查重腿皆触达）。此类已识故障态按请求收容：折 error 帧直写（帧形 =
+        // wire-core SdkErrorFrame；码直出 contracts 注册表——⑥ 单源律勿造
+        // 新码），连接存活续答后续动词——与 HTTP 面逐请求收容（64 轮件 C
+        // 面级兜底）对称，同故障两传输同结局；单会话日志损坏只拒该请求，
+        // 不逃逸成 uncaughtException 击杀整宿主连坐其余健康会话与在飞连接
+        //（「宁拒勿删请人工检视」意图 = 单会话响亮拒识非宿主自杀）。
+        // logger.error 带栈保留 fail-loud 诊断面（收容非静默）；非注册码
+        // 异常（真 bug 面）原样上抛维持崩溃编排 fail-loud——收容律辖已识
+        // 故障态不辖未知 bug ——
+        try {
+          handle.core.handleRequest(decoded);
+        } catch (err) {
+          if (!(err instanceof BaseError)) throw err; // 未知 bug：不吞栈不折帧——崩溃编排腿
+          logger.error(`请求受理注册码收容（连接存活续答）：${err.code} ${err.message}`, {
+            code: err.code,
+            stack: err.stack,
+          });
+          sink.write({
+            kind: 'error',
+            sessionId: 'sessionId' in decoded ? decoded.sessionId : undefined,
+            code: err.code,
+            message: err.message,
+          });
+          continue; // 续答本 chunk 后续行与后续请求
+        }
       }
     });
     // EOF = 调用方收线——优雅收场；管道断裂同语义（无对端可写即服务终了）

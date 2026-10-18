@@ -6,7 +6,9 @@
  * 续接 / 幂等 admit（同键重发 duplicate 收执 + durable 单条）/ hello 重放
  * （entries→replay-end 衔接）/ 游标越界拒 / sessions·getEntries 读面 /
  * --no-delta 宿主立场缺省（message_update 剥、message_end 留）/ EOF 优雅
- * 退 0 / 坏行跳过不断连 / 版本不符先应答后置闭 / 心跳装配层定时驱动。
+ * 退 0 / 坏行跳过不断连 / 版本不符先应答后置闭 / 心跳装配层定时驱动 /
+ * 请求受理异常收容（03 §10.6 66 轮件 D——注册码 BaseError 折 error 帧连接
+ * 存活续答；非注册码裸 Error 穿出维持崩溃编排 fail-loud）。
  *
  * 断言只对线面帧与行为（禁断言 AI 生成文本——事件类型与结构位为准）。
  */
@@ -16,8 +18,9 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
+import Database from 'better-sqlite3';
 
-import type { SdkWireFrame } from '../channels/index.js';
+import type { SdkErrorFrame, SdkWireFrame } from '../channels/index.js';
 import { admitContentKey, decodeWireLine } from '../channels/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
@@ -943,6 +946,141 @@ describe('sessions 清单 title 净化（第五役 G6 双保险读位）', () =>
       expect(emptied!.title).toBeNull();
     } finally {
       await rt.shutdown();
+    }
+  });
+});
+
+/* ---------------- stdio 面请求受理异常收容（03 §10.6 66 轮件 D——已识故障态按请求收容） ---------------- */
+
+describe('stdio 面请求受理异常收容（03 §10.6 66 轮件 D 批注——与 HTTP 面逐请求收容〔64 轮件 C〕对称）', () => {
+  /** 双宿主共库装具：dataDir 外注（阶段一铸会话 / 阶段三重启形两宿主共享同库） */
+  const rigServeOn = (dataDir: string, providerId: string) => {
+    const faux = fauxProvider({ provider: providerId, models: [{ id: 'm1' }] });
+    faux.setResponses([() => messageOf(), () => messageOf()]); // 多轮余量
+    const rig = new WireRig();
+    const ws = mkdtempSync(join(tmpdir(), 'serve-cap-ws-')); // 工作区锚（数据目录已隔离清场）
+    const entry = runServeEntry({
+      flags: { debug: false, daemon: false, noDelta: false },
+      io: rig,
+      dataDir,
+      cwd: ws,
+      providers: [faux.provider],
+      model: `${providerId}/m1`, // faux-only 运行时必须点名模型
+      env: {},
+    });
+    return { rig, entry };
+  };
+
+  /**
+   * process 级 uncaught 捕获面（装具——两例共用）：监听窗内异常逃逸入账。
+   * vitest 自有 uncaughtException 听众在多听众形下按「用户已处理」不接管
+   * （见其 listenForErrors catchError 的 listenerCount>1 早退）——捕获账即
+   * 修前红锚（收容后恒空），且不污染套件级 unhandled 报面。
+   */
+  const captureUncaught = () => {
+    const uncaught: unknown[] = [];
+    const listener = (err: unknown) => {
+      uncaught.push(err);
+    };
+    process.on('uncaughtException', listener);
+    return {
+      /** 捕获账（收容律下应恒空——非空即异常逃逸 data 处理器成 uncaughtException） */
+      uncaught,
+      /** 摘除听众（finally 复位——不留跨例残留） */
+      detach: () => {
+        process.off('uncaughtException', listener);
+      },
+    };
+  };
+
+  it('hello 重放腿撞库面中段损坏：PERSIST_DATA_CORRUPT 折 error 帧且连接存活续答（宁拒勿删 = 单会话拒非宿主自杀）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'serve-cap-data-'));
+    dirs.push(dataDir);
+    // 阶段一：第一宿主真件全环铸会话（多事件 durable）+ EOF 优雅退场——退出序
+    // 含 write-behind 冲刷，收场后库面即全量真值
+    const first = rigServeOn(dataDir, 'faux-serve-cap1');
+    first.rig.send({ verb: 'prompt', messageId: 'cap-1', content: '问' });
+    await first.rig.until(() => first.rig.frames.some((f) => f.kind === 'event' && f.event.type === 'agent_end'));
+    const sid = (first.rig.frames.find((f) => f.kind === 'ack') as { sessionId: string }).sessionId;
+    first.rig.end();
+    await expect(first.entry).resolves.toBe(0); // 优雅档零码 = 落盘两步皆净
+
+    // 阶段二：外因损坏中段行（坏行后仍有好行——store.test 中段损坏同例）。
+    // 测试面直开库（run-entry probeJobColumn 同例——src 侧 better-sqlite3 只准
+    // persist 的纪律不辖测试诊断读写）
+    const raw = new Database(join(dataDir, 'sessions.db'));
+    try {
+      raw.prepare(`UPDATE events SET data = '{bad' WHERE session_id = ? AND seq = 0`).run(sid);
+      // 中段前提自检：坏位之后仍有好行（撕裂尾形走 heal 截断不抛——测形崩塌早红）
+      const after = raw.prepare(`SELECT COUNT(*) AS n FROM events WHERE session_id = ? AND seq > 0`).get(sid) as {
+        n: number;
+      };
+      expect(after.n).toBeGreaterThan(0);
+    } finally {
+      raw.close();
+    }
+
+    // 阶段三：第二宿主（重启形——驱动不在册，hello 重放腿纯走库面 loadEvents）
+    // 撞中段损坏。修前：BaseError 穿出 data 处理器成 uncaughtException（崩溃
+    // 编排杀整宿主——其余健康会话连坐、在飞连接全断）；修后：按请求收容折
+    // error 帧直出注册码 + 连接存活续答后续动词
+    const second = rigServeOn(dataDir, 'faux-serve-cap2');
+    const capture = captureUncaught();
+    try {
+      second.rig.send({ verb: 'hello', protocolVersion: 1, sessionId: sid, after: -1 }); // −1 = 从头哨兵全窗重放
+      // 收容锚：error 帧直出注册码（修前此帧永不出现 → until 超时红）
+      await second.rig.until(() =>
+        second.rig.frames.some((f) => f.kind === 'error' && (f as SdkErrorFrame).code === 'PERSIST_DATA_CORRUPT'),
+      );
+      // 异常未逃逸事件处理器（宿主未自杀——uncaught 账恒空）
+      expect(capture.uncaught).toEqual([]);
+      // 连接存活：后续 sessions 动词照常应答（收容非断连——单会话拒不连坐他动词）
+      second.rig.send({ verb: 'sessions' });
+      await second.rig.until(() => second.rig.frames.some((f) => f.kind === 'sessions'));
+      await closeExpect0(second.rig, second.entry);
+    } finally {
+      capture.detach();
+    }
+  });
+
+  it('非注册码裸 Error 穿出 data 处理器维持崩溃编排（收容辖注册码族不辖未知 bug——fail-loud 不折帧）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'serve-cap-raw-'));
+    dirs.push(dataDir);
+    const faux = fauxProvider({ provider: 'faux-serve-cap-raw', models: [{ id: 'm1' }] });
+    const rig = new WireRig();
+    const entry = runServeEntry({
+      flags: { debug: false, daemon: false, noDelta: false },
+      io: rig,
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-serve-cap-raw/m1',
+      env: {},
+      // 注入位（onRuntime 实例级遮蔽——N3 flush 遮蔽同例）：hello 的
+      // sessionStateOf 库面腿（getSessionRow）对幽灵会话抛裸 Error——非注册
+      // 码族的真 bug 形注入；其余会话委托真件
+      onRuntime: (rt) => {
+        const store = rt.persistence.store as unknown as {
+          getSessionRow: (sessionId: string) => unknown;
+        };
+        const real = store.getSessionRow.bind(store);
+        store.getSessionRow = (sessionId: string) => {
+          if (sessionId === 'ghost-raw') throw new Error('raw-boom');
+          return real(sessionId);
+        };
+      },
+    });
+    const capture = captureUncaught();
+    try {
+      rig.send({ verb: 'hello', protocolVersion: 1, sessionId: 'ghost-raw', after: -1 });
+      // 裸 Error 原样穿出 data 处理器（崩溃编排腿——未被收容吞掉）
+      await rig.until(() => capture.uncaught.length > 0);
+      expect((capture.uncaught[0] as Error).message).toBe('raw-boom');
+      // 无 error 帧折出（fail-loud 非收容——未知 bug 不降级为线面错误）
+      expect(rig.frames.filter((f) => f.kind === 'error')).toEqual([]);
+    } finally {
+      capture.detach();
+      rig.end(); // EOF 收场（异常已逃逸不改变宿主收口——退出码不在此锁）
+      await entry;
     }
   });
 });
