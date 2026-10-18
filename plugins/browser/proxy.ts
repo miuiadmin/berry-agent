@@ -16,6 +16,14 @@
  *     窗——较 Node 面 dns-pin「首钉保留」更强形：每连接新查，DNS 真变更
  *     走新校验）；拒即断连（Chrome 面折连接失败 fail-closed——旁路执法面
  *     不产模型可见错误码）。
+ *   - 明文腿单请求连接形（03 §10.3 61 轮批）：明文腿「按请求执法」的载体
+ *     是**连接**——首请求头校验通过后转发头改写收口（剥 Connection/
+ *     Proxy-Connection/Keep-Alive 头族 + 请求行后注入 Connection: close），
+ *     上游收口即拆客户腿 → 客户端后续请求必走新连接重进 peek 校验，
+ *     keep-alive 复用跨 host 转投面（首腿已验证连接转投他源请求——host-b
+ *     的 Cookie 头泄给 host-a 源站形）闭死；CONNECT 隧道腿零改动（TLS 单
+ *     origin 复用合法）。改写是请求侧单边承诺——源站不守约拒关时，上游
+ *     close 联动拆腿是对偶兜底，两端守其一即闭。
  *
  * 侦听恒回环 bind（127.0.0.1——LAN 面不开口，开放代理红线）；零新增依赖
  * （node:net 原生）；窄面注入 {resolveDns, netConnect, logger} 保纯逻辑可
@@ -34,6 +42,39 @@ const PEEK_CAP_BYTES = 16 * 1024;
 
 /** CONNECT 腿缺省端口（authority 形无端口按 https 语义——Chrome 恒显式携带，防御位） */
 const CONNECT_DEFAULT_PORT = 443;
+
+/** 明文腿改写剥除头名集（小写归一比较——逐连接续命头族 + 代理私有续命头） */
+const PLAIN_STRIP_HEADER_NAMES = new Set(['connection', 'proxy-connection', 'keep-alive']);
+
+/**
+ * 明文腿首请求头改写收口（纯函数——头段字节集进出，可单测；03 §10.3 61 轮批
+ * 「明文腿单请求连接形」请求侧半边）。
+ *
+ * 形：剥头段内 Connection/Proxy-Connection/Keep-Alive 头行（剥客户端续命
+ * 语义——不令其上浮源站），在请求行后注入 Connection: close（首请求即终
+ * 请求——单请求连接的请求侧承诺）；头段后的体字节原样跟随（peek 窗内可能
+ * 已含头后体字节——只改头段）。头段未完结（无 \r\n\r\n）即原样返回不出手
+ * （调用位已保头段完结——防御位）；头名比较小写归一（大小写变体同剥）；
+ * obs-fold 折行（续行以空白起头）不解析——Chrome 引擎腿不发该形，剥除
+ * 判定按行独立执行。同窗管道串连残窗如实注：首窥窗内已含次请求字节
+ * （HTTP/1.1 pipelining 形）时，彼等随体字节原样抵上游不经二查——区分
+ * 体与次请求须全 HTTP 帧解析，超出代理只加卫生查的定位；Chrome 不发
+ * 该形 + 侦听恒回环本机进程可直接外联无特权差，残窗不升威胁面。
+ */
+export function rewritePlainHeadClose(buf: Buffer): Buffer {
+  const headerEnd = buf.indexOf('\r\n\r\n');
+  if (headerEnd === -1) return buf; // 头段未完——不出手（原样返回）
+  const lines = buf.subarray(0, headerEnd).toString('latin1').split('\r\n');
+  const requestLine = lines[0] ?? '';
+  const kept = lines.slice(1).filter((line) => {
+    const name = (line.split(':', 1)[0] ?? '').trim().toLowerCase();
+    return !PLAIN_STRIP_HEADER_NAMES.has(name);
+  });
+  // 请求行 → 注入位（首头行 Connection: close）→ 保序存留头行 → 头段终结符
+  // + 头后字节（体字节/窗内追加字节）原样拼接（latin1 字节级往返保真）
+  const head = Buffer.from([requestLine, 'Connection: close', ...kept].join('\r\n'), 'latin1');
+  return Buffer.concat([head, buf.subarray(headerEnd)]);
+}
 
 /** 上游连接目标（经校验地址集首址 + 目的端口） */
 export interface ProxyConnectTarget {
@@ -137,12 +178,16 @@ export function createBrowserProxy(deps: BrowserProxyDeps = {}): BrowserProxyFac
         // 隧道应答先行（客户端等 200 才发 TLS 字节——代理 CONNECT 语义）
         socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       }
-      // 已读字节原样抵上游——刷**活量** buffered 尾（skipBytes 截去代理语义前缀：
+      // 已读字节抵上游——刷**活量** buffered 尾（skipBytes 截去代理语义前缀：
       // 明文腿 0 = 请求行+头+已到体全量；隧道腿 = 头块后早发载荷），**含校验窗内
       // 到达的追加减字节**（活量单次刷抵——本句与置 piping 间无 await，数据事件
-      // 无穿插窗；快照视图形已废——彼形窗内到达字节滞留 buffered 无人补抵）
+      // 无穿插窗；快照视图形已废——彼形窗内到达字节滞留 buffered 无人补抵）。
+      // 明文腿单请求连接形：首请求头段经改写收口（剥续命头族 + 注入 Connection:
+      // close——单请求连接的请求侧承诺）；CONNECT 隧道腿零改写（TLS 单 origin
+      // 复用合法，03 §10.3 61 轮批注）
       const pending = buffered.subarray(skipBytes);
-      if (pending.length > 0) sock.write(pending);
+      const outgoing = kind === 'plain' ? rewritePlainHeadClose(pending) : pending;
+      if (outgoing.length > 0) sock.write(outgoing);
       buffered = Buffer.alloc(0); // piping 后 buffered 不再被读——即时弃置（不滞留窗内字节内存）
       logger?.debug?.(`browser 出口代理透传：${url.hostname}:${String(port)} → ${address}:${String(port)}`);
       // —— 双向字节管道（背压不理会——回环垫片，环回带宽远超引擎消费）——
@@ -150,11 +195,15 @@ export function createBrowserProxy(deps: BrowserProxyDeps = {}): BrowserProxyFac
       sock.on('data', (chunk) => {
         if (!socket.destroyed) socket.write(chunk);
       });
+      // 上游收口即拆客户腿（killBoth 双拆既有编舞——明文腿单请求连接形的对偶
+      // 兜底：Connection: close 改写是请求侧单边承诺，源站守约关停或任何形式
+      // 的上游关闭在此联动拆除客户腿，客户端后续请求必走新连接重进 peek 校验；
+      // CONNECT 腿同律无害——隧道本就随上游生命周期收口）
       sock.on('close', () => killBoth());
       sock.on('error', () => killBoth());
     };
 
-    /** peek 分腿派发（请求行齐即派；CONNECT 另需头块完结定隧道载荷起点） */
+    /** peek 分腿派发（请求行 + 头块齐即派：CONNECT 定隧道载荷起点 / 明文腿改写出手前置——61 轮批前明文腿仅请求行即派） */
     const tryDispatch = (): void => {
       if (buffered.length > PEEK_CAP_BYTES) {
         logger?.warn('browser 出口代理：首段超帽无完整请求行/头块（病态腿）——断连');
@@ -165,9 +214,10 @@ export function createBrowserProxy(deps: BrowserProxyDeps = {}): BrowserProxyFac
       if (lineEnd === -1) return; // 请求行未完——续攒
       const line = buffered.subarray(0, lineEnd).toString('latin1');
       const method = (line.split(' ')[0] ?? '').toUpperCase();
+      // 头块界（\r\n\r\n 位）：CONNECT 腿定隧道载荷起点 / 明文腿改写出手前置
+      const headerEnd = buffered.indexOf('\r\n\r\n');
       if (method === 'CONNECT') {
         // CONNECT 腿：头块（至 \r\n\r\n）属代理语义不抵上游——隧道载荷自头块后始
-        const headerEnd = buffered.indexOf('\r\n\r\n');
         if (headerEnd === -1) return; // 头块未完——续攒
         phase = 'validating';
         void openLeg('connect', line, headerEnd + 4).catch((err: unknown) => {
@@ -175,7 +225,9 @@ export function createBrowserProxy(deps: BrowserProxyDeps = {}): BrowserProxyFac
         });
         return;
       }
-      // http 明文 absolute-form 腿：全量已读字节原样转发（前缀 0）
+      // http 明文 absolute-form 腿：头块完结才出手（单请求连接形——首请求头
+      // 改写需完整头段；头块未完续攒同 CONNECT 律，PEEK_CAP 超帽执法不变形）
+      if (headerEnd === -1) return; // 头块未完——续攒
       phase = 'validating';
       void openLeg('plain', line, 0).catch((err: unknown) => {
         rejectLeg(line.split(' ')[1] ?? '?', err);

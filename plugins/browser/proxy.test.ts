@@ -5,13 +5,14 @@
  * 卫生拒形（字面私网 IP/DNS 解析私网/v6 字面/明文腿字面私网/origin-form
  * 未知腿）断「断连 fail-closed + 不触上游连接面 + 字面腿不触 DNS」；公网
  * 形断「连接目标 = 经校验地址集首址（校验结果即连接目标律）+ 双向字节管道
- * 保真（CONNECT 头块不抵上游、明文腿已读字节原样写）」。netConnect 桩重
- * 定向到回环 fake 上游（目标断言按经校验地址判——同源断言律）。
+ * 保真（CONNECT 头块不抵上游、明文腿头改写收口〔单请求连接形——剥续命头族
+ * + 注入 Connection: close〕）」。netConnect 桩重定向到回环 fake 上游（目标
+ * 断言按经校验地址判——同源断言律）。
  */
 import net from 'node:net';
 import type { AddressInfo, Socket } from 'node:net';
 import { describe, expect, it } from 'vitest';
-import { createBrowserProxy, engineEgressProxy } from './proxy.js';
+import { createBrowserProxy, engineEgressProxy, rewritePlainHeadClose } from './proxy.js';
 import type { ProxyConnectTarget } from './proxy.js';
 
 /** 回环直连桩基元（netConnect 注入位消费——连真 fake 上游） */
@@ -47,6 +48,9 @@ async function connectProbe(port: number): Promise<{
   destroy: () => void;
 }> {
   const socket = net.connect({ host: '127.0.0.1', port });
+  // 迟到写折错吞除（单请求连接形下向已拆客户腿发第二请求 = 预期终态——
+  // ERR_STREAM_DESTROYED 不作未处理事件炸测试进程；断言走 received/closed 观察面）
+  socket.on('error', () => undefined);
   let buffer = Buffer.alloc(0);
   socket.on('data', (chunk: Buffer) => {
     buffer = Buffer.concat([buffer, chunk]);
@@ -170,7 +174,7 @@ describe('引擎出口代理（03 §10.3 引擎网络栈出口钉死）', () => 
     probe.destroy();
   });
 
-  it('http 明文 absolute-form 腿：公网原样透传（已读字节不改写 + 应答字节保真）', async () => {
+  it('http 明文 absolute-form 腿：头改写转抵（剥续命头族 + 注入 Connection: close）+ 应答字节保真', async () => {
     const up = await fakeUpstream((_chunk, sock) => {
       sock.write('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello');
     });
@@ -184,11 +188,15 @@ describe('引擎出口代理（03 §10.3 引擎网络栈出口钉死）', () => 
     });
     const endpoint = await proxy.endpoint();
     const probe = await connectProbe(Number(endpoint.split(':')[1]));
-    const request = 'GET http://plain.test:8080/path?q=1 HTTP/1.1\r\nHost: plain.test:8080\r\nX-Probe: v\r\n\r\n';
-    probe.send(request);
+    probe.send(
+      'GET http://plain.test:8080/path?q=1 HTTP/1.1\r\nHost: plain.test:8080\r\nConnection: keep-alive\r\nX-Probe: v\r\n\r\n',
+    );
     await probe.until('hello');
-    // 已读字节原样写（请求行 + 头序原样不改写——代理只加卫生查）
-    expect(up.received().toString('latin1')).toBe(request);
+    // 单请求连接形改写锁：剥 Connection 头行 + 请求行后注入 Connection: close，
+    // 其余头行保序保留（代理只加卫生查 + 头改写——不改写其余字节）
+    expect(up.received().toString('latin1')).toBe(
+      'GET http://plain.test:8080/path?q=1 HTTP/1.1\r\nConnection: close\r\nHost: plain.test:8080\r\nX-Probe: v\r\n\r\n',
+    );
     expect(connectCalls).toEqual([{ host: '93.184.215.7', port: 8080 }]);
     probe.destroy();
   });
@@ -285,8 +293,12 @@ describe('校验窗内到达字节不丢（活量刷抵——快照视图形回�
     await new Promise((r) => setTimeout(r, 50));
     gate.release(); // 放行 DNS → 连接 → 接管刷抵
     await new Promise((r) => setTimeout(r, 150));
-    // 快照视图形缺陷锁：上游应收全量 part1+part2（旧形只抵 part1——窗内 BODY 滞留丢失）
-    expect(up.received().toString('latin1')).toBe(part1 + part2);
+    // 快照视图形缺陷锁：上游应收全量 part1+part2（旧形只抵 part1——窗内 BODY 滞留
+    // 丢失）；单请求连接形：part1 头段经改写（注入 Connection: close），窗内体
+    // 字节 part2 原样跟随
+    expect(up.received().toString('latin1')).toBe(
+      'GET http://plain.test:8080/path HTTP/1.1\r\nConnection: close\r\nHost: plain.test:8080\r\nContent-Length: 4\r\n\r\nBODY',
+    );
     probe.destroy();
   });
 
@@ -310,6 +322,74 @@ describe('校验窗内到达字节不丢（活量刷抵——快照视图形回�
     await new Promise((r) => setTimeout(r, 150));
     // 隧道载荷全量抵上游；CONNECT 头块（代理语义前缀）不抵
     expect(up.received().toString('latin1')).toBe(earlyPayload + windowPayload);
+    probe.destroy();
+  });
+});
+
+describe('明文腿首请求头改写纯函数（rewritePlainHeadClose——头段字节集进出）', () => {
+  it('剥三头族（头名大小写归一）+ 请求行后注入 Connection: close + 头后体字节原样跟随', () => {
+    const buf = Buffer.from(
+      'POST http://x.test/submit HTTP/1.1\r\nHost: x.test\r\nConnection: keep-alive, Upgrade\r\nProxy-Connection: keep-alive\r\nKEEP-ALIVE: timeout=5\r\nContent-Length: 3\r\n\r\nabc',
+      'latin1',
+    );
+    expect(rewritePlainHeadClose(buf).toString('latin1')).toBe(
+      'POST http://x.test/submit HTTP/1.1\r\nConnection: close\r\nHost: x.test\r\nContent-Length: 3\r\n\r\nabc',
+    );
+  });
+
+  it('头段未完（无 \\r\\n\\r\\n）→ 原样返回不出手（同引用直回）', () => {
+    const buf = Buffer.from('GET http://x.test/ HTTP/1.1\r\nHost: x.test\r\n', 'latin1');
+    expect(rewritePlainHeadClose(buf)).toBe(buf);
+  });
+});
+
+describe('明文腿单请求连接形（03 §10.3 61 轮批——keep-alive 复用跨 host 转投面闭死）', () => {
+  it('同连接 keep-alive 二请求：上游恰收一请求（头改写注入 Connection: close）+ 上游关停即拆客户腿 + host-b 请求不达上游', async () => {
+    // fake 上游 = 守约源站形：请求头含 Connection: close → 应答同段关连接
+    // （sock.end 单段写 + FIN——关停与应答同段，上游 close 事件紧随应答字节）；
+    // 无 close 标记（红态：透传原样头）→ 应答保连接、第二请求照单全收——恰为
+    // 红态断言依据；host-b 抵上游（红态 piping 盲管抵达）→ 应答后关（兜底
+    // 收场——两态测试均可终结）
+    const up = await fakeUpstream((chunk, sock) => {
+      const text = chunk.toString('latin1');
+      if (!text.includes('GET ')) return; // 只应答请求块（防御位）
+      const response = 'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok';
+      if (text.includes('Connection: close') || text.includes('host-b.test')) {
+        sock.end(response); // 守约关停 / 红态兜底关
+      } else {
+        sock.write(response); // keep-alive 形保连接（红态路径）
+      }
+    });
+    const connectCalls: ProxyConnectTarget[] = [];
+    const proxy = createBrowserProxy({
+      resolveDns: async () => ['93.184.216.34'],
+      netConnect: async (t) => {
+        connectCalls.push(t);
+        return netConnectTo(up.port);
+      },
+    });
+    const endpoint = await proxy.endpoint();
+    const probe = await connectProbe(Number(endpoint.split(':')[1]));
+    // host-a 首请求：Connection: keep-alive（Chrome forward-proxy 池典型形——
+    // 改写前该头透传上游，上游不关连接）
+    const reqA = 'GET http://host-a.test/pub HTTP/1.1\r\nHost: host-a.test\r\nConnection: keep-alive\r\n\r\n';
+    // host-b 二请求：absolute-form 异 host（Chrome forward-proxy 池跨 host 复用
+    // 合法形——keep-alive 复用转投面：host-b 的 Cookie 头泄给 host-a 源站）
+    const reqB = 'GET http://host-b.test/secret HTTP/1.1\r\nHost: host-b.test\r\nCookie: session=leak\r\n\r\n';
+    probe.send(reqA);
+    await probe.until('ok'); // 首应答回抵（piping 已立；绿态此刻客户腿已被上游关停联动拆除）
+    // 同连接直发第二请求（keep-alive 复用形——不另建连接）
+    probe.send(reqB);
+    await probe.closed; // 上游关停联动拆客户腿（红态经 host-b 兜底关收场）
+    await new Promise((r) => setTimeout(r, 100)); // 残窗暴露窗（潜在误投路径充分走完）
+    // 上游恰收一请求（红态此处见二——第二请求被 piping 盲管抵上游）
+    expect(up.received().toString('latin1').split('GET ').length - 1).toBe(1);
+    // 改写形锁定：剥 Connection 头行 + 请求行后注入 Connection: close（红态为原样透传形）
+    expect(up.received().toString('latin1')).toBe(
+      'GET http://host-a.test/pub HTTP/1.1\r\nConnection: close\r\nHost: host-a.test\r\n\r\n',
+    );
+    // 连接目标仍 = 经校验地址集首址 + absolute-form 端口语义（80 缺省）
+    expect(connectCalls).toEqual([{ host: '93.184.216.34', port: 80 }]);
     probe.destroy();
   });
 });
