@@ -332,6 +332,26 @@ describe('write-effect 审批对', () => {
     expect(rig.asks[0]!.suggestedEntry).toBeUndefined();
     expect(rig.asks[0]!.summary).toContain('2 个目标');
   });
+
+  it('edit 坏补丁零写集：旁路审批交棒工具自报（不 ask 不落粘性指纹——修前立「写入 0 个目标」必败审批对；68 轮件 D）', async () => {
+    const rig = makeRig();
+    // 形一：补丁不以 Begin Patch 标记开头——解析面抛、extractWritePaths 折零写集
+    const badMarker = await rig.run(EDIT, { patch: '不是补丁文本' });
+    expect(badMarker.blocked).toBe(false); // 放行交棒（审批对为可执行动作而设——必败动作不立对）
+    expect(badMarker.reached).toBe(true); // next 被调——坏补丁管辖面在 edit 工具侧（自报 FS_PATCH_FAILED）
+    expect(rig.asks).toHaveLength(0); // 修前红：ask 被调、摘要呈「写入 0 个目标（undefined 等）」且粘性键 target 空串入账
+    // 形二：patch 非字符串——同折零写集（同不变量第二形）
+    const notString = await rig.run(EDIT, { patch: 123 });
+    expect(notString.blocked).toBe(false);
+    expect(notString.reached).toBe(true);
+    expect(rig.asks).toHaveLength(0);
+    // 对照正锁：合法补丁照常走审批（零目标旁路不吞正常审批面）
+    const good = await rig.run(EDIT, { patch: twoFilePatch('a.txt', 'b.txt') });
+    expect(good.blocked).toBe(false);
+    expect(good.reached).toBe(true);
+    expect(rig.asks).toHaveLength(1);
+    expect(rig.asks[0]!.summary).toContain('2 个目标');
+  });
 });
 
 /* ---------------- 策略表 allow 免问（粘性第 3 款——advisory；2026-09-11 审批分档批更名） ---------------- */

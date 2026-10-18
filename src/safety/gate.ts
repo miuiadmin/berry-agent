@@ -366,6 +366,14 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
       : bashStem !== undefined
         ? [`bash ${bashStem}`]
         : [tool.name];
+    // fs 族零目标不变量（04 §9 2026-10-19 挖掘 68 轮件 D 批注）：审批对为可执行
+    // 动作而设——edit 坏补丁等解析失败折零写集时动作必败（工具自报
+    // FS_PATCH_FAILED；上方 extractWritePaths 既有管辖面句：补丁格式错不在
+    // 本行的管辖面——放行给 edit 工具自身报），立审批对既呈失实摘要
+    // （「写入 0 个目标」）又是批亦无用的空转交互（批了工具也报解析失败）。
+    // 写集空即旁路 next 交工具自报：不 ask、不落粘性指纹（空 target 键
+    // 无授权语义，不入账即不污染粘性面）。
+    if (isFsFamily && canonicalWritePaths.length === 0) return next(input);
     // 草案（04 §9 定形③）：fs 族仅在单目标时携带（精确 canonical 路径——批
     // 这一次不升格批全仓）；多目标无单一路径可代表即无草案；bash 族 = 剥壳
     // 词干（≤2 词「命令 [子命令]」——同条款明文，剥不出即无草案照问）；其余
