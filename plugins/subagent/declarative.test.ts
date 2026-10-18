@@ -130,6 +130,14 @@ describe('materializeDeclarativeSubagents 物化', () => {
 });
 
 describe('静态工具 def 字段闭包绑定', () => {
+  it('工具面墙钟帽注入：timeoutMs = 600_000 长动作族帽（管道消费位 def.timeoutMs——缺席即走 60s 缺省杀一次性委派）', () => {
+    const service = makeService(recordingBase().provider);
+    const { tools } = materializeDeclarativeSubagents([DEF], service, { parentSessionId: 's1', depth: 1 });
+    // 断言位 = pipeline 执行段入参（src/tools/pipeline.ts def.timeoutMs ?? 60_000）
+    // ——修前红形：undefined（缺省 60s race 截断声明式一次性委派）
+    expect(tools[0]!.timeoutMs).toBe(600_000);
+  });
+
   it('execute → service.run 路由 named provider；tools/requires/model/systemPrompt 全 def 值', async () => {
     const base = recordingBase();
     const service = makeService(base.provider);
@@ -166,6 +174,14 @@ describe('静态工具 def 字段闭包绑定', () => {
 });
 
 describe('通用 agent 工具（对照组）', () => {
+  it('工具面墙钟帽注入：timeoutMs = 600_000 长动作族帽（委派是长动作——60s 缺省 race 语义错配）', () => {
+    const service = makeService(recordingBase().provider);
+    const tool = createAgentTool({ service, parentSessionId: 's1', depth: 1 });
+    // 断言位 = pipeline 执行段入参（def.timeoutMs ?? 60_000 同源消费位）
+    // ——修前红形：undefined（子代理跑超 60 秒即被 TOOL_TIMEOUT 截断）
+    expect(tool.timeoutMs).toBe(600_000);
+  });
+
   it('工具名位 = agent；缺省路由 in-process；模型面只见 prompt/background/name', async () => {
     const base = recordingBase();
     const service = makeService(base.provider);

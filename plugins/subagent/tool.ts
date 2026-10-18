@@ -12,6 +12,16 @@ import type { SubagentService } from './service.js';
 import { AGENT_TOOL_NAME, AGENT_TOOL_PREFIX, type SubagentDef } from './types.js';
 
 /**
+ * 委派工具面墙钟帽 600s（04 §7 逐工具 timeoutMs 覆盖框架——web 前例同款）：
+ * 委派是长动作（同步腿 = 子代理整程跑完才回执），而管道缺省 60s race 在 60
+ * 秒整点抛 TOOL_TIMEOUT 杀掉一次性委派——子代理无辜截断、父只见超时回执，
+ * 60s 语义错配。量级拍板：对齐长动作族 600_000（plugin_install/plugin_update
+ * npm/git 腿同帽 + exec BASH_TIMEOUT_MAX_MS 同值——10 分钟模型面帽）。
+ * background=true 形起跑即回（Job 异步结算），帽只卡同步等结果腿。
+ */
+export const SUBAGENT_TOOL_TIMEOUT_MS = 600_000;
+
+/**
  * 委派工具的会话语境。两种装载形（批 19c-1 定形）：
  *  - per-session 装配形（测试/程序化直用）：parentSessionId/depth/
  *    availableTools 闭包静态绑定；
@@ -92,6 +102,8 @@ export function createAgentTool(deps: DelegationToolDeps): ToolDefinition {
     description:
       '委派一个子代理执行任务（黑盒——只见结果不见过程；默认同步等待，background=true 后台起跑终态注入结算通知）',
     effect: 'read',
+    // 长动作族墙钟帽注入（缺省 60s race 杀一次性委派——帽只卡同步等结果腿）
+    timeoutMs: SUBAGENT_TOOL_TIMEOUT_MS,
     parameters: Type.Object({
       prompt: Type.String({ description: '委派目标提示（子代理的唯一任务输入）' }),
       background: Type.Optional(Type.Boolean({ description: '后台运行（默认 false = 父同步等结果）' })),
@@ -144,6 +156,8 @@ export function createDeclarativeAgentTool(
     name: `${AGENT_TOOL_PREFIX}${def.name}`,
     description: def.description,
     effect: 'read',
+    // 长动作族墙钟帽注入（声明式静态工具同为一次性委派——与通用 agent 工具同帽）
+    timeoutMs: SUBAGENT_TOOL_TIMEOUT_MS,
     parameters: Type.Object({
       prompt: Type.String({ description: '委派目标提示' }),
       background: Type.Optional(Type.Boolean({ description: '后台运行（默认 false = 父同步等结果）' })),
