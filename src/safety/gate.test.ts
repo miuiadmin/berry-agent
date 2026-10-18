@@ -504,6 +504,116 @@ describe('bash 族策略条目执法', () => {
   });
 });
 
+/* ---------------- bash 审批问询载荷（64 轮件 E——04 §9 定形③草案条款兑现） ---------------- */
+
+describe('bash 审批问询载荷（词干草案 + 命令摘要 + 词干粘性）', () => {
+  it('bash 单命令 ask 三件：词干草案（两词形）+ 摘要携带命令文本与执行措辞 + 粘性键词干形', async () => {
+    const rig = makeRig();
+    const result = await rig.run(BASH, { command: 'git push origin main' });
+    expect(result.blocked).toBe(false);
+    expect(rig.asks).toHaveLength(1);
+    // 草案 = 剥壳词干（≤2 词「命令 [子命令]」）——「始终允许」选项的回写目标形状
+    expect(rig.asks[0]!.suggestedEntry).toEqual({ tool: 'bash', pattern: 'git push' });
+    // 摘要携带命令原文 + exec 档如实措辞（「执行」非「写」——04 §9 定形块①呈现面句：
+    // ask 摘要与 gate 决策行携带档位、审批文案分级）
+    expect(rig.asks[0]!.summary).toBe('执行命令 git push origin main');
+    // 粘性键 = 工具名 + 词干（三面同 Scope：粘性目标 / 草案 pattern / 落表条目 pattern
+    // ——用户选 always 批的是面板呈现的「bash git push」，会话免问面不得宽于呈现面；
+    // `bash ` 前缀使词干键与整名族键〔裸工具名〕/fs 路径键〔绝对路径形〕三键空间
+    // 分立——授权结构上不跨工具族〔04 §9 定形块①键空间分立不变量同律〕）
+    expect(rig.asks[0]!.stickyKey).toEqual({ target: 'bash git push', tier: 'workspace-write' });
+  });
+
+  it('管道形不可判定：无草案照问（「始终允许」不呈现），摘要仍携带命令文本', async () => {
+    const rig = makeRig();
+    await rig.run(BASH, { command: 'ls | grep foo' });
+    expect(rig.asks).toHaveLength(1);
+    expect(rig.asks[0]!.suggestedEntry).toBeUndefined();
+    expect(rig.asks[0]!.summary).toBe('执行命令 ls | grep foo');
+    // 剥不出词干回退整名形键（惰性——无草案即无粘性入账，永不命中，形保底而已）
+    expect(rig.asks[0]!.stickyKey).toEqual({ target: 'bash', tier: 'workspace-write' });
+  });
+
+  it('多行命令：词干不可判定无草案，摘要空白折叠单行（换行不刷屏审批面板）', async () => {
+    const rig = makeRig();
+    await rig.run(BASH, { command: 'git push\norigin main' });
+    expect(rig.asks[0]!.suggestedEntry).toBeUndefined();
+    expect(rig.asks[0]!.summary).toBe('执行命令 git push origin main');
+  });
+
+  it('超长命令摘要截断帽：80 字符截断加省略号披露（防刷屏——非静默截断）', async () => {
+    const rig = makeRig();
+    // 折叠后 = 'echo '（5 字符）+ 120 个 x → 帽 80：首 80 字符 + 省略号
+    await rig.run(BASH, { command: `echo ${'x'.repeat(120)}` });
+    expect(rig.asks[0]!.summary).toBe(`执行命令 echo ${'x'.repeat(75)}…`);
+  });
+
+  it('词干草案经 always 落表为 allow 条目 e2e（真审批链）：同词干会话内免问、异词干照问（无整名白板）', async () => {
+    // 真 ApprovalService + 恒答 always 的 answerer + persistToolPolicy 捕获
+    // （与「deny × 会话粘性 always」用例同形——落表链 e2e 锁；persist 只记
+    // 不回灌 live 策略表，与生产「文件写不刷新内存数组」同形——会话内免问
+    // 只能经粘性面成立，正是本测要锁的链）
+    const dispatch = new EventDispatch();
+    dispatch.registerEventNames(TOOL_EVENT_NAMES);
+    const persisted: { tool: string; pattern: string }[] = [];
+    let askedCount = 0;
+    let answered = 0;
+    const approval = createApprovalService(dispatch, {
+      sink: { asked: () => (askedCount += 1), decided: () => {} },
+      persistToolPolicy: (draft) => persisted.push({ tool: draft.tool, pattern: draft.pattern }),
+    });
+    dispatch.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, async (input) => {
+      answered += 1;
+      return { ...input, answer: 'always' }; // 不调 next：已答短路
+    });
+    installSafetyGate(dispatch, {
+      approval,
+      workspace: ws,
+      mode: () => 'workspace-write',
+      dataDir: join(tmpdir(), 'berry-gate-datadir'),
+    });
+    let reached = false;
+    dispatch.onWaterfall<GateInput>(TOOL_EVENT_NAMES[0]!, (input) => {
+      reached = true;
+      return input;
+    });
+    const run = async (command: string) => {
+      reached = false;
+      const out = await dispatch.waterfall<GateInput>(TOOL_EVENT_NAMES[0]!, {
+        tool: BASH,
+        args: { command },
+        toolCallId: 'call-1',
+        mutated: false,
+      });
+      return { blocked: out.outcome?.action === 'block', reached };
+    };
+
+    // 第一次：问 → always → 词干草案落 allow 条目 + 会话粘性入账（词干形键）
+    const first = await run('git push origin main');
+    expect(first.blocked).toBe(false);
+    expect(first.reached).toBe(true);
+    expect(askedCount).toBe(1);
+    expect(answered).toBe(1);
+    expect(persisted).toEqual([{ tool: 'bash', pattern: 'git push' }]); // 落表条目 = 草案形状（机器写侧唯一正门只产 allow 条目）
+
+    // 同词干异形参：粘性命中免问（不进 ask——answerer 不再派发、asked 不增）
+    const second = await run('git push origin dev');
+    expect(second.blocked).toBe(false);
+    expect(second.reached).toBe(true);
+    expect(askedCount).toBe(1);
+    expect(answered).toBe(1);
+
+    // 异词干照问（整名白板不存在：always 批的是「bash git push」指纹非 bash 整名
+    // ——同会话其余命令仍逐条过审批对）
+    const third = await run('git status');
+    expect(third.blocked).toBe(false);
+    expect(third.reached).toBe(true);
+    expect(askedCount).toBe(2);
+    expect(answered).toBe(2);
+    expect(persisted).toHaveLength(2); // 第二次 always 落第二词条干（幂等去重在 store 层，本测捕获面如实记两笔）
+  });
+});
+
 /* ---------------- 评估序六步（04 §9 定形块④——ap-2 重排锁） ---------------- */
 
 describe('评估序六步', () => {

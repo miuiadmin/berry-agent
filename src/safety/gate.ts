@@ -48,7 +48,7 @@ import {
   type CarveOutEntry,
   type CarveOutNode,
 } from './roots.js';
-import { FS_WRITE_TOOLS, matchToolPolicy, policyHitNote, type ToolPolicyEntry } from './tool-policy.js';
+import { FS_WRITE_TOOLS, commandStem, matchToolPolicy, policyHitNote, type ToolPolicyEntry } from './tool-policy.js';
 import { sandboxDenialMarker } from './sandbox.js';
 
 /** 内置默认 carve-out 条目（04 §8 例示：.git 转只读 + .env 族遮罩——含单层 glob 两形） */
@@ -153,6 +153,21 @@ function extractWritePaths(toolName: string, args: Record<string, unknown>): str
   return [];
 }
 
+/** bash ask 摘要命令文本截断帽（字符数——长命令不刷屏审批面板；超帽截断加省略号披露） */
+const BASH_SUMMARY_COMMAND_CAP = 80;
+
+/**
+ * bash ask 摘要的命令文本整形（64 轮件 E）：内部空白（含换行——heredoc/多段
+ * 命令）折叠为单空格（摘要位是人可读一行，非审计原文——命令原文的 durable
+ * 载体在工具调用参数，不因摘要整形丢失），超帽（BASH_SUMMARY_COMMAND_CAP）
+ * 截断加省略号披露——非静默截断。
+ */
+function commandTextForSummary(command: string): string {
+  const collapsed = command.replace(/\s+/g, ' ').trim();
+  // 超帽截断：首帽长字符 + 省略号（截断事实可见，读者知有下文）
+  return collapsed.length > BASH_SUMMARY_COMMAND_CAP ? `${collapsed.slice(0, BASH_SUMMARY_COMMAND_CAP)}…` : collapsed;
+}
+
 /**
  * 安装安全守门行（tools_pre_execute 守门段首位——装配根先于其余守门者注册）。
  * @returns 退订闭包（装配层经 scope.effect 组合生命周期）
@@ -194,6 +209,12 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     const canonicalWritePaths = isFsFamily
       ? extractWritePaths(tool.name, input.args).map((p) => absolutize(workspace, p))
       : [];
+    // bash 命令原文单源提取（64 轮件 E）：策略表执法穿线（(1)）/ 词干草案 /
+    // ask 摘要三消费点共用（取参位 = args.command——与 plugins/exec/bash.ts
+    // 参数面同源，呈现/执法/落表不漂移）。非 bash 工具或坏参（非字符串）=
+    // undefined：策略表 bash 面恒 miss、无草案照问（fail-closed 方向无害）
+    const bashCommand =
+      tool.name === 'bash' && typeof input.args?.command === 'string' ? input.args.command : undefined;
 
     /* ---- (1) 工具策略表 deny 面（04 §9 定形块④评估序①——最先短路） ---- */
     // 匹配一次全表持有：引擎 deny 优先律（首个 deny 命中即终局返回）——deny
@@ -221,14 +242,12 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
                   tool: tool.name,
                   effect: tool.effect ?? 'exec',
                   // bash 族执法穿线（04 §9 定形块③ bash 词干条目）：非 fs 分支
-                  // 携命令原文（取参位 = args.command——与 plugins/exec/bash.ts 参数面
-                  // 同源），bash 条目（allow/deny 双向）经剥壳词干判定命中。缺
-                  // 席不携带：引擎按空命令恒 miss → 照问照审（fail-closed 方向
-                  // 无害——与 explain 干跑面〔approval-cmd〕的 bashCommand 输入
-                  // 形同裁决，呈现面与执法面不漂移）
-                  ...(tool.name === 'bash' && typeof input.args?.command === 'string'
-                    ? { bashCommand: input.args.command }
-                    : {}),
+                  // 携命令原文（bashCommand 单源——上方一次提取，执法/草案/摘要
+                  // 三消费位同源不漂移），bash 条目（allow/deny 双向）经剥壳词干
+                  // 判定命中。缺席不携带：引擎按空命令恒 miss → 照问照审
+                  // （fail-closed 方向无害——与 explain 干跑面〔approval-cmd〕
+                  // 的 bashCommand 输入形同裁决，呈现面与执法面不漂移）
+                  ...(bashCommand !== undefined ? { bashCommand } : {}),
                 },
             Date.now(),
           )
@@ -326,19 +345,51 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
       if (outside) return next(input); // fence 的拒绝面，本行不重复拦
     }
 
+    // 剥壳词干（tool-policy commandStem 单源——草案生成与策略表判定同实现，
+    // 双实现漂移结构性不可能）：剥出干净词干（≤2 词）才有草案；管道/串接/
+    // 引号/flag 等不可判定形无草案照问（「始终允许」选项不呈现——04 §9
+    // 定形③：剥不出干净词干即无草案）
+    const bashStem = bashCommand !== undefined ? commandStem(bashCommand) : undefined;
     // 粘性指纹目标摘要（04 §9 粘性第 1/2 款）：fs 族 = 写目标路径（单目标 =
-    // 该路径；多目标 = 排序去重拼接——同集合才谈得上免问）；其余 write/exec
-    // 工具 = 工具名（整名族语义——同工具的后续调用免问）
-    const targets = isFsFamily ? [...new Set(canonicalWritePaths)].sort() : [tool.name];
+    // 该路径；多目标 = 排序去重拼接——同集合才谈得上免问）；bash = 工具名 +
+    // 空格 + 剥壳词干（词干形键，64 轮件 E——三面同 Scope：粘性目标 / 草案
+    // pattern / 落表条目 pattern 一致，用户选 always 批的是面板呈现的
+    // 「bash <词干>」，会话免问面不得宽于呈现面——整名键会使一次词干 always
+    // 膨胀为会话级 bash 白板。`bash ` 前缀使词干键与整名族键〔裸工具名〕/
+    // fs 路径键〔绝对路径形〕三键空间分立——裸词干可与工具名撞键〔单词命令
+    // 形〕，前缀隔离下授权结构上不跨工具族〔04 §9 定形块①键空间分立不变量
+    // 同律〕。剥不出词干 = 无草案 → always 防御收口视同 approve 不落粘性表，
+    // 键值惰性回退整名形〔永不命中——无草案即无入账，形保底而已〕）；其余
+    // write/exec 工具 = 工具名（整名族语义——同工具的后续调用免问）
+    const targets = isFsFamily
+      ? [...new Set(canonicalWritePaths)].sort()
+      : bashStem !== undefined
+        ? [`bash ${bashStem}`]
+        : [tool.name];
     // 草案（04 §9 定形③）：fs 族仅在单目标时携带（精确 canonical 路径——批
-    // 这一次不升格批全仓）；多目标无单一路径可代表即无草案；非 fs 族无路径
-    // 语义亦无草案（整名草案随真实消费者出现再裁）
-    const draft = isFsFamily && targets.length === 1 ? { tool: tool.name, pattern: targets[0]! } : undefined;
+    // 这一次不升格批全仓）；多目标无单一路径可代表即无草案；bash 族 = 剥壳
+    // 词干（≤2 词「命令 [子命令]」——同条款明文，剥不出即无草案照问）；其余
+    // 整名族无路径/命令语义无草案（整名草案随真实消费者出现再裁）
+    const draft =
+      isFsFamily && targets.length === 1
+        ? { tool: tool.name, pattern: targets[0]! }
+        : bashStem !== undefined
+          ? { tool: 'bash', pattern: bashStem }
+          : undefined;
+    // 摘要档位措辞（04 §9 定形块①呈现面句：ask 摘要与 gate 决策行携带档位、
+    // 审批文案分级）：fs 族 = 写入目标；bash = 「执行命令」+ 命令文本（截断
+    // 帽防刷屏——命令原文是审批判据的第一信息，零命令文本的「写动作」既无
+    // 内容又档位失实〔exec 档非写〕）；其余整名族 = 工具名 + 档位如实措辞
+    // （exec 档「执行动作」/ write 档「写动作」——exec 档不称写）
     const summary = isFsFamily
       ? targets.length === 1
         ? `写入 ${targets[0]}`
         : `写入 ${targets.length} 个目标（${targets[0]} 等）`
-      : `${tool.name} 写动作`;
+      : bashCommand !== undefined
+        ? `执行命令 ${commandTextForSummary(bashCommand)}`
+        : tool.effect === 'exec'
+          ? `${tool.name} 执行动作`
+          : `${tool.name} 写动作`;
 
     const { outcome } = await approval.ask({
       summary,
