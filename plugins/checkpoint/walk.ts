@@ -5,7 +5,8 @@
  * 同笔同判（04 遍历语义条款）：尊重 .gitignore——逐目录读规则按所在目录
  * 前缀化挂匹配器（根 .gitignore 前导 / 保留——锚定语义不降级；`\!` 转义形
  * 整义传递——65 轮件D：剥转义后裸 `!` 重投 ignore 包会被解析为否定锚，
- * gitignore 语义 `\!name.env`〔字面叹号名〕整义反转）；剪枝
+ * gitignore 语义 `\!name.env`〔字面叹号名〕整义反转；嵌套非转义锚定形
+ * 不回补斜杠——分隔由前缀尾斜杠承担，回补即双斜杠形永不匹配）；剪枝
  * node_modules/.git；**不跟随符号链**（Dirent.isDirectory 对符号链 false
  * ——目录链不入、文件链同样跳过：快照域不收间接层，恢复面才可精确对账）。
  *
@@ -54,7 +55,9 @@ function toPosix(p: string): string {
  * `!/x`〔! 目录下文件〕；转置形 `/\!x` 改配根层字面 `!x` 名，弃）。模式体
  * 去尾随目录标记斜杠后含斜杠或带前导 / = 锚定本层精确匹配；纯 basename
  * 模式前缀化插目录通配前缀（`**`+`/`）保深层同配。根 .gitignore 前导 /
- * 保留（git 语义）。
+ * 保留（git 语义）。嵌套非转义锚定形不回补斜杠——分隔由 prefix 尾斜杠
+ * 承担（65 轮件D 批注语义勘正：回补即双斜杠形 sub//x，ignore 包永不
+ * 匹配，子层 /x、/dist/ 形整体失效；斜杠回补只限转义根锚定形）。
  */
 function prefixIgnorePattern(line: string, prefix: string): string | null {
   const trimmed = line.trim();
@@ -85,9 +88,16 @@ function prefixIgnorePattern(line: string, prefix: string): string | null {
     const passed = `${esc}${rootedLead}${pattern}`;
     return negated ? `!${passed}` : passed;
   }
+  // 嵌套锚定形的斜杠回补只限转义根锚定形（escapedLead）：prefix 尾已带 /，
+  // 非转义锚定形再回补 rootedLead 即双斜杠（sub/ + / + x = sub//x——ignore
+  // 包对双斜杠形永不匹配，子层 .gitignore 的 /x、/dist/ 形整体失效）；分隔
+  // 由 prefix 尾斜杠承担，产出前缀直连形 sub/x、sub/dist/。转义根锚定形仍
+  // 须在 \! 之后回补 /（sub/\!/x = sub 域 ! 目录下 x——缺则漂移为 sub 域
+  // 字面 !x 名，既有转义族锁所锚）。
+  const escapedLead = bangEscaped && rooted ? '/' : '';
   const body = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
   const anchored = rooted || body.includes('/');
-  const prefixed = anchored ? `${prefix}${esc}${rootedLead}${pattern}` : `${prefix}**/${esc}${pattern}`;
+  const prefixed = anchored ? `${prefix}${esc}${escapedLead}${pattern}` : `${prefix}**/${esc}${pattern}`;
   return negated ? `!${prefixed}` : prefixed;
 }
 

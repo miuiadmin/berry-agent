@@ -180,6 +180,28 @@ describe('gitignore 转义形（65 轮件D——\\! 字面叹号名不反转）'
   });
 });
 
+describe('gitignore 嵌套非转义锚定（65 轮件D 回归锁——非转义锚定形不回补斜杠，分隔由 prefix 尾斜杠承担）', () => {
+  it('嵌套非转义根锚定：sub/.gitignore /x 与 /dist/ 应忽略 sub/x、sub/dist/gen.js（修前红：rootedLead 无条件回补拼 sub//x 双斜杠——ignore 包永不匹配，两文件误全入册）', async () => {
+    await put('sub/.gitignore', '/x\n/dist/\n');
+    await put('sub/x');
+    await put('sub/keep.txt');
+    await put('sub/dist/gen.js');
+    const files = await walkWorkspaceFiles(dir);
+    // git 真语义（check-ignore 真机亲证）：子层 /x 锚 sub/x、/dist/ 锚
+    // sub/dist/ 整目录——非转义形前缀直连（prefix 尾斜杠即分隔）
+    expect(files.map((f) => f.path).sort()).toEqual(['sub/.gitignore', 'sub/keep.txt']);
+  });
+
+  it('嵌套非根锚定带体内斜杠：sub/.gitignore deep/x.txt 只锚 sub/deep/x.txt，sub/other/deep/x.txt 不中（prefix 直连不插通配前缀——防过修守锁）', async () => {
+    await put('sub/.gitignore', 'deep/x.txt\n');
+    await put('sub/deep/x.txt');
+    await put('sub/other/deep/x.txt');
+    const files = await walkWorkspaceFiles(dir);
+    // 体内斜杠即锚定本子树精确路径——不落 **/ 通配前缀分支
+    expect(files.map((f) => f.path).sort()).toEqual(['sub/.gitignore', 'sub/other/deep/x.txt']);
+  });
+});
+
 describe('字节配额帽（65 轮件D——计数帽不辖字节维的补面；真 OOM 不可测，注入小值锁拒快照判据）', () => {
   it('单文件超帽 fail-closed 拒快照：CAPTURE_FAILED 响亮回执（修前红：字节维缺席不拒）', async () => {
     await put('big.bin', 'x'.repeat(100));
