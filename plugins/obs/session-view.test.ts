@@ -10,7 +10,7 @@ import type { SessionEvent } from '../../src/contracts/index.js';
 import { createSessionView } from './session-view.js';
 import type { ObsLiveSessionInfo, ObsSessionRow, SessionViewDeps } from './types.js';
 
-/** 内存假 deps 构造（queryEvents 语义对齐 store：fromSeq 含边界升序 limit） */
+/** 内存假 deps 构造（queryEvents 语义对齐 store：fromSeq/toSeq 含边界、升序 limit） */
 function fakeDeps(init?: {
   sessions?: readonly ObsSessionRow[];
   events?: readonly { sessionId: string; event: SessionEvent }[];
@@ -32,6 +32,9 @@ function fakeDeps(init?: {
         }
         if (filter.fromSeq !== undefined) {
           rows = rows.filter((entry) => entry.event.seq >= filter.fromSeq!);
+        }
+        if (filter.toSeq !== undefined) {
+          rows = rows.filter((entry) => entry.event.seq <= filter.toSeq!);
         }
         rows = [...rows].sort((a, b) => a.event.seq - b.event.seq);
         const limit = Math.min(Math.max(1, filter.limit ?? 1000), 10_000);
@@ -220,6 +223,65 @@ describe('listSessions', () => {
     const active = Array.from({ length: 150 }, (_, i) => ({ sessionId: `s${i}`, origin: 'conversation' }));
     const deps = fakeDeps({ active });
     expect(createSessionView(deps).listSessions()).toHaveLength(100);
+  });
+});
+
+describe('model 尾查（最后一条 request/header 单源——尾读道）', () => {
+  /** request/header 事件速构（model=undefined 时落无 config 载荷形——防御读取面） */
+  const header = (seq: number, model: string | undefined): SessionEvent =>
+    ev('request/header', seq, model === undefined ? { reason: 'change' } : { config: { model }, reason: 'change' });
+
+  it('超 100 条 request/header 长会话：model 列取真·最后一条 header（修前头窗冻结第 100 条旧值）', () => {
+    const events: { sessionId: string; event: SessionEvent }[] = [];
+    // 头窗恰装满：前 100 条 header 全 model-a（修前冻结源）
+    for (let seq = 0; seq < 100; seq += 1) events.push({ sessionId: 's1', event: header(seq, 'model-a') });
+    // 第 101..105 条落窗外：model-b（真·最后一条 = seq 104）
+    for (let seq = 100; seq < 105; seq += 1) events.push({ sessionId: 's1', event: header(seq, 'model-b') });
+    const deps = fakeDeps({
+      sessions: [row({ id: 's1', lastSeq: 104 })],
+      events,
+      active: [{ sessionId: 's1', origin: 'conversation' }],
+    });
+    // 修前红：types 过滤 SQL 侧生效 + LIMIT 100 升序 → 取到的是前 100 条 → model-a
+    expect(createSessionView(deps).listSessions()[0]!.model).toBe('model-b');
+  });
+
+  it('最后一条 header 落中段（距会话尾数百事件）仍被取到——seq 域定位全程精确，非尾窗近似', () => {
+    const events: { sessionId: string; event: SessionEvent }[] = [];
+    for (let seq = 0; seq < 100; seq += 1) events.push({ sessionId: 's1', event: header(seq, 'model-a') });
+    for (let seq = 100; seq < 150; seq += 1) events.push({ sessionId: 's1', event: ev('tool/call', seq) });
+    events.push({ sessionId: 's1', event: header(150, 'model-c') }); // 真·最后一条距尾 400 条
+    for (let seq = 151; seq <= 550; seq += 1) events.push({ sessionId: 's1', event: ev('tool/result', seq) });
+    const deps = fakeDeps({
+      sessions: [row({ id: 's1', lastSeq: 550 })],
+      events,
+      active: [{ sessionId: 's1', origin: 'conversation' }],
+    });
+    // 修前红：头窗前 100 条 → model-a；尾窗近似形修法也会 miss（最后一条距尾 400+）
+    expect(createSessionView(deps).listSessions()[0]!.model).toBe('model-c');
+  });
+
+  it('无 request/header 的会话 → model=undefined（存在性快路径，一探测即返）', () => {
+    const events = [0, 1, 2].map((seq) => ({ sessionId: 's1', event: ev('user/message', seq) }));
+    const deps = fakeDeps({
+      sessions: [row({ id: 's1', lastSeq: 2 })],
+      events,
+      active: [{ sessionId: 's1', origin: 'conversation' }],
+    });
+    expect(createSessionView(deps).listSessions()[0]!.model).toBeUndefined();
+  });
+
+  it('尾条 header 坏 model（无 config 载荷/空串）向下续搜前一条有效值——防御读取语义不回归', () => {
+    const deps = fakeDeps({
+      sessions: [row({ id: 's1', lastSeq: 2 })],
+      events: [
+        { sessionId: 's1', event: header(0, 'model-a') },
+        { sessionId: 's1', event: header(1, undefined) }, // 无 config 载荷
+        { sessionId: 's1', event: header(2, '') }, // 空串 model
+      ],
+      active: [{ sessionId: 's1', origin: 'conversation' }],
+    });
+    expect(createSessionView(deps).listSessions()[0]!.model).toBe('model-a');
   });
 });
 

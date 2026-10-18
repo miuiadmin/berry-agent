@@ -26,7 +26,9 @@
  * = 跨树（fail-closed——「不可判 = 跨树」既有句细则兑现）。
  *
  * **model 列单源**：最后一条 `request/header` 事件的 config.model（请求
- * 信封快照——wiring.noteRequest 写点）；防御读取缺席 undefined。
+ * 信封快照——wiring.noteRequest 写点）；防御读取缺席 undefined。尾读道（65 轮件 F）：persist 查询面恒升序
+ *   无倒序原语，头取（前 HEADER_SCAN_LIMIT 条 header）在超帽长会话冻结
+ *   旧值——真·最后一条落头窗外；改 seq 域二分定位全程精确（见 lastModel 注）。
  */
 import type { SessionEvent } from '../../src/contracts/index.js';
 import { sessionDisplayTitleOf } from '../../src/persist/index.js';
@@ -67,7 +69,7 @@ const STATE_SCAN_WINDOW = 20;
 /** 呈现摘要文本截断帽（单行 200 字符——模型消费面有界） */
 const SUMMARY_MAX_CHARS = 200;
 
-/** request/header 尾查页帽（initial/resume/change 少量词——防御帽） */
+/** request/header 尾查防御帽（坏 model 向下续搜的逐条验坏上限——对齐旧头窗帽量） */
 const HEADER_SCAN_LIMIT = 100;
 
 /** createSessionView 工厂（装载面/测试唯一入口） */
@@ -111,13 +113,53 @@ export function createSessionView(deps: SessionViewDeps): SessionView {
     return { row, live: deriveLiveState(tailEvent(row)) };
   };
 
-  /** model 尾查（最后一条 request/header 的 config.model——防御读取） */
-  const lastModel = (sessionId: string): string | undefined => {
-    const result = deps.events.queryEvents({ sessionId, types: ['request/header'], limit: HEADER_SCAN_LIMIT });
-    for (let i = result.events.length - 1; i >= 0; i -= 1) {
-      const data = result.events[i]!.data as { config?: { model?: unknown } } | null;
-      const model = data && typeof data === 'object' ? data.config?.model : undefined;
-      if (typeof model === 'string' && model.length > 0) return model;
+  /**
+   * model 尾查（最后一条 request/header 的 config.model——03 §10.8 单源）。
+   *
+   * 尾读道（65 轮件 F）：persist queryEvents 恒升序（ORDER BY time, session_id,
+   * seq）无倒序原语、禁扩 persist 公开面——头取（前 HEADER_SCAN_LIMIT 条
+   * header）在超帽长会话冻结旧值（真·最后一条落头窗外；header 落点 =
+   * initial/resume/change 三边界〔wiring.noteRequest〕，llm/retry 遮蔽与压缩
+   * 均置 resume——长时无人值守会话可累积超帽）。改 seq 域二分定位最后一条：
+   * 探测「[fromSeq, toSeq] 闭区间内存否 header」（limit 1 空性判定——空性与
+   * 行序无关，时钟回拨不破不变量），收敛点即最后一条 header 的 seq（PK
+   * (session_id, seq) 保证该 seq 至多一行，终探测取回该行）。探测次数
+   * 对数量级 ~log2(lastSeq)，每次 LIMIT 1——规避倒序拉全页的载荷放大
+   * （header 载体含完整请求信封快照，整页 materialize 昂贵）。
+   */
+  const lastModel = (sessionId: string, lastSeq: number): string | undefined => {
+    if (lastSeq < 0) return undefined; // 零事件会话——无 header 可言
+    /** 存在性探测：[fromSeq, toSeq] 闭区间内第一条 request/header（缺席 = 区间无 header） */
+    const probe = (fromSeq: number, toSeq: number): SessionEvent | undefined =>
+      deps.events.queryEvents({ sessionId, types: ['request/header'], fromSeq, toSeq, limit: 1 }).events.at(0);
+    /** seq 域二分：[0, upper] 内最后一条 header（区间空 = undefined） */
+    const lastHeaderWithin = (upper: number): SessionEvent | undefined => {
+      if (probe(0, upper) === undefined) return undefined; // 全区间无 header——快路径一探测即返
+      let lo = 0;
+      let hi = upper;
+      while (lo < hi) {
+        const mid = lo + Math.floor((hi - lo + 1) / 2); // 上取整——mid ≥ lo+1 防死循环
+        if (probe(mid, hi) !== undefined)
+          lo = mid; // 后半 [mid, hi] 有 header——最后一条在其中
+        else hi = mid - 1; // 后半空——最后一条在 [lo, mid-1]
+      }
+      return probe(lo, hi); // 收敛点：[lo, hi] 内 header 唯一（该 seq 至多一行）
+    };
+    /** header 载荷取 model（防御读取——缺席/非串/空串皆 undefined） */
+    const modelOf = (event: SessionEvent): string | undefined => {
+      const data = event.data as { config?: { model?: unknown } } | null;
+      const model = data !== null && typeof data === 'object' ? data.config?.model : undefined;
+      return typeof model === 'string' && model.length > 0 ? model : undefined;
+    };
+    // 尾条 header 坏 model（防御读取面）向下续搜前一条有效值——旧头窗内倒扫同义；
+    // 逐条验坏帽 = HEADER_SCAN_LIMIT（连续坏 header 超帽放弃——对齐旧防御帽量）
+    let upper = lastSeq;
+    for (let examined = 0; examined < HEADER_SCAN_LIMIT; examined += 1) {
+      const header = lastHeaderWithin(upper);
+      if (header === undefined) return undefined; // 有效 header 之下再无 header
+      const model = modelOf(header);
+      if (model !== undefined) return model;
+      upper = header.seq - 1; // 该条验坏——下轮在其下方续搜
     }
     return undefined;
   };
@@ -180,7 +222,7 @@ export function createSessionView(deps: SessionViewDeps): SessionView {
           origin: row?.origin ?? info.origin,
           parentId: row?.parentId,
           live,
-          model: row === undefined ? undefined : lastModel(info.sessionId),
+          model: row === undefined ? undefined : lastModel(info.sessionId, row.lastSeq),
           updatedAt: row?.updatedAt ?? 0,
         };
       });
@@ -236,7 +278,7 @@ export function createSessionView(deps: SessionViewDeps): SessionView {
         parentId: row?.parentId,
         workspaceRoot: workspaceRoot(),
         live,
-        model: row === undefined ? undefined : lastModel(sessionId),
+        model: row === undefined ? undefined : lastModel(sessionId, row.lastSeq),
       };
     },
 
