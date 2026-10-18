@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../../src/contracts/index.js';
-import { launchBrowserEngine } from './engine.js';
+import { launchBrowserEngine, PLANNED_ENGINE_SHUTDOWN } from './engine.js';
 import type { EngineHandle } from './engine.js';
 import type {
   BrowserChildFace,
@@ -386,6 +386,21 @@ describe('运行期降级与协议化关停', () => {
     await closing;
     expect(h.child.killed).toBe(false); // 自退场景不树杀
     expect(await handle.close()).toBeUndefined(); // 幂等——同结算
+  });
+
+  it('close() 结算 reason = PLANNED_ENGINE_SHUTDOWN 常量（service 面降级分诊的单源锚）', async () => {
+    const { h, handle, ws } = await liveHarness();
+    const downs: string[] = [];
+    handle.onDown((r) => downs.push(r));
+    const closing = handle.close();
+    const frames = ws.sent.map((t) => JSON.parse(t) as { id: number; method: string });
+    const farewell = frames.find((f) => f.method === 'Browser.close');
+    expect(farewell).toBeDefined();
+    ws.serverSend({ id: farewell!.id, result: {} }); // 引擎应答告别
+    await tick(); // 告别结清 + markDown 结算先于下方自退驱动
+    h.child.emitExit(0); // 引擎自退（markDown 已闸——迟到源不改 reason）
+    await closing;
+    expect(downs).toEqual([PLANNED_ENGINE_SHUTDOWN]); // 词面单源——漂移即 service 分诊失效
   });
 
   it('close() 宽限尽树杀：告别超时且不退 → kill 兜底', async () => {

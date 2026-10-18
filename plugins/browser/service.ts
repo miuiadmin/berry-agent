@@ -11,12 +11,14 @@
  *   工具事件）。
  * - 引擎降级：spawn/运行期死 → enginePromise 清空 + 全 context 收口，下用
  *   再试（BROWSER_CONNECT_FAILED 不炸宿主）；失败路径 launchPromise 同清
- *   （启动失败不粘住）。
+ *   （启动失败不粘住）。降级通知语义分诊（03 §10.3 生命周期行尾）：
+ *   PLANNED_ENGINE_SHUTDOWN（闲置扫掠/shutdown 编舞的预期关停）不广播
+ *   人面通知只 debug 记账——非预期降级照旧 notify。
  * - scope.effect 回卷：作用域 dispose 即 shutdown（页面全关 + 引擎关 +
  *   工具面注销）。
  * - 云端占位：config.providers 在场即 notify「引擎恒本地」（v1 执行面零接）。
  */
-import { launchBrowserEngine } from './engine.js';
+import { launchBrowserEngine, PLANNED_ENGINE_SHUTDOWN } from './engine.js';
 import type { EngineHandle, LaunchEngineDeps } from './engine.js';
 import { createBrowserPage } from './page.js';
 import type { BrowserPage } from './page.js';
@@ -50,7 +52,7 @@ export interface BrowserServiceDeps {
   /** 引擎出口代理窄面（透传 engine 编舞——03 §10.3 引擎网络栈出口钉死律） */
   readonly proxy: BrowserProxyFace;
   readonly logger?: BrowserLoggerFace;
-  /** 人面通知（云端占位 boot 通知 + 引擎降级 warn） */
+  /** 人面通知（云端占位 boot 通知 + 非预期引擎降级 warn——预期关停不广播） */
   readonly notify?: (message: string) => void;
   /** 工具注册面（缺席 = 纯服务形态——不挂模型工具） */
   readonly register?: BrowserRegisterToolsFace;
@@ -113,10 +115,17 @@ export function createBrowserService(deps: BrowserServiceDeps): BrowserService {
       })
         .then((handle) => {
           // 引擎级降级双源（进程退/ws 关）：清粘滞 + 全 context 收口——
-          // 页面 send 已被 cdp 件快拒，close 幂等吞错
+          // 页面 send 已被 cdp 件快拒，close 幂等吞错。降级通知语义分诊
+          // （03 §10.3 生命周期行尾）：reason 命中 PLANNED_ENGINE_SHUTDOWN
+          // = 闲置扫掠/shutdown 编舞的预期关停——非降级不广播人面通知，
+          // debug 记账照记；非预期降级照旧 notify（下用重试提示）
           handle.onDown((reason) => {
             enginePromise = undefined;
-            deps.notify?.(`browser：引擎已降级（${reason}）——下次使用时重试`);
+            if (reason === PLANNED_ENGINE_SHUTDOWN) {
+              deps.logger?.debug?.(`browser 引擎预期关停（${reason}）——不广播降级通知`);
+            } else {
+              deps.notify?.(`browser：引擎已降级（${reason}）——下次使用时重试`);
+            }
             for (const entry of contexts.values()) void entry.page.close().catch(() => {});
             contexts.clear();
           });

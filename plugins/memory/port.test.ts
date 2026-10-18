@@ -358,6 +358,20 @@ describe('runMemoryImport（真库全环——恢复式语义）', () => {
     expect(warns.some((w) => w.includes('secret 扫描命中拒写') && !w.includes('sk-abcdefghijklmnopqrst'))).toBe(true); // 说面不说值
   });
 
+  it('空行隔断不漂移报错行号：坏行诊断报物理行号（行号物理化——滤空行不位移）', () => {
+    const dao = setup();
+    const good = wireRow();
+    const malformed = JSON.stringify({ ...wireRow(), kind: 'wisdom' });
+    // 物理行序：header=1 · 好行=2 · 空行=3 · 坏行=4——旧码先滤空行再以
+    // index+2 记行号，坏行被错报「第 3 行」（漂后行号）；行号物理化后报第 4 行
+    const text = [headerLine(), JSON.stringify(good), '', malformed].join('\n');
+    const diagnostics: string[] = [];
+    const r = runMemoryImport(text, dao, (m) => diagnostics.push(m));
+    expect(r).toEqual({ inserted: 1, skippedExisting: 0, rejectedSecret: 0, rejectedMalformed: 1 });
+    expect(diagnostics.join('\n')).toContain('第 4 行格式不对'); // 物理行号
+    expect(diagnostics.join('\n')).not.toContain('第 3 行格式不对'); // 滤空行漂移形禁回潮
+  });
+
   it('header 坏形整文件拒（无行落库）；空文件拒；纯 header 零行零账', () => {
     const dao = setup();
     const good = wireRow();

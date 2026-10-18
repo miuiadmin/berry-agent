@@ -36,6 +36,14 @@ import type {
   BrowserWsFace,
 } from './types.js';
 
+/**
+ * 协议化关停 reason 常量（close() 自身 markDown 的词面单源——markDown 该
+ * reason 的消费位唯 close() 一处；service 面 onDown 分诊同源消费：命中 =
+ * 预期关停不广播降级通知〔03 §10.3 生命周期行尾降级通知语义分诊〕）。
+ * 消费侧禁字面复制（词面漂移即分诊失效）。
+ */
+export const PLANNED_ENGINE_SHUTDOWN = '协议化关停';
+
 /** 引擎句柄公开面 */
 export interface EngineHandle {
   /** browser 级单连接（命令 + 事件分流路由面） */
@@ -255,7 +263,7 @@ export async function launchBrowserEngine(deps: LaunchEngineDeps): Promise<Engin
             /* 协议告别失败走宽限兜底 */
           }
         }
-        markDown('协议化关停');
+        markDown(PLANNED_ENGINE_SHUTDOWN);
         // 宽限等自退 → kill 兜底（不因坏引擎悬挂）
         await new Promise<void>((resolve) => {
           const timer = setTimeout(() => {

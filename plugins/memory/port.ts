@@ -373,18 +373,42 @@ export function parseMemoryImportRow(line: string, lineNo: number): MemoryExport
  * DAO importInsert（secret 扫描 + 三写事务单点执法）」——secret 命中折
  * rejectedSecret、行坏形折 rejectedMalformed、id 已在折 skippedExisting、
  * 落库成功计 inserted。空行宽容跳过（尾行换行/编辑器空行不折坏形）。
+ *
+ * 行号物理化：先 split 带物理行号（1 起）再滤空行——先滤后记会让行号随
+ * 空行数漂移，invalidRow 错引「第 N 行」。词法坏形的「第 N 行格式不对」
+ * 经 warn 注入位外显（缺省静默——装配面可接日志/warn 通道；四账计数不受
+ * 影响，DAO 兜底防线/撞库形的诊断走 DAO 自有 warn 通道不双报）。
  */
-export function runMemoryImport(text: string, dao: MemoryPortDaoFace): MemoryImportOutcome {
-  const lines = text.split('\n').filter((line) => line.trim() !== '');
+export function runMemoryImport(
+  text: string,
+  dao: MemoryPortDaoFace,
+  warn?: (message: string) => void,
+): MemoryImportOutcome {
+  // 先带物理行号再滤空行（「空行宽容跳过」语义不变——空行不折坏形也不位移行号）
+  const lines = text
+    .split('\n')
+    .map((line, index) => ({ line, no: index + 1 }))
+    .filter((entry) => entry.line.trim() !== '');
   if (lines.length === 0) {
     throw invalidHeader('文件空（首行 header 缺席）');
   }
-  parseMemoryImportHeader(lines[0]!);
+  parseMemoryImportHeader(lines[0]!.line);
   const outcome = { inserted: 0, skippedExisting: 0, rejectedSecret: 0, rejectedMalformed: 0 };
-  for (const [index, line] of lines.slice(1).entries()) {
-    const lineNo = index + 2; // 文件行号（1 起）——header 占首行
+  for (const { line, no } of lines.slice(1)) {
+    // 行解析先行：词法坏形（MEMORY_ENTRY_INVALID）折 rejectedMalformed +
+    // 诊断外显（行号取物理行——header 判定与数据行切片均不位移）
+    let row: MemoryExportRow;
     try {
-      const row = parseMemoryImportRow(line, lineNo);
+      row = parseMemoryImportRow(line, no);
+    } catch (err) {
+      if (err instanceof BaseError && err.code === 'MEMORY_ENTRY_INVALID') {
+        outcome.rejectedMalformed += 1;
+        warn?.(err.message);
+        continue;
+      }
+      throw err;
+    }
+    try {
       if (dao.importInsert(row)) outcome.inserted += 1;
       else outcome.skippedExisting += 1;
     } catch (err) {

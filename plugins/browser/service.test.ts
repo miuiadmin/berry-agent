@@ -280,6 +280,34 @@ describe('createBrowserService', () => {
     await svc.shutdown();
   });
 
+  it('闲置扫掠引擎关停 = 预期关停：零降级广播 + debug 记账在场 + 下用再起（03 §10.3 降级通知分诊）', async () => {
+    // 修前红：onDown 无差别 notify——闲置扫掠的预期关停也被广播
+    // 「引擎已降级（协议化关停）」；分诊后该 reason 零 notify、只 debug 记账
+    const debugs: string[] = [];
+    const h = makeDeps({ logger: { debug: (m: string) => debugs.push(m), warn: () => {} } });
+    const svc = createBrowserService(h.deps);
+    svc.apply();
+    await svc.pageFor('s1'); // t=0（engineLastUsed=0, s1.lastUsed=0）
+    // 桩对齐真引擎 close() 编舞：close() → markDown('协议化关停') → onDown 送达
+    const e = h.engines[0]!;
+    const origClose = e.handle.close;
+    e.handle.close = async () => {
+      await origClose();
+      e.emitDown('协议化关停');
+    };
+    // t=1001 扫掠：s1 闲置清（1001-0≥1000）+ 引擎闲置同扫掠关停（1001-0≥1000）
+    h.setT(1001);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(e.closeCount).toBe(1);
+    expect(h.notifies.filter((m) => m.includes('引擎已降级'))).toHaveLength(0); // 预期关停不广播
+    expect(debugs.some((m) => m.includes('预期关停'))).toBe(true); // debug 记账在场（分诊腿）
+    // contexts 收口照走：下用再起新引擎（enginePromise 已清）
+    h.setT(2000);
+    await svc.pageFor('s2');
+    expect(h.launches).toHaveLength(2);
+    await svc.shutdown();
+  });
+
   it('启动失败不粘住：pageFor 拒 + 再用重试', async () => {
     let calls = 0;
     const h = makeDeps({
