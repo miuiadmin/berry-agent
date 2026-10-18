@@ -471,6 +471,72 @@ describe('httpSdkTransport 直连 HTTP 传输', () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
+
+  it('close 后门检：roundTrip/openLive 再入即拒 SDK_TRANSPORT 连接已收口（修前真发请求成功落定即红）', async () => {
+    // 自有 face（prompt 应答 ack / events 应答 SSE 建立流）：修前 close() 无
+    // closed 位——只收口在场资源（在飞账/liveStreams），收口后新请求照真发且
+    // 成功落定（resolve 而非 reject）→ rejects 断言即红。修形对齐 stdio 形
+    // （closed 位 + 终局后新事务同律即拒）：门检先行于 httpRequest——不真发
+    // 请求、词面与 close 在飞拒绝位同源（「连接已收口」）。
+    const server = createServer((req, res) => {
+      const url = new URL(req.url ?? '/', 'http://face.test');
+      if (req.method === 'POST' && url.pathname === '/v1/prompt') {
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(
+          JSON.stringify({
+            kind: 'ack',
+            sessionId: 's-1',
+            messageId: 'm-1',
+            duplicate: false,
+            highWaterSeq: 5,
+          }),
+        );
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/v1/events') {
+        // 正常建流形：hello + replay-end 后续持流——修前 close 后 openLive 成功
+        // 落定（resolved）→ rejects 断言红
+        res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+        res.write(
+          `data: ${JSON.stringify({ kind: 'hello', protocolVersion: 1, sessionId: 's-1', highWaterSeq: 9 })}\n\n`,
+        );
+        res.write(`data: ${JSON.stringify({ kind: 'replay-end', sessionId: 's-1', lastReplayedSeq: 8 })}\n\n`);
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const transport = httpSdkTransport({ host: '127.0.0.1', port, token: TOKEN });
+    const client = createSdkClient(transport);
+    try {
+      // close 前正常路径不破（同 server 正常应答——门检只拦收口后再入）
+      const ack = await client.prompt({ messageId: 'm-0', content: 'x' });
+      expect(ack.kind).toBe('ack');
+      await transport.close();
+      // 请求档门检：修前真发请求 → 200 ack 落定（resolved）→ rejects 断言红
+      await expect(withDeadline(client.prompt({ messageId: 'm-1', content: 'x' }))).rejects.toMatchObject({
+        name: 'SdkError',
+        code: 'SDK_TRANSPORT',
+        message: expect.stringContaining('连接已收口') as unknown,
+      });
+      // 直播档门检（一切新请求入口之一——openLive 自有 httpRequest 位）：修前
+      // 建流成功落定（handle）→ rejects 断言红
+      await expect(withDeadline(transport.openLive({ sessionId: 's-1' }, () => {}))).rejects.toMatchObject({
+        name: 'SdkError',
+        code: 'SDK_TRANSPORT',
+        message: expect.stringContaining('连接已收口') as unknown,
+      });
+      // close 幂等二调不炸（置位后重入即 no-op）
+      await transport.close();
+    } finally {
+      // 修前红跑形下 openLive 可能已成功建流（SSE 连接在场）——斩尽防
+      // server.close 回调悬挂拖死测程
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 });
 
 describe('liveClose 流账纪律（单订阅收口工厂——idx 24）', () => {

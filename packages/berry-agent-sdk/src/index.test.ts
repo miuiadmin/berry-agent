@@ -57,6 +57,10 @@ export type SdkIndexTypeSurface = [
   // —— types.ts 第二块（线协议/契约面）——
   apiTypes.AgentEvent,
   apiTypes.ApprovalAskAnswer,
+  // decide 可传应答闭集（61 轮件D-1）：types.ts:31 已策展 re-export 而桶面缺席
+  // ——消费面 `import { ApprovalDecideAnswer } from 'berry-agent-sdk'` TS2305，
+  // 本名册同为缺名红出位（类型面存在性锁执法腿 = tsc sdk 测试配置）
+  apiTypes.ApprovalDecideAnswer,
   apiTypes.SdkRequest,
   apiTypes.SdkPromptImage,
   apiTypes.SdkWireFrame,

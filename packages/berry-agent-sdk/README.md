@@ -74,6 +74,7 @@ await client.close();
   `SdkFrameListener` / `SdkLiveHandle` / `SdkLiveParams` / `SdkTransport` /
   `SdkClient` / `SdkPromptInput` / `SdkPromptImage` / `SdkEntriesInput` /
   `SdkSessionsResult`；线协议/契约面 `AgentEvent` / `ApprovalAskAnswer` /
+  `ApprovalDecideAnswer` /
   `SdkRequest` / `SdkWireFrame` / `SdkAckFrame` / `SdkEntriesFrame` /
   `SdkSessionsFrame` / `SdkSessionSummary` / `SdkDurableEntry` / `SdkEventFrame` /
   `SdkHelloFrame` / `SdkErrorFrame` / `SdkHeartbeatStage` / `SdkHeartbeatFrame` /

@@ -22,6 +22,11 @@
  * 销毁句柄并以 SDK_TRANSPORT「连接已收口」fail-loud 拒绝，与 stdio 形终局
  * 纪律（stdio 头注：子进程终局 → 在飞事务 fail-loud 拒绝防整链静默挂死）
  * 对齐——收口后零悬挂 Promise。
+ *
+ * 收口后再入门检（61 轮件D-2）：closed 位使 close() 后的新事务（一切新请求
+ * 入口 = roundTrip 腿 + openLive 腿）入口即拒 SDK_TRANSPORT「连接已收口」
+ * ——不真发请求；修前全文零 closed 位，收口后新请求照真发（无声复用已收口
+ * 传输），与 stdio 形终局后新事务同律即拒的纪律漂移。
  */
 import { request as httpRequest } from 'node:http';
 import type { ClientRequest, IncomingMessage } from 'node:http';
@@ -91,10 +96,22 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
    * 销毁句柄并 SDK_TRANSPORT 拒绝。
    */
   const inflightRequests = new Set<InflightRequest>();
+  /**
+   * 收口位（61 轮件D-2）：close() 首次置位后一切新请求入口（roundTrip/
+   * openLive）门检即拒——修前全文零 closed 位，收口后新请求照真发。只前进
+   * 不回退（幂等重入安全——close 二调经此位早退）。
+   */
+  let closed = false;
 
   /** 单次请求（socketPath XOR host/port——Node 语义自动取舍） */
   const roundTrip = (method: 'GET' | 'POST', path: string, body?: string): Promise<HttpResult> =>
     new Promise<HttpResult>((resolve0, reject0) => {
+      // 收口门检（D-2）：close() 后再入即 fail-loud 拒、不真发请求——请求档
+      // 两动词（request/send）皆经本腿发起，门检单点覆盖
+      if (closed) {
+        reject0(new SdkError('SDK_TRANSPORT', '连接已收口'));
+        return;
+      }
       // 在飞档（L2-1）：发起即入账、事务落定即出账——resolve/reject 包一层
       // 使任一落定路（应答 end/错误/close() 收口拒）先到先摘账（Promise 幂等）
       let entry: InflightRequest | undefined;
@@ -209,6 +226,12 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
 
     openLive: (params: SdkLiveParams, onFrame: SdkFrameListener) =>
       new Promise<SdkLiveHandle>((resolve0, reject0) => {
+        // 收口门检（D-2）：与 roundTrip 腿同律——close() 后建流即拒、不真发
+        // 请求（openLive 自有 httpRequest 位，须独立门检）
+        if (closed) {
+          reject0(new SdkError('SDK_TRANSPORT', '连接已收口'));
+          return;
+        }
         // 在飞档（L2-1）：与 roundTrip 同律——发起即入账、事务落定即出账
         //（resolve = replay-end 建立位；reject 含建流失败各路 + close() 收口拒）
         let entry: InflightRequest | undefined;
@@ -353,8 +376,11 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
     // agent 自理）+ 在飞请求 fail-loud（L2-1：建流前期/应答读取期窗修前结构
     // 性够不到——对齐 stdio 形终局纪律不留悬挂 Promise）。先拒后毁：拒绝词面
     // 「连接已收口」确定性先到——destroy 异步触发的传输错事件（ECONNRESET
-    // 等）落在已落定 Promise 上即 no-op，不抢词面。
+    // 等）落在已落定 Promise 上即 no-op，不抢词面。首调即置 closed 位（D-2：
+    // 此后新事务两腿门检即拒）；重入早退 no-op（stdio 形 :394 同款守卫）。
     close: async () => {
+      if (closed) return;
+      closed = true;
       for (const entry of [...inflightRequests]) {
         entry.reject(new SdkError('SDK_TRANSPORT', '连接已收口'));
         entry.req.destroy();
