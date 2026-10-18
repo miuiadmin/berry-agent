@@ -1603,6 +1603,32 @@ describe('WebUiRoot主题两态切换（2026-10-07 webui 深浅色批——03 §
     await screen.findAllByText('测试会话');
     expect(screen.getByRole('button', { name: '深色' })).toBeTruthy();
   });
+
+  it('存储被禁半程态：setItem 抛错不阻断翻档——钮文案照换 + meta 仍同步（62 轮件 B）', async () => {
+    primeMain();
+    // meta 落位面是 index.html（测试直挂组件不经 html）——桩自注入（同上用例形）
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'color-scheme');
+    meta.setAttribute('content', 'dark');
+    document.head.appendChild(meta);
+    // 存储被禁形态（旧 Safari 隐私模式 setItem 抛 QuotaExceededError / Chrome
+    // 阻止 Cookie 下抛 SecurityError）——桩恒抛（启动读腿同失效面，写腿守卫
+    // 镜像 index.html 守卫形）
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    // 修前红锚：点击后 setItem 裸抛 → setTheme 不执行 → 钮文案停留「浅色」
+    fireEvent.click(screen.getByRole('button', { name: '浅色' }));
+    // ① 钮文案已翻面（theme state 达成——浅档在身显对面档直白词「深色」；
+    // React state 与渲染档不因持久缺席脱钩）
+    expect(screen.getByRole('button', { name: '深色' })).toBeTruthy();
+    // ② meta color-scheme 仍同步为新档值（同步链不因存储被禁断）
+    expect(meta.getAttribute('content')).toBe('light');
+    setItemSpy.mockRestore();
+    meta.remove();
+  });
 });
 
 /* ---------------- 图片粘贴提交链（2026-10-08 剪贴板附件批——03 §10.4 批注⑥） ---------------- */

@@ -288,7 +288,15 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
     } else {
       delete document.documentElement.dataset.theme; // 暗=无属性（remove 形）
     }
-    localStorage.setItem('webui_theme', next);
+    // 持久写腿守卫（62 轮件 B——镜像 index.html 启动读腿守卫形）：存储被禁
+    // 形态（旧 Safari 隐私模式 setItem 抛 QuotaExceededError / Chrome 阻止
+    // Cookie 下抛 SecurityError）裸写会炸断后续同步——meta 与 setTheme 落
+    // 空、React state 与渲染档永久脱钩 + 每次点击未处理异常。
+    try {
+      localStorage.setItem('webui_theme', next);
+    } catch {
+      /* localStorage 不可用（隐私模式形）——持久缺席仅本会话，翻档与同步照常 */
+    }
     document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', next);
     setTheme(next);
   }, []);
