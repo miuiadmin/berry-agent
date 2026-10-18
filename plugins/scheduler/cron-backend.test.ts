@@ -1,12 +1,38 @@
 /**
  * cron 可选后端测试——scheduleToCron 映射纯函数 + OS 注册器读改写编舞
  * （execCrontab 假件零进程；平台/授权/写失败三亮拒；他人行保留）。
+ * 缺省 crontab 执行器（execCrontabViaSpawnSync——件内私有非导出面）的
+ * 击杀通道帽经 vi.mock 定向单点覆盖（60 轮件E①——node:child_process 截获
+ * 桩默认透传真身，零真进程纪律不破；deps.execCrontab 注入面只替执行器本身，
+ * 锁缺省真身须文件级截获——native-clipboard 先例同形裁量）。
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../../src/contracts/index.js';
 import { createOsCronRegistrar, cronMarker, scheduleToCron, type CronBackendDeps } from './cron-backend.js';
 import type { Schedule } from './schedule.js';
 import type { JobRow } from './types.js';
+
+/**
+ * 定向单点桩（60 轮件E① 回归锁）：vi.mock 截获 node:child_process——只换
+ * spawnSync（本件唯一子进程位 = 缺省 crontab 执行器），缺省透传真身；既有
+ * 用例全部经 execCrontab 假件注入（零 spawnSync 触达——透传腿永不点火）。
+ * vi.hoisted 共享柄：mock 工厂注册位与用例断言位持同一 mock 实例（工厂内
+ * 不能引用外部变量的提升律绕道）。帽锁用例以 mockImplementationOnce 定向
+ * 覆写即弃（当笔消费即还原委托形——断言红态也不泄漏给后续用例）。
+ */
+const { spawnSyncStub, realChildProcess } = vi.hoisted(() => {
+  // 真身寄存位（mock 工厂 importOriginal 后回填——委托闭包调时解析）
+  const realChildProcess: { spawnSync?: (...invoke: unknown[]) => unknown } = {};
+  const spawnSyncStub = vi.fn((...invoke: unknown[]) => realChildProcess.spawnSync!(...invoke));
+  return { spawnSyncStub, realChildProcess };
+});
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  // 双转型只过类型关（@types 重载面 vs 宽松委托形）——运行期即真身引用
+  realChildProcess.spawnSync = actual.spawnSync as unknown as (...invoke: unknown[]) => unknown;
+  return { ...actual, spawnSync: spawnSyncStub };
+});
 
 /** 断言抛指定码 */
 function expectCode(fn: () => unknown, code: string): void {
@@ -243,5 +269,42 @@ describe('OS 注册器编舞（execCrontab 假件）', () => {
     const reg = createOsCronRegistrar(depsWith(exec));
     reg.register(rowOf({ kind: 'daily', time: '09:30' }, 'first-ever'));
     expect(exec.writes).toHaveLength(1); // 未因 exit 1 炸
+  });
+});
+
+describe('缺省 crontab 执行器帽（60 轮件E①——spawnSync 无帽：悬挂的 crontab 子进程同步冻结调用线程）', () => {
+  it('击杀通道锁：读/写两腿第三参恒对象形——timeout 5s + SIGKILL（修前红：读腿第三参 undefined 无 timeout 位）', () => {
+    // register 编舞两次触达 spawnSync（-l 读 + - 写）——once 形各消费一次即弃
+    // （不漏透传真身跑真 crontab）；platform 显式 'darwin' 钉非 win32（平台缝
+    // 与 mock 无涉——deps.platform 注入面既有）
+    spawnSyncStub
+      .mockImplementationOnce(() => ({ status: 0, stdout: '', stderr: '' })) // -l 读：空表
+      .mockImplementationOnce(() => ({ status: 0, stdout: '', stderr: '' })); // - 写：成功
+    const reg = createOsCronRegistrar({ authorize: () => true, platform: 'darwin' });
+    reg.register(rowOf({ kind: 'daily', time: '09:30' }, 'cap-lock'));
+    expect(spawnSyncStub).toHaveBeenCalledTimes(2);
+    // 通道锁（59 轮件D native-clipboard 5s 同值同形）：spawnSync 唯有 timeout
+    // 在场才到点杀（原生层点火——JS 线程同步阻塞不影响其计时）；killSignal=
+    // SIGKILL 非 SIGTERM（悬挂子进程可忽略 SIGTERM——tools/spawn-sync-cap.mjs
+    // 头注同律）。修前读腿第三参 undefined、写腿仅 { input }——timeout 位断言红
+    expect(spawnSyncStub.mock.calls[0]![2]).toMatchObject({ timeout: 5_000, killSignal: 'SIGKILL' });
+    expect(spawnSyncStub.mock.calls[1]![2]).toMatchObject({
+      input: expect.any(String),
+      timeout: 5_000,
+      killSignal: 'SIGKILL',
+    });
+  });
+
+  it('帽点到即诚实失败：ETIMEDOUT 形（error 在场）折 code -1 → 既有亮拒路不静默', () => {
+    // spawnSync 超时真形：子进程被杀 → status null、error.code=ETIMEDOUT
+    spawnSyncStub.mockImplementationOnce(() => ({
+      status: null,
+      stdout: '',
+      stderr: '',
+      error: new Error('spawnSync crontab ETIMEDOUT'),
+    }));
+    const reg = createOsCronRegistrar({ authorize: () => true, platform: 'darwin' });
+    // 帽点走既有 code -1 → readCrontab 亮拒 SCHEDULER_CRON_WRITE_FAILED（不静默吞）
+    expectCode(() => reg.register(rowOf({ kind: 'daily', time: '09:30' })), 'SCHEDULER_CRON_WRITE_FAILED');
   });
 });

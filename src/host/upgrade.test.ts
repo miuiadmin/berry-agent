@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   compareSemverFull,
+  defaultRunInstall,
   detectInstallForm,
   fetchDistTags,
   readUpdateCheckState,
@@ -17,6 +18,7 @@ import {
   TARGET_RE,
   UPDATE_CHECK_MAX_BYTES,
   writeUpdateCheckState,
+  type InstallSpawn,
   type UpdateCheckFs,
 } from './upgrade.js';
 import type { SpawnRunner } from './plugin-install.js';
@@ -654,5 +656,58 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
     const { deps } = cliDeps({});
     await runUpgradeCommand(deps);
     expect(readUpdateCheckState(deps.fs, '/data')).toMatchObject({ latest: '0.1.0-alpha.5' });
+  });
+});
+
+// —— defaultRunInstall：装机腿击杀通道帽（60 轮件E②） ————————————
+
+describe('defaultRunInstall 击杀通道帽（60 轮件E②——npm 异步腿无帽：悬挂子进程即 CLI 升级动词永悬）', () => {
+  /**
+   * 假 child：on 记柄返自身（生产只消费 error/close 两柄）——事件由测试驱动
+   * 收口（Promise 不悬挂可 await）。
+   */
+  function fakeChildWithHandlers(): {
+    child: { on: (event: string, cb: (...invoke: unknown[]) => void) => unknown };
+    fire: (event: string, ...args: unknown[]) => void;
+  } {
+    const handlers = new Map<string, (...invoke: unknown[]) => void>();
+    const child = {
+      on: (event: string, cb: (...invoke: unknown[]) => void) => {
+        handlers.set(event, cb);
+        return child; // 链式返自身（生产 on 链形同构）
+      },
+    };
+    return { child, fire: (event, ...args) => handlers.get(event)!(...args) };
+  }
+
+  it('注入缝击杀通道锁：第三参 timeout 600s + SIGKILL（修前红：缺省 options 仅 stdio 无帽位）', async () => {
+    // 注入位单点桩（InstallSpawn 缺省真身——生产装配零变化）：记账 cmd/args/
+    // options 后返假 child（不真装）
+    const calls: Array<{ cmd: string; args: string[]; options: unknown }> = [];
+    const { child, fire } = fakeChildWithHandlers();
+    const spawnImpl = ((_cmd: string, _args: string[], options: unknown) => {
+      calls.push({ cmd: _cmd, args: [..._args], options });
+      return child;
+    }) as unknown as InstallSpawn;
+    const pending = defaultRunInstall('1.2.3', spawnImpl);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.cmd).toBe(process.platform === 'win32' ? 'npm.cmd' : 'npm');
+    expect(calls[0]!.args).toEqual(['install', '-g', 'berry-agent@1.2.3']); // target 已过白名单的插值位
+    // 帽族同值：npm 网络腿长动作帽 600s（plugin-install runNpmInstall
+    // timeoutMs 600_000 同族——CLI 面无帽同义补位）；SIGKILL 镜像
+    // tools/spawn-sync-cap.mjs 头注理由（SIGTERM 可被僵死子进程忽略）
+    expect(calls[0]!.options).toMatchObject({ stdio: 'inherit', timeout: 600_000, killSignal: 'SIGKILL' });
+    fire('close', 0); // 收口：不悬挂
+    await expect(pending).resolves.toBe(true);
+  });
+
+  it('帽到点收口形：超时击杀 close(null, SIGKILL) → resolve(false) 落既有回执路（CLI 退 1 不悬挂）', async () => {
+    // 异步 spawn 超时真形（node 实证）：到点 killSignal 击杀 → close code null
+    // （非 0）——resolve(code === 0) 折 false；kill 失败形 error 事件同落 false
+    const { child, fire } = fakeChildWithHandlers();
+    const spawnImpl = (() => child) as unknown as InstallSpawn;
+    const pending = defaultRunInstall('1.2.3', spawnImpl);
+    fire('close', null, 'SIGKILL');
+    await expect(pending).resolves.toBe(false);
   });
 });

@@ -13,9 +13,8 @@
  * 自然退出腿（close 到达）同杀组——主进程已退而组内残留孙进程 = 脱管泄漏，
  * 只清组内残留、不改写已封归因（04 §8 2026-09-14 第四役定形）。
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
 import { BaseError } from '../../src/contracts/index.js';
 import { createLogger } from '../../src/context/index.js';
 import type { Logger } from '../../src/context/index.js';
@@ -366,7 +365,8 @@ export function isPidAlive(pid: number): boolean {
 /**
  * 读进程命令行（pid 复用防线比对源）：linux 走 /proc/<pid>/cmdline（NUL 分隔
  * argv），其余平台走 ps -o command=（同步一次性——仅宿主启动期清扫用，不进
- * 热路径）。读不到返回 null（清扫面视为不匹配跳过）。
+ * 热路径；argv 直传 + 2s 帽形见函数内注释）。读不到返回 null（清扫面视为
+ * 不匹配跳过）。
  */
 export function readCmdlineSync(pid: number): string | null {
   if (process.platform === 'linux') {
@@ -378,10 +378,20 @@ export function readCmdlineSync(pid: number): string | null {
     }
   }
   try {
-    return execSync(`ps -o command= -p ${pid}`, {
+    // argv 直传形（60 轮件E③——03 §10.3 安全卫生条 2026-10-18 60 轮定形注帽
+    // 族）：修前 execSync 模板串经 /bin/sh 壳层——插值位即壳层注入面（pid 数值
+    // 形虽无现实注入载体，壳层中介结构性消除为正），且同步腿无帽（悬挂 ps 即
+    // 同步冻结调用线程——tools/spawn-sync-cap.mjs 头注同律）。同源化
+    // serve-daemon.ts 同查询既有 2s 帽 + SIGKILL 强杀（SIGTERM 可被僵死子进程
+    // 忽略）。帽点/非零退/ps 缺席 → null（清扫面视为不匹配跳过——既有语义）。
+    const out = spawnSync('ps', ['-o', 'command=', '-p', String(pid)], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+      timeout: 2_000,
+      killSignal: 'SIGKILL',
+    });
+    if (out.status !== 0 || typeof out.stdout !== 'string') return null;
+    return out.stdout.trim();
   } catch {
     return null;
   }

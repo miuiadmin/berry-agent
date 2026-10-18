@@ -575,14 +575,31 @@ export async function runUpgradeCommand(deps: UpgradeCliDeps): Promise<number> {
 }
 
 /**
+ * 装机执行体注入面（缺省真身——测试桩在此单点注入，断言 options 帽参数；
+ * 生产装配零变化）。59 轮件C dangerPushBranch execFileImpl 注入缝同形裁量：
+ * host 内部函数转导出顺带缝。
+ */
+export type InstallSpawn = typeof childSpawn;
+
+/**
  * 装机执行真身：spawn npm install -g（**stdio 继承**——装机输出直给用户终
  * 端，进度/OTP 浏览器链接不吞）。win32 上 npm 可执行名带 .cmd 尾——平台
  * 分叉；目标串已过 TARGET_RE 白名单（插值安全的前提）。
  */
-function defaultRunInstall(target: string): Promise<boolean> {
+export function defaultRunInstall(target: string, spawnImpl: InstallSpawn = childSpawn): Promise<boolean> {
   return new Promise((resolve) => {
     const cmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const child = childSpawn(cmd, ['install', '-g', `${PACKAGE_NAME}@${target}`], { stdio: 'inherit' });
+    const child = spawnImpl(cmd, ['install', '-g', `${PACKAGE_NAME}@${target}`], {
+      stdio: 'inherit',
+      // 异步腿击杀通道帽（60 轮件E②——03 §10.3 安全卫生条 2026-10-18 60 轮
+      // 定形注帽族）：npm 网络腿长动作帽 600s 同族同值（plugin-install
+      // runNpmInstall timeoutMs 600_000——「npm 网络腿长动作帽」族）；SIGKILL
+      // 强杀非 SIGTERM（悬挂子进程可忽略 SIGTERM——tools/spawn-sync-cap.mjs
+      // 头注同律）。帽到点击杀 → close code null（非 0）落既有 resolve(false)
+      // 回执路（kill 失败形 error 事件同落）——CLI 面诚实退 1 不悬挂。
+      timeout: 600_000,
+      killSignal: 'SIGKILL',
+    });
     child.on('error', () => resolve(false));
     child.on('close', (code) => resolve(code === 0));
   });

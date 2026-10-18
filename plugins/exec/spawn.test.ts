@@ -9,9 +9,30 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execPath } from 'node:process';
 import { realpathSync } from 'node:fs';
-import { afterEach, describe, expect, it } from 'vitest';
-import { createSpawnPipeline, isPidAlive } from './spawn.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createSpawnPipeline, isPidAlive, readCmdlineSync } from './spawn.js';
 import type { SpawnPipeline } from './types.js';
+
+/**
+ * 定向单点桩（60 轮件E③）：vi.mock 截获 node:child_process——只换 spawnSync
+ * （本件唯一同步腿 = readCmdlineSync ps 查询），缺省透传真身；spawn 恒真身
+ * （本文件既有用例全真进程腿——passthrough 缺省全参透传保零附带）。vi.hoisted
+ * 共享柄：mock 工厂注册位与用例断言位持同一 mock 实例（工厂内不能引用外部
+ * 变量的提升律绕道）。帽锁用例以 mockImplementationOnce 定向覆写即弃。
+ */
+const { spawnSyncStub, realChildProcess } = vi.hoisted(() => {
+  // 真身寄存位（mock 工厂 importOriginal 后回填——委托闭包调时解析）
+  const realChildProcess: { spawnSync?: (...invoke: unknown[]) => unknown } = {};
+  const spawnSyncStub = vi.fn((...invoke: unknown[]) => realChildProcess.spawnSync!(...invoke));
+  return { spawnSyncStub, realChildProcess };
+});
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  // 双转型只过类型关（@types 重载面 vs 宽松委托形）——运行期即真身引用
+  realChildProcess.spawnSync = actual.spawnSync as unknown as (...invoke: unknown[]) => unknown;
+  return { ...actual, spawnSync: spawnSyncStub };
+});
 
 const cleanups: string[] = [];
 afterEach(async () => {
@@ -519,3 +540,51 @@ describe('run() onData 只读抽头（04 §8 流式活预览批①三律）', ()
 
 /** SpawnPipeline 类型锚（防公共面漂移的编译期断言） */
 export type _PipelineShape = SpawnPipeline;
+
+describe('readCmdlineSync ps 腿帽（60 轮件E③——execSync 壳层形无帽：悬挂 ps 同步冻结调用线程）', () => {
+  /**
+   * 平台缝（即用即还）：ps 腿仅非 linux 平台可达（linux 走 /proc）——强制
+   * 'darwin' 使 linux CI 上同样锁到 ps 腿；process.platform 为 configurable
+   * 数据属性，defineProperty 覆写 + finally 还原真值（作用域不出本用例）。
+   */
+  function withForcedDarwin(body: () => void): void {
+    const real = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'darwin' as const, configurable: true });
+    try {
+      body();
+    } finally {
+      Object.defineProperty(process, 'platform', { value: real, configurable: true });
+    }
+  }
+
+  it('argv 直传形 + 2s 帽 + SIGKILL：ps 首参直传无壳层、spawnSync 第三参帽通道在场（修前红：execSync 形——spawnSync 捕获零调用）', () => {
+    withForcedDarwin(() => {
+      // 定向覆写即弃：回执按 status 0 放行（本 it 锁 argv 形与第三参帽通道）
+      spawnSyncStub.mockImplementationOnce(() => ({ status: 0, stdout: 'node /x/main.js serve\n' }));
+      expect(readCmdlineSync(process.pid)).toBe('node /x/main.js serve');
+      expect(spawnSyncStub).toHaveBeenCalledTimes(1);
+      const [cmd, argv, options] = spawnSyncStub.mock.calls[0]!;
+      // argv 直传形：修前 execSync 模板串经 /bin/sh 壳层——现 ps 直传（壳层
+      // 中介结构性消除，与 serve-daemon.ts 同查询 argv 形同源化）
+      expect(cmd).toBe('ps');
+      expect(argv).toEqual(['-o', 'command=', '-p', String(process.pid)]);
+      // 通道锁：2s 同源 serve-daemon.ts 同查询既有帽 + SIGKILL 强杀（SIGTERM
+      // 可被僵死子进程忽略——tools/spawn-sync-cap.mjs 头注同律）
+      expect(options).toMatchObject({ timeout: 2_000, killSignal: 'SIGKILL' });
+    });
+  });
+
+  it('帽点到即诚实失败：ETIMEDOUT 形（error 在场 → status null）→ null（清扫面视为不匹配跳过）', () => {
+    withForcedDarwin(() => {
+      // spawnSync 超时真形：子进程被杀 → status null、error.code=ETIMEDOUT
+      // ——修后 spawnSync 不抛，靠 status 判折 null（既有「读不到返 null」语义）
+      spawnSyncStub.mockImplementationOnce(() => ({
+        status: null,
+        stdout: '',
+        stderr: '',
+        error: new Error('spawnSync ps ETIMEDOUT'),
+      }));
+      expect(readCmdlineSync(424242)).toBeNull();
+    });
+  });
+});

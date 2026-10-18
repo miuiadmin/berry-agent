@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = process.env.CHECK_MOCKS_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
 
 /**
- * vi.mock 目标白名单（现状五目标——六处消费，均 passthrough 单点形）：
+ * vi.mock 目标白名单（现状七目标——十一处消费，均 passthrough 单点形）：
  * - 'node:crypto'：pipeline-spill-eexist.test.ts 单点钉值 randomBytes（铸名可
  *   预知——EEXIST 竞态复现的确定性面，非行为替身）；
  * - '../../plugins/issue/index.js'：run-issue-verify(.env).test.ts 捕获缝 ×2
@@ -55,7 +55,12 @@ const REPO_ROOT = process.env.CHECK_MOCKS_ROOT ?? fileURLToPath(new URL('..', im
  *   替身（native-clipboard 7/7、tui-backend 480/480 全绿实证零附带）；两处
  *   皆通道后端「真身工厂」导出面——不加注入缝参免改产码签名（与 59 轮件C
  *   dangerPushBranch execFileImpl 注入缝分立裁量：彼为 host 内部函数转导出
- *   顺带缝、此为后端工厂导出面零参形），与 node:crypto/fs 先例同族）。
+ *   顺带缝、此为后端工厂导出面零参形），与 node:crypto/fs 先例同族）；消费
+ *   面 60 轮件E 扩二（×2 → ×4）：cron-backend.test.ts（锁件内私有缺省
+ *   crontab 执行器——deps.execCrontab 注入面只替执行器本身，锁缺省真身须
+ *   文件级截获，native-clipboard 裁量同形）、spawn.test.ts（exec 件管线
+ *   核心——readCmdlineSync 已公共导出，改签名侵公共面故文件级截获；
+ *   passthrough 缺省全参透传、spawn 恒真身，既有真进程用例零附带实证）。
  * 扩展本表须同批注缺席原因（为何该目标允许文件级 vi.mock）。
  */
 const MOCK_TARGET_WHITELIST = new Set([

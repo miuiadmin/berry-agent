@@ -212,7 +212,17 @@ export function createOsCronRegistrar(deps: CronBackendDeps = {}): CronRegistrar
 
 /** 缺省 crontab 执行器（spawnSync；错误折 exit code——-1 = spawn 失败） */
 function execCrontabViaSpawnSync(args: string[], input?: string): CrontabResult {
-  const r = spawnSync('crontab', args, input === undefined ? undefined : { input });
+  // 击杀通道帽（60 轮件E①——03 §10.3 安全卫生条 2026-10-18 60 轮定形注帽族）：
+  // 无帽则悬挂的 crontab 子进程同步冻结调用线程（帽在原生层点火——JS 线程
+  // 同步阻塞不影响其计时）；5s + SIGKILL 同值同形 59 轮件D native-clipboard
+  // 确认形帽（短动作本地腿族；SIGKILL 非 SIGTERM——悬挂子进程可忽略 SIGTERM，
+  // tools/spawn-sync-cap.mjs 头注同律）。恒对象形：读腿（input 缺席）与写腿
+  // 同帽；帽点 r.error 在场（ETIMEDOUT）折 code -1 走既有亮拒路不静默。
+  const r = spawnSync('crontab', args, {
+    ...(input !== undefined ? { input } : {}),
+    timeout: 5_000,
+    killSignal: 'SIGKILL',
+  });
   return {
     stdout: r.stdout?.toString() ?? '',
     stderr: r.stderr?.toString() ?? '',
