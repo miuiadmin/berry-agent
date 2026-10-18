@@ -556,6 +556,20 @@ export class InputDecoder {
     return out;
   }
 
+  /**
+   * 弃 lone-ESC 挂起（窄面隔离位——39 池 P4 typeahead 竞窗批）：esc 态回
+   * 地面、挂起锚清。与 discardPending（换防吞在途——粘贴态转吸收态）分立：
+   * 本面只弃「窗到点将裁决成键」的 lone-ESC 挂起这一种 pending 态，粘贴体 /
+   * 预编辑 / 文本游程悬置一概不动（ask 交互屏开屏位的编辑器续收语境——半
+   * 转义序列无续作义务，弃置与换防吞在途同律）。调用方须自收判定窗定时器
+   * （本件不持定时器——引擎/主屏管线各自主理，漏收则定时器到点 settle
+   * 恒无挂起、自然空转，无重入风险）。
+   */
+  discardPendingEscape(): void {
+    if (this.mode === 'esc') this.mode = 'ground';
+    this.escPendingAt = null;
+  }
+
   /** 游程冲刷：地面态连续可打印合并成一个 text 事件（提交/打字不撕裂） */
   private flushTextRun(): void {
     if (this.textRun.length > 0) {

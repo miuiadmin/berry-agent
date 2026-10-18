@@ -8129,3 +8129,70 @@ describe('TuiBackend 终端 title 待处置外显（件 C——挖掘 46 轮）'
     await expect(p1).resolves.toBe(''); // 保守值收口
   });
 });
+
+/* ================= 39 池 P4——typeahead 竞窗（交互屏开屏前 pending 输入隔离） ================= */
+
+// 机制背景（探针实证前的结构性判读）：主屏输入管线 handleInput = feed →
+// armEscapeWindow → take+route 全同步——完整事件永不跨 tick 滞留 decoder
+// 队列，异步到达的 ask（通道消息 macrotask）开层时「已缓冲 decoder 事件」
+// 结构性为空。唯一跨 tick 的 pending 态 = lone-ESC 判定窗挂起（生产轨
+// schedule 注入、30ms 窗定时器在飞）：开屏前按下、尚未裁决的 ESC 在窗内
+// 开层后 settle 成键，落入新层键面（escape = 保守值收场）——用户从未见过
+// 面板即被陈键裁决。对照：同 chunk 尾随事件（take 先于 route——路由不受
+// 中途卸订影响）恒走旧屏管线，不落新屏解码器。
+
+describe('TuiBackend 交互屏开屏 typeahead 竞窗（pending lone-ESC 隔离——39 池 P4）', () => {
+  it('判定窗内开层的审批面板不吃陈 ESC——面板保持待答（修前红：陈键裁决保守值）', async () => {
+    const { io, backend, clock, pump } = makeInteractive();
+    io.emitInput('\x1b'); // T0：lone-ESC 挂起（判定窗 30ms——生产轨 timer 在飞）
+    clock.advance(10); // T0+10：窗内——异步 ask 到达（通道消息 macrotask 的时序位）
+    const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    pump(); // 面板开屏帧
+    expect(io.bytes).toContain('⚙ 写入文件：写文件'); // 防空洞：面板确实在场
+    let settled = false;
+    void p.then(() => {
+      settled = true;
+    });
+    escapePump(clock); // T0+30：开屏前陈 ESC 裁决到点——修前：escape 落入新层面板
+    await Promise.resolve(); // 微任务排空——面板若被陈键收场则旗已翻
+    expect(settled).toBe(false); // 修前红位：面板被从未见过的开屏前按键以保守值收场
+    io.bytes = '';
+    io.emitInput('\r'); // 面板仍在场且功能完好——enter 选定首项（批准）
+    pump();
+    await expect(p).resolves.toBe('approve');
+  });
+
+  it('同族位：input 应答车开窗同隔离——窗内陈 ESC 不打断 run（修前红：陈键变打断）', async () => {
+    const { io, backend, clock, calls, pump } = makeInteractive();
+    emit(backend, { type: 'agent_start' }); // 忙态在身——escape 无层可让时落打断腿
+    io.emitInput('\x1b'); // T0：lone-ESC 挂起（开窗前按下——彼时屏面无层无弹层）
+    clock.advance(10); // 窗内——input ask 异步到达（应答车开窗：清稿 + 收弹层）
+    const p = backend.input('补充说明？');
+    pump();
+    escapePump(clock); // T0+30：陈 ESC 裁决——修前：经层① escape 三分诊落打断（run 被陈键打断）
+    expect(calls.interrupted).toEqual([]); // 修前红位：开屏前按键改写为打断意图
+    io.emitInput('答\r');
+    pump();
+    await expect(p).resolves.toBe('答'); // 应答车功能完好
+  });
+
+  it('对照锚（开屏后按键归新屏——既有键面不随本批变）：面板在场期 ESC 即时保守值收场', async () => {
+    const { io, backend, clock, pump } = makeInteractive();
+    const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    pump();
+    io.emitInput('\x1b'); // 开屏【后】按下——本就归新屏键面
+    escapePump(clock);
+    await expect(p).resolves.toBe('cancel');
+  });
+
+  it('对照锚（同 chunk 尾随事件归旧屏管线）：开屏触发事件后随的 ctrl+c 走主屏打断——不落副屏 Engine 解码器', () => {
+    const { io, backend, calls } = makeInteractive({
+      onHelpShortcut: () => {
+        backend.openHelp([]); // 装配同形：`?` 教学键 → 帮助副屏（AltScreenHost.open）
+      },
+    });
+    io.emitInput('?\x03'); // 同一 stdin chunk：'?'（text 事件——开屏触发）+ ctrl+c（key 事件——尾随）
+    expect(io.bytes).toContain('\x1b[?1049h'); // 副屏已进（触发事件已路由完开屏编舞）
+    expect(calls.interrupted).toEqual(['s1']); // 尾随事件经 flushDecoderEvents 既有批次路由走旧屏层①——不进副屏
+  });
+});

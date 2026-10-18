@@ -3705,6 +3705,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /** 队首问激活（首问直入与队列出队接续共用——清框 + 弹层抑制 + 请帧） */
   private activateInputAsk(ask: InputAsk): void {
+    // 开窗位 lone-ESC 挂起隔离（39 池 P4 typeahead 竞窗批）：开窗前按下的
+    // ESC 判定窗（30ms）定时器尚在飞——不隔离则窗到点 settle 成键落入新开
+    // 窗的键面（应答车无层栈可让路，busy 时直落打断腿——陈键改写为打断意
+    // 图）。弃置与换防吞在途同律（suspendMain 先例）；粘贴/预编辑态不动——
+    // 应答车续用主编辑器，续收语境须保全。取消定时器在前（漏收则 settle
+    // 恒无挂起、空转无害）。
+    this.cancelTimer('escape');
+    this.decoder.discardPendingEscape();
     this.inputAsk = ask;
     this.pauseElapsedClock(); // 应答车开窗——耗时暂停（挖掘 31 轮 [8]：浮层等待期不计）
     this.editor.setText(''); // 应答起始清框（草稿让位——提交路模型自清）
@@ -4491,6 +4499,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 的落定执法位；持槽者比对守卫使释放幂等）。
    */
   private activateAskLayer(waiter: AskLayerWaiter): void {
+    // 开层位 lone-ESC 挂起隔离（39 池 P4 typeahead 竞窗批）：开层前按下的
+    // ESC 判定窗（30ms）定时器尚在飞——不隔离则窗到点 settle 成键经层②占焦
+    // 面板裁决（SelectPanel escape → 保守值 '' → cancel）：用户从未见过面板
+    // 即被陈键收场。弃置与换防吞在途同律（suspendMain 先例）；粘贴/预编辑
+    // 态不动（窄面只弃这一种 pending 态）。取消定时器在前（漏收则 settle
+    // 恒无挂起、空转无害）。
+    this.cancelTimer('escape');
+    this.decoder.discardPendingEscape();
     this.askLayerOwner = waiter;
     this.pauseElapsedClock(); // 模态浮层开层——耗时暂停（挖掘 31 轮 [8]：浮层等待期不计）
     // 模态浮层开层即收补全弹层（与 input() 路「应答期弹层抑制」同形——组 2

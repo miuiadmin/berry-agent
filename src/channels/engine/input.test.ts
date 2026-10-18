@@ -759,3 +759,42 @@ describe('OSC 串（ESC ] data 终结——BEL / ST 两形整串上抛）', () =
     expect(osc).toEqual(['11;rgb:1/1/1']);
   });
 });
+
+/* -------- 弃 lone-ESC 挂起（窄面隔离位——39 池 P4 typeahead 竞窗批） -------- */
+
+describe('discardPendingEscape 窄面契约（只弃 lone-ESC 挂起——粘贴/预编辑态一概不动）', () => {
+  it('lone-ESC 挂起被弃：esc 回地面、续到文本不再拼键（回地面非悬置）', () => {
+    const decoder = new InputDecoder();
+    decoder.feed('\x1b');
+    expect(decoder.hasPendingEscape).toBe(true); // 挂起锚在场（30ms 窗定时器在飞的解码器侧事实）
+    decoder.discardPendingEscape();
+    expect(decoder.hasPendingEscape).toBe(false);
+    expect(decoder.take()).toEqual([]); // 弃置本身零事件产出
+    decoder.feed('[A'); // 弃后续到——地面文本游程，不再当 CSI 前缀拼上箭头（悬置化实现即此处翻红）
+    expect(decoder.take()).toEqual([{ kind: 'text', text: '[A' }]);
+  });
+
+  it('粘贴体在途调用：粘贴态保全（补体 + 终界出单 paste 事件整段交付）', () => {
+    const decoder = new InputDecoder();
+    decoder.feed('\x1b[200~半段'); // 开标记 + 半截体（吸收态在途——应答车续收语境的窄面保全对象）
+    decoder.discardPendingEscape();
+    decoder.feed('尾段\x1b[201~');
+    expect(decoder.take()).toEqual([{ kind: 'paste', text: '半段尾段' }]); // 整段单事件（宽面清粘贴态的实现即此处翻红）
+  });
+
+  it('预编辑在场调用：composing 仍 true、续流式组字不落地面重解', () => {
+    const clock = new FakeClock();
+    const decoder = new InputDecoder({ now: clock.now });
+    decoder.feed('\x1b[0;;20013u'); // '中'——首达交付
+    expect(decoder.take()).toEqual([ime('中', true)]);
+    clock.t = 50; // 跟随窗内前缀链——预编辑在场
+    decoder.feed('\x1b[0;;20013:22269u'); // '中国'
+    expect(decoder.take()).toEqual([ime('中国', false)]);
+    expect(decoder.composing).toBe(true);
+    decoder.discardPendingEscape(); // 预编辑态不动（顺手加清 preedit 的实现即此处翻红）
+    expect(decoder.composing).toBe(true);
+    expect(decoder.pendingPreedit).toBe('中国');
+    decoder.feed('\r'); // CR 打断——冲刷为提交（preedit 保全的续收证明）
+    expect(decoder.take()).toEqual([ime('中国', true), key('enter')]);
+  });
+});
