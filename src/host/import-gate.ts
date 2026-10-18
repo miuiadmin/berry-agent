@@ -159,7 +159,14 @@ export function createTreeBareResolver(pluginDir: string): (specifier: string) =
 
 /** 说明符字面量抽取正则族（静态 + 动态字面量——注释/字符串内误伤由「越界即拒」的保守面消化） */
 const SPECIFIER_PATTERNS: readonly RegExp[] = [
-  /(?:^|[\s;}])(?:import|export)\s+(?:type\s+)?[\s\S]*?from\s*['"]([^'"]+)['"]/g, // import/export … from '…'
+  // import/export … from '…'——间隙收窄到合法子句字符域（57 轮 e2e 破核定谳：
+  // 旧形 [\s\S]*? 懒惰间隙可越语句漂移——无 from 的 export 语句漂到后文任意
+  // 字符串内的 from' 词面捕获垃圾说明符 → 好插件被「裸说明符不可解析」误拒。
+  // 分号界（[^;]）只堵有分号语句；无分号语句体（函数体/多行字面量前段）仍
+  // 可漂——彻底形排引号/反引号/圆括号/方括号：合法 import/export-from 子句
+  // （标识符/as 别名/花括号集/逗号/星号/空白）不含任何被排字符，字符串与
+  // 调用表达式结构性不可入）
+  /(?:^|[\s;}])(?:import|export)\s+(?:type\s+)?[^;'"`()[\]]*?from\s*['"]([^'"]+)['"]/g,
   /(?:^|[\s;}])import\s*['"]([^'"]+)['"]/g, // 副作用 import '…'
   /(?:^|[\s;[(!,:=])require\s*\(\s*['"]([^'"]+)['"]\s*\)/g, // require('…')（含动态字面量）
   /(?:^|[\s;[(!,:=])import\s*\(\s*['"]([^'"]+)['"]\s*\)/g, // import('…')（动态字面量）

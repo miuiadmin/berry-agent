@@ -169,6 +169,22 @@ const d = import('berry-agent/llm');
     const specs = extractImportSpecifiers(`import x from 'a.js'; import y from 'a.js';`);
     expect(specs).toEqual(['a.js', 'a.js']); // 扫描核如实报告——裁决侧幂等
   });
+
+  it('from 无关的 export 语句不得跨语句漂移捕获垃圾说明符（57 轮 e2e 破损根因锁）', () => {
+    // 57 轮件① e2e 现红定谳：export-from 模式懒惰间隙 [\s\S]*? 越语句界——
+    // `export const inject = [];`（无 from）漂到后文字符串 'smtp-from' 内的
+    // from' 捕获 `), to: str(` 垃圾 → 裸说明符不可解析 → 好插件被拒载
+    const src = [
+      `import { notify } from 'berry-agent';`,
+      `export const inject = [];`,
+      `export function send() {`,
+      `  const header = 'smtp-from';`,
+      `  return str(\`from: \${header}\`), notify('ok');`,
+      `}`,
+    ].join('\n');
+    // 合法说明符恰一（berry-agent）；垃圾段/字符串词面零捕获
+    expect(extractImportSpecifiers(src)).toEqual(['berry-agent']);
+  });
 });
 
 describe('createGateTransform 字面量腿', () => {
