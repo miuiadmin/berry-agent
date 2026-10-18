@@ -71,6 +71,12 @@ async function dispatchTick(argv: readonly string[], deps: TickCommandDeps): Pro
     case 'disable': {
       const name = requireName(argv.slice(1), verb);
       deps.service.setJobEnabled(name, verb === 'enable');
+      // 启停即戳引擎重排下一醒（engine.poke JSDoc 意图兑现——「enable 后外部
+      // 戳一下」）：不戳则旧轮询定时钉死，disable 形空等已摘排行的到期拍、
+      // enable 形新排刻须等旧拍（最长 MAX_POLL_MS 60s belt）才醒。行翻转在
+      // 前、戳在后（poke 重排重读 earliestNextFire——须读到翻转后的行态）；
+      // 引擎未起跑时 poke 自守 running 位 no-op（诊断/测试装载直呼无害）。
+      deps.engine.poke();
       return `✓ 任务 ${name} 已${verb === 'enable' ? '启用' : '停用（行留史）'}`;
     }
     case '':

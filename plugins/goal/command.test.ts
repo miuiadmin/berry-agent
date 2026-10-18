@@ -203,7 +203,24 @@ describe('/goal list', () => {
     const text = await runGoalCommand(['list'], { service, eventsFor: NO_EVENTS });
     expect(text).toContain('共 2 个 goal');
     expect(text).toContain('- g-1〔active〕跑通目标 —— 定时运行中（连续 2 次无进展） · 无预算上限');
-    expect(text).toContain('- g-2〔completed〕跑通目标 —— 已暂停 · 预算 6/10');
+    expect(text).toContain('- g-2〔completed〕跑通目标 —— 已完成 · 预算 6/10');
+  });
+
+  /**
+   * 终态词面三态分立（65 轮件H——complete=停用保留 / abandon=移除摘钟两终态
+   * 分工律下词面应分立）。修前红：row.status 非 active 一刀切显「已暂停」——
+   * completed/abandoned 均呈现失实。
+   */
+  it('终态词面分立：completed 显已完成、abandoned 显已放弃（修前红：终态显「已暂停」）', async () => {
+    const service = fakeService({
+      rows: [row({ id: 'g-c', status: 'completed' }), row({ id: 'g-a', status: 'abandoned', endingNote: '不要了' })],
+    });
+    const text = await runGoalCommand(['list'], { service, eventsFor: NO_EVENTS });
+    expect(text).toContain('- g-c〔completed〕跑通目标 —— 已完成 · 无预算上限');
+    expect(text).toContain('- g-a〔abandoned〕跑通目标 —— 已放弃 · 无预算上限');
+    // 两终态分工律下「已暂停」词面在 list 观察面退场（停滞硬停的
+    // 「定时已暂停」系 wake 拒因文案，另面不受影响）
+    expect(text).not.toContain('已暂停');
   });
 });
 

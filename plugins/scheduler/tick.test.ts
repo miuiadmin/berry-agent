@@ -147,6 +147,33 @@ describe('动词分派与守卫折文本', () => {
     expect(out).toContain('SCHEDULER_NOT_FOUND');
   });
 
+  /**
+   * enable/disable 后 engine.poke 被调（65 轮件H——启停与引擎下一醒即接）。
+   * 修前红：poke 调用位缺席——启停动作与引擎下一醒脱节（disable 形空等已
+   * 摘排行的到期拍；enable 形新排刻须等旧拍最长 MAX_POLL_MS 60s belt 才醒）。
+   */
+  it('enable/disable 后 engine.poke 被调且戳在行翻转后；守卫拒不误戳（修前红：poke 未调）', async () => {
+    const svc = fakeService();
+    const engine = fakeEngine();
+    const setEnabledSpy = vi.spyOn(svc, 'setJobEnabled');
+    const pokeSpy = vi.spyOn(engine, 'poke');
+    const d = deps(svc, engine);
+    await runTickCommand(['enable', 'j'], d);
+    await runTickCommand(['disable', 'j'], d);
+    // 启停动词各戳一拍（修前：零调用）
+    expect(pokeSpy).toHaveBeenCalledTimes(2);
+    // 戳在行翻转之后——poke 重排重读 earliestNextFire（enabled=1 过滤），
+    // 序错即读到旧行态排错拍
+    expect(pokeSpy.mock.invocationCallOrder[0]).toBeGreaterThan(setEnabledSpy.mock.invocationCallOrder[0]!);
+    // 幽灵名守卫拒绝（BaseError 折文本先出）不误戳——poke 计数不增
+    svc.setJobEnabled = () => {
+      throw new BaseError('SCHEDULER_NOT_FOUND', '任务「ghost」不存在');
+    };
+    const rejected = await runTickCommand(['enable', 'ghost'], d);
+    expect(rejected).toContain('SCHEDULER_NOT_FOUND');
+    expect(pokeSpy).toHaveBeenCalledTimes(2);
+  });
+
   it('动词名缺席折用法错文本', async () => {
     const out = await runTickCommand(['rm'], deps(fakeService(), fakeEngine()));
     expect(out).toContain('SCHEDULER_JOB_INVALID');

@@ -156,12 +156,18 @@ export async function runGoalCommand(
             row.budgetMessagesCap === null
               ? '无预算上限'
               : `预算 ${row.budgetMessagesUsed + row.budgetFoldedUnits}/${row.budgetMessagesCap}`;
+          // 挂钟词面三态分立（终态分工律——03 §10.5 第十一轮收官呈拍批定形②：
+          // complete = 停用保留 / abandon = 移除摘钟）：终态一刀切「已暂停」
+          // 呈现失实——completed 显已完成、abandoned 显已放弃；active 沿用
+          // 停滞计数形不变。
           const clock =
             row.status === 'active'
               ? row.stallStreak > 0
                 ? `定时运行中（连续 ${row.stallStreak} 次无进展）`
                 : '定时运行中'
-              : '已暂停';
+              : row.status === 'completed'
+                ? '已完成'
+                : '已放弃';
           return `- ${row.id}〔${row.status}〕${row.objective.slice(0, 40)} —— ${clock} · ${budget}`;
         });
         return `共 ${rows.length} 个 goal：\n${lines.join('\n')}`;
