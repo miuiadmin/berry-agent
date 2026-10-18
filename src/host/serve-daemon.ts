@@ -755,7 +755,11 @@ export async function spawnDaemonServe(options: SpawnDaemonOptions): Promise<num
     options.spawnFn ??
     ((cmd, argv, opts) => {
       mkdirSync(paths.dir, { recursive: true }); // 三足迹先备其二——pid 由 child 写
-      const logFd = openSync(opts.logPath, 'a'); // stderr 追加重定向（07 §5）
+      // 敏感产物落盘 0600（05 §6.6——2026-10-18 59 轮 L3 批扩列 daemon.log 写位）：
+      // 本日志是 token 披露位（child stderr 重定向落点——自动生成档 token 披露行
+      // 与 webui 开面令牌一次性披露行的 daemon 形落点，明文鉴权材料），建即仅属主
+      // 可读写；「建即」辖建时点，在场旧文件不追溯（append 形续写不改建 mode）。
+      const logFd = openSync(opts.logPath, 'a', 0o600); // stderr 追加重定向（07 §5）
       return spawn(cmd, argv as string[], {
         detached: opts.detached,
         stdio: ['ignore', 'ignore', logFd], // stdin/stdout ignore——daemon 与 stdio 互斥

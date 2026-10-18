@@ -52,7 +52,10 @@ export async function runMemoryExportCommand(argv: readonly string[], deps: Memo
       ownerRoots: deps.ownerRoots(),
       now: deps.now(),
     });
-    writeFileSync(target, text, 'utf8');
+    // 敏感产物落盘 0600（05 §6.6——2026-10-18 59 轮 L3 批扩列记忆导出件写位）：
+    // 导出件是全量记忆明文副本（回执警示句自证——按敏感数据保管），建即仅属主
+    // 可读写；「建即」辖建时点，在场旧文件不追溯（58 轮件④ 同律）。
+    writeFileSync(target, text, { encoding: 'utf8', mode: 0o600 });
     const count = text.trimEnd().split('\n').length - 1; // 首行 header 外即数据行数
     const scope = owner === undefined ? '全部 owner' : `owner ${owner}`;
     return [

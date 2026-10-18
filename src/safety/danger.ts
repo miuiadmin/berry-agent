@@ -312,11 +312,18 @@ export function createDangerGate(opts: DangerGateOptions): DangerGate {
     }
   }
 
-  /** tmp+rename 原子写 JSON（写前 fsync tmp、写后 fsync 目录） */
+  /**
+   * tmp+rename 原子写 JSON（写前 fsync tmp、写后 fsync 目录）。
+   *
+   * 敏感产物落盘 0600（05 §6.6——2026-10-18 59 轮 L3 批扩列危险闸产物族）：
+   * mode 落 tmp 写位、随 rename 承袭终名（58 轮件④ attachment temp 写位同形
+   * 先例）；「建即」辖建时点，在场旧文件不追溯。consent（预授权凭证面）与
+   * HALT latch（审计观测位）两 caller 同族承袭。
+   */
   async function atomicWriteJson(path: string, value: unknown): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
     const tmp = `${path}.tmp`;
-    const fh = await open(tmp, 'w');
+    const fh = await open(tmp, 'w', 0o600); // 建即 0600——随 rename 承袭终名
     try {
       await writeFile(fh, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
       await fh.sync();
@@ -422,7 +429,10 @@ export function createDangerGate(opts: DangerGateOptions): DangerGate {
     const recordHash = sha256Hex(`${seq}|${prevHash}|${canonicalJson(payload)}`);
     const line = `${JSON.stringify({ seq, prevHash, recordHash, ...payload })}\n`;
     await mkdir(opts.dataDir, { recursive: true });
-    const fh = await open(ledgerPath, 'a');
+    // 敏感产物落盘 0600（05 §6.6——59 轮扩列危险闸产物族）：账本是全量审计面，
+    // 建即仅属主可读写；「建即」辖建时点，在场旧文件不追溯（append 续写不改
+    // 在场文件 mode）。fsPromises.open mode 建时生效——建即语义同律。
+    const fh = await open(ledgerPath, 'a', 0o600);
     try {
       await fh.write(line);
       await fh.sync(); // 逐写 fsync（崩溃撕裂防线）

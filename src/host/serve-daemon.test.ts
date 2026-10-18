@@ -19,6 +19,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -528,6 +529,38 @@ describe('spawnDaemonServe（spawner 编舞——注入面）', () => {
     });
     expect(code).toBe(1);
     expect(lines[0]).toContain('超窗');
+  });
+
+  it('敏感产物落盘 0600（05 §6.6——59 轮 L3 批扩列）：缺省 spawnFn 建 daemon.log 建即仅属主可读写（token 披露位）', async () => {
+    // 修前红：openSync(logPath,'a') 缺省 mode（umask 022 下 0644）——daemon.log
+    // 是 token 披露位（child stderr 重定向落点：自动生成档 token 披露行 + webui
+    // 开面令牌一次性披露行的 daemon 形落点——明文鉴权材料），05 §6.6 敏感产物
+    // 族恒 0600。mode 锁须走产码缺省 spawnFn（logFd 开落在缺省实现内——注入
+    // 假 spawn 不触真 fs；件头「不触真 fs」注记的受控例外——本例即产码真开
+    // 文件位）：自镜像指向 /usr/bin/true（忽略 argv 即退——真 spawn 真进程但
+    // 零 daemon 行为，日志建立即断），退码不定形（即退/超窗两路均收敛）不锁。
+    const dataDir = mkdtempSync(join(tmpdir(), 'daemon-log-mode-'));
+    try {
+      let clock = 0;
+      await spawnDaemonServe({
+        flags: { daemon: true, noDelta: false, debug: false },
+        dataDir,
+        env: baseEnv,
+        self: { execPath: '/usr/bin/true', mainPath: 'noop' },
+        isAlive: () => false,
+        now: () => clock,
+        sleep: async () => {
+          clock += 1_000; // 步进钟速过 10s 确认窗
+          await new Promise((resolve) => setImmediate(resolve)); // 让事件循环真转（child exit 事件可达）
+        },
+        writeErr: () => {},
+      });
+      const paths = daemonPaths(dataDir);
+      expect(existsSync(paths.logPath)).toBe(true); // 缺省 spawnFn 真开日志
+      expect(statSync(paths.logPath).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -5,7 +5,7 @@
  *
  * 真盘临时目录（文件 IO 件全栈惯例——tool-policy-store.test 同形）。
  */
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -235,6 +235,14 @@ describe('writeHostSettings（写侧——合并保留 + 原子 + 坏形拒）',
     expect(leftovers).toEqual([]);
     // 尾随换行稳定（prettier 式 JSON 落盘面）
     expect(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8').endsWith('\n')).toBe(true);
+  });
+  it('敏感产物落盘 0600 纵深档（05 §6.6——59 轮 L3 批扩列）：temp 写位 mode 随 rename 承袭终名', () => {
+    // 修前红：temp 写位缺省 mode（umask 022 下 0644）——rename 承袭后终名
+    // 0644。纵深档定性（05 §6.6 原句照引）：「headers 不得含鉴权材料」定性
+    // 条款单源不破，0600 非许可只作纵深——settings.json 非敏感件定性不动。
+    const dir = tmpDir('settings-mode-');
+    expect(writeHostSettings(dir, { sandboxMode: 'read-only' })).toBe('written');
+    expect(statSync(join(dir, SETTINGS_BASENAME)).mode & 0o777).toBe(0o600);
   });
   it('文件级坏形期拒写（rejected——机器不在坏文件上覆写扩大破坏）', () => {
     const dir = tmpDir('settings-reject-');

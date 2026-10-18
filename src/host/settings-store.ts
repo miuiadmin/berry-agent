@@ -451,7 +451,12 @@ export function writeHostSettings(
   if (patch.notifyTriggers !== undefined) next.notifyTriggers = patch.notifyTriggers;
   mkdirSync(dataDir, { recursive: true });
   const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+  // 敏感产物落盘 0600 纵深档（05 §6.6——2026-10-18 59 轮 L3 批扩列）：mode 落
+  // temp 写位、随 rename 承袭终名（58 轮件④ attachment temp 写位同形先例）。
+  // 纵深档定性（05 §6.6 原句）：「headers 不得含鉴权材料」定性条款单源不破，
+  // 0600 非许可只作纵深——settings.json 非敏感件定性不动（不入敏感件集、模型
+  // 可读面不设防）；「建即」辖建时点，在场旧文件不追溯。
+  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   renameSync(tmp, path);
   return 'written';
 }

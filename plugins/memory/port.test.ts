@@ -6,7 +6,7 @@
  *
  * 真库全环（openStore + MEMORY_MIGRATIONS）；LLM 零参与（纯运维面）。
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -405,6 +405,17 @@ describe('命令件（/memory-export · /memory-import——守卫错折文本�
     expect(denied).toContain('MEMORY_EXPORT_ROOT_DENIED');
     // 缺路径 → USAGE
     expect(await runMemoryExportCommand([], exportDeps(dao))).toContain('用法：/memory-export');
+  });
+
+  it('export 产物建即 0600（05 §6.6——59 轮 L3 批扩列记忆导出件写位：全量记忆明文副本）', async () => {
+    // 修前红：writeFileSync 缺省 mode（umask 022 下 0644）——导出件是全量记忆
+    // 明文副本（命令回执「按敏感数据保管」警示句自证），05 §6.6 敏感产物族恒
+    // 0600；「建即」辖建时点，在场旧文件不追溯（58 轮件④ 同律）
+    const dao = setup();
+    seed(dao);
+    const target = join(dir, 'export-mode.jsonl');
+    await runMemoryExportCommand([target], exportDeps(dao));
+    expect(statSync(target).mode & 0o777).toBe(0o600);
   });
 
   it('import 全环：export → 新库导入 → 幂等二跑回执；读面无根判定（根外路径照读）；坏 header 折文本', async () => {

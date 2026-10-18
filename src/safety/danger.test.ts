@@ -17,7 +17,7 @@
  *   sdk/security 对拍同款先例）。
  */
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -220,6 +220,22 @@ describe('闸序 3：consent 三查', () => {
       gate.runGuarded({ action: 'push', target: 'o/r' }, async () => 'x'),
       'DANGER_CONSENT_ABSENT',
     );
+  });
+});
+
+describe('敏感产物落盘 0600（05 §6.6——59 轮 L3 批扩列危险闸产物族）', () => {
+  it('consent（tmp+rename 终名承袭）与账本（append 建即）两写位建即仅属主可读写', async () => {
+    // 修前红：tmp 写位/append 开位缺省 mode（umask 022 下 0644）——consent 是
+    // 预授权凭证面、账本是全量审计面，05 §6.6 敏感产物族恒 0600；consent 走
+    // tmp+rename（mode 落 tmp 写位、随 rename 承袭终名——58 轮件④ 同律）。
+    const gate = makeGate();
+    await expectDeny(
+      gate.runGuarded({ action: 'push', target: 'o/r' }, async () => 'x'),
+      'DANGER_CONSENT_ABSENT',
+    ); // 首笔 deny 记账 → 账本建（append 开位）
+    await gate.approve(); // consent 建（tmp+rename 原子写）
+    expect((await stat(join(dir, DANGER_CONSENT_FILE))).mode & 0o777).toBe(0o600);
+    expect((await stat(join(dir, DANGER_LEDGER_FILE))).mode & 0o777).toBe(0o600);
   });
 });
 
