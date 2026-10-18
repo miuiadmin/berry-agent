@@ -126,6 +126,63 @@ describe('scanSkillsDir 目录扫描', () => {
   });
 });
 
+describe('gitignore 转义形（\\! 整义传递——与检索族/快照遍历同笔同判）', () => {
+  /** 落一枚目录名带字面叹号的技能（frontmatter name 用合法词法与目录名分立——装载面不受目录名词法连坐） */
+  async function writeSkillInDir(root: string, dirName: string, skillName: string): Promise<string> {
+    const dir = join(root, dirName);
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, 'SKILL.md'),
+      `---\nname: ${skillName}\ndescription: ${skillName} 技能\n---\n\n${skillName} 正文。\n`,
+      'utf8',
+    );
+    return dir;
+  }
+
+  it('\\!name.env = 字面叹号名技能目录被跳过，name.env 技能不受影响（修前红：剥转义后裸 ! 重投被解析为否定锚，叹号名目录反被扫入）', async () => {
+    const root = await tmpRoot('esc-bang');
+    await writeFile(join(root, '.gitignore'), '\\!name.env\n', 'utf8');
+    await writeSkillInDir(root, '!name.env', 'bang-name');
+    await writeSkillInDir(root, 'name.env', 'plain-name');
+    const scan = await scanSkillsDir(root, { providerId: 'test' });
+    // git 语义：\!name.env 忽略字面名目录 !name.env；name.env 技能不受影响
+    expect(scan.skills.map((s) => s.name)).toEqual(['plain-name']);
+  });
+
+  it('\\! 与忽略族同册不成否定连坐：*.env + \\!keep.env 下 keep.env 技能目录仍被排除（修前红：剥壳 !keep.env 成否定——keep.env 被误解除忽略扫入）', async () => {
+    const root = await tmpRoot('esc-chain');
+    await writeFile(join(root, '.gitignore'), '*.env\n\\!keep.env\n', 'utf8');
+    await writeSkillInDir(root, 'a.env', 'a-env');
+    await writeSkillInDir(root, 'keep.env', 'keep-env');
+    await writeSkillInDir(root, '!keep.env', 'bang-keep-env');
+    const scan = await scanSkillsDir(root, { providerId: 'test' });
+    // 三个 .env 目录全在忽略域——技能清单为空
+    expect(scan.skills).toEqual([]);
+  });
+
+  it('嵌套 .gitignore 转义形前缀化同判（sub/\\!bang 前缀化后 sub 域内字面叹号名目录被排除、深层同配）', async () => {
+    const root = await tmpRoot('esc-nested');
+    await writeSkillInDir(join(root, 'sub'), '!bang', 'nested-bang');
+    await writeSkillInDir(join(root, 'sub', 'deep'), '!bang', 'deep-bang');
+    await writeSkill(join(root, 'sub'), 'plain-skill');
+    await writeFile(join(root, 'sub', '.gitignore'), '\\!bang\n', 'utf8');
+    const scan = await scanSkillsDir(root, { providerId: 'test' });
+    expect(scan.skills.map((s) => s.name)).toEqual(['plain-skill']);
+  });
+
+  it('嵌套锚定转义形前缀化同判：sub/.gitignore \\!/x 字面重投 sub/\\!/x——忽略 sub/!/x 技能目录，sub 域字面 !x 名不受辖（escapedLead=转义根锚定才回补斜杠的分支锁）', async () => {
+    const root = await tmpRoot('esc-nested-anchored');
+    await writeSkillInDir(join(root, 'sub'), '!deep', 'bang-deep');
+    await writeSkillInDir(join(root, 'sub', '!'), 'deep', 'in-bang-dir');
+    await writeSkill(join(root, 'sub'), 'plain-skill');
+    await writeFile(join(root, 'sub', '.gitignore'), '\\!/deep\n', 'utf8');
+    const scan = await scanSkillsDir(root, { providerId: 'test' });
+    // git 真语义：\!/deep 忽略路径 !/deep（! 目录下 deep）；sub 域字面叹号
+    // 名 !deep 技能不受辖
+    expect(scan.skills.map((s) => s.name)).toEqual(['bang-deep', 'plain-skill']);
+  });
+});
+
 describe('createDirProvider 目录 provider', () => {
   it('trusted=false → 整层跳过 + 单诊断（装载不激活）', async () => {
     const root = await tmpRoot('untrusted');

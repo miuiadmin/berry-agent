@@ -176,6 +176,72 @@ describe('遍历语义', () => {
   });
 });
 
+/* ---------------- gitignore 转义形（\! 字面叹号名——遍历语义同判回归锁） ---------------- */
+
+describe('gitignore 转义形（\\! 整义传递——与快照遍历/技能发现/补全索引同笔同判）', () => {
+  it('\\!name.env = 字面叹号名文件应被忽略，name.env 不受影响（修前红：剥转义后裸 ! 重投被解析为否定锚，叹号名文件反入结果）', async () => {
+    const { root } = rig;
+    await writeFile(join(root, '.gitignore'), '\\!name.env\n');
+    await writeFile(join(root, '!name.env'), 'x');
+    await writeFile(join(root, 'name.env'), 'x');
+    const res = await rig.find.execute({ pattern: '**/*' }, { toolCallId: 'test' });
+    const text = (res.content[0] as { text: string }).text;
+    // git 语义：\!name.env 忽略字面名 !name.env；name.env 不受影响
+    expect(text.split('\n')).toEqual(['.gitignore', 'name.env']);
+  });
+
+  it('\\! 与忽略族同册不成否定连坐：*.env + \\!keep.env 下 keep.env 仍被忽略（修前红：剥壳 !keep.env 成否定——keep.env 被误解除忽略入结果）', async () => {
+    const { root } = rig;
+    await writeFile(join(root, '.gitignore'), '*.env\n\\!keep.env\n');
+    await writeFile(join(root, 'a.env'), 'x');
+    await writeFile(join(root, 'keep.env'), 'x');
+    await writeFile(join(root, '!keep.env'), 'x');
+    const res = await rig.find.execute({ pattern: '**/*' }, { toolCallId: 'test' });
+    const text = (res.content[0] as { text: string }).text;
+    // 三个 .env 全在忽略域：a.env/keep.env 由 *.env；!keep.env 字面名由 \!keep.env
+    expect(text.split('\n')).toEqual(['.gitignore']);
+  });
+
+  it('根锚定转义形 \\!/x 字面重投：忽略路径 !/x（! 目录下文件），根层字面 !x 名不受辖（修前红：剥壳 !/x 成否定——!/x 路径反入结果）', async () => {
+    const { root } = rig;
+    await writeFile(join(root, '.gitignore'), '\\!/bang.txt\n');
+    await writeFile(join(root, '!bang.txt'), 'x');
+    await mkdir(join(root, '!'), { recursive: true });
+    await writeFile(join(root, '!/bang.txt'), 'x');
+    await writeFile(join(root, 'plain.txt'), 'x');
+    const res = await rig.find.execute({ pattern: '**/*' }, { toolCallId: 'test' });
+    const text = (res.content[0] as { text: string }).text;
+    // git 真语义：\!/bang.txt 忽略路径 !/bang.txt；根层字面叹号名 !bang.txt 不受辖
+    expect(text.split('\n')).toEqual(['!bang.txt', '.gitignore', 'plain.txt']);
+  });
+
+  it('嵌套 .gitignore 转义形前缀化同判（sub/\\!x 前缀化后 sub 域内字面叹号名被忽略、深层同配）', async () => {
+    const { root } = rig;
+    await mkdir(join(root, 'sub', 'deep'), { recursive: true });
+    await writeFile(join(root, 'sub/.gitignore'), '\\!bang.txt\n');
+    await writeFile(join(root, 'sub/!bang.txt'), 'x');
+    await writeFile(join(root, 'sub/deep/!bang.txt'), 'x');
+    await writeFile(join(root, 'sub/plain.txt'), 'x');
+    const res = await rig.find.execute({ pattern: '**/*' }, { toolCallId: 'test' });
+    const text = (res.content[0] as { text: string }).text;
+    expect(text.split('\n')).toEqual(['sub/.gitignore', 'sub/plain.txt']);
+  });
+
+  it('嵌套锚定转义形前缀化同判：sub/.gitignore \\!/x 字面重投 sub/\\!/x——忽略 sub/!/x，sub 域字面 !x 名不受辖（escapedLead=转义根锚定才回补斜杠的分支锁）', async () => {
+    const { root } = rig;
+    await mkdir(join(root, 'sub', '!'), { recursive: true });
+    await writeFile(join(root, 'sub/.gitignore'), '\\!/deep.txt\n');
+    await writeFile(join(root, 'sub/!deep.txt'), 'x');
+    await writeFile(join(root, 'sub/!/deep.txt'), 'x');
+    await writeFile(join(root, 'sub/plain.txt'), 'x');
+    const res = await rig.find.execute({ pattern: '**/*' }, { toolCallId: 'test' });
+    const text = (res.content[0] as { text: string }).text;
+    // git 真语义：\!/deep.txt 忽略路径 !/deep.txt（! 目录下 deep.txt）；
+    // sub 域字面叹号名 !deep.txt 不受辖
+    expect(text.split('\n')).toEqual(['sub/!deep.txt', 'sub/.gitignore', 'sub/plain.txt']);
+  });
+});
+
 /* ---------------- find 集成 ---------------- */
 
 describe('find 工具', () => {

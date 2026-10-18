@@ -35,9 +35,12 @@ function toPosix(p: string): string {
 }
 
 /**
- * 单行 gitignore 模式前缀化（06 §11.4 锚定判据——与检索族/快照遍历三副本同笔
- * 同判；实现与 tools/search.ts 逐分支对齐）。注释/空行丢弃；`!` 否定与 `\!`/
- * `\#` 转义保留；纯 basename 模式前缀化插目录通配前缀（`**`+`/`）保深层同配。
+ * 单行 gitignore 模式前缀化（06 §11.4 锚定判据——与检索族/快照遍历/补全索引
+ * 四副本同笔同判；实现独立成文不 import 检索族——判据漂移由各自回归测试锁）。
+ * 注释/空行丢弃；`!` 否定保留；`\!`/`\#` 转义形整义传递（剥 `\!` 整两字符记忆、
+ * 判毕原样回投——剥壳后裸 `!` 随前缀化重投 ignore 包会被解析为否定锚：根层
+ * 形整义反转 + 对忽略族成否定连坐解除忽略）；纯 basename 模式前缀化插目录
+ * 通配前缀（`**`+`/`）保深层同配。
  */
 function prefixIgnorePattern(line: string, prefix: string): string | null {
   const trimmed = line.trim();
@@ -46,24 +49,37 @@ function prefixIgnorePattern(line: string, prefix: string): string | null {
 
   let pattern = line;
   let negated = false;
+  let bangEscaped = false;
   if (pattern.startsWith('!')) {
     negated = true;
     pattern = pattern.slice(1);
   } else if (pattern.startsWith('\\!')) {
-    pattern = pattern.slice(1);
+    // 剥壳记忆转义形（剥 `\!` 整两字符——勿剥一个留裸 `!`，裸投会被解析为
+    // 否定锚）；判毕整义重注入（见下）
+    bangEscaped = true;
+    pattern = pattern.slice(2);
   }
   // 前导 / = 显式锚定标记（先记下再去掉；锚定形相对本目录精确匹配）
   const rooted = pattern.startsWith('/');
   if (rooted) pattern = pattern.slice(1);
+  // 转义整义重投：剥壳只为本层判定，判毕转义形原样回投。根层前导 / 无条件
+  // 回补（git 语义：前导 / = 锚定根层标记）；嵌套层前缀本身已携定位斜杠
+  // （`sub/`），非转义锚定直拼即可（sub/exact.txt），**转义根锚定才在 \! 后
+  // 回补斜杠**（sub/\!/deep.txt——ignore 包对 \! 先于 / 的形可析且与 git
+  // check-ignore 真语义一致：忽略路径 sub/!/deep.txt = ! 目录下文件）
+  const esc = bangEscaped ? '\\!' : '';
+  const rootedLead = rooted ? '/' : '';
   if (!prefix) {
     // 根 .gitignore 锚定形保留前导 /（git 语义：前导分隔符 = 锚定本层——剥掉
     // 透传会把锚定降级成任意层匹配；检索族同笔同判同修）
-    const passed = rooted ? `/${pattern}` : pattern;
+    const passed = `${esc}${rootedLead}${pattern}`;
     return negated ? `!${passed}` : passed;
   }
   const body = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
   const anchored = rooted || body.includes('/');
-  const prefixed = anchored ? `${prefix}${pattern}` : `${prefix}**/${pattern}`;
+  // escapedLead = 转义根锚定才回补斜杠（非转义锚定再补会造 sub//x 双斜杠失配形）
+  const escapedLead = bangEscaped && rooted ? '/' : '';
+  const prefixed = anchored ? `${prefix}${esc}${escapedLead}${pattern}` : `${prefix}**/${esc}${pattern}`;
   return negated ? `!${prefixed}` : prefixed;
 }
 

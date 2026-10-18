@@ -83,6 +83,61 @@ describe('RepoFileIndex 内建腿行走语义', () => {
   });
 });
 
+describe('RepoFileIndex 内建腿 gitignore 转义形（\\! 整义传递——与快照遍历/技能发现/检索族同笔同判）', () => {
+  it('\\!name.env = 字面叹号名文件不入索引，name.env 不受影响（修前红：剥转义后裸 ! 重投被解析为否定锚，叹号名文件反入索引）', async () => {
+    const root = makeTmpDir();
+    writeFileSync(path.join(root, '.gitignore'), '\\!name.env\n');
+    writeFileSync(path.join(root, '!name.env'), '');
+    writeFileSync(path.join(root, 'name.env'), '');
+    const snap = await new RepoFileIndex({ ttlMs: 0 }).snapshot(root);
+    // git 语义：\!name.env 忽略字面名 !name.env；name.env 不受影响（.gitignore
+    // 自身被常量剪枝不入索引面）
+    expect(snap.files).toEqual(['name.env']);
+  });
+
+  it('\\! 与忽略族同册不成否定连坐：*.env + \\!keep.env 下 keep.env 仍被排除（修前红：剥壳 !keep.env 成否定——keep.env 被误解除忽略入索引）', async () => {
+    const root = makeTmpDir();
+    writeFileSync(path.join(root, '.gitignore'), '*.env\n\\!keep.env\n');
+    for (const name of ['a.env', 'keep.env', '!keep.env']) writeFileSync(path.join(root, name), '');
+    const snap = await new RepoFileIndex({ ttlMs: 0 }).snapshot(root);
+    // 三个 .env 全在忽略域：a.env/keep.env 由 *.env；!keep.env 字面名由 \!keep.env
+    expect(snap.files).toEqual([]);
+  });
+
+  it('根锚定转义形 \\!/x 字面重投：忽略路径 !/x（! 目录下文件），根层字面 !x 名不受辖（修前红：剥壳 !/x 成否定——!/x 路径反入索引）', async () => {
+    const root = makeTmpDir();
+    writeFileSync(path.join(root, '.gitignore'), '\\!/bang.txt\n');
+    writeFileSync(path.join(root, '!bang.txt'), '');
+    mkdirSync(path.join(root, '!'));
+    writeFileSync(path.join(root, '!', 'bang.txt'), '');
+    writeFileSync(path.join(root, 'plain.txt'), '');
+    const snap = await new RepoFileIndex({ ttlMs: 0 }).snapshot(root);
+    expect(snap.files).toEqual(['!bang.txt', 'plain.txt']);
+  });
+
+  it('嵌套 .gitignore 转义形前缀化同判（sub/\\!x 前缀化后 sub 域内字面叹号名不入索引、深层同配）', async () => {
+    const root = makeTmpDir();
+    mkdirSync(path.join(root, 'sub', 'deep'), { recursive: true });
+    writeFileSync(path.join(root, 'sub', '.gitignore'), '\\!bang.txt\n');
+    writeFileSync(path.join(root, 'sub', '!bang.txt'), '');
+    writeFileSync(path.join(root, 'sub', 'deep', '!bang.txt'), '');
+    writeFileSync(path.join(root, 'sub', 'plain.txt'), '');
+    const snap = await new RepoFileIndex({ ttlMs: 0 }).snapshot(root);
+    expect(snap.files).toEqual(['sub/plain.txt']);
+  });
+
+  it('嵌套锚定转义形前缀化同判：sub/.gitignore \\!/x 字面重投 sub/\\!/x——忽略 sub/!/x，sub 域字面 !x 名不受辖（escapedLead=转义根锚定才回补斜杠的分支锁）', async () => {
+    const root = makeTmpDir();
+    mkdirSync(path.join(root, 'sub', '!'), { recursive: true });
+    writeFileSync(path.join(root, 'sub', '.gitignore'), '\\!/deep.txt\n');
+    writeFileSync(path.join(root, 'sub', '!deep.txt'), '');
+    writeFileSync(path.join(root, 'sub', '!', 'deep.txt'), '');
+    writeFileSync(path.join(root, 'sub', 'plain.txt'), '');
+    const snap = await new RepoFileIndex({ ttlMs: 0 }).snapshot(root);
+    expect(snap.files).toEqual(['sub/!deep.txt', 'sub/plain.txt']);
+  });
+});
+
 describe('RepoFileIndex fd 腿优先与降级', () => {
   it('fd 输出收割 / 非零退出降级内建 / 相对路径 fdPath 判读为缺席', async () => {
     const root = makeTmpDir();
