@@ -215,3 +215,85 @@ export function addLinesToContent(lines: PatchLine[]): string {
   const texts = lines.map((line) => line.text);
   return texts.length === 0 ? '' : `${texts.join('\n')}\n`;
 }
+
+/* ------------------------------------------------------------------ */
+/* 补丁轻量摘要（在飞预览一行形——39 池 P4）                              */
+/* ------------------------------------------------------------------ */
+
+/** 同路径累计账（summarizePatch 内部形）：同补丁内多段并入同键的计数与终态位 */
+interface PatchFileTally {
+  /** 累计新增行数（update 的 added + add 段全行；跨终态翻转不重置——拼写面累计账） */
+  added: number;
+  /** 累计删除行数（update 的 removed） */
+  removed: number;
+  /** 本路径链末态为 Add 段（新建位——渲染词「新建 +N」；随段序收敛非固定优先级） */
+  created: boolean;
+  /** 本路径链末态为 Delete 段（删除位——渲染词「删除」；随段序收敛非固定优先级） */
+  deleted: boolean;
+  /** Move to 目标（update 段携带时记；同链至多一段故键唯一） */
+  moveDest?: string;
+}
+
+/**
+ * 补丁轻量摘要（一行形——39 池 P4·M「在飞 edit 预览行」的载荷真源）。
+ *
+ * 形状：`N 文件：<路径> +增 -删，<路径> 新建 +N，<路径> 删除`——文件数为
+ * **补丁拼写路径**去重计数（别名拼写各计——摘要诚实于补丁文本，canonical
+ * 归一是 fence/落盘侧的事）；各文件项按首见序排列，同文件多段并入同键
+ * 累计。渲染词面：update 段只列非零侧（纯上下文零增删 = 裸路径）；Move to
+ * 在场时路径记 `源 → 目标`（纯移段无计数）；add 段记 `新建 +N`（N ≥ 1
+ * ——解析面已拒空 Add）；delete 段记 `删除`。同路径混合段（如 update 后
+ * delete）**终态随段序收敛**：链末 Add/Delete 段定终态位（delete→add 是
+ * 合法按序重建形，apply 侧净效=新建——预览示「删除」即与实际终态相反，
+ * 冷读闸 P3 勘正；update 段不动终态位）。
+ *
+ * 消费链：edit 执行体 apply 开始时经 toolCtx.onUpdate 恰一次发出（fs.ts
+ * 发射位），沿既有 tool_execution_update 通道直达工具进度面板（string 载荷
+ * 宿主行直显——零新词汇）；载荷不进模型上下文、不落 durable，终态呈现仍
+ * 走结果三态卡主律。
+ *
+ * @param ops parseApplyPatch 产物（调用约定 ≥ 1 段——解析面已拒空补丁；
+ * 空数组输入退化为 `0 文件：`（全函数无守卫，非可达生产形））
+ */
+export function summarizePatch(ops: readonly PatchOperation[]): string {
+  const tally = new Map<string, PatchFileTally>();
+  for (const op of ops) {
+    const entry: PatchFileTally = tally.get(op.path) ?? { added: 0, removed: 0, created: false, deleted: false };
+    if (op.kind === 'update') {
+      // 行级计数：context 不计入 ±（定位锚非变更面）
+      for (const line of op.lines) {
+        if (line.tag === 'added') entry.added += 1;
+        else if (line.tag === 'removed') entry.removed += 1;
+      }
+      if (op.moveTo !== undefined) entry.moveDest = op.moveTo;
+    } else if (op.kind === 'add') {
+      // Add 段行流全为内容（宽容收的 context 行也按内容计——与 addLinesToContent 同口径）
+      entry.created = true;
+      entry.deleted = false; // 终态随段序收敛（冷读闸 P3）：delete→add 按序重建形净效=新建
+      entry.added += op.lines.length;
+    } else {
+      entry.deleted = true;
+      entry.created = false; // 终态随段序收敛：add→delete 净效=删除（新建位随链末段翻落）
+    }
+    tally.set(op.path, entry);
+  }
+  const parts: string[] = [];
+  for (const [path, entry] of tally) {
+    // 终态位（同路径混合段——随段序收敛后的链末态）：删除 > 新建 > 更新
+    if (entry.deleted) {
+      parts.push(`${path} 删除`);
+      continue;
+    }
+    if (entry.created) {
+      parts.push(`${path} 新建 +${entry.added}`);
+      continue;
+    }
+    const head = entry.moveDest !== undefined ? `${path} → ${entry.moveDest}` : path;
+    const delta = [
+      ...(entry.added > 0 ? [`+${entry.added}`] : []),
+      ...(entry.removed > 0 ? [`-${entry.removed}`] : []),
+    ].join(' ');
+    parts.push(delta === '' ? head : `${head} ${delta}`);
+  }
+  return `${tally.size} 文件：${parts.join('，')}`;
+}

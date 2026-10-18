@@ -4,7 +4,8 @@
  *
  * 纪律：mock 零件——真 fs 走临时目录（每用例独立 mkdtemp，afterEach 清场）；
  * fence/CAS/序列化全是物理行为，必须真盘验证。直接调 ToolDefinition.execute
- * （管道编舞另测于 pipeline.test——此处聚焦 fs 语义）。
+ * （管道编舞另测于 pipeline.test——此处聚焦 fs 语义）；edit 在飞预览发射位
+ * （39 池 P4——apply 开始恰一次 update 携一行摘要）同在此锁。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { link, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
@@ -450,6 +451,66 @@ describe('edit（apply_patch 两阶段：全检后写）', () => {
     const result = await exec('edit', { patch: patchOf('*** Update File: b.ts', '-hello', '+world') });
     expect(firstText(result)).toContain('updated b.ts');
     expect(await readFile(join(root, 'b.ts'), 'utf8')).toBe('world\n');
+  });
+
+  /* ---- 在飞预览发射位（39 池 P4·M：apply 开始恰一次 update 携一行摘要） ---- */
+
+  it('在飞预览：apply 开始恰一次 update 携一行摘要（修前红——零 update 即红；载荷 = 摘要函数同源 string）', async () => {
+    await exec('write', { path: 'pv.ts', content: 'x\n' });
+    await exec('read', { path: 'pv.ts' });
+    const patch = patchOf('*** Update File: pv.ts', '-x', '+y', '+z');
+    const updates: unknown[] = [];
+    const result = await tool('edit').execute(
+      { patch },
+      { toolCallId: 'pv-call', onUpdate: (update) => updates.push(update) },
+    );
+    // 恰一次 + 一行形字面（文件数前缀 + ± 计数——真源 = summarizePatch，apply-patch.test 单锁）
+    expect(updates).toEqual(['1 文件：pv.ts +2 -1']);
+    // 终值照常（update 缝不扰结果面）
+    expect(firstText(result)).toContain('updated pv.ts');
+  });
+
+  it('发射位 = 工具体起点（parse 后 fence 前）：fence 拒的补丁也发一次（预览生命周期归在飞期不归成败）', async () => {
+    const updates: unknown[] = [];
+    await expect(
+      tool('edit').execute(
+        { patch: patchOf(`*** Update File: ${join(outside, 'esc.ts')}`, '-a', '+b') },
+        { toolCallId: 'esc-call', onUpdate: (update) => updates.push(update) },
+      ),
+    ).rejects.toThrow(BaseError);
+    // 摘要路径 = 补丁拼写原文（canonical 归一是 fence/落盘侧的事——摘要诚实于补丁文本）
+    expect(updates).toEqual([`1 文件：${join(outside, 'esc.ts')} +1 -1`]);
+  });
+
+  it('解析失败零 update（发射位后于 parse——坏补丁无预览行）', async () => {
+    const updates: unknown[] = [];
+    await expect(
+      tool('edit').execute({ patch: 'not a patch' }, { toolCallId: 'bad-call', onUpdate: (u) => updates.push(u) }),
+    ).rejects.toThrow(BaseError);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('终态卡零漂移：onUpdate 在场与否结果深度同形（三态卡数据源 = durable 回执，update 缝零进入）', async () => {
+    await exec('write', { path: 'drift.ts', content: 'a\n' });
+    await exec('read', { path: 'drift.ts' });
+    const plain = await tool('edit').execute(
+      { patch: patchOf('*** Update File: drift.ts', '-a', '+b') },
+      { toolCallId: 'drift-1' },
+    );
+    // 第二次执行改回内容（-b +a）——回执文本与 operations 结构与第一次同形，可深比对
+    const withUpdate = await tool('edit').execute(
+      { patch: patchOf('*** Update File: drift.ts', '-b', '+a') },
+      { toolCallId: 'drift-2', onUpdate: () => {} },
+    );
+    expect(withUpdate).toEqual(plain);
+  });
+
+  it('fs 族他件零 update（write/read 无预览行——发射面唯 edit）', async () => {
+    const updates: unknown[] = [];
+    const ctx = { toolCallId: 'quiet-call', onUpdate: (update: unknown) => updates.push(update) };
+    await tool('write').execute({ path: 'quiet.txt', content: 'x' }, ctx);
+    await tool('read').execute({ path: 'quiet.txt' }, ctx);
+    expect(updates).toHaveLength(0);
   });
 });
 

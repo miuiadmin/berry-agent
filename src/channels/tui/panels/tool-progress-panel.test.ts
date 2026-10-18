@@ -3,7 +3,8 @@
  * 宽容解码三形（string 直显 / AgentToolResult 倒扫末条非空行 / 缺席退化 …）/
  * end 摘行 / clear 清板 / 帽 4 行 + 溢出行、renderCall 消费（2026-09-17 TUI
  * 余量收官批③——行集整体替换面板行 / 回落恒在 / 零 update 不触发 / 多行
- * 行集按视觉行计入帽 4 行）。
+ * 行集按视觉行计入帽 4 行）+ edit 在飞预览行（39 池 P4——fs apply 开始一次
+ * update 携一行摘要，宿主行直显 / end 摘行）。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { CellGrid } from '../../engine/index.js';
@@ -358,5 +359,28 @@ describe('ToolProgressPanel 溢出行窄窗收口', () => {
     // 行号列让位后内容帽 4 列：'+ 1 更多' → '+ 1…'（空槽 2 + 4 = 6 列恰满；
     // 修前红锚：'+ 1 更' 硬切满无 …）
     expect(readRow(grid, 4, width)).toBe('  + 1…');
+  });
+});
+
+/* ---------------- edit 在飞预览行（39 池 P4——fs apply 开始一次 update 携一行摘要） ---------------- */
+
+describe('edit 在飞预览行（update 携补丁摘要 string——宿主行直显）', () => {
+  it('有 update 即行：摘要载荷宿主行直显 ` • 编辑文件 · N 文件：…`（无 update 即无行——既有零行行为对照锁）', () => {
+    const panel = new ToolProgressPanel();
+    panel.begin('t1', 'edit', { patch: '*** Begin Patch' });
+    expect(panel.measure(WIDTH)).toBe(0); // 建档不建行（edit 与他工具同律——零 update 零行）
+    // 载荷 = fs 件 apply 开始经 tool_execution_update 发出的一行摘要
+    //（真源 summarizePatch——字面在此钉呈现形；宽度账：全行 46 列 ≤ 60 帽内）
+    panel.applyUpdate('t1', '2 文件：a.ts +2 -1，c.md 删除');
+    expect(readRow(renderPanel(panel), 0)).toBe('0  • 编辑文件 · 2 文件：a.ts +2 -1，c.md 删除');
+  });
+
+  it('end 即摘行：预览行生命周期 = 工具在飞期（终态归三态卡——面板零残留）', () => {
+    const panel = new ToolProgressPanel();
+    panel.begin('t1', 'edit', {});
+    panel.applyUpdate('t1', '1 文件：a.ts +1 -1');
+    expect(panel.measure(WIDTH)).toBe(1); // 在飞期可见
+    panel.end('t1'); // tool_execution_end——预览行让位终态三态卡
+    expect(panel.measure(WIDTH)).toBe(0);
   });
 });

@@ -1,11 +1,12 @@
 /**
- * tools/apply-patch 测试 — 解析面错误形态枚举 + Update 定位语义（04 §7 edit 段）。
+ * tools/apply-patch 测试 — 解析面错误形态枚举 + Update 定位语义（04 §7 edit 段）
+ * + 补丁轻量摘要（39 池 P4——在飞预览一行形的载荷真源）。
  *
  * 纯逻辑单元（零 fs）：解析器与应用器都是纯函数。
  */
 import { describe, it, expect } from 'vitest';
 import { BaseError } from '../contracts/index.js';
-import { addLinesToContent, applyUpdateLines, parseApplyPatch } from './apply-patch.js';
+import { addLinesToContent, applyUpdateLines, parseApplyPatch, summarizePatch } from './apply-patch.js';
 
 /** 断言补丁面拒绝码（解析/定位失败统一 FS_PATCH_FAILED） */
 function expectPatchError(fn: () => unknown, messageContains?: string): void {
@@ -256,5 +257,94 @@ describe('addLinesToContent（Add 行流 → 内容）', () => {
 
   it('空行流 → 空串', () => {
     expect(addLinesToContent([])).toBe('');
+  });
+});
+
+describe('summarizePatch（在飞预览一行形摘要——39 池 P4：edit apply 开始一次 update 的载荷真源）', () => {
+  it('三形混合：文件数前缀 + 各文件项按首见序「，」间隔（update 计 ±、add 记新建、delete 记删除）', () => {
+    const ops = parseApplyPatch(
+      [
+        '*** Begin Patch',
+        '*** Update File: a.ts',
+        ' context line',
+        '-old line',
+        '+new line',
+        '+new line 2',
+        '*** Add File: b.txt',
+        '+hello',
+        '+world',
+        '*** Delete File: c.md',
+        '*** End Patch',
+      ].join('\n'),
+    );
+    expect(summarizePatch(ops)).toBe('3 文件：a.ts +2 -1，b.txt 新建 +2，c.md 删除');
+  });
+
+  it('update 单侧计数：仅增留 +N、仅删留 -N（context 不计入 ±）', () => {
+    const onlyAdded = parseApplyPatch(
+      ['*** Begin Patch', '*** Update File: a.ts', ' keep', '+x', '+y', '*** End Patch'].join('\n'),
+    );
+    expect(summarizePatch(onlyAdded)).toBe('1 文件：a.ts +2');
+    const onlyRemoved = parseApplyPatch(
+      ['*** Begin Patch', '*** Update File: a.ts', '-solo', '*** End Patch'].join('\n'),
+    );
+    expect(summarizePatch(onlyRemoved)).toBe('1 文件：a.ts -1');
+  });
+
+  it('纯上下文段（零增删）→ 裸路径（不造 ±0 假计数）', () => {
+    const ops = parseApplyPatch(['*** Begin Patch', '*** Update File: a.ts', ' ctx', '*** End Patch'].join('\n'));
+    expect(summarizePatch(ops)).toBe('1 文件：a.ts');
+  });
+
+  it('Move to：纯移段 → 源 → 目标形；带行流 → 目标形后缀计数', () => {
+    const pureMove = parseApplyPatch(
+      ['*** Begin Patch', '*** Update File: a.ts', '*** Move to: b.ts', '*** End Patch'].join('\n'),
+    );
+    expect(summarizePatch(pureMove)).toBe('1 文件：a.ts → b.ts');
+    const moveWithLines = parseApplyPatch(
+      ['*** Begin Patch', '*** Update File: a.ts', '*** Move to: b.ts', '-x', '+y', '*** End Patch'].join('\n'),
+    );
+    expect(summarizePatch(moveWithLines)).toBe('1 文件：a.ts → b.ts +1 -1');
+  });
+
+  it('同文件多段并入同键：计数累计、文件数按拼写路径去重', () => {
+    const ops = parseApplyPatch(
+      [
+        '*** Begin Patch',
+        '*** Update File: a.ts',
+        '-x',
+        '+y',
+        '*** Update File: a.ts',
+        '-z',
+        '+w',
+        '*** End Patch',
+      ].join('\n'),
+    );
+    expect(summarizePatch(ops)).toBe('1 文件：a.ts +2 -2');
+  });
+
+  it('同路径混合段终态优先：update 后 delete → 记删除（终值是什么就示什么）', () => {
+    const ops = parseApplyPatch(
+      ['*** Begin Patch', '*** Update File: m.ts', '-p', '+P', '*** Delete File: m.ts', '*** End Patch'].join('\n'),
+    );
+    expect(summarizePatch(ops)).toBe('1 文件：m.ts 删除');
+  });
+
+  // 冷读闸 P3 回归锁（delete→add 按序重建形）：apply 侧同文件多段按序生效
+  // （04 §7——add 分支 staged.exists=false 放行、阶段二 rm→writeFile，净效
+  // =重建新文件）；旧形「删除恒优先」把合法重建补丁预览成「删除」——与实际
+  // 终态相反。修前红实录：本测断言「新建 +1」而旧实现产出「m.ts 删除」。
+  it('同路径混合段终态随段序：delete → add 按序重建形 → 记新建（非删除）', () => {
+    const ops = parseApplyPatch(
+      ['*** Begin Patch', '*** Delete File: r.ts', '*** Add File: r.ts', '+x', '*** End Patch'].join('\n'),
+    );
+    expect(summarizePatch(ops)).toBe('1 文件：r.ts 新建 +1');
+  });
+
+  it('同路径混合段终态随段序：add → delete 链末翻落 → 记删除（净效=删除）', () => {
+    const ops = parseApplyPatch(
+      ['*** Begin Patch', '*** Add File: n.ts', '+x', '*** Delete File: n.ts', '*** End Patch'].join('\n'),
+    );
+    expect(summarizePatch(ops)).toBe('1 文件：n.ts 删除');
   });
 });

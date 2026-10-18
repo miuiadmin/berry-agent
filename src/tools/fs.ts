@@ -35,7 +35,7 @@ import { Type } from 'typebox';
 import { BaseError } from '../contracts/index.js';
 import type { AgentToolResult, ToolDefinition } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
-import { addLinesToContent, applyUpdateLines, parseApplyPatch } from './apply-patch.js';
+import { addLinesToContent, applyUpdateLines, parseApplyPatch, summarizePatch } from './apply-patch.js';
 import type { PatchOperation } from './apply-patch.js';
 import { ObservedFiles, requireObservedForEdit, resolveWriteIntent, statVersion } from './observed.js';
 import { assertInodeNotProtected, rejectProtectedReadPath, type ProtectedReadFiles } from './protected-read.js';
@@ -458,6 +458,18 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
     }),
     execute: async (args, toolCtx) => {
       const ops = parseApplyPatch(args.patch as string);
+      // 在飞轻量预览行（39 池 P4·M）：apply 开始（解析成、fence/CAS/落盘全段
+      // 之前——工具体起点即补丁知识首点）恰一次 update 携一行摘要。经既有
+      // tool_execution_update 通道发出（回调链：管道出口消毒包装 → loop 工具
+      // 批发射 → TUI 件 5 首 update 建行），载荷 = string 一行形——零新词汇
+      // （03 §2.3 update 载荷 unknown 契约不扩，面板宿主行直显 ` • 编辑文件 ·
+      // N 文件：…`）。预览行生命周期 = 工具在飞期（tool_execution_end 即摘行）
+      // ——可见窗 = 写链排队（serializeWrites 链等）+ apply 段；审批闸
+      // （tools_pre_execute）先于工具体、审批等待窗内本行不存在（要审批窗可
+      // 见须上移发射位至管道/工具批层，属另立设计——冷读闸 P3 注释勘正）。
+      // apply 快时瞬时即过；终态呈现零涉——三态卡只读 durable 回执，本缝不
+      // 进任何 durable 面。
+      toolCtx.onUpdate?.(summarizePatch(ops));
       // 键推导先行：逐 op fence + canonical 化在链外完成——本补丁涉及的全
       // 部 canonical 路径即链键全集（fence 每文件单独过——补丁夹带根外目
       // 标逐个暴露）。同 canonical 多段按序并入同键（04 §7 定形注——同文件
