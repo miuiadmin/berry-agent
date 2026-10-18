@@ -9,11 +9,17 @@
  *
  * 应答等待位：PassThrough 'data' 事件异步派发——ask() 以 id 关联 promise
  * 逐请求等待（发号器模块级自增），通知/坏行等无 id 面走 tick 刷帧后断言。
+ *
+ * 受理段注册码收容锁（03 §10.6 67 轮批注——三传输同律执法完形）：受理腿
+ * （getEntries 重放腿/prompt 查重腿）经装配桥撞库面铸损（注册码族 BaseError）
+ * 折 error 帧出工具结果 isError 位、连接存活续答；非注册码裸 Error 维持
+ * 崩溃编排 fail-loud 不被收容（负向锁）。
  */
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 
 import type { SdkDurableEntry } from '../../src/channels/index.js';
+import { BaseError } from '../../src/contracts/index.js';
 
 import { MCP_POLL_TOOL_NAME, MCP_PROMPT_TOOL_NAME, runMcpFace, type McpFaceHandle, type SdkMcpBridge } from './mcp.js';
 
@@ -43,8 +49,14 @@ interface MemEvent {
 /** id 发号器（ask 关联位——模块级自增；各 rig 间唯一即可） */
 let seq = 0;
 
-/** 测试速记：假桥 + 传输对 + 应答账 */
-function rig() {
+/**
+ * 测试速记：假桥 + 传输对 + 应答账。
+ *
+ * @param bridgePatch 假桥方法浅覆写位（harness 注入位合法——受理/admit/深校验
+ * 语义仍全走真协议核，只桥面铸损形〔抛注册码族 BaseError 等〕经此注入——
+ * 67 轮批注收容锁消费位）
+ */
+function rig(bridgePatch?: Partial<SdkMcpBridge>) {
   const input = new PassThrough();
   const output = new PassThrough();
   output.setEncoding('utf8');
@@ -109,6 +121,8 @@ function rig() {
     highWaterOf: (sessionId) => sessions.get(sessionId)?.length,
     sessionStateOf: (sessionId) => (sessions.has(sessionId) ? 'open' : 'missing'),
     retryProbeOf: () => null,
+    // 注入位浅覆写（尾展开胜出——铸损形替换对应桥方法，其余桥面原样）
+    ...(bridgePatch ?? {}),
   };
 
   const face: McpFaceHandle = runMcpFace({
@@ -348,6 +362,112 @@ describe('幽灵订阅反制（http 面同律——MCP 面结构性零直播线�
     const anchor = new Promise<'hang'>((resolve) => setTimeout(() => resolve('hang'), 500));
     const answer = await Promise.race([r.face.backend.askApproval!(sessionId, { summary: '测试审批' }), anchor]);
     expect(answer).toBe('unavailable');
+    r.end();
+  });
+});
+
+describe('受理段注册码收容（67 轮批注——三传输同律：stdio 面件D 同律完形）', () => {
+  /** 预置会话 s1（sessionStateOf 过——受理腿真触达库面读位非 SESSION_NOT_FOUND 早退） */
+  const seeded = (r: ReturnType<typeof rig>): ReturnType<typeof rig> => {
+    r.sessions.set('s1', [{ type: 'user/message', seq: 0, time: 1, data: {} }]);
+    return r;
+  };
+
+  it('锁1 getEntries 腿撞注册码：折 error 帧出工具结果 isError 位 + 码直出（修前：异常穿出 onData 击杀进程）', async () => {
+    const r = seeded(
+      rig({
+        queryEntries: () => {
+          throw new BaseError('PERSIST_DATA_CORRUPT', '[PERSIST_DATA_CORRUPT] 测试铸损');
+        },
+      }),
+    );
+    // 修前红：roundTrip 无 catch，注册码族 BaseError 沿 callTool→handleMessage→
+    // onData 穿出 data 监听器（首写派发走流缓冲异步路——异常归因本测试体即
+    // uncaughtException 击杀整 berry mcp 进程的缺陷形）；修后按请求收容折
+    // error 帧，translate 投影出工具结果 isError 位 + 注册码直出
+    const resp = await r.ask('tools/call', { name: MCP_POLL_TOOL_NAME, arguments: { sessionId: 's1', since: 0 } });
+    expect(resp.result?.isError).toBe(true);
+    expect(JSON.parse(resp.result!.content![0]!.text!)).toMatchObject({ code: 'PERSIST_DATA_CORRUPT' });
+    r.end();
+  });
+
+  it('锁2 续答锁：收容后同 rig ping 正常应答（连接存活——单请求拒不连坐进程）', async () => {
+    const r = seeded(
+      rig({
+        queryEntries: () => {
+          throw new BaseError('PERSIST_DATA_CORRUPT', '[PERSIST_DATA_CORRUPT] 测试铸损');
+        },
+      }),
+    );
+    const contained = await r.ask('tools/call', { name: MCP_POLL_TOOL_NAME, arguments: { sessionId: 's1' } });
+    expect(contained.result?.isError).toBe(true); // 先证收容位已触发
+    expect((await r.ask('ping')).result).toEqual({}); // 修前红：首 ask 异常已穿杀——此行不可达
+    r.end();
+  });
+
+  it('锁3 崩溃编排维持锁（负向）：非注册码裸 Error 不被收容——异常逃逸维持 fail-loud', async () => {
+    const r = seeded(
+      rig({
+        queryEntries: () => {
+          throw new Error('真 bug 面');
+        },
+      }),
+    );
+    // 双路径逃逸账（serve-entry.test captureUncaught 同款装具）：流写派发时序
+    // （首写缓冲异步路/稳态同步路）不 影响 断言——同步形落 try 捕、异步形落
+    // process 级 uncaughtException 捕获账（多听众形下 vitest 按「用户已处理」
+    // 不接管——不污染套件报面）；收容形则两账皆空 + 应答 isError 帧（负向锁
+    // 断言面 = 收容律不得吞真 bug 面）
+    let thrownSync: unknown;
+    try {
+      r.ask('tools/call', { name: MCP_POLL_TOOL_NAME, arguments: { sessionId: 's1' } }); // 不 await——应答永不达
+    } catch (err) {
+      thrownSync = err; // 同步穿出形
+    }
+    const escaped: unknown[] = [];
+    const onUncaught = (err: unknown): void => {
+      escaped.push(err);
+    };
+    const onRejection = (err: unknown): void => {
+      escaped.push(err);
+    };
+    // 双通道监听（多听众形下 vitest 按「用户已处理」不接管——不污染套件报面）：
+    // 逃逸面随派发时序落 uncaughtException（同步 flush 形）或
+    // unhandledRejection（promise 链 flush 形——实测 rig 上下文首写走此路）
+    process.on('uncaughtException', onUncaught);
+    process.on('unhandledRejection', onRejection);
+    try {
+      // 异步派发拍落地（流缓冲 flush 走 nextTick/microtask 链——循环拍守候，
+      // 拍数上限防挂死）
+      for (let i = 0; i < 50 && thrownSync === undefined && escaped.length === 0; i += 1) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    } finally {
+      process.off('uncaughtException', onUncaught);
+      process.off('unhandledRejection', onRejection);
+    }
+    const surface = thrownSync !== undefined ? [thrownSync] : escaped;
+    expect(surface).toHaveLength(1); // 恰一枚真 bug 面（两路互斥——不双计）
+    expect((surface[0] as Error).message).toMatch(/真 bug 面/);
+    // 对照：无收容帧（真 bug 面不折 isError 应答）
+    expect(r.responses).toHaveLength(0);
+    r.end();
+  });
+
+  it('锁4 prompt 查重腿同律锁：lookupDedupeKey 撞注册码 → isError 位 + 码直出', async () => {
+    const r = seeded(
+      rig({
+        lookupDedupeKey: () => {
+          throw new BaseError('PERSIST_DATA_CORRUPT', '[PERSIST_DATA_CORRUPT] 测试铸损');
+        },
+      }),
+    );
+    const resp = await r.ask('tools/call', {
+      name: MCP_PROMPT_TOOL_NAME,
+      arguments: { message: '问', sessionId: 's1', messageId: 'm-corrupt' },
+    });
+    expect(resp.result?.isError).toBe(true);
+    expect(JSON.parse(resp.result!.content![0]!.text!)).toMatchObject({ code: 'PERSIST_DATA_CORRUPT' });
     r.end();
   });
 });

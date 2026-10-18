@@ -21,6 +21,9 @@
  * （SDK_ 族/SESSION_*）走工具结果 isError 位非 JSON-RPC error（协议错与
  * 业务错两分）。protocolVersion 已知集回显制（请求值在已知集内即回显、
  * 否则回服务端缺省）。工具名属对外声明值位（bin 同族）——去品牌化纪律合法域。
+ * 受理段注册码收容（03 §10.6 67 轮批注——stdio/HTTP 面同律）：受理腿经
+ * 装配桥撞注册码族 BaseError 按请求折 error 帧续答（连接存活），非注册码
+ * 异常维持崩溃编排 fail-loud。
  */
 import type { Readable, Writable } from 'node:stream';
 
@@ -33,6 +36,7 @@ import {
   type SdkWireCore,
   type SdkWireFrame,
 } from '../../src/channels/index.js';
+import { BaseError } from '../../src/contracts/index.js';
 
 import type { SdkHttpBridge } from './types.js';
 
@@ -162,6 +166,25 @@ export function runMcpFace(options: McpFaceOptions): McpFaceHandle {
     capturing = true;
     try {
       backend.core.handleRequest(req);
+    } catch (err) {
+      // —— 受理段注册码收容（03 §10.6 67 轮批注——三传输同律：stdio 面
+      // 66 轮件 D 同律完形）：handleRequest 经装配桥触达库面读（getEntries
+      // 重放腿/prompt 查重腿），损坏会话日志抛注册码族 BaseError
+      // （PERSIST_DATA_CORRUPT 宁拒勿删族）。此类已识故障态按请求收容：
+      // 折 error 帧交 translate 投影（工具结果 isError 位 + 码直出——走
+      // 既有投影位零第二套词汇），连接存活续答后续请求——单请求拒不连坐
+      // 整 berry mcp 进程与其余健康会话；log 带 code 保留诊断面（收容非
+      // 静默）。非注册码异常（真 bug 面）原样上抛维持崩溃编排 fail-loud
+      // ——收容律辖已识故障态不辖未知 bug。catch 内 return 仍过 finally
+      //（capturing 复位语义不破；已收半帧自然弃——零直播面弃帧同律）——
+      if (!(err instanceof BaseError)) throw err;
+      log(`请求受理注册码收容（连接存活续答）：${err.code} ${err.message}`);
+      return {
+        kind: 'error',
+        sessionId: 'sessionId' in req ? req.sessionId : undefined,
+        code: err.code,
+        message: err.message,
+      };
     } finally {
       capturing = false; // 事务外活体帧一律弃（零直播面——见 sink 位注）
     }
