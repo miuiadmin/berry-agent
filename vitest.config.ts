@@ -52,6 +52,7 @@ export default defineConfig({
             // （顶层断言形进 runner 会「No test suite found」红），通配会误收。
             'examples/telegram-channel/test/**/*.test.ts',
             'tools/check-api.test.mjs',
+            'tools/check-hook-coverage.test.mjs',
             'tools/check-mock-targets.test.mjs',
             'tools/check-topology.test.mjs',
             'tools/check-vocab.test.mjs',

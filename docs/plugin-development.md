@@ -104,11 +104,12 @@ export default async function apply(ctx, config) {
 
 派发四模式：**waterfall** = 串行链、载荷逐棒可改写、可刹停；**serial** = 只读串行、逐个等待；**parallel** = 只读并行、收口等全部；**emit** = 通知播、宿主不等待。
 
-#### 活词（27）
+#### 活词（28）
 
 | 钩子                    | 模式      | 宿主侧发射位                                                        |
 | ----------------------- | --------- | ------------------------------------------------------------------- |
 | `session/event`         | emit      | `src/host/assembly.ts` — durable 会话事件桥入活体派发               |
+| `session_start`         | emit      | `src/conversation/sessions.ts` — 会话建立/恢复/派生共尾首发（装载收口另有补播腿在 plugin-boot.ts——恢复窗补发） |
 | `session_before_fork`   | waterfall | `src/conversation/sessions.ts` — 会话派生（fork）接管缝             |
 | `session_before_compact`| waterfall | `src/host/conversation-stack.ts` — 上下文压缩接管缝                 |
 | `agent_start`           | emit      | `src/agent/loop.ts` — agent 运行起点                                |
@@ -136,11 +137,10 @@ export default async function apply(ctx, config) {
 | `prompts_change`        | emit      | `src/host/plugin-boot.ts` — 提示词段注册面变更                      |
 | `skills_change`         | emit      | `src/host/assembly.ts` — 技能注册面变更                             |
 
-#### 保留词（14——发射位未落，订阅静默）
+#### 保留词（13——发射位未落，订阅静默）
 
 | 钩子                       | 模式      | 状态                                                               |
 | -------------------------- | --------- | ------------------------------------------------------------------ |
-| `session_start`            | emit      | 发射位未落——落位在路线图（装载收口编舞补播）                       |
 | `session_compact`          | emit      | 压缩后通知位未落（压缩「前」接管缝已开：`session_before_compact`）  |
 | `session_flush`            | serial    | 会话刷盘通知位未落                                                 |
 | `session_shutdown`         | parallel  | 退出序宿主内部已承载、插件派发未桥接（挂账）                       |
