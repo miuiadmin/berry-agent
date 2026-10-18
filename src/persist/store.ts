@@ -410,8 +410,16 @@ export function openStore(options: OpenStoreOptions = {}): Store {
   prepareWal(db, warn);
 
   if (!inMemory) {
-    // 库文件 0600 自检修复（05 §6.6——credentials 表所在库文件）
+    // 库文件 0600 自检修复（05 §6.6——credentials 表所在库文件；库文件族
+    // 含 WAL/SHM 侧车）
     repairFileMode(dbPath, '库文件', warn);
+    // 侧车同律修复（63 轮件 E——侧车明文窗收口）：崩溃残卷侧车在场 +
+    // 外部权限漂移（0644）时，WAL 窗承载的已提交事件明文他户可读——
+    // 「仅属主可读写」不能只辖主库本尊。SQLite 采纳含真帧的原侧车时不
+    // 重建不改模式（唯零长空侧车重建才承袭主库模式），须自检补呼；
+    // repairMode 对缺席目标 no-op——常态零成本
+    repairFileMode(`${dbPath}-wal`, '库 WAL 侧车', warn);
+    repairFileMode(`${dbPath}-shm`, '库 SHM 侧车', warn);
   }
 
   // 版本门禁（先读后判；全新库单事务 = 建链原子性，05 §6.5）

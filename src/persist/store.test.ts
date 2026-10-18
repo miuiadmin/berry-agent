@@ -6,7 +6,7 @@
  * 分层纪律：真 better-sqlite3 临时目录库（非 mock 物理层——门禁序与事务
  * 语义只在真库上可断言）；词汇注册表用测试插件词补 FTS 索引面样本。
  */
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -253,6 +253,40 @@ describe('开库门禁序（05 §6.4/§6.5）', () => {
     } finally {
       process.umask(prevUmask);
     }
+  });
+
+  it('库文件 0600 自检修复辖 WAL/SHM 侧车（63 轮件 E——崩溃残卷宽权限侧车明文窗收口）', () => {
+    const path = join(dir, 'sidecar-mode.db');
+    const walPath = `${path}-wal`;
+    const shmPath = `${path}-shm`;
+    // 第一段：建库到 head。净退出 close 会 checkpoint 收卷并删除侧车——
+    // 崩溃残卷形须以「raw 连接写一帧后悬置不 close」构造：-wal 含真实帧
+    // 在场（4KB+）、-shm 在场，正是进程崩溃后磁盘上的标准残卷形
+    const seed = open({ dbPath: path });
+    seed.close();
+    const raw = new Database(path);
+    raw.exec(
+      `INSERT INTO events (session_id, seq, type, time, data, ignorable) VALUES ('s-residue', 0, 'user/message', 1, '{}', 0)`,
+    );
+    expect(statSync(walPath).size).toBeGreaterThan(0); // 残卷帧真在场（空侧车会被 sqlite 重建承袭主库模式——假绿形，见下注）
+    // 外部权限漂移：两侧车 chmod 0644（显式钉宽不随 umask）。侧车承载 WAL
+    // 窗已提交事件明文，宽权限即他户可读——05 §6.6 库文件族「仅属主可读写」
+    // 承诺不能只辖主库本尊
+    chmodSync(walPath, 0o644);
+    chmodSync(shmPath, 0o644);
+    // 第二段：head 版重开（纯读路径——无 bootstrap/迁移写；实测注：零长空
+    // 侧车会被 SQLite 重建且模式承袭已修复的主库（0600），恰好掩盖漏网；
+    // 唯含真帧的在场侧车才呈漏网裸形——SQLite 采纳原文件不重建不改模式）
+    const store = open({ dbPath: path });
+    expect(store.headVersion).toBe(15);
+    // 修前红：自检修复只呼主库路径——两 0644 侧车原样漏网（WAL 窗明文敞开）
+    expect(statSync(walPath).mode & 0o777).toBe(0o600);
+    expect(statSync(shmPath).mode & 0o777).toBe(0o600);
+    // 主库本尊同拍修复在位（并位确认——既有单呼不被分心）
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    // 残卷帧经恢复可读（侧车被修复不碍 wal 采纳——数据零损）
+    expect(store.loadEvents('s-residue')).toHaveLength(1);
+    raw.close();
   });
 
   it('全新库豁免迁移前备份（十六役补扫 N10）：带链首开零 .bak 残留零误导 warn，迁移链照跑', () => {
