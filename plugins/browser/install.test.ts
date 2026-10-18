@@ -17,7 +17,7 @@ import {
 } from './install.js';
 import type { BrowserDownloadFace, BrowserInstallDeps } from './install.js';
 import { discoverEngine } from './discover.js';
-import type { BrowserFsFace } from './types.js';
+import type { BrowserStreamingFsFace } from './types.js';
 
 /* ---------------- 手搓 zip 构造器 ---------------- */
 
@@ -102,18 +102,34 @@ function makeFs() {
   const files = new Map<string, string | Uint8Array>();
   const dirs = new Set<string>();
   const chmods: Array<{ path: string; mode: number }> = [];
-  const fs: BrowserFsFace = {
+  // 63 轮件 F：流式落盘回归锁的记账面——writeFile/appendFile/unlink 调用序列
+  const writes: Array<{ path: string; data: string | Uint8Array; mode?: number }> = [];
+  const appends: Array<{ path: string; data: Uint8Array }> = [];
+  const unlinks: string[] = [];
+  // readFile 双形（63 轮件 F）：函数声明重载——utf8 形回串（账本读位）、
+  // 无 encoding 形回字节（解压腿回读临时 zip 单份；镜像真 fs 双形语义）
+  async function readFile(path: string, encoding: 'utf8'): Promise<string>;
+  async function readFile(path: string): Promise<Uint8Array>;
+  async function readFile(path: string, encoding?: 'utf8'): Promise<string | Uint8Array> {
+    const f = files.get(path);
+    if (f === undefined) throw new Error(`ENOENT ${path}`);
+    return encoding === 'utf8' ? Buffer.from(f).toString('utf8') : Buffer.from(f);
+  }
+  const fs: BrowserStreamingFsFace = {
     access: async (p) => {
       if (!files.has(p)) throw new Error(`ENOENT ${p}`);
     },
-    readFile: async (p, _enc) => {
-      void _enc;
-      const f = files.get(p);
-      if (f === undefined) throw new Error(`ENOENT ${p}`);
-      return Buffer.from(f).toString('utf8');
-    },
-    writeFile: async (p, data) => {
+    readFile,
+    writeFile: async (p, data, options) => {
+      // 记账含 options.mode（63 轮件 F——首块建即 0600 断言源）
+      writes.push({ path: p, data, mode: options?.mode });
       files.set(p, data);
+    },
+    // 63 轮件 F：追加写（内存 Map 拼接形——真 fs 语义：既有内容接新段）
+    appendFile: async (p, data) => {
+      appends.push({ path: p, data });
+      const prev = files.get(p);
+      files.set(p, prev === undefined ? Buffer.from(data) : Buffer.concat([Buffer.from(prev), Buffer.from(data)]));
     },
     mkdir: async (p) => {
       dirs.add(p);
@@ -123,12 +139,18 @@ function makeFs() {
       if (!files.has(p)) throw new Error(`ENOENT ${p}`);
       return { isFile: () => true };
     },
-    unlink: async () => {},
+    // 63 轮件 F：unlink 真删 + 记账（临时文件清理断言源；缺席文件拒
+    // ENOENT 镜像真 fs——调用侧两处均 .catch 兜底）
+    unlink: async (p) => {
+      unlinks.push(p);
+      if (!files.has(p)) throw new Error(`ENOENT ${p}`);
+      files.delete(p);
+    },
     chmod: async (p, mode) => {
       chmods.push({ path: p, mode });
     },
   };
-  return { fs, files, dirs, chmods };
+  return { fs, files, dirs, chmods, writes, appends, unlinks };
 }
 
 /** 下载桩（URL → {status, bytes}；调用记账） */
@@ -408,6 +430,94 @@ describe('installBrowserEngine', () => {
     await expect(installBrowserEngine(deps)).rejects.toThrow('超体积上限');
     // 中止在下载腿——零解压零账本
     expect(fsEnv.files.size).toBe(0);
+  });
+
+  it('流式落盘（63 轮件 F）：块级增量写 .download.tmp——多段追加非整包单发，成功后临时文件清理', async () => {
+    // 修前红形：parts 数组全量内存积攒 + Buffer.concat 单发——无临时文件、
+    // 无追加段（appends/writes 记账空即红）
+    const zip = macZip();
+    const fsEnv = makeFs();
+    // 四块等分流下载桩（makeDownload 两块形首块全走 writeFile 只能证 1 段——
+    // 四块真测多段增量）
+    const chunkSize = Math.ceil(zip.length / 4);
+    const download: BrowserDownloadFace = {
+      fetchBinary: async (url) => {
+        if (url === META_URL) {
+          return {
+            status: 200,
+            bytes: (async function* () {
+              yield Buffer.from(metadataJson());
+            })(),
+          };
+        }
+        return {
+          status: 200,
+          bytes: (async function* () {
+            for (let i = 0; i < zip.length; i += chunkSize) yield zip.subarray(i, Math.min(i + chunkSize, zip.length));
+          })(),
+        };
+      },
+    };
+    const deps: BrowserInstallDeps = {
+      fs: fsEnv.fs,
+      download,
+      platform: 'darwin',
+      arch: 'arm64',
+      dataDir: '/data',
+      metadataUrl: META_URL,
+    };
+    const r = await installBrowserEngine(deps);
+    expect(r.alreadyInstalled).toBe(false);
+    expect(r.bytes).toBe(zip.length);
+    const tmp = '/data/browser/engine/.download.tmp';
+    // 多段追加（≥ 2）且每段 ≤ 单块——整包单发（单段即全件）即红
+    const tmpAppends = fsEnv.appends.filter((a) => a.path === tmp);
+    expect(tmpAppends.length).toBeGreaterThanOrEqual(2);
+    for (const a of tmpAppends) {
+      expect(a.data.length).toBeLessThanOrEqual(chunkSize);
+    }
+    // 首块建即 0600（05 §6.6 敏感产物纪律）
+    const tmpWrite = fsEnv.writes.find((w) => w.path === tmp);
+    expect(tmpWrite).toBeDefined();
+    expect(tmpWrite?.mode).toBe(0o600);
+    // 全段拼回 = 原件（流式分毫不漂移——摘要与解压双依赖此不变量）
+    const reassembled = Buffer.concat([
+      Buffer.from(tmpWrite!.data as Uint8Array),
+      ...tmpAppends.map((a) => Buffer.from(a.data)),
+    ]);
+    expect(reassembled.equals(zip)).toBe(true);
+    // 成功路径临时文件已清（盘面恒净）
+    expect(fsEnv.unlinks).toContain(tmp);
+    expect(fsEnv.files.has(tmp)).toBe(false);
+  });
+
+  it('超帽中止（63 轮件 F）：已落盘临时段随帽错一并清——半件不留盘', async () => {
+    // 修前红形：无临时文件——writes/unlinks 记账空即红（帽错消息本体既有
+    // 测试已锁，本锁只钉「已写的临时段随中止清理」腿）
+    const big = Buffer.alloc(1024, 1);
+    const fsEnv = makeFs();
+    const download = makeDownload({
+      [META_URL]: { status: 200, bytes: Buffer.from(metadataJson()) },
+      [ARTIFACT_URL]: { status: 200, bytes: big }, // makeDownload 分两块各 512
+    });
+    const deps: BrowserInstallDeps = {
+      fs: fsEnv.fs,
+      download,
+      platform: 'darwin',
+      arch: 'arm64',
+      dataDir: '/data',
+      metadataUrl: META_URL,
+      // 首块 512 过帽、次块累计 1024 越帽——tmp 已建后中止（真测清理腿，非
+      // 首块即拒的零写盘形）
+      maxZipBytes: 700,
+    };
+    await expect(installBrowserEngine(deps)).rejects.toThrow('超体积上限');
+    const tmp = '/data/browser/engine/.download.tmp';
+    // tmp 曾建（首块已落盘）+ 已清（unlink 记账 + 文件册不在场 + stat 拒）
+    expect(fsEnv.writes.some((w) => w.path === tmp)).toBe(true);
+    expect(fsEnv.unlinks).toContain(tmp);
+    expect(fsEnv.files.has(tmp)).toBe(false);
+    await expect(fsEnv.fs.stat(tmp)).rejects.toThrow('ENOENT');
   });
 
   it('元数据体帽（十六役补扫 N14）：读侧增量计数越帽即停——慢滴不闭流不等全量即拒', async () => {

@@ -183,6 +183,32 @@ export interface BrowserFsFace {
   chmod?(path: string, mode: number): Promise<void>;
 }
 
+/**
+ * 流式落盘扩展面（63 轮件 F——03 §10.3 引擎发现序条款「下载……流式落盘 +
+ * 摘要账本 TOFU 锚定」的码面兑现位）。
+ *
+ * install 件下载腿在基面外需要两个能力：**无 encoding 形 readFile**（解压腿
+ * 回读临时 zip 单份字节——替代修前 parts 数组全量内存积攒 + Buffer.concat
+ * 再造等体积副本的双份峰值）与 **appendFile**（下载块逐段追加落盘）。
+ *
+ * 基面 BrowserFsFace 零动——engine/discover/page/service/compat 等基面消费
+ * 与全部既有桩零波及；生产适配 = node:fs/promises 原生结构满足（两形皆
+ * fsp 原生成员，core-plugins 调用位传 fsp 零改动）。
+ *
+ * readFile 双重重载说明：extends 下单独新增「无 encoding 形回
+ * Promise<Uint8Array>」会与基面单形（回 Promise<string>）返回型不协变而
+ * 编译拒——必须成对声明（基重载照抄 + 新重载并列，node:fs/promises 自身
+ * 类型同形）。
+ */
+export interface BrowserStreamingFsFace extends BrowserFsFace {
+  /** 基重载照抄（utf8 形回串——账本读位沿用） */
+  readFile(path: string, encoding: 'utf8'): Promise<string>;
+  /** 无 encoding 形回字节（63 轮件 F——解压腿回读临时 zip 单份） */
+  readFile(path: string): Promise<Uint8Array>;
+  /** 追加写（下载块逐段落盘——63 轮件 F 流式落盘位；fsp 原生成员） */
+  appendFile(path: string, data: Uint8Array): Promise<void>;
+}
+
 /** 工具注册窄面（结构兼容 tools ToolRegistry.register 子面——撤工具经注销器） */
 export interface BrowserRegisterToolsFace {
   register(def: {

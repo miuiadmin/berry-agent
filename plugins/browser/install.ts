@@ -14,7 +14,9 @@
  *   拼无帽——慢滴不闭流/巨型载荷全量吞入后无从拒绝）。
  * - **流式落盘 + 摘要账本 TOFU 锚定**：首装计算 zip sha256 锚进
  *   `dataDir/browser/engine/ledger.json`；同版本重装摘要不符即拒执行
- *   （BROWSER_DIGEST_MISMATCH——fail-loud 不动盘）。
+ *   （BROWSER_DIGEST_MISMATCH——fail-loud 不动盘）。下载块逐段写引擎目录
+ *   `.download.tmp`（首块建即 0600）、解压腿单份回读（63 轮件 F——03 §10.3
+ *   流式落盘条款兑现：修前 parts 数组全量内存积攒 + Buffer.concat 双份峰值）。
  * - **手写 unzip 零新增依赖**：EOCD 反扫 → 中央目录遍历 → 本地头跳位 →
  *   store/deflate 两法解压（zlib.inflateRawSync）；zip-slip 防御（拒绝
  *   `..` 与绝对路径条目）+ unix 属性行 chmod（可执行位——macOS app 内
@@ -25,7 +27,7 @@
 import { createHash } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
 import { BaseError } from '../../src/contracts/index.js';
-import type { BrowserFsFace, BrowserLoggerFace } from './types.js';
+import type { BrowserFsFace, BrowserLoggerFace, BrowserStreamingFsFace } from './types.js';
 
 /* ---------------- 常量（域白名单与元数据单源） ---------------- */
 
@@ -84,7 +86,11 @@ export interface BrowserDownloadFace {
 
 /** 安装依赖（全窄面注入） */
 export interface BrowserInstallDeps {
-  readonly fs: BrowserFsFace;
+  /**
+   * 文件面（流式落盘扩展面——63 轮件 F：下载腿 appendFile 逐块追加 + 无
+   * encoding 形 readFile 解压腿回读；生产 fsp 原生结构满足，面形见 types.ts）
+   */
+  readonly fs: BrowserStreamingFsFace;
   readonly download: BrowserDownloadFace;
   readonly platform: NodeJS.Platform;
   /** 进程架构（process.arch 注入——darwin 双架构分叉判据） */
@@ -452,59 +458,85 @@ export async function installBrowserEngine(deps: BrowserInstallDeps): Promise<Br
     }
   }
 
-  // 流式下载 + 增量摘要（帽执法防巨型载荷）；zip 腿应用级超时帽同穿针（N14）
+  // 流式下载 + 增量摘要 + 流式落盘（63 轮件 F——03 §10.3 引擎发现序条款
+  // 「下载……流式落盘」兑现）：zip 腿应用级超时帽穿针（N14）。修前 parts
+  // 数组全量内存积攒 + Buffer.concat 再造等体积副本——1.5GiB 帽下峰值近 2×
+  // 帽，无人值守小内存宿主 OOM 被杀全线会话连坐；修后下载块逐段写临时文
+  // 件、解压腿单份回读，峰值收敛 1×
   const maxBytes = deps.maxZipBytes ?? BROWSER_ZIP_MAX_BYTES;
   const res = await deps.download.fetchBinary(url, { timeoutMs: deps.zipTimeoutMs ?? BROWSER_ZIP_TIMEOUT_MS });
   if (res.status !== 200) throw new Error(`引擎工件取失败（HTTP ${res.status}）`);
-  const hash = createHash('sha256');
-  const parts: Buffer[] = [];
-  let bytes = 0;
-  for await (const chunk of res.bytes) {
-    const buf = Buffer.from(chunk);
-    bytes += buf.length;
-    if (bytes > maxBytes) {
-      throw new Error(`引擎 zip 超体积上限（> ${maxBytes} 字节）——中止下载`);
-    }
-    hash.update(buf);
-    parts.push(buf);
-  }
-  const zipSha256 = hash.digest('hex');
-  const zip = Buffer.concat(parts);
-
-  // TOFU 执法：同版本重装摘要不符 = 拒执行（fail-loud 不动盘）
-  if (existing !== undefined && existing.version === version && existing.zipSha256 !== zipSha256) {
-    throw new BaseError(
-      'BROWSER_DIGEST_MISMATCH',
-      `同版本重装摘要不符（version ${version}：账本 ${existing.zipSha256} ≠ 实测 ${zipSha256}）——` +
-        'TOFU 锚定拒绝执行；既有安装未动。请核查网络通路或清除账本后重装（后果自担）',
-    );
-  }
-
-  // 落盘：解压 + 可执行位 + 账本
+  // 引擎目录先建（原落盘段的 mkdir 腿提前至此——recursive 幂等；临时文件
+  // 须落在引擎目录内，与账本/工件同域管理）
   await deps.fs.mkdir(engineDir, { recursive: true });
-  const files = await unzipTo(zip, engineDir, deps.fs);
+  // 临时文件 = 引擎目录下 .download.tmp（首块建即 0600——05 §6.6 敏感产物
+  // 纪律；成功/失败全路径清理，盘面恒净）
+  const tmpPath = `${engineDir}/.download.tmp`;
   const executablePath = `${engineDir}/${executableRel}`;
-  let executableOk = false;
+  const hash = createHash('sha256');
+  let bytes = 0;
+  let firstChunk = true; // 首块 writeFile 建文件（0600），后续块 appendFile 追加
   try {
-    executableOk = (await deps.fs.stat(executablePath)).isFile();
-  } catch {
-    executableOk = false;
+    for await (const chunk of res.bytes) {
+      const buf = Buffer.from(chunk);
+      bytes += buf.length;
+      if (bytes > maxBytes) {
+        // 超帽：先清临时文件再抛（帽执法语义不变——半件不留盘）；unlink 自身
+        // 失败吞掉——不掩盖帽错（finally 兜底再清）
+        await deps.fs.unlink(tmpPath).catch(() => {});
+        throw new Error(`引擎 zip 超体积上限（> ${maxBytes} 字节）——中止下载`);
+      }
+      hash.update(buf); // 摘要账逐块累积（语义不变）
+      if (firstChunk) {
+        await deps.fs.writeFile(tmpPath, buf, { mode: 0o600 }); // 建即 0600（05 §6.6）
+        firstChunk = false;
+      } else {
+        await deps.fs.appendFile(tmpPath, buf); // 逐块追加——零全量内存副本
+      }
+    }
+    const zipSha256 = hash.digest('hex');
+
+    // TOFU 执法：同版本重装摘要不符 = 拒执行（fail-loud 不动盘）
+    if (existing !== undefined && existing.version === version && existing.zipSha256 !== zipSha256) {
+      throw new BaseError(
+        'BROWSER_DIGEST_MISMATCH',
+        `同版本重装摘要不符（version ${version}：账本 ${existing.zipSha256} ≠ 实测 ${zipSha256}）——` +
+          'TOFU 锚定拒绝执行；既有安装未动。请核查网络通路或清除账本后重装（后果自担）',
+      );
+    }
+
+    // 解压腿回读单份（无 encoding 形 readFile——63 轮件 F）：Buffer.from 视图
+    // 形（byteOffset/byteLength 共享底层存储）零再拷贝——瞬态单份峰值 1×；
+    // unzipTo 签名不动收 Buffer
+    const rawZip = await deps.fs.readFile(tmpPath);
+    const zip = Buffer.from(rawZip.buffer, rawZip.byteOffset, rawZip.byteLength);
+    const files = await unzipTo(zip, engineDir, deps.fs);
+    let executableOk = false;
+    try {
+      executableOk = (await deps.fs.stat(executablePath)).isFile();
+    } catch {
+      executableOk = false;
+    }
+    if (!executableOk) {
+      throw new Error(`解压后可执行缺席：${executablePath}（工件形与预期不符）`);
+    }
+    await deps.fs.chmod?.(executablePath, 0o755); // 主二进制显式可执行（属性行之外的双保险）
+    const ledger: BrowserEngineLedger = {
+      version,
+      zipSha256,
+      executableRel,
+      artifact,
+      installedAt: new Date().toISOString(),
+      bytes,
+    };
+    await deps.fs.writeFile(ledgerPath, JSON.stringify(ledger, null, 2));
+    deps.logger?.info?.(
+      `browser 引擎已安装：Chromium for Testing ${version}（${artifact}，${files} 文件，${bytes} 字节）→ ${executablePath}`,
+    );
+    return { version, zipSha256, executableRel, executablePath, alreadyInstalled: false, bytes };
+  } finally {
+    // 临时文件全路径清理（成功/超帽/TOFU 拒/解压失败/写盘失败一律清——盘面
+    // 恒净）；unlink 自身失败吞掉——不掩盖主错不造新错
+    await deps.fs.unlink(tmpPath).catch(() => {});
   }
-  if (!executableOk) {
-    throw new Error(`解压后可执行缺席：${executablePath}（工件形与预期不符）`);
-  }
-  await deps.fs.chmod?.(executablePath, 0o755); // 主二进制显式可执行（属性行之外的双保险）
-  const ledger: BrowserEngineLedger = {
-    version,
-    zipSha256,
-    executableRel,
-    artifact,
-    installedAt: new Date().toISOString(),
-    bytes,
-  };
-  await deps.fs.writeFile(ledgerPath, JSON.stringify(ledger, null, 2));
-  deps.logger?.info?.(
-    `browser 引擎已安装：Chromium for Testing ${version}（${artifact}，${files} 文件，${bytes} 字节）→ ${executablePath}`,
-  );
-  return { version, zipSha256, executableRel, executablePath, alreadyInstalled: false, bytes };
 }
