@@ -998,6 +998,42 @@ describe('DiffViewer 超宽行硬折行（挖掘 49 轮件 A）', () => {
     expect(grid.getCell(3, 10)?.style?.fg).toBeUndefined();
   });
 
+  it('恰满段形无截断——折出恰 1+帽 段全呈现、末视觉行完整不强制 … 收口（68 轮件 G：截断事实单源）', () => {
+    // 531 列恰折 9 段（= 1+帽 8，无截断——segments.length > maxRows 为假不
+    // slice）：count 反推形把末行误判帽行强制 '…' 收口丢末段尾字素（对未截断
+    // 文本删数据）。修法真源：截断事实在切片装配位显式携带、帽行判据消费该位。
+    const viewer = makeViewer(
+      ['*** Begin Patch', '*** Update File: src/full.ts', `-${'x'.repeat(531)}`, '*** End Patch'].join('\n'),
+    );
+    const width = 64; // 内容预算 59（64 − 槽区 4 − 前缀 1）：531 = 59 × 9 恰满
+    viewer.handleEvent(k('enter'));
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // 行账：标题 1 + 组头 1 + 组体 9（恰满段全呈现）+ footer 1 = 12
+    expect(grid.rows).toBe(12);
+    // 末视觉行（第 8 续行 = 屏行 10）：完整末段 59x——修前误判帽行收口 58x+'…' 红
+    expect(readRow(grid, 10, width)).toBe(' '.repeat(5) + 'x'.repeat(59));
+    // 全帧无 '…'（恰满段形非截断面——省略号只在真截断帽行）
+    for (let r = 2; r <= 10; r++) expect(readRow(grid, r, width)).not.toContain('…');
+  });
+
+  it('最小真截断形——恰满 + 1 列翻截断：帽行 … 收口在场（68 轮件 G 正锁——既有截断语义保持）', () => {
+    // 532 列折 10 段（恰满 531 + 1）→ 段数超 1+帽 9 真截：帽至 9 视觉行、末帽
+    // 行 '…' 收口示截断（与恰满形相差 1 列——边界对拍锁真截断判据不漂）
+    const viewer = makeViewer(
+      ['*** Begin Patch', '*** Update File: src/over.ts', `-${'x'.repeat(532)}`, '*** End Patch'].join('\n'),
+    );
+    const width = 64;
+    viewer.handleEvent(k('enter'));
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    expect(grid.rows).toBe(12); // 帽上界同 9 视觉行
+    // 帽行（第 8 续行 = 屏行 10）：59x+'…' 超 59 → ellipsize 收口 58x+'…'
+    expect(readRow(grid, 10, width)).toBe(' '.repeat(5) + 'x'.repeat(58) + '…');
+    // 非帽行无 …（省略号只在帽收口位——既有几何面锁）
+    for (let r = 3; r <= 9; r++) expect(readRow(grid, r, width)).not.toContain('…');
+  });
+
   it('gap 分隔行不折——段间 ⋮ 视觉行恒 1（wrap 只作用组体内容行：既有消费面零扰）', () => {
     // 同文件两段须两 call 形（foldSessionDiff 跨 call 段序聚合到同组——单 call
     // 内同路径二段头不认段）：各段超宽行折 3 视觉行 ×2 + gap 1 → 组体 7 行

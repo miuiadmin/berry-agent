@@ -369,13 +369,16 @@ type FlatRow =
  * 视觉行片（49 轮件 A 硬折行展开）：index/count = 视觉行序与总数；
  * start/end = 源行文本（body.text）UTF-16 闭开区间——render 按区间切段族
  * 交集片（段族本侧拼接重建恒等 body.text 的 diffWords 契约假设——偏移失配
- * 时交集自然空，降级缺字不炸）。
+ * 时交集自然空，降级缺字不炸）。truncated = 截断事实位（68 轮件 G）：段数
+ * 超 1+续行帽才真——恰满段形（恰 1+帽、无截断）与真截断形截后同 count，
+ * 帽行判据不得由 count 反推（误判即对未截断文本强制 '…' 收口删数据）。
  */
 interface WrapSlice {
   readonly index: number;
   readonly count: number;
   readonly start: number;
   readonly end: number;
+  readonly truncated: boolean;
 }
 
 /** 续行帽（49 轮件 A——第 8 续行起 '…' 收口护帧预算；巨宽单行不炸屏） */
@@ -386,15 +389,18 @@ const DIFF_WRAP_CONTINUATION_CAP = 8;
  *〔0, text.length〕（wrap 不折——renderLineContent room 0 早退 / 整行写
  * 现状承底）；超宽行走 wrapByGraphemes 字素硬切 + 续行帽（段数超 1+帽
  * 取前 1+帽——末帽行收口由 renderLineContent 帽行 ellipsize 兜底）。
+ * 截断事实在此单源携带（68 轮件 G 批注——帽行判据须截断事实单源）：
+ * segments.length > maxRows 才真截；恰满段形不截、truncated = false。
  */
 function visualSlicesOf(text: string, avail: number): readonly WrapSlice[] {
   if (avail <= 0 || stringWidth(text) <= avail) {
-    return [{ index: 0, count: 1, start: 0, end: text.length }];
+    return [{ index: 0, count: 1, start: 0, end: text.length, truncated: false }];
   }
   const segments = wrapByGraphemes(text, avail);
   const maxRows = 1 + DIFF_WRAP_CONTINUATION_CAP;
-  const capped = segments.length > maxRows ? segments.slice(0, maxRows) : segments;
-  return capped.map((seg, i) => ({ index: i, count: capped.length, start: seg.start, end: seg.end }));
+  const truncated = segments.length > maxRows; // 截断事实位（超帽才真——count 反推不可分）
+  const capped = truncated ? segments.slice(0, maxRows) : segments;
+  return capped.map((seg, i) => ({ index: i, count: capped.length, start: seg.start, end: seg.end, truncated }));
 }
 
 /** 改动总览装配选项 */
@@ -832,11 +838,14 @@ export class DiffViewer implements OverlayContent {
       buffer.writeText(row, start, first ? prefix : ' ', style);
       let c = start + 1;
       const limit = start + room;
-      // 帽行判据：折出总数恰 1+帽 且本行是末行（第 8 续行）——'…' 收口示截断
-      //（帽行片可恰满宽不触 ellipsize 超宽路——恒收口形：片尾拼 '…' 后整体
-      // 过 ellipsize 单源，'…' 恒在场；帽行是截断面——着色降级行色，段级
-      // 着色不进帽〔边界注〕）
-      const capRow = wrap.count === 1 + DIFF_WRAP_CONTINUATION_CAP && wrap.index === wrap.count - 1;
+      // 帽行判据（68 轮件 G——截断事实单源）：消费 wrap.truncated 位（切片
+      // 装配位携带——段数超 1+帽才真）∧ 本行是末行（第 8 续行）——'…' 收口示
+      // 截断。不得由 count 反推：恰满段形（恰 1+帽、无截断）与真截断形截后
+      // 同 count 不可分，误判即丢末段尾字素（对未截断文本删数据）。（帽行片
+      // 可恰满宽不触 ellipsize 超宽路——恒收口形：片尾拼 '…' 后整体过
+      // ellipsize 单源，'…' 恒在场；帽行是截断面——着色降级行色，段级着色
+      // 不进帽〔边界注〕）
+      const capRow = wrap.truncated && wrap.index === wrap.count - 1;
       if (capRow) {
         let all = body.text.slice(wrap.start, wrap.end);
         if (body.segs !== null) {
