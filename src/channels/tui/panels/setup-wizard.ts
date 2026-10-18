@@ -11,9 +11,10 @@
  * - **录入回显全明文**（2026-09-28 全明文翻裁——用户拍板人面所见即所录；
  *   v1 敏感掩码相整条退役：值经回值出屏的通道不变，呈现恒原文）；
  * - **写位省略形统一**（界面美化役 2026-10-01 ①——截断省略号全域统一律）：
- *   render 全部写位（头行/条目标签/desc 次行/尾注/录入回显/preview/hint/
- *   说明文本/Yn 行/键面底行）走 ellipsize 单源——超宽 … 收口（宽窗适装位
- *   字节不变），窄窗下引导语义「被切可辨」不再无声切半句；
+ *   render 写位（头行/条目标签/desc 次行/尾注/preview/hint/说明文本/Yn 行/
+ *   键面底行）走 ellipsize 单源——超宽 … 收口（宽窗适装位字节不变），窄窗下
+ *   引导语义「被切可辨」不再无声切半句；**录入回显除外走尾锚形**（57 轮件 4
+ *   修 A——tailEllipsize 保尾截头，尾随 _ 光标位恒可见）；
  * - **multiselect 相**（v2 新法——模型清单勾选）：空格切换勾选、enter 回
  *   勾选 id 清单（空清单合法——流程侧解释）；q 取消同 select；
  * - **select desc 次行**（v2 分桶选单渠道元信息位）：条目行下 dim 次行
@@ -33,7 +34,7 @@
  * - 程序化重画经注入 requestRepaint（面板自持态变更自请——host 侧无从而知）。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { ellipsize, sanitizeDisplayText } from '../../engine/index.js';
+import { ellipsize, graphemeWidth, sanitizeDisplayText, splitGraphemes, stringWidth } from '../../engine/index.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import type {
@@ -121,6 +122,36 @@ function isPlainKey(e: InputEvent & { kind: 'key' }, key: string): boolean {
 function plainChar(e: InputEvent & { kind: 'key' }): string | null {
   if (e.ctrl || e.alt || e.meta) return null;
   return e.key.length === 1 ? e.key : null;
+}
+
+/**
+ * 尾侧整字截断（truncateToWidth 的镜像——自尾向头按显示宽收字素）：剩余
+ * 列宽不足整字即止（不撕宽字符）。status-viewer 私有同形先例——engine 公开
+ * 面暂无尾侧原语，本件本地同形复刻（不为此扩 engine 面）。
+ */
+function tailToWidth(text: string, cols: number): string {
+  if (cols <= 0) return '';
+  const graphemes = splitGraphemes(text);
+  const kept: string[] = [];
+  let used = 0;
+  for (let i = graphemes.length - 1; i >= 0; i--) {
+    const w = graphemeWidth(graphemes[i]!);
+    if (used + w > cols) break; // 剩余列宽不足整字——整字放弃（不产半字）
+    used += w;
+    kept.unshift(graphemes[i]!);
+  }
+  return kept.join('');
+}
+
+/**
+ * 尾锚省略形（ellipsize 的镜像——text 相录入回显专用）：不超宽原样；超宽
+ * 前缀省略号 + 自尾向头整字收段（'…' 占 1 列）。**尾随 _ 光标位恒可见**——
+ * 录入打字即时反馈不因截断失感（保头截尾会把光标与尾段全截光，打字零感）。
+ * width ≤ 0 返空串（ellipsize 0 宽守卫同律）。
+ */
+function tailEllipsize(text: string, width: number): string {
+  if (width <= 0) return '';
+  return stringWidth(text) <= width ? text : `…${tailToWidth(text, width - 1)}`;
 }
 
 /**
@@ -335,8 +366,10 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       );
     } else if (phase.kind === 'text') {
       // 全明文回显（2026-09-28 翻裁——掩码相退役恒原文）；尾随 _ 光标位；
-      // 超宽省略形收口（界面美化役①——窄窗 … 可辨被切）
-      buffer.writeText(line, region.col, ellipsize(`${phase.buffer}_`, region.width));
+      // 超宽**尾锚**收口（57 轮件 4 修 A——保尾截头：'…' 前缀 + 尾段 + '_'
+      // 恒可见，打字即时反馈不因截断失感；select/hint 族保头截尾不动——
+      // 列表语义不同，光标不在尾）
+      buffer.writeText(line, region.col, tailEllipsize(`${phase.buffer}_`, region.width));
       line++;
       if (phase.req.preview !== undefined && line < end) {
         buffer.writeText(line, region.col, ellipsize(`当前：${phase.req.preview}`, region.width), HINT_STYLE);

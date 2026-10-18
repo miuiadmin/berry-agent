@@ -784,12 +784,15 @@ describe('窄宽省略形收口（界面美化役 2026-10-01 ①——截断省�
     expect(readRow(grid, 4, width).endsWith('…')).toBe(true); // 键面底行同律
   });
 
-  it('text 相：录入回显超宽 … 收口（修前红：硬切无记号）', () => {
+  it('text 相：录入回显超宽保尾截头（尾锚形——… 前缀记号 + 尾随 _ 光标恒可见；修前红：保头截尾把 _ 与尾段全截光，打字零可见反馈）', () => {
     const { panel } = makePanel();
     void panel.text({ title: 'anthropic API key' });
     panel.handleEvent(t('k-'.repeat(20)));
     const grid = paintNarrow(panel);
-    expect(readRow(grid, 1, 24).endsWith('…')).toBe(true); // 回显行 … 收口
+    const row = readRow(grid, 1, 24);
+    expect(row.startsWith('…')).toBe(true); // 前缀省略号 = 截头记号（保尾形——被切可辨）
+    expect(row.endsWith('_')).toBe(true); // 修前红锚：尾随光标位被保头截尾吞掉
+    expect(row).toBe(`…${'k-'.repeat(11)}_`); // 预算恰满：'…' 1 列 + 尾段 23 列（最新录入保真入帧）
   });
 
   it('宽窗适装位零扰动（… 只在超帽时出现——适装帧与修前逐字相同）', () => {
