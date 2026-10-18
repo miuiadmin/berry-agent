@@ -512,6 +512,9 @@ describe('plugins 子命令族', () => {
     } else {
       expect.unreachable('uninstall 缺省解析应成功');
     }
+    // --data 无 --confirm = 解析层用法错退 2（--data 是执行相载荷——修前漏到
+    // 执行层才拒退 1；07 §5 三态契约用法错档归位）
+    expectUsage(['plugins', 'uninstall', 'demo', '--data', 'purge'], '--confirm');
   });
 
   it('mount/unmount/toggle/update 恰一 id', () => {

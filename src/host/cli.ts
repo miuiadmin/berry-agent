@@ -537,6 +537,14 @@ function parsePlugins(rest: readonly string[]): CliParseResult {
       const args = expectArity(scan.literals, 1, 1, 'berry plugins uninstall <id> [--confirm] [--data keep|purge]');
       if ('exitCode' in args) return args;
       const dataRaw = scan.values.get('data');
+      // --data × --confirm 同场律（本笔修形）：--data 是执行相载荷，无
+      // --confirm（inspect 相）携带即用法错退 2（07 §5 三态契约执法⑤——用法
+      // 错归解析层；执行层同判保留为纵深：TUI 面/测试直呼执行层不经本层）
+      if (dataRaw !== undefined && !scan.booleans.has('confirm')) {
+        return usageFail(
+          '--data 须与 --confirm 同场（--data 是执行相载荷——无 --confirm 即 inspect 只读报告，确认执行请补 --confirm）',
+        );
+      }
       return finish(scan, {
         kind: 'plugins',
         sub: {
@@ -628,6 +636,14 @@ function parseMarketplace(rest: readonly string[]): CliParseResult {
       );
       if ('exitCode' in args) return args;
       const dataRaw = scan.values.get('data');
+      // --data × --confirm 同场律（本笔修形）：与 plugins uninstall 同律——
+      // --data 是执行相载荷，无 --confirm 携带即用法错退 2（执行层同判保留
+      // 为纵深：TUI 面直构 sub 不经解析层）
+      if (dataRaw !== undefined && !scan.booleans.has('confirm')) {
+        return usageFail(
+          '--data 须与 --confirm 同场（--data 是执行相载荷——无 --confirm 即 inspect 只读报告，确认执行请补 --confirm）',
+        );
+      }
       return finish(scan, {
         kind: 'marketplace',
         sub: {

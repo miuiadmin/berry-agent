@@ -760,6 +760,14 @@ describe('parseCli marketplace 解析面（07 §5 动词族）', () => {
     expect(parsed.message).toContain('install');
   });
 
+  it('uninstall --data 无 --confirm 解析层用法错退 2（--data 是执行相载荷——与 plugins uninstall 同律，修前漏到执行层才拒退 1）', () => {
+    const parsed = parseCli(['marketplace', 'uninstall', 'a-plugin@alpha', '--data', 'purge']);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.exitCode).toBe(2);
+    expect(parsed.message).toContain('--confirm');
+  });
+
   it('顶层未知子命令报文收录 marketplace（合法清单单源）', () => {
     const parsed = parseCli(['definitely-not-a-command']);
     expect(parsed.ok).toBe(false);
