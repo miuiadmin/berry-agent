@@ -573,6 +573,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         getChain: () => credentialsChain,
         env,
         isCustomProvider: (id) => stack.isCustomProvider(id),
+        // 供血胜者域探测（66 轮件 H——03 §10.6 B3 条 8 批注）：env-static 前判
+        // 以实际供血胜者域为准——stack.bindingWinnerNamespaceOf 与供血面
+        // liveBindingApiKey 扫描同源单源；晚绑定闭包（isCustomProvider 同形）
+        winnerNamespaceOf: (providerId) => stack.bindingWinnerNamespaceOf(providerId),
         notifyChannel: (source, message) => stack.channels.notify(source, message),
       }),
       // 钩子派发段只读面（ca-3——llm 双入口 LLM_CALL_IN_HOOK 前置查）

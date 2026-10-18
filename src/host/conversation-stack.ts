@@ -439,6 +439,17 @@ export interface ConversationStack {
    */
   bindingApiKeyOf(modelSpec: string): string | undefined;
   /**
+   * 供血胜者域探测（2026-10-19 挖掘 66 轮件 H——03 §10.6 B3 条 8 批注
+   * 「401 联动 env-static 前判以实际供血胜者域为准」）：providerId 绑定行
+   * 撞绑解析胜者的 namespace 回投——与 liveBindingApiKey 供血面共享同一
+   * 扫描/全序实现（同源单源，探测位不另立第二真相源）。命中行返其 ns；
+   * 无绑定行/库读失败返 undefined；只回域不外泄行值。消费位 = 装配根
+   * auth-refresh seam 的 env-static 前判（胜者域非宿主域 = env 非实际供血
+   * 源，前判放行至刷新链）。凭证库是栈级全局面（绑定行无 per-session
+   * 归属），本面只携 providerId。
+   */
+  bindingWinnerNamespaceOf(providerId: string): string | undefined;
+  /**
    * 连通微探针（ob-3——07 ob-3 改裁注机制形）：与主对话同一 StreamFn 传输
    * 路的 1-token 探针（专用工厂 maxTokens=1 帽支出 + 显式 apiKey 位携向导
    * 新录 key——供血真路单源，非第二传输实现）；15s 双帽（AbortSignal 请求
@@ -761,22 +772,22 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   let bindingScanFailureWarned = false;
 
   /**
-   * 逐请求现取绑定行供血值：撞绑裁决（B3 冷读 M5 落码批定形——host 域
-   * 优先、同域 namespace→行名字典序稳定全序，不随装载/插入序漂移）+
-   * env 优先律两分立执法（03 §10.9「env 与库的优先级」条忠实落地：host
-   * 域行 env 在场 env 胜〔静态值无刷新面——不透传走 pi-ai ambient 既有
-   * 形〕；插件域行库优先〔env 无 per-plugin 归属位——不受 env 遮蔽恒
-   * 透传〕）。绑定行缺席 → undefined 不透传（pi-ai env ambient 既有形
-   * 零变）。StreamFn 永不抛契约：库读失败 catch 后 fail-open 不透传。
+   * 撞绑解析胜者行形（供血面与胜者域探测共享——ns/行名/供血值三元）
    */
-  const liveBindingApiKey = (modelSpec: string): string | undefined => {
-    // provider 前段宽松提取（无斜杠形透传原串查表——解析失败归 llm 层
-    // resolveModel fail-loud 既有执法，本层不放大）
-    const slash = modelSpec.indexOf('/');
-    const providerId = slash === -1 ? modelSpec : modelSpec.slice(0, slash);
-    // 全表 live 读（无缓存）：坏形 meta 行不参与绑定、空值行不供血（行级
-    // 隔离——单行解密失败跳过不连坐，消毒腿 :591 同律）
-    const hits: { readonly ns: string; readonly name: string; readonly apiKey: string }[] = [];
+  type BindingWinnerRow = { readonly ns: string; readonly name: string; readonly apiKey: string };
+
+  /**
+   * 绑定行撞绑解析（66 轮件 H 提为共享私有函数——03 §10.6 B3 条 8 批注
+   * 「探测位与 liveBindingApiKey 扫描同实现」）：全表 live 读（无缓存）扫
+   * modelProvider 绑定键行（坏形 meta 行不参与绑定、空值行不供血、单行解密
+   * 失败跳过不连坐——消毒腿 :591 同律）+ 撞绑稳定全序（B3 冷读 M5 落码批
+   * 定形——host 域 rank 0 → namespace 字典序 → 行名字典序，不随装载/插入序
+   * 漂移）+ 撞绑 warn 每 provider 恰一笔。库读失败 catch 后 warn 首笔留痕、
+   * fail-open 返 undefined。消费方两路同源单源：liveBindingApiKey（供血值
+   * 面）与 bindingWinnerNamespaceOf（胜者域探测面）。
+   */
+  const resolveBindingWinnerRow = (providerId: string): BindingWinnerRow | undefined => {
+    const hits: BindingWinnerRow[] = [];
     try {
       for (const row of options.runtime.persistence.store.listCredentialProviders()) {
         const meta = row.meta;
@@ -820,7 +831,24 @@ export function createConversationStack(options: ConversationStackOptions): Conv
           `（${ruleText}），其余行忽略`,
       );
     }
-    const winner = hits[0]!;
+    return hits[0]!;
+  };
+
+  /**
+   * 逐请求现取绑定行供血值：撞绑裁决（resolveBindingWinnerRow 同源）+ env
+   * 优先律两分立执法（03 §10.9「env 与库的优先级」条忠实落地：host 域行
+   * env 在场 env 胜〔静态值无刷新面——不透传走 pi-ai ambient 既有形〕；
+   * 插件域行库优先〔env 无 per-plugin 归属位——不受 env 遮蔽恒透传〕）。
+   * 绑定行缺席 → undefined 不透传（pi-ai env ambient 既有形零变）。
+   * StreamFn 永不抛契约：库读失败 catch 后 fail-open 不透传。
+   */
+  const liveBindingApiKey = (modelSpec: string): string | undefined => {
+    // provider 前段宽松提取（无斜杠形透传原串查表——解析失败归 llm 层
+    // resolveModel fail-loud 既有执法，本层不放大）
+    const slash = modelSpec.indexOf('/');
+    const providerId = slash === -1 ? modelSpec : modelSpec.slice(0, slash);
+    const winner = resolveBindingWinnerRow(providerId);
+    if (winner === undefined) return undefined;
     // env 优先律（host 域行）：env 键在场即 env 胜——静态无刷新面，401 后
     // 联动腿走 fail-closed（seam 消费侧）；插件域行不受 env 遮蔽恒透传
     if (winner.ns === HOST_NAMESPACE) {
@@ -2090,6 +2118,12 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // ——遮蔽/缺席同判据回 undefined，胜出行原值只进流程「空录入沿用」位
     bindingApiKeyOf(modelSpec: string): string | undefined {
       return liveBindingApiKey(modelSpec);
+    },
+    // 供血胜者域探测（66 轮件 H）：撞绑解析胜者 ns 回投——resolveBindingWinnerRow
+    // 同源单源（与 liveBindingApiKey 供血面共享扫描/全序实现），只回域不外泄
+    // 行值；消费位 = 装配根 auth-refresh seam 的 env-static 前判胜者域判据
+    bindingWinnerNamespaceOf(providerId: string): string | undefined {
+      return resolveBindingWinnerRow(providerId)?.ns;
     },
     // 当前模型凭证完整值（C-4 全明文翻裁——人面呈现面专用）：**值取序与供血
     // 判据同序同源**（#26——修前 env 先行：插件域行不受 env 遮蔽恒透传的供血

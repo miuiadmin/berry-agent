@@ -26,6 +26,7 @@ import type { AuthRefreshSeam, ConversationDriverOptions, ExecSessionDeps } from
 import { setSessionMode } from '../conversation/index.js';
 import type { SessionBeforeForkInput } from '../conversation/sessions.js';
 import { createBashTool, createSpawnPipeline } from '../../plugins/exec/index.js';
+import { HOST_NAMESPACE } from '../../plugins/credentials/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { DEFAULT_COMPACTION_CONFIG } from '../compaction/index.js';
 import { createSandboxService } from '../safety/index.js';
@@ -2788,6 +2789,34 @@ describe('streamFn 凭证现取 wrapper（B3 联动批——裁决三供血面 +
     const hostSupply = rigSupply(hostRt.rt, { env: { FAUX_STACK_API_KEY: 'env-key' } });
     expect(hostSupply.stack.bindingApiKeyOf('faux-stack/m1')).toBeUndefined(); // 遮蔽位
     expect(hostSupply.stack.modelCredentialKeyOf('faux-stack/m1')).toBe('env-key'); // env 供血照呈 env 值
+    await hostRt.rt.shutdown();
+  });
+
+  // —— 66 轮件 H（03 §10.6 B3 条 8 批注）：401 联动 env-static 前判以实际
+  // 供血胜者域为准——胜者域探测读面与 liveBindingApiKey 供血面共享同一撞绑
+  // 解析（同源单源），探测只回 ns 不外泄行值。
+  it('bindingWinnerNamespaceOf 供血胜者域探测：插件域行返其 ns（探测不受 env 影响）/ 无行返 undefined / 宿主行（撞绑）返宿主 ns——与供血面撞绑全序同源', async () => {
+    // 形一：无绑定行 → undefined（env 即实际供血位——消费侧维持 env-static 现行判）
+    const bareRt = rigRuntime().rt;
+    const bare = rigSupply(bareRt);
+    expect(bare.stack.bindingWinnerNamespaceOf('faux-stack')).toBeUndefined();
+    await bareRt.shutdown();
+
+    // 形二：插件域绑定行 → 返其 ns（env 同占位不影响探测——插件域行恒透传，
+    // 胜者域非宿主域即联动前判的放行信号）
+    const plugRt = rigRuntime().rt;
+    bindRow(plugRt, 'plugin:demo', 'glm-key', 'plugin-row-key');
+    const plug = rigSupply(plugRt, { env: { FAUX_STACK_API_KEY: 'env-key' } });
+    expect(plug.stack.bindingWinnerNamespaceOf('faux-stack')).toBe('plugin:demo');
+    await plugRt.shutdown();
+
+    // 形三：宿主域行 + 插件域行撞绑 → 宿主 ns 胜出（撞绑全序 host 域优先与
+    // 供血面同源回投；宿主域胜者的 env 遮蔽形由消费侧 seam 现行判承载）
+    const hostRt = rigRuntime();
+    bindRow(hostRt.rt, 'plugin:zeta', 'plug-row', 'plug-key');
+    bindRow(hostRt.rt, 'host', 'host-row', 'host-key');
+    const host = rigSupply(hostRt.rt, { warn: () => {} });
+    expect(host.stack.bindingWinnerNamespaceOf('faux-stack')).toBe(HOST_NAMESPACE);
     await hostRt.rt.shutdown();
   });
 

@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { RefreshChainHandle } from '../../plugins/credentials/index.js';
+import { HOST_NAMESPACE, type RefreshChainHandle } from '../../plugins/credentials/index.js';
 import { authFamily } from '../llm/index.js';
 import { createHostAuthRefreshSeam } from './auth-refresh-seam.js';
 
@@ -127,6 +127,73 @@ describe('createHostAuthRefreshSeam——env-static 前判与链桥接', () => {
       isCustomProvider: (id) => id === 'my-gw',
     });
     await expect(bare.refreshNow('my-gw')).resolves.toEqual({ status: 'unavailable', reason: 'no-refresh-face' });
+  });
+});
+
+// —— 66 轮件 H（03 §10.6 B3 条 8 批注「401 联动 env-static 前判以实际供血
+// 胜者域为准」）：env-static 前判的前提（「env 静态 key = 刷新成功也不会被
+// 采用」）只对 env 实际供血的形（无绑定行 / 宿主域胜者行被 env 遮蔽）成立；
+// 供血胜者在插件域绑定行时该行恒透传不受 env 遮蔽——实际供血来自绑定行，
+// env 在场不构成「刷新不会被采用」，前判对其是「由环境变量供血」谎报（整链
+// 错杀 + 通知指路无效循环）。修形 = 前判先咨询供血胜者域探测
+// （winnerNamespaceOf——装配位 stack.bindingWinnerNamespaceOf 闭包，与
+// liveBindingApiKey 扫描同源单源），胜者域非宿主域即放行至链。
+describe('createHostAuthRefreshSeam——env-static 前判以实际供血胜者域为准（66 轮件 H）', () => {
+  it('插件域供血胜者 + env 占位 → 前判放行至链（修前红：env-static 谎报零链触达）+ 链恰调一次', async () => {
+    const { chain, calls } = stubChain({ status: 'refreshed' });
+    const { channel } = stubChannel();
+    const seam = createHostAuthRefreshSeam({
+      env: { OPENAI_API_KEY: 'sk-static' },
+      getChain: () => chain,
+      notifyChannel: channel,
+      isCustomProvider: () => false,
+      // 胜者域探测桩：openai 的供血胜者在插件域绑定行（链路活、env 非供血源）
+      winnerNamespaceOf: (id) => (id === 'openai' ? 'plugin:demo' : undefined),
+    });
+    await expect(seam.refreshNow('openai')).resolves.toEqual({ status: 'refreshed' });
+    expect(calls).toEqual(['openai']); // 链恰调一次——401 联动对活链路不再跳过刷新
+  });
+
+  it('宿主域供血胜者 + env 占位 → 仍 env-static（env 遮蔽形 env 实供血——不变锁）+ 链零调用', async () => {
+    const { chain, calls } = stubChain({ status: 'refreshed' });
+    const { channel } = stubChannel();
+    const seam = createHostAuthRefreshSeam({
+      env: { OPENAI_API_KEY: 'sk-static' },
+      getChain: () => chain,
+      notifyChannel: channel,
+      isCustomProvider: () => false,
+      winnerNamespaceOf: () => HOST_NAMESPACE,
+    });
+    await expect(seam.refreshNow('openai')).resolves.toEqual({ status: 'unavailable', reason: 'env-static' });
+    expect(calls).toEqual([]);
+  });
+
+  it('无绑定行（探测返 undefined）+ env 占位 → env-static（env 即实际供血位——现行判维持）', async () => {
+    const { chain, calls } = stubChain({ status: 'refreshed' });
+    const { channel } = stubChannel();
+    const seam = createHostAuthRefreshSeam({
+      env: { OPENAI_API_KEY: 'sk-static' },
+      getChain: () => chain,
+      notifyChannel: channel,
+      isCustomProvider: () => false,
+      winnerNamespaceOf: () => undefined,
+    });
+    await expect(seam.refreshNow('openai')).resolves.toEqual({ status: 'unavailable', reason: 'env-static' });
+    expect(calls).toEqual([]);
+  });
+
+  it('胜者域探测缺席（库/测试注入形向后兼容）+ env 占位 → env-static 现行判原样', async () => {
+    const { chain, calls } = stubChain({ status: 'refreshed' });
+    const { channel } = stubChannel();
+    const seam = createHostAuthRefreshSeam({
+      env: { OPENAI_API_KEY: 'sk-static' },
+      getChain: () => chain,
+      notifyChannel: channel,
+      isCustomProvider: () => false,
+      // winnerNamespaceOf 缺席——seam 不咨询胜者域，前判维持修前现行判
+    });
+    await expect(seam.refreshNow('openai')).resolves.toEqual({ status: 'unavailable', reason: 'env-static' });
+    expect(calls).toEqual([]);
   });
 });
 

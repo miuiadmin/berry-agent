@@ -6,13 +6,14 @@
  * - authFamily：llm recovery 纯函数真源直填（04 §3.5 分面加判注）；
  * - refreshNow：自定义渠道短路（07 §8.4 豁免同步——env 不供血自定义渠道，
  *   env-static 判据对其永不成立）→ env-static 前判（N2——env 面不在
- *   credentials 件内注入，判在装配根闭包）→ credentials 链句柄惰性取
- *   （受局面在场链装载期经 credentialsChainSink 填入；链缺席 = 零刷新面
- *   如实 unavailable）；
+ *   credentials 件内注入，判在装配根闭包；66 轮件 H 修正：前判以实际供血
+ *   胜者域为准——胜者域探测在场且返非宿主域 ns 即放行至链）→ credentials
+ *   链句柄惰性取（受局面在场链装载期经 credentialsChainSink 填入；链缺席
+ *   = 零刷新面如实 unavailable）；
  * - notify：产品级指路文案 + M4 转换位去重（per-provider×outcome 进程内
  *   一次；'expired' 形静默——链侧 wasExpired 三振 notify 已含指路不重发）。
  */
-import type { RefreshChainHandle } from '../../plugins/credentials/index.js';
+import { HOST_NAMESPACE, type RefreshChainHandle } from '../../plugins/credentials/index.js';
 import { authFamily } from '../llm/index.js';
 import type { AuthRefreshNotice, AuthRefreshOutcome, AuthRefreshSeam } from '../conversation/types.js';
 import { providerApiKeyEnvNames } from './conversation-stack.js';
@@ -30,6 +31,17 @@ export interface HostAuthRefreshDeps {
    * 编译期即拦（测试桩同形补 `() => false`）。
    */
   readonly isCustomProvider: (id: string) => boolean;
+  /**
+   * 供血胜者域探测（2026-10-19 挖掘 66 轮件 H——03 §10.6 B3 条 8 批注
+   * 「401 联动 env-static 前判以实际供血胜者域为准」）：providerId → 绑定行
+   * 撞绑解析胜者的 namespace（stack.bindingWinnerNamespaceOf 闭包注入——与
+   * liveBindingApiKey 供血面扫描同源单源）。返非宿主域 ns = 实际供血来自
+   * 插件域绑定行（恒透传不受 env 遮蔽，env 非供血源——env 在场不构成
+   * 「刷新成功也不会被采用」），env-static 前判放行至链。可选位：缺席
+   * （库/测试注入形）= 维持修前现行判，向后兼容；返宿主域 ns（env 遮蔽
+   * 形 env 实供血）或 undefined（无绑定行 env 即供血位）同维持现行判。
+   */
+  readonly winnerNamespaceOf?: (providerId: string) => string | undefined;
   /** 用户面通知通道（stack.channels.notify 同源——source 归因字面 'credentials'） */
   readonly notifyChannel: (source: 'credentials', message: string) => void;
 }
@@ -79,8 +91,18 @@ export function createHostAuthRefreshSeam(deps: HostAuthRefreshDeps): AuthRefres
         return chain.refreshNow(provider);
       }
       // N2 前判先于链触达：env 静态 key = 刷新面结构性缺席（刷新成功也不会被采用）
+      // ——66 轮件 H（03 §10.6 B3 条 8 批注）修正：该前提只对 env 实际供血的形
+      // 成立。env 占位时咨询供血胜者域探测（winnerNamespaceOf——与供血面
+      // liveBindingApiKey 扫描同源单源）：胜者域非宿主域 = 实际供血来自插件域
+      // 绑定行（恒透传不受 env 遮蔽），前判对其是「由环境变量供血」谎报——
+      // 放行至链。探测缺席（库/测试注入形向后兼容）/返宿主域 ns（env 遮蔽形
+      // env 实供血）/返 undefined（无绑定行 env 即供血位）三形维持现行判。
       const envOccupied = providerApiKeyEnvNames(provider).some((name) => (deps.env[name] ?? '') !== '');
-      if (envOccupied) return { status: 'unavailable', reason: 'env-static' };
+      if (envOccupied) {
+        const winnerNs = deps.winnerNamespaceOf?.(provider);
+        const pluginDomainWinner = winnerNs !== undefined && winnerNs !== HOST_NAMESPACE;
+        if (!pluginDomainWinner) return { status: 'unavailable', reason: 'env-static' };
+      }
       const chain = deps.getChain();
       if (chain === undefined) return { status: 'unavailable', reason: 'no-refresh-face' };
       return chain.refreshNow(provider);
