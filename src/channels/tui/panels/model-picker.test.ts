@@ -337,6 +337,28 @@ describe('ModelPicker 长清单滚动位置指示（界面美化役 2026-10-01 �
     expect(readRow(grid, 2, 40)).toContain('p2/n4');
     expect(readRow(grid, 3, 40)).not.toContain('更多'); // 贴尾无下指示
   });
+
+  it('中部：上/下双指示 + 在选行夹在中间恒可见（越窗提窗——56 轮件 3 收编段行为锁：cursor 参 = 光标条目展开行号）', () => {
+    const { picker } = makePicker({ entries: MANY, current: undefined });
+    paintShort(picker, 5); // 先渲染定窗（首渲染前击键以陈窗高夹取——session-picker 中部档同序律）
+    for (let i = 0; i < 5; i++) picker.handleEvent(k('down')); // 光标条目 5（p2/n0——展开行 7）→ 越出 [0,3) 窗提窗
+    const grid = paintShort(picker, 5);
+    expect(readRow(grid, 1, 40)).toBe('↑ 7 更多'); // 组头计入偏移账
+    expect(readRow(grid, 2, 40).startsWith('›')).toBe(true); // 在选行 p2/n0 恒可见
+    expect(readRow(grid, 2, 40)).toContain('p2/n0');
+    expect(readRow(grid, 3, 40)).toBe('↓ 4 更多');
+  });
+
+  it('零溢出：展开行集恰满视口不立指示（边界——1 组头 + 2 条目 = 3 行 = viewHeight）', () => {
+    const { picker } = makePicker({ entries: MANY.slice(0, 2), current: undefined }); // 同 provider 两条 → 3 展开行
+    const grid = paintShort(picker, 5);
+    expect(readRow(grid, 1, 40)).toContain('── p1 ──');
+    expect(readRow(grid, 2, 40)).toContain('p1/m0');
+    expect(readRow(grid, 3, 40)).toContain('p1/m1');
+    expect(readRow(grid, 1, 40)).not.toContain('更多');
+    expect(readRow(grid, 2, 40)).not.toContain('更多');
+    expect(readRow(grid, 3, 40)).not.toContain('更多');
+  });
 });
 
 describe('ModelPicker 过滤宇宙指路（ux-4 翻档件 A——装配位注入 notice）', () => {

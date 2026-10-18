@@ -28,6 +28,7 @@ import type { GitQuery, GitQueryResult } from '../status/branch-stats.js';
 import { LEADER_WINDOW_MS } from '../keys/leader.js';
 import { SELECTION_CAP_BYTES } from '../history/history-viewer.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
+import { buildOsc52Copy } from './osc.js';
 import { builtinPalette, detectColorDepth, resolveTheme } from '../theme/index.js';
 import { AltScreenHost } from '../overlay/alt-screen.js';
 import { AUTOCOMPLETE_DEBOUNCE_MS } from '../autocomplete/async.js';
@@ -4053,6 +4054,22 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     expect(io.frames[1]).toBe(MAIN_ENTER);
     expect(backend.lifecycle).toBe('running');
     expect(selected).toEqual(['dark']);
+  });
+
+  it("openThemes 'c' 复制主题名（56 轮件 3）：OSC 52 写出（copyToClipboard 单源）+ 收屏后 notify 回执", () => {
+    const { io, backend } = rig();
+    backend.openThemes(THEME_ENTRIES, 'dark', () => {});
+    io.reset();
+    io.emitInput('c'); // 'c' = 复制在选主题名（光标预选现档 dark——48C 预选律）
+    // 剪贴板写链：nativeClipboardSpawn seam 缺席（makeBackend 零真进程纪律）
+    // → 测试环境无 TMUX → 第①层裸 OSC 52 直写（字节形 = buildOsc52Copy 真源）
+    expect(io.bytes).toContain(buildOsc52Copy('dark'));
+    // notify 回执副屏期走 suspendedTransients 缓冲——主屏零双显、收屏补吐
+    expect(io.bytes).not.toContain('已复制主题名');
+    expect(backend.lifecycle).toBe('suspended'); // 复制不收副屏（面板驻留）
+    io.emitInput('q'); // 收屏 → resumeMain 补吐回执（「已复制最近一条回复」同族词面）
+    expect(backend.lifecycle).toBe('running');
+    expect(io.bytes).toContain('已复制主题名：dark');
   });
 
   it('副屏输入补帧（mp-5 家族修·修前红）：openThemes ↓ 后光标移动帧落地——修前输入零帧，光标变更肉眼不可见', () => {

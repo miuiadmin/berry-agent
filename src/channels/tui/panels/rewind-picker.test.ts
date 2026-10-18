@@ -663,6 +663,27 @@ describe('RewindPicker 长清单滚动位置指示（界面美化役 2026-10-01 
     expect(readRow(grid, 3, 72)).not.toContain('更多'); // 贴尾无下指示
   });
 
+  it('中部：上/下双指示 + 在选行夹在中间恒可见（越窗提窗——56 轮件 3 收编段行为锁：共享段换引收敛零变）', () => {
+    const { picker } = makePicker({ entries: manyEntries });
+    paintMid(picker); // 先渲染定窗（首渲染前击键以陈窗高夹取——session-picker 中部档同序律）
+    for (let i = 0; i < 5; i++) picker.handleEvent(k('down')); // 光标 m-5 → 越出 [0,3) 窗提窗
+    const grid = paintMid(picker);
+    expect(readRow(grid, 1, 72)).toBe('↑ 5 更多');
+    expect(readRow(grid, 2, 72).startsWith('›')).toBe(true); // 在选行 m-5 恒可见（指示行不遮在选行）
+    expect(readRow(grid, 2, 72)).toContain('m-5');
+    expect(readRow(grid, 3, 72)).toBe('↓ 2 更多');
+  });
+
+  it('不足视口：清单全显零指示（零溢出零指示——「更多」词零出现）', () => {
+    const { picker } = makePicker({ entries: manyEntries.slice(0, 2) });
+    const grid = paintMid(picker); // 视口 3 > 2 行——全显
+    expect(readRow(grid, 1, 72)).toContain('m-0');
+    expect(readRow(grid, 2, 72)).toContain('m-1');
+    expect(readRow(grid, 3, 72)).not.toContain('更多');
+    expect(readRow(grid, 1, 72)).not.toContain('更多');
+    expect(readRow(grid, 2, 72)).not.toContain('更多');
+  });
+
   it('矮窗（视口 <3 行）不立指示——既有窄窗形零漂', () => {
     const { picker } = makePicker({ entries: manyEntries });
     const grid = paintMid(picker, 4); // viewHeight 2

@@ -14,6 +14,10 @@
  * - **样例区即时预览**（48 轮件 C——副屏架构下预览承载面单源）：条目清单
  *   下方固定高样例块，随在选档（cursor）现算换色；auto/坏文件诚实缺席
  *   （维持基样 + 标签明示）；矮窗（<9 行）整区缺席零挤压；
+ * - **复制主题名（56 轮件 3 复制回执）**：'c' 复制在选主题名（不退屏——面板
+ *   驻留可连选连贴）；剪贴板写链 + notify 回执全归 onCopy 装配闭包（本件零
+ *   边外面）；onCopy 缺席 = 'c' 键零动作零回执（注入缺席键无效零行为变——
+ *   onDelete/onPreview 同律）且底行提示不含复制段（缺席保持原形不虚报）；
  * - **退出键面**：q/Esc 退出、Ctrl+C 打断、Ctrl+D 退出进程（先收副屏再转
  *   退出柄）——副屏键面件族律。
  */
@@ -70,6 +74,12 @@ export interface ThemePickerOptions {
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
+  /**
+   * 复制主题名（56 轮件 3 复制回执——'c' 键复制在选主题名）：装配闭包承载
+   * 剪贴板写链（backend.copyToClipboard 单源）+ notify 回执（「已复制主题名：
+   * <名>」——/copy 回执同族词面）；缺席时 'c' 键零动作、底行提示不含复制段。
+   */
+  readonly onCopy?: (name: string) => void;
   /**
    * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：测试装配
    * 缺省 DEFAULT_THEME；主会话装配位已接线（tui-backend theme: this.theme）。
@@ -143,6 +153,8 @@ export class ThemePicker implements OverlayContent {
   private readonly onExit: () => void;
   private readonly onInterrupt: ((sessionId: string) => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
+  /** 复制柄（56 轮件 3——缺席 'c' 键零动作） */
+  private readonly onCopy: ((name: string) => void) | undefined;
   /** 光标行（条目下标；空表恒 0） */
   private cursor = 0;
   /** 视口首行（光标驱动夹取） */
@@ -166,6 +178,7 @@ export class ThemePicker implements OverlayContent {
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.onCopy = options.onCopy;
     this.baseTheme = options.theme ?? DEFAULT_THEME;
     this.headStyle = headStyleOf(this.baseTheme);
     this.activeRowStyle = activeRowStyleOf(this.baseTheme);
@@ -219,7 +232,9 @@ export class ThemePicker implements OverlayContent {
         const cap = fit.cap; // 条目实占行数（扣除指示预留）
         let displayRow = region.row + 1;
         if (indicatorsOn && this.offset > 0) {
-          buffer.writeText(displayRow, region.col, moreHint('↑', this.offset), HINT_STYLE);
+          // 指示行 fitLine … 收口（X-5 件族律——session-picker 收编同形；窄窗
+          // 硬截断无提示是 raw writeText 既有缺口，本批随收编面同笔升级）
+          buffer.writeText(displayRow, region.col, fitLine(moreHint('↑', this.offset), region.width), HINT_STYLE);
           displayRow++;
         }
         for (let i = 0; i < cap; i++) {
@@ -229,22 +244,24 @@ export class ThemePicker implements OverlayContent {
         }
         if (indicatorsOn) {
           const below = this.entries.length - (this.offset + cap);
-          if (below > 0) buffer.writeText(displayRow, region.col, moreHint('↓', below), HINT_STYLE);
+          if (below > 0) {
+            buffer.writeText(displayRow, region.col, fitLine(moreHint('↓', below), region.width), HINT_STYLE);
+          }
         }
       }
     }
     // 样例区（48 轮件 C 即时预览）：条目视口后 SAMPLE_HEIGHT 行——条目+指示
     // 实占恰 viewHeight（指示预留行在视口内不外溢），起位 = 头行 + viewHeight
     if (samplesOn) this.renderSample(buffer, region.row + 1 + viewHeight, region.col, region.width);
-    buffer.writeText(
-      region.row + region.height - 1,
-      region.col,
-      fitLine(
-        this.entries.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 选定（立即生效并保存）', 'q/esc 返回'),
-        region.width,
-      ),
-      HINT_STYLE,
-    );
+    // 底行提示：复制段只在 onCopy 在场时呈（缺席保持原形不虚报——注入缺席
+    // 键无效则提示面同步缺席）；空表零键段（无可复制对象）
+    const hint =
+      this.entries.length === 0
+        ? 'q/esc 返回'
+        : this.onCopy !== undefined
+          ? hintLine('↑↓ 移动', 'enter 选定（立即生效并保存）', 'c 复制名', 'q/esc 返回')
+          : hintLine('↑↓ 移动', 'enter 选定（立即生效并保存）', 'q/esc 返回');
+    buffer.writeText(region.row + region.height - 1, region.col, fitLine(hint, region.width), HINT_STYLE);
   }
 
   /** 单行落位：左段（光标 + 当前标记 + 名）+ 右段（坏文件 ⚠ + 说明）右对齐 + 行尾语义色样段 */
@@ -381,6 +398,12 @@ export class ThemePicker implements OverlayContent {
           this.onSelect(chosen);
           return true;
         }
+        // 'c' = 复制在选主题名（56 轮件 3——不退屏面板驻留；onCopy 缺席键
+        // 无效零行为变——注入缺席同律，提示面同步缺席不虚报）
+        if (isPlainKey(k, 'c') && this.onCopy !== undefined) {
+          this.onCopy(this.entries[this.cursor]!.name);
+          return true;
+        }
       }
       if (isPlainKey(k, 'escape') || isPlainKey(k, 'q')) {
         this.exit();
@@ -389,6 +412,14 @@ export class ThemePicker implements OverlayContent {
     }
     if (event.kind === 'text' && event.text === 'q') {
       this.exit(); // kitty disambiguate 轨纯键打字走 text 事件
+      return true;
+    }
+    if (event.kind === 'text' && event.text === 'c') {
+      // kitty disambiguate 轨复制腿（'q' 同形坑——纯键打字走 text 事件）；空表/
+      // 缺席零动作（键事件轨同判据，双轨形为一致）
+      if (this.onCopy !== undefined && this.entries.length > 0) {
+        this.onCopy(this.entries[this.cursor]!.name);
+      }
       return true;
     }
     return true; // 未消费键终局吞（模态独占）

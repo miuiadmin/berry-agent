@@ -257,6 +257,61 @@ describe('ThemePicker 长清单滚动位置指示（界面美化役 2026-10-01 �
   });
 });
 
+describe("ThemePicker 复制主题名（56 轮件 3——'c' 双轨 + onCopy 注入缺席零行为变）", () => {
+  /** 全高渲染夹具（底行提示断言面——measure 网格） */
+  const paintFull = (picker: ThemePicker, width = 72): CellGrid => {
+    const grid = new CellGrid(width, picker.measure(width));
+    picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    return grid;
+  };
+
+  it("key 轨 'c'：复制在选主题名（不退屏面板驻留）+ 跟随光标步进", () => {
+    const onCopy = vi.fn();
+    // current:'auto' = 预选律下保「初光标首位 auto」前置
+    const { picker, onSelect, onExit } = makePicker({ current: 'auto', onCopy });
+    expect(picker.handleEvent(k('c'))).toBe(true);
+    expect(onCopy).toHaveBeenCalledWith('auto'); // 初光标 = 预选现档
+    expect(onExit).not.toHaveBeenCalled(); // 复制不收副屏（连选连贴）
+    expect(onSelect).not.toHaveBeenCalled(); // 与选定分立
+    picker.handleEvent(k('down')); // → dark
+    picker.handleEvent(k('c'));
+    expect(onCopy).toHaveBeenLastCalledWith('dark'); // 复制名跟随光标
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it("text 轨 'c'（kitty disambiguate 纯键打字）同复制——双轨同判据", () => {
+    const onCopy = vi.fn();
+    const { picker } = makePicker({ current: 'auto', onCopy });
+    picker.handleEvent({ kind: 'text', text: 'c' } as InputEvent);
+    expect(onCopy).toHaveBeenCalledWith('auto');
+  });
+
+  it('空条目 text 轨零动作（无条目可复制——key 轨同闸 entries.length > 0 块内）', () => {
+    const onCopy = vi.fn();
+    const { picker } = makePicker({ entries: [], onCopy });
+    picker.handleEvent({ kind: 'text', text: 'c' } as InputEvent);
+    expect(onCopy).not.toHaveBeenCalled();
+  });
+
+  it('onCopy 缺席：双轨零动作（注入缺席键无效零行为变）+ 底行提示不含复制段（缺席保持原形不虚报）', () => {
+    const { picker, onExit } = makePicker({ current: 'auto' }); // 未注入 onCopy
+    expect(picker.handleEvent(k('c'))).toBe(true); // 终局吞（模态独占）零动作
+    expect(picker.handleEvent({ kind: 'text', text: 'c' } as InputEvent)).toBe(true);
+    const hint = readRow(paintFull(picker), 12, 72); // 底行（measure 13 = 1+5+6+1）
+    expect(hint).not.toContain('复制');
+    expect(hint).toContain('q/esc 返回'); // 既有键段原形
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it('onCopy 在场：底行提示含「c 复制名」段（键面诚实呈现——段序在选定段后、返回段前）', () => {
+    const { picker } = makePicker({ current: 'auto', onCopy: vi.fn() });
+    const hint = readRow(paintFull(picker), 12, 72);
+    expect(hint).toContain('c 复制名');
+    expect(hint.indexOf('c 复制名')).toBeGreaterThan(hint.indexOf('enter 选定')); // 段序锁
+    expect(hint.indexOf('c 复制名')).toBeLessThan(hint.indexOf('q/esc 返回'));
+  });
+});
+
 describe('ThemePicker 样例区即时预览（48 轮件 C——样例区随在选档换色）', () => {
   /** 全高渲染夹具：measure 网格（条目全量在场——无滚动指示扰位） */
   const paintFull = (picker: ThemePicker, width = 72): CellGrid => {

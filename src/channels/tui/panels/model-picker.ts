@@ -21,6 +21,7 @@ import { hintLine } from '../keys/hint.js';
 import {
   activeRowStyleOf,
   CURSOR_MARK,
+  fitIndicatorViewport,
   headStyleOf,
   moreHint,
   PICKER_HEAD_MARK,
@@ -197,28 +198,19 @@ export class ModelPicker implements OverlayContent {
       } else {
         // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：视口 ≥3 行且展开
         // 行集溢出才立——上/下方 dim 边行「↑/↓ N 更多」；预留行挤压后在选行
-        // 跟随（指示行不遮在选行——组头占行，以光标条目展开行号判窗）
-        const indicatorsOn = viewHeight >= 3 && rows.length > viewHeight;
-        let cap = viewHeight; // 展开行实占行数（扣除指示预留）
+        // 跟随（指示行不遮在选行——组头占行，以光标条目展开行号判窗）。
+        // 56 轮件 3 收编批：三行预留收窄窗收敛段收编 panel-chrome 共享段
+        // fitIndicatorViewport（theme/session-picker 同构消费——件间不一致
+        // 封堵）——cursor 参传光标条目展开行号（组头展开行空间同适）；本段
+        // 收敛行为零变（既有指示测试为锁）
         const cursorRow = this.cursorRowOf(rows);
-        for (let round = 0; round < 3; round++) {
-          const topReserve = indicatorsOn && this.offset > 0;
-          const afterTop = viewHeight - (topReserve ? 1 : 0);
-          const bottomReserve = indicatorsOn && rows.length - this.offset - afterTop > 0;
-          cap = afterTop - (bottomReserve ? 1 : 0);
-          if (cursorRow < this.offset) {
-            this.offset = cursorRow;
-            continue;
-          }
-          if (cursorRow >= this.offset + cap) {
-            this.offset = cursorRow - cap + 1;
-            continue;
-          }
-          break;
-        }
+        const fit = fitIndicatorViewport(viewHeight, this.offset, cursorRow, rows.length);
+        this.offset = fit.offset;
+        const indicatorsOn = fit.on;
+        const cap = fit.cap; // 展开行实占行数（扣除指示预留）
         let line = contentRow;
         if (indicatorsOn && this.offset > 0) {
-          buffer.writeText(line, region.col, moreHint('↑', this.offset), HINT_STYLE);
+          buffer.writeText(line, region.col, fitLine(moreHint('↑', this.offset), region.width), HINT_STYLE);
           line++;
         }
         for (let i = 0; i < cap; i++) {
@@ -234,7 +226,9 @@ export class ModelPicker implements OverlayContent {
         }
         if (indicatorsOn) {
           const below = rows.length - (this.offset + cap);
-          if (below > 0) buffer.writeText(line, region.col, moreHint('↓', below), HINT_STYLE);
+          if (below > 0) {
+            buffer.writeText(line, region.col, fitLine(moreHint('↓', below), region.width), HINT_STYLE);
+          }
         }
       }
     }

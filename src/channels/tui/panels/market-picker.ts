@@ -30,6 +30,7 @@ import { hintLine } from '../keys/hint.js';
 import {
   activeRowStyleOf,
   CURSOR_MARK,
+  fitIndicatorViewport,
   headStyleOf,
   HEAD_MARKS,
   moreHint,
@@ -207,28 +208,18 @@ export class MarketPicker implements OverlayContent {
     // 条目行优先占窗（光标可见性是选择器第一律——尾行区溢出被窗截断可接受）。
     // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：条目溢出且视口 ≥3
     // 行才立——上/下方 dim 边行「↑/↓ N 更多」；预留行挤压后光标跟随（指示
-    // 行不遮在选行；条目不满窗时尾行区照旧尾随）
-    const indicatorsOn = viewHeight >= 3 && rows.length > viewHeight;
-    let cap = viewHeight; // 条目实占行数（扣除指示预留）
-    for (let round = 0; round < 3; round++) {
-      const topReserve = indicatorsOn && this.offset > 0;
-      const afterTop = viewHeight - (topReserve ? 1 : 0);
-      const bottomReserve = indicatorsOn && rows.length - this.offset - afterTop > 0;
-      cap = afterTop - (bottomReserve ? 1 : 0);
-      if (this.cursor < this.offset) {
-        this.offset = this.cursor;
-        continue;
-      }
-      if (this.cursor >= this.offset + cap) {
-        this.offset = this.cursor - cap + 1;
-        continue;
-      }
-      break;
-    }
+    // 行不遮在选行；条目不满窗时尾行区照旧尾随）。
+    // 56 轮件 3 收编批：三行预留收窄窗收敛段收编 panel-chrome 共享段
+    // fitIndicatorViewport（theme/session-picker 同构消费——件间不一致封堵）；
+    // 本段收敛行为零变（既有指示测试为锁）
+    const fit = fitIndicatorViewport(viewHeight, this.offset, this.cursor, rows.length);
+    this.offset = fit.offset;
+    const indicatorsOn = fit.on;
+    const cap = fit.cap; // 条目实占行数（扣除指示预留）
     let line = region.row + 1;
     const end = region.row + region.height - 1; // 键面提示行占位
     if (indicatorsOn && this.offset > 0) {
-      buffer.writeText(line, region.col, moreHint('↑', this.offset), HINT_STYLE);
+      buffer.writeText(line, region.col, fitLine(moreHint('↑', this.offset), region.width), HINT_STYLE);
       line++;
     }
     for (let i = 0; i < cap && line < end; i++) {
@@ -240,7 +231,7 @@ export class MarketPicker implements OverlayContent {
     if (indicatorsOn) {
       const below = rows.length - (this.offset + cap);
       if (below > 0 && line < end) {
-        buffer.writeText(line, region.col, moreHint('↓', below), HINT_STYLE);
+        buffer.writeText(line, region.col, fitLine(moreHint('↓', below), region.width), HINT_STYLE);
         line++;
       }
     }

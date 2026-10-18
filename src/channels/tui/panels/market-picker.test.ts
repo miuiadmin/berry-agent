@@ -593,4 +593,15 @@ describe('MarketPicker 长清单滚动位置指示（界面美化役 2026-10-01 
     expect(readRow(grid, 2, 40)).toContain('m7@alpha');
     expect(readRow(grid, 3, 40)).not.toContain('更多'); // 贴尾无下指示
   });
+
+  it('中部：上/下双指示 + 在选行夹在中间恒可见（越窗提窗——56 轮件 3 收编段行为锁：共享段换引收敛零变）', () => {
+    const { picker } = makePicker({ model: makeModel({ rows: manyRows }) });
+    paintMid(picker); // 先渲染定窗（首渲染前击键以陈窗高夹取——session-picker 中部档同序律）
+    for (let i = 0; i < 5; i++) picker.handleEvent(k('down')); // 光标 m5 → 越出 [0,3) 窗提窗
+    const grid = paintMid(picker);
+    expect(readRow(grid, 1, 40)).toBe('↑ 5 更多');
+    expect(readRow(grid, 2, 40).startsWith('›')).toBe(true); // 在选行 m5 恒可见（指示行不遮在选行）
+    expect(readRow(grid, 2, 40)).toContain('m5@alpha');
+    expect(readRow(grid, 3, 40)).toBe('↓ 2 更多');
+  });
 });

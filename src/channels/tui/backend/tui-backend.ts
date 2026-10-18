@@ -2408,7 +2408,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   writeClipboard(_sessionId: string, text: string): UiClipboardResult {
     // _sessionId：后端面签名携带会话归属——TUI 单终端单剪贴板不消费（setStatus 同律）
     if (Buffer.byteLength(text, 'utf8') > SELECTION_CAP_BYTES) return { status: 'too-large' };
-    this.copyToClipboard(text); // 分诊单源（件 A——三消费位同柄）
+    this.copyToClipboard(text); // 分诊单源（件 A——消费位同柄单源，计数随批增删不写死）
     return { status: 'written' };
   }
 
@@ -2428,8 +2428,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    *    终端（外层支持 OSC 52 即成）。
    * 终端介导三层皆尽力写出无反馈（外层终端支持性不可探测——件 8 语义）；
    * 第⓪层子进程面有确认（'ok'/'failed'）但失败亦只落穿不报——writeClipboard
-   * 回执语义两腿归一。三消费位（/history 选区、openMemory 选区、
-   * writeClipboard）单源。
+   * 回执语义两腿归一。消费位（/history 选区、openMemory 选区、writeClipboard、
+   * /themes 复制名——计数随批增删不写死）单源。
    */
   private copyToClipboard(text: string): void {
     // 第⓪层（40 轮件 A）——原生腿首选：SSH 判定与平台矩阵在计划函数内
@@ -2667,6 +2667,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onSelect,
         sessionId: this.sessionId,
         theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
+        // 'c' 复制主题名（56 轮件 3 复制回执）：剪贴板写链 copyToClipboard 单源
+        // （第⓪~③层同链——消费位计数随批增删不写死，56 轮闸 P3 勘正旧「三消费位」）+ notify 回执（「已复制最近一条回复」/copy
+        // 回执同族词面·info 档）；副屏期 notify 走 suspendedTransients 缓冲、
+        // 收屏 resumeMain 时落主屏（market-picker notifyWarn 同路径——件族律）
+        onCopy: (name) => {
+          this.copyToClipboard(name);
+          this.notify(`已复制主题名：${name}`);
+        },
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
