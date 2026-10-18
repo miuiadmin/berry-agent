@@ -262,8 +262,11 @@ describe('preset（写盘动词——两旋钮 + 建议集 + 审计恰一笔）'
     expect(load.entries.filter((e) => e.tool === 'bash')).toHaveLength(5);
     // 审计恰一笔 + 载荷
     expect(applied).toEqual([{ preset: 'open', sandboxMode: 'workspace-write', approvalPolicy: 'ask', appended: 7 }]);
-    // 回执诚实句
-    expect(outcome.text).toContain('下次启动或新会话时生效');
+    // 回执诚实句——生效时点词面与 04 §9 ⑥ 原句对齐（「下次启动/新装配生效」：
+    // 两旋钮装配期单读，同进程新会话不重读——旧措辞「或新会话」凭空多承诺一档）；
+    // not.toContain 旧词锁防漂移回潮（64 轮件 H）
+    expect(outcome.text).toContain('下次启动/新装配生效');
+    expect(outcome.text).not.toContain('或新会话');
   });
 
   it('重复切 open：幂等去重 appended=0 + 审计仍一笔', () => {

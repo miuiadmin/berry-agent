@@ -1931,8 +1931,9 @@ describe('审批分档收口锁 e2e（ap-4——§8 四层解析装配执法 + /
           data: { preset: 'open', sandboxMode: 'workspace-write', approvalPolicy: 'ask', appended: 7 },
         },
       ]);
-      // 回执诚实句（生效时点）+ 当前进程不变（装配期快照——status 仍缺省档）
-      expect(notified.some((t) => t.includes('下次启动或新会话时生效'))).toBe(true);
+      // 回执诚实句（生效时点——词面 04 §9 ⑥ 原句「下次启动/新装配生效」：
+      // 装配期单读，同进程新会话不重读）+ 当前进程不变（装配期快照——status 仍缺省档）
+      expect(notified.some((t) => t.includes('下次启动/新装配生效'))).toBe(true);
       expect(await assembly.stack.channels.dispatchCommand('/approval')).toBe(true);
       expect(notified.some((t) => t.includes('sandbox 模式 = workspace-write（来源：默认（代码内置）'))).toBe(true);
     } finally {

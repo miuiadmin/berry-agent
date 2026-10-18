@@ -40,7 +40,7 @@ export const APPROVAL_USAGE = `/approval [status] | entries | explain <tool> [pa
   status                 当前态：sandbox 模式 + 审批 policy（值 + 来源）+ 三种预设一览
   entries                策略表全列（立即读取当前生效的 tool-policy.json——启动时加载副本之外的实际内容）
   explain <tool> [pattern]  真裁决干跑（守门行同一 matchToolPolicy）：fs 族须带路径前缀参数、bash 须带命令原文、整名族三种并列
-  preset <名>            预设写盘（conservative|balanced|open——settings.json 两键 + 建议集 append；下次启动或新会话时生效）
+  preset <名>            预设写盘（conservative|balanced|open——settings.json 两键 + 建议集 append；下次启动/新装配生效）
 （CLI 面无本命令——「berry run --preset <名>」为逐次生效不写盘）`;
 
 /** 子命令形（TUI parseApprovalArgv 产物——tagged union） */
@@ -146,7 +146,7 @@ function renderStatus(deps: ApprovalCommandDeps): ApprovalCommandOutcome {
   lines.push(`  sandbox 模式 = ${deps.status.mode}（来源：${deps.status.modeSource}）`);
   lines.push(`  审批 policy = ${deps.status.policy}（来源：${deps.status.policySource}）`);
   lines.push(`  （本面为启动时加载的副本——/approval entries 与 explain 立即读取策略表文件）`);
-  lines.push('预设三种（preset <名> 写盘——下次启动或新会话时生效，当前进程不变）：');
+  lines.push('预设三种（preset <名> 写盘——下次启动/新装配生效，当前进程不变）：');
   for (const preset of APPROVAL_PRESETS) {
     lines.push(`  ${preset.name}: ${preset.description}`);
   }
@@ -336,8 +336,10 @@ function runPreset(name: string, deps: ApprovalCommandDeps): ApprovalCommandOutc
       : '  tool-policy.json ← 建议集空，零写入',
   );
   lines.push('  切换不清不删既有条目（含从 open 切回——撤除建议条目归手删）；既有会话粘性与在身审批不受影响。');
+  // 生效时点诚实句——词面 04 §9 ⑥ 原句「下次启动/新装配生效」：两旋钮均装配期
+  // 单读（settings 装配时点读一次），同进程新会话不重读——不写「或新会话」多承诺一档
   lines.push(
-    '生效时点（诚实）：sandbox 模式与策略表均为启动时加载的副本——当前进程不变，下次启动或新会话时生效；/approval entries 与 explain 立即读取文件，改动即时可见。',
+    '生效时点（诚实）：sandbox 模式与策略表均为启动时加载的副本——当前进程不变，下次启动/新装配生效；/approval entries 与 explain 立即读取文件，改动即时可见。',
   );
   return { ok: true, text: lines.join('\n') };
 }
