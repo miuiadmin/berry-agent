@@ -16,7 +16,7 @@
  * 网络真测腿：describe.skipIf（env BERRY_AGENT_MP_REMOTE_E2E 在场才跑——
  * 测试门控 env 非产品旋钮，07 §2.1 零新增律不破）。
  */
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -311,6 +311,69 @@ describe('git 腿——git 执行腿同族复用（假 spawn 零真网络）', (
     const face = createMarketFetchFace({ spawn, tmpRoot: testRoot, cloneTimeoutMs: 60 });
     await expect(face.fetchGitCatalog('https://example.com/huge.git')).rejects.toThrow(/超时/);
     expect(readdirSync(testRoot).filter((n) => n.startsWith('berry-market-clone-'))).toHaveLength(0);
+  });
+
+  it('击杀通道锁：两笔 git 调用均带 timeoutMs 通道（装机腿 B4 同律镜像——空对象第三参不再）', async () => {
+    // 第三参捕获账：clone 与 rev-parse 两笔各记一条（注入帽值逐笔对拍）
+    const optsLog: Array<{ readonly timeoutMs?: number }> = [];
+    const spawn: SpawnRunner = {
+      run: (cmd, args, opts) => {
+        optsLog.push({ timeoutMs: opts.timeoutMs });
+        if (cmd !== 'git') return Promise.reject(new Error(`假 spawn 不受理 ${cmd}`));
+        if (args[0] === 'clone') {
+          const cloneDir = args[args.length - 1]!;
+          writeClaudeCatalog(cloneDir);
+          return Promise.resolve({ stdout: '', stderr: '' });
+        }
+        if (args[2] === 'rev-parse') return Promise.resolve({ stdout: 'abc0003\n', stderr: '' });
+        return Promise.resolve({ stdout: '', stderr: '' });
+      },
+    };
+    const face = createMarketFetchFace({ spawn, tmpRoot: testRoot, cloneTimeoutMs: 12_345 });
+    const fetched = await face.fetchGitCatalog('https://example.com/channel.git');
+    // 通道锁：缺省执行器（execFile）唯有 timeoutMs 在场才到点击杀——拒时子进程已死
+    // 不孤儿存续；两腿均须携带注入帽值（非缺省常量）
+    expect(optsLog).toHaveLength(2);
+    expect(optsLog[0]!.timeoutMs).toBe(12_345);
+    expect(optsLog[1]!.timeoutMs).toBe(12_345);
+    rmSync(fetched.cloneDir, { recursive: true, force: true });
+  });
+
+  it('清场序锁：竞速帽先拒时 tmp 等 clone 腿 settle 后才动（装机腿 B4 镜像——不 rm 仍在写的目录）', async () => {
+    // 悬挂桩账：clone 返回「竞速帽内不 settle、帽后才 settle」的 promise；settle 前
+    // 探 cloneDir 内 catalog fixture 是否在场——在场 = 清场动作（rmSync）必然发生在
+    // settle 之后（现形：外层竞速先拒，catch 先 awaitSpawnSettled 再动 tmp）
+    let settleClone: (() => void) | undefined;
+    let sentinelAtSettle = false;
+    let cloneDir: string | undefined;
+    const spawn: SpawnRunner = {
+      run: (cmd, args) => {
+        if (cmd !== 'git') return Promise.reject(new Error(`假 spawn 不受理 ${cmd}`));
+        if (args[0] === 'clone') {
+          cloneDir = args[args.length - 1]!;
+          writeClaudeCatalog(cloneDir);
+          return new Promise((resolve) => {
+            settleClone = () => resolve({ stdout: '', stderr: '' });
+          }) as Promise<{ readonly stdout: string; readonly stderr: string }>;
+        }
+        return Promise.resolve({ stdout: '', stderr: '' });
+      },
+    };
+    const face = createMarketFetchFace({ spawn, tmpRoot: testRoot, cloneTimeoutMs: 40 });
+    const pending = face.fetchGitCatalog('https://example.com/slow-clone.git');
+    // 帽后触发 settle（40ms 竞速帽 + 160ms 余量）——settle 前一刻取探针
+    await new Promise<void>((done) => {
+      setTimeout(() => {
+        sentinelAtSettle = existsSync(join(cloneDir!, '.claude-plugin', 'marketplace.json'));
+        settleClone?.();
+        done();
+      }, 200);
+    });
+    await expect(pending).rejects.toThrow(/超时/);
+    // 序锁：竞速拒时 clone 未 settle、tmp 仍在场——清场必等待 settle 之后
+    expect(sentinelAtSettle).toBe(true);
+    // settle 后清场照落（宽限帽内收口——零残留）
+    expect(readdirSync(testRoot).some((n) => n.startsWith('berry-market-clone-'))).toBe(false);
   });
 
   // 主机校验位注记（mp 收尾批 sec ②§9.6 裁决）：git 腿克隆目标 = 用户手打 add

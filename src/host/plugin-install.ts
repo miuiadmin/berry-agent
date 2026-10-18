@@ -666,7 +666,7 @@ function withTimeoutMs<T>(promise: Promise<T>, ms: number, label: string): Promi
  * 的 promise 即返（成功/普通失败路径零延迟）；SPAWN_KILL_GRACE_MS 帽收口防
  * 注桩假件永不 settle 悬挂清尾。
  */
-async function awaitSpawnSettled(promise: Promise<unknown>): Promise<void> {
+export async function awaitSpawnSettled(promise: Promise<unknown>): Promise<void> {
   await new Promise<void>((done) => {
     const timer = setTimeout(() => done(), SPAWN_KILL_GRACE_MS);
     promise.then(

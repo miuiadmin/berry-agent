@@ -21,7 +21,8 @@
  *    （SpawnRunner 面 `git clone` → `git rev-parse HEAD` 两笔——**绝不新开
  *    git 通道**）；差异两点有意注记：①`--depth 1` 浅克隆——catalog 只需
  *    HEAD 快照（大仓 clone 磁盘/时间防线），装机腿 runGitInstall 保持全史
- *    克隆（要 checkout 任意 commit）；②**clone 超时帽 300s**（omp 30min 过
+ *    克隆（要 checkout 任意 commit）；②**clone 超时帽 300s**（clone 帽双执法
+ *    ——timeoutMs 杀通道 + 外层竞速，与装机腿 B4 同律；omp 30min 过
  *    宽——berry 收紧定值，§9.6 定形注随本批入册）。产物物化在真实文件系
  *    统（mkdtemp tmp）——add 编舞经 MarketFs promote 整树进缓存；**失败位
  *    tmp 自清**（成功返回后清场归调用方）。
@@ -32,7 +33,7 @@ import { join } from 'node:path';
 
 import { CATALOG_RELATIVE_PATHS } from './catalog.js';
 import type { MarketFetchFace } from './types.js';
-import { createDefaultSpawnRunner } from '../plugin-install.js';
+import { awaitSpawnSettled, createDefaultSpawnRunner } from '../plugin-install.js';
 import type { SpawnRunner } from '../plugin-install.js';
 import { createSsrfGuardedFetch, pinnedFetch } from '../../../plugins/web/index.js';
 import type { DnsResolver, FetchLike } from '../../../plugins/web/types.js';
@@ -73,7 +74,9 @@ export interface MarketFetchOptions {
 /**
  * 竞速超时执法（注入位安全）：真传输腿 signal 由 undici 承载中止，但注桩
  * fetchImpl/spawn 可不理会 signal——外层竞速保证帽值恒被执法（谁先到谁赢）。
- * 子进程本体由 OS/网络栈自理（v1 不持 kill 句柄——execFile promisify 面）。
+ * git 腿 spawn 调用另带 timeoutMs 杀通道（缺省执行器 execFile 到点 SIGTERM——
+ * 拒时子进程已死不孤儿存续）；url 腿 fetchImpl 仍由本外层竞速兜（注桩不响应
+ * signal 也帽值恒执法）。
  */
 function withTimeoutMs<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -178,17 +181,21 @@ export function createMarketFetchFace(options: MarketFetchOptions = {}): MarketF
       readonly commit: string;
     }> {
       const cloneDir = mkdtempSync(join(options.tmpRoot ?? tmpdir(), 'berry-market-clone-'));
+      // clone 腿柄（装机腿 runGitInstall B4 先例的镜像）：只持 cloneRun 一柄，
+      // rev-parse 不持（本地快腿——B4 对 checkout/rev-parse 同样只持 cloneRun）
+      let cloneRun: Promise<{ readonly stdout: string; readonly stderr: string }> | undefined;
       try {
         // 编舞两笔（runGitInstall 同族）：浅克隆 → rev-parse HEAD
         // （--depth 1 = catalog 只需 HEAD 快照；任意历史 commit 装机由
         // installPlugin 腿全史克隆 checkout 承载，本腿不背）
-        await withTimeoutMs(
-          spawn.run('git', ['clone', '--depth', '1', url, cloneDir], {}),
-          cloneTimeoutMs,
-          'git clone',
-        );
+        // clone 帽双执法（与装机腿 B4 同律）：timeoutMs 杀通道（缺省执行器到点
+        // SIGTERM——拒时子进程已死不孤儿存续）+ 外层竞速（注桩假件帽值恒执法）
+        cloneRun = spawn.run('git', ['clone', '--depth', '1', url, cloneDir], {
+          timeoutMs: cloneTimeoutMs,
+        });
+        await withTimeoutMs(cloneRun, cloneTimeoutMs, 'git clone');
         const head = await withTimeoutMs(
-          spawn.run('git', ['-C', cloneDir, 'rev-parse', 'HEAD'], {}),
+          spawn.run('git', ['-C', cloneDir, 'rev-parse', 'HEAD'], { timeoutMs: cloneTimeoutMs }),
           cloneTimeoutMs,
           'git rev-parse',
         );
@@ -207,6 +214,10 @@ export function createMarketFetchFace(options: MarketFetchOptions = {}): MarketF
           `git 源没有 catalog 文件（候选路径 ${CATALOG_RELATIVE_PATHS.join(' → ')} 均不存在，最后查找 ${missReason}）`,
         );
       } catch (error) {
+        // rm 前等 clone 腿收口（B4 镜像）：竞速帽先拒时子进程可能仍在击杀途中，
+        // 仍在写的目录不可 rm；已 settle 即返零延迟（普通失败路径无额外等待）。
+        // 宽限帽（SPAWN_KILL_GRACE_MS）收口防注桩假件永不 settle 悬挂清尾
+        if (cloneRun !== undefined) await awaitSpawnSettled(cloneRun);
         // 失败位 tmp 自清——清场归调用方的契约只在成功返回后生效
         rmSync(cloneDir, { recursive: true, force: true });
         throw error;
