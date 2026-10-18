@@ -23,7 +23,11 @@
  * ⑦ 流停滞纵深（04 §3.8.3 第三判据）：零 durable 推进超帽 → hung →
  *    failed『流停滞 watchdog 收口』（不停靠——停滞非预算语义）；
  * ⑧ 时滞帽治停滞不治总时长：durable 逐段推进（段间隔 < 帽、总时长 >
- *    帽）不误杀（帽停滞不帽时长的 durable 级锁）。
+ *    帽）不误杀（帽停滞不帽时长的 durable 级锁）；
+ * ⑬ 排队不计停滞钟（63 轮件 C）：宿主 run 帽 1 下排队未起跑的次 run 越过
+ *    时滞帽不被第三判据越域收口（04 §3.8.3 在飞期限域）——首 run 释放后
+ *    取位正常起跑结算 completed（修前红：排队等待被误计入停滞钟 → failed
+ *    『流停滞 watchdog 收口』）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -500,6 +504,97 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     });
     const result = await settle(outcome, 8000);
     expect(result.status).toBe('completed'); // 总时长超帽不误杀（对照 ⑦ 零推进景）
+    factory.dispose();
+    await rt.shutdown();
+  });
+
+  // ── ⑬ 排队不计停滞钟（63 轮件 C——修前红锚）────────────────────────────
+  // watchdog 第三判据（hung）把 kick 排队等待计入停滞钟：宿主 run 帽满时
+  // driver.submit 进排队段（queuedKickCount 自增 + await gate.acquire——
+  // currentRun 未置位即 driver.running false），种子 durable 落账在起跑后
+  // → 排队期 eventsOf() 零增量、lastAdvanceMs() 钉死在 submit 时刻——排队
+  // 越帽即被误归因 hung（04 §3.8.3 执法域 = issue 会话在飞期，排队期不在
+  // 飞）。修前链：watchdog abort（无在飞 → abortRequestedValue 记忆）→
+  // 取位重验①命中记忆 → 零 LLM aborted 终局 → failed『流停滞 watchdog
+  // 收口』——从未起跑的 run 被误归因。修后：判据加在飞门（driver.running）
+  // ——排队等待不计钟，取位起跑后正常结算。 ──
+  it('⑬ 排队不计停滞钟（63 轮件 C——修前红）：宿主 run 帽 1 下次 run 排队越帽 watchdog 不越域收口——取位起跑后正常结算 completed', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    // 宿主 run 并发帽 1（maxConcurrentRuns——宿主级 FIFO 闸单源）：首 run
+    // 在飞占位期间，次 issue run 的 submit 必进驱动排队段
+    const { faux, stack } = rigStack(rt, ws, {
+      maxConcurrentRuns: 1,
+      // 占位工具整名 allow 条目（同 ⑧ 注：整名族无条目 = 照问，headless 无
+      // 审批后端即答拒会把占位 run 误判 needs-human）
+      toolPolicy: [{ tool: 'issue_hold_probe', decision: 'allow' }],
+    });
+    const afford = mutableAfford(true);
+    const factory = createIssueSessionFactory({
+      stack,
+      canAfford: afford.canAfford,
+      warn: () => {},
+      pollMs: 5,
+      // 时滞帽 400ms：排队等待（八环 × ≥80ms ≥ 640ms）必越帽；而首 run 每
+      // 环落 assistant/message + tool/result 两笔 durable 事件、自身停滞钟
+      // 逐环刷新不越帽——两侧分离正是本景要证的在飞期限域
+      stallTimeoutMs: 400,
+    });
+
+    // 首 run（占位方）：八环慢工具 + 终答——占位总时长 ≥640ms > 帽 400ms，
+    // 期间自身 durable 逐环推进（pollMs 5ms 下 watchdog 逐帧看钟）
+    const HOLD_ROUNDS = 8;
+    const holdTool = (): ToolDefinition => ({
+      name: 'issue_hold_probe',
+      description: '占位探针（80ms——首 run 占位时长制造位）',
+      parameters: { type: 'object', properties: {} },
+      execute: async () => {
+        await sleep(80);
+        return { content: [{ type: 'text', text: 'ok' }] };
+      },
+    });
+    // faux 响应脚本全局 FIFO：占位方先消费八环 toolCall + 终答（共 9 拍），
+    // 次方取位后消费末拍——跨会话消费序与取位序同构（帽 1 下必然）
+    faux.setResponses([
+      ...Array.from({ length: HOLD_ROUNDS }, (_, i) => () => toolCallOf(`t-hold-${i}`, 'issue_hold_probe', {})),
+      () => messageOf('占位完成'),
+      () => messageOf('排队后完成'),
+    ]);
+    const first = await factory.startHeadless({
+      cwd: ws,
+      prompt: '占位任务',
+      budgetMessages: 50,
+      tools: [holdTool()],
+    });
+    const driver1 = stack.manager.driverOf(first.sessionId)!;
+    await until(() => driver1.running); // 首 run 真起跑占位（宿主唯一 run 位）
+
+    // 次 run（排队方）：submit 即入排队段——currentRun 未置位（driver.running
+    // false）、种子未落账（eventsOf 零增量）→ lastAdvanceMs 钉死在 submit
+    // 时刻（修前红的误判锚）
+    const second = await factory.startHeadless({
+      cwd: ws,
+      prompt: '排队任务',
+      budgetMessages: 50,
+      tools: [],
+    });
+    const driver2 = stack.manager.driverOf(second.sessionId)!; // 排队期捕获（终态 retire 后 driverOf 缺席）
+
+    // 排队窗实证：首 run 已推进 ≥2 环（≈160ms+，期间次方 watchdog tick 数十
+    // 次已跑）而次 run 仍在排队（在飞位缺席）——排队等待越帽的窗口内第三
+    // 判据若越域执法（修前形）此刻已落 abort 记忆
+    await until(() => driver1.session.events().filter((e) => e.type === 'assistant/message').length >= 2);
+    expect(driver2.running).toBe(false); // 排队段在飞位缺席（currentRun 未置位）
+
+    // 释放位 = 首 run 脚本自尽（八环后终答）：占位 run completed → FIFO 取位
+    // → 次 run 起跑。修前红锚：排队期 abort 记忆 → 取位重验①零 LLM aborted
+    // → 归因 hung → failed『流停滞 watchdog 收口（距上次 durable 事件超
+    // 400ms）』；修后：排队不计停滞钟 → 正常起跑结算
+    const firstResult = await settle(first.outcome, 8000);
+    expect(firstResult.status).toBe('completed'); // 占位方不受连坐（自身 durable 逐环推进）
+    const secondResult = await settle(second.outcome, 8000);
+    expect(secondResult.status).toBe('completed'); // 修前红位：failed『流停滞 watchdog 收口』
+    expect(secondResult.status === 'completed' && secondResult.summary).toBe('排队后完成');
     factory.dispose();
     await rt.shutdown();
   });

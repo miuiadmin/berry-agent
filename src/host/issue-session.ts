@@ -14,7 +14,8 @@
  *    跨停靠保留——唤醒走 followUp 通道续跑同会话）；assistant/message 计数
  *    达每 issue 帽 → abort → failed『每 issue 预算帽耗尽』（两层分账的
  *    run 侧执法）；距上次 durable 事件时滞超帽（04 §3.8.3 第三判据——
- *    流活性纵深）→ abort 归因 hung → failed『流停滞 watchdog 收口』；
+ *    流活性纵深；在飞期限域，排队等待不计钟）→ abort 归因 hung →
+ *    failed『流停滞 watchdog 收口』；
  *  - 唤醒腿（04 §5 budget_extended）：宿主级广播件（u-3——04 §5 定形注①
  *    自本工厂私有 watcher 升格 budget-broadcast.ts 装配根单真身，三停靠面
  *    同播；缺席注入时工厂自建私有实例同一实现单源）——canAfford 恢复即对
@@ -79,8 +80,9 @@ export interface IssueSessionFactoryOptions {
   /**
    * 编排层时滞帽（04 §3.8.3——watchdog 第三判据纵深）：距上次 durable 事件
    * 时滞超帽 → abort 归因 hung → failed『流停滞 watchdog 收口』（不停靠——
-   * 停滞非预算语义）。缺省 15min（conversation-stack 单源——「编排帽 ≥ 流层
-   * idle 帽」不变式在装配根交叉校验）；0 = 显式关（装配位 warn 留痕）。
+   * 停滞非预算语义；在飞期限域——排队等待不计钟，63 轮件 C）。缺省 15min
+   * （conversation-stack 单源——「编排帽 ≥ 流层 idle 帽」不变式在装配根
+   * 交叉校验）；0 = 显式关（装配位 warn 留痕）。
    * 测试注窄值驱动时序（与 pollMs 同族）。
    */
   readonly stallTimeoutMs?: number;
@@ -281,7 +283,14 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
           driver.abort();
           return;
         }
-        if (stallTimeoutMs > 0 && Date.now() - lastAdvanceMs() > stallTimeoutMs) {
+        // 第三判据在飞门（63 轮件 C）：排队段 driver.running 为 false
+        //（currentRun 未置位）——kick 排队等待不计停滞钟（04 §3.8.3 执法域
+        // = issue 会话在飞期，排队期不在飞——宿主 run 帽满时 submit 排队等位
+        // 的时长非流停滞，越域执法会把从未起跑的 run 误归因 hung 收 failed）；
+        // 取位起跑后种子落账自然刷新 lastAdvanceMs（currentRun 置位与种子落账
+        // 同宏任务，无竞窗）。cap/budget 两判据保持无条件（全局状态判据与
+        // 起跑无关）
+        if (driver.running && stallTimeoutMs > 0 && Date.now() - lastAdvanceMs() > stallTimeoutMs) {
           abortCause = 'hung';
           driver.abort();
         }
