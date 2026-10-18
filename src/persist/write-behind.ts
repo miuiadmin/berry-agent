@@ -9,7 +9,7 @@
  * 单会话同步排干面（drainSessionNow——loadSession 读前屏障，05 §5.0
  * 2026-10-04 注：retire→reopen 竞窗的陈旧前缀消除）。
  *
- * 关库终态（件D1——05 §6.3#6）：close() 后链入 closed 态——晚到事件（停机
+ * 关库终态（件D1——05 §6.3#6 2026-10-18 关库终态定形注）：close() 后链入 closed 态——晚到事件（停机
  * 序与在飞 run 收尾的竞速窗）不再 fail-loud（对已关库重试耗尽重抛 = 未捕获
  * 拒绝带栈崩溃），折观测位（onLateWriteFailure 记账 + warn 兜底——宿主装配
  * 根并计非零退出码）。
@@ -37,7 +37,7 @@ export interface WriteBehindOptions {
   /** 重试耗尽回调（缺省重抛——微任务链未捕获拒绝 = 进程 fail-loud；宿主装配
    *  根接 exitCode=1 编舞在 07 篇进程模型批接线） */
   readonly onFatal?: (err: BaseError) => void;
-  /** 关库终态晚到写失败观测位（件D1——05 §6.3#6 N3）：close 后 enqueue/在飞
+  /** 关库终态晚到写失败观测位（件D1——05 §6.3#6 2026-10-18 定形注）：close 后 enqueue/在飞
    *  drain 的丢弃与放弃不再 fail-loud，折此回调（宿主装配根并计非零退出码）；
    *  缺省 noop（warn 兜底仍在——可见性不缺位） */
   readonly onLateWriteFailure?: (err: BaseError) => void;
@@ -165,7 +165,7 @@ export class WriteBehind {
   /**
    * 关库终态标记（件D1 ②层）：Persistence.close 序在 store.close 前调用——
    * 此后晚到事件（enqueue 位）与在飞 drain 余队（drain 回环顶）一律折观测
-   * 不重试不熔断不重抛（05 §6.3#6 N3「落盘步永达记失败态」的关库侧推论）。
+   * 不重试不熔断不重抛（05 §6.3#6 2026-10-18 定形注：关库终态迟到写 = 丢弃 + 记失败态观测）。
    */
   close(): void {
     this.closed = true;
@@ -428,7 +428,7 @@ export class WriteBehind {
 
   /**
    * 关库终态晚到写失败折观测（件D1 ②层）：记 onLateWriteFailure 观测位
-   * （宿主装配根并计非零退出码——05 §6.3#6 N3）+ warn 兜底（观测面缺席也
+   * （宿主装配根并计非零退出码——05 §6.3#6 2026-10-18 定形注）+ warn 兜底（观测面缺席也
    * 不静默）。观测回调自身异常不反噬（try/catch 隔离——晚到链只折不炸）。
    */
   private recordLateFailure(err: BaseError): void {
