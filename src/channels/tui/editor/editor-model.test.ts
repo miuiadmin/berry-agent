@@ -1215,3 +1215,59 @@ describe('EditorModel 历史回搜态机（挖掘 31 轮 [3]——ctrl+r 增量�
     expect(m.getText()).toBe('beta');
   });
 });
+
+/* ================= 模态原语三件（39 池 P4·L——07 §4.1 R5 mode 域） ================= */
+
+describe('EditorModel 模态原语（moveToFirstLine / moveToLastLine / deleteCurrentLine）', () => {
+  it('moveToFirstLine：行归 0 + 列夹目标行行尾', () => {
+    const m = modelWith('aaa\nbbbb\ncc'); // 光标归尾（末行 col 2）
+    m.moveToFirstLine();
+    expect(m.getCursor()).toEqual({ line: 0, col: 2 }); // 列夹（原 col 2 ≤ 3 保持）
+    m.moveEnd(); // 首行行尾（col 3）
+    m.moveToFirstLine();
+    expect(m.getCursor()).toEqual({ line: 0, col: 3 }); // 列超目标行不夹（本行即目标）
+  });
+
+  it('moveToLastLine：行归末 + 列夹', () => {
+    const m = modelWith('aaaa\ncc'); // 末行 col 2
+    m.moveHome();
+    m.moveUp(); // 首行 col 0
+    m.moveToLastLine();
+    expect(m.getCursor()).toEqual({ line: 1, col: 0 }); // 列夹末行（0 ≤ 2 保持）
+    const n = modelWith('aa\nb');
+    n.moveHome(); // 归尾光标先落行首（末行）
+    n.moveUp(); // 首行行首
+    n.moveEnd(); // 首行行尾 col 2
+    n.moveToLastLine();
+    expect(n.getCursor()).toEqual({ line: 1, col: 1 }); // 列 2 > 末行长 1 → 夹 1
+  });
+
+  it('deleteCurrentLine：中位行删除光标落删除位行首 + undo 单步回', () => {
+    const m = modelWith('aaa\nbbb\nccc'); // 末行
+    m.moveToFirstLine();
+    m.moveDown(); // 行 1
+    const removed = m.deleteCurrentLine();
+    expect(removed).toBe('bbb');
+    expect(m.getLines()).toEqual(['aaa', 'ccc']);
+    expect(m.getCursor()).toEqual({ line: 1, col: 0 }); // 删除位新行首
+    m.undo();
+    expect(m.getLines()).toEqual(['aaa', 'bbb', 'ccc']);
+  });
+
+  it('deleteCurrentLine：末行删除光标落新末行行尾；单行稿删成空行不灭稿', () => {
+    const m = modelWith('aaa\nbbb');
+    const removed = m.deleteCurrentLine();
+    expect(removed).toBe('bbb');
+    expect(m.getCursor()).toEqual({ line: 0, col: 3 }); // 新末行行尾
+    const single = modelWith('only');
+    expect(single.deleteCurrentLine()).toBe('only');
+    expect(single.getLines()).toEqual(['']); // 不灭稿
+    expect(single.getCursor()).toEqual({ line: 0, col: 0 });
+  });
+
+  it('deleteCurrentLine 不入 kill 环（模态寄存器分立律——环账零漂移）', () => {
+    const m = modelWith('aaa');
+    m.deleteCurrentLine();
+    expect(m.killRing.size).toBe(0);
+  });
+});

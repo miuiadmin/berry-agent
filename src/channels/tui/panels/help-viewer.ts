@@ -53,6 +53,7 @@ const SCOPE_LABELS: Readonly<Record<ActionScope, string>> = Object.freeze({
   tools: '工具卡',
   editor: '编辑器',
   history: '回看器', // 挖掘 36 轮件 8 回溯 fork 批——'history' 域首枚随册扩
+  mode: '模态编辑', // 39 池 P4·L——mode 域七席随册扩（默认关，/vim 开关）
 });
 
 /** 底行键面提示 */

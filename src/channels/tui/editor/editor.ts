@@ -12,12 +12,16 @@
  * - ↑ 在首视觉行且（空框 / 浏览态 / 行首）触发历史回溯，否则视觉行上移；
  *   ↓ 在末视觉行触发历史回新，否则下移；
  * - kill-ring 消费键（R3 批 10j）：ctrl+y yank / alt+y yankPop——模型原语
- *   直调（环账与 undo 编排归模型）。
+ *   直调（环账与 undo 编排归模型）；
+ * - 模态编辑拦截层（39 池 P4·L——07 §4.1 R5 mode 域）：默认关；开后仅
+ *   normal/pending 态吃 text 字素与 pending 态 escape（态机归 modal-mode.ts，
+ *   拦截分诊归本件 interceptModal）。
  */
 import type { CellBuffer, InputEvent, KeyEvent, Region, Renderable } from '../../engine/index.js';
 import { splitGraphemes } from '../../engine/index.js';
 import { EditorModel } from './editor-model.js';
 import { EditorView } from './editor-view.js';
+import { EditorModal, type ModalMode } from './modal-mode.js';
 import { Keymap } from '../keys/registry.js';
 
 /** 提交选项（候跑位——挂账解挂批 2026-09-15） */
@@ -92,6 +96,12 @@ export interface EditorOptions {
    * seam 缺席/草稿非空/空弹）全归宿主闭包——编辑器只司键分发。
    */
   onQueueEditLast?: () => boolean;
+  /**
+   * 模态态翻转通知（39 池 P4·L——07 §4.1 R5 mode 域）：normal/insert/
+   * pending 三指示态任一翻转时触发（backend 消费——footer 指示词重建 +
+   * DECSCUSR 光标形写出）。态去抖在模态层（同态零发）。
+   */
+  onModalChange?: () => void;
 }
 
 /** 可打印字符键判（jump 待靶态的靶字符判据——无修饰或仅 shift） */
@@ -124,11 +134,16 @@ export class Editor implements Renderable {
   private readonly keymap: Keymap;
   /** 持久化史镜像钩（B1 写路——真入册时触发；缺席 = 纯内存旧形；sensitive 携位形见 EditorOptions 注） */
   private readonly onHistoryAdd: ((text: string, opts?: { sensitive?: boolean }) => void) | undefined;
+  /** 模态态翻转通知（39 池 P4·L；缺席 = 纯逻辑件可裸构测） */
+  private readonly onModalChange: (() => void) | undefined;
+  /** 模态编辑层（null = 关：零拦截零呈现——默认关拍板句的落码位） */
+  private modalLayer: EditorModal | null = null;
 
   constructor(options: EditorOptions = {}) {
     this.onSubmit = options.onSubmit;
     this.onSubmitRejected = options.onSubmitRejected;
     this.onQueueEditLast = options.onQueueEditLast;
+    this.onModalChange = options.onModalChange;
     this.pageSize = Math.max(1, options.maxVisibleLines ?? 8);
     this.keymap = options.keymap ?? new Keymap();
     this.onHistoryAdd = options.onHistoryAdd;
@@ -219,6 +234,34 @@ export class Editor implements Renderable {
     return this.model.isSearchingHistory();
   }
 
+  /**
+   * 模态编辑开关（39 池 P4·L——`/vim` 命令面消费位）：on = 装模态层（fresh
+   * 起 normal 态；重开重置态与寄存器——开关翻转是显式重锚非续态）；off = 卸
+   * 模态层（零拦截零呈现——层不在场即无迹）。会话内持久：编辑器实例寿期
+   * 即会话寿期，overlay 开关/面板启闭不重建本件（态不丢）；跨进程不持久
+   * （开关不落盘）。
+   */
+  setModalEditing(on: boolean): void {
+    if (on) {
+      if (this.modalLayer === null) {
+        this.modalLayer = new EditorModal(this.model, { onStateChange: () => this.onModalChange?.() });
+      }
+    } else {
+      this.modalLayer = null;
+    }
+    this.onModalChange?.(); // 开关翻转即同步（装/卸两向——指示与光标形随开关收敛）
+  }
+
+  /** 模态现态观测面（null = 关——backend 指示词与 DECSCUSR 形判据位） */
+  get modalMode(): ModalMode | null {
+    return this.modalLayer === null ? null : this.modalLayer.mode;
+  }
+
+  /** 模态开关在场查询（backend 缓存对账位——开关态自省） */
+  isModalEditing(): boolean {
+    return this.modalLayer !== null;
+  }
+
   /* ---------------- 渲染委托（两段协商直通视图） ---------------- */
 
   measure(width: number): number {
@@ -241,6 +284,10 @@ export class Editor implements Renderable {
     // 历史回搜模态（挖掘 31 轮 [3]）：搜索态吃尽一切事件（codex history_search
     // 同序——分诊先于 jump 待靶态：开搜时 jumpPending 已清，两模态不并存）
     if (this.model.isSearchingHistory()) return this.handleSearchEvent(event);
+    // 模态编辑拦截层（39 池 P4·L——07 §4.1 R5 mode 域）：只在 normal/pending
+    // 态吃 text/ime 提交字素与 pending 态 escape；insert 态零拦截（emacs 键
+    // 全保留）、ctrl 族与具名键恒放行（生命线/提交/导航/回搜在 normal 态照旧）
+    if (this.modalLayer !== null && this.interceptModal(event)) return true;
     switch (event.kind) {
       case 'key':
         return this.handleKey(event);
@@ -278,6 +325,70 @@ export class Editor implements Renderable {
       case 'mouse':
         return false; // 主屏零鼠标（07 屏模型注）——到达即吞不消费（副屏选区路不经本件）
     }
+  }
+
+  /**
+   * 模态拦截层（39 池 P4·L——只在模态层在场时被咨询）：
+   * - **键路只辖 escape 一键**：pending 取消 / insert 归 normal（消费）；normal
+   *   态返 false 归全局中断路。ctrl 族、方向、enter、ctrl+r 回搜等具名键全
+   *   数放行既有 emacs dispatch——normal 态下生命线（ctrl+c）、提交（enter）、
+   *   翻阅（↑/↓）照旧可达；
+   * - **jump 待靶让位**：ctrl+] 在 normal 态照常武装，待靶期一切事件（含
+   *   escape 取消）走既有 jump 分支——两态机不互夺；
+   * - **text/ime 提交路**：normal/pending 态逐字素喂模态命令面（合并事件
+   *   逐字素切分——组合字素不劈）；**中途进 insert 即断流**，余字素归既有
+   *   插入路补入（合并事件不丢字）；insert 态返 false 零拦截（字素入稿）；
+   *   ime 预编辑（未提交）不拦——呈现归既有路；
+   * - **paste/mouse 放行**：粘贴照既有路原子入稿（不进命令面——粘贴是输入
+   *   行为非编辑命令）、鼠标归上层。
+   */
+  private interceptModal(event: InputEvent): boolean {
+    const modal = this.modalLayer;
+    if (modal === null) return false;
+    if (this.jumpPending !== null) return false; // jump 待靶优先（既有态机）
+    if (event.kind === 'key') {
+      if (event.phase === 'release') return false;
+      if (event.key === 'escape' && !event.ctrl && !event.alt && !event.meta) {
+        return modal.feedEscape();
+      }
+      return false; // 其余键走既有 emacs dispatch
+    }
+    if (event.kind === 'text') {
+      if (modal.mode === 'insert') return false; // insert 态零拦截
+      // 逐字素喂命令面，但**中途进 insert 即断流**：合并 text 事件（快打同
+      // chunk / legacy 轨 textRun 合并）首字素是入 insert 命令（i/a/o…）时，
+      // 余字素已属插入语义——继续喂模态面会被 insert 短路静默丢字（'ozz'
+      // 单 chunk 只剩 'o' 生效）。余字素归既有插入路补入——jump 待靶
+      // consumeJumpTarget 的「余字素不丢」同律。
+      const graphemes = splitGraphemes(event.text);
+      for (let i = 0; i < graphemes.length; i += 1) {
+        modal.feed(graphemes[i]!);
+        if (modal.isInsertMode()) {
+          // 方法查询面（getter 直比遭 CFA 收窄误报 TS2367）
+          const rest = graphemes.slice(i + 1).join('');
+          if (rest !== '') this.model.insertText(rest);
+          break;
+        }
+      }
+      return true;
+    }
+    if (event.kind === 'ime') {
+      if (!event.committed) return false; // 预编辑不拦（呈现归既有路）
+      if (modal.mode === 'insert') return false;
+      // ime 提交路同律（kitty 轨 astral 合并提交形）：中途进 insert 余字素补入
+      const graphemes = splitGraphemes(event.text);
+      for (let i = 0; i < graphemes.length; i += 1) {
+        modal.feed(graphemes[i]!);
+        if (modal.isInsertMode()) {
+          // 方法查询面（getter 直比遭 CFA 收窄误报 TS2367）
+          const rest = graphemes.slice(i + 1).join('');
+          if (rest !== '') this.model.insertText(rest);
+          break;
+        }
+      }
+      return true;
+    }
+    return false; // paste / mouse 放行
   }
 
   /**

@@ -1544,6 +1544,25 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           if (!backend.openJobs()) backend.notify(panelBusyNotice('后台任务页'), { level: 'warn' });
         },
       },
+      {
+        // 模态编辑开关（39 池 P4·L——07 §4.1 R5 mode 域默认关拍板句的开关
+        // 落点）：会话内翻转、跨进程不持久。命令名是 UI 值位词（用户对该
+        // 编辑范式的通称——代码标识符域去品牌化由 backend.setModalEditing
+        // 承担）。回执词随新态（开 = 普通/插入/操作三态 + /help 模态编辑组
+        // 指路；关 = 零呈现零拦截）
+        name: 'vim',
+        description: '模态编辑开关（普通/插入/操作三态——会话内生效，默认关）',
+        run: () => {
+          const next = !backend.isModalEditing();
+          backend.setModalEditing(next);
+          backend.notify(
+            next
+              ? '模态编辑已开：普通态命令面（移动 h/l/w/b、dd 删行、yy 复制、p 贴、i 进插入、esc 归普通）——键位详见 /help'
+              : '模态编辑已关',
+            { level: 'info' },
+          );
+        },
+      },
     ] as const;
     /** 本地命令族 → 补全条目（query 已去斜杠——与 exitCommandItems 同契约） */
     const localCommandItems = (query: string): readonly AutocompleteItem[] =>

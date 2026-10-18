@@ -22,7 +22,7 @@
  */
 
 /** 动作域（冲突检测与 /help 分组〔10k〕的判据位） */
-export type ActionScope = 'global' | 'thinking' | 'tools' | 'editor' | 'history';
+export type ActionScope = 'global' | 'thinking' | 'tools' | 'editor' | 'history' | 'mode';
 
 /** 动作定义（册条目——id / 域 / 中文标签 / 缺省键位 / 可覆盖性） */
 export interface ActionDef {
@@ -230,6 +230,53 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
     keys: ['e'],
     overridable: true,
   },
+  // 模态编辑域七席（39 池 P4·L——2026-10-18 模态编辑批增册至 48〔global 9 +
+  // thinking 1 + tools 1 + editor 29 + history 1 + mode 7〕；07 §4.1 R5 mode
+  // 域词条同笔）。**七条目全投影位**：可打印字符（i/a/x/p 等）走 text 事件
+  // （引擎地面态恒产 text——key 路恒不命中）；复合串（dd/dw/yy 等）单段文法
+  // 解析器天然不产（'ctrl+x b' 席同律）——键路绑定恒不命中，分诊真源 =
+  // editor.ts 模态拦截层（interceptModal——normal/pending 态吃 text 字素、
+  // pending 态吃 escape；dispatch 硬编在 modal-mode.ts 命令面）。overridable
+  // 恒 false——模态键面无用户改键面（覆盖不生效即诚实关门）。escape 与
+  // global.interrupt 同键（键→动作集整集对拍缺省册两集恒等放行——分层消解
+  // 先例 ctrl+d 同律：路由层① 先分诊，闲态 escape 透传编辑器层归模态层）
+  {
+    id: 'mode.enter-insert',
+    scope: 'mode',
+    label: '进入插入态（i 光标处 / a 追加 / I 行首 / A 行尾 / o 下开行 / O 上开行）',
+    keys: ['i', 'a', 'I', 'A', 'o', 'O'],
+    overridable: false,
+  },
+  {
+    id: 'mode.exit-insert',
+    scope: 'mode',
+    label: '插入态归普通态',
+    keys: ['escape'],
+    overridable: false,
+  },
+  {
+    id: 'mode.motion',
+    scope: 'mode',
+    label: '移动（h/l 字符 · w/b 词 · 0/$ 行首尾 · gg/G 首末行）',
+    keys: ['h', 'l', 'w', 'b', '0', '$', 'g', 'G'],
+    overridable: false,
+  },
+  {
+    id: 'mode.delete',
+    scope: 'mode',
+    label: '删除（x 字符 · dd 行 · dw/db 词 · d0/d$ 行段）',
+    keys: ['x', 'dd', 'dw', 'db', 'd0', 'd$'],
+    overridable: false,
+  },
+  {
+    id: 'mode.yank',
+    scope: 'mode',
+    label: '复制（yy 行 · yw/yb 词 · y0/y$ 行段）',
+    keys: ['yy', 'yw', 'yb', 'y0', 'y$'],
+    overridable: false,
+  },
+  { id: 'mode.paste', scope: 'mode', label: '贴寄存器（p 后 / P 前）', keys: ['p', 'P'], overridable: false },
+  { id: 'mode.undo', scope: 'mode', label: '撤销（普通态）', keys: ['u'], overridable: false },
 ];
 
 /** 具名键全集（键串文法的非单字符键位——键名与 InputDecoder 输出形同源小写） */

@@ -170,9 +170,9 @@ describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字�
 });
 
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
-  it('册数 41：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影三席（B4 同批；挖掘 36 轮批 [2] c 扩集）+ 外部编辑器（挖掘 31 轮 [9]）+ 历史回搜两席（挖掘 31 轮 [3]）+ 回看器回溯席（挖掘 36 轮末件 [5]——history 域首枚）+ 真挂起（挖掘 41 轮件 III global.suspend）+ 弹回排队末条（挖掘 47 轮件 A）+ 剪贴板图片直贴（TUI 剪贴板图片直贴批）', () => {
-    // 修前红锚：册数 40（editor.paste-image 增册前）
-    expect(ACTION_CATALOG).toHaveLength(41);
+  it('册数 48：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）+ 档位模式循环（2026-10-05 ZCode 对标批）+ leader 分支投影三席（B4 同批；挖掘 36 轮批 [2] c 扩集）+ 外部编辑器（挖掘 31 轮 [9]）+ 历史回搜两席（挖掘 31 轮 [3]）+ 回看器回溯席（挖掘 36 轮末件 [5]——history 域首枚）+ 真挂起（挖掘 41 轮件 III global.suspend）+ 弹回排队末条（挖掘 47 轮件 A）+ 剪贴板图片直贴（TUI 剪贴板图片直贴批）+ 模态编辑域七席（39 池 P4·L 模态编辑批）', () => {
+    // 修前红锚：册数 41（mode 域增册前）
+    expect(ACTION_CATALOG).toHaveLength(48);
     // 弹回席（47 轮件 A）：editor 域可覆盖 + alt+up 单键
     const editLast = ACTION_CATALOG.find((d) => d.id === 'editor.queue-edit-last');
     expect(editLast).toMatchObject({ scope: 'editor', keys: ['alt+up'], overridable: true });
@@ -208,6 +208,31 @@ describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模�
     // bracketed paste 通道零争键）
     const pasteImage = ACTION_CATALOG.find((d) => d.id === 'editor.paste-image');
     expect(pasteImage).toMatchObject({ scope: 'editor', keys: ['ctrl+v'], overridable: true });
+    // 模态编辑域七席（39 池 P4·L 模态编辑批）：mode 域全投影位（可打印字符
+    // 走 text 事件、复合串单段文法不产——键路恒不命中，分诊真源 = editor
+    // 模态拦截层）；全不可覆盖（dispatch 硬编在模态层——覆盖不生效即诚实关门）
+    const modalEnter = ACTION_CATALOG.find((d) => d.id === 'mode.enter-insert');
+    expect(modalEnter).toMatchObject({ scope: 'mode', keys: ['i', 'a', 'I', 'A', 'o', 'O'], overridable: false });
+    const modalExit = ACTION_CATALOG.find((d) => d.id === 'mode.exit-insert');
+    expect(modalExit).toMatchObject({ scope: 'mode', keys: ['escape'], overridable: false });
+    const modalMotion = ACTION_CATALOG.find((d) => d.id === 'mode.motion');
+    expect(modalMotion).toMatchObject({
+      scope: 'mode',
+      keys: ['h', 'l', 'w', 'b', '0', '$', 'g', 'G'],
+      overridable: false,
+    });
+    const modalDelete = ACTION_CATALOG.find((d) => d.id === 'mode.delete');
+    expect(modalDelete).toMatchObject({ scope: 'mode', keys: ['x', 'dd', 'dw', 'db', 'd0', 'd$'], overridable: false });
+    const modalYank = ACTION_CATALOG.find((d) => d.id === 'mode.yank');
+    expect(modalYank).toMatchObject({ scope: 'mode', keys: ['yy', 'yw', 'yb', 'y0', 'y$'], overridable: false });
+    const modalPaste = ACTION_CATALOG.find((d) => d.id === 'mode.paste');
+    expect(modalPaste).toMatchObject({ scope: 'mode', keys: ['p', 'P'], overridable: false });
+    const modalUndo = ACTION_CATALOG.find((d) => d.id === 'mode.undo');
+    expect(modalUndo).toMatchObject({ scope: 'mode', keys: ['u'], overridable: false });
+    // escape 与 global.interrupt 同键分层消解：缺省册两集恒等——覆盖冲突面
+    // 放行（ctrl+d 双绑同构先例；resolveKeybindings 整集对拍律）
+    const escapeActions = ACTION_CATALOG.filter((d) => d.keys.includes('escape')).map((d) => d.id);
+    expect(escapeActions).toEqual(['global.interrupt', 'mode.exit-insert']);
   });
 
   it('alt+enter 命中候跑动作（与 editor.submit 键序分立——enter 不误触）', () => {

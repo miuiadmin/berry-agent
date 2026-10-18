@@ -507,3 +507,37 @@ describe('OscDisplay.setAttention 待处置外显（件 C——挖掘 46 轮）'
     expect(io.frames.slice(-1)).toEqual([title('base')]); // 收态归位仍有效
   });
 });
+
+/* ================= 光标形 DECSCUSR（模态编辑批——39 池 P4·L） ================= */
+
+describe('OscDisplay setCursorShape（DECSCUSR——值缓存去重 + restore 复位）', () => {
+  /** DECSCUSR 序列（锚定 mode 域捆绑注——形 2 block / 形 5 bar / 形 0 复位） */
+  const CURSOR_BAR = '\x1b[5 q';
+  const CURSOR_BLOCK = '\x1b[2 q';
+  const CURSOR_RESET = '\x1b[0 q';
+
+  it('bar/block/default 三形字节 + 同形去重零字节', () => {
+    const { io, osc } = makeOsc();
+    osc.setCursorShape('bar');
+    osc.setCursorShape('bar'); // 同形重设——去重零字节
+    osc.setCursorShape('block');
+    osc.setCursorShape('default');
+    osc.setCursorShape('default'); // 同形重设——去重零字节
+    expect(io.frames).toEqual([CURSOR_BAR, CURSOR_BLOCK, CURSOR_RESET]);
+  });
+
+  it('restore：写过非缺省形则复位缺省（一次性）；未写过零字节', () => {
+    const { io, osc } = makeOsc();
+    osc.setCursorShape('bar');
+    io.frames.length = 0;
+    osc.restore();
+    expect(io.frames).toContain(CURSOR_RESET); // 复位缺省形随退出复原
+    io.frames.length = 0;
+    osc.restore(); // 已在缺省形——再 restore 零复位字节
+    expect(io.frames.every((f) => !f.includes(' q') || f === CURSOR_RESET)).toBe(true);
+
+    const fresh = makeOsc();
+    fresh.osc.restore();
+    expect(fresh.io.frames.some((f) => f === CURSOR_RESET)).toBe(false); // 从未写形——零复位
+  });
+});

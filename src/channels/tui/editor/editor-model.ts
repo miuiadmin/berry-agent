@@ -807,6 +807,57 @@ export class EditorModel {
   }
 
   /**
+   * 跳首行（模态编辑批——39 池 P4·L，07 §4.1 R5 mode 域：gg 落位原语）。
+   * 列夹目标行行尾（超长列钳位——目标行短于现列时不悬空）。
+   */
+  moveToFirstLine(): void {
+    this.lastAction = null;
+    this.state.cursorLine = 0;
+    this.setCursorCol(Math.min(this.state.cursorCol, (this.state.lines[0] ?? '').length));
+  }
+
+  /**
+   * 跳末行（模态编辑批：G 落位原语）。列夹目标行行尾（同 moveToFirstLine）。
+   */
+  moveToLastLine(): void {
+    this.lastAction = null;
+    this.state.cursorLine = this.state.lines.length - 1;
+    this.setCursorCol(Math.min(this.state.cursorCol, (this.state.lines[this.state.cursorLine] ?? '').length));
+  }
+
+  /**
+   * 删当前行（模态编辑批：dd 落位原语）——整行删除、返被删行文本（模态
+   * 寄存器入账位在调用方——modal-mode.ts）。单行稿删成空行不灭稿（与
+   * deleteMarkerLine 同形：lines 恒非空）。undo 单步；光标落删除位新行首、
+   * 删末行落新末行行尾。**不入 kill 环**：环账是 emacs 面语义，模态寄存器
+   * 独立分账不互通（07 §4.1 mode 域「模态寄存器分立律」）。
+   */
+  deleteCurrentLine(): string | null {
+    // 活标记行走标记族删除（冷读闸 P2——同族原语纪律：破坏性族全数先查
+    // markerIdAt，裸 splice 会滞留死 id 击穿「手敲同形文本不获原子性」保证
+    // ——dd 后 insert 态手敲同形占位串即复活已删整段）。返 null = 寄存器
+    // 不动（标记行占位符字面不入模态寄存器——与 execYank 标记行 no-op 同律）。
+    if (this.markerIdAt(this.state.cursorLine) !== null) {
+      this.deleteMarkerLine(this.state.cursorLine);
+      return null;
+    }
+    this.lastAction = null;
+    this.exitHistoryBrowsing();
+    const lineNo = this.state.cursorLine;
+    const removed = this.state.lines[lineNo] ?? '';
+    this.pushUndo();
+    this.state.lines.splice(lineNo, 1);
+    if (this.state.lines.length === 0) this.state.lines = [''];
+    const next = Math.min(lineNo, this.state.lines.length - 1);
+    this.state.cursorLine = next;
+    const target = this.state.lines[next] ?? '';
+    // 删的是末行 → 新末行（前行）行尾；否则删除位新行（原后继行）行首
+    this.setCursorCol(next === lineNo ? 0 : target.length);
+    this.notify();
+    return removed;
+  }
+
+  /**
    * jump 词向：跳到指定字符的下 / 上一处出现（多行搜索、跳过光标当前位）。
    * 无匹配光标不动。落位经字素边界校准（模型头注「一切移动 / 删除原语经
    * 字素边界函数」承诺——原始命中落组合字素中段时向向分立吸位：backward

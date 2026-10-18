@@ -43,6 +43,16 @@ const PROGRESS_ACTIVE_SEQUENCE = '\x1b]9;4;3\x07';
 /** OSC 9;4 清零序列（state 0） */
 const PROGRESS_CLEAR_SEQUENCE = '\x1b]9;4;0\x07';
 
+/**
+ * DECSCUSR 光标形序列（模态编辑批——39 池 P4·L，07 §4.1 R5 mode 域捆绑注记）：
+ * 形 5 = SteadyBar（insert 态）、形 2 = SteadyBlock（normal 态）、形 0 =
+ * 复位终端缺省形（模态关闭/退出复原）。写点归本件 setCursorShape（值去重），
+ * 态判据归 TuiBackend（模态层三态投影）。
+ */
+const CURSOR_STEADY_BAR_SEQUENCE = '\x1b[5 q';
+const CURSOR_STEADY_BLOCK_SEQUENCE = '\x1b[2 q';
+const CURSOR_RESET_SEQUENCE = '\x1b[0 q';
+
 /** 注意态帧词（件 C——待处置问句在场的外显词面） */
 const ATTENTION_WORD = '待处置';
 /** 注意态显形拍标记 */
@@ -208,6 +218,8 @@ export class OscDisplay {
   private blinkHandle: unknown = null;
   /** 保活在飞句柄（null = 无在飞——名册语义判据位） */
   private keepaliveHandle: unknown = null;
+  /** 光标形值缓存（null = 从未写——同形不重写字节判据位；模态编辑批） */
+  private lastCursorShape: 'block' | 'bar' | 'default' | null = null;
 
   private readonly io: TerminalIO;
   private readonly baseline: string;
@@ -314,9 +326,27 @@ export class OscDisplay {
   }
 
   /**
+   * 光标形写出（DECSCUSR——模态编辑批，39 池 P4·L）：bar = SteadyBar
+   * （insert 态）/ block = SteadyBlock（normal 态）/ default = 复位终端
+   * 缺省形（模态关闭）。值缓存去重（title 同律——同形不重写字节）。
+   */
+  setCursorShape(shape: 'block' | 'bar' | 'default'): void {
+    if (shape === this.lastCursorShape) return; // 去重律——同形零字节
+    this.lastCursorShape = shape;
+    this.io.write(
+      shape === 'bar'
+        ? CURSOR_STEADY_BAR_SEQUENCE
+        : shape === 'block'
+          ? CURSOR_STEADY_BLOCK_SEQUENCE
+          : CURSOR_RESET_SEQUENCE,
+    );
+  }
+
+  /**
    * 退出复原两写点齐（07 §4.1 件 7 条款）：title 复原基线（经值缓存——
    * 已在基线则零字节）+ 进度清零（无条件写——终态收口，含停保活）。
    * 注意态同收（件 C——复原后 setTitle 记账恢复常态语义；注意拍停针）。
+   * 光标形同收（模态编辑批——写过非缺省形则复位缺省，未写过零字节）。
    */
   restore(): void {
     this.attentionOn = false;
@@ -324,6 +354,9 @@ export class OscDisplay {
     this.stopBlink();
     this.setTitle(this.baseline);
     this.io.write(PROGRESS_CLEAR_SEQUENCE);
+    if (this.lastCursorShape !== null && this.lastCursorShape !== 'default') {
+      this.setCursorShape('default');
+    }
   }
 
   /** 停保活定时器（名册语义：句柄非空才取消、停后清位——重复停针 no-op） */

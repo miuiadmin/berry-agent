@@ -8548,3 +8548,139 @@ describe('TuiBackend 剪贴板图片直贴（ctrl+v 读链 + 路径变体面 + �
     }
   });
 });
+
+/* ================= TUI 模态编辑（39 池 P4·L——07 §4.1 R5 mode 域） ================= */
+
+describe('TuiBackend 模态编辑（开关 / 指示词 / DECSCUSR / dd+yy+p 全链）', () => {
+  /** DECSCUSR 序列（osc 件字节形真源的装配面消费锚） */
+  const CURSOR_BAR = '\x1b[5 q';
+  const CURSOR_BLOCK = '\x1b[2 q';
+  const CURSOR_RESET = '\x1b[0 q';
+
+  /** footer 注入形（行1 仪表槽可渲染——模态指示词的呈现位） */
+  const footerRig = {
+    footer: {
+      tiers: () => ({ mode: 'Auto', thinking: null, sandbox: null, sandboxDanger: false }),
+      cwdLabel: () => 'w',
+    },
+  };
+
+  it('默认关零漂移锁：无指示词、零 DECSCUSR 字节、字素照入稿', () => {
+    const { io, backend, calls, pump } = makeInteractive(footerRig);
+    expect(backend.isModalEditing()).toBe(false);
+    io.emitInput('x');
+    pump();
+    io.emitInput('\r'); // 提交取证——稿面 'x' 入册（零拦截的证据面）
+    pump();
+    expect(calls.submitted).toEqual([['s1', 'x']]);
+    expect(io.bytes).not.toContain('-- 普通 --');
+    expect(io.bytes).not.toContain('-- 插入 --');
+    expect(io.bytes).not.toContain(CURSOR_BAR);
+    expect(io.bytes).not.toContain(CURSOR_BLOCK);
+  });
+
+  it('开 = normal 态指示词 + SteadyBlock；i 进 insert 换词 + SteadyBar；esc 归 normal 换回', () => {
+    const { io, backend, clock, pump } = makeInteractive(footerRig);
+    backend.setModalEditing(true);
+    pump();
+    expect(io.bytes).toContain('-- 普通 --'); // 行1 第 2 位指示词
+    expect(io.bytes).toContain(CURSOR_BLOCK); // normal = SteadyBlock
+    io.emitInput('i');
+    pump();
+    expect(io.bytes).toContain('-- 插入 --');
+    expect(io.bytes).toContain(CURSOR_BAR); // insert = SteadyBar
+    io.emitInput('\x1b'); // 归 normal（lone-ESC 判定窗——escapePump 推进裁决）
+    escapePump(clock);
+    expect(io.bytes).toContain('-- 普通 --');
+    expect(io.bytes).toContain(CURSOR_BLOCK);
+    expect(io.bytes.match(/-- 普通 --/g)?.length).toBe(2); // 两度在场（开 + 归 normal）
+  });
+
+  it('pending 态指示词「-- 操作 --」+ 关闭复位缺省光标形', () => {
+    const { io, backend, clock, pump } = makeInteractive(footerRig);
+    backend.setModalEditing(true);
+    io.emitInput('d'); // pending d（词面命令——非入稿）
+    pump();
+    expect(io.bytes).toContain('-- 操作 --'); // 指示词翻转（帧史含此前「普通」帧——词面区分态）
+    io.emitInput('\x1b'); // 取消归 normal
+    escapePump(clock);
+    backend.setModalEditing(false); // 关——复位缺省光标形 + 指示词退役
+    pump();
+    expect(io.bytes).toContain(CURSOR_RESET);
+    expect(backend.isModalEditing()).toBe(false);
+  });
+
+  it('dd + yy + p 全链（backend 集成）：normal 态命令编辑稿 + enter 提交携成稿', () => {
+    const { io, backend, clock, calls, pump } = makeInteractive(footerRig);
+    backend.setModalEditing(true);
+    io.emitInput('i'); // 进 insert
+    io.emitInput('aaa\nbbb'); // 两行稿（\n 走 ime 轨还是 text 轨均可入稿——换行入文）
+    pump();
+    io.emitInput('\x1b'); // 归 normal
+    escapePump(clock);
+    io.emitInput('gg'); // 跳首行
+    io.emitInput('yy'); // 复制首行
+    io.emitInput('p'); // 贴于行下
+    pump();
+    io.emitInput('\r'); // 提交
+    pump();
+    expect(calls.submitted).toEqual([['s1', 'aaa\naaa\nbbb']]); // 成稿全链（yy+p 行形贴）
+  });
+
+  it('normal 态拦截不夺既有键面：ctrl+c 生命线照旧打断', () => {
+    const { io, backend, calls, pump } = makeInteractive(footerRig);
+    backend.setModalEditing(true);
+    io.emitInput('\x03'); // ctrl+c（normal 态在身）
+    pump();
+    expect(calls.interrupted).toEqual(['s1']); // 键路放行——生命线优先
+  });
+
+  // 冷读闸 P1 回归锁（ask 应答车模态悬置）：应答车复用主编辑器（路由层④
+  // 无条件落 editor.handleEvent）——模态 normal 态会把应答文本吃成命令。
+  // 修前红实录：'yy' 入 pending 起动词、'答' 词面外静默丢、enter 提交空稿
+  // → resolve('')——审批/提问生命线失能。开窗悬置 + 空队退役复装两对称位。
+  it('模态开启期 ask 应答车全链（修前红：P1 应答文本被 normal 态吃成命令）：悬置应答 + 退役复装', async () => {
+    const { io, backend, calls, pump } = makeInteractive(footerRig);
+    backend.setModalEditing(true);
+    pump();
+    const p = backend.input('补充？');
+    pump();
+    io.emitInput('yy'); // 修前红位：normal 态吃成 pending——悬置后是应答稿字符
+    io.emitInput('答\r'); // 应答收场
+    pump();
+    await expect(p).resolves.toBe('yy答'); // 修前红：resolve('')
+    expect(calls.submitted).toEqual([]); // 应答车独占——零模型提交
+    // 退役复装：空队退役位恢复模态（fresh normal 态）——'o' 是开行命令非入稿
+    io.emitInput('ozz'); // o 开行进 insert（'o' 被命令面吃）、zz 入稿
+    io.emitInput('\r');
+    pump();
+    expect(calls.submitted).toEqual([['s1', 'zz']]); // 修前红（未复装形）：'ozz' 字面入稿
+  });
+
+  it('模态悬置随 FIFO 接续窗续悬置：两问链中窗照常应答，队列真空才复装', async () => {
+    const { io, backend, pump } = makeInteractive(footerRig);
+    backend.setModalEditing(true);
+    pump();
+    const p1 = backend.input('一？');
+    pump();
+    const p2 = backend.input('二？'); // 在飞问在场——入队候接（模态已悬置）
+    io.emitInput('甲\r');
+    pump();
+    await expect(p1).resolves.toBe('甲');
+    // 接续窗激活续悬置（恢复位只在空队退役）——第二问应答照旧零拦截
+    io.emitInput('dw乙\r'); // 'dw' 修前红位：接续窗若复装即入 pending——续悬置则是应答稿
+    pump();
+    await expect(p2).resolves.toBe('dw乙');
+    expect(backend.isModalEditing()).toBe(true); // 队列真空退役——模态复装
+  });
+
+  it('模态关闭期 ask 零悬置账：开关本关时开窗/收场不误开模态（悬置旗零残留）', async () => {
+    const { io, backend, pump } = makeInteractive(footerRig);
+    const p = backend.input('三？'); // 模态从未开——悬置旗恒 false
+    pump();
+    io.emitInput('答\r');
+    pump();
+    await expect(p).resolves.toBe('答');
+    expect(backend.isModalEditing()).toBe(false); // 退役位不误开（旗零残留）
+  });
+});

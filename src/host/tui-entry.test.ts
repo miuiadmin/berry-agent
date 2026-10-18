@@ -2832,3 +2832,32 @@ describe('持久化分项目输入历史（B1——07 §4.1 呈现面件 2 定�
     expect(await second.entry).toBe(0);
   });
 });
+
+/* ================= /vim 模态编辑命令全链（39 池 P4·L——冷读闸 P3 接缝补锁） ================= */
+
+describe('/vim 命令全链（host 命令面 ↔ backend 模态面接缝——冷读闸 P3：接缝零锁）', () => {
+  it('开关两向翻转 + 教学回执词面 + footer 指示随态（关态唯一翻回径 = insert 态键入提交）', async () => {
+    const dataDir = rigDir('tui-vim-cmd-data-');
+    const ws = rigDir('tui-vim-cmd-ws-');
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      env: { FAUX_ENTRY_API_KEY: 'ready-key' }, // ready 态：引导面板缺席
+    });
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门（起屏完成）
+    // 开：默认关态 '/' 键入直达命令面——翻转 + 教学回执 + 指示落 footer
+    io.send('/vim\r');
+    await until(() => io.output.includes('模态编辑已开'));
+    expect(io.output).toContain('dd 删行'); // 教学词面锚（80 列内段——长回执行有 ellipsize，锚取前段）
+    await until(() => io.output.includes('-- 普通 --')); // footer 指示随态（normal 词）
+    // normal 态命令面在身：'/' 与 'v' 是词面外字符（静默丢）——翻回的唯一径是
+    // 先入 insert 再键入命令提交（行为锁：两态命令面与提交通道各归其位）
+    io.send('i');
+    await until(() => io.output.includes('-- 插入 --'));
+    io.send('/vim\r'); // insert 态 '/vim' 入稿 → enter 提交 → 命令面接管翻转
+    await until(() => io.output.includes('模态编辑已关'));
+    // 关态零拦截：字母照入稿（提交取证——'x' 入册非命令面吞噬）
+    io.send('x\r');
+    await until(() => stripAnsi(io.output).includes('› x'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+});

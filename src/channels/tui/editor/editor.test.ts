@@ -736,3 +736,124 @@ describe('Editor 提交帽（件 B——挖掘 46 轮）', () => {
     expect(editor.model.getText()).toContain('[paste #'); // 草稿（标记形）保留
   });
 });
+
+/* ================= 模态拦截层（39 池 P4·L——07 §4.1 R5 mode 域） ================= */
+
+describe('Editor 模态编辑拦截层', () => {
+  it('默认关零漂移：text 照插入、escape 不消费、modalMode 恒 null', () => {
+    const ed = new Editor();
+    expect(ed.modalMode).toBe(null); // 关态观测面
+    expect(ed.isModalEditing()).toBe(false);
+    expect(ed.handleEvent(text('x'))).toBe(true);
+    expect(ed.getText()).toBe('x'); // 命令字符照常入稿（非命令面）
+    expect(ed.handleEvent(key('escape'))).toBe(false); // escape 归上层（非模态消费）
+  });
+
+  it('开后 normal 态：text 字素是命令非入稿；i 进 insert 后字素入稿', () => {
+    const ed = new Editor();
+    ed.setModalEditing(true);
+    expect(ed.modalMode).toBe('normal');
+    expect(ed.handleEvent(text('x'))).toBe(true); // 消费（作命令）
+    expect(ed.getText()).toBe(''); // x 是删字符命令——空稿无操作零入稿
+    expect(ed.handleEvent(text('i'))).toBe(true); // i 进 insert
+    expect(ed.modalMode).toBe('insert');
+    ed.handleEvent(text('hello'));
+    expect(ed.getText()).toBe('hello');
+  });
+
+  it('insert 态 escape 归 normal 且左移不施（gap 隙位语义）；normal 态 escape 不消费', () => {
+    const ed = new Editor();
+    ed.setModalEditing(true);
+    ed.handleEvent(text('i'));
+    ed.handleEvent(text('ab'));
+    expect(ed.handleEvent(key('escape'))).toBe(true); // insert 归 normal——消费
+    expect(ed.modalMode).toBe('normal');
+    expect(ed.model.getCursor().col).toBe(2); // 不左移（隙位语义——已知分歧注）
+    expect(ed.handleEvent(key('escape'))).toBe(false); // normal 态不消费（归全局中断路）
+    expect(ed.modalMode).toBe('normal');
+  });
+
+  it('insert 态 emacs 键全保留：ctrl+a 行首 / ctrl+k 删至行尾照旧', () => {
+    const ed = new Editor();
+    ed.setModalEditing(true);
+    ed.handleEvent(text('i'));
+    ed.handleEvent(text('hello'));
+    expect(ed.handleEvent(key('a', { ctrl: true }))).toBe(true); // ctrl+a 行首
+    expect(ed.model.getCursor().col).toBe(0);
+    expect(ed.handleEvent(key('k', { ctrl: true }))).toBe(true); // ctrl+k 删至行尾
+    expect(ed.getText()).toBe('');
+  });
+
+  it('normal 态 ctrl 族与具名键放行既有 dispatch：ctrl+c 透传 / enter 提交照旧', () => {
+    const submitted: string[] = [];
+    const ed = new Editor({ onSubmit: (t) => submitted.push(t) });
+    ed.setModalEditing(true);
+    expect(ed.handleEvent(key('c', { ctrl: true }))).toBe(false); // ctrl+c 生命线透传
+    ed.handleEvent(text('i'));
+    ed.handleEvent(text('hi'));
+    ed.handleEvent(key('escape'));
+    expect(ed.handleEvent(key('enter'))).toBe(true); // normal 态 enter 提交照旧
+    expect(submitted).toEqual(['hi']);
+  });
+
+  it('pending 态 escape 取消即消费（不外泄作全局中断）；无效续接重处理', () => {
+    const ed = new Editor();
+    ed.setModalEditing(true);
+    ed.handleEvent(text('i'));
+    ed.handleEvent(text('ab'));
+    ed.handleEvent(key('escape'));
+    ed.handleEvent(text('0')); // 行首
+    ed.handleEvent(text('d')); // pending d
+    expect(ed.modalMode).toBe('pending');
+    expect(ed.handleEvent(key('escape'))).toBe(true); // 取消——消费
+    expect(ed.modalMode).toBe('normal');
+    expect(ed.getText()).toBe('ab'); // 稿未动
+    ed.handleEvent(text('d'));
+    ed.handleEvent(text('x')); // x 非 d 续接——取消重处理成 x 命令（删首字符）
+    expect(ed.getText()).toBe('b');
+  });
+
+  it('jump 待靶让位：normal 态 ctrl+] 武装、下一字符作跳靶非命令', () => {
+    const ed = new Editor();
+    ed.setModalEditing(true);
+    ed.handleEvent(text('i'));
+    ed.handleEvent(text('axbx'));
+    ed.handleEvent(key('escape'));
+    ed.handleEvent(text('0')); // 行首
+    expect(ed.handleEvent(key(']', { ctrl: true }))).toBe(true); // ctrl+] 武装待靶（键路不拦）
+    expect(ed.handleEvent(text('x'))).toBe(true); // 跳靶消费（非模态命令）
+    expect(ed.model.getCursor().col).toBe(1); // 跳至靶字符位（jumpToChar 语义——靶前隙位）
+    expect(ed.getText()).toBe('axbx'); // 稿未动
+  });
+
+  it('paste 放行：normal 态粘贴照既有路原子入稿（不进命令面）', () => {
+    const ed = new Editor();
+    ed.setModalEditing(true);
+    expect(ed.handleEvent({ kind: 'paste', text: 'pasted' })).toBe(true);
+    expect(ed.getText()).toBe('pasted');
+    expect(ed.modalMode).toBe('normal');
+  });
+
+  it('开关翻转重置：off 后 text 照插入；再 on 回 normal fresh 态', () => {
+    const ed = new Editor();
+    ed.setModalEditing(true);
+    ed.handleEvent(text('i')); // insert 态
+    ed.setModalEditing(false);
+    expect(ed.modalMode).toBe(null);
+    expect(ed.handleEvent(text('x'))).toBe(true);
+    expect(ed.getText()).toBe('x'); // 关后字素入稿（零拦截）
+    ed.setModalEditing(true);
+    expect(ed.modalMode).toBe('normal'); // fresh 重开（非续 insert 态）
+  });
+
+  it('onModalChange 态翻转通知：insert↔normal 与 pending 进出均触发（观测装配联动）', () => {
+    const flips: (string | null)[] = [];
+    const ed = new Editor({ onModalChange: () => flips.push(ed.modalMode) });
+    ed.setModalEditing(true); // 开——null→normal 一翻
+    ed.handleEvent(text('i')); // normal→insert
+    ed.handleEvent(key('escape')); // insert→normal
+    ed.handleEvent(text('d')); // normal→pending
+    ed.handleEvent(key('escape')); // pending→normal
+    expect(flips).toEqual(['normal', 'insert', 'normal', 'pending', 'normal']);
+  });
+});

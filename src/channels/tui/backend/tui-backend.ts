@@ -1114,6 +1114,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /** input-ask 在飞体（null = 常态——提交落 onSubmit） */
   private inputAsk: InputAsk | null = null;
+  /** ask 生命周期悬置的模态编辑旗（冷读闸 P1：开窗悬置、空队退役恢复——接续窗续悬置） */
+  private modalSuspendedByAsk = false;
   /** 排队问（异会话 FIFO——07 §4.1 路由序条 input() 异会话 FIFO 定形注〔节号勘正 2026-10-04：原引 §4.3 系错引，该定形注真源在 §4.1〕：在飞问未收场时新问入队不抢占） */
   private inputQueue: InputAsk[] = [];
   /**
@@ -1364,6 +1366,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * instrumentSlots 词——色档位在 seg 快照）。
    */
   private shellModeOn = false;
+  /**
+   * 模态编辑指示词缓存（39 池 P4·L——syncModalCursor 对账位）：null = 关
+   * （零占位）；'-- 普通 --' / '-- 插入 --' / '-- 操作 --' 三词。态去抖单源
+   * 在模态层（同指示态零发），此处再对账（同词零重建零字节）。
+   */
+  private modalIndicatorCache: string | null = null;
   /** 行2 目录短名缓存（rebuildFooter 低频锚拉 cwdLabel 闭包） */
   private footerCwd = '';
   /** 行2 ⎇ 支名@短哈希缓存（refreshFooterGit 低频锚——'⎇ dev @a1b2c3d' 单源 buildFooterGitSuffix 拼形：⎇ 支名两侧空格 + @ 记形随单源 + 统计段命中追加） */
@@ -1602,6 +1610,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       onHistoryAdd: options.history?.onRecord,
       // 弹回排队末条（47 轮件 A）：门序判据全归本闭包（编辑器只司键分发）
       onQueueEditLast: () => this.handleQueueEditLast(),
+      // 模态态翻转（39 池 P4·L）：footer 指示词重建 + DECSCUSR 光标形写出
+      onModalChange: () => this.syncModalCursor(),
     });
     // 教学提示首画锚（V-3 注⑦②）：构造期空稿闲态即期翻转 footerHint
     //（refreshFooter 先行走 hint-off 基线——editor 就位后此处收敛真态）
@@ -2782,6 +2792,38 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * 模态编辑开关（39 池 P4·L——07 §4.1 R5 mode 域；/vim 命令面消费位）：
+   * 会话内开关、跨进程不持久（默认关拍板句——关时零呈现零拦截零字节）。
+   * 翻转后指示词与 DECSCUSR 光标形即时收敛（syncModalCursor）。
+   */
+  setModalEditing(on: boolean): void {
+    this.editor.setModalEditing(on);
+    this.syncModalCursor();
+  }
+
+  /** 模态编辑开关态观测面（/vim 回执词判据位——host 装配消费） */
+  isModalEditing(): boolean {
+    return this.editor.isModalEditing();
+  }
+
+  /**
+   * 模态指示词 + 光标形对账（onModalChange 态翻转 / setModalEditing 开关
+   * 翻转两消费点）：指示词（null = 关零占位）变才重建 footer + DECSCUSR
+   * 写出（insert = SteadyBar / normal·pending = SteadyBlock / 关 = 复位
+   * 缺省——osc 件值去重同形零字节）。态去抖单源在模态层（同指示态零发），
+   * 此处缓存对账再去抖（开关翻转/态翻转收敛单点）。
+   */
+  private syncModalCursor(): void {
+    const mode = this.editor.modalMode;
+    const indicator =
+      mode === null ? null : mode === 'insert' ? '-- 插入 --' : mode === 'pending' ? '-- 操作 --' : '-- 普通 --';
+    if (indicator === this.modalIndicatorCache) return;
+    this.modalIndicatorCache = indicator;
+    this.rebuildFooter();
+    this.osc.setCursorShape(mode === null ? 'default' : mode === 'insert' ? 'bar' : 'block');
+  }
+
+  /**
    * 开副屏插件市场选装面（03 §9.6 mp-5 TUI 选装面——/marketplace 本地拦截
    * 族第七件）：可变模型（rows/tail/results/busyLabel）与动作面由 host 侧
    * face 注入（本件零市场触感——装配位单源）；锁键/指路 warn 走 notify warn
@@ -3190,6 +3232,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private instrumentSlots(): string[] {
     const slots: string[] = [];
     if (this.footerMode !== null) slots.push(this.footerMode);
+    // 模态编辑指示词（39 池 P4·L——第 2 位：模式词后。null = 关零占位；
+    // 坍缩梯保位——右起丢非模式槽，本槽居首段坍缩最后失位）
+    if (this.modalIndicatorCache !== null) slots.push(this.modalIndicatorCache);
     if (this.footerThinking !== null) slots.push(this.footerThinking);
     if (this.footerModelShort !== '') slots.push(this.footerModelShort);
     if (this.footerSessionSpent !== undefined) {
@@ -3796,6 +3841,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.cancelTimer('escape');
     this.decoder.discardPendingEscape();
     this.inputAsk = ask;
+    // 模态编辑悬置（冷读闸 P1）：应答车复用主编辑器（路由层④无条件落
+    // editor.handleEvent）——模态 normal 态会把应答文本吃成命令（字母静默丢、
+    // 'x' 删应答字符、审批/提问生命线失能）。开窗即卸模态层（态随卸装重置
+    // 可接受——恢复位归 continueInputQueue 空队退役；接续窗在悬置态续开）。
+    // 对照纪律：粘贴图路径对 inputAsk 显式让位同形（模态是另一层输入语义，
+    // 应答车道一票让位）。
+    if (this.editor.isModalEditing()) {
+      this.modalSuspendedByAsk = true;
+      this.editor.setModalEditing(false);
+    }
     this.pauseElapsedClock(); // 应答车开窗——耗时暂停（挖掘 31 轮 [8]：浮层等待期不计）
     this.editor.setText(''); // 应答起始清框（草稿让位——提交路模型自清）
     // 应答车占位文换装（挖掘 29 轮件 4）：enter 是收窗非提交——composer 缺省
@@ -3818,6 +3873,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     else {
       this.editor.setPlaceholder(undefined); // 应答车退役——占位文回 composer 缺省（队列接续时 activate 再换装）
       this.editor.setSensitive(false); // 敏感模式复位（挖掘 37 轮件 3——队列空退役位；接续窗 activate 按新 ask 重设）
+      // 模态编辑恢复（冷读闸 P1 对称位——与占位文/敏感位同「空队退役」时序）：
+      // ask 窗悬置的模态在队列真空时复装（fresh normal 态——态随装卸重置）。
+      // 接续窗不走此位（activateInputAsk 续悬置）；abort 收口两路（激活/排队）
+      // 与 submit 收口同汇本位，单一恢复点覆盖三收场。
+      if (this.modalSuspendedByAsk) {
+        this.modalSuspendedByAsk = false;
+        this.editor.setModalEditing(true);
+      }
     }
   }
 
