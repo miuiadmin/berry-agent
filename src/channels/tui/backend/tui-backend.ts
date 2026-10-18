@@ -4024,8 +4024,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 审批：SelectPanel 浮层四值（批准/拒绝/总是批准/取消——Esc 面板保守值 ''
-   * 映射 cancel，与 07 §4.3 收口律对齐）；always 草案经 hint 段呈现（回写
+   * 审批：SelectPanel 浮层三/四值条件呈现（64 轮件 F）：草案（suggestedEntry）
+   * 在场 = 四值（批准/拒绝/总是批准/取消）；缺席 = 恰三值（批准/拒绝/取消）——
+   * 契约（safety/types.ts ApprovalAnswer 注 + contracts/approval.ts
+   * suggestedEntry 条款）明言无草案载荷不呈现 always 选项（防御收口视同
+   * approve），修前无条件呈现致用户选中后被静默折为一次性 approve（意图与
+   * 效果分歧）。Esc 面板保守值 '' 映射 cancel，与 07 §4.3 收口律对齐；
+   * always 草案经 hint 段呈现（回写
    * 归通道核 settleApprovalAlways——本件只呈现与回值）。signal abort 收口
    * 'cancel' 保守值 + 撤销说明行（文案「审批」区分于 input/confirm/select
    * 三件——07 §4.3 撤销面）。
@@ -4055,7 +4060,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         options: [
           { value: 'approve', label: '批准' },
           { value: 'reject', label: '拒绝' },
-          { value: 'always', label: '总是批准', hint: request.suggestedEntry },
+          // always 条件呈现（64 轮件 F）：草案缺席不呈现该选项——恰三值面板；
+          // 在场则四值且草案经 hint 段呈现（判据 === undefined 与通道核
+          // settleApprovalAlways 防御收口同判同源——空串草案不落防御支）
+          ...(request.suggestedEntry !== undefined
+            ? [{ value: 'always', label: '总是批准', hint: request.suggestedEntry }]
+            : []),
           { value: 'cancel', label: '取消' },
         ],
         theme: this.theme, // 一次性面板构造期定值（当前主题快照）

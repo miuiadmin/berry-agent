@@ -1303,7 +1303,10 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
     pump();
     await expect(p1).resolves.toBe('approve');
 
-    const p2 = backend.askApproval('s1', { summary: '二' });
+    // p2 锁面升级（64 轮件 F）：本段锁的是面板值 → ApprovalAskAnswer 的映射
+    // 机制（always 值经 onFinish 原样回值）而非呈现形——件 F 后无草案面板不
+    // 呈现 always 选项，夹具须携带草案才能保映射锁可达（呈现形另立新测锁定）
+    const p2 = backend.askApproval('s1', { summary: '二', suggestedEntry: '/tmp/y' });
     pump();
     io.emitInput('\x1b[B\x1b[B'); // ↓↓ = 总是批准
     pump();
@@ -1316,6 +1319,43 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
     io.emitInput('\x1b');
     escapePump(clock);
     await expect(p3).resolves.toBe('cancel'); // Esc 面板保守值映射 cancel
+  });
+
+  // 64 轮件 F 回归锁：无草案载荷不呈现「总是批准」。契约两处明言（safety/
+  // types.ts ApprovalAnswer 注「载荷必须携带 suggestedEntry 草案才呈现该选项」+
+  // contracts/approval.ts suggestedEntry 条款「缺席 = always 选项语义上不呈现、
+  // 防御收口视同 approve」）——修前面板无条件含 always，用户选中后被 ui-core
+  // settleApprovalAlways 静默折为一次性 approve（面板零提示、意图与效果分歧、
+  // 诱导审批疲劳）。恰值断言用选项行 2 空格前缀形（'  批准' 非 '总是批准'
+  // 子串——前缀形区分同尾词面）
+  it('approval 无草案载荷：选项恰三值（批准/拒绝/取消）不现总是批准（修前红：四值恒现）；有草案恰四值', async () => {
+    const { io, backend, pump } = makeInteractive();
+    // 无草案：恰三值——批准/拒绝/取消在场、总是批准缺席
+    const p1 = backend.askApproval('s1', { summary: '写文件' });
+    pump();
+    const plain1 = stripAnsi(io.bytes);
+    expect(plain1).toContain('  批准');
+    expect(plain1).toContain('  拒绝');
+    expect(plain1).toContain('  取消');
+    expect(plain1).not.toContain('总是批准'); // 修前红：无草案载荷仍呈现该选项
+    io.emitInput('\r'); // 收层（首项批准——不留僵尸浮层）
+    pump();
+    await expect(p1).resolves.toBe('approve');
+
+    // 有草案：恰四值——前三值 + 总是批准（草案字符串经 hint 段呈现）
+    const p2 = backend.askApproval('s1', { summary: '删文件', suggestedEntry: 'bash rm' });
+    pump();
+    const plain2 = stripAnsi(io.bytes);
+    expect(plain2).toContain('  批准');
+    expect(plain2).toContain('  拒绝');
+    expect(plain2).toContain('  总是批准');
+    expect(plain2).toContain('bash rm'); // 草案 hint 段在场
+    expect(plain2).toContain('  取消');
+    io.emitInput('\x1b[B\x1b[B'); // ↓↓ = 总是批准（映射路收层——与上件映射锁同值不同夹具形态）
+    pump();
+    io.emitInput('\r');
+    pump();
+    await expect(p2).resolves.toBe('always');
   });
 
   it('主屏 lone-ESC 装排门换锚形自愈：旧定时器早到空转须重排——Esc 不丢、后键不误判 alt', async () => {
