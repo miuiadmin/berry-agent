@@ -8581,6 +8581,153 @@ describe('TuiBackend 剪贴板图片直贴（ctrl+v 读链 + 路径变体面 + �
     expect(submissions).toEqual([{ text: '', images: [refBlock(2)] }]); // 修前红位：陈账在前——min 帽顶掉旧账反挂图 1
   });
 
+  it('ctrl+d 清稿腿清暂存图账（57 轮件③修A——修前红：清稿不清账）：陈图不劫后续提交 + 清稿后手敲 `[图片]` 字面不被剥', async () => {
+    const submissions: PasteSubmission[] = [];
+    let seq = 0; // 逐贴产异图（图 1 → 图 2——陈账/新账可分辨）
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock((seq += 1))],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16'); // ctrl+v → 图 1 暂存 + [图片] 占位入稿
+    await flushMicrotasks();
+    pump();
+    io.emitInput('\x04'); // ctrl+d 首击：清稿腿（占位随稿灭——图账应同笔让位）
+    pump();
+    expect(io.bytes).toContain('已清空——再按 Ctrl+D 退出'); // 清稿回执在场（两步序②）
+    io.emitInput('\x16'); // 再贴图 2（新账应唯一）
+    await flushMicrotasks();
+    pump();
+    io.emitInput('\r');
+    pump();
+    // 修前红位：清稿腿不清 stagedImages——陈账在前，min 帽顶掉旧账反挂图 1
+    expect(submissions).toEqual([{ text: '', images: [refBlock(2)] }]);
+    // 第二断言（暂存空不剥律）：清稿后手敲 `[图片]` 字面提交——原文直通零附图
+    // （修前红：暂存陈账在场 → 剥词面 + min 帽反挂图 1 = { text: '', images: [refBlock(1)] }）
+    io.emitInput('[图片]\r');
+    pump();
+    expect(submissions[1]).toEqual({ text: '[图片]', images: [] });
+  });
+
+  it('占位行删除身份对账（57 轮件③修B——修前红：FIFO 取首错挂）：删首个占位行 → 幸存占位挂幸存图', async () => {
+    const submissions: PasteSubmission[] = [];
+    let seq = 0; // 逐贴产异图（占位行 0 ↔ 图 1、占位行 1 ↔ 图 2——删谁可分辨）
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock((seq += 1))],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16'); // 图 1 → 占位行 0
+    await flushMicrotasks();
+    io.emitInput('\x16'); // 图 2 → 占位行 1（光标驻行 1 尾）
+    await flushMicrotasks();
+    pump();
+    io.emitInput('\x1b[A'); // ↑：多行稿视觉行上移（非历史回溯——光标不在首视觉行）
+    io.emitInput('\x01'); // ctrl+a 行首
+    io.emitInput('\x0b'); // ctrl+k 删至行尾——行 0 占位文本整删（残空行）
+    pump();
+    io.emitInput('\r');
+    pump();
+    // 修前红位：consumeStagedImages FIFO 取首——markerCount=1 恒挂图 1（被删的恰是图 1 的占位、图 2 被弃）
+    expect(submissions).toEqual([{ text: '', images: [refBlock(2)] }]);
+  });
+
+  it('占位行删除身份对账·对拍锁：删次占位行 → 首图随行（FIFO 与对账两形同果——行为锁）', async () => {
+    const submissions: PasteSubmission[] = [];
+    let seq = 0;
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock((seq += 1))],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16'); // 图 1 → 占位行 0
+    await flushMicrotasks();
+    io.emitInput('\x16'); // 图 2 → 占位行 1（光标驻行 1 尾——恰在删除位）
+    await flushMicrotasks();
+    pump();
+    io.emitInput('\x01'); // ctrl+a 行首（行 1）
+    io.emitInput('\x0b'); // ctrl+k 删至行尾——行 1 占位文本整删（残空行）
+    pump();
+    io.emitInput('\r');
+    pump();
+    // 删的是图 2 的占位 → 图 1 随行（FIFO 旧形同果——本锁守住对账改造不翻此面）
+    expect(submissions).toEqual([{ text: '', images: [refBlock(1)] }]);
+  });
+
+  it('占位行删除身份对账·不变锁：删非占位行（索引平移）→ 两图全保（对账不得误弹）', async () => {
+    const submissions: PasteSubmission[] = [];
+    let seq = 0;
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock((seq += 1))],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('x'); // 非占位文本行先行（行 0）
+    io.emitInput('\x16'); // 图 1 → 占位行 1
+    await flushMicrotasks();
+    io.emitInput('\x16'); // 图 2 → 占位行 2（光标驻行 2 尾）
+    await flushMicrotasks();
+    pump();
+    io.emitInput('\x1b[A');
+    io.emitInput('\x1b[A'); // ↑×2：上移行 0（两度非首视觉行——纯移动零翻稿）
+    io.emitInput('\x01'); // ctrl+a 行首
+    io.emitInput('\x0b'); // ctrl+k 删至行尾——行 0 文本整删（残空行——两占位行索引平移）
+    pump();
+    io.emitInput('\r');
+    pump();
+    // 占位行全数幸存（仅索引平移）→ 两图全保（修前同果——锁对账零误弹）
+    expect(submissions).toEqual([{ text: '', images: [refBlock(1), refBlock(2)] }]);
+  });
+
+  it('历史浏览态让位（57 轮闸 P1——修前红：↑ 浏览换稿被判删占位弹空账）：↑↓ 往返后图账幸存', async () => {
+    const submissions: PasteSubmission[] = [];
+    let seq = 0;
+    const { io, pump } = makeInteractive({
+      history: { seed: ['prev-entry'], onRecord: () => {} },
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock((seq += 1))],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16'); // ctrl+v → 图 1 暂存 + [图片] 占位入稿
+    await flushMicrotasks();
+    pump();
+    io.emitInput('\x01'); // ctrl+a 行首（↑ 触发三条件之一）
+    io.emitInput('\x1b[A'); // ↑ → 历史浏览：草稿被换为 'prev-entry'（占位「消失」非用户删稿）
+    pump();
+    io.emitInput('\x1b[B'); // ↓ → 还原草稿（占位复现——但若 browse 期账被弹空即不可逆）
+    pump();
+    io.emitInput('\r');
+    pump();
+    // 修前红位：browse 换稿帧被对账器判「占位尽删」→ staged 弹空 → 提交
+    // images=[] 且占位词面直通泄漏（{ text: '[图片]', images: [] }）
+    expect(submissions).toEqual([{ text: '', images: [refBlock(1)] }]);
+  });
+
+  it('回搜态让位不变锁（57 轮闸 P1 对拍）：ctrl+r 往返后图账幸存（既有承诺零漂移）', async () => {
+    const submissions: PasteSubmission[] = [];
+    let seq = 0;
+    const { io, clock, pump } = makeInteractive({
+      history: { seed: ['prev-entry'], onRecord: () => {} },
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock((seq += 1))],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16'); // 图 1 暂存 + 占位入稿
+    await flushMicrotasks();
+    pump();
+    io.emitInput('\x12'); // ctrl+r 开搜（预览占据草稿——对账应让位）
+    clock.advance(1);
+    io.emitInput('prev'); // 搜索词（预览帧连翻——均在让位域）
+    clock.advance(1);
+    io.emitInput('\x1b'); // esc 收搜还原草稿
+    escapePump(clock);
+    pump();
+    io.emitInput('\r');
+    pump();
+    // 不变式：回搜预览/还原非用户删稿——图账零漂移（对账注释②既有承诺，本锁成文）
+    expect(submissions).toEqual([{ text: '', images: [refBlock(1)] }]);
+  });
+
   it('手敲占位词面零误伤（暂存空不剥）：无图提交 `[图片]` 原文直通', async () => {
     const submissions: PasteSubmission[] = [];
     const { io, pump } = makeInteractive({

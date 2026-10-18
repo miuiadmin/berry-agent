@@ -957,6 +957,61 @@ function displayKeyName(binding: string): string {
 }
 
 /**
+ * 占位行对账纯函数（57 轮件③修B）：prev/next 两帧全文按行差分——公共前缀 +
+ * 公共后缀锚定（单步编辑的行变更必落两锚之间的中段，锚外行恒等免疫索引
+ * 平移）→ prev 中段被删除的占位行按其在 prev 占位全序中的位次从 staged 弹除
+ * （从大到小 splice 免前移偏移）。占位判据与 splitImageMarkerLines 同形（行
+ * trim 后恰等于占位词面——真源在 clipboard-image.ts，此处同形实现不扩彼
+ * 导出面）。只对删除动作弹除；新增占位（贴图/手敲/撤销恢复）零动作。
+ *
+ * 设计边界（对拍不可区分形）：同形占位行文本互不可分辨——差分只承诺「删
+ * 一条占位即弹一张图、序保持」，不承诺具体弹哪张（幸存占位与幸存图按序
+ * 对位）；手敲占位与直贴占位混排时 prev 占位全序可长于 staged，超界 splice
+ * 落空即天然无害（弹除数恒 ≤ 被删占位数）。
+ */
+function dropStagedImagesForDeletedMarkers(
+  prev: string,
+  next: string,
+  staged: readonly ImageRefContent[],
+): ImageRefContent[] {
+  const prevLines = prev.split('\n');
+  const nextLines = next.split('\n');
+  // 公共前缀（行级恒等）
+  let prefix = 0;
+  while (prefix < prevLines.length && prefix < nextLines.length && prevLines[prefix] === nextLines[prefix]) {
+    prefix += 1;
+  }
+  // 公共后缀（不与前缀重叠——中段在 prev/next 各留至少零行的对齐界）
+  let suffix = 0;
+  while (
+    suffix < prevLines.length - prefix &&
+    suffix < nextLines.length - prefix &&
+    prevLines[prevLines.length - 1 - suffix] === nextLines[nextLines.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+  // 中段 = prev 侧删除区 [prefix, len - suffix)；其中的占位行即被删占位
+  const isMarkerLine = (line: string): boolean => line.trim() === COMPOSER_IMAGE_PLACEHOLDER;
+  const deletedLineNos = new Set<number>();
+  for (let i = prefix; i < prevLines.length - suffix; i += 1) {
+    if (isMarkerLine(prevLines[i]!)) deletedLineNos.add(i);
+  }
+  if (deletedLineNos.size === 0) return [...staged];
+  // prev 占位全序（行号升序）一遍扫描——被删占位的序位即 staged 弹除下标
+  const dropOrders: number[] = [];
+  let order = 0;
+  for (let i = 0; i < prevLines.length; i += 1) {
+    if (!isMarkerLine(prevLines[i]!)) continue;
+    if (deletedLineNos.has(i)) dropOrders.push(order);
+    order += 1;
+  }
+  // 从大到小 splice（后位先弹免前移偏移）
+  const out = [...staged];
+  for (let k = dropOrders.length - 1; k >= 0; k -= 1) out.splice(dropOrders[k]!, 1);
+  return out;
+}
+
+/**
  * TUI 后端：单终端 inline 主屏 + 自持输入管线。构造后须 start()（模式串 +
  * 清屏 + 滚动区确立）再接核事件；stop() 对称出屏（模式串反序 + raw 复原）。
  */
@@ -1483,6 +1538,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 即解除挂附）；每提交清账不跨提交滞留。
    */
   private stagedImages: ImageRefContent[] = [];
+  /**
+   * 占位行对账上一帧全文（57 轮件③修B）：编辑器每变必经 onChange 单源滚帧
+   * ——与现帧差分定位「被删除的占位行」位次，从暂存清单弹除对应图（占位行
+   * 是图的可见代理，删占位即解除挂附）。构造期空稿起帧（首帧零 diff）。
+   */
+  private imageMarkerFrameText = '';
   /** ctrl+v 读链在飞位（防重入——异步读期同键再按零响应） */
   private pasteImageInFlight = false;
   /** 进程信号 seam（挖掘 41 轮件 III——真挂起 SIGTSTP/SIGCONT；缺省真 process 封装） */
@@ -4194,6 +4255,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         } else if (!this.editor.model.isEmpty()) {
           // ② 首击：清稿 + 回执（次击直退——见③）
           this.editor.setText('');
+          // 暂存图同笔让位（57 轮件③修A）：清稿腿是稿 wipe 位——占位随稿灭而
+          // 图账不清则陈账孤儿化（与 activateInputAsk 让位位对称——草稿车道
+          // 一票让位；占位对账器不辖空稿终态帧，本位是显式清账位）
+          this.stagedImages = [];
           this.autocompleteCompleter.cancel(); // 补全弹层锚在草稿前缀——清稿即撤层
           this.popup.applyResult(null);
           this.notify('已清空——再按 Ctrl+D 退出');
@@ -4658,10 +4723,38 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 提交期暂存图消费：占位行计数 × 暂存数取小定附图数（占位行删除/撤销即解除
-   * 挂附——删占位是唯一的撤附交互面）+ 占位行剥除 + 清账。暂存空不剥（手敲
-   * `[图片]` 文本零误伤——剥除只在真有暂存图的提交发生）；占位多于暂存时剥
-   * 全部占位（手敲+直贴混合稿归直贴数——保守防幽灵占位）。
+   * 占位行对账滚帧（57 轮件③修B）：编辑器每变必经（onChange 单源——model
+   * notify() 契约），prev/next 两帧占位行差分 → 被删占位从暂存清单弹除
+   * （FIFO 取首在「多图部分删占位」形错挂——被删的图上行、留下的图被弃）。
+   * 三让位形（让位也滚帧——帧连续是差分前提）：
+   * ① 暂存空：纯记账零对账（对账只服务在账图）；
+   * ② 回搜态 + 历史浏览态：预览/还原与 ↑↓ 浏览换稿均非用户删稿（57 轮
+   *   闸 P1——browse 换稿帧 prev 占位「消失」会被判删弹空账、↓ 还原不可
+   *   逆，让位保「浏览不伤图账」零漂移；浏览态编辑必先弃 draft，该形由
+   *   提交期 markerCount 兜底清账）；
+   * ③ 空稿帧（next === ''）：终态清稿两义位不辖——提交清（editor 先
+   *   model.submit 清稿后 onSubmit，彼时暂存待 consumeStagedImages 消费，
+   *   此帧弹除即全灭）/ 程序清稿（ctrl+d 与 ask 窗两腿自持显式清账）/ 用户
+   *   删空（提交期 markerCount=0 兜底不附图）。
+   */
+  private reconcileStagedImageMarkers(): void {
+    const next = this.editor.model.getText();
+    const prev = this.imageMarkerFrameText;
+    this.imageMarkerFrameText = next;
+    if (this.stagedImages.length === 0 || prev === next) return;
+    if (this.editor.isSearchingHistory() || this.editor.model.isBrowsingHistory() || next === '') return;
+    this.stagedImages = dropStagedImagesForDeletedMarkers(prev, next, this.stagedImages);
+  }
+
+  /**
+   * 提交期暂存图消费：占位行计数 × 暂存数取小定附图数 + 占位行剥除 + 清账。
+   * 多图部分删占位的**身份化解挂**发生在编辑期（reconcileStagedImageMarkers
+   * 按被删占位序位弹对应暂存图——57 轮件③修B）；本方法的计数 × 取小只是
+   * 提交期残帽（对账后两数恒等的兜底——手敲占位混排形防幽灵挂附）。「删占
+   * 位即解除挂附」的交互承诺由编辑期对账兑现；撤销恢复占位不复挂（新增占位
+   * 零动作）。暂存空不剥（手敲 `[图片]` 文本零误伤——剥除只在真有暂存图的
+   * 提交发生）；占位多于暂存时剥全部占位（手敲+直贴混合稿归直贴数——保守
+   * 防幽灵占位）。
    */
   private consumeStagedImages(text: string): { text: string; images: readonly ImageRefContent[] } {
     const staged = this.stagedImages;
@@ -4757,6 +4850,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /** 编辑器内容变更：补全层重发查询（尾沿防抖——R6 批 10j）+ 固定区脏位 */
   private handleEditorChange(): void {
+    // 占位行对账滚帧（57 轮件③修B）——先于其余对账（纯暂存账面，无呈现序约束）
+    this.reconcileStagedImageMarkers();
     // 补全门（挖掘 31 轮 [3]）：回搜态的 change 是预览/还原翻转（applySearchPreview
     // 换稿、cancel 还原草稿）非用户编辑——不重发补全（弹层已随开搜撤，锚也失效）
     if (this.inputAsk === null && !this.editor.isSearchingHistory()) this.autocompleteCompleter.request();
