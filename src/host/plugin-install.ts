@@ -68,7 +68,7 @@ import {
 import type { LifecycleAuditSink, PluginLedgerEntry, PluginLedgerMarket, PluginStoreFs } from './plugin-store.js';
 import { parseManifest } from './manifest.js';
 import type { PluginManifest } from './manifest.js';
-import { createGateTransform, createTreeBareResolver } from './import-gate.js';
+import { createGateTransform, createTreeBareResolver, prescanPluginOwnGraph } from './import-gate.js';
 import { loadDefaultVirtualFaces, resolvePkgMain } from './loader.js';
 // web 卫生件单源消费（market 腿 git 克隆守卫——§9.6 攻击表行；host→web 边
 // 既有〔assembly/core-plugins 同族〕，ssrf 判定不另起炉灶）
@@ -394,7 +394,7 @@ export async function installPlugin(
     rollbackInstall(deps, product.installPath);
     return {
       ok: false,
-      message: `收割失败（${ref}）——安装回滚：${err instanceof Error ? err.message : String(err)}`,
+      message: `收割失败（${ref}）——安装回滚：${harvestErrorMessage(err)}`,
     };
   }
   // 落账（条目数组形原子写——plugin-store 执法）；market 溯源在场即落
@@ -986,15 +986,38 @@ function readManifestAt(deps: InstallExecutorDeps, installPath: string): ReturnT
 /* ---------------- 收割（§5.4 词表账本） ---------------- */
 
 /**
+ * 收割错误报文形：门禁拒两码带码前缀透传呈现（`[PLUGIN_IMPORT_FORBIDDEN] …`
+ * 形——InstallOutcome 是 message 面（无码字段），门禁拒的归因面在码身份，缺
+ * 前缀即吞码；其余错误原样 message 面）。装载腿 mapJitiError 透传同律的装机
+ * 呈现位。
+ */
+function harvestErrorMessage(err: unknown): string {
+  if (
+    err instanceof BaseError &&
+    (err.code === 'PLUGIN_IMPORT_FORBIDDEN' || err.code === 'PLUGIN_NODE_BUILTIN_FORBIDDEN')
+  ) {
+    return `[${err.code}] ${err.message}`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
  * install 收割：jiti 求值入口模块读 `events` 导出（§1.3——装机零生效唯一
  * 例外）。与装载器同形：虚拟面四键直注（顶层 import 'berry-agent' 不炸）+
  * import 门禁 transform（03 §3.3 同律——装机时点不放宽）+ fsCache 关（门
- * 禁身份不入缓存键）。门禁分级腿装机时点结构性未接线——受门 node: 生效
- * 集两源（清单声明 ∩ 用户开门）皆 boot 读侧快照，收割 transform 不注入
- * gatedNodeBuiltins、行为 = 道②未接线放行，受门拒载归装载期执法（03 §3.3
- * 快照装载时点律）。纯声明包（declared-payload）零码收割；server 形
- * （server-declared）同律空操作——无入口可求值（03 §10.1 R2）。非字符串
- * 数组 events 导出 = 收割失败（词表账本容不得坏形）。
+ * 禁身份不入缓存键）+ **前置源扫腿**（2026-10-18 装载腿勘正的装机镜像）：
+ * jiti 对原生 ESM 求值路径（包清单 type:"module" 判 ESM 的入口——含原生
+ * import 可达的 CJS 形）直接走原生 import()，transform 钩子结构性零调用
+ * （tryNative 等公开旋钮均不达——装载腿探针实证，装机腿同构），字面量腿对
+ * 该形态整体失明；本腿在 jiti 求值前从入口对插件自有码图裸源扫描
+ * （prescanPluginOwnGraph），与 transform 腿同核同码同律拒载，转译路径文件
+ * transform 腿照扫（双扫幂等——装载腿 loadDiskModule 同构接线）。门禁分级
+ * 腿装机时点结构性未接线——受门 node: 生效集两源（清单声明 ∩ 用户开门）皆
+ * boot 读侧快照，transform 与源扫两腿皆不注入 gatedNodeBuiltins、行为 =
+ * 道②未接线放行，受门拒载归装载期执法（03 §3.3 快照装载时点律）。纯声明
+ * 包（declared-payload）零码收割；server 形（server-declared）同律空操作
+ * ——无入口可求值（03 §10.1 R2）。非字符串数组 events 导出 = 收割失败
+ * （词表账本容不得坏形）。
  */
 async function harvestEvents(
   deps: InstallExecutorDeps,
@@ -1007,6 +1030,21 @@ async function harvestEvents(
   }
   const entryFile = manifest.entryPlan.kind === 'entry-file' ? manifest.entryPlan.entry : resolvePkgMain(pluginDir);
   const entryId = join(pluginDir, entryFile);
+  // 门禁上下文单源（镜像装载腿 loadDiskModule）：transform 腿与前置源扫腿共
+  // 用同一裁决核（resolveBare 同一解析位）；gatedNodeBuiltins 不注入——道②
+  // 装机时点行为不变（见头注分职叙述）
+  const gateContext = { resolveBare: createTreeBareResolver(pluginDir) };
+  // 前置源扫腿：jiti 求值前从入口扫插件自有码图（原生 ESM 求值路径 transform
+  // 零调的补执法——2026-10-18 勘正）。放 jiti 构造与 try 外：本腿的拒直抛门禁
+  // BaseError 透传（PLUGIN_IMPORT_FORBIDDEN / PLUGIN_NODE_BUILTIN_FORBIDDEN
+  // ——装载腿同形；不进下方 catch 裹 PLUGIN_INSTALL_FAILED 吞码）
+  const prescan = prescanPluginOwnGraph({
+    pluginId: manifest.id,
+    pluginDir,
+    entryPath: entryId,
+    ...gateContext,
+  });
+  if (prescan !== true) throw prescan;
   const jiti =
     deps.jitiFactory?.(pluginDir, manifest.id) ??
     createJiti(join(pluginDir, 'package.json'), {
@@ -1014,7 +1052,7 @@ async function harvestEvents(
       transform: createGateTransform({
         pluginId: manifest.id,
         pluginDir,
-        resolveBare: createTreeBareResolver(pluginDir),
+        ...gateContext,
       }),
       interopDefault: true,
       moduleCache: true,
@@ -1025,6 +1063,14 @@ async function harvestEvents(
   try {
     namespace = (await jiti.import(entryId)) as Record<string, unknown>;
   } catch (err) {
+    // 门禁拒两码原样透传（装载腿 mapJitiError 同形——transform 腿经 jiti 上浮
+    // 的拒不裹 PLUGIN_INSTALL_FAILED 吞码，分码分归因语义与装载期一致）
+    if (
+      err instanceof BaseError &&
+      (err.code === 'PLUGIN_IMPORT_FORBIDDEN' || err.code === 'PLUGIN_NODE_BUILTIN_FORBIDDEN')
+    ) {
+      throw err;
+    }
     throw new BaseError(
       'PLUGIN_INSTALL_FAILED',
       `收割求值入口模块失败（${installPath}/${entryFile}）：${err instanceof Error ? err.message : String(err)}`,
@@ -1260,7 +1306,7 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
     rollbackInstall(deps, product.installPath);
     return {
       ok: false,
-      message: `更新收割失败（${id}）——安装回滚：${err instanceof Error ? err.message : String(err)}${restoreStagedTree(deps, gitTarget, backup)}`,
+      message: `更新收割失败（${id}）——安装回滚：${harvestErrorMessage(err)}${restoreStagedTree(deps, gitTarget, backup)}`,
     };
   }
   // 成功腿备份清场（npm 腿同律——清场失败不吞更新成功，点前缀残影由下次

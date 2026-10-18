@@ -72,7 +72,13 @@ interface NpmRecorder {
 
 function npmFakeSpawn(
   dataDir: string,
-  opts: { readonly pkgJson?: string; readonly lockVersion?: string; readonly lockText?: string } = {},
+  opts: {
+    readonly pkgJson?: string;
+    readonly lockVersion?: string;
+    readonly lockText?: string;
+    /** 入口源注入位（缺省 INDEX_WITH_EVENTS——门禁腿用例铸 type:module/越界入口） */
+    readonly indexJs?: string;
+  } = {},
 ): NpmRecorder {
   const argvLog: string[][] = [];
   const spawn: SpawnRunner = {
@@ -85,7 +91,7 @@ function npmFakeSpawn(
       const pkgDir = join(dataDir, 'plugins', 'node_modules', ...pkg.split('/'));
       mkdirSync(pkgDir, { recursive: true });
       writeFileSync(join(pkgDir, 'package.json'), opts.pkgJson ?? pluginPkgJson());
-      writeFileSync(join(pkgDir, 'index.js'), INDEX_WITH_EVENTS);
+      writeFileSync(join(pkgDir, 'index.js'), opts.indexJs ?? INDEX_WITH_EVENTS);
       const lock = {
         packages: {
           [`node_modules/${pkg}`]: { version: opts.lockVersion ?? '1.2.3', integrity: 'sha512-abc' },
@@ -582,6 +588,100 @@ describe('local 源与收割真跑（本地 fixture 零网络）', () => {
     expect(outcome.ok).toBe(true); // 修前红：收割失败（PLUGIN_IMPORT_FORBIDDEN）→ 整装拒
     if (!outcome.ok) return;
     expect(outcome.entry.declaredEvents).toEqual(['selfdep/event']);
+  });
+});
+
+describe('装机收割腿前置源扫（type:module 原生 ESM 求值路径——2026-10-18 装载腿勘正的装机镜像：jiti 原生 ESM 零调 transform，装机时点三道白名单整体失效）', () => {
+  const noopSpawn: SpawnRunner = { run: () => Promise.reject(new Error('local 源不 spawn')) };
+
+  /** local fixture 插件目录速记（name 逐 fixture 独立——防撞自家账本；与上一
+   * describe 同形，本块自持不跨块借域） */
+  function gateFixture(name: string, pkgJson: string, files: Readonly<Record<string, string>>): string {
+    const dir = join(testRoot, `fixture-${name}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'package.json'), pkgJson);
+    for (const [rel, text] of Object.entries(files)) {
+      writeFileSync(join(dir, rel), text);
+    }
+    return dir;
+  }
+
+  it('腿A：type:module 入口绝对径 import（原生可求值形）→ 拒装 + 报文含门禁码 + 装机树回滚净——修前红（原生 ESM 求值穿门：装机成功且 events 收割完成）', async () => {
+    const dataDir = dataDirOf('data-prescan-abs');
+    // 逃逸目标 = 真实在场的合法 ESM 文件（修前红的必要条件——目标缺席会先炸
+    // 原生解析回落转译腿，transform 兜底照拒，测不出「原生求值穿门」本体）
+    const outside = join(testRoot, 'fixture-prescan-outside-abs.js');
+    writeFileSync(outside, `export const x = 1;\n`);
+    const rec = npmFakeSpawn(dataDir, {
+      pkgJson: pluginPkgJson({ name: 'esm-gate-abs', type: 'module' }), // type:module → jiti 原生 import() 形
+      indexJs: `import { x } from ${JSON.stringify(outside)};\nexport const events = ['esm-gate/abs'];\nexport default function apply() {}\n`,
+    });
+    const outcome = await installPlugin(depsOf(dataDir, rec.spawn), 'npm:esm-gate-abs');
+    expect(outcome.ok).toBe(false); // 修前红位：原生 ESM 路径 transform 零调 → 门禁整体放行装机成功
+    if (outcome.ok) return;
+    // 门禁码透传报文（前置源扫腿直抛 BaseError，不裹 PLUGIN_INSTALL_FAILED 吞码）
+    expect(outcome.message).toContain('PLUGIN_IMPORT_FORBIDDEN');
+    expect(outcome.message).toContain('绝对路径不在白名单'); // 归因到越界说明符
+    expect(outcome.message).toContain('esm-gate-abs'); // 插件 id 点名
+    // 装机树回滚净（不留半装机残影）+ 拒装零落账（两账一致空态）
+    expect(existsSync(join(dataDir, 'plugins', 'node_modules', 'esm-gate-abs'))).toBe(false);
+    expect(entriesOf(dataDir)).toHaveLength(0);
+  });
+
+  it('腿A（图遍历深度）：type:module 相对导入第二层树逃逸（违规点在孙文件 helper.js）→ 拒装——修前红', async () => {
+    const dataDir = dataDirOf('data-prescan-deep');
+    const src = gateFixture('esm-gate-deep', pluginPkgJson({ name: 'esm-gate-deep', type: 'module' }), {
+      'index.js': `import './helper.js';\nexport const events = ['esm-gate/deep'];\nexport default function apply() {}\n`,
+      // 违规点在入口的相对导入子文件（锁源扫腿图遍历深度——入口本身零说明符越界）
+      'helper.js': `import { x } from '../outside-deep.js';\nexport const probe = x;\n`,
+    });
+    writeFileSync(join(testRoot, 'outside-deep.js'), `export const x = 1;\n`); // 逃逸目标在场（修前红必要条件）
+    const outcome = await installPlugin(depsOf(dataDir, noopSpawn), `local:${src}`);
+    expect(outcome.ok).toBe(false); // 修前红位：同上（原生 ESM 求值穿门）
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('PLUGIN_IMPORT_FORBIDDEN');
+    expect(outcome.message).toContain('逃逸'); // 相对导入解析逃逸插件目录树
+    expect(outcome.message).toContain('esm-gate-deep');
+    // local 直引永不删用户目录 + 拒装零落账
+    expect(existsSync(join(src, 'helper.js'))).toBe(true);
+    expect(entriesOf(dataDir)).toHaveLength(0);
+  });
+
+  it('腿B（对拍不变锁）：CJS 同形绝对径 require（原生求值不可达目标）既有拒装行为不变——transform 腿照扫（修前修后皆拒，报文同含越界归因）', async () => {
+    const dataDir = dataDirOf('data-prescan-cjs');
+    // 目标 = 真实在场但非 JS 形文件（原生 require 求值必炸——修前经「原生失败
+    // 回落转译」由 transform 腿拒、修后由前置源扫腿直拒，两形皆拒即对拍不变）。
+    // 注意：目标若是在场合法 JS，jiti 原生路径 CJS 形同样绕 transform（探针
+    // 实证——原生 import 可达即不回落），该形与腿A同病、同由源扫腿辖。
+    const outside = join(testRoot, 'fixture-prescan-outside-b.txt');
+    writeFileSync(outside, `not javascript {{{`);
+    const src = gateFixture(
+      'cjs-gate-abs',
+      pluginPkgJson({ name: 'cjs-gate-abs' }), // 无 type 键——CJS 转译路径（transform 腿可达）
+      {
+        'index.js': `const x = require(${JSON.stringify(outside)});\nexports.events = ['cjs-gate/abs'];\nexports.default = function apply() {};\n`,
+      },
+    );
+    const outcome = await installPlugin(depsOf(dataDir, noopSpawn), `local:${src}`);
+    expect(outcome.ok).toBe(false); // 既有行为：transform 腿当场拒装（type:module 同律同命）
+    if (outcome.ok) return;
+    // 对拍断言取修前修后共有词面（修前经 transform 腿包裹报文、修后经源扫腿
+    // 直抛——两形共含越界归因，行为不变即锁）
+    expect(outcome.message).toContain('越界拒载');
+    expect(outcome.message).toContain('绝对路径不在白名单');
+    expect(existsSync(join(src, 'index.js'))).toBe(true); // local 直引不删
+  });
+
+  it('正道形零误伤：type:module 树内相对导入 + 纯计算内建 → 装机成功（源扫腿对在道形放行）', async () => {
+    const dataDir = dataDirOf('data-prescan-ok');
+    const src = gateFixture('esm-gate-ok', pluginPkgJson({ name: 'esm-gate-ok', type: 'module' }), {
+      'index.js': `import path from 'node:path';\nimport { helper } from './helper-ok.js';\nexport const events = ['esm-gate/ok'];\nexport default function apply() { return path.join('a', String(helper)); }\n`,
+      'helper-ok.js': `export const helper = 1;\n`,
+    });
+    const outcome = await installPlugin(depsOf(dataDir, noopSpawn), `local:${src}`);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.entry.declaredEvents).toEqual(['esm-gate/ok']);
   });
 });
 
