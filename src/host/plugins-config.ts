@@ -133,6 +133,9 @@ export async function runPluginConfigForm(
         const exists = deps.getCredential(ns, name) !== undefined;
         const answer = await deps.ask.input(`${label}（敏感——入凭证盒不落 yaml）：${hint}`, {
           placeholder: exists ? '留空保留现值' : '未设置——输入新值',
+          // 62 轮件 E——secret 问询恒携旗（04 §7 掩码词条调用面补位；机制链
+          // 37 轮件 3 建、61 轮件 C 扩 argv 类、本批补表单调用位三级防线全跳）
+          sensitive: true,
         });
         if (answer !== '') {
           secrets.push({ key: field.key, value: answer });

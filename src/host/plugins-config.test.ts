@@ -7,7 +7,8 @@
  * 逐字段问答分流（四型→input/select〔boolean 亦 select 两值——s-9〕）/ secret 入盒不落 yaml +
  * credentials/changed 归因 / 未声明键透传 / 取消整次放弃（含 boolean 问询取消
  * s-9 修前红）/ required 两拒 /
- * 缺省烘焙回避 / 回执呈现纪律（secret 恒 '***'）。
+ * 缺省烘焙回避 / 回执呈现纪律（secret 恒 '***'）/ secret 问询恒携
+ * sensitive 旗（62 轮件 E——明文落两级历史册修，修前红）。
  */
 import { describe, expect, it } from 'vitest';
 
@@ -236,9 +237,10 @@ describe('四型字段全景（问询分流 + 落盘双落点）', () => {
     });
     const out = await runPluginConfigForm('demo', rig_.deps);
     expect(out.ok).toBe(true);
-    // 现值 placeholder：text 承载现行值、secret 承载「留空保留现值」
+    // 现值 placeholder：text 承载现行值、secret 承载「留空保留现值」（62 轮
+    // 件 E——secret 问询恒携 sensitive 旗）
     expect(rig_.calls.inputs[0]![1]).toEqual({ placeholder: 'https://old' });
-    expect(rig_.calls.inputs[1]![1]).toEqual({ placeholder: '留空保留现值' });
+    expect(rig_.calls.inputs[1]![1]).toEqual({ placeholder: '留空保留现值', sensitive: true });
     // 保留语义：endpoint 沿旧值；token 未重写（writes 空）；mode/verbose 随缺省不落
     expect(rig_.rows()).toEqual([{ id: 'demo', config: { endpoint: 'https://old' } }]);
     expect(rig_.writes).toEqual([]);
@@ -246,6 +248,28 @@ describe('四型字段全景（问询分流 + 落盘双落点）', () => {
     expect(rig_.reloads()).toBe(1); // 行重写（幂等归一）仍链——行在场照写律
     expect(out.text).toContain('***（凭证盒，保留现值）');
     expect(out.text).not.toContain('existing-sekret');
+  });
+});
+
+describe('secret 问询 sensitive 旗（62 轮件 E——04 §7 掩码词条调用面补位）', () => {
+  it('secret 字段问询恒携 sensitive: true、text 字段问询不虚张（修前红：secret 问询 opts 无 sensitive）', async () => {
+    const rig_ = rig({
+      enabledYaml: 'plugins:\n  - id: demo\n',
+      // 问询序 = 字段序：endpoint(text) 先、token(secret) 后
+      script: { inputs: ['https://x', 'sekret'], selects: ['fast', 'false'] },
+    });
+    const out = await runPluginConfigForm('demo', rig_.deps);
+    expect(out.ok).toBe(true);
+    expect(rig_.calls.inputs).toHaveLength(2);
+    // text 问询（endpoint）：不虚张——sensitive 恒缺席（非敏感问询带旗会把
+    // 正常答案掩码入史，反向破历史册可用性）
+    expect(rig_.calls.inputs[0]![1]?.sensitive).toBeUndefined();
+    // secret 问询（token）：恒携旗——机制链 UiInputOptions.sensitive → tui-backend
+    // setSensitive → 编辑器双跳 → tui-entry onRecord 跳 SQLite persist；修前
+    // opts 无此键 → 答值明文入编辑器内存册（上箭头跨进程回灌）+ durable
+    // input_history 表 + 屏面明文回显（值基兜底腿不可达——表单全字段答完才写
+    // 凭证库，问询时值不在 sensitiveValues live 读集）
+    expect(rig_.calls.inputs[1]![1]?.sensitive).toBe(true);
   });
 });
 
