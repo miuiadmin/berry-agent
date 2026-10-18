@@ -9,18 +9,20 @@
  *   { ok, stdout }（缺省真身 spawn 带 2s 超时帽——测试注入假执行器，
  *   MemoryTerminalIO 测试面零真子进程纪律）；
  * - **读器工厂** createClipboardImageReader：候选逐试（ENOENT 落次候选），
- *   返回 base64 载荷或 null（四静默形——无图/无命令/读失败/超时）。
+ *   返回 base64 载荷或 null（四静默形——无图/无命令/读失败/超时）。win32
+ *   矩阵外形另有显式回执词（clipboardImageReadUnsupportedReason——56 轮
+ *   件 1a：spawn 前即知不支持，受理面 info 呈报非静默空集）。
  *
  * 另辖两段提交侧纯逻辑：
  * - splitImageMarkerLines：稿面 `[图片]` 独占占位行计数与剥除（提交期
- *   附图数判定真源——计数 × 暂存数取小）；
+ *   附图数判定真源——计数 × 暂存数取小；入史净稿缝同消费——56 轮件 1e）；
  * - pastedImagePath / readImageFilePayload：bracketed paste 文本恰为图片
- *   绝对路径 / file:// URL 的变体面判定与读载荷（同步 fs 只读——readGitHead
- *   先例；字节帽预检防大文件读爆）。
+ *   绝对路径 / `~/` 短写（homedir 展开——56 轮件 1b）/ file:// URL 的变体面
+ *   判定与读载荷（同步 fs 只读——readGitHead 先例；字节帽预检防大文件读爆）。
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -124,7 +126,33 @@ export function planClipboardImageReads(
     }
     return plans;
   }
-  return []; // win32（PowerShell 路挂账）与其余平台矩阵外
+  return []; // win32（PowerShell 路挂账未采——真链属后续真机批）与其余平台矩阵外
+}
+
+/**
+ * 读链平台不支持回执词（56 轮件 1a——win32 空集显式化）：win32 返「此平台
+ * 暂不支持读剪贴板图」（受理面 notify info 呈报——spawn 前即知不支持，非
+ * 静默空集暗亏）；其余一律 null（走读链四静默形域）。SSH 判先于 win32
+ * （planClipboardImageReads 同序）：SSH 会话的空集属「客户端本地机不可达」
+ * 非本机能力缺席——维持静默不回执。
+ *
+ * 规范锚：07 §4.1 R5 editor.paste-image 词条读链面（darwin osascript /
+ * linux wl-paste→xclip 先行、win32 空集——56 轮件 1a 翻档补注：win32 空集
+ * + 显式 info 回执；PowerShell 真链挂账属后续真机批）。backend 注桩缝
+ * （options.clipboardImageUnsupportedReason）缺省闭包 = 本函数调时读 process
+ * 现值（planNativeClipboard 同律）。
+ */
+export const CLIPBOARD_IMAGE_UNSUPPORTED_TEXT = '此平台暂不支持读剪贴板图';
+
+/** 读链支持面判定（null = 走读链四静默形域；非 null = 回执词——受理面 info 呈报） */
+export function clipboardImageReadUnsupportedReason(
+  env: EnvLike,
+  platform: NodeJS.Platform = process.platform,
+): string | null {
+  // SSH 判先（写侧 planNativeClipboard / 读侧 planClipboardImageReads 同序真源）
+  if (env.SSH_TTY !== undefined || env.SSH_CONNECTION !== undefined) return null;
+  if (platform === 'win32') return CLIPBOARD_IMAGE_UNSUPPORTED_TEXT; // PowerShell 真链挂账——显式呈报非静默
+  return null; // darwin/linux/其余矩阵外——四静默形域（无命令形合流 null）
 }
 
 /**
@@ -269,11 +297,15 @@ export function splitImageMarkerLines(text: string): ImageMarkerSplit {
 /* ---------------- 路径变体面（normalize_pasted_path） ---------------- */
 
 /**
- * 粘贴文本 → 图片绝对路径判定：trim 后恰一路径（无换行；`/` 起头绝对路径或
- * file:// URL 经 fileURLToPath 归一）且扩展名在四族 → 路径；否则 null
- * （多行文本/相对路径/~ 短写/非图片扩展名均不转——保守域，文件在场与字节帽
- * 由 readImageFilePayload 二道门把守）。内部空格放行（macOS 路径含空格常态
- * ——存在性 + 扩展名双门足以挡误报）。
+ * 粘贴文本 → 图片绝对路径判定：trim 后恰一路径（无换行；`/` 起头绝对路径、
+ * `~/` 短写经 os.homedir 展开、file:// URL 经 fileURLToPath 归一）且扩展名在
+ * 四族 → 路径；否则 null（多行文本/相对路径/~user 命名短写/非图片扩展名均
+ * 不转——保守域，文件在场与字节帽由 readImageFilePayload 二道门把守）。内部
+ * 空格放行（macOS 路径含空格常态——存在性 + 扩展名双门足以挡误报）。
+ *
+ * `~` 展开（56 轮件 1b）只用于读盘：返回值即 readImageFilePayload 的读盘
+ * 路径；稿面词面不涉——成功路占位行词面恒 `[图片]` 常量、拒形回退原文本
+ * 粘贴（`~` 原词零改写）。homedir 调时读现值（POSIX 读 $HOME——测试可桩）。
  */
 export function pastedImagePath(text: string): string | null {
   const trimmed = text.trim();
@@ -287,8 +319,12 @@ export function pastedImagePath(text: string): string | null {
     }
   } else if (trimmed.startsWith('/')) {
     path = trimmed;
+  } else if (trimmed === '~' || trimmed.startsWith('~/')) {
+    // ~ 短写展开：裸 ~ / ~/ 前导形——slice(1) 留「/x」段，join 拼主目录
+    //（裸 ~ 展开后无扩展名，ext 门自拒——受理面只认文件不收目录）
+    path = join(homedir(), trimmed.slice(1));
   } else {
-    return null; // 相对路径 / ~ 短写 / 纯词——变体面外
+    return null; // 相对路径 / ~user 命名短写 / 纯词——变体面外
   }
   return IMAGE_EXT_MIME.has(extname(path).toLowerCase()) ? path : null;
 }

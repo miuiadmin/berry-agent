@@ -167,6 +167,7 @@ import { gitHeadSuffix, readGitHead, type GitHeadInfo } from '../status/footer.j
 import { computeBranchStats, type GitQuery } from '../status/branch-stats.js';
 import { planNativeClipboard, type NativeClipboardSpawn } from './native-clipboard.js';
 import {
+  clipboardImageReadUnsupportedReason,
   COMPOSER_IMAGE_PLACEHOLDER,
   PASTE_IMAGE_MAX_STAGED,
   pastedImagePath,
@@ -432,6 +433,15 @@ export interface TuiBackendOptions {
    * 计划 + spawn 2s 超时帽 + 临时 PNG 用后即删，nativeClipboardSpawn 同形）。
    */
   readonly clipboardImageReader?: ClipboardImageReader;
+  /**
+   * 读链平台支持回执缝（56 轮件 1a——win32 空集显式化）：() → 回执词或
+   * null（null = 走读链四静默形域）。缺省闭包 = clipboardImageReadUnsupported-
+   * Reason(process.env, process.platform) **调时读现值**（planNativeClipboard
+   * 同律）；非 null 时 ctrl+v 在 spawn 前即 notify info 呈报（「此平台暂不
+   * 支持读剪贴板图」——07 §4.1 R5 读链面 56 轮件 1a 翻档补注）。测试注入
+   * 受控桩（平台矩阵外环境可驱动 notify 路锁——processSignals.platform 同理）。
+   */
+  readonly clipboardImageUnsupportedReason?: () => string | null;
   /**
    * 图片受理缝（TUI 剪贴板图片直贴批——ctrl+v 直贴与路径变体面共消费）：
    * 载荷清单 → image-ref 引用块族。真身 = host 装配闭包 admitPasteImages
@@ -1463,6 +1473,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly nativeClipboardSpawn: NativeClipboardSpawn | undefined;
   /** 剪贴板图片读器注入（TUI 剪贴板图片直贴批；undefined = ctrl+v 键不劫持零行为变） */
   private readonly clipboardImageReader: ClipboardImageReader | undefined;
+  /** 读链平台支持回执查询（56 轮件 1a；缺省闭包调时读 process 现值） */
+  private readonly clipboardImageUnsupportedReason: () => string | null;
   /** 图片受理缝注入（TUI 剪贴板图片直贴批；undefined = ctrl+v/路径变体面两路整体关） */
   private readonly imageIntake: ((images: readonly ClipboardImagePayload[]) => readonly ImageRefContent[]) | undefined;
   /**
@@ -1494,6 +1506,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 剪贴板图片两 seam（TUI 剪贴板图片直贴批）：同律缺席不造真身——生产装配
     // 显式传真身（createClipboardImageReader / admitPasteImages 闭包）
     this.clipboardImageReader = options.clipboardImageReader;
+    // 读链支持回执缝（56 轮件 1a）：缺省闭包调时读 process 现值——SSH 判先、
+    // win32 返显式回执词（processSignals.platform 注桩面同理可测）
+    this.clipboardImageUnsupportedReason =
+      options.clipboardImageUnsupportedReason ??
+      (() => clipboardImageReadUnsupportedReason(process.env, process.platform));
     this.imageIntake = options.imageIntake;
     // 进程信号 seam（41 轮件 III）：缺省真 process 封装（真挂起生产路——
     // 自发 SIGTSTP + SIGCONT 订阅）；测试注入受控桩
@@ -1608,6 +1625,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       // 持久化史透传（B1）：缺席 = undefined 直落编辑器缺省（纯内存旧形）
       historySeed: options.history?.seed,
       onHistoryAdd: options.history?.onRecord,
+      // 入史净稿缝（56 轮件 1e——重发即真值律）：暂存在场的提交入史剥 `[图片]`
+      // 占位行后净稿（图不随史重建——召回重发不携幻影占位词面；内存册 + B1
+      // 持久镜像同源单值）；暂存空恒等（手敲 `[图片]` 词面零误伤）。onSubmit
+      // 不经本缝——提交流剥除单源仍在 consumeStagedImages。
+      historyText: (text) => (this.stagedImages.length > 0 ? splitImageMarkerLines(text).text : text),
       // 弹回排队末条（47 轮件 A）：门序判据全归本闭包（编辑器只司键分发）
       onQueueEditLast: () => this.handleQueueEditLast(),
       // 模态态翻转（39 池 P4·L）：footer 指示词重建 + DECSCUSR 光标形写出
@@ -4494,10 +4516,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * ctrl+v 键路（TUI 剪贴板图片直贴批）：异步读剪贴板不阻塞编辑器 → 有图受理
    * 入稿占位。四静默形（无图/无命令/读失败/超时）零弹错零入稿——缝契约 null
    * 合流 + 异常面兜底同静默。在飞位由路由层门控 + finally 复位双保险。
+   * win32 矩阵外先判（56 轮件 1a）：spawn 前即知不支持——notify info 显式回执
+   * 非静默空集（ctrl+v 是显式图片意图，静默丢键反成暗亏——受理拒同姿态分职）。
    */
   private handlePasteImageKey(): void {
     const reader = this.clipboardImageReader;
     if (reader === undefined || this.pasteImageInFlight) return; // 路由层双 seam 门后的防御位
+    const unsupported = this.clipboardImageUnsupportedReason();
+    if (unsupported !== null) {
+      this.notify(unsupported, { level: 'info' }); // 平台不支持——显式呈报（不设在飞位：零异步编舞）
+      return;
+    }
     this.pasteImageInFlight = true;
     void Promise.resolve(reader())
       .then((payload) => {

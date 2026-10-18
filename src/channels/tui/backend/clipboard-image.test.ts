@@ -11,10 +11,12 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import {
+  clipboardImageReadUnsupportedReason,
+  CLIPBOARD_IMAGE_UNSUPPORTED_TEXT,
   COMPOSER_IMAGE_PLACEHOLDER,
   createClipboardImageReader,
   createDefaultClipboardCommandRunner,
@@ -56,6 +58,23 @@ describe('剪贴板图片读取计划（平台矩阵纯函数）', () => {
 
   it('win32 → 空集（PowerShell 路挂账未采）', () => {
     expect(planClipboardImageReads({}, 'win32')).toEqual([]);
+  });
+});
+
+describe('读链平台支持回执（56 轮件 1a——win32 空集显式化）', () => {
+  it('win32 → 显式回执词（spawn 前即知不支持——非静默空集）', () => {
+    expect(clipboardImageReadUnsupportedReason({}, 'win32')).toBe(CLIPBOARD_IMAGE_UNSUPPORTED_TEXT);
+  });
+
+  it('darwin/linux → null（走读链四静默形域——含无显示服的「无命令」静默形）', () => {
+    expect(clipboardImageReadUnsupportedReason({}, 'darwin')).toBeNull();
+    expect(clipboardImageReadUnsupportedReason({ WAYLAND_DISPLAY: 'wayland-0' }, 'linux')).toBeNull();
+    expect(clipboardImageReadUnsupportedReason({}, 'linux')).toBeNull(); // 空集计划 = 无命令静默形
+  });
+
+  it('SSH 判先于 win32：SSH 会话维持静默（客户端本地机不可达——非本机能力缺席不回执）', () => {
+    expect(clipboardImageReadUnsupportedReason({ SSH_TTY: '/dev/pts/0' }, 'win32')).toBeNull();
+    expect(clipboardImageReadUnsupportedReason({ SSH_CONNECTION: '1.2.3.4' }, 'win32')).toBeNull();
   });
 });
 
@@ -169,6 +188,89 @@ describe('缺省执行器超时帽（注入假 spawn——零真子进程）', (
   });
 });
 
+describe('darwin 读链 spawn 注入桩（56 轮件 1f·gateD 两枚——argv/临时文件面 + 报错腿零残留）', () => {
+  /** osascript 三段脚本里解析临时文件路径（POSIX file "<path>" 形——argv[1] 首段脚本） */
+  const pathFromArgs = (args: readonly string[]): string => {
+    const match = /POSIX file "(.*)"/.exec(args[1] ?? '');
+    if (match === null) throw new Error('osascript args 未含 POSIX file 路径');
+    return match[1]!;
+  };
+
+  /** 假子进程（EventEmitter 面——error/close 消费位与 kill 兜底；零真子进程纪律） */
+  const fakeChild = (): EventEmitter & { stdout: EventEmitter; kill: ReturnType<typeof vi.fn> } => {
+    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; kill: ReturnType<typeof vi.fn> };
+    child.stdout = new EventEmitter();
+    child.kill = vi.fn();
+    return child;
+  };
+
+  it('成功腿：spawn argv = osascript 三段脚本（«class PNGf» 写段 + 临时文件路径）→ 载荷 + 临时目录用后即删', async () => {
+    const spawnFn = vi.fn((_command: string, args: readonly string[]) => {
+      const child = fakeChild();
+      // 假 osascript 效果：把剪贴板 PNG 写入脚本内临时文件路径（监听器接挂后微任务位兑现）
+      queueMicrotask(() => {
+        writeFileSync(pathFromArgs(args), PNG_BYTES);
+        child.emit('close', 0, null);
+      });
+      return child;
+    });
+    const reader = createClipboardImageReader(
+      createDefaultClipboardCommandRunner(2000, spawnFn as unknown as typeof import('node:child_process').spawn),
+      {},
+      'darwin',
+    );
+    await expect(reader()).resolves.toEqual({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' });
+    // spawn 注入桩断 argv（gateD 枚一）：命令 + 三段脚本（-e 交替）+ «class PNGf» 写段
+    const calls = (spawnFn as unknown as { mock: { calls: [string, readonly string[]][] } }).mock.calls;
+    expect(calls).toHaveLength(1);
+    const [command, args] = calls[0]!;
+    expect(command).toBe('osascript');
+    expect(args).toHaveLength(6); // -e ×3 + 三段脚本
+    expect(args[0]).toBe('-e');
+    expect(args[2]).toBe('-e');
+    expect(args[4]).toBe('-e');
+    expect(args[1]).toContain('open for access POSIX file'); // 临时文件路径锚（首段开写）
+    expect(args[3]).toContain('«class PNGf»'); // 剪贴板 PNG 取图写段（核心段）
+    expect(args[5]).toBe('close access theFile'); // 末段收文件柄
+    expect(pathFromArgs(args)).toMatch(/clip-[^/]+[/\\]clipboard\.png$/); // 临时文件路径形（中性前缀 + 固定名）
+    expect(existsSync(dirname(pathFromArgs(args)))).toBe(false); // 用后即删（成功路零残留）
+  });
+
+  it('报错腿·spawn 异常（error 事件——ENOENT 形）：静默拒 null + 临时目录零残留', async () => {
+    let seenDir = '';
+    const spawnFn = vi.fn((_command: string, args: readonly string[]) => {
+      const child = fakeChild();
+      seenDir = dirname(pathFromArgs(args));
+      queueMicrotask(() => child.emit('error', new Error('spawn osascript ENOENT')));
+      return child;
+    });
+    const reader = createClipboardImageReader(
+      createDefaultClipboardCommandRunner(2000, spawnFn as unknown as typeof import('node:child_process').spawn),
+      {},
+      'darwin',
+    );
+    await expect(reader()).resolves.toBeNull(); // 静默拒（四静默形合流——零弹错由调用方位锁）
+    expect(existsSync(seenDir)).toBe(false); // 临时目录零残留（失败路同删）
+  });
+
+  it('报错腿·子进程非零退（剪贴板无图形）：静默拒 null + 临时目录零残留', async () => {
+    let seenDir = '';
+    const spawnFn = vi.fn((_command: string, args: readonly string[]) => {
+      const child = fakeChild();
+      seenDir = dirname(pathFromArgs(args));
+      queueMicrotask(() => child.emit('close', 1, null)); // osascript 非零退出（无图/脚本失败）
+      return child;
+    });
+    const reader = createClipboardImageReader(
+      createDefaultClipboardCommandRunner(2000, spawnFn as unknown as typeof import('node:child_process').spawn),
+      {},
+      'darwin',
+    );
+    await expect(reader()).resolves.toBeNull();
+    expect(existsSync(seenDir)).toBe(false);
+  });
+});
+
 describe('占位行分拆（提交期附图数判定真源）', () => {
   it('独占占位行计 + 全数剥除；非独占形（行内有字）不计不剥', () => {
     expect(splitImageMarkerLines(COMPOSER_IMAGE_PLACEHOLDER)).toEqual({ text: '', markerCount: 1 });
@@ -215,9 +317,23 @@ describe('路径变体面判定（normalize_pasted_path）', () => {
     expect(pastedImagePath('/Users/x/My File.png')).toBe('/Users/x/My File.png');
   });
 
-  it('拒形：相对路径 / ~ 短写 / 非四族扩展名 / 多行文本 / 空串', () => {
+  it('~ 短写展开（56 轮件 1b）：~/x.png → homedir 拼接（展开只用于读盘——返回值即读盘路径）', () => {
+    expect(pastedImagePath('~/img.png')).toBe(join(homedir(), 'img.png'));
+    // 含空格文件名照拼（macOS 常态——绝对路径腿同放行域）
+    expect(pastedImagePath('~/My Shot.png')).toBe(join(homedir(), 'My Shot.png'));
+    // 尾随换行 trim 同绝对路径腿
+    expect(pastedImagePath('~/img.webp\n')).toBe(join(homedir(), 'img.webp'));
+  });
+
+  it('~ 族拒形：裸 ~（无扩展名）/ ~user 命名短写 / ~~ 前缀（保守域不展开）', () => {
+    expect(pastedImagePath('~')).toBeNull(); // 展开后是目录——ext 门自拒
+    expect(pastedImagePath('~/')).toBeNull();
+    expect(pastedImagePath('~user/img.png')).toBeNull(); // 命名用户短写不展开
+    expect(pastedImagePath('~~/img.png')).toBeNull();
+  });
+
+  it('拒形：相对路径 / 非四族扩展名 / 多行文本 / 空串', () => {
     expect(pastedImagePath('abs/img.png')).toBeNull();
-    expect(pastedImagePath('~/img.png')).toBeNull();
     expect(pastedImagePath('/abs/img.txt')).toBeNull();
     expect(pastedImagePath('/abs/no-ext')).toBeNull();
     expect(pastedImagePath('/abs/a.png\n第二行')).toBeNull();

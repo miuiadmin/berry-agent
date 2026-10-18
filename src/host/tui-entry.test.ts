@@ -1347,6 +1347,89 @@ describe('runTuiEntry 装配序', () => {
     io.send('\x04');
     expect(await entry).toBe(0);
   });
+
+  // ── 能力门活算收敛锁（56 轮件 1c）：受理时点按 sessionModelOf 现值取模型
+  // 能力（imageIntake 闭包每调重查非快照）——换模型后受理随新模型能力收敛。
+  // 定谳：54D 装配已是活算（能力面闭包调 stack.sessionModelOf + llm.getModel
+  // 逐受理现查），无码面改动；本测锁行为不变量「同一路径粘帖，m1（image 能力）
+  // 受理转占位、ctrl+p 切 m2（纯文本）后同动作静默回退原文本」——快照形（受理
+  // 门持旧模型能力）则第二贴仍转占位，本测红 ──
+  it('能力门活算收敛（56 轮件 1c）：ctrl+p 换纯文本模型后同路径粘贴回退原文本（第二笔 durable 无 image-ref）', async () => {
+    const dataDir = rigDir('entry-caplive-data-');
+    const wsDir = rigDir('entry-caplive-ws-');
+    // 自铸最小 PNG（上测同款：魔数 8 字节 + IHDR 1x1——尺寸门恒过）
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(1, 0);
+    ihdr.writeUInt32BE(1, 4);
+    const chunk = Buffer.concat([Buffer.alloc(4), Buffer.from('IHDR', 'ascii'), ihdr]);
+    chunk.writeUInt32BE(13, 0);
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk]);
+    const file = join(wsDir, 'probe.png');
+    writeFileSync(file, png);
+    // 双模型：m1 视觉（text+image）/ m2 纯文本（input: ['text']——能力差即判别
+    // 面）；FAUX_CAP_API_KEY 使凭证就绪（ux-4 过滤宇宙两模型全列——ctrl+p 可循环）
+    const faux = fauxProvider({
+      provider: 'faux-cap',
+      models: [
+        { id: 'm1', input: ['text', 'image'] },
+        { id: 'm2', input: ['text'] },
+      ],
+    });
+    const modelsByCall: string[] = [];
+    // 模型观测位 = faux 工厂第 4 参（:1415 勘正同源——options 参无 model 键）
+    const observeModel = (_c: unknown, _o: unknown, _s: unknown, model: unknown) => {
+      const m = model as { provider?: string; id?: string } | undefined;
+      modelsByCall.push(`${m?.provider ?? ''}/${m?.id ?? ''}`);
+      return messageOf();
+    };
+    faux.setResponses([observeModel, observeModel]);
+    const io = new FakeTerminalIO();
+    let runtimeRef: HostRuntime | undefined;
+    const entry = runTuiEntry({
+      flags: { noPlugins: false, debug: false },
+      io,
+      cwd: wsDir,
+      version: 'test',
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-cap/m1',
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1', FAUX_CAP_API_KEY: 'k' },
+      onRuntime: (rt) => void (runtimeRef = rt),
+    });
+    await io.ready();
+    // 第一贴（m1 视觉）：受理转占位 + 提交 → run 1（durable 块数组含 image-ref）
+    io.send(`\x1b[200~${file}\x1b[201~`);
+    await until(() => stripAnsi(io.output).includes('[图片]'));
+    io.send('\r');
+    await until(() => stripAnsi(io.output).includes('ok')); // run 1 settle（应答上屏）
+    // 换模型：ctrl+p 循环 m1 → m2（回执行）
+    io.send('\x10');
+    await until(() => stripAnsi(io.output).includes('模型已切换'));
+    // 第二贴（m2 纯文本）：同路径同文件——能力门活算按现模型拒 → 路径变体面
+    // 静默回退原文本粘贴（路径词面入稿非占位；快照形此处仍转占位即红）
+    io.output = '';
+    io.send(`\x1b[200~${file}\x1b[201~`);
+    await until(() => stripAnsi(io.output).includes('probe.png')); // 原文本入稿（回退形——转占位形路径词面不落稿）
+    expect(stripAnsi(io.output)).not.toContain('[图片]'); // 收窗内零占位（帧窗自换模型后起收——旧 echo 不在窗）
+    io.send('\r');
+    await until(() => faux.state.callCount >= 2);
+    // durable 真值先读后退（exit 路自关库——:1336 同律显式屏障取写后即读位）
+    await runtimeRef!.persistence.flush();
+    const events = runtimeRef!.persistence.queryEvents({ types: ['user/message'], sinceMs: 0 }).events;
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    // 模型生效真值：run 1 = m1 / run 2 = m2（切模生效是能力收敛的前提锚）
+    expect(modelsByCall[0]).toContain('m1');
+    expect(modelsByCall[1]).toContain('m2');
+    // durable 真值：恰一笔块数组形（第一贴）；第二笔 = 纯文本 string 形（路径原文）
+    expect(events).toHaveLength(2); // 两笔提交各落一笔（占位/回退两形都上行）
+    const withBlocks = events.filter((e) => Array.isArray((e.data as { content?: unknown }).content));
+    expect(withBlocks).toHaveLength(1); // 唯一块数组 = 第一贴（m1 期受理）
+    const blocks = (withBlocks[0]!.data as { content: readonly unknown[] }).content;
+    expect(blocks).toHaveLength(1); // image-only 稿（空文本剥占位——唯一块 = image-ref）
+    expect((blocks[0] as { type: string }).type).toBe('image-ref'); // 首贴图真受理
+    expect((events[1]!.data as { content: unknown }).content).toBe(file); // 次贴路径原文上行（能力拒后零图零块数组）
+  });
 });
 
 describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {

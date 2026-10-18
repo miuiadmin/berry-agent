@@ -85,6 +85,14 @@ export interface EditorOptions {
    */
   onHistoryAdd?: (text: string, opts?: { sensitive?: boolean }) => void;
   /**
+   * 入史词面变换缝（56 轮件 1e——重发即真值律）：提交入册（内存册 + B1 镜像
+   * 钩同源单值）前的词面变换。消费例 = 剪贴板图占位行剥除——暂存在场的提交
+   * 入史剥 `[图片]` 占位行后净稿（图不随史重建，召回重发不携幻影占位词面）；
+   * 变换后空串不入册不镜像（image-only 稿零空史目）。缺席 = 恒等（旧形零扰动
+   * ——无图会话零开销零漂移）。onSubmit 不经本缝（提交流词面归调用方分诊）。
+   */
+  historyText?: (text: string) => string;
+  /**
    * 提交被帽拒绝时的反馈回调（件 B——挖掘 46 轮）：帽值与实际码点数供
    * 宿主提示行呈现（backend 接 notify error 瞬时行）。缺席 = 静默拒
    * （纯逻辑件可裸构测）；拒绝时 onSubmit 不触发、草稿全量保留。
@@ -134,6 +142,8 @@ export class Editor implements Renderable {
   private readonly keymap: Keymap;
   /** 持久化史镜像钩（B1 写路——真入册时触发；缺席 = 纯内存旧形；sensitive 携位形见 EditorOptions 注） */
   private readonly onHistoryAdd: ((text: string, opts?: { sensitive?: boolean }) => void) | undefined;
+  /** 入史词面变换缝（56 轮件 1e——重发即真值；缺席 = 恒等旧形） */
+  private readonly historyText: ((text: string) => string) | undefined;
   /** 模态态翻转通知（39 池 P4·L；缺席 = 纯逻辑件可裸构测） */
   private readonly onModalChange: (() => void) | undefined;
   /** 模态编辑层（null = 关：零拦截零呈现——默认关拍板句的落码位） */
@@ -147,6 +157,7 @@ export class Editor implements Renderable {
     this.pageSize = Math.max(1, options.maxVisibleLines ?? 8);
     this.keymap = options.keymap ?? new Keymap();
     this.onHistoryAdd = options.onHistoryAdd;
+    this.historyText = options.historyText;
     this.model = new EditorModel();
     // 持久化史种子（B1 种子路）：构造期一次满灌——缺席 = 空史旧形
     if (options.historySeed !== undefined) this.model.seedHistory(options.historySeed);
@@ -629,7 +640,8 @@ export class Editor implements Renderable {
   /**
    * 提交：模型全清取文、非空才入册 + 回调（候跑形携标记——调用方按键序分派）。
    * 入册序不变（addToHistory 先于 onSubmit）；B1 写路——普通形真入册才触发
-   * 镜像钩（两闸〔trim 空/连续去重〕下不镜像，onSubmit 照发）。
+   * 镜像钩（两闸〔trim 空/连续去重〕下不镜像，onSubmit 照发）。入史词面经
+   * historyText 变换缝（56 轮件 1e——占位行剥除净稿入史，重发即真值）。
    * sensitive 形双跳（挖掘 37 轮件 3——07 §4.1 两集分立律）：第一跳 = 内存册
    * 不入（addToHistory 跳过——↑ 回灌不泄；不入册即无从连续去重，同文多笔
    * 都镜像）；镜像钩携 sensitive 位仍发——第二跳由持久回调自判跳写（防跨
@@ -652,11 +664,17 @@ export class Editor implements Renderable {
     if (text !== '') {
       // sensitive 模式位自动注入提交选项（应答车 sensitive 形的携带位）
       const merged: EditorSubmitOptions | undefined = this.sensitiveInput ? { ...opts, sensitive: true } : opts;
-      if (!this.sensitiveInput && this.model.addToHistory(text)) {
-        this.onHistoryAdd?.(text);
-      } else if (this.sensitiveInput) {
-        // 双跳第一跳已跳内存册；镜像钩携位仍发（第二跳归持久回调）
-        this.onHistoryAdd?.(text, { sensitive: true });
+      // 入史词面变换（56 轮件 1e——重发即真值）：占位行剥除等提交语义入史面，
+      // 内存册 + B1 镜像钩同源单值；变换后空串（image-only 稿）不入册不镜像
+      //（与 trim 空闸同语义——空史目零意义）；onSubmit 恒收原稿（词面分诊归调用方）
+      const historyText = this.historyText !== undefined ? this.historyText(text) : text;
+      if (historyText !== '') {
+        if (!this.sensitiveInput && this.model.addToHistory(historyText)) {
+          this.onHistoryAdd?.(historyText);
+        } else if (this.sensitiveInput) {
+          // 双跳第一跳已跳内存册；镜像钩携位仍发（第二跳归持久回调）
+          this.onHistoryAdd?.(historyText, { sensitive: true });
+        }
       }
       this.onSubmit?.(text, merged);
     }

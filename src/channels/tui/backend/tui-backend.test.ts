@@ -45,7 +45,7 @@ import type {
   UiUsageSummary,
 } from '../../../contracts/index.js';
 import { BaseError } from '../../../contracts/index.js';
-import type { ClipboardImagePayload } from './clipboard-image.js';
+import { CLIPBOARD_IMAGE_UNSUPPORTED_TEXT, type ClipboardImagePayload } from './clipboard-image.js';
 
 const COLS = 80;
 const ROWS = 10;
@@ -8546,6 +8546,136 @@ describe('TuiBackend 剪贴板图片直贴（ctrl+v 读链 + 路径变体面 + �
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('win32 读链显式回执（56 轮件 1a——修前红：静默空集零回执）：seam 回词 → notify info + 读器零调用 + 零占位', async () => {
+    // 修前红锚：win32 平台 planClipboardImageReads 空集 → reader() 微任务后归
+    // null 四静默形——用户按键如泥牛入海；显式化后 spawn 前即知不支持，info
+    // 回执词落屏（回执词真源 = CLIPBOARD_IMAGE_UNSUPPORTED_TEXT 常量单源）
+    const reads: number[] = [];
+    const { io, pump } = makeInteractive({
+      // 桩缝回非 null 词（真值面 darwin 上不可达 win32 分支——seam 注入替真平台）
+      clipboardImageUnsupportedReason: () => CLIPBOARD_IMAGE_UNSUPPORTED_TEXT,
+      clipboardImageReader: async () => {
+        reads.push(1); // 若被调用即败（不支持判定先于读链——零 spawn 零读）
+        return { data: PNG_BYTES.toString('base64'), mimeType: 'image/png' };
+      },
+      imageIntake: () => [refBlock(1)],
+    });
+    io.emitInput('\x16');
+    await flushMicrotasks();
+    pump();
+    expect(io.bytes).toContain(CLIPBOARD_IMAGE_UNSUPPORTED_TEXT); // info 级显式呈报（回执词面常量单源）
+    expect(reads).toHaveLength(0); // 判定先于读链——读器零调用（不支持平台不起子进程）
+    expect(io.bytes).not.toContain('[图片]'); // 零入稿
+  });
+
+  it('路径变体面 ~ 短写展开全链（56 轮件 1b——修前红：ENOENT 静默拒不转占位）：HOME 桩位真 PNG 转占位；缺席 ~ 路径回退原词面', async () => {
+    // POSIX os.homedir 调时读 $HOME 现值——vi.stubEnv 桩主目录（测试跨平台零真 home 依赖）
+    const dir = mkdtempSync(join(tmpdir(), 'clip-tilde-'));
+    vi.stubEnv('HOME', dir);
+    try {
+      writeFileSync(join(dir, 'shot.png'), PNG_BYTES);
+      const submissions: PasteSubmission[] = [];
+      const { io, pump } = makeInteractive({
+        imageIntake: () => [refBlock(8)],
+        onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+      });
+      io.emitInput('\x1b[200~~/shot.png\x1b[201~');
+      pump();
+      expect(io.bytes).toContain('[图片]'); // 修前红位：~ 不展开 → stat 缺席静默拒，原词入稿无占位
+      io.emitInput('\r');
+      pump();
+      expect(submissions).toEqual([{ text: '', images: [refBlock(8)] }]);
+      // 缺席形：展开后文件不在场 → 静默回退原文本粘贴（~ 原词零改写入稿）
+      io.emitInput('\x1b[200~~/absent.png\x1b[201~');
+      pump();
+      io.emitInput('\r');
+      pump();
+      expect(submissions[1]).toEqual({ text: '~/absent.png', images: [] }); // 暂存首提交已清账——次提交零陈图
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('占位+斜杠命令混合稿（56 轮件 1d 现状锁）：本地命令腿——斜杠行按命令分诊终局 + 暂存图随命令形弃 + 清账不跨稿', async () => {
+    const runs: string[] = [];
+    const submissions: PasteSubmission[] = [];
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock(1)],
+      localCommands: [{ name: 'vim', description: '模态编辑开关（测试注入探针）', run: () => runs.push('vim') }],
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16'); // 贴图——占位行入稿
+    await flushMicrotasks();
+    io.emitInput('\n/vim\r'); // 混合稿：占位行 + 换行 + 斜杠行 → 提交
+    pump();
+    // 现状定谳（锁）：consumeStagedImages 先剥占位（净稿 '/vim'）→ 本地命令
+    // 终局消费——命令本体执行；命令形吞稿路径图一并弃（onSubmit 零达——
+    // 与 /exit 同律「命令不兜底进模型消息」，图随稿弃属可接受形）
+    expect(runs).toEqual(['vim']);
+    expect(submissions).toEqual([]);
+    io.emitInput('后续稿\r'); // 暂存已清账——后续提交零陈图错挂
+    pump();
+    expect(submissions).toEqual([{ text: '后续稿', images: [] }]);
+  });
+
+  it('占位+斜杠命令混合稿（56 轮件 1d 现状锁）：未注册 / 词兜底腿——剥占位净稿随图上行（03 §2.2 兜底语义）', async () => {
+    const submissions: PasteSubmission[] = [];
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock(2)],
+      dispatchCommand: async () => false, // 未注册词——通道命令柄不识，兜底进模型消息
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('\x16');
+    await flushMicrotasks();
+    io.emitInput('\n/unregistered\r');
+    pump();
+    await flushMicrotasks(); // dispatchCommand 异步 .then 续链（微任务界冲净）
+    pump();
+    // 现状定谳（锁）：兜底是模型消息形——图不弃（净稿 '/unregistered' + 图随行）
+    expect(submissions).toEqual([{ text: '/unregistered', images: [refBlock(2)] }]);
+  });
+
+  it('提交入史净稿律（56 轮件 1e——修前红：占位词面原样入册）：↑ 召回回灌净稿无占位 + image-only 不入册 + 手敲零误伤', async () => {
+    // 判据（重发即真值）：历史条目语义 = 可重发的真值稿——图不随史重建（暂存
+    // 不入册），召回回灌若带字面 `[图片]` 行则重发时 resend 幻影占位文本（暂存
+    // 空不剥 → 原文直通模型）。故有暂存时入史 = 剥占位净稿；无暂存恒等（手敲
+    // 零误伤既有律不动）
+    const records: string[] = [];
+    const submissions: PasteSubmission[] = [];
+    const { io, pump } = makeInteractive({
+      clipboardImageReader: async () => ({ data: PNG_BYTES.toString('base64'), mimeType: 'image/png' }),
+      imageIntake: () => [refBlock(3)],
+      history: { seed: [], onRecord: (text) => records.push(text) },
+      onSubmit: (_sessionId, text, _opts, images) => submissions.push({ text, images }),
+    });
+    io.emitInput('看这张');
+    io.emitInput('\x16'); // 占位行随稿（raw 稿 = 看这张\n[图片]）
+    await flushMicrotasks();
+    io.emitInput('\r');
+    pump();
+    expect(submissions).toEqual([{ text: '看这张', images: [refBlock(3)] }]); // 提交流恒原稿剥占位（54D 既有）
+    expect(records).toEqual(['看这张']); // 修前红位：镜像钩原样收「看这张\n[图片]」——净稿化后占位不入册
+    io.bytes = '';
+    io.emitInput('\x1b[A'); // ↑ 召回最近史目
+    pump();
+    expect(io.bytes).toContain('看这张'); // 回灌净稿在场
+    expect(io.bytes).not.toContain('[图片]'); // 召回稿零占位残骸（重发即真值——无幻影占位文本）
+    io.emitInput('\x1b[B'); // ↓ 回今态清框
+    pump();
+    io.emitInput('\x16'); // image-only 稿（占位独占）
+    await flushMicrotasks();
+    io.emitInput('\r');
+    pump();
+    expect(submissions[1]).toEqual({ text: '', images: [refBlock(3)] }); // image-only 合法提交（54D 既有）
+    expect(records).toHaveLength(1); // 净稿空串不入册（空史目零意义——与 trim 空闸同语义）
+    io.emitInput('[图片]\r'); // 手敲占位词面（暂存空——不剥不入史变换）
+    pump();
+    expect(records).toEqual(['看这张', '[图片]']); // 恒等入册（手敲文本非占位代理——54D 零误伤律延伸到史面）
   });
 });
 

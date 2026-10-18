@@ -441,6 +441,40 @@ describe('Editor 持久化史两键（B1——07 §4.1 呈现面件 2 定形注�
     editor.handleEvent(key('enter'));
     expect(mirrored).toEqual(['other', 'seeded-top']);
   });
+
+  it('historyText 入史变换缝（56 轮件 1e——修前红：镜像钩原样收原稿）：内存册/镜像同源净稿 + onSubmit 恒原稿 + 空变换不入册', () => {
+    // 缝契约：变换只及入史面（内存册 + B1 镜像钩单值）——onSubmit 恒收原稿
+    //（词面分诊归调用方）；变换后空串与 trim 空同语义——不入册不镜像
+    //（image-only 稿零空史目）；缺席 = 恒等旧形零扰动
+    const mirrored: string[] = [];
+    const submitted: string[] = [];
+    const editor = new Editor({
+      // 仿 backend 装配形：剥 `[图片]` 独占行（真源 splitImageMarkerLines 在
+      // channels 侧——编辑器层测试以同语义替身锁缝契约不跨层 import）
+      historyText: (t) =>
+        t
+          .split('\n')
+          .filter((line) => line.trim() !== '[图片]')
+          .join('\n')
+          .replace(/^\n+/, '')
+          .replace(/\n+$/, ''),
+      onHistoryAdd: (t) => mirrored.push(t),
+      onSubmit: (t) => submitted.push(t),
+    });
+    editor.handleEvent(text('看这张\n[图片]'));
+    editor.handleEvent(key('enter'));
+    expect(mirrored).toEqual(['看这张']); // 修前红位：原样收「看这张\n[图片]」——净稿化后占位不入册
+    expect(submitted).toEqual(['看这张\n[图片]']); // 提交流恒原稿（剥除归调用方 54D 既有）
+    editor.handleEvent(key('up')); // ↑ 召回——回灌净稿
+    expect(editor.getText()).toBe('看这张');
+    editor.handleEvent(key('down')); // ↓ 回今态清框
+    editor.handleEvent(text('[图片]')); // image-only 形：变换后空串
+    editor.handleEvent(key('enter'));
+    expect(submitted).toHaveLength(2); // 提交照发（空稿路由归调用方）
+    expect(mirrored).toHaveLength(1); // 空变换不入册不镜像
+    editor.handleEvent(key('up')); // ↑ top-1 仍是首笔净稿（空史目未占位）
+    expect(editor.getText()).toBe('看这张');
+  });
 });
 
 describe('Editor 敏感形双跳第一跳（挖掘 37 轮件 3——07 §4.1 两集分立律）', () => {
