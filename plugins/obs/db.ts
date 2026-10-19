@@ -6,9 +6,11 @@
  * 三拍单源）；schema 主权归本件：PRAGMA user_version 自管（本库文件私有
  * ——与主库 user_version 门禁物理分立不串档）。
  *
- * 版本编舞：0（全新/空）→ 单事务建全表 + 落 v1；1 → 直通；>1 → 拒开
- * （OBS_DB_OPEN_FAILED——旧程序开新库宁拒不误读，openStore 的
- * PERSIST_SCHEMA_TOO_NEW 同律）。
+ * 版本编舞（bootstrap 两段形——75 轮件5①，详 openRollupDatabase 头注）：
+ * 锁外首读 fast-path（1 → 直通不开写锁；>1 → 拒开——OBS_DB_OPEN_FAILED，
+ * 旧程序开新库宁拒不误读，openStore 的 PERSIST_SCHEMA_TOO_NEW 同律）；唯 0
+ * 进锁内段（BEGIN IMMEDIATE 复读仍 0 才单事务建全表 + 落 v1——跨进程并发
+ * 首开的后入者复读非 0 跳建链直通）。
  */
 import { BaseError } from '../../src/contracts/index.js';
 import { openAuxDatabase, type SqliteDatabase } from '../../src/persist/index.js';
@@ -74,6 +76,20 @@ CREATE TABLE obs_meta (
 /**
  * 打开 rollup 库（开库 + 版本编舞；失败抛 OBS_DB_OPEN_FAILED——装载面
  * 降级跳件）。
+ *
+ * bootstrap 两段形（75 轮件5①——跨进程竞窗收口；主库迁移 70 轮
+ * migrateUnderWriteLock 同族，原语单源消费：busy_timeout 由
+ * openAuxDatabase→prepareWal 拍①恒在场〔5000ms〕）。修前竞窗：两进程并发
+ * 首开全新库（活宿主 × 诊断装配等）双双锁外读到 user_version=0 → 各自建链
+ * → 后提交者 DDL 撞「table already exists」折 OBS_DB_OPEN_FAILED——装载面
+ * 假故障降级。两段形：
+ *  - fast-path 段（锁外首读）：head 常态库（v1）直通不开写锁——每次开库抢
+ *    写锁会把只读者拉进他进程任意写事务的 busy 等待；> head 锁外即拒（版本
+ *    只升不降——> head 不可能是建链中残影）；唯 0 才进锁内段；
+ *  - 锁内段（BEGIN IMMEDIATE + 复读）：写锁内复读 user_version——仍 0 才
+ *    建链落版本（胜者已提交 v1 的败者在此愈合直通，不再裸撞已提交 DDL）；
+ *    建链与落版本同一事务原子提交。
+ *
  * @param dbPath 库文件路径（':memory:' 支持——测试位）
  * @param warn 告警面（透传 openAuxDatabase——权限修复/WAL 降级）
  */
@@ -93,27 +109,48 @@ export function openRollupDatabase(
     );
   }
 
-  const row = db.pragma('user_version', { simple: true });
-  const version = typeof row === 'number' ? row : 0;
+  // —— fast-path 段（锁外首读）：v1 直通不开写锁；> head 锁外即拒——
+  const initialRow = db.pragma('user_version', { simple: true });
+  const initialVersion = typeof initialRow === 'number' ? initialRow : 0;
+  if (initialVersion > OBS_SCHEMA_VERSION) {
+    db.close();
+    throw new BaseError(
+      'OBS_DB_OPEN_FAILED',
+      `rollup 库 ${dbPath} 的 user_version=${initialVersion} 高于本件 head=${OBS_SCHEMA_VERSION}（旧程序开新库拒开——宁拒不误读）`,
+    );
+  }
+  if (initialVersion === OBS_SCHEMA_VERSION) return db; // 直通：不开锁不关库
 
   try {
+    // —— 锁内段：BEGIN IMMEDIATE 立即取写锁（他进程持锁在 busy_timeout 窗内
+    // 同步等待）；复读 user_version 以锁内真值为准——fast-path 读与进锁间他
+    // 进程可已建链，胜者已提交 v1 的败者复读非 0 即跳建链直通（愈合位）
+    db.exec('BEGIN IMMEDIATE');
+    const row = db.pragma('user_version', { simple: true });
+    const version = typeof row === 'number' ? row : 0;
     if (version > OBS_SCHEMA_VERSION) {
-      db.close();
+      // 防御位（常态不可达——fast-path 已在锁外拒 > head，写锁独占下复读
+      // 值域 ≤ head）：保留同判防未来形漂移裸抛 SqliteError
       throw new BaseError(
         'OBS_DB_OPEN_FAILED',
         `rollup 库 ${dbPath} 的 user_version=${version} 高于本件 head=${OBS_SCHEMA_VERSION}（旧程序开新库拒开——宁拒不误读）`,
       );
     }
     if (version === 0) {
-      // 全新库单事务建链（原子性——openStore 冷启动同律）
-      const bootstrap = db.transaction(() => {
-        db.exec(CANONICAL_DDL);
-        db.pragma(`user_version = ${OBS_SCHEMA_VERSION}`);
-      });
-      bootstrap();
+      // 全新库建链：DDL 与落版本同事务原子提交（openStore 冷启动同律）
+      db.exec(CANONICAL_DDL);
+      db.pragma(`user_version = ${OBS_SCHEMA_VERSION}`);
     }
+    db.exec('COMMIT');
   } catch (err) {
-    // 建链中途失败：关库再抛 OBS 码（不留半开句柄）
+    // 建链/锁段失败：尽力回滚 + 关库再抛（不留半开句柄；BaseError 原样透传）
+    if (db.inTransaction) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        /* 回滚自身失败不掩原错误 */
+      }
+    }
     try {
       db.close();
     } catch {

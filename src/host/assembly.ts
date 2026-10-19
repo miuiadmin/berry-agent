@@ -1389,8 +1389,17 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                 }),
               // obs 三 seam：事件源 = Store 真身直传（结构兼容 ObsEventsFace——
               // 05 §3.4 宿主面消费位）；notify 走 channels 会话作用域（归因
-              // 'obs'——呈现侧路由后端自决）；audience = channels 观众探针
-              obsEvents: runtimeNow.persistence.store,
+              // 'obs'——呈现侧路由后端自决）；audience = channels 观众探针。
+              // 事件源缺席形（75 轮件5②——诊断装配水位零推进）：memory 同构
+              // 形（run --ephemeral / dump-config / plugins list）的事件源是
+              // 本进程 :memory: 库（零事件），core:obs 装载首拍却对共享
+              // rollup.db 推进水位 max(旧, now)——宿主刷新腿滞后超重叠窗时
+              // [旧水位, now) 区间事件永久不入 rollup。rollup 水位是活宿主
+              // 事件流的摄取前沿，非本进程扫描前沿——跨源污染零容忍；故
+              // memory 形整键省略 obsEvents → 主闸 events===undefined 零装载
+              // （core-plugins 诚实缺席律既有语义零新面；ephemeral 会话
+              // obs_query 缺席随主闸语义；与件2 写侧门控同笔互引一致）
+              ...(runtimeNow.memory ? {} : { obsEvents: runtimeNow.persistence.store }),
               obsNotify: {
                 notify: (message, opts) => stack.channels.notify('obs', message, opts),
               },

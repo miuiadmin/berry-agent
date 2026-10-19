@@ -66,8 +66,9 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
     // + 两 seam 恒接线 → checkpoint 件同装；exec 管道 + web-fetch + dataDir
     // 三主闸齐备 → 三桥（mcp/browser/lsp）照装（零 config 惰性形——零 spawn）；
     // sdk/webui 两 seam 恒接线（装配闭包真身）→ 两件照装（apply 只 provide
-    // kit 零监听零网络）；obs 双主闸齐备（dataDir + obsEvents 恒接线）→ 照装
-    // （rollup.db 落 data/obs/ 子目录——03 §10.8 容忍条款，顶层 .db 断言不破）；
+    // kit 零监听零网络）；obs 主闸 events 缺席零装载（75 轮件5②——memory
+    // 同构形 obsEvents 整键省略，服务面/obs_query/rollup.db 全缺席；counts
+    // 口径仍计 activated——apply 跑过即计，与 issue 例同律）；
     // issue 主闸链 config 缺席 → apply 早退仍计 activated（counts 口径）
     // （同构诊断形走真装载面——禁侧门律；引擎构造不自启——诊断进程不起钟
     // 零定时器残留）

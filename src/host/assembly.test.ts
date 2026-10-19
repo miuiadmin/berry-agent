@@ -900,6 +900,48 @@ describe('失败三档归一（不抛——呈报面归调用方）', () => {
   });
 });
 
+describe('同构诊断形写侧门控（75 轮件2/件5——memory+dataDir 组合形零落盘）', () => {
+  it('core:obs 零装载（75 轮件5 回归锁——诊断装配水位零推进）：服务缺席 + rollup.db 不建（修前装载且首拍推共享水位必红）', async () => {
+    // 修前竞害：memory 同构形事件源 = 本进程 :memory: 库（零事件），core:obs
+    // 装载首拍却对共享 rollup.db 推进水位 max(旧, now)——宿主刷新腿滞后超重叠
+    // 窗时 [旧水位, now) 区间事件永久不入 rollup（跨源污染）。修后 memory 形
+    // 装配整键省略 obsEvents → 主闸 events===undefined 零装载（诚实缺席律既有
+    // 语义零新面）
+    const dir = tmpDir('host-asm-eph-obs-');
+    const assembly = await assembleHostStack({
+      runtime: { memory: true, dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+    });
+    expect(assembly.ok).toBe(true);
+    if (assembly.ok) {
+      expect(assembly.scope.tryGet('obs')).toBeUndefined(); // 主闸缺席——服务面不注册
+      expect(assembly.boot.tools.definitions().map((d) => d.name)).not.toContain('obs_query');
+      await assembly.runtime.shutdown();
+    }
+    expect(existsSync(join(dir, 'data', 'obs', 'rollup.db'))).toBe(false); // 零写（水位零推进的文件面证据）
+  });
+
+  it('真宿主形 core:obs 照装载（防误伤回归锁）：服务在场 + rollup.db 建库落盘', async () => {
+    // 件5 门控只辖 memory 同构形——非 memory 真宿主装配的事件源是活库真身，
+    // obs 照装照建（03 §10.8 既有容忍条款不动）
+    const dir = tmpDir('host-asm-real-obs-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+    });
+    expect(assembly.ok).toBe(true);
+    if (assembly.ok) {
+      expect(assembly.scope.tryGet('obs')).toBeDefined();
+      await assembly.runtime.shutdown();
+    }
+    expect(existsSync(join(dir, 'data', 'obs', 'rollup.db'))).toBe(true);
+  });
+});
+
 describe('触发器开门活体读取（readTriggerOpensLive——C 批 C-3：注册闸与 fire 复检共用源）', () => {
   it('null dataDir → 空集（memory 形全默认关——core: 豁免不经本面）', () => {
     expect(readTriggerOpensLive(null, 'acme')).toEqual(new Set());
