@@ -75,14 +75,30 @@ export async function runMemoryImportCommand(argv: readonly string[], deps: Memo
   try {
     if (!target) return `缺路径。\n${MEMORY_IMPORT_USAGE}`;
     const text = readFileSync(target, 'utf8');
-    const r = runMemoryImport(text, deps.dao);
+    // 行级诊断收集器（命令体局部物——deps 面零改，06 §3 75 轮批注「导入行级
+    // 诊断呈现」）：port 层 warn 注入位已铸而此前未接——「第 N 行格式不对」
+    // 全吞，用户修导入文件须盲猜。只收词法坏形行级报文（secret 档走 DAO
+    // 自有 warn 通道不双报——port.ts 既有语义）。
+    const warns: string[] = [];
+    const r = runMemoryImport(text, deps.dao, (message) => warns.push(message));
     if (r.inserted + r.skippedExisting + r.rejectedSecret + r.rejectedMalformed === 0) {
       return '导入完成：文件内无数据行（仅 header）。';
     }
-    return [
+    const lines = [
       `导入完成：新插 ${r.inserted} 条 · 已在跳过 ${r.skippedExisting} 条`,
       `　　　　secret 拒写 ${r.rejectedSecret} 条 · 格式不对跳过 ${r.rejectedMalformed} 条`,
-    ].join('\n');
+    ];
+    // 诊断尾段：留样帽 10 + 超量计数保全——总诊断数在首行直给（另 N 行段再
+    // 补未列数，双位保全）；无诊断（全好行）零尾段零噪声
+    if (warns.length > 0) {
+      const DIAGNOSTIC_SAMPLE_CAP = 10;
+      lines.push(`行级诊断（共 ${warns.length} 条）：`);
+      lines.push(...warns.slice(0, DIAGNOSTIC_SAMPLE_CAP));
+      if (warns.length > DIAGNOSTIC_SAMPLE_CAP) {
+        lines.push(`……另 ${warns.length - DIAGNOSTIC_SAMPLE_CAP} 行诊断未列`);
+      }
+    }
+    return lines.join('\n');
   } catch (err) {
     if (err instanceof BaseError) return `${err.code}：${err.message}`;
     throw err;

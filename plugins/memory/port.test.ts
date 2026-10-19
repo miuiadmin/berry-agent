@@ -451,6 +451,54 @@ describe('命令件（/memory-export · /memory-import——守卫错折文本�
     expect(denied).toContain('MEMORY_IMPORT_FORMAT_INVALID'); // 整文件拒折文本
     expect(await runMemoryImportCommand([], { dao: target })).toContain('用法：/memory-import');
   });
+
+  // ── 导入行级诊断呈现（06 §3 75 轮批注「warn 注入位接入」）─────────────────
+  // 修前红：port 层 warn 注入位已铸而命令体未接——行级坏形诊断（第 N 行格式
+  // 不对）全吞，回执只有四账计数，用户修导入文件须盲猜。
+  it('import 回执行级诊断尾段：坏行报文随行（修前红：回执无诊断行——warn 全吞）', async () => {
+    const dao = setup();
+    const file = join(dir, 'diag.jsonl');
+    const malformed = JSON.stringify({ ...wireRow(), kind: 'wisdom' });
+    const good = wireRow({ summary: 'diag good row', content: 'diag good body' });
+    // 物理行序：header=1 · 坏行=2 · 好行=3
+    writeFileSync(file, [headerLine(), malformed, JSON.stringify(good)].join('\n'), 'utf8');
+    const out = await runMemoryImportCommand([file], { dao });
+    expect(out).toContain('新插 1 条'); // 好行照插（坏行不弃批——既有语义）
+    expect(out).toContain('格式不对跳过 1 条'); // 四账计数面（既有）
+    expect(out).toContain('第 2 行格式不对'); // 行级诊断（修前红位——物理行号直呈）
+  });
+
+  it('诊断尾段帽 10 + 超量计数保全：12 坏行 → 列 10 行 + 「另 2 行诊断未列」（修前红：全量裸列无帽语）', async () => {
+    const dao = setup();
+    const file = join(dir, 'diag-cap.jsonl');
+    const rows = [headerLine()];
+    for (let i = 0; i < 12; i += 1) rows.push(JSON.stringify({ ...wireRow(), kind: 'wisdom' }));
+    writeFileSync(file, rows.join('\n'), 'utf8');
+    const out = await runMemoryImportCommand([file], { dao });
+    expect(out).toContain('格式不对跳过 12 条'); // 总计数保全（四账行恒全量）
+    expect((out.match(/第 \d+ 行格式不对/g) ?? []).length).toBe(10); // 留样帽 10
+    expect(out).toContain('另 2 行诊断未列'); // 超量段（N = 12 - 10）
+  });
+
+  it('恰 10 条边界：无超量段（帽 = 计数——零省略零帽语）', async () => {
+    const dao = setup();
+    const file = join(dir, 'diag-exact.jsonl');
+    const rows = [headerLine()];
+    for (let i = 0; i < 10; i += 1) rows.push(JSON.stringify({ ...wireRow(), kind: 'wisdom' }));
+    writeFileSync(file, rows.join('\n'), 'utf8');
+    const out = await runMemoryImportCommand([file], { dao });
+    expect((out.match(/第 \d+ 行格式不对/g) ?? []).length).toBe(10);
+    expect(out).not.toContain('未列'); // 恰帽——无「另 N」段
+  });
+
+  it('全好行导入零诊断尾段（零噪声锁——尾段无条件拼接的回潮在此红）', async () => {
+    const dao = setup();
+    const file = join(dir, 'diag-clean.jsonl');
+    writeFileSync(file, [headerLine(), JSON.stringify(wireRow())].join('\n'), 'utf8');
+    const out = await runMemoryImportCommand([file], { dao });
+    expect(out).toContain('新插 1 条'); // 导入本体照常
+    expect(out).not.toContain('行级诊断'); // 零诊断零尾段
+  });
 });
 
 describe('批 ev-1 版本链随包导出与 v1 判读收', () => {
