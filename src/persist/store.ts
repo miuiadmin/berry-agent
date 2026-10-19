@@ -448,6 +448,10 @@ export function openStore(options: OpenStoreOptions = {}): Store {
   return new Store(db, dbPath, headVersion, secretKey, warn, options.clock ?? (() => Date.now()), options.scanProbe);
 }
 
+/** busy_timeout 单源常量（ms）——锁等待面三写位共用（版本门禁折档文案、
+ * 迁移前备份只读连接、prepareWal 主连接），改值只动一处防字面漂移 */
+const BUSY_TIMEOUT_MS = 5000;
+
 /** SQLITE_BUSY 判别（结构化判据是 code 字符串——@types 的 SqliteError
  *  instanceof 收窄面失真，与 prepareWal 同式） */
 function isSqliteBusyError(err: unknown): boolean {
@@ -458,7 +462,7 @@ function isSqliteBusyError(err: unknown): boolean {
 function migrationBusyError(dbPath: string, cause: unknown): BaseError {
   return new BaseError(
     'PERSIST_MIGRATION_BUSY',
-    `库 ${dbPath} 写锁等待超时（busy_timeout 5000ms）——他实例正在迁移，稍候重试`,
+    `库 ${dbPath} 写锁等待超时（busy_timeout ${BUSY_TIMEOUT_MS}ms）——他实例正在迁移，稍候重试`,
     { cause },
   );
 }
@@ -607,7 +611,7 @@ function migrateUnderWriteLock(
         // 降级腿（库滞留 delete 日志模式）或第三方 EXCLUSIVE 锁极端窗下，
         // VACUUM INTO 的读面撞锁在 busy_timeout 窗内等待重试免裸抛 SqliteError
         //（readonly 连接设此 pragma 合法——连接级配置非库写）
-        backupConn.pragma('busy_timeout = 5000');
+        backupConn.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`);
         try {
           backupConn.exec(`VACUUM INTO '${backupPath.replaceAll("'", "''")}'`);
         } finally {
@@ -692,7 +696,7 @@ function databaseIsEmpty(db: Database.Database): boolean {
  * 连接治理单源（批 18b openAuxDatabase 消费位）。
  */
 export function prepareWal(db: Database.Database, warn: (message: string) => void): void {
-  db.pragma('busy_timeout = 5000');
+  db.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`);
   for (let attempt = 0; ; attempt++) {
     try {
       db.pragma('journal_mode = WAL');
@@ -827,10 +831,16 @@ export class Store implements WriteTarget {
     // this.questionScanMarks——事务回滚自然弃（库行不落，内存负缓存不得先行，
     // 否则回滚重写被负缓存零扫臂误吞首问物化）
     const pendingQuestionMarks = new Map<string, number>();
+    // BEGIN IMMEDIATE（非缺省 deferred）：写锁在事务顶一次性获取——
+    // busy_timeout 在锁获取位生效（他连接持写锁窗内等待重试）；deferred 形下
+    // 事务内先读后写（行在册检查/cursorFor 的 SELECT 先行）会钉住读快照再升
+    // 级写锁，撞他连接持锁时升级位可立即返回 SQLITE_BUSY 不走 busy_timeout
+    //（71 轮批注检查引入后全量写路径暴露此升级缝——含此前 cursorFor 首遇
+    // 读的潜伏缝，一律收口）
     const tx = this.db.transaction(() => {
       for (const write of writes) this.writeTuple(write, now, batchCursors, pendingQuestionMarks);
     });
-    tx();
+    tx.immediate();
     for (const [sessionId, seq] of batchCursors) this.cursors.set(sessionId, seq);
     for (const [sessionId, seq] of pendingQuestionMarks) this.questionScanMarks.set(sessionId, seq);
   }
@@ -842,10 +852,11 @@ export class Store implements WriteTarget {
     const batchCursors = new Map<string, number>();
     // 首问负缓存 pending（writeEvents 同例——事务成功点合并、回滚自然弃）
     const pendingQuestionMarks = new Map<string, number>();
+    // BEGIN IMMEDIATE 同 writeEvents（写锁事务顶获取——快照升级缝收口，见彼注）
     const tx = this.db.transaction(() => {
       this.writeTuple(write, now, batchCursors, pendingQuestionMarks);
     });
-    tx();
+    tx.immediate();
     for (const [sessionId, seq] of batchCursors) this.cursors.set(sessionId, seq);
     for (const [sessionId, seq] of pendingQuestionMarks) this.questionScanMarks.set(sessionId, seq);
   }
@@ -860,7 +871,30 @@ export class Store implements WriteTarget {
     const { sessionId, event, registration } = write;
     // 连续性断言游标：批内局部值优先（同批前条），否则内存真值（首遇仍经
     // cursorFor 从 sessions.last_seq 初始化）
-    const expected = (batchCursors.get(sessionId) ?? this.cursorFor(sessionId)) + 1;
+    const cursor = batchCursors.get(sessionId) ?? this.cursorFor(sessionId);
+    // 前置行在册检查——跨进程删除竞窗拒笔（05 §2.5 2026-10-19 挖掘 71 轮批注）：
+    // 本进程常驻持有会话于内存（游标/队列），他进程（CLI 删会话）删尽该会话
+    // sessions/events 行后，此处的迟到笔若放行则两害形——①行重建腿（upsert
+    // 的 INSERT 分支）复活已删行并携带旧 last_seq，随后 loadEvents 读出
+    // 「events 行在、首条前的游标语义越位」形误诊中段损坏；②续性断言先炸
+    // PERSIST_DATA_CORRUPT（写序违误报），write-behind 退避三耗尽熔断进程。
+    // 推理链：正常生命周期 sessions 行恒先在册（registerSessionRow 先行律 +
+    // createSession 零 I/O 行随首事件落库，05 §5.2）⇒ 本检查位行缺席 ⟺ 已被
+    // 删。豁免腿：无先在游标（cursorFor 对无行会话初始化 -1）且 seq=0 = 新
+    // 会话首笔合法建行（行由下方 upsert 落），缺席放行；此外一切缺席即拒。
+    // 确定性失败（行不回来重试必再败）——write-behind 按本码分类收敛不进
+    // 退避。检查跑在批事务内：与批写同锁序，他进程删行与本检查无 TOCTOU
+    // 放大（事务开始后才见的删除照常命中拒笔）。
+    if (!(cursor < 0 && event.seq === 0)) {
+      const rowPresent = this.stmt(`SELECT 1 FROM sessions WHERE id = ? LIMIT 1`).get(sessionId) !== undefined;
+      if (!rowPresent) {
+        throw new BaseError(
+          'PERSIST_SESSION_ABSENT',
+          `会话 ${sessionId} 的 sessions 行缺席（已被他进程删除——迟到笔拒写；确定性失败不重试）`,
+        );
+      }
+    }
+    const expected = cursor + 1;
     if (event.seq !== expected) {
       throw new BaseError(
         'PERSIST_DATA_CORRUPT',

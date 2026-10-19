@@ -39,4 +39,10 @@ registerErrorCodes([
     description:
       '版本门禁写锁等待超时：他实例正在迁移同一库（busy_timeout 耗尽，05 §6.4 挖掘 70 轮件B）——可重试，稍候重开',
   },
+  {
+    code: 'PERSIST_SESSION_ABSENT',
+    module: 'persist',
+    description:
+      '写路径行缺席拒笔：sessions 行已被同库他进程删除（跨进程删除竞窗的迟到笔，05 §2.5 挖掘 71 轮批注）——确定性失败，重试必再败不进退避',
+  },
 ]);

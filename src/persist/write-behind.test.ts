@@ -39,6 +39,11 @@ function constraintError(): Error {
   return err;
 }
 
+/** 会话行缺席拒笔形（PERSIST_SESSION_ABSENT——跨进程删除竞窗的确定性失败，05 §2.5 挖掘 71 轮批注） */
+function absentError(): BaseError {
+  return new BaseError('PERSIST_SESSION_ABSENT', '会话行缺席（已被他进程删除——迟到笔拒写）');
+}
+
 /** 瞬态错形（非约束——走退避重试路） */
 function transientError(): Error {
   const err = new Error('database is locked');
@@ -309,6 +314,56 @@ describe('flush 屏障', () => {
     for (const write of writes.slice(4)) chain.enqueue(write);
     await chain.flush();
     expect(target.written).toHaveLength(writes.length);
+  });
+});
+
+describe('跨进程删除收敛（迟到笔已删世界遗物处置面——05 §2.5 2026-10-19 挖掘 71 轮批注）', () => {
+  it('批撞缺席码：整批放回翻行模式 → 行撞 dropped 收敛 + warn 一笔 + 无辜会话照常落库（修前红：非约束错退避耗尽熔断）', async () => {
+    const target = new FakeTarget();
+    // 修前红驱动：三连败耗尽（修后批路径只耗首项即翻行模式，不再触批脚本余项）
+    target.batchScript = [absentError(), absentError(), absentError()];
+    target.singleFailsOn = (write) => (write.sessionId === 's-deleted' ? absentError() : undefined);
+    const { chain, warns, fatals, sleeps } = makeChain(target);
+    // 混合批：已删会话迟到笔 + 无辜会话在队笔（批事务回滚后行模式营救）
+    const dead = writesFor('s-deleted', makeEvents('s-deleted', 'a')); // seq 0..1
+    const alive = writesFor('s-alive', makeEvents('s-alive', 'b')); // seq 0..1
+    for (const write of [...dead, ...alive]) chain.enqueue(write);
+    await chain.flush().catch(() => undefined); // 修前形：熔断后屏障拒绝——吸收后断言收敛面
+    // 修后：零熔断零退避（确定性失败——重试必再败不进重试）
+    expect(fatals).toHaveLength(0); // 修前红：onFatal(PERSIST_WRITE_EXHAUSTED) 一笔
+    expect(sleeps).toEqual([]); // 修前红：[50, 100] 退避两段
+    // dropped 收敛 + warn 恰一笔（对账面——同会话多笔迟到不逐条刷账）
+    expect(chain.droppedSessions).toEqual(['s-deleted']);
+    expect(warns.filter((m) => m.includes('会话已被他进程删除'))).toHaveLength(1);
+    // 无辜会话行模式营救照常落库；已删会话零落库
+    expect(target.written.filter((w) => w.sessionId === 's-alive').map((w) => w.event.seq)).toEqual([0, 1]);
+    expect(target.written.filter((w) => w.sessionId === 's-deleted')).toHaveLength(0);
+    // 后续 enqueue 静默丢（dropped 前置判——不点火不落库）
+    const callsBefore = target.calls.length;
+    chain.enqueue(writesFor('s-deleted', [{ ...dead[0]!.event, seq: 9, time: 99 }])[0]!);
+    expect(chain.pending).toBe(0);
+    await chain.flush();
+    expect(target.calls.length).toBe(callsBefore);
+  });
+
+  it('drainSessionNow 撞缺席码：不重抛不放回——dropped 收敛 + warn 一笔（修前红：原样重抛 PERSIST_SESSION_ABSENT）', async () => {
+    const target = new FakeTarget();
+    target.batchScript = [absentError()];
+    const { chain, warns } = makeChain(target);
+    for (const write of writesFor('s-x', makeEvents('s-x', 'a'))) chain.enqueue(write);
+    // 同步排干面同收敛：已删会话本无装载读面——迟到笔不留队不重抛（loadSession
+    // 读前屏障对已删会话静默放行，行缺席由 getSessionRow 诚实缺席承载）
+    expect(() => chain.drainSessionNow('s-x')).not.toThrow(); // 修前红：重抛缺席码
+    expect(chain.pending).toBe(0); // 不放回（修前红：按原索引放回 → 2）
+    expect(chain.droppedSessions).toEqual(['s-x']);
+    expect(warns.filter((m) => m.includes('会话已被他进程删除'))).toHaveLength(1);
+    // 后续 enqueue 静默丢
+    const callsBefore = target.calls.length;
+    const base = makeEvents('s-x', 'z')[0]!;
+    chain.enqueue(writesFor('s-x', [{ ...base, seq: 9, time: 99 }])[0]!);
+    expect(chain.pending).toBe(0);
+    await chain.flush();
+    expect(target.calls.length).toBe(callsBefore);
   });
 });
 

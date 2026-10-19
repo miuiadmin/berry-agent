@@ -18,6 +18,13 @@
  * 即现空洞——seq 连续律（恢复重放的前缀语义）下，洞后事件重放不可达；故
  * 毒丸一旦确认，该会话后续事件一并不再落库（每会话一笔 incident 自述，
  * 不逐条刷账）。其他会话不受牵连（「不阻塞整队列」的另一半）。
+ *
+ * 跨进程删除收敛（05 §2.5 2026-10-19 挖掘 71 轮批注）：他进程（CLI 删会
+ * 话）删尽 sessions 行后，本进程迟到笔撞 writeTuple 行缺席拒笔
+ * （PERSIST_SESSION_ABSENT——确定性失败重试必再败）：批撞与约束违例同编舞
+ * （整批放回翻行模式定位）；行撞按 dropped 纪律静默丢弃 + warn 一笔对账；
+ * drainSessionNow 同步排干面同收敛不重抛——一律不退避不熔断（修前两害
+ * 形：行复活腿误诊中段损坏 / 退避三耗尽 daemon 全局熔断）。
  */
 import { BaseError } from '../contracts/index.js';
 import type { EventWrite, IncidentEntry, WriteTarget } from './store.js';
@@ -63,6 +70,16 @@ function isConstraintError(err: unknown): boolean {
 }
 
 /**
+ * 判别是否「会话行缺席」拒笔形（PERSIST_SESSION_ABSENT——跨进程删除竞窗
+ * 的确定性失败，05 §2.5 2026-10-19 挖掘 71 轮批注）：sessions 行已被同库
+ * 他进程删尽，重试必再败——与约束违例同属「确定性失败分类收敛面」，不进
+ * 退避。结构化判据 BaseError 的 code 属性（注册表码，非 SQLite 原生 code）。
+ */
+function isSessionAbsentError(err: unknown): boolean {
+  return err instanceof BaseError && err.code === 'PERSIST_SESSION_ABSENT';
+}
+
+/**
  * WriteBehind——进程级单写队列（Persistence 构造并持有；跨会话共用，
  * 05 §6.1 律 2「单进程内所有打开的会话共享同一 write-behind 队列」）。
  *
@@ -97,11 +114,14 @@ export class WriteBehind {
   /** 已切断 durability 的会话（毒丸后——后续事件静默丢弃，不再入队落库） */
   private readonly severed = new Set<string>();
   /**
-   * 已删除会话集（05 §2.5 del-gap 定形注——挖掘 15 轮）：deleteSession 在
-   * flush 排干后、物理三删前登记；此后该会话一切迟到写笔按「已删世界遗物」
-   * 静默丢弃（enqueue 前置判 + drainSessionNow 早退）。与 severed 分立——
-   * 彼系毒丸切断诊断语义（severedSessions 只读面供 incident 对账），此系
-   * 用户主权删除终决语义，不混集。
+   * 已删除会话集（迟到笔已删世界遗物处置面——单义收口，05 §2.5 del-gap
+   * 定形注【挖掘 15 轮】+ 2026-10-19 挖掘 71 轮批注语义扩容）：同进程删除
+   * 登记位（deleteSession 在 flush 排干后、物理三删前登记）与他进程删除
+   * 登记位（drain 行模式 / drainSessionNow 撞 PERSIST_SESSION_ABSENT 拒笔
+   * 后收敛登记）同集处置——此后该会话一切迟到写笔静默丢弃（enqueue 前置
+   * 判 + drainSessionNow 早退 + 行模式循环顶过滤）。与 severed 分立——彼系
+   * 毒丸切断诊断语义（severedSessions 只读面供 incident 对账），此系删除
+   * 终决语义（用户主权同进程删 / 他进程 CLI 删皆入），不混集。
    */
   private readonly dropped = new Set<string>();
 
@@ -140,8 +160,9 @@ export class WriteBehind {
   enqueue(write: EventWrite): void {
     // 切断会话静默丢弃（incident 已自述——毒丸后该会话 durability 已终）
     if (this.severed.has(write.sessionId)) return;
-    // 已删除会话迟到笔静默丢弃（05 §2.5 del-gap 定形注——用户主权删除后
-    // settle 链尾环的竞窗遗物；纪律同 severed 一笔不逐刷账）
+    // 已删除会话迟到笔静默丢弃（05 §2.5 del-gap 定形注 + 71 轮批注——同进程
+    // 删除后 settle 链尾环竞窗遗物 / 他进程删除后 drain 收敛登记位；纪律同
+    // severed 一笔不逐刷账）
     if (this.dropped.has(write.sessionId)) return;
     // 关库终态：晚到事件（在飞 run 收尾竞速窗）不抛不点火——折观测后丢弃
     //（修前形：照常入队点火 → 对已关库重试耗尽 → onFatal 重抛 = 未捕获
@@ -190,6 +211,9 @@ export class WriteBehind {
    * 崩溃——用户主权删除反致 daemon 全局死）。幂等——重复登记零副作用。
    * 调用序律：**flush 之后**（flush 前登记会把合法在队笔一并丢弃——删除
    * 前的笔属「当刻在队」合法面，必须先落库再删）。
+   * 注（71 轮批注）：dropped 集另有他进程删除收敛登记腿（drain 行模式 /
+   * drainSessionNow 撞缺席码处）——本方法是同进程删除的登记入口，两腿同
+   * 集单义，互不覆盖。
    */
   dropSession(sessionId: string): void {
     this.dropped.add(sessionId);
@@ -251,6 +275,10 @@ export class WriteBehind {
    *  - 同步写失败（瞬态错/写序违约/约束违例皆同路）：事件按原索引放回
    *    队列（数组形完全还原——异步 drain 照旧退避重试或行模式毒丸分类，
    *    本层不做第二套账务）后原样重抛，loadSession fail-loud 不吞不猜；
+   *  - 会话已被他进程删除（PERSIST_SESSION_ABSENT——71 轮批注）：迟到笔
+   *    属已删世界遗物——登记 dropped + warn 一笔后正常返回，不重抛不放回
+   *    （修前形：原样重抛 = loadSession 对已删会话装载面炸出缺席码，竞窗
+   *    扩大为装载失败；已删会话本无读面，行缺席由 getSessionRow 诚实承载）；
    *  - 切断会话（severed）不在排干面：其 durable 前缀已终（incident 在案），
    *    在队事件留给异步 drain 按既有纪律静默丢弃；
    *  - 已删除会话（dropped）同早退——已删世界遗物不合成 closer（05 §2.5
@@ -284,6 +312,17 @@ export class WriteBehind {
       // upsert/FTS 同批皆由 Store.writeEvents 自持，本层零额外面）
       this.target.writeEvents(writes);
     } catch (err) {
+      // 跨进程删除竞窗（71 轮批注——见头注）：行已被他进程删尽，迟到笔属
+      // 已删世界遗物——确定性失败重试必再败，收敛面同 dropped 纪律：登记 +
+      // 一笔 warn 对账，事件丢弃不放回不重抛（loadSession 读前屏障对已删
+      // 会话静默放行——见上失败面注）
+      if (isSessionAbsentError(err)) {
+        this.dropped.add(sessionId);
+        this.warn(
+          `[persist] 会话已被他进程删除——迟到笔丢弃（会话 ${sessionId} 同步排干 ${writes.length} 条，首条 seq#${writes[0]!.event.seq}）`,
+        );
+        return;
+      }
       for (let j = 0; j < indices.length; j++) this.queue.splice(indices[j]!, 0, writes[j]!);
       throw err;
     }
@@ -349,6 +388,17 @@ export class WriteBehind {
           this.target.writeEventSingle(write);
           this.consecutiveFailures = 0;
         } catch (err) {
+          if (isSessionAbsentError(err)) {
+            // 跨进程删除迟到笔（71 轮批注）：行已被他进程删尽——确定性失败
+            // 重试必再败不进退避，按 dropped 纪律收敛：登记遗物面 + 一笔
+            // warn 对账（同会话后续笔经循环顶 dropped 过滤，不逐条刷账；
+            // 不 incident——删除是终决语义非诊断事件），事件丢弃不放回
+            this.dropped.add(write.sessionId);
+            this.warn(
+              `[persist] 会话已被他进程删除——迟到笔丢弃（会话 ${write.sessionId} seq#${write.event.seq} ${write.event.type}）`,
+            );
+            continue;
+          }
           if (isConstraintError(err)) {
             this.isolatePoison(write, err);
           } else {
@@ -362,8 +412,9 @@ export class WriteBehind {
           this.target.writeEvents(batch);
           this.consecutiveFailures = 0;
         } catch (err) {
-          if (isConstraintError(err)) {
-            // 批内含毒丸：整批放回 + 翻行模式逐行定位（批事务已回滚，无损）
+          if (isConstraintError(err) || isSessionAbsentError(err)) {
+            // 批内含毒丸/缺席笔：整批放回 + 翻行模式逐行定位（批事务已回滚，
+            // 无损；缺席码与约束违例同编舞——行模式逐行区分遗物与无辜）
             this.queue.unshift(...batch);
             this.rowMode = true;
           } else {

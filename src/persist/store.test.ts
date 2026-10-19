@@ -335,10 +335,13 @@ describe('事件写读（05 §6.3 批写 + §4 完整性）', () => {
     expect(back[2]!.sourceEventSeqs).toEqual([0, 1]);
   });
 
-  it('写序违约 → PERSIST_DATA_CORRUPT（seq 跳号 fail-loud）', () => {
+  it('写序违约 → PERSIST_DATA_CORRUPT（seq 跳号 fail-loud；71 轮批注后行在册形专测——行缺席形归 PERSIST_SESSION_ABSENT，见跨进程删除拒笔 describe）', () => {
     const store = open({ dbPath: join(dir, 'order.db') });
-    const events = makeEvents('a');
-    expectCode(() => store.writeEvents(writesFor('s-order', [events[1]!])), 'PERSIST_DATA_CORRUPT');
+    const events = makeEvents('a', 'b'); // seq 0..3
+    // 先建行 + 游标（71 轮批注「行缺席 ⟺ 已被删」拒笔后，无行直写 seq>0 的
+    // 旧签名改判缺席码——写序违约锁以行在册形承载，语义面不变）
+    store.writeEvents(writesFor('s-order', [events[0]!])); // seq 0 落库（游标 → 0）
+    expectCode(() => store.writeEvents(writesFor('s-order', [events[2]!])), 'PERSIST_DATA_CORRUPT'); // 跳 seq 1
   });
 
   it('游标后被占的 seq → SQLITE_CONSTRAINT 原样抛（writeEvents 面——毒丸分类归 write-behind）', () => {
@@ -700,6 +703,78 @@ describe('sessions 行面', () => {
     expect(store.getSessionRow('s-retire')).toBeDefined();
     // 幂等：缺席/在场键再删均零副作用（double-delete 无害——deleteSession 路同键）
     expect(() => store.retireCursor('s-retire')).not.toThrow();
+  });
+});
+
+describe('跨进程删除拒笔（writeTuple 行缺席——05 §2.5 2026-10-19 挖掘 71 轮批注）', () => {
+  /** 迟到笔构造：既有前缀（seq 0..1）之后的高位续笔（time 抬升免同刻） */
+  function lateEvents(): readonly SessionEvent[] {
+    return makeEvents('a').map((event, i) => ({ ...event, seq: i + 2, time: event.time + 100 }));
+  }
+
+  it('迟到笔拒笔（有内存游标形）：行缺席抛 PERSIST_SESSION_ABSENT、sessions 行不复活（修前红：复活形落笔成功）', () => {
+    const path = join(dir, 'cross-del.db');
+    // 常驻进程（实例 B——同库双 Store 演跨进程）：登记行 + 写事件建内存游标
+    const holder = open({ dbPath: path });
+    holder.registerSessionRow('s-late', REG);
+    holder.writeEvents(writesFor('s-late', makeEvents('a'))); // seq 0..1（游标 → 1）
+    // CLI 直删进程（实例 A）：三删同事务移行——实例 B 的内存游标无从感知
+    const cli = open({ dbPath: path });
+    expect(cli.deleteSession('s-late')).toBe(true);
+    // 实例 B 迟到笔（seq 2..3——连续性断言本可通过的形）：修前 upsert INSERT
+    // 分支复活 sessions 行 + events 迟到高位行落库；修后确定性拒笔
+    expectCode(() => holder.writeEvents(writesFor('s-late', lateEvents())), 'PERSIST_SESSION_ABSENT');
+    // 行不复活（修前红锚：sessions 行回库——「占空间无语义污染」实测失真的实害面）
+    expect(holder.getSessionRow('s-late')).toBeUndefined();
+    // events 迟到行不落（事务整体回滚）
+    expect(holder.queryEvents({ sessionId: 's-late' }).events).toHaveLength(0);
+  });
+
+  it('复活误诊收口：拒笔后读面干净——loadEvents 空返不撞「中段损坏」（修前红：抛 PERSIST_DATA_CORRUPT 首个坏位 seq=0）', () => {
+    const path = join(dir, 'cross-del-misdiag.db');
+    const holder = open({ dbPath: path });
+    holder.registerSessionRow('s-late', REG);
+    holder.writeEvents(writesFor('s-late', makeEvents('a'))); // seq 0..1
+    const cli = open({ dbPath: path });
+    expect(cli.deleteSession('s-late')).toBe(true);
+    // 迟到笔（码面已由上 it 锁——此处吞码验读面）：修前落笔成功 → sessions 行
+    // 复活（last_seq=3）+ events 仅迟到高位行（seq 2..3）→ loadEvents 首行
+    // seq=2 ≠ 0 判洞、其后仍有行 → 「中段损坏（首个坏位 seq=0）」读面全拒
+    // 且归因误导（「库损坏请人工检视」实为 CLI 删过）
+    try {
+      holder.writeEvents(writesFor('s-late', lateEvents()));
+    } catch {
+      // 修后形：拒笔（PERSIST_SESSION_ABSENT）
+    }
+    expect(holder.loadEvents('s-late')).toEqual([]); // 修前红锚：上句即抛中段损坏
+    expect(holder.getSessionRow('s-late')).toBeUndefined(); // 修前红锚：行复活在场
+  });
+
+  it('迟到笔拒笔（无内存游标形——重启后未写过该会话）：行缺席先于写序断言抛 PERSIST_SESSION_ABSENT（修前红：撞写序违约 PERSIST_DATA_CORRUPT）', () => {
+    const path = join(dir, 'cross-del-nocursor.db');
+    // 蓄底：先行进程建行 + 前缀（seq 0..1）后关库
+    const seed = open({ dbPath: path });
+    seed.registerSessionRow('s-nl', REG);
+    seed.writeEvents(writesFor('s-nl', makeEvents('a')));
+    seed.close();
+    // 重启形常驻进程（实例 B——装载后未写过该会话：Store 内存无游标）
+    const holder = open({ dbPath: path });
+    const cli = open({ dbPath: path });
+    expect(cli.deleteSession('s-nl')).toBe(true);
+    // 修前红锚：无游标形首遇自 sessions.last_seq 初始化 → 行缺席 cursor=-1 →
+    // expected=0 与迟到笔高位 seq 撞 PERSIST_DATA_CORRUPT 写序违约 →
+    // write-behind 退避耗尽熔断整个常驻进程；修后行缺席检查先行 → 确定性
+    // PERSIST_SESSION_ABSENT（不进退避）
+    expectCode(() => holder.writeEvents(writesFor('s-nl', lateEvents())), 'PERSIST_SESSION_ABSENT');
+  });
+
+  it('新会话建行腿不受拒笔误伤：无行无游标的首笔（seq=0）照常经 upsert 建行（createSession 零 I/O——行随首事件落库，05 §5.2）', () => {
+    const store = open({ dbPath: join(dir, 'cross-del-fresh.db') });
+    // 未 registerSessionRow 直写（createSession 零 I/O 路的真实形态——行由
+    // 首事件 upsert 建行）：首笔 seq=0 放行，拒笔面不误伤合法建行腿
+    expect(() => store.writeEvents(writesFor('s-fresh', makeEvents('first')))).not.toThrow();
+    expect(store.getSessionRow('s-fresh')?.lastSeq).toBe(1);
+    expect(store.loadEvents('s-fresh')).toHaveLength(2);
   });
 });
 
@@ -1787,6 +1862,67 @@ describe('多进程迁移竞窗收口（两段形——锁外首读 fast-path + 
     expect(retry.connection.pragma('user_version', { simple: true })).toBe(2);
     expect(retry.loadEvents('s-pre')).toHaveLength(4);
   }, 20_000);
+
+  /**
+   * 子进程「胜者在途迁移」脚本（锁内复读愈合位的深腿专用形）：持写锁后**在
+   * 锁内完成迁移推版**（DDL + user_version=head，未提交）→ 打 LOCKED → 持
+   * holdMs 毫秒后 COMMIT 退出。与 GATE_HOLDER_SCRIPT 的差别在「持锁窗内库
+   * 版本真被推到 head」——父进程（败者）开库时锁外首读仍见旧版（未提交不
+   * 可见），必经 BEGIN IMMEDIATE 等锁；锁释进锁后复读方见 head → 愈合直通。
+   */
+  const WINNER_MIGRATION_SCRIPT = `
+    const Database = require('better-sqlite3');
+    const db = new Database(process.argv[1]);
+    db.pragma('busy_timeout = 5000');
+    db.exec('BEGIN IMMEDIATE');
+    db.exec(process.argv[3]);
+    db.pragma('user_version = ' + process.argv[4]);
+    console.log('LOCKED');
+    setTimeout(() => { db.exec('COMMIT'); db.close(); }, Number(process.argv[2]));
+  `;
+
+  it('锁内复读愈合（两段形深腿）：败者锁外读 < head 进锁等锁，胜者持锁窗内推版 head，败者进锁复读见 head → COMMIT 直通零再迁移零备份', async () => {
+    const path = join(dir, 'mig-reread-heal.db');
+    const chain: readonly MigrationSpec[] = [
+      { version: 2, name: 'test-mig-reread', sql: 'CREATE TABLE mig_reread_marker (id INTEGER PRIMARY KEY) STRICT' },
+    ];
+    const base = open({ dbPath: path, migrations: [] }); // v1 基线旧版库形
+    seedLegacyRows(base, 's-pre');
+    base.close();
+    // 胜者持写锁并在锁内推版（1000ms 窗内 COMMIT——败者必在锁上真等过窗）
+    const ddl = 'CREATE TABLE mig_reread_marker (id INTEGER PRIMARY KEY) STRICT';
+    const winner = spawn(process.execPath, ['-e', WINNER_MIGRATION_SCRIPT, path, '1000', ddl, '2'], {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    try {
+      await waitLocked(winner);
+      const t0 = Date.now();
+      const warns: string[] = [];
+      // 败者开库：锁外首读见 v1（胜者未提交不可见）→ 进锁段 BEGIN IMMEDIATE
+      // 在 busy_timeout 窗内等锁 → 胜者 COMMIT 推版 head → 败者进锁复读见
+      // head → 愈合直通（不再跑迁移链/备份腿——重跑 DDL 即撞 duplicate table）
+      const loser = open({ dbPath: path, migrations: chain, warn: (m) => warns.push(m) });
+      const waited = Date.now() - t0;
+      // 深腿坐实：真等过持锁窗（≥700ms 余量——非锁外 fast-path 直过假愈合）
+      expect(waited).toBeGreaterThanOrEqual(700);
+      // 开库成功 + 版本面收敛 head
+      expect(loser.headVersion).toBe(2);
+      expect(loser.connection.pragma('user_version', { simple: true })).toBe(2);
+      // 零再迁移：胜者 DDL 成果在场可查（败者若重跑链即撞 duplicate table
+      // 开库失败——能开至此即零重跑；marker 表存在且空）
+      expect(loser.connection.prepare(`SELECT count(*) AS c FROM mig_reread_marker`).get()).toEqual({ c: 0 });
+      // 零备份腿：败者不复跑备份（.bak-v1 不在场 + warn 面无「迁移前备份」）
+      expect(existsSync(`${path}.bak-v1`)).toBe(false);
+      expect(warns.some((m) => m.includes('迁移前备份'))).toBe(false);
+      // 数据连续性：迁移前用户数据在愈合直通后照常可读
+      expect(loser.loadEvents('s-pre')).toHaveLength(4);
+      loser.close();
+    } finally {
+      winner.kill();
+      await waitExit(winner);
+    }
+  }, 10_000);
 
   it('锁外首读愈合（更浅——连锁都不开）：胜者已升 head 后，他实例持写锁窗内开库直通（零 DDL 零备份零裸撞）', async () => {
     const path = join(dir, 'mig-gate-heal.db');
