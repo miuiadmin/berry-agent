@@ -11,6 +11,15 @@
  * 版本链 INSERT 同事务——06 §3「不许只写一边」〕）；better-sqlite3 同步 API，
  * 全件同步零 await。
  *
+ * **写事务首语句写优先律**（05 §6.6——72 轮批注谱化扩面）：读先写后事务恒
+ * `tx.immediate()` 形（BEGIN IMMEDIATE——写锁在事务顶获取、busy_timeout 在
+ * 获取位生效）；deferred 形下读语句先钉 WAL 快照，写升级撞他连接（CLI 零装配
+ * 写者——同库他进程）持写锁或窗内提交即 SQLITE_BUSY(_SNAPSHOT) 立即失败不走
+ * busy_timeout，周期腿/提取腿 catch 全吞 = 该轮记忆写入静默丢失。九读先写后
+ * 事务（ingest/forget/absorb/decay/restore/freeze/unfreeze/setTtl/
+ * importInsert）调用位一律 immediate 形；四写优先事务（markUsed/markCorrected/
+ * sweep/log——首语句即写、无先读钉快照窗）豁免不改形。
+ *
  * **TTL 读面谓词两形**（06 §3 单一来源；批 ev-1 生效起点条扩形——冷读闸 M2
  * 拆形）：注入形 = `status='active' AND (frozen=1 OR expires_at IS NULL OR
  * expires_at > now) AND (valid_from IS NULL OR valid_from <= now)`——一切进
@@ -1266,10 +1275,13 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     return { row, versions, predecessors, successor };
   }
 
+  // 写动词调用位一律 immediate 形（05 §6.6 写事务首语句写优先律——批注见文件
+  // 头）：九读先写后事务在事务顶抢写锁（busy_timeout 生效位）；markUsed/
+  // markCorrected/sweep 写优先豁免（logTx 在检索面内同豁免）
   return {
     ingest(candidate) {
       validate(candidate); // 坏形拒在事务外（不入库不改库——纯请求面校验）
-      return ingestTx(candidate);
+      return ingestTx.immediate(candidate);
     },
     get(id) {
       const row = stmtGet.get(id) as MemoryDbRow | undefined;
@@ -1289,13 +1301,13 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       stmtRebuildFts.run();
     },
     forget(id, opts) {
-      return forgetTx(id, opts?.promotedToSkill, opts?.supersededBy);
+      return forgetTx.immediate(id, opts?.promotedToSkill, opts?.supersededBy);
     },
     absorb(keepId, dropId, reason) {
-      return absorbTx(keepId, dropId, reason);
+      return absorbTx.immediate(keepId, dropId, reason);
     },
     decay(id, factor, reason) {
-      return decayTx(id, factor, reason);
+      return decayTx.immediate(id, factor, reason);
     },
     lineage(id) {
       return lineageImpl(id);
@@ -1305,16 +1317,16 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       return sweepTx(deps.now());
     },
     restore(id, revision) {
-      return restoreTx(id, revision);
+      return restoreTx.immediate(id, revision);
     },
     freeze(id) {
-      return freezeTx(id);
+      return freezeTx.immediate(id);
     },
     unfreeze(id) {
-      return unfreezeTx(id);
+      return unfreezeTx.immediate(id);
     },
     setTtl(id, days) {
-      return setTtlTx(id, days);
+      return setTtlTx.immediate(id, days);
     },
     search(query, opts) {
       return searchImpl(query, opts);
@@ -1342,7 +1354,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       return rows.map(mapRow);
     },
     importInsert(row) {
-      return importInsertTx(row);
+      return importInsertTx.immediate(row);
     },
   };
 }

@@ -6,9 +6,11 @@
  * 持有面动词（pin/freeze/setTtl）18c-8 才落码——本批前置态（frozen/
  * expires_at/dismissed）一律 SQL 直改制造，读面谓词由此可单测。
  */
+import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ephemeralSecretKey, openStore, type Store } from '../../src/persist/index.js';
 import { createMemoryDao, uuidv7, type MemoryDao } from './dao.js';
@@ -74,7 +76,7 @@ function sql(text: string, ...params: (string | number)[]): void {
 }
 
 /** 表行数 */
-function count(table: 'memories' | 'memory_versions' | 'memory_fts'): number {
+function count(table: 'memories' | 'memory_versions' | 'memory_fts' | 'memory_access'): number {
   return (store!.sqlite().prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
 }
 
@@ -587,5 +589,105 @@ describe('uuidv7（时间有序主键——手卷标准位布局）', () => {
 
   it('同毫秒两次生成互异（随机位区分）', () => {
     expect(uuidv7(1_700_000_000_000)).not.toBe(uuidv7(1_700_000_000_000));
+  });
+});
+
+describe('真库双连接写锁窗（05 §6.6 写事务首语句写优先律——读先写后事务恒 immediate）', () => {
+  /**
+   * 子进程持写锁脚本（plain node + require——只碰物理层依赖无需 tsx；
+   * store.test.ts 71 轮「双连接写锁窗」同款形）。行协议：BEGIN IMMEDIATE +
+   * 真写一行（CLI 零装配写者形）→ stdout 打 LOCKED → 持锁 holdMs 毫秒后
+   * COMMIT 退出——父进程据此在「写锁确已被他进程持有」的窗口内发起同步竞争写
+   * （better-sqlite3 同步 API 下持锁方的释锁只能来自真跨进程连接）。
+   */
+  const WRITE_HOLDER_SCRIPT = `
+    const Database = require('better-sqlite3');
+    const db = new Database(process.argv[1]);
+    db.pragma('busy_timeout = 5000');
+    db.exec('BEGIN IMMEDIATE');
+    db.prepare(
+      "INSERT INTO memory_access (id, memory_id, op, session_id, ts) VALUES ('lock-probe', 'none', 'cite', NULL, 0)",
+    ).run();
+    console.log('LOCKED');
+    setTimeout(() => { db.exec('COMMIT'); db.close(); }, Number(process.argv[2]));
+  `;
+
+  const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
+
+  /** 等子进程 stdout 出现指定词（持锁确认后才发竞争写——否则测的是无锁直过） */
+  function waitMarker(child: ChildProcess, marker: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let seen = false;
+      child.stdout!.setEncoding('utf8');
+      child.stdout!.on('data', (chunk: string) => {
+        if (chunk.includes(marker)) {
+          seen = true;
+          resolve();
+        }
+      });
+      child.on('error', reject);
+      child.on('exit', (code) => {
+        if (!seen) reject(new Error(`持锁子进程未打标先退（code=${code}）`));
+      });
+    });
+  }
+
+  it('锁释后续接落账：他进程持写锁窗内提交后，ingest 在写锁获取位等锁、锁释后新快照落账（修前 deferred 读先写后升级位立即 BUSY 即红）', async () => {
+    const dao = openDao();
+    // 蓄底一行（不同 kind——竞争写走独立插入腿，合并扫描互不并轨）
+    dao.ingest(candidate({ kind: 'fact', summary: 'seed fact row', content: 'seed fact row body' }));
+    const path = join(dir, 'test.db');
+    const child = spawn(process.execPath, ['-e', WRITE_HOLDER_SCRIPT, path, '700'], {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    try {
+      await waitMarker(child, 'LOCKED');
+      const t0 = Date.now();
+      // 竞争写：immediate 形在事务顶 BEGIN IMMEDIATE 获取写锁——busy_timeout 在
+      // 获取位生效（等持锁窗）→ 子进程 COMMIT 释锁后以新快照续接落账成功
+      const out = dao.ingest(candidate());
+      const waited = Date.now() - t0;
+      // 真等了持锁窗（≥400ms 宽松下界 vs 700ms 持锁——非无锁直过假绿）
+      expect(waited).toBeGreaterThanOrEqual(400);
+      expect(out.action).toBe('inserted');
+      expect(count('memories')).toBe(2);
+      // 子进程写者那行随其 COMMIT 落库可见（新快照含他进程已提交面）
+      expect(count('memory_access')).toBe(1);
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('busy_timeout 真等待：他进程持写锁跨过 busy_timeout（短窗 300ms）→ ingest 等满窗口后以 busy 形抛错（修前 deferred 升级位零等待立即抛即红）', async () => {
+    const dao = openDao();
+    // 短 busy_timeout（缩短测试时长；判据 = 真等满窗口，非消息形——实测
+    // deferred 升级位立即 BUSY 与 immediate 等满后 BUSY 两形消息同为
+    // "database is locked" 不可区分，耗时下界是唯一稳定判据）
+    store!.sqlite().pragma('busy_timeout = 300');
+    const path = join(dir, 'test.db');
+    const child = spawn(process.execPath, ['-e', WRITE_HOLDER_SCRIPT, path, '10000'], {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    try {
+      await waitMarker(child, 'LOCKED');
+      const t0 = Date.now();
+      let err: unknown = null;
+      try {
+        dao.ingest(candidate());
+      } catch (e) {
+        err = e;
+      }
+      const waited = Date.now() - t0;
+      // 等满 busy_timeout 后 busy 形抛（消息与 deferred 立即 BUSY 同形——判据在耗时）
+      expect(err).toBeTruthy();
+      expect(String((err as { message?: string }).message)).toContain('database is locked');
+      // 真等了窗口（≥150ms 宽松下界 vs 300ms 窗——修前 deferred 读先写后升级位
+      // 不走 busy_handler 立即返回、耗时近零，此断言即红锚）
+      expect(waited).toBeGreaterThanOrEqual(150);
+    } finally {
+      child.kill();
+    }
   });
 });
