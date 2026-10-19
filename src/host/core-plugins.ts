@@ -2127,10 +2127,17 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * walk 帽是两道各自真实的预算线——谁先触谁执法（超时按管线失败 fail-closed
  * 传播，03 §3.4）。
  *
- * 主闸三位 = dataDir + checkpointSession + checkpointFork（任一缺席 = 件
- * 整体零装载诚实缺席律——纯 :memory: 诊断形/测试替身形快照特性整体缺席，
- * 对话本体仍通）。gate 单实例跨会话共享游标（per-session Map——「同一
- * dispatch 生命周期内复用一个实例」）。
+ * 主闸四位 = dataDir + memory 形位 + checkpointSession + checkpointFork
+ * （任一缺席 = 件整体零装载诚实缺席律——测试替身形快照特性整体缺席，对话
+ * 本体仍通）。dataDir 双条件（76 轮批注——ephemeral 写侧门控清单第六写位）：
+ * 「纯 :memory: 诊断形零装载」旧假设已被 75 轮修真作废——memory 形
+ * （ephemeral 单发与 dump-config 同构诊断形）dataDir 非 null，若只查 dataDir
+ * 主闸恒通过：tools_pre_execute 守门对真数据目录落 checkpoint blob+manifest
+ * 违「零落盘单发——不留痕」承诺，且按 workspaceRoot 记保留帽——ephemeral
+ * 单发与用户真会话同工作区共享帽位（真回退点被挤出 + 独占 blob 被 GC）。
+ * 判定信号单源 deps.memory（HostRuntime.memory 透传，勿造第二信号源——
+ * children.json 第五写位同形）。gate 单实例跨会话共享游标（per-session
+ * Map——「同一 dispatch 生命周期内复用一个实例」）。
  *
  * adopt 切前台已落（2026-09-30 会话管理命令批批3——deps.adoptSession 注入：
  * registerSession+focus，resolve 后才 return 回执 = notify 排 focus 落画后；
@@ -2147,7 +2154,12 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const dataDir = deps.dataDir;
       const sessionFace = deps.checkpointSession;
       const forkFace = deps.checkpointFork;
-      if (dataDir === null || sessionFace === undefined || forkFace === undefined) return; // 主闸三位
+      // 主闸四位（dataDir 双条件——76 轮批注写侧第六写位）：memory 形
+      // （ephemeral 单发与 dump-config 同构诊断形）dataDir 真值也早退——
+      // 「零落盘单发」承诺门控 checkpoint blob/manifest 落盘；判定信号单源
+      // deps.memory（与 exec 件 children.json 第五写位同形）。apply 跑过仍计
+      // activated（早退 = 零装载面，不在行计）
+      if (dataDir === null || deps.memory === true || sessionFace === undefined || forkFace === undefined) return;
 
       // 件内 warn 出口（F1 收编——第四役挂账① 扫尾）：同 core:memory 律——
       // leveled logger（BERRY_AGENT_LOG_LEVEL 辖内；缺省 info 下 warn 可见）

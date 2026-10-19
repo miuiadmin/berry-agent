@@ -114,6 +114,25 @@ function tmpDir(prefix: string): string {
 }
 
 /**
+ * 目录树快照（76 轮件1——ephemeral 写侧门控回归锁通道）：递归收相对路径
+ * 清单（目录与文件都入账，路径序稳定）——跑前/跑后全等断言用；较 75 轮
+ * 顶层 readdirSync 更强（子目录内部新增〔如 data/checkpoint/ 的 blob 分片
+ * 目录〕也须零新增）。
+ */
+function walkTree(root: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, prefix: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+      out.push(rel);
+      if (entry.isDirectory()) walk(join(dir, entry.name), rel);
+    }
+  };
+  walk(root, '');
+  return out;
+}
+
+/**
  * 占位 TCP 端口（C4 开面失败形公共手法）：node:http 真监听 127.0.0.1 内核
  * 指派口并保持占用——对被测 `--port` 开面即确定性 EADDRINUSE 拒形；调用方
  * finally 内 close 释放。
@@ -368,6 +387,34 @@ describe('runRunEntry 输出三档（07 §5）', () => {
     await expect(entry).resolves.toBe(0);
     expect(out.lines).toEqual(['ok']); // 目录缺席 = 出厂缺省照跑
     expect(existsSync(absent)).toBe(false); // 不代建（修前必红——ensureDataDir 建 0700 目录）
+  });
+
+  it('--ephemeral checkpoint 写侧门控（76 轮件1）：写工具回合零 checkpoint 落盘——数据目录树前后全等', async () => {
+    // 75 轮 ephemeral 修真后（memory:true + dataDir 真值）checkpoint 主闸
+    // 恒通过：写工具回合（tools_pre_execute 守门——effect:'write' 即触发
+    // capture）对 <dataDir>/data/checkpoint/ 落全工作区 blob+manifest，并按
+    // workspaceRoot 记保留帽——ephemeral 单发与用户真会话同工作区共享帽位
+    // （真回退点被挤出 + 独占 blob 被 GC），违「零落盘单发——不留痕」承诺。
+    // 本锁：faux 驱动一次 effect:'write' 工具回合（skill_manage——写面动词
+    // 纯 list 执行零其他写盘；checkpoint 守门行在 safety 前，审批拦否均先
+    // 拍）跑完后 checkpoint 目录缺席 + 数据目录树前后全等（修前 capture 已
+    // 落盘必红）
+    const dir = tmpDir('run-eph-ckpt-');
+    const ws = tmpDir('run-eph-ckpt-ws-');
+    writeFileSync(join(ws, 'a.txt'), 'v1'); // 工作区非空——capture walk 有实文件入 blob
+    const before = walkTree(dir);
+    const { entry } = await rigRun({
+      flags: { ephemeral: true },
+      cwd: ws,
+      dataDir: dir,
+      responses: [
+        toolCallOf('t-ckpt', 'skill_manage', { action: 'list' }), // effect:'write' → 守门拍快照
+        messageOf(), // 收场
+      ],
+    });
+    await expect(entry).resolves.toBe(0);
+    expect(walkTree(dir)).toEqual(before); // 目录树零新增（修前 data/checkpoint/ blob+manifest 必红）
+    expect(existsSync(join(dir, 'data', 'checkpoint'))).toBe(false); // 主断言：checkpoint 落点缺席
   });
 });
 
