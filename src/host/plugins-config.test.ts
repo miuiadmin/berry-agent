@@ -7,7 +7,8 @@
  * 逐字段问答分流（四型→input/select〔boolean 亦 select 两值——s-9〕）/ secret 入盒不落 yaml +
  * credentials/changed 归因 / 未声明键透传 / 取消整次放弃（含 boolean 问询取消
  * s-9 修前红）/ required 两拒 /
- * 缺省烘焙回避 / 回执呈现纪律（secret 恒 '***'）/ secret 问询恒携
+ * 缺省烘焙回避（boolean 有效缺省与呈现行同源——答「关」= 随缺省不落行，修前红）/
+ * 回执呈现纪律（secret 恒 '***'）/ secret 问询恒携
  * sensitive 旗（62 轮件 E——明文落两级历史册修，修前红）。
  */
 import { describe, expect, it } from 'vitest';
@@ -298,6 +299,83 @@ describe('未声明键透传与缺省烘焙回避', () => {
     expect(rig_.rows()).toEqual([]); // 零 overlay 行
     expect(rig_.reloads()).toBe(0);
     expect(out.text).toContain('mode = fast'); // 回执仍呈现生效值
+  });
+});
+
+describe('boolean 缺省烘焙判据单源（有效缺省 = field.default ?? false——与呈现行同源）', () => {
+  it('布尔无 default、行缺席、宿主默认无键 → 答「关」（= 有效缺省）不落行不造行（修前红：落行烙 flag=false）', async () => {
+    const rig_ = rig({
+      id: 'core:demo',
+      fields: [{ key: 'flag', type: 'boolean' }], // 未声明 default、宿主默认无键
+      script: { selects: ['false'] },
+    });
+    const out = await runPluginConfigForm('core:demo', rig_.deps);
+    expect(out.ok).toBe(true);
+    // 呈现行现值 = field.default ?? false = false（「当前 关」）——答「关」即
+    // 随有效缺省，缺省烘焙回避不落行（行是覆盖仓，烙进 false 后作者补
+    // default: true 不再传播）；修前判据 defaultSource 对缺席布尔恒
+    // undefined → false !== undefined 恒真 → 落行造 overlay 行
+    expect(out.text).toContain('无变更');
+    expect(rig_.rows()).toEqual([]); // 修前红锚：[{ id: 'core:demo', config: { flag: false } }]
+    expect(rig_.reloads()).toBe(0);
+  });
+
+  it('同场景答「开」（偏离有效缺省 false）照落行（正锁）', async () => {
+    const rig_ = rig({
+      id: 'core:demo',
+      fields: [{ key: 'flag', type: 'boolean' }],
+      script: { selects: ['true'] },
+    });
+    const out = await runPluginConfigForm('core:demo', rig_.deps);
+    expect(out.ok).toBe(true);
+    expect(rig_.rows()).toEqual([{ id: 'core:demo', config: { flag: true } }]);
+    expect(rig_.reloads()).toBe(1);
+  });
+
+  it('已声明 default 的布尔两向行为不变：答缺省值不落行、答偏离值落行', async () => {
+    const stay = rig({
+      id: 'core:demo',
+      fields: [{ key: 'flag', type: 'boolean', default: true }],
+      script: { selects: ['true'] }, // 答 = default（true）→ 随缺省不落行
+    });
+    const out1 = await runPluginConfigForm('core:demo', stay.deps);
+    expect(out1.ok).toBe(true);
+    expect(stay.rows()).toEqual([]);
+    const deviate = rig({
+      id: 'core:demo',
+      fields: [{ key: 'flag', type: 'boolean', default: true }],
+      script: { selects: ['false'] }, // 答 ≠ default → 偏离落行
+    });
+    const out2 = await runPluginConfigForm('core:demo', deviate.deps);
+    expect(out2.ok).toBe(true);
+    expect(deviate.rows()).toEqual([{ id: 'core:demo', config: { flag: false } }]);
+  });
+
+  it('宿主默认携该键 → 有效缺省随宿主默认（答宿主默认值不落行）', async () => {
+    const rig_ = rig({
+      id: 'core:demo',
+      fields: [{ key: 'flag', type: 'boolean' }],
+      hostDefaults: { flag: true },
+      script: { selects: ['true'] },
+    });
+    const out = await runPluginConfigForm('core:demo', rig_.deps);
+    expect(out.ok).toBe(true);
+    expect(out.text).toContain('无变更');
+    expect(rig_.rows()).toEqual([]);
+    expect(rig_.reloads()).toBe(0);
+  });
+
+  it('行在场（fromRow 腿）语义不变：答「关」仍落行（行是覆盖仓恒写）', async () => {
+    const rig_ = rig({
+      id: 'core:demo',
+      fields: [{ key: 'flag', type: 'boolean' }],
+      enabledYaml: 'plugins:\n  - id: core:demo\n    config:\n      flag: false\n',
+      script: { selects: ['false'] },
+    });
+    const out = await runPluginConfigForm('core:demo', rig_.deps);
+    expect(out.ok).toBe(true);
+    expect(rig_.rows()).toEqual([{ id: 'core:demo', config: { flag: false } }]);
+    expect(rig_.reloads()).toBe(1); // 行在场照写律仍链
   });
 });
 

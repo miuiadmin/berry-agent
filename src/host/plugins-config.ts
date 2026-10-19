@@ -17,7 +17,8 @@
  * 即写坏插件（不在值域，下次装载
  * PLUGIN_CONFIG_INVALID 拒载）。落盘期异常按进度分档诚实回执（已写事实
  * 不谎称零写盘）。缺省烘焙回避：值等于缺省源（行缺席
- * 时宿主默认/字段 default）的字段不落行——行是覆盖仓，表单全默认直存会把
+ * 时宿主默认/字段 default——boolean 兜底 false，与呈现行现值同源）的
+ * 字段不落行——行是覆盖仓，表单全默认直存会把
  * 清单缺省烙进用户行，作者后续改 default 不再传播。
  *
  * 成功尾序：行写盘 → secret 入盒 → requestReload（与 mount 同律 03 §5.2
@@ -166,7 +167,13 @@ export async function runPluginConfigForm(
           };
         }
         const value = answer === 'true';
-        if (fromRow || value !== defaultSource) next[field.key] = value;
+        // 有效缺省与呈现行同源（field.default ?? false 兜底收尾）——缺席布尔
+        // 的 defaultSource 恒 undefined，答「关」（= 呈现现值）会被误判偏离
+        // 而落行，违缺省烘焙回避律（烙进 false 后作者改 default 不再传播）；
+        // 判据改用 effectiveDefault：答等于有效缺省即随缺省不落行（fromRow
+        // 腿短路在前——行在场恒写语义不变）
+        const effectiveDefault = fromRow ? rowConfig[field.key] : (defaults[field.key] ?? field.default ?? false);
+        if (fromRow || value !== effectiveDefault) next[field.key] = value;
         receipt.push(`  ${field.key} = ${onOff(value)}`);
         continue;
       }
