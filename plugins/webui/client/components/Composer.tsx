@@ -27,9 +27,11 @@
  *   全键让位浏览器组合面——确认键 Enter 不被 preventDefault 吞并以半成品
  *   组合串发出（弹层开时亦不被劫持为选项代换）；守卫置两处分形之前。
  * - 插入编舞：选中项原串代换 text[tokenStart, selectionStart) 区间
- *   （selectionStart 取选中时点输入框当下位——v1 简形，位点漂移随下次
- *   onChange 重算自愈）；光标复位走 useEffect + pendingCaretRef（不用
- *   requestAnimationFrame——jsdom 轨 rAF 可用性不保证）。
+ *   （selectionStart 取选中时点输入框当下位）；代换前经 tokenAtCaret 单源
+ *   前置校验——光标可无 onChange 漂移（方向键/点击不触发重算），token 失活
+ *   或左端漂移即静默关层不代换（错切即时发生不可自愈，故须确认时点守门；
+ *   token 内部左移形放行为部分代换）；光标复位走 useEffect +
+ *   pendingCaretRef（不用 requestAnimationFrame——jsdom 轨 rAF 可用性不保证）。
  */
 import { useEffect, useRef, useState } from 'react';
 import type { ClipboardEvent, ReactElement } from 'react';
@@ -265,15 +267,33 @@ export function Composer({
     setCapNotice(false);
   };
 
-  /** 选中代换：item 原串代换 text[tokenStart, selectionStart) 区间 */
+  /**
+   * 选中代换：item 原串代换 text[tokenStart, selectionStart) 区间。代换前经
+   * tokenAtCaret 单源前置校验——光标可无 onChange 漂移（ArrowLeft/Right、
+   * Home/End、点击 textarea 均不触发 handleCaret 重算），陈值 start 与现值
+   * caret 组出的区间不再对应原 token：确认时点错切即时发生、不可自愈。
+   */
   const insertItem = (index: number): void => {
     const item = items[index];
     const start = tokenStartRef.current;
     const el = textareaRef.current;
     if (item === undefined || start === null || el === null) return;
-    // selectionStart 取选中时点输入框当下位（v1 简形——位点漂移随下次
-    // onChange 重算自愈）
+    // selectionStart 取选中时点输入框当下位（漂移守门见下——旧注释「随下次
+    // onChange 重算自愈」失真：漂移键本就不触发 onChange，且确认时错切已
+    // 即时发生，无后续 onChange 可救）
     const caret = el.selectionStart;
+    // 前置校验（tokenAtCaret 单源复用——同 handleCaret 的逻辑行切法）：重提
+    // 当前光标 token，三形失活即静默关层不代换（与 handleCaret「token 失活
+    // 关层」同语义）——① null（光标贴空白/行首）；② 非 '@' 起头；③ token
+    // 左端漂移（lineStart + token.start !== start——光标已移出原 token 左界，
+    // 陈值区间会错切他文）。分级放行：token 内部左移形（@abc 光标在 c 前
+    // ——提取 @ab 仍 '@' 起且左端匹配）属用户可见可改的部分代换，不拦。
+    const lineStart = text.lastIndexOf('\n', Math.max(caret - 1, 0)) + 1;
+    const token = tokenAtCaret(text.slice(lineStart), caret - lineStart);
+    if (token === null || !token.text.startsWith('@') || lineStart + token.start !== start) {
+      closeLayer();
+      return;
+    }
     pendingCaretRef.current = start + item.length; // 光标复位到代换串尾
     closeLayer(); // 关层 + 作废在途
     setText(text.slice(0, start) + item + text.slice(caret));

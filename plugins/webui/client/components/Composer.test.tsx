@@ -17,6 +17,11 @@
  * IME 组合态守卫——
  * ⑦ 组合期键盘全让位：isComposing=true 的 Enter 不发送不代换（半成品组合
  * 串不被吞出）、方向键不导航；普通 Enter 照发（守卫不误伤非组合键）
+ *
+ * 代换前置校验（光标无 onChange 漂移形）——
+ * ⑧ insertItem 确认时点重提光标 token（tokenAtCaret 单源）：失活/非 @ 起/
+ * 左端漂移 → 静默关层不代换（错切即时发生不可自愈）；token 内部左移
+ * 放行（部分代换分级形）；光标不动正例零回归
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -378,5 +383,53 @@ describe('Composer IME 组合态守卫', () => {
     expect(activeOption()).toBe('@a.ts');
     fireEvent.keyDown(textarea(), { key: 'ArrowDown', isComposing: true });
     expect(activeOption()).toBe('@a.ts'); // 组合期方向键不分形弹层导航
+  });
+});
+
+/* ---------------- 代换前置校验（光标无 onChange 漂移守门——tokenAtCaret 单源） ---------------- */
+
+describe('Composer 代换前置校验（光标漂移形——方向键/点击挪光标无 onChange 不重算）', () => {
+  it('光标左漂出 token（修前红）：开层后 selectionStart 置 0 → Enter 不代换——修前 slice(0,start)+item+slice(0) 文本重复段不可自愈/修后文本原样 + 层闭', async () => {
+    const files = vi.fn(async () => ['@x.txt']);
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} fetchFileCompletions={files} />);
+    typeAppend('see @a');
+    await screen.findAllByRole('option');
+    // 方向键/点击 textarea 挪光标均无 onChange——handleCaret 不重算，tokenStartRef 停在陈值 4
+    textarea().selectionStart = 0;
+    fireEvent.keyDown(textarea(), { key: 'Enter' });
+    expect(textarea().value).toBe('see @a'); // 修前红：错切即时发生（'see @x.txtsee @a' 重复段）
+    expect(screen.queryByRole('listbox')).toBeNull(); // token 失活静默关层（同 handleCaret 语义）
+  });
+
+  it('光标远漂入行首另一 @ token（修前红）：token 左端漂移（重提 start=0 ≠ 陈值 7）→ Enter 不代换只关层', async () => {
+    const files = vi.fn(async () => ['@x.txt']);
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} fetchFileCompletions={files} />);
+    typeAppend('@b see @a'); // 开层 token = 尾部 '@a'（tokenStartRef 陈值 7）
+    await screen.findAllByRole('option');
+    textarea().selectionStart = 2; // 挪入行首另一 token '@b' 尾——重提 token 左端 0 ≠ 7
+    fireEvent.keyDown(textarea(), { key: 'Enter' });
+    expect(textarea().value).toBe('@b see @a'); // 修前红：区间错切吞段（'@b see @x.txt see @a' 错切形）
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('token 内部左移放行（分级形行为锁）：@abc 光标在 b 前——提取 @ab 仍 @ 起且左端匹配 → 部分代换（用户可见可改）', async () => {
+    const files = vi.fn(async () => ['@x.txt']);
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} fetchFileCompletions={files} />);
+    typeAppend('see @abc');
+    await screen.findAllByRole('option');
+    textarea().selectionStart = 6; // token '@abc' 内部（'a' 与 'b' 之间）——左端不漂
+    fireEvent.keyDown(textarea(), { key: 'Enter' });
+    expect(textarea().value).toBe('see @x.txtbc'); // token 前缀 @a 被代换、尾段 bc 保留——部分代换形
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('正例零回归：光标不动 Enter 照常代换关层', async () => {
+    const files = vi.fn(async () => ['@x.txt']);
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} fetchFileCompletions={files} />);
+    typeAppend('see @a');
+    await screen.findAllByRole('option');
+    fireEvent.keyDown(textarea(), { key: 'Enter' });
+    expect(textarea().value).toBe('see @x.txt');
+    expect(screen.queryByRole('listbox')).toBeNull();
   });
 });
