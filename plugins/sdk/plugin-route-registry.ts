@@ -75,7 +75,8 @@ interface PluginRouteEntry {
   /**
    * 面在场受理时的活面摘除 fn（晚注册路受理即得；构造期注入路的摘除 fn
    * 被开面序丢弃——attachFace 按键回绑补全〔67 轮批注〕，否则 releaseFor
-   * 只清账不摘挂：旧 handler 滞留活面 + 换代重注册撞活面表 throw）
+   * 只清账不摘挂：旧 handler 滞留活面 + 换代重注册撞活面表 throw）。换面
+   * re-attach 时随面覆写（75 轮批注——旧绑恒指死面则新面路由滞留）
    */
   removeLive?: () => void;
 }
@@ -193,15 +194,18 @@ export function createPluginRouteRegistry(options: PluginRouteRegistryOptions = 
     attachFace(face) {
       if (liveFace === face) return; // 幂等保真（同面重复挂接 no-op）
       liveFace = face;
-      // —— 构造期注入路由的摘除 fn 回绑（03 §10.6 67 轮批注）：开面序
-      // `for (descriptor of routes) register(descriptor)` 丢弃返款摘除 fn，
-      // pending 期入账条目恒无 removeLive——releaseFor 只清账不摘挂（旧
-      // handler 滞留活面：uninstall 后仍 200）且换代重注册撞活面注册表
-      // throw（apply 整体失败直到重启）。本位按键向面查取既有摘除 fn 入账
-      // （只绑不摘——查取后 releaseFor/摘除 fn 即可连带摘挂）；已绑条目
-      // （晚注册路）与面内无此键形（键属他面）均不动 ——
+      // —— 构造期注入路由的摘除 fn 回绑（03 §10.6 67 轮批注 + 75 轮换面
+      // 勘正）：开面序 `for (descriptor of routes) register(descriptor)` 丢弃
+      // 返款摘除 fn，pending 期入账条目恒无 removeLive——releaseFor 只清账
+      // 不摘挂（旧 handler 滞留活面：uninstall 后仍 200）且换代重注册撞活面
+      // 注册表 throw（apply 整体失败直到重启）。本位按键向面查取既有摘除 fn
+      // 入账（只绑不摘——查取后 releaseFor/摘除 fn 即可连带摘挂）。
+      // 换面序（detachFace A → 新面 B 构造 routes=snapshot() replay → 本位）
+      // 须覆写旧绑：账内 removeLive 仍指死面 A，不覆写则 releaseFor 只摘 A
+      // 死表、B 路由滞留（75 轮批注「换面 re-attach 重绑」）；同面已绑形
+      // 幂等门已保 no-op（覆写为等价 fn 无行为差）；未命中形（键属他面——
+      // 新面内查无此键）保守留旧绑不动。
       for (const [key, entry] of [...entries]) {
-        if (entry.removeLive !== undefined) continue;
         const remover = face.routeRemoverOf(key);
         if (remover === undefined) continue;
         entries.set(key, { ...entry, removeLive: remover });

@@ -404,6 +404,94 @@ describe('两时点 replay（真 face e2e——受理与挂载解耦全链）', 
     expect(await res.text()).toBe('gen2'); // 新代 handler 应答（旧代滞留即 'gen1'）
   });
 
+  // —— 换面 re-attach 重绑（75 轮批注——锁1/锁2 两缺陷形在换面序复发）：
+  // 换面序 = attachFace(A) → 晚注册（removeLive 指 A）→ detachFace + A.stop →
+  // 新面 B 构造 routes=snapshot() replay → attachFace(B)。修前回绑循环
+  // `entry.removeLive !== undefined → continue` 跳过全部已绑条目——removeLive
+  // 仍指死面 A 的摘除 fn，releaseFor 只摘 A 死表：新面 B 路由滞留 + 换代同键
+  // 重注册撞 B 活面注册表 throw。
+  /** 换面序装具：A 面晚注册 → A 收口 → B 面构造期 replay 挂接（三入口换面形） */
+  async function faceSwapRig(): Promise<{
+    registry: ReturnType<typeof createPluginRouteRegistry>;
+    url: (p: string) => string;
+    token: string;
+  }> {
+    const { registry } = makeRegistry();
+    const faceA = createSdkHttpFace({ config: { tcp: { host: '127.0.0.1', port: 0 } }, bridge: makeBridge() });
+    faces.push(faceA);
+    await startFace(faceA);
+    registry.attachFace(faceA);
+    bind(registry, 'p').register(
+      baseDescriptor({
+        path: '/swap',
+        handler: (_req, res) => {
+          res.writeHead(200);
+          res.end('gen1');
+        },
+      }),
+    );
+    registry.detachFace(); // 面收口对称（openWebuiFace closer 形）
+    await faceA.stop();
+    // 新面 B：账面在而面全新——routes=snapshot() 构造期 replay（三入口同形）
+    const faceB = createSdkHttpFace({
+      config: { tcp: { host: '127.0.0.1', port: 0 } },
+      bridge: makeBridge(),
+      routes: [...registry.snapshot()],
+    });
+    faces.push(faceB);
+    const { url, token } = await startFace(faceB);
+    registry.attachFace(faceB);
+    return { registry, url, token };
+  }
+
+  it('锁3 换面序 releaseFor 连带摘净新面：→ 404（修前红：removeLive 指死面 A，B 路由滞留仍 200）', async () => {
+    const { registry, url, token } = await faceSwapRig();
+    const headers = { authorization: `Bearer ${token}` };
+    expect((await fetch(url('/plugins/p/swap'), { headers })).status).toBe(200); // 先证 B 面在场
+
+    registry.releaseFor('p'); // 修前：账内 removeLive 指已停 A——只清账不摘 B
+    expect((await fetch(url('/plugins/p/swap'), { headers })).status).toBe(404); // 修前红：200 滞留
+    expect(registry.snapshot()).toHaveLength(0); // 账面同空（两锁共证）
+  });
+
+  it('锁4 换面序换代同键重注册不 throw + 新代 handler 应答（修前红：撞 B 活面注册表「路由重复注册」）', async () => {
+    const { registry, url, token } = await faceSwapRig();
+    const headers = { authorization: `Bearer ${token}` };
+    expect((await fetch(url('/plugins/p/swap'), { headers })).status).toBe(200);
+
+    registry.releaseFor('p'); // 旧代回收（修前：B 活面键未释放）
+    expect(() =>
+      bind(registry, 'p').register(
+        baseDescriptor({
+          path: '/swap',
+          handler: (_req, res) => {
+            res.writeHead(200);
+            res.end('gen2');
+          },
+        }),
+      ),
+    ).not.toThrow(); // 修前红：受理 ⑤ liveFace.register 撞 B 表 throw
+    const res = await fetch(url('/plugins/p/swap'), { headers });
+    expect(await res.text()).toBe('gen2'); // 新代 handler 应答
+  });
+
+  it('attachFace 未命中保守留旧绑：面内无此键（键属他面形）不清绑，releaseFor 照常收账不 throw', async () => {
+    const { registry } = makeRegistry();
+    const faceA = createSdkHttpFace({ config: { tcp: { host: '127.0.0.1', port: 0 } }, bridge: makeBridge() });
+    faces.push(faceA);
+    await startFace(faceA);
+    registry.attachFace(faceA);
+    bind(registry, 'p').register(baseDescriptor({ path: '/x' })); // removeLive 指 A（真活绑）
+
+    // B 面无 routes——账内键在 B 面内查无（「键属他面」形）：保守留旧绑不清不换
+    const faceB = createSdkHttpFace({ config: { tcp: { host: '127.0.0.1', port: 0 } }, bridge: makeBridge() });
+    faces.push(faceB);
+    await startFace(faceB);
+    registry.attachFace(faceB);
+    expect(() => registry.releaseFor('p')).not.toThrow(); // 旧绑照走（A 真摘）+ 账面收净
+    expect(registry.snapshot()).toHaveLength(0);
+  });
+
   it('detachFace：面收口后受理回 pending 态（snapshot 在账、无活面挂载）', async () => {
     const { registry } = makeRegistry();
     const face = createSdkHttpFace({ config: { tcp: { host: '127.0.0.1', port: 0 } }, bridge: makeBridge() });
