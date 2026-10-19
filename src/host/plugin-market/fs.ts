@@ -24,6 +24,16 @@ export function createMarketFs(): MarketFs {
       mkdirSync(dirname(path), { recursive: true }); // 自责建父目录
       writeFileSync(path, text, 'utf8');
     },
+    // O_EXCL 独占建文件单发探测（源清单编辑锁取锁位——EEXIST 折 false 不抛）
+    openExclusive: (path, text) => {
+      try {
+        writeFileSync(path, text, { encoding: 'utf8', flag: 'wx' });
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false; // 在场
+        throw error;
+      }
+    },
     rename: (from, to) => {
       mkdirSync(dirname(to), { recursive: true });
       renameSync(from, to);

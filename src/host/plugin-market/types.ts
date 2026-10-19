@@ -197,6 +197,11 @@ export interface MarketFs {
   read(path: string): string | null;
   /** 写文本文件（实现自责建父目录） */
   write(path: string, text: string): void;
+  /**
+   * O_EXCL 独占建文件单发探测（03 §5.3 74 轮件2——源清单编辑锁取锁位）：
+   * true = 建成即持锁 / false = 在场（EEXIST）折档不抛；其余错误照抛。
+   */
+  openExclusive(path: string, text: string): boolean;
   /** 改名（同卷原子；市场层只用于账本 tmp+rename 原子写） */
   rename(from: string, to: string): void;
   /** 递归建目录 */

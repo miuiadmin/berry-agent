@@ -16,6 +16,12 @@ function memFs(initial: Record<string, string> = {}): MarketFs {
   return {
     read: (path) => files.get(path) ?? null,
     write: (path, text) => void files.set(path, text),
+    // O_EXCL 探测档（源清单编辑锁取锁位——74 轮件2：在场折 false 不抛）
+    openExclusive: (path, text) => {
+      if (files.has(path)) return false;
+      files.set(path, text);
+      return true;
+    },
     rename: (from, to) => {
       const text = files.get(from);
       if (text !== undefined) {

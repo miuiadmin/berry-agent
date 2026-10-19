@@ -1,10 +1,13 @@
 /**
  * host/plugin-market/registry —— 源清单账本 marketplaces.json（03 §9.6 源
- * 清单节）：文件域账本（数据目录根、不进 SQLite）；形状校验 fail-loud 不炸
- * 宿主（result 面）；原子写 tmp+rename（同 ledger 律）；纯 CRUD 基座。
+ * 清单节 + §5.3 74 轮件2 批注）：文件域账本（数据目录根、不进 SQLite）；
+ * 形状校验 fail-loud 不炸宿主（result 面）；原子写 tmp+rename（同 ledger
+ * 律）；纯 CRUD 基座；三写位（add/update/remove 落账段）共享编辑锁包裹
+ * 面（跨进程 RMW 互斥——锁原语 exec 件单源消费）。
  *
  * 零源出厂：文件缺席 = 空清单（首启零文件零报错——不预置任何源）。
  */
+import { editLockBusyText, withEditLock, type EditLockFs } from '../../../plugins/exec/index.js';
 import {
   isValidNameSegment,
   type MarketplaceSourceRecord,
@@ -16,6 +19,35 @@ import {
 /** 源清单文件路径：数据目录根下 marketplaces.json */
 export function marketplacesFilePath(dataDir: string): string {
   return `${dataDir}/marketplaces.json`;
+}
+
+/**
+ * MarketFs → 锁原语 fs 面适配（结构异源不直传）：unlink 折 rm（force——
+ * 缺席静默同律）、mkdir 忽略 options（真身恒 recursive）；read/openExclusive
+ * 两面签名零差直递。
+ */
+function editLockFsOf(fs: MarketFs): EditLockFs {
+  return {
+    read: (path) => fs.read(path),
+    openExclusive: (path, text) => fs.openExclusive(path, text),
+    unlink: (path) => fs.rm(path),
+    mkdir: (path) => fs.mkdir(path),
+  };
+}
+
+/**
+ * 源清单编辑锁（03 §5.3 74 轮件2——三写位共用收口）：包住「读 → 改 → 写回」
+ * 整段 RMW；锁不可得 throw EditLockBusy（调用腿折各自失败回执形——add 折
+ * result 拒文 / update 折 failed / remove 折 writeErr+退 1，fail-loud 拒写
+ * 不静默）。
+ */
+export function withSourcesEditLock<T>(dataDir: string, fs: MarketFs, body: () => T): T {
+  return withEditLock(editLockFsOf(fs), marketplacesFilePath(dataDir), body);
+}
+
+/** 锁超限拒文（源清单载体名位——词面单源 editLockBusyText） */
+export function sourcesLockBusyNote(lockPath: string): string {
+  return editLockBusyText('市场源清单', lockPath);
 }
 
 /** 读侧产物：坏形 fail-loud（message 归因）——不静默空、不抛 */

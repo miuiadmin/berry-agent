@@ -29,7 +29,13 @@
 import { expandGitUri, expandHomePath } from './classify.js';
 import { loadCatalogFromRoot, parseMarketplaceCatalog } from './catalog.js';
 import { isCatalogStale } from './ttl.js';
-import { readMarketplaceSources, writeMarketplaceSources } from './registry.js';
+import {
+  readMarketplaceSources,
+  sourcesLockBusyNote,
+  withSourcesEditLock,
+  writeMarketplaceSources,
+} from './registry.js';
+import { EditLockBusy } from '../../../plugins/exec/index.js';
 import { marketInstall, resolveMarketLedgerId } from './install.js';
 import { parseMarketPluginId } from './types.js';
 import type { MarketFetchFace, MarketFs, MarketplacePluginEntry, MarketplaceSourceRecord } from './types.js';
@@ -92,7 +98,9 @@ function copyTree(fs: MarketFs, src: string, dst: string): void {
  * 永不 promote，既往失败残影亦先清；rm 契约 force 缺席不抛）。
  */
 function promoteTree(fs: MarketFs, src: string, dst: string): void {
-  const staging = `${dst}.staging`;
+  // staging 带 pid 后缀（74 轮件2——跨进程并发刷新不互截同一中转路径：rm 他
+  // 进程半拷贝 = 毁对方中转；同进程内各刷新腿互不并发）
+  const staging = `${dst}.staging-${process.pid}`;
   try {
     fs.rm(staging); // 既往失败残影清场（幂等）
     copyTree(fs, src, staging);
@@ -103,23 +111,35 @@ function promoteTree(fs: MarketFs, src: string, dst: string): void {
   }
 }
 
-/** 源清单 record 落账（读-改-写——同名替换保位序；失败位调用方已先行不落） */
+/**
+ * 源清单 record 落账（03 §5.3 74 轮件2——源清单编辑锁包住「读-改-写回」
+ * 整段 RMW：跨进程 add/remove/update 并发写不丢更新；失败位调用方已先行
+ * 不落）。锁重试超限 = throw（refreshMarketplaceSource 既有 catch 收口
+ * failed——fail-loud 拒写不静默）。
+ */
 function commitRecordUpdate(
   dataDir: string,
   fs: MarketFs,
   name: string,
   patch: Partial<Pick<MarketplaceSourceRecord, 'commit' | 'catalogPath' | 'updatedAt'>>,
 ): void {
-  const read = readMarketplaceSources(dataDir, fs);
-  // 坏账本拒写 fail-loud（防覆盖）：读-改-写位对坏读直接抛——空兜底落盘 =
-  // 单笔 patch 抹除全账本，且落出的合法形空账本比坏文件更隐蔽（后续读恒
-  // ok、零源、无报错指路）；与读侧「不静默空」、add 位 checkNameClash
-  // 「坏形拒改」同律。调用方 catch 收口 failed——诚实拒不掩盖
-  if (!read.ok) {
-    throw new Error(`源清单文件格式异常：${read.message}——为防覆盖未写入`);
+  try {
+    withSourcesEditLock(dataDir, fs, () => {
+      const read = readMarketplaceSources(dataDir, fs);
+      // 坏账本拒写 fail-loud（防覆盖）：读-改-写位对坏读直接抛——空兜底落盘 =
+      // 单笔 patch 抹除全账本，且落出的合法形空账本比坏文件更隐蔽（后续读恒
+      // ok、零源、无报错指路）；与读侧「不静默空」、add 位 checkNameClash
+      // 「坏形拒改」同律。调用方 catch 收口 failed——诚实拒不掩盖
+      if (!read.ok) {
+        throw new Error(`源清单文件格式异常：${read.message}——为防覆盖未写入`);
+      }
+      const next = read.sources.map((record) => (record.name === name ? { ...record, ...patch } : record));
+      writeMarketplaceSources(dataDir, next, fs);
+    });
+  } catch (error) {
+    if (error instanceof EditLockBusy) throw new Error(sourcesLockBusyNote(error.lockPath)); // 锁超限折 failed 报文
+    throw error;
   }
-  const next = read.sources.map((record) => (record.name === name ? { ...record, ...patch } : record));
-  writeMarketplaceSources(dataDir, next, fs);
 }
 
 /**
@@ -203,7 +223,7 @@ export async function refreshMarketplaceSource(
       swapping = true; // 换血窗开——staging promote 起（失败位旧缓存原样不动）
       // 换血 promote 同律（单文件腿直写中转，不借 copyTree）：写完整后 rm 旧
       // 缓存 + rename 落位——中途失败旧缓存原样不动（三源同律）
-      const stagingDir = `${cacheDir}.staging`;
+      const stagingDir = `${cacheDir}.staging-${process.pid}`; // pid 后缀——跨进程不互截（同 promoteTree 律）
       try {
         fs.rm(stagingDir); // 既往失败残影清场（幂等）
         fs.mkdir(stagingDir);

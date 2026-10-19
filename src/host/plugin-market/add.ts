@@ -16,7 +16,14 @@
  */
 import { classifyMarketplaceSource, expandGitUri, expandHomePath } from './classify.js';
 import { loadCatalogFromRoot, parseMarketplaceCatalog } from './catalog.js';
-import { addSourceRecord, readMarketplaceSources, writeMarketplaceSources } from './registry.js';
+import {
+  addSourceRecord,
+  readMarketplaceSources,
+  sourcesLockBusyNote,
+  withSourcesEditLock,
+  writeMarketplaceSources,
+} from './registry.js';
+import { EditLockBusy } from '../../../plugins/exec/index.js';
 import type {
   MarketFetchFace,
   MarketFs,
@@ -283,23 +290,32 @@ function checkNameClash(dataDir: string, fs: MarketFs, name: string): string | n
 }
 
 /**
- * 落账（源清单原子写——读-改-写全链在调用方串行域内）。返回 null = 落账
- * 成功；非 null = result 面诚实拒报文（mp 收尾批修——同源并发 add 竞态窗
- * 兜底）：checkNameClash 通过后、落账前他 add 并发插入同名 record 时，
- * addSourceRecord 的同名 throw 会裸逃出 result 面（CLI 呈现为未捕获异常）
- * ——落账位保底双检（与 mountRow 同律），撞名译为与前置检查同词面的拒。
- * 读位坏形亦拒改不落（原先 base=[] 静默洗掉既有清单——同查不拒即丢账）。
- * 拒时不回清缓存目录——竞态赢家可能已 owns 该缓存位（rm = 毁他源快照）。
+ * 落账（03 §5.3 74 轮件2——源清单编辑锁包住「读-改-写回」整段 RMW：跨进程
+ * add/remove/update 并发写不丢更新）。返回 null = 落账成功；非 null = result
+ * 面诚实拒报文（mp 收尾批修——同源并发 add 竞态窗兜底）：checkNameClash
+ * 通过后、落账前他 add 并发插入同名 record 时，addSourceRecord 的同名
+ * throw 会裸逃出 result 面（CLI 呈现为未捕获异常）——落账位保底双检（与
+ * mountRow 同律），撞名译为与前置检查同词面的拒。读位坏形亦拒改不落
+ * （原先 base=[] 静默洗掉既有清单——同查不拒即丢账）。锁重试超限 = 拒报文
+ * 不写（fail-loud——宁拒服务不丢数据）。拒时不回清缓存目录——竞态赢家
+ * 可能已 owns 该缓存位（rm = 毁他源快照）。
  */
 function commitRecord(dataDir: string, fs: MarketFs, record: MarketplaceSourceRecord): string | null {
-  const read = readMarketplaceSources(dataDir, fs);
-  if (!read.ok) {
-    return sourcesRejectedNote(read.message); // 坏形拒改——句尾族单源冒号形（与前置检查同词面）
+  try {
+    return withSourcesEditLock(dataDir, fs, () => {
+      const read = readMarketplaceSources(dataDir, fs);
+      if (!read.ok) {
+        return sourcesRejectedNote(read.message); // 坏形拒改——句尾族单源冒号形（与前置检查同词面）
+      }
+      if (read.sources.some((existing) => existing.name === record.name)) {
+        return nameClashMessage(record.name); // 同名竞态窗兜底——前置检查与落账非原子
+      }
+      const next = addSourceRecord({ version: 1, marketplaces: read.sources }, record);
+      writeMarketplaceSources(dataDir, next.marketplaces, fs);
+      return null;
+    });
+  } catch (error) {
+    if (error instanceof EditLockBusy) return sourcesLockBusyNote(error.lockPath); // 锁超限拒写
+    throw error;
   }
-  if (read.sources.some((existing) => existing.name === record.name)) {
-    return nameClashMessage(record.name); // 同名竞态窗兜底——前置检查与落账非原子
-  }
-  const next = addSourceRecord({ version: 1, marketplaces: read.sources }, record);
-  writeMarketplaceSources(dataDir, next.marketplaces, fs);
-  return null;
 }

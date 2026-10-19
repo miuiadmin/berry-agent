@@ -632,6 +632,23 @@ describe('CLI 动词面（拒形谱 + 诚实拒）', () => {
     expect(sources.ok && sources.sources.some((r) => r.name === 'rm-order-market')).toBe(true);
   });
 
+  // ── 源清单编辑锁（03 §5.3 74 轮件2——remove 落账段 RMW 互斥，修前红区）──
+  it('remove 源清单锁忙：编辑锁在场（活 pid）→ 拒写退 1 + stderr 带锁路径 + 账本缓存双原样——修前红：无锁直删退 0', async () => {
+    const stage = stageOf('rm-lock-busy');
+    const repo = seedMarketRepo('rm-lock-market');
+    expect(await runMarketplaceEntry({ sub: 'add', source: repo }, stage.options)).toBe(0);
+    // 预置活 pid 编辑锁（本进程 pid——判活真）：remove 的读-改-写回整段应拒写
+    writeFileSync(join(stage.options.dataDir, 'marketplaces.json.lock'), `${process.pid}\n`);
+    const code = await runMarketplaceEntry({ sub: 'remove', name: 'rm-lock-market' }, stage.options);
+    expect(code).toBe(1); // 修前红：0——无锁概念直删成功
+    expect(stage.err.join('\n')).toContain('正被另一进程编辑');
+    expect(stage.err.join('\n')).toContain('marketplaces.json.lock');
+    // 锁拒发生在任何写前——账本与缓存双原样（非「可能已部分清理」形）
+    const sources = readMarketplaceSources(stage.options.dataDir, createMarketFs());
+    expect(sources.ok && sources.sources.some((r) => r.name === 'rm-lock-market')).toBe(true);
+    expect(existsSync(join(stage.options.dataDir, 'marketplaces', 'rm-lock-market'))).toBe(true);
+  });
+
   it('install 坏寻址拒退 1（无 @ 段）', async () => {
     const stage = stageOf('bad-install');
     const code = await runMarketplaceEntry({ sub: 'install', id: 'no-at' }, stage.options);

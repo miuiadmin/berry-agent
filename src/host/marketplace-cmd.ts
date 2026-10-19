@@ -43,11 +43,14 @@ import {
   removeSourceRecord,
   sanitizeBlock,
   sanitizeLine,
+  sourcesLockBusyNote,
   sourcesRejectedNote,
   updateMarketplaceSources,
   upgradeMarketplacePlugins,
+  withSourcesEditLock,
   writeMarketplaceSources,
 } from './plugin-market/index.js';
+import { EditLockBusy } from '../../plugins/exec/index.js';
 import { marketInstall, resolveMarketLedgerId } from './plugin-market/install.js';
 import { createDefaultSpawnRunner } from './plugin-install.js';
 import type { InstallExecutorDeps } from './plugin-install.js';
@@ -179,36 +182,49 @@ function runRemove(name: string, options: MarketplaceEntryOptions): number {
   const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
   const dataDir = options.dataDir ?? resolveDataDir();
   const fs = createMarketFs();
-  const read = readMarketplaceSources(dataDir, fs);
-  if (!read.ok) {
-    // 坏形拒改报文走 plugin-market 域单源（2026-10-04 句尾族收编——与 add
-    // 两读位同词面冒号定界形，散拷贝收敛）
-    writeErr(sourcesRejectedNote(read.message));
-    return 1;
-  }
-  let next: ReturnType<typeof removeSourceRecord>;
+  // 03 §5.3 74 轮件2——源清单编辑锁包住「读 → 删 → 清缓存 → 写回」整段 RMW
+  //（跨进程 add/remove/update 并发写不丢更新）；锁超限折 writeErr+退 1
+  //（fail-loud 拒写——源清单与缓存都不动）
   try {
-    next = removeSourceRecord({ version: 1, marketplaces: read.sources }, name);
-  } catch (err) {
-    writeErr(err instanceof Error ? err.message : String(err)); // 点名失败诚实（查无不静默幂等）
-    return 1;
-  }
-  // 两步清场定序（03 §9.6 定形注③）：**先清缓存目录再落账**——两步间中断的
-  // 残留方向翻为「记录在场 + 缓存缺席」（良性态：discover 缺席指路、update
-  // 可自愈重物化）；反序的「记录已删 + 孤儿缓存目录」不可收口（读侧账本
-  // 驱动不可见，只能手工清）。任一步 IO 失败 = result 面诚实拒退 1（不裸
-  // 抛、不半报成功——原子写 rename 未达即账本原样）
-  try {
-    fs.rm(join(dataDir, 'marketplaces', name)); // 缓存清场（force——幂等）
-    writeMarketplaceSources(dataDir, next.marketplaces, fs);
+    return withSourcesEditLock(dataDir, fs, () => {
+      const read = readMarketplaceSources(dataDir, fs);
+      if (!read.ok) {
+        // 坏形拒改报文走 plugin-market 域单源（2026-10-04 句尾族收编——与 add
+        // 两读位同词面冒号定界形，散拷贝收敛）
+        writeErr(sourcesRejectedNote(read.message));
+        return 1;
+      }
+      let next: ReturnType<typeof removeSourceRecord>;
+      try {
+        next = removeSourceRecord({ version: 1, marketplaces: read.sources }, name);
+      } catch (err) {
+        writeErr(err instanceof Error ? err.message : String(err)); // 点名失败诚实（查无不静默幂等）
+        return 1;
+      }
+      // 两步清场定序（03 §9.6 定形注③）：**先清缓存目录再落账**——两步间中断的
+      // 残留方向翻为「记录在场 + 缓存缺席」（良性态：discover 缺席指路、update
+      // 可自愈重物化）；反序的「记录已删 + 孤儿缓存目录」不可收口（读侧账本
+      // 驱动不可见，只能手工清）。任一步 IO 失败 = result 面诚实拒退 1（不裸
+      // 抛、不半报成功——原子写 rename 未达即账本原样）
+      try {
+        fs.rm(join(dataDir, 'marketplaces', name)); // 缓存清场（force——幂等）
+        writeMarketplaceSources(dataDir, next.marketplaces, fs);
+      } catch (error) {
+        writeErr(
+          `移除失败（${error instanceof Error ? error.message : String(error)}）——源清单与缓存可能已部分清理，请重试 berry marketplace remove ${name}`,
+        );
+        return 1;
+      }
+      writeOut(`已移除市场源：${name}（缓存已清——已安装的插件不受影响，安装来源记录保留）`);
+      return 0;
+    });
   } catch (error) {
-    writeErr(
-      `移除失败（${error instanceof Error ? error.message : String(error)}）——源清单与缓存可能已部分清理，请重试 berry marketplace remove ${name}`,
-    );
-    return 1;
+    if (error instanceof EditLockBusy) {
+      writeErr(sourcesLockBusyNote(error.lockPath));
+      return 1;
+    }
+    throw error;
   }
-  writeOut(`已移除市场源：${name}（缓存已清——已安装的插件不受影响，安装来源记录保留）`);
-  return 0;
 }
 
 /** list：源清单 + 逐源条目计数（聚合读侧——缓存即真相；不传 fetch 恒零网络） */

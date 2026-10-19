@@ -23,6 +23,8 @@ export {
   marketplacesFilePath,
   readMarketplaceSources,
   removeSourceRecord,
+  sourcesLockBusyNote,
+  withSourcesEditLock,
   writeMarketplaceSources,
 } from './registry.js';
 export type { ReadSourcesResult } from './registry.js';

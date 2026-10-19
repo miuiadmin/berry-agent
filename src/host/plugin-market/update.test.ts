@@ -43,6 +43,12 @@ function memFs(initial: Record<string, string> = {}): MarketFs {
   return {
     read: (path) => files.get(path) ?? null,
     write: (path, text) => void files.set(path, text),
+    // O_EXCL 探测档（源清单编辑锁取锁位——74 轮件2：在场折 false 不抛）
+    openExclusive: (path, text) => {
+      if (files.has(path)) return false;
+      files.set(path, text);
+      return true;
+    },
     rename: (from, to) => {
       const text = files.get(from);
       if (text !== undefined) {
@@ -203,8 +209,8 @@ describe('update 服务面——git 源（memFs + 注假 fetch）', () => {
     const newText = catalogText('official', [{ name: 'p-one', source: './plugins/one' }]);
     const fetch = gitFetchReturning(base, 'bbb2222', newText);
     // 缓存目录写失败形（ENOSPC/EACCED 同族）：包装 fs 对缓存位写入抛——staging
-    // promote 律下拦截面前缀须盖 official/ 与 official.staging/ 两目录（中转
-    // 同源盘位，无尾斜杠前缀即双盖）
+    // promote 律下拦截面前缀须盖 official/ 与 official.staging-<pid>/ 两目录
+    // （中转同源盘位，无尾斜杠前缀即双盖——含 pid 变体）
     const fs: MarketFs = {
       ...base,
       write: (path, text) => {
@@ -219,7 +225,7 @@ describe('update 服务面——git 源（memFs + 注假 fetch）', () => {
     expect(base.isDir('/tmp/clone')).toBe(false);
     // 旧缓存原样不动（staging promote 律——失败刷新不得自毁既有缓存）+ 中转零残影
     expect(base.read('/data/marketplaces/official/.claude-plugin/marketplace.json')).toBe(catalogText('official', []));
-    expect(base.readdir('/data/marketplaces/official.staging')).toBeNull();
+    expect(base.readdir(`/data/marketplaces/official.staging-${process.pid}`)).toBeNull();
     // record 不动（不虚报刷新）
     const sources = readMarketplaceSources('/data', base);
     expect(sources.ok && sources.sources[0]).toMatchObject({ commit: 'aaa1111', updatedAt: T0.toISOString() });
@@ -866,7 +872,8 @@ describe('mp 收尾批修复批——update 面回归锁', () => {
     writeMarketplaceSources('/data', [gitBaseRecord], fs);
     // fetch 物化克隆正常、promote 拷贝写位抛（模拟盘满 ENOSPC——真抛源为
     // fs.write/mkdir/rm 侧；read/readdir 缺席语义返 null 不抛）。拦截面须盖
-    // official/ 与 official.staging/ 两目录（staging promote 中转同源盘位）
+    // official/ 与 official.staging-<pid>/ 两目录（staging promote 中转同源盘位，
+    // 无尾斜杠前缀天然盖 pid 变体）
     const flaky: MarketFs = {
       ...fs,
       write: (path, text) => {
@@ -889,7 +896,7 @@ describe('mp 收尾批修复批——update 面回归锁', () => {
     // 缓存：upgrade「刷新失败按既有缓存对拍」降级律的故障防护前提）
     expect(flaky.read('/data/marketplaces/official/.claude-plugin/marketplace.json')).toBe(catalogText('official', []));
     // 半拷贝永不 promote——staging 中转清场（成或湮，无残影）
-    expect(flaky.readdir('/data/marketplaces/official.staging')).toBeNull();
+    expect(flaky.readdir(`/data/marketplaces/official.staging-${process.pid}`)).toBeNull();
     // record 不动（不虚报刷新）
     const sources = readMarketplaceSources('/data', flaky);
     expect(sources.ok && sources.sources[0]).toMatchObject({
@@ -925,7 +932,7 @@ describe('mp 收尾批修复批——update 面回归锁', () => {
     if (outcome.status === 'failed') expect(outcome.message).toContain('update'); // 自愈指路注记
     // tmp 克隆场清场 + staging 中转清场（promote 已 rename 落位——中转不复在场）
     expect(flaky.isDir('/tmp/clone')).toBe(false);
-    expect(flaky.readdir('/data/marketplaces/official.staging')).toBeNull();
+    expect(flaky.readdir(`/data/marketplaces/official.staging-${process.pid}`)).toBeNull();
     // 已 promote 新内容保持在场（03 §9.6 修笔：record 落后于内容为良性窗——
     // 下次 update commit 对拍不等自然收敛，不采「清场回缺席」形）
     expect(flaky.read('/data/marketplaces/official/.claude-plugin/marketplace.json')).toBe(upstream);
@@ -978,7 +985,7 @@ describe('mp 收尾批修复批——update 面回归锁', () => {
     expect(flaky.read('/data/marketplaces/zeta/keep-me.txt')).toBe('old');
     expect(flaky.read('/data/marketplaces/zeta/.claude-plugin/marketplace.json')).toBe(catalogText('zeta', []));
     // staging 中转清场（半拷贝永不 promote——中转成或湮）
-    expect(flaky.readdir('/data/marketplaces/zeta.staging')).toBeNull();
+    expect(flaky.readdir(`/data/marketplaces/zeta.staging-${process.pid}`)).toBeNull();
     const sources = readMarketplaceSources('/data', flaky);
     expect(sources.ok && sources.sources[0]).toMatchObject({ updatedAt: T0.toISOString() });
   });
@@ -1020,7 +1027,7 @@ describe('mp 收尾批修复批——update 面回归锁', () => {
     expect(outcome.status).toBe('failed');
     // 旧缓存原样不动 + staging 中转清场
     expect(flaky.read('/data/marketplaces/url-two/marketplace.json')).toBe(catalogText('url-two', []));
-    expect(flaky.readdir('/data/marketplaces/url-two.staging')).toBeNull();
+    expect(flaky.readdir(`/data/marketplaces/url-two.staging-${process.pid}`)).toBeNull();
     const sources = readMarketplaceSources('/data', flaky);
     expect(sources.ok && sources.sources[0]).toMatchObject({ updatedAt: T0.toISOString() });
   });
@@ -1104,7 +1111,7 @@ describe('mp 收尾批修复批——upgrade 面回归锁', () => {
     seedMarket(dataDir, [{ name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg', version: '1.2.3' } }]);
     const { spawn } = npmFakeSpawn(dataDir);
     await installEntry(dataDir, 'demo-pkg@official', spawn);
-    // 过龄源 + 刷新腿 promote 写位失败（armed 拦截面盖 official/ 与 official.staging/）
+    // 过龄源 + 刷新腿 promote 写位失败（armed 拦截面盖 official/ 与 staging pid 变体）
     const real = createMarketFs();
     let armed = false;
     const flaky: MarketFs = {
@@ -1155,7 +1162,7 @@ describe('mp 收尾批修复批——upgrade 面回归锁', () => {
     expect(real.read(join(dataDir, 'marketplaces', 'official', '.claude-plugin', 'marketplace.json'))).toContain(
       '1.2.3',
     );
-    expect(real.readdir(join(dataDir, 'marketplaces', 'official.staging'))).toBeNull();
+    expect(real.readdir(join(dataDir, 'marketplaces', `official.staging-${process.pid}`))).toBeNull();
   });
 
   it('id 漂移换装：upgrade 回执 idDrift 注记 + 撤账 + 启用行随迁（修前红——回执旧 id 无漂移指路）', async () => {
@@ -1196,5 +1203,33 @@ describe('mp 收尾批修复批——upgrade 面回归锁', () => {
     expect(ledger[0]).toMatchObject({ id: 'demo-pkg-next', market: { name: 'official', entry: 'demo-pkg' } });
     const rows = readEnabledRowsForEdit(dataDir, createPluginStoreFs());
     expect(rows.ok && rows.rows.map((row) => row.id)).toEqual(['demo-pkg-next']);
+  });
+});
+
+/* ── 源清单编辑锁（03 §5.3 74 轮件2——refresh 落账位 RMW 互斥，修前红区）── */
+describe('update 服务面——源清单编辑锁（74 轮件2：落账位锁忙拒写）', () => {
+  it('锁在场（活 pid）→ commitRecordUpdate 拒写 → failed 结局带锁忙报文 + record 不动——修前红：updated 落账成功', async () => {
+    const fs = memFs({
+      '/data/marketplaces/official/.claude-plugin/marketplace.json': catalogText('official', []),
+      // 预置活 pid 编辑锁（本进程 pid——判活真）
+      '/data/marketplaces.json.lock': `${process.pid}\n`,
+    });
+    writeMarketplaceSources('/data', [gitBaseRecord], fs);
+    const newText = catalogText('official', [{ name: 'p-one', source: './plugins/one' }]);
+    const outcome = await refreshMarketplaceSource(
+      { dataDir: '/data', fs, fetch: gitFetchReturning(fs, 'bbb2222', newText), now: () => T1 },
+      gitBaseRecord,
+    );
+    expect(outcome.status).toBe('failed'); // 修前红：updated——无锁概念落账成功
+    if (outcome.status === 'failed') {
+      expect(outcome.message).toContain('正被另一进程编辑');
+      expect(outcome.message).toContain('/data/marketplaces.json.lock');
+    }
+    // record 不动（不虚报刷新——锁拒不落账）
+    const sources = readMarketplaceSources('/data', fs);
+    expect(sources.ok && sources.sources[0]).toMatchObject({
+      commit: 'aaa1111',
+      updatedAt: T0.toISOString(),
+    });
   });
 });

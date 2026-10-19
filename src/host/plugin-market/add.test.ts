@@ -16,6 +16,12 @@ function memFs(initial: Record<string, string> = {}): MarketFs {
   return {
     read: (path) => files.get(path) ?? null,
     write: (path, text) => void files.set(path, text),
+    // O_EXCL 探测档（源清单编辑锁取锁位——74 轮件2：在场折 false 不抛）
+    openExclusive: (path, text) => {
+      if (files.has(path)) return false;
+      files.set(path, text);
+      return true;
+    },
     rename: (from, to) => {
       const text = files.get(from);
       if (text === undefined) throw new Error(`ENOENT: ${from}`);
@@ -488,5 +494,69 @@ describe('add 编舞——缓存落位 IO 失败零残影（写位 try 包裹：
     if (!result.ok) expect(result.message).toContain('ENOSPC');
     expect(fs.read('/data/marketplaces.json')).toBeNull();
     expect(fs.isDir('/data/marketplaces/url-one')).toBe(false);
+  });
+});
+
+/* ── 源清单编辑锁（03 §5.3 74 轮件2——marketplaces.json RMW 跨进程互斥，修前红区）
+ * 修前形：commitRecord 读-改-写无互斥——并发 add 交错时后写者以陈旧读整覆写、
+ * 先写者的源记录被静默吞（丢更新）；锁在场时也无拒写位。
+ * 修后形：读-改-写整段入编辑锁；锁忙折 result 面拒文（不静默吞、不无锁写）。 */
+describe('add 编舞——源清单编辑锁（74 轮件2：RMW 整段互斥）', () => {
+  /** 第二市场仓 fixture（交错测试的 B 腿源——catalog 自报名 beta） */
+  const BETA_MARKET = {
+    '/src/beta/.claude-plugin/marketplace.json': JSON.stringify({
+      name: 'beta',
+      owner: { name: 'o' },
+      plugins: [],
+    }),
+  };
+
+  it('并发 add 交错：A 落账窗内 B 嵌入落账 → B 被锁拒（不静默吞 A 的账）——修前红：B 无锁成功且随即被 A 覆写吞没', async () => {
+    const base = memFs({ ...LOCAL_MARKET, ...BETA_MARKET });
+    // 交错注入：A 的 commitRecord 写回位（tmp→marketplaces.json rename）钩入
+    // B 的完整 add（local 腿全同步——嵌套调用即真实交错序）
+    let armed = true;
+    let nested: ReturnType<typeof addMarketplaceSource> | null = null;
+    const racingFs: MarketFs = {
+      ...base,
+      rename: (from, to) => {
+        if (armed && to === '/data/marketplaces.json') {
+          armed = false;
+          nested = addMarketplaceSource({ dataDir: '/data', fs: racingFs, now }, '/src/beta');
+        }
+        return base.rename(from, to);
+      },
+    };
+    const aPromise = addMarketplaceSource({ dataDir: '/data', fs: racingFs, now }, '/src/alpha');
+    const aSettled = await aPromise.then(
+      () => 'fulfilled',
+      () => 'rejected',
+    );
+    const bResult = await nested!;
+    // 修后：A 全链成功（B 被锁拒不搅局）；修前红：B 抢跑消耗同 pid tmp → A 的
+    // rename 撞 ENOENT 裸抛（rejected）
+    expect(aSettled).toBe('fulfilled');
+    // 修后：B 诚实拒（锁忙报文）；修前红：true——B 无锁写入「成功」（终态却
+    // 只剩 beta，alpha 被吞——丢更新面全暴露）
+    expect(bResult.ok).toBe(false);
+    if (!bResult.ok) {
+      expect(bResult.message).toContain('正被另一进程编辑');
+      expect(bResult.message).toContain('/data/marketplaces.json.lock');
+    }
+    // 终态账本：A 的落账在场、B 未入账（修前红：['beta']——A 的 alpha 被吞）
+    const doc = JSON.parse(base.read('/data/marketplaces.json')!) as { marketplaces: { name: string }[] };
+    expect(doc.marketplaces.map((m) => m.name)).toEqual(['alpha']);
+  });
+
+  it('锁忙拒形：编辑锁在场（活 pid）→ 落账位拒写折 result 面报文（带锁路径），不落账不无锁写——修前红：无锁直写成功', async () => {
+    const fs = memFs({ ...LOCAL_MARKET, '/data/marketplaces.json.lock': `${process.pid}\n` });
+    const result = await addMarketplaceSource({ dataDir: '/data', fs, now }, '/src/alpha');
+    expect(result.ok).toBe(false); // 修前红：true——无锁概念直写
+    if (!result.ok) {
+      expect(result.message).toContain('正被另一进程编辑');
+      expect(result.message).toContain('/data/marketplaces.json.lock');
+    }
+    // 拒写不落账（宁拒服务不丢数据——绝不退化为无锁写）
+    expect(fs.read('/data/marketplaces.json')).toBeNull();
   });
 });
