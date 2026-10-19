@@ -106,6 +106,18 @@ export interface ProcessRegistry {
   list(): readonly ProcessEntry[];
 }
 
+/**
+ * 登记簿面 + 回填腿（74 轮件1——回填零持久化专用扩展面）。
+ * createProcessRegistry 实际返回形即此面（SpawnPipeline.registry 契约随之）。
+ */
+export interface RegistryWithBackfill extends ProcessRegistry {
+  /**
+   * 回填条目进内存账（零持久化）：孤儿清扫读到的残留册回填用——回填即
+   * 持久化会以本进程（近乎空的）快照重写文件、误抹并发活实例的账本。
+   */
+  backfill(entry: ProcessEntry): void;
+}
+
 /* ------------------------------------------------------------------ */
 /* 长存活双工子进程（三桥 stdio 面——MCP/LSP 桥的消费原语；04 §11 三桥   */
 /* 挂点表「stdio 子进程 = spawn 管道 + 登记簿同册」的承载腿）            */
@@ -170,6 +182,6 @@ export interface SpawnPipeline {
   run(request: SpawnRequest): Promise<ExecResult>;
   /** 长存活双工子进程（三桥 stdio 桥——同册登记、同律 env 白名单与进程组） */
   spawnInteractive(request: InteractiveSpawnRequest): InteractiveChild;
-  /** 子进程登记簿（宿主启动期孤儿清扫消费） */
-  readonly registry: ProcessRegistry;
+  /** 子进程登记簿（宿主启动期孤儿清扫消费——含回填腿的实际面） */
+  readonly registry: RegistryWithBackfill;
 }

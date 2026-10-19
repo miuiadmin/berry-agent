@@ -36,6 +36,38 @@ async function until(predicate: () => boolean, ms = 2000): Promise<void> {
   expect.unreachable('轮询超时');
 }
 
+/**
+ * 轮询直至登记簿文件解析形过谓词（跨实例增量持久化测试的确定性等待面：
+ * persistChain 是 fire-and-forget——文件即终态观测位）。
+ */
+async function untilFile(file: string, predicate: (parsed: ProcessEntry[]) => boolean, ms = 2000): Promise<void> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    try {
+      const parsed = JSON.parse(await readFile(file, 'utf8')) as ProcessEntry[];
+      if (predicate(parsed)) return;
+    } catch {
+      // 未落地/写入竞态窗内中间态——重试
+    }
+    if (Date.now() > deadline) expect.unreachable('轮询超时（文件未达谓词形）');
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+/**
+ * 轮询直至文件内容跨两次间隔读相等后返回终态文本（fire-and-forget 持久化链
+ * 的排干面——字节级断言前必排干，立即比对会撞「写未落地」假形）。
+ */
+async function untilStableFile(file: string, intervalMs = 150): Promise<string> {
+  let prev = await readFile(file, 'utf8');
+  for (;;) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    const next = await readFile(file, 'utf8');
+    if (next === prev) return next;
+    prev = next;
+  }
+}
+
 /** 夹具条目工厂 */
 function entry(overrides: Partial<ProcessEntry> = {}): ProcessEntry {
   return {
@@ -314,5 +346,77 @@ describe('sweepOrphans 孤儿清扫', () => {
     const registry = createProcessRegistry({ hostPid: 2, logger });
     await sweepOrphans(registry, { hostPid: 2, logger }, stubDeps());
     expect(logger.warns).toHaveLength(0);
+  });
+});
+
+/* ── 锁内增量持久化 + 回填零写（03 §5.3 74 轮件1 批注——修前红区）──────────
+ * 修前形：persist 整快照覆写（内存 Map 视图即写盘内容）——多宿主并集账被单
+ * 进程快照洗掉；sweep 回填走 add 的 persist 路径（回填即重写文件）。
+ * 修后形：每笔持久化 = 异步编辑锁 → 锁内重读文件 → 施增量（add=upsert 单条
+ * /remove=出册单条）→ tmp+rename 写回；回填 = 纯内存写零持久化。 */
+describe('锁内增量持久化（跨进程丢更新防护——74 轮件1）', () => {
+  it('跨实例丢更新锁：B 的 add 落账不抹 A 已落账条目（锁内重读并集账——修前红：整快照覆写只剩 B 的条目）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'berry-exec-lost-'));
+    cleanups.push(dir);
+    const file = join(dir, 'children.json');
+    // 实例 A（宿主 1）先落账 pid 11——文件 = 多宿主并集账的既有内容
+    const a = createProcessRegistry({ filePath: file, logger: testLogger() });
+    a.add(entry({ pid: 11, hostPid: 1 }));
+    await untilFile(file, (parsed) => parsed.some((e) => e.pid === 11));
+    // 实例 B（同文件、内存账互不可见——并发进程形）add pid 22：修前 B 以己方
+    // 快照 [22] 整覆写、A 的 11 被吞；修后锁内重读 [11] 施增量得 [11,22]
+    const b = createProcessRegistry({ filePath: file, logger: testLogger() });
+    b.add(entry({ pid: 22, hostPid: 1 }));
+    await untilFile(file, (parsed) => parsed.some((e) => e.pid === 22));
+    const final = JSON.parse(await readFile(file, 'utf8')) as ProcessEntry[];
+    expect(final.map((e) => e.pid).sort((x, y) => x - y)).toEqual([11, 22]);
+  });
+
+  it('remove 保他账：B 出册自家条目不抹 A 的条目（锁内增量 remove——修前红：整快照覆写终态 []、他账全程不保）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'berry-exec-rmkeep-'));
+    cleanups.push(dir);
+    const file = join(dir, 'children.json');
+    const a = createProcessRegistry({ filePath: file, logger: testLogger() });
+    a.add(entry({ pid: 11, hostPid: 1 }));
+    await untilFile(file, (parsed) => parsed.some((e) => e.pid === 11));
+    const b = createProcessRegistry({ filePath: file, logger: testLogger() });
+    b.add(entry({ pid: 22, hostPid: 1 }));
+    await untilFile(file, (parsed) => parsed.some((e) => e.pid === 22));
+    b.remove(22); // B 内存只有自家 22——修前覆写 [] 吞 11；修后增量 remove 只出 22
+    const finalText = await untilStableFile(file);
+    const final = JSON.parse(finalText) as ProcessEntry[];
+    expect(final.map((e) => e.pid)).toEqual([11]);
+  });
+
+  it('sweep 回填零持久化：并发活账回填不重写文件（字节不变——修前红：回填走 add 即整快照紧凑形重写）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'berry-exec-backfill-'));
+    cleanups.push(dir);
+    const file = join(dir, 'children.json');
+    // pretty-print 初文件：任何整快照重写必变字节（紧凑形）——回填零写的红锚
+    const original = `${JSON.stringify([entry({ pid: 100, hostPid: 999 })], null, 2)}\n`;
+    await writeFile(file, original, 'utf8');
+    // 宿主 999 活——该条目是并发实例活账，清扫不动（零裁剪 = 零写位）
+    const deps = stubDeps({ isAlive: (pid) => pid === 999 });
+    const registry = createProcessRegistry({ filePath: file, hostPid: 2, logger: testLogger() });
+    const report = await sweepOrphans(registry, { hostPid: 2, filePath: file, logger: testLogger() }, deps);
+    expect(report).toEqual({ killed: 0, skipped: 0, removed: 0 });
+    expect(registry.list().map((e) => e.pid)).toEqual([100]); // 回填进内存账
+    // 排干后字节原样（修前红：回填 add 触发整快照重写 → 紧凑形 ≠ pretty 初文件）
+    expect(await untilStableFile(file)).toBe(original);
+  });
+
+  it('锁忙跳过：编辑锁在场（活 pid）→ 本笔持久化跳过 warn 不抛、文件不被无锁写（修前红：无锁直写零 warn）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'berry-exec-lockbusy-'));
+    cleanups.push(dir);
+    const file = join(dir, 'children.json');
+    const logger = testLogger();
+    // 预置活 pid 编辑锁（本进程 pid——判活真；与 plugin-store 修前红锚同构）
+    await writeFile(`${file}.lock`, `${process.pid}\n`, 'utf8');
+    const registry = createProcessRegistry({ filePath: file, logger });
+    expect(() => registry.add(entry({ pid: 44 }))).not.toThrow(); // 写面容错——锁忙不抛
+    expect(registry.list().map((e) => e.pid)).toEqual([44]); // 内存账仍准
+    // 锁重试帽 21 轮 × 100ms ≈ 2.1s 后 warn 才落——until 预算须高于重试帽
+    await until(() => logger.warns.some((w) => w.includes('跳过')), 5000); // 修前红：无锁零 warn
+    expect(existsSync(file)).toBe(false); // 拒写不退化为无锁写——修前红：true
   });
 });

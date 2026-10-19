@@ -19,6 +19,7 @@ export type {
   InteractiveSpawnRequest,
   ProcessEntry,
   ProcessRegistry,
+  RegistryWithBackfill,
   SpawnPipeline,
   SpawnRequest,
   SweepDeps,
@@ -36,6 +37,19 @@ export type { RegistryOptions, SweepReport } from './registry.js';
 // spawn 管道与平台真身
 export { createSpawnPipeline, isPidAlive, killProcessTree, readCmdlineSync } from './spawn.js';
 export type { SpawnPipelineOptions } from './spawn.js';
+
+// 编辑面跨进程互斥原语（03 §5.3——同步/异步两形同协议；74 轮件单源共享批：
+// host 三写者族〔enabled.yaml/ledger.json/marketplaces.json〕与登记簿持久化
+// 链消费——进程协调域归本件 isPidAlive 同域）
+export {
+  EDIT_LOCK_RETRY_INTERVAL_MS,
+  EDIT_LOCK_RETRY_MAX_ATTEMPTS,
+  EditLockBusy,
+  editLockBusyText,
+  withEditLock,
+  withEditLockAsync,
+} from './edit-lock.js';
+export type { EditLockFs } from './edit-lock.js';
 
 // bash 工具件
 export { assertNoBackgroundCommand, createBashTool, discoverBash } from './bash.js';

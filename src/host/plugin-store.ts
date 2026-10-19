@@ -35,7 +35,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { BaseError } from '../contracts/index.js';
 import { DOORS_SEGMENT_V1_DOMAIN } from '../contracts/api.js';
 import { canonicalPath } from '../safety/index.js';
-import { isPidAlive } from '../../plugins/exec/index.js';
+import { EditLockBusy, editLockBusyText, withEditLock } from '../../plugins/exec/index.js';
 import { enabledYamlPath, checkPluginId, parseEnabledRows } from './manifest.js';
 import type { EnabledRow } from './manifest.js';
 
@@ -161,85 +161,16 @@ function atomicWrite(fs: PluginStoreFs, path: string, text: string): void {
   fs.rename(tmp, path);
 }
 
-/* ---------------- 编辑面跨进程互斥（03 §5.3 73 轮批注——RMW 丢更新防护） ---------------- */
-
-/** 锁重试间隔（有界等待帽的粒度——CLI 短命进程与宿主回合内写动词共用） */
-const EDIT_LOCK_RETRY_INTERVAL_MS = 100;
-/** 锁重试次数帽（100ms × 20 ≈ 2s 等待上限——超限 fail-loud 拒写不静默） */
-const EDIT_LOCK_RETRY_MAX_ATTEMPTS = 20;
-
-/**
- * 同步睡眠（Atomics.wait——本件锁重试等待专用；与 persist/store.ts syncSleep
- * 同形私有：该处未导出、persist 边不经本件拉依赖，两处各自内聚）。
- */
-function lockSleep(ms: number): void {
-  const cell = new Int32Array(new SharedArrayBuffer(4));
-  Atomics.wait(cell, 0, 0, ms);
-}
-
-/**
- * 编辑锁超限拒绝（withEditLock 取锁失败档的内部载体——各写腿 catch 后折
- * 本腿失败形：行动词折 `{ ok:false, message }` 拒文、账本腿折 BaseError
- * 拒抛；不外泄类形——「宁拒服务不丢数据」的 message 才是呈现面）。
- */
-class EditLockBusy extends Error {
-  constructor(readonly lockPath: string) {
-    super(`编辑锁重试超限：${lockPath}`);
-  }
-}
-
-/**
- * 编辑面跨进程互斥原语（模块私有——03 §5.3 73 轮批注行为律的执法位）：
- * 包住「读 → 改 → 写回」**整段** RMW（只罩 atomicWrite 不够——A 读 → B 读
- * → B 写 → A 写的交错丢更新发生在读位与写位之间）。形态 = 同目录 lockfile
- * （`<目标>.lock`）：
- *  - 取锁 = O_EXCL 独占建文件（fs.openExclusive 单发探测），载荷 = 持锁
- *    pid（stale 判定用）；
- *  - 在场 = 读持锁 pid 判活（isPidAlive——exec 件公开面单源，信号 0 探测
- *    ESRCH 折死）：活 = 有界等待重试（100ms × 20 帽）；死 = 崩溃残锁破锁
- *    重试；内容不可解析 = 按活计（保守——无法证明 stale 即不破，超限拒写
- *    兜底）；
- *  - 破锁-重取竞窗自愈：unlink 后 O_EXCL 重试，失败（对方先取得）则重读
- *    重判（unlink 缺席静默语义由 fs 面承载）；
- *  - 互斥不可得（重试超限）= throw EditLockBusy——调用腿折 fail-loud 拒写，
- *    绝不退化为无锁写（丢更新面比暂拒服务更坏）；
- *  - 释放 = finally unlink（缺席静默——外扰清场后的幂等收口）。
+/* ---------------- 编辑面跨进程互斥（03 §5.3 73 轮批注——RMW 丢更新防护） ----------------
  *
- * 同进程重入（嵌套写者）无自持锁豁免：自身 pid 判活走等待支，超限即拒——
- * 现无嵌套写者（各写腿互不调用），该形是防御位非工作流。
- */
-function withEditLock<T>(fs: PluginStoreFs, targetPath: string, body: () => T): T {
-  const lockPath = `${targetPath}.lock`;
-  // 锁文件同目录先在（首启零文件形：ledger 的 plugins/ 子目录由本笔前置建，
-  // enabled.yaml 的数据目录同律——recursive 幂等）
-  fs.mkdir(dirname(targetPath), { recursive: true });
-  let attempts = 0;
-  for (;;) {
-    if (fs.openExclusive(lockPath, `${process.pid}\n`)) break; // 取得——进临界段
-    const held = fs.read(lockPath);
-    const pid = held === null ? Number.NaN : Number(held.trim());
-    // stale 判定（pid 判死 = 崩溃残锁）：破锁立即重试（不睡——残锁不是竞争）
-    if (Number.isInteger(pid) && pid > 0 && !isPidAlive(pid)) {
-      fs.unlink(lockPath);
-      continue;
-    }
-    if (++attempts > EDIT_LOCK_RETRY_MAX_ATTEMPTS) throw new EditLockBusy(lockPath);
-    lockSleep(EDIT_LOCK_RETRY_INTERVAL_MS);
-  }
-  try {
-    return body();
-  } finally {
-    fs.unlink(lockPath);
-  }
-}
-
-/** 锁超限拒文（带锁路径与重试帽——两载体（启用清单/装机账本）名位各异） */
-function editLockBusyText(name: string, lockPath: string): string {
-  return (
-    `${name}正被另一进程编辑（锁 ${lockPath}，等待重试 ${EDIT_LOCK_RETRY_MAX_ATTEMPTS} 次 × ` +
-    `${EDIT_LOCK_RETRY_INTERVAL_MS}ms 超限）——已拒写以防丢更新；确认无其他进程在编辑时，可删除该锁文件后重试`
-  );
-}
+ * 锁原语已单源共享至 exec 件（74 轮批注——plugins/exec/edit-lock.ts 同步形
+ * withEditLock：四写者族同协议同常量，线协议兼容）：本件为消费位——
+ * PluginStoreFs 结构满足锁原语 EditLockFs 最小面（read/openExclusive/unlink
+ * /mkdir），直传注入即可，行为与 73 轮私有实现零变化（plugin-store.test
+ * 五锁测试即冻结锚）。协议全律（O_EXCL 取锁 / 持锁 pid 判活破锁 / 有界重试
+ * 100ms×20 / finally 释放 / 超限 throw EditLockBusy fail-loud 拒写）见 exec
+ * 件 edit-lock.ts 文件头；EditLockBusy 与拒文 editLockBusyText 亦自该面单源
+ * 消费（词面逐字不变）。 */
 
 /**
  * 行编辑腿的锁包装（enabled.yaml 写动词共用收口）：body = 原「读-改-写回」
