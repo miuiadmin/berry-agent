@@ -4,10 +4,11 @@
  * 只走 REST v3（议题/评论面够用——GraphQL 引入零必要）；fetch 注入式
  * （`fetchImpl` 缺省全局 fetch——测试注假件，零真网络纪律）；list 族单页帽
  * 100、单页语义（每请求恰一页——翻页由调用方携 `page` 驱动：issue_get 反查
- * 翻页/评论跟尽；轮询 since 增量窗内单页 100 通常覆盖，溢出诚实注记于
- * PollReport——不静默丢）。PR 混列：GitHub issues API 把 PR 计入 issues 列
- * 表，`pull_request` 字段在场即过滤。getIssue 单取（issue 停靠恢复批重入
- * 判据面）：404 特判 undefined——issue 已删与网络故障分立。
+ * 翻页/评论跟尽；轮询页满即翻至短页〔poll.ts 翻页收口——70 轮件C 批注①〕，
+ * 页护栏耗尽的溢出仓诚实注记于 PollReport.overflow——不静默丢）。PR 混列：
+ * GitHub issues API 把 PR 计入 issues 列表，`pull_request` 字段在场即过滤。
+ * getIssue 单取（issue 停靠恢复批重入判据面）：404 特判 undefined——issue
+ * 已删与网络故障分立。
  *
  * 不可信外部文本：title/body/comments 进上下文一律经调用方帽（issue_get 面
  * ISSUE_CONTEXT_CAP_BYTES）；本层只取数不渲染。
@@ -36,7 +37,7 @@ export interface GithubPullRequestRef {
 
 /** 源后端窄面（poll/webhook/tools/service 四消费方——service 组装注入） */
 export interface GithubBackend {
-  /** 列仓 issues（state=open；since 增量窗；单页帽 100——page 位驱动翻页〔issue_get 反查用〕） */
+  /** 列仓 issues（state=open；since 增量窗；单页帽 100——page 位驱动翻页〔issue_get 反查/轮询页满即翻用——70 轮件C〕） */
   listIssues(req: { repo: string; since?: string; page?: number }): Promise<IssueRef[]>;
   /** 列 issue 评论（升序——issue_get 数据源；单页帽 100——page 位驱动翻页〔issue_get 跟尽用〕） */
   listComments(req: { repo: string; number: number; page?: number }): Promise<IssueCommentRef[]>;
