@@ -99,7 +99,8 @@ import { JOBS_SERVICE_NAME } from '../../plugins/subagent/index.js';
 import { createDeclarativeAgentTool } from '../../plugins/subagent/index.js';
 import type { DelegationToolDeps } from '../../plugins/subagent/index.js';
 
-import { clearBootFailure, formatPluginFailureText, recordBootFailure } from './boot-failures.js';
+import { clearBootFailure, createBootFailuresFs, formatPluginFailureText, recordBootFailure } from './boot-failures.js';
+import type { BootFailuresFs } from './boot-failures.js';
 // node: 内建裸名册（R3 grants 第二维深校验「不在册」拒的判据单源——import-gate 同源）
 import { BARE_BUILTINS } from './builtins.js';
 import type { ConfigField } from './config-schema.js';
@@ -136,6 +137,15 @@ export interface PluginBootFs {
   /** 读文本（缺席 = null——ENOENT 同义） */
   readonly read: (path: string) => string | null;
   readonly write: (path: string, text: string) => void;
+  /**
+   * 锁原语/原子写可选腿（75 轮件4——boot-failures 记账写面互斥透传位）：
+   * 在场经 toBootFailuresFs 透传（内存测试桩的锁走内存——假路径可测）；
+   * 缺席折真盘直连（生产 defaultFs 只供读写两位，真路径真盘锁同效）。
+   */
+  readonly openExclusive?: (path: string, text: string) => boolean;
+  readonly unlink?: (path: string) => void;
+  readonly mkdir?: (path: string, options: { readonly recursive: true }) => void;
+  readonly rename?: (from: string, to: string) => void;
 }
 
 /**
@@ -2074,10 +2084,19 @@ function resolveDiskRow(
   return { spec };
 }
 
-/** fs 面适配（PluginBootFs → BootFailuresFs——同构双方法直转） */
-function toBootFailuresFs(fs: PluginBootFs): {
-  read: (path: string) => string | null;
-  write: (path: string, text: string) => void;
-} {
-  return { read: fs.read, write: fs.write };
+/**
+ * fs 面适配（PluginBootFs → BootFailuresFs）：read/write 同构直转；锁原语/
+ * 原子写四腿透传注入位、缺席折真盘直连（75 轮件4——生产真路径真盘锁同效；
+ * 内存测试桩供位后假路径锁走内存）。真盘四腿单源 = createBootFailuresFs。
+ */
+function toBootFailuresFs(fs: PluginBootFs): BootFailuresFs {
+  const disk = createBootFailuresFs();
+  return {
+    read: fs.read,
+    write: fs.write,
+    openExclusive: fs.openExclusive ?? disk.openExclusive,
+    unlink: fs.unlink ?? disk.unlink,
+    mkdir: fs.mkdir ?? disk.mkdir,
+    rename: fs.rename ?? disk.rename,
+  };
 }

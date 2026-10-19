@@ -56,10 +56,28 @@ afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
 
-/** 内存 fs（Map 背书——读侧三源 + boot-failures 记账面全注入） */
+/** 内存 fs（Map 背书——读侧三源 + boot-failures 记账面全注入；锁/原子写四腿内存形——75 轮件4 假路径锁可测） */
 function memoryFs(files: Record<string, string> = {}): PluginBootFs & { map: Map<string, string> } {
   const map = new Map(Object.entries(files));
-  return { map, read: (path) => map.get(path) ?? null, write: (path, text) => void map.set(path, text) };
+  return {
+    map,
+    read: (path) => map.get(path) ?? null,
+    write: (path, text) => void map.set(path, text),
+    // O_EXCL 探测内存形（在场 = false；建成 = true）
+    openExclusive: (path, text) => {
+      if (map.has(path)) return false;
+      map.set(path, text);
+      return true;
+    },
+    unlink: (path) => void map.delete(path),
+    mkdir: () => undefined,
+    rename: (from, to) => {
+      const text = map.get(from);
+      if (text === undefined) throw new Error(`ENOENT: no such file, rename '${from}'`);
+      map.set(to, text);
+      map.delete(from);
+    },
+  };
 }
 
 /** HostRuntime 结构化替身（装配序消费面 = dataDir + registerCloser + memory 位） */
@@ -316,7 +334,7 @@ describe('装机账本读侧（03 §5.4——warn 降级与 installPath 解析�
     expect(boot.report.failed[0]!.message).toContain('安装记录无此 id');
     // 记账面：boot-failures.json 落失败行（obs-a——含 lastError 错误文本与
     // lastFailedAt 时点；合成失败行同批扩形）
-    const failures = readBootFailures('/data/boot-failures.json', { read: fs.read, write: fs.write });
+    const failures = readBootFailures('/data/boot-failures.json', fs);
     expect(failures.failures['acme']).toEqual({
       version: '',
       count: 1,
@@ -510,7 +528,7 @@ describe('boot-failures 记账与清名（§5.7 档②）', () => {
     expect(warnings.some((w) => w.startsWith('插件装载失败（acme-bad）：['))).toBe(true);
     // 账本 lastError = [码] 报文（修前条目只有 {version, count}——错误文本在
     // 装载器 seam 丢弃）
-    const failures = readBootFailures('/data/boot-failures.json', { read: fs.read, write: fs.write });
+    const failures = readBootFailures('/data/boot-failures.json', fs);
     expect(failures.failures['acme-bad']?.lastError).toMatch(/^\[[A-Z_]+\] /);
     expect(failures.failures['acme-bad']?.lastFailedAt).toEqual(expect.any(String));
   });
@@ -531,7 +549,7 @@ describe('boot-failures 记账与清名（§5.7 档②）', () => {
     });
     const boot = await bootPlugins(rigBoot('/data', { fs }).options);
     expect(boot.report.activated.map((a) => a.id)).toEqual(['acme']);
-    const failures = readBootFailures('/data/boot-failures.json', { read: fs.read, write: fs.write });
+    const failures = readBootFailures('/data/boot-failures.json', fs);
     expect(failures.failures['acme']).toBeUndefined(); // 成功行清名
     expect(failures.failures['ghost']).toBeDefined(); // 未装载行留账
   });
