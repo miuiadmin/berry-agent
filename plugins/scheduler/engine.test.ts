@@ -636,18 +636,23 @@ describe('sweep 火种链防崩（void fireRow 拒绝必接）', () => {
  * 直穿回调（测试面即抛）；修后吞进 warn + 钟必重臂（obs/service 定时腿同律）。
  */
 describe('activePid 记账吞错（挖掘 21 轮件10——fire 位记账抛错不泄漏表项不饿死行）', () => {
-  it('fire 位 dao.setActive 抛错：降 warn 续 fire 流——settle 清账照走、行不饿死（修前：fireNow reject + active 表项泄漏 + sweep 恒 skip）', async () => {
-    let setActiveCalls = 0;
-    let setActiveThrows = false;
+  it('fire 位记账号 dao.claimActive 抛错：降 warn 续 fire 流——settle 清账照走、行不饿死（修前：fireNow reject + active 表项泄漏 + sweep 恒 skip）', async () => {
+    // 70 轮件E 起记账号走 claimActive 条件覆写（修前 seam 为 setActive）——
+    // 注入位随调用面迁移：记账号形 = 覆写句柄 pid（900001 ≠ 己 pid）
+    let accountCalls = 0;
+    let accountThrows = false;
     const { service, engine, timers, runner } = assemble({
       daoWrap: (d) =>
         new Proxy(d, {
           get(target, prop) {
-            if (prop === 'setActive' && setActiveThrows) {
-              return (...args: unknown[]) => {
-                setActiveCalls += 1;
-                if (setActiveCalls === 1) throw new Error('SQLITE_BUSY: 测试注入写锁');
-                return (target.setActive as (...a: unknown[]) => unknown)(...args);
+            if (prop === 'claimActive' && accountThrows) {
+              return (name: string, claimPid: number, startedAt: string, updatedAt: string, expect: number | null) => {
+                if (claimPid === 900001) {
+                  // 只锁记账号位（判占形 claimPid=己 pid 直通）
+                  accountCalls += 1;
+                  if (accountCalls === 1) throw new Error('SQLITE_BUSY: 测试注入写锁');
+                }
+                return target.claimActive(name, claimPid, startedAt, updatedAt, expect);
               };
             }
             return Reflect.get(target, prop) as unknown;
@@ -656,7 +661,7 @@ describe('activePid 记账吞错（挖掘 21 轮件10——fire 位记账抛错�
     });
     service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
     engine.start();
-    setActiveThrows = true; // start 腿正常跑完后再注入——锁 fire 记账位
+    accountThrows = true; // start 腿正常跑完后再注入——锁 fire 记账位
     const fired = engine.fireNow('j', 'manual');
     // 修前红锚①：异常穿透 fireRow（active.set 已落而 tail 未返 spawned 不接管
     // 清账）→ fireNow 收 reject；修后：记账吞 warn，fire 流续行
@@ -664,7 +669,7 @@ describe('activePid 记账吞错（挖掘 21 轮件10——fire 位记账抛错�
     const result = await fired;
     expect(result.reason).toBe('exit_code');
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('SQLITE_BUSY'));
-    // settle 清账照走（对偶位 setActive(null) 第二调不抛——首调后闸关）
+    // settle 清账照走（对偶位第二调不抛——首调后闸关；第二 fire 句柄 pid 900002 不入闸）
     expect(engine.inFlightCount).toBe(0);
     // 行不饿死：修前 active 表项泄漏使 sweep :404 active.has 判据恒 skip——
     // 推进到下一刻 sweep 补觉（正常 spawn 第二实例）
@@ -1146,14 +1151,15 @@ describe('清账对偶律枚举位（69 轮补笔——spawn 回卷条件对偶 
       warn: localWarn,
       pathExists: () => true,
     });
-    // daoWrap 注入位：记账号 setActive（写句柄 pid 900001 时）恒抛——瞬态失败
-    // 形（claim 值 ownPid 在库、记账号未覆写——期望值口径的真值面）
+    // daoWrap 注入位：记账号条件覆写 claimActive（写句柄 pid 900001 时）恒抛
+    // ——瞬态失败形（claim 值 ownPid 在库、记账号未覆写——期望值口径的真值
+    // 面）。70 轮件E 起记账号走 claimActive 条件覆写（修前 seam 为 setActive）
     const dao = new Proxy(rawDao, {
       get(target, prop) {
-        if (prop === 'setActive') {
-          return (name: string, actPid: number | null, startedAt: string | null, updatedAt: string) => {
-            if (actPid === 900001) throw new Error('SQLITE_BUSY: 测试注入记账号写锁');
-            return target.setActive(name, actPid, startedAt, updatedAt);
+        if (prop === 'claimActive') {
+          return (name: string, claimPid: number, startedAt: string, updatedAt: string, expect: number | null) => {
+            if (claimPid === 900001) throw new Error('SQLITE_BUSY: 测试注入记账号写锁');
+            return target.claimActive(name, claimPid, startedAt, updatedAt, expect);
           };
         }
         return Reflect.get(target, prop) as unknown;
@@ -1284,5 +1290,58 @@ describe('removeJob 在飞 warn 观察位（69 轮件E）', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('删除在飞任务「fly-job」（activePid 999')); // 修前红锚：零留痕
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('收场结算将无处落账')); // 结算去向语义
     expect(dao.get('fly-job')).toBeUndefined(); // 不拒删——行已删
+  });
+});
+
+/**
+ * 记账号自覆写位条件化（04 §12 律 3 批注丙 69 轮补笔「枚举非穷尽：一切
+ * 自覆写写位同律」——70 轮件E）：引擎起跑记账号修前无条件 setActive 覆写，
+ * 可抹 claim→记账号窗内他实例经 claimActive 接管落的新 pid（被抹后该实例
+ * 真在飞而行面归本引擎假账——跨进程在飞判定失明）。收口 = 覆写走
+ * claimActive(expect=durablePid) 条件形（期望值 = 本刻 durablePid——己方
+ * 末次成功写入值，claim 基线 ownPid）；changes=0 即易主——warn 让位留痕 +
+ * durablePid 不升值（清账期望随库面真值走，尾段失配自然弃清）。生产不可
+ * 达（69 轮闸已逻辑闭合——claim→记账号窗内活跃占用皆本引擎所写；本笔系
+ * 防御性对偶收口，与 --tick 起跑记账覆写〔run-entry〕同律）。
+ */
+describe('记账号自覆写条件化（70 轮件E——claim→记账号窗内易主不抹新占用）', () => {
+  it('红锁E：claim→记账号窗内他实例接管（777）后记账号弃覆写——777 在场 + warn 让位留痕 + 尾段清账失配弃清（修前红：setActive 覆写抹 777）', async () => {
+    let tookOver = false;
+    const { service, dao, engine, runner } = assemble({
+      pid: 111, // 注缝异 pid——claim 落 111 后窗内注入他实例接管
+      daoWrap: (raw) =>
+        new Proxy(raw, {
+          get(target, prop) {
+            if (prop === 'claimActive') {
+              return (name: string, claimPid: number, startedAt: string, updatedAt: string, expect: number | null) => {
+                const won = target.claimActive(name, claimPid, startedAt, updatedAt, expect);
+                // 窗内接管注入（69 轮 C2 同手法）：本引擎 claim 落 ownPid（111）
+                // 后立即以 expect=111 条件判占落 777——「claim→记账号窗内他实例
+                // 对死/超钟残账接管」的确定性压缩形（真身窗 = claim 返回到
+                // 记账号覆写之间）
+                if (won && expect === null && claimPid === 111) {
+                  tookOver = target.claimActive(name, 777, startedAt, updatedAt, 111);
+                }
+                return won;
+              };
+            }
+            return Reflect.get(target, prop) as unknown;
+          },
+        }),
+    });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const p = engine.fireNow('j', 'manual');
+    await vi.waitFor(() => expect(runner.requests).toHaveLength(1));
+    expect(tookOver).toBe(true); // 窗内接管确落（expect=111 胜——777 已在册）
+    // 记账号已过（spawn 续段同步落）——占用面须仍是他实例新 claim
+    //（修前红锚：无条件 setActive 覆写成句柄 pid 900001）
+    expect(dao.get('j')?.activePid).toBe(777);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('起跑记账让位')); // 让位留痕
+    runner.resolve(0);
+    const outcome = await p;
+    expect(outcome.reason).toBe('exit_code'); // 自身结算照走（settle 行为不动）
+    // 尾段清账失配弃清（期望 durablePid=111 vs 库面 777）——他实例占用终在场
+    expect(dao.get('j')?.activePid).toBe(777);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('清账让位'));
   });
 });

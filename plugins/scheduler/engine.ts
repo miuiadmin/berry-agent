@@ -14,9 +14,11 @@
  *     帽只辖 clock sweep 的自动并发。
  *
  * claim-then-advance 接线律（04 §12 无人值守执行链定形注③——u-2 落码）：
- * fire 起跑 setActive 记账（activePid = runner 句柄 pid——甲案宿主 pid/
- * 乙案子进程 pid）、settle 清账——「执行前抢占」条款的 durable 对偶（进程
- * 内注册表管进程内防双跑，activePid 管跨进程可见性）；start() 僵行清扫
+ * fire 起跑 claimActive 条件记账（activePid = runner 句柄 pid——甲案宿主
+ * pid/乙案子进程 pid；claimActive(expect=durablePid) 即条件化的 setActive
+ * 记账——易主让位不抹他实例新占）、settle 清账——「执行前抢占」条款的
+ * durable 对偶（进程内注册表管进程内防双跑，activePid 管跨进程可见性）；
+ * start() 僵行清扫
  * （pid 死 + 超墙钟 → 行回 idle 可重发）+ fire 前跨进程在飞判定（乙案
  * 并存窗让位的引擎侧对偶——见 fireRow）。墙钟 kill 语义由 runner 实装
  * 定义（定形注④两形：进程内实装 = interrupt 协作中止；进程实装 = TERM
@@ -217,7 +219,8 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       // 僵行清扫（定形注③——u-2）：activePid 非空非己的行，pid 死 + 超起跑
       // 墙钟（activeStartedAt + wallTimeoutMs）→ 清账行回 idle + lastOutcome
       // 记回收（settleGated 形不动 last_fire_at——非真跑）。与关系保守判：
-      // 活 + 超钟形（pid 复用误判险）不清、下轮 fire 的 setActive 覆写自愈。
+      // 活 + 超钟形（pid 复用误判险）不清、下轮 fire 的 claimActive 条件
+      // 覆写自愈（自愈路径语义仍真——经 claim 位条件覆写，易主让位不抹新占）。
       for (const row of dao.list()) {
         if (row.activePid === null || row.activePid === ownPid) continue; // 己 pid = 甲案在飞（进程内注册表管辖）
         const startedAtMs = row.activeStartedAt !== null ? Date.parse(row.activeStartedAt) : 0;
@@ -466,8 +469,8 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       // 条件判占（67 轮批注乙——claim 先行）：判定过即条件 UPDATE 原子判占，
       // 期望值 = 判定基面的 activePid（null = 空面首占；死/超钟残账 = 在册
       // 旧值接管）。竞速负者（他实例已判占/已自清）让位不双跑——乙案并存窗
-      // check-then-act 双穿（读行判定 → spawn/wake 长窗 → setActive 追认）的
-      // 收口位：spawn/wake 移 claim 后，双侧恰一胜者。
+      // check-then-act 双穿（修前形：读行判定 → spawn/wake 长窗 → 无条件
+      // setActive 追认）的收口位：spawn/wake 移 claim 后，双侧恰一胜者。
       if (!dao.claimActive(name, ownPid, firedAt, firedAt, current.activePid)) {
         const next = nextFireAt(row.schedule, new Date(firedAt));
         const outcome: RunOutcome = {
@@ -523,9 +526,9 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
         return { kind: 'done', outcome };
       }
       active.set(name, handle);
-      // claim-then-advance 记账（定形注③）：spawn 成功后覆写自占位为 runner
-      // 句柄 pid（甲案 = 宿主 pid 同值幂等；乙案 spawn 形 = 子进程 pid 真值）
-      // + 起跑墙钟；settle 清（对偶位）。
+      // claim-then-advance 记账（定形注③）：spawn 成功后条件覆写自占位为
+      // runner 句柄 pid（甲案 = 宿主 pid 同值幂等；乙案 spawn 形 = 子进程
+      // pid 真值）+ 起跑墙钟；settle 清（对偶位）。
       // 记账吞错（挖掘 21 轮件10——与 settle 对偶位同律）：dao 瞬态错
       // （SQLITE_BUSY/IOERR——跨进程写 jobs 表系 04 §12 设计内场景）穿透即
       // fireRow 抛——active 表项已落而 tail 未返 spawned 不接管清账 → 表项
@@ -533,8 +536,20 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       // （跨进程在飞判定有「死/超钟不拦」自愈兜底），降 warn 不杀 fire 流
       try {
         if (handle.pid !== null) {
-          dao.setActive(name, handle.pid, now(), now());
-          durablePid = handle.pid; // 写成功才升值（69 轮补笔——末次成功写入值口径；瞬态失败留 claim 值）
+          // 条件自覆写（04 §12 律 3 批注丙 69 轮补笔「枚举非穷尽：一切自覆写
+          // 写位同律」——70 轮件E 收口，与 --tick 起跑记账覆写〔run-entry〕同
+          // 律）：期望值 = 本刻 durablePid（己方末次成功写入值——claim 基线
+          // ownPid）。修前无条件 setActive 可抹窗内他实例经 claimActive 接管
+          // 落的新 pid（被抹后该实例真在飞而行面归本引擎假账——跨进程在飞
+          // 判定失明）。changes=0 即易主——warn 让位留痕 + durablePid 不升值
+          // （清账期望随库面真值走，尾段失配自然弃清）。生产不可达（69 轮闸
+          // 已逻辑闭合——claim→记账号窗内活跃占用皆本引擎所写；本笔系防御性
+          // 对偶收口，exotic 拓扑回穿免役）
+          if (dao.claimActive(name, handle.pid, now(), now(), durablePid)) {
+            durablePid = handle.pid; // 写成功才升值（69 轮补笔——末次成功写入值口径；瞬态失败留 claim 值）
+          } else {
+            warn(`[scheduler] activePid 起跑记账让位（任务 ${name}——占用已易主，留新占用不抹）`);
+          }
         }
       } catch (err) {
         warn(
