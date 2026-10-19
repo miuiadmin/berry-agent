@@ -33,6 +33,7 @@ import type {
 } from '../../plugins/credentials/index.js';
 import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../../plugins/goal/index.js';
 import type { GoalService, GoalSessionFace, GoalSummarizerFace } from '../../plugins/goal/index.js';
+import type { BrowserService } from '../../plugins/browser/index.js';
 import type {
   IssueBudgetFace,
   IssueParkedRow,
@@ -223,6 +224,12 @@ interface DepsForTest {
   };
   /** sessions 服务面（ag 批 cs-D2——受局面注入 bootPlugins options.sessions：fork 级绑定面供 memory 差分落账腿消费，共享根 provide 形已废止） */
   sessionsFace?: SessionsFace;
+  /**
+   * :memory: 形态位（76 轮件2——CorePluginHostDeps.memory 同形）：memory 同构
+   * 诊断形判据测试位（dataDir 真值 + memory:true——checkpoint/browser 两主闸
+   * 写侧门控回归锁用）
+   */
+  memory?: boolean;
 }
 
 /** 真装载速记（createCorePlugins 工厂单源注入——缺省路径的等价形；boot 柄暴露供消费腿断言。cwd/homeDir 注入隔离面——skills 跨库层不扫真实 HOME） */
@@ -322,6 +329,7 @@ async function bootCore(
       ...(coreDeps.credentialsStore !== undefined ? { credentialsStore: coreDeps.credentialsStore } : {}),
       ...(coreDeps.credentialsOnChanged !== undefined ? { credentialsOnChanged: coreDeps.credentialsOnChanged } : {}),
       ...(coreDeps.credentialsOAuth !== undefined ? { credentialsOAuth: coreDeps.credentialsOAuth } : {}),
+      ...(coreDeps.memory !== undefined ? { memory: coreDeps.memory } : {}),
     }),
     // sessions 受理面基础面（受局面注入——生产同构形，见上方 rig 注记）
     ...(coreDeps.sessionsFace !== undefined ? { sessions: coreDeps.sessionsFace } : {}),
@@ -3777,6 +3785,37 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(scope.tryGet('mcp')).toBeDefined(); // mcp/lsp 只闸 exec 管道——不连坐
     expect(scope.tryGet('lsp')).toBeDefined();
     expect(boot.tools.definitions().map((d) => d.name)).toContain('diagnostics');
+  });
+
+  it('browser 主闸 memory 位（76 轮件2）：memory 同构形 + dataDir 真值零装载——引擎档目录不建（修前主闸恒过 + 发现序 mkdir 必红）', async () => {
+    // 75 轮 ephemeral 修真作废「纯 :memory: 诊断形零装载」假设：memory 形
+    // （ephemeral 单发与 dump-config 同构诊断形）dataDir 非 null——修前主闸
+    // 恒通过，截图/引擎档案落 <dataDir>/browser/ 违「零落盘」承诺。本锁走
+    // 引擎启动真路径红锚：env 腿发现命中（假引擎文件）后 launch 序 mkdir
+    // <dataDir>/browser/profile 先于 spawn（spawn 必败折 BROWSER_CONNECT_
+    // FAILED 无妨——mkdir 已发生）；修后主闸双条件早退零装载，服务面缺席
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-brmem-'));
+    dirs.push(dataDir);
+    const fakeEngine = join(tmpdir(), 'berry-coreplug-brmem-engine-'); // dataDir 外假引擎文件（不污染落点断言）
+    writeFileSync(fakeEngine, '#!/bin/sh\n');
+    dirs.push(fakeEngine);
+    const prevPath = process.env.BERRY_AGENT_BROWSER_PATH;
+    process.env.BERRY_AGENT_BROWSER_PATH = fakeEngine; // 发现序① env 腿显式覆盖
+    try {
+      const { scope } = await bootCore(dataDir, memoryFs(), {}, { memory: true });
+      const service = scope.tryGet<BrowserService>('browser');
+      if (service !== undefined) {
+        // 修前装载形：真调一次 pageFor（会话路由入口）——发现命中即 mkdir
+        // 引擎档目录，随后假路径 spawn 失败折 BROWSER_CONNECT_FAILED（reject
+        // 如实收——红锚只看落盘）
+        await expect(service.pageFor('s-brmem')).rejects.toThrow();
+      }
+      expect(existsSync(join(dataDir, 'browser'))).toBe(false); // 引擎/截图档案目录不建（修前 mkdir 必红）
+      expect(scope.tryGet('browser')).toBeUndefined(); // memory 形零装载（修前服务面在场必红）
+    } finally {
+      if (prevPath === undefined) delete process.env.BERRY_AGENT_BROWSER_PATH;
+      else process.env.BERRY_AGENT_BROWSER_PATH = prevPath;
+    }
   });
 
   it('browser 件卸载回卷（63 轮件 B）：apply 尾返回 disposer 调 registerCommand 注销——unload 后 /browser 命令面随代消失', async () => {

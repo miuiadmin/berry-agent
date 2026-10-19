@@ -62,9 +62,11 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
     // + c-3 credentials 增席 16 件〔空闲占席无主闸恒装〕）
     // ——清单缺席 = 全 core 内置态：activated 见 core 行（装载态集成回归锁
     // ——件数随逐纵切笔增长）。
-    // :memory: 座上 sqlite() 在场 → memory/scheduler/goal 件照装；dataDir 真值
-    // + 两 seam 恒接线 → checkpoint 件同装；exec 管道 + web-fetch + dataDir
-    // 三主闸齐备 → 三桥（mcp/browser/lsp）照装（零 config 惰性形——零 spawn）；
+    // :memory: 座上 sqlite() 在场 → memory/scheduler/goal 件照装；exec 管道 + web-fetch
+    // 在场 → mcp/lsp 照装（零 config 惰性形——零 spawn）；checkpoint/browser
+    // 两件 76 轮定谳：memory 形（ephemeral 单发与本入口同构诊断形）主闸
+    // dataDir 双条件早退——仍装仍计 activated，装载面零接（守门/服务面/
+    // 截图落点全缺席——「零落盘」承诺写侧门控第六/第七写位）；
     // sdk/webui 两 seam 恒接线（装配闭包真身）→ 两件照装（apply 只 provide
     // kit 零监听零网络）；obs 主闸 events 缺席零装载（75 轮件5②——memory
     // 同构形 obsEvents 整键省略，服务面/obs_query/rollup.db 全缺席；counts

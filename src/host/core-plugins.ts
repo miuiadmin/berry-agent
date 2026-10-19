@@ -3077,10 +3077,13 @@ function makeMcpPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * 命令（下载原语不进模型工具面——人面显式命令；装载零网络，fetch 只在
  * 命令调用时发生）。
  *
- * 主闸三位 = 'exec-pipeline'（引擎 spawn 同册）+ 'web-fetch'（navigate 卫生
+ * 主闸四位 = 'exec-pipeline'（引擎 spawn 同册）+ 'web-fetch'（navigate 卫生
  * 单源——SSRF 红线与在飞门同一实例，web 件缺席 = 红线缺席 = 本件不装
- * fail-closed）+ dataDir 真值（纯 :memory: 诊断形零装载——引擎目录/截图
- * 落点/安装账本皆无归属地）。config 坏形 normalizeBrowserConfig 响亮拒
+ * fail-closed）+ dataDir 真值 + memory 形位（纯 :memory: 诊断形零装载；memory 形〔76 轮
+ * 批注——ephemeral 写侧门控清单第七写位〕dataDir 真值也早退——「纯 :memory:
+ * 诊断形零装载」旧假设已被 75 轮修真作废，引擎目录/截图落点/安装账本对
+ * 「零落盘单发」承诺违诺，判定信号单源 deps.memory 与 children.json 第五
+ * 写位同形；apply 跑过仍计 activated）。config 坏形 normalizeBrowserConfig 响亮拒
  * BROWSER_CONFIG_INVALID → 行级装载失败。引擎出口代理单例随件传真身
  * （03 §10.3 引擎网络栈出口钉死——engineEgressProxy 进程级惰性 listen）。
  */
@@ -3095,7 +3098,12 @@ function makeBrowserPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const pipeline = context.tryGet<SpawnPipeline>('exec-pipeline');
       const web = context.tryGet<WebFetchService>('web-fetch');
       const dataDir = deps.dataDir;
-      if (pipeline === undefined || web === undefined || dataDir === null) return; // 主闸三位
+      // 主闸 dataDir 双条件（76 轮批注写侧第七写位）：memory 形（ephemeral
+      // 单发与 dump-config 同构诊断形）dataDir 真值也早退——引擎档案/截图/
+      // 安装账本零落盘（「零落盘单发」承诺）；判定信号单源 deps.memory
+      // （children.json 第五写位同形）。apply 跑过仍计 activated（早退 =
+      // 零装载面，不在行计）
+      if (pipeline === undefined || web === undefined || dataDir === null || deps.memory === true) return;
 
       const browserConfig = normalizeBrowserConfig(config);
       const service = createBrowserService({
