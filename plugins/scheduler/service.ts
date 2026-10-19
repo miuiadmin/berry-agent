@@ -475,6 +475,15 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
           `任务「${name}」由 goal（目标）自动管理——/tick rm 不受理；该目标完成（complete）后此行自动停用并保留记录，放弃（abandon）后此行自动移除。要提前放弃目标，请用 /goal abandon ${name.slice('goal-'.length)}`,
         );
       }
+      // 在飞观察位（69 轮件E）：行 activePid 非空时删行 = 悬挂 fire 的收场结算
+      // 将无处落账（行已删）；若他进程重建同名行，旧 fire 收场的结算/条件清账
+      // 可能回写新行（账实错配）。纯观察 warn 留痕不拒删——拒删会把 rm 锁死在
+      // 在飞窗（墙钟可达 30min），观察位由用户/日志面决断即可。
+      if (row.activePid !== null) {
+        deps.warn(
+          `[scheduler] 删除在飞任务「${name}」（activePid ${row.activePid} 在飞——收场结算将无处落账；若重建同名行，旧 fire 结算可能回写新行）`,
+        );
+      }
       if (deps.cronRegistrar && row.enabled) {
         deps.cronRegistrar.unregister(name); // 失败抛 SCHEDULER_CRON_*——行不删（不半态）
       }

@@ -1267,3 +1267,22 @@ describe('换代残窗（69 轮批注丁——claim 面代际盲区）', () => {
     expect(dao.get('j')?.activePid).toBeNull();
   });
 });
+
+/**
+ * removeJob 在飞 warn 观察位（69 轮件E）：行 activePid 非空时删行 = 悬挂 fire
+ * 的收场结算将无处落账（行已删）；若他进程重建同名行，旧 fire 收场的结算/
+ * 清账可能回写新行（账实错配）。纯观察 warn 留痕不拒删——拒删会使悬挂 fire
+ * 把 rm 锁死（在飞窗可长达墙钟 30min）。
+ */
+describe('removeJob 在飞 warn 观察位（69 轮件E）', () => {
+  it('删在飞行：warn 留痕（任务名+pid+结算去向语义）且行照删（修前红：零留痕）', () => {
+    const { service, dao } = assemble();
+    service.addJob({ name: 'fly-job', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const t = new Date(nowMs).toISOString();
+    dao.setActive('fly-job', 999, t, t); // 在飞占用（他实例形——activePid 非空）
+    service.removeJob('fly-job');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('删除在飞任务「fly-job」（activePid 999')); // 修前红锚：零留痕
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('收场结算将无处落账')); // 结算去向语义
+    expect(dao.get('fly-job')).toBeUndefined(); // 不拒删——行已删
+  });
+});
