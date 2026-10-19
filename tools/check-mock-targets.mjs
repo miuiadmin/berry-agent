@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = process.env.CHECK_MOCKS_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
 
 /**
- * vi.mock 目标白名单（现状七目标——十一处消费，均 passthrough 单点形）：
+ * vi.mock 目标白名单（现状十目标——十九处消费，均 passthrough 单点形）：
  * - 'node:crypto'：pipeline-spill-eexist.test.ts 单点钉值 randomBytes（铸名可
  *   预知——EEXIST 竞态复现的确定性面，非行为替身）；
  * - '../../plugins/issue/index.js'：run-issue-verify(.env).test.ts 捕获缝 ×2
@@ -60,7 +60,19 @@ const REPO_ROOT = process.env.CHECK_MOCKS_ROOT ?? fileURLToPath(new URL('..', im
  *   crontab 执行器——deps.execCrontab 注入面只替执行器本身，锁缺省真身须
  *   文件级截获，native-clipboard 裁量同形）、spawn.test.ts（exec 件管线
  *   核心——readCmdlineSync 已公共导出，改签名侵公共面故文件级截获；
- *   passthrough 缺省全参透传、spawn 恒真身，既有真进程用例零附带实证）。
+ *   passthrough 缺省全参透传、spawn 恒真身，既有真进程用例零附带实证）；
+ * - '../../plugins/exec/edit-lock.js'：锁重试短帽缝 ×5（76 轮件6——boot-
+ *   failures / plugin-install / plugin-store / plugin-uninstall / marketplace-
+ *   cmd 各一：spread 全真导出 + withEditLock 原样转发仅注短帽末参（1ms × 2，
+ *   经 76 轮件6 重试常量注入面），零行为替身——锁协议全真身，仅锁忙重试
+ *   等待从缺省 100ms × 20 真等缩至毫秒级；host 写者族签名无 options 透传
+ *   位（03 §5.3 76 轮批注只定形原语面），改产码签名侵多写者公开面故文件
+ *   级截获——59 轮 native-clipboard「免改产码签名」裁量同形）；
+ * - '../../../plugins/exec/edit-lock.js'：同上锁重试短帽缝 ×2（plugin-market
+ *   add/update——74 轮件2 源清单锁忙用例，裁量同上条，仅路径深度差）；
+ * - './edit-lock.js'：同上锁重试短帽缝·异步形 ×1（exec registry.test.ts
+ *   ——74 轮件1 登记簿锁忙跳过用例，withEditLockAsync 原样转发注短帽，
+ *   裁量同上条）；
  * 扩展本表须同批注缺席原因（为何该目标允许文件级 vi.mock）。
  */
 const MOCK_TARGET_WHITELIST = new Set([
@@ -71,6 +83,9 @@ const MOCK_TARGET_WHITELIST = new Set([
   'node:fs',
   '../blocks/word-diff.js',
   'node:child_process',
+  '../../plugins/exec/edit-lock.js',
+  '../../../plugins/exec/edit-lock.js',
+  './edit-lock.js',
 ]);
 
 /**

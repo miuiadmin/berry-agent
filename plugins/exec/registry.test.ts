@@ -6,10 +6,31 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Logger } from '../../src/context/index.js';
 import { createProcessRegistry, sweepOrphans } from './registry.js';
 import type { ProcessEntry, SweepDeps } from './types.js';
+import type { EditLockOptions } from './edit-lock.js';
+
+/* ---------------- 锁重试短帽缝（76 轮件6——passthrough 单点包裹·异步形） ---------------- */
+
+/**
+ * 文件级 passthrough vi.mock：spread 全真导出 + withEditLockAsync 原样转发，
+ * 唯一差别 = 末参注入重试短帽（1ms × 2，经 76 轮件6 重试常量注入面）——零
+ * 行为替身：锁协议（O_EXCL 取锁 / pid 判活破锁 / 超限拒 / finally 释放）全
+ * 真身，仅锁忙重试等待从缺省 100ms × 20（约 2.1s 真等）缩至毫秒级——本文件
+ * 锁忙形用例（74 轮件1 登记簿锁忙跳过 warn）不再真烧全额等待帽。登记簿
+ * 持久化链无 options 透传位（规范只定形原语面），故文件级截获（59 轮
+ * native-clipboard 裁量同形）。
+ */
+vi.mock('./edit-lock.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./edit-lock.js')>();
+  return {
+    ...actual,
+    withEditLockAsync: <T>(targetPath: string, body: () => Promise<T>, options?: EditLockOptions) =>
+      actual.withEditLockAsync<T>(targetPath, body, { ...options, retryIntervalMs: 1, maxAttempts: 2 }),
+  };
+});
 
 /** 测试 logger 桩（warn 收集面） */
 function testLogger(): Logger & { warns: string[] } {

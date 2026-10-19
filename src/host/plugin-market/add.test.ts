@@ -4,10 +4,31 @@
  * 单）/ git/url 源 fetch 注入位（mp-2 零网络——缺席诚实拒、在场注假件全链
  * commit 落账）/ 撞名拒 / 坏 catalog 拒零残影。
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { addMarketplaceSource } from './add.js';
 import type { MarketFs, MarketFetchFace } from './types.js';
+import type { EditLockFs, EditLockOptions } from '../../../plugins/exec/index.js';
+
+/* ---------------- 锁重试短帽缝（76 轮件6——passthrough 单点包裹） ---------------- */
+
+/**
+ * 文件级 passthrough vi.mock：spread 全真导出 + withEditLock 原样转发，唯一
+ * 差别 = 末参注入重试短帽（1ms × 2，经 76 轮件6 重试常量注入面）——零行为
+ * 替身：锁协议（O_EXCL 取锁 / pid 判活破锁 / 超限拒 / finally 释放）全真身，
+ * 仅锁忙重试等待从缺省 100ms × 20（约 2.1s 真等）缩至毫秒级——本文件锁忙
+ * 形用例（74 轮件2 落账位锁忙拒形与交错用例）不再真烧等待帽。host 写者族
+ * 签名无 options 透传位（规范只定形原语面），故文件级截获（59 轮
+ * native-clipboard 裁量同形）。
+ */
+vi.mock('../../../plugins/exec/edit-lock.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../plugins/exec/edit-lock.js')>();
+  return {
+    ...actual,
+    withEditLock: <T>(fs: EditLockFs, targetPath: string, body: () => T, options?: EditLockOptions) =>
+      actual.withEditLock<T>(fs, targetPath, body, { ...options, retryIntervalMs: 1, maxAttempts: 2 }),
+  };
+});
 
 /** 内存 fs（真盘语义 Map 形 + 目录树快照支持——拷贝腿在内存形上真跑） */
 function memFs(initial: Record<string, string> = {}): MarketFs {

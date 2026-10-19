@@ -40,6 +40,27 @@ import {
   writeLedger,
 } from './plugin-store.js';
 import type { LifecycleAuditSink, PluginLedgerEntry, PluginStoreFs } from './plugin-store.js';
+import type { EditLockFs, EditLockOptions } from '../../plugins/exec/index.js';
+
+/* ---------------- 锁重试短帽缝（76 轮件6——passthrough 单点包裹） ---------------- */
+
+/**
+ * 文件级 passthrough vi.mock：spread 全真导出 + withEditLock 原样转发，唯一
+ * 差别 = 末参注入重试短帽（1ms × 2，经 76 轮件6 重试常量注入面）——零行为
+ * 替身：锁协议（O_EXCL 取锁 / pid 判活破锁 / 超限拒 / finally 释放）全真身，
+ * 仅锁忙重试等待从缺省 100ms × 20（约 2.1s 真等）缩至毫秒级——本文件锁忙
+ * 形用例（超限 fail-loud 拒写 / 持锁-后释放有界等待）不再真烧等待帽。host
+ * 写者族签名无 options 透传位（规范只定形原语面），故文件级截获（59 轮
+ * native-clipboard 裁量同形）。
+ */
+vi.mock('../../plugins/exec/edit-lock.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../plugins/exec/edit-lock.js')>();
+  return {
+    ...actual,
+    withEditLock: <T>(fs: EditLockFs, targetPath: string, body: () => T, options?: EditLockOptions) =>
+      actual.withEditLock<T>(fs, targetPath, body, { ...options, retryIntervalMs: 1, maxAttempts: 2 }),
+  };
+});
 
 /** 内存 fs（文件树 Map 形——目录隐含于路径前缀，size 按字节量合计） */
 function memFs(initial: Record<string, string> = {}): PluginStoreFs {

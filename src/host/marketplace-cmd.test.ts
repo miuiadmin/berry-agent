@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import { parseCli } from './cli.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
@@ -26,6 +26,27 @@ import { createPluginStoreFs, mountRow, readEnabledRowsForEdit, readLedger } fro
 import { Persistence, createAuditFace } from '../persist/index.js';
 import { HOST_MIGRATION_TAIL } from './runtime.js';
 import { DOORS_SEGMENT_V1_DOMAIN, USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
+import type { EditLockFs, EditLockOptions } from '../../plugins/exec/index.js';
+
+/* ---------------- 锁重试短帽缝（76 轮件6——passthrough 单点包裹） ---------------- */
+
+/**
+ * 文件级 passthrough vi.mock：spread 全真导出 + withEditLock 原样转发，唯一
+ * 差别 = 末参注入重试短帽（1ms × 2，经 76 轮件6 重试常量注入面）——零行为
+ * 替身：锁协议（O_EXCL 取锁 / pid 判活破锁 / 超限拒 / finally 释放）全真身，
+ * 仅锁忙重试等待从缺省 100ms × 20（约 2.1s 真等）缩至毫秒级——本文件锁忙
+ * 形用例（74 轮件2 remove 源清单锁忙）不再真烧全额等待帽。host 写者族签名
+ * 无 options 透传位（规范只定形原语面），故文件级截获（59 轮 native-
+ * clipboard 裁量同形）。
+ */
+vi.mock('../../plugins/exec/edit-lock.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../plugins/exec/edit-lock.js')>();
+  return {
+    ...actual,
+    withEditLock: <T>(fs: EditLockFs, targetPath: string, body: () => T, options?: EditLockOptions) =>
+      actual.withEditLock<T>(fs, targetPath, body, { ...options, retryIntervalMs: 1, maxAttempts: 2 }),
+  };
+});
 
 /** 测试根 tmp（vitest 每文件钉数据目录纪律——自管 tmp 收尾自清） */
 const testRoot = mkdtempSync(join(tmpdir(), 'berry-marketplace-cmd-test-'));

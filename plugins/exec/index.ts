@@ -42,6 +42,7 @@ export type { SpawnPipelineOptions } from './spawn.js';
 // host 三写者族〔enabled.yaml/ledger.json/marketplaces.json〕与登记簿持久化
 // 链消费——进程协调域归本件 isPidAlive 同域）
 export {
+  EDIT_LOCK_RETRY_DEFAULTS,
   EDIT_LOCK_RETRY_INTERVAL_MS,
   EDIT_LOCK_RETRY_MAX_ATTEMPTS,
   EditLockBusy,
@@ -49,7 +50,7 @@ export {
   withEditLock,
   withEditLockAsync,
 } from './edit-lock.js';
-export type { EditLockFs } from './edit-lock.js';
+export type { EditLockFs, EditLockOptions } from './edit-lock.js';
 
 // bash 工具件
 export { assertNoBackgroundCommand, createBashTool, discoverBash } from './bash.js';

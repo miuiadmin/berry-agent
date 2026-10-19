@@ -25,6 +25,9 @@
  *  - **异步形** withEditLockAsync（node:fs/promises 直连）：异步持久化链
  *    消费（子进程登记簿）；重试 sleep 用 setTimeout Promise——禁 Atomics.wait
  *    阻塞事件循环（TUI 宿主面不可接受）。
+ *
+ * 76 轮件6：两形同增可选 options 注入面（EditLockOptions——重试常量可注入，
+ * 缺省恒真常量、线协议缺省行为零变；测试短帽消费，见 EditLockOptions 注）。
  */
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -35,6 +38,30 @@ import { isPidAlive } from './spawn.js';
 export const EDIT_LOCK_RETRY_INTERVAL_MS = 100;
 /** 锁重试次数帽（100ms × 20 ≈ 2s 等待上限——超限折调用腿失败回执形） */
 export const EDIT_LOCK_RETRY_MAX_ATTEMPTS = 20;
+
+/**
+ * 锁重试常量注入面（76 轮批注——74 轮「常量注入面收短帽远期」拍板升格）：
+ * 锁忙形测试（活 pid 锁在场跑真等待超限）真烧重试帽全额时长（约 2.1s/处，
+ * 锁族写者每增一员皆付息——成长性单调），故两形同增本可选注入面。
+ * **缺省恒真常量——线协议缺省行为零变（跨进程锁等待语义不因测试注入面
+ * 改变）**；测试注入短帽（如 1ms × 2）毫秒级走完锁忙分支。两形同参数面
+ * （同步/异步同律）。
+ */
+export interface EditLockOptions {
+  /** 重试间隔 ms（缺省 = EDIT_LOCK_RETRY_INTERVAL_MS） */
+  readonly retryIntervalMs?: number;
+  /** 重试次数帽（缺省 = EDIT_LOCK_RETRY_MAX_ATTEMPTS） */
+  readonly maxAttempts?: number;
+}
+
+/**
+ * 锁重试缺省帽单源（真常量装配——注入面缺席时的回落值）。导出面供恒等
+ * 断言锚定「注入面不改变缺省行为」（值即线协议既值 100ms × 20）。
+ */
+export const EDIT_LOCK_RETRY_DEFAULTS: Readonly<{ retryIntervalMs: number; maxAttempts: number }> = {
+  retryIntervalMs: EDIT_LOCK_RETRY_INTERVAL_MS,
+  maxAttempts: EDIT_LOCK_RETRY_MAX_ATTEMPTS,
+};
 
 /**
  * 编辑锁超限拒绝（withEditLock/withEditLockAsync 取锁失败档的内部载体）：
@@ -52,11 +79,19 @@ export class EditLockBusy extends Error {
  * 锁超限拒文单源（带锁路径与重试帽——消费载体经 name 位传名：启用清单 /
  * 装机账本 / 市场源清单）。词面模板四写者族共用，漂移即测试红；「宁拒服务
  * 不丢数据」与锁文件定位/清锁指路是拒文的承载面。
+ *
+ * 注入值诚实化（76 轮件6）：可选第三参把**实际用的**重试值写进拒文（调用
+ * 方注入短帽时拒文不虚报缺省帽）——缺省调用串逐字节不变（四写者族词面
+ * 基线零漂移）。
  */
-export function editLockBusyText(name: string, lockPath: string): string {
+export function editLockBusyText(name: string, lockPath: string, options: EditLockOptions = {}): string {
+  const {
+    retryIntervalMs = EDIT_LOCK_RETRY_DEFAULTS.retryIntervalMs,
+    maxAttempts = EDIT_LOCK_RETRY_DEFAULTS.maxAttempts,
+  } = options;
   return (
-    `${name}正被另一进程编辑（锁 ${lockPath}，等待重试 ${EDIT_LOCK_RETRY_MAX_ATTEMPTS} 次 × ` +
-    `${EDIT_LOCK_RETRY_INTERVAL_MS}ms 超限）——已拒写以防丢更新；确认无其他进程在编辑时，可删除该锁文件后重试`
+    `${name}正被另一进程编辑（锁 ${lockPath}，等待重试 ${maxAttempts} 次 × ` +
+    `${retryIntervalMs}ms 超限）——已拒写以防丢更新；确认无其他进程在编辑时，可删除该锁文件后重试`
   );
 }
 
@@ -86,8 +121,15 @@ function lockSleepSync(ms: number): void {
  * 编辑面跨进程互斥原语·同步形：包住「读 → 改 → 写回」**整段** RMW（只罩
  * 原子写不够——A 读 → B 读 → B 写 → A 写的交错丢更新发生在读位与写位
  * 之间）。见文件头「协议」节。
+ *
+ * options（76 轮件6 注入面）：重试常量可选注入——缺省恒真常量（缺省调用
+ * 行为零变），测试注入短帽毫秒级走完锁忙分支。
  */
-export function withEditLock<T>(fs: EditLockFs, targetPath: string, body: () => T): T {
+export function withEditLock<T>(fs: EditLockFs, targetPath: string, body: () => T, options: EditLockOptions = {}): T {
+  const {
+    retryIntervalMs = EDIT_LOCK_RETRY_DEFAULTS.retryIntervalMs,
+    maxAttempts = EDIT_LOCK_RETRY_DEFAULTS.maxAttempts,
+  } = options;
   const lockPath = `${targetPath}.lock`;
   // 锁文件同目录先在（首启零文件形：目标文件的父目录由本笔前置建——
   // recursive 幂等）
@@ -102,8 +144,8 @@ export function withEditLock<T>(fs: EditLockFs, targetPath: string, body: () => 
       fs.unlink(lockPath);
       continue;
     }
-    if (++attempts > EDIT_LOCK_RETRY_MAX_ATTEMPTS) throw new EditLockBusy(lockPath);
-    lockSleepSync(EDIT_LOCK_RETRY_INTERVAL_MS);
+    if (++attempts > maxAttempts) throw new EditLockBusy(lockPath);
+    lockSleepSync(retryIntervalMs);
   }
   try {
     return body();
@@ -144,8 +186,19 @@ function sleepAsync(ms: number): Promise<void> {
  * 同 pid 载荷、同常量、破锁不睡重试、finally 释放）；差别只在 IO 走
  * node:fs/promises 与重试 sleep 不阻塞事件循环。直连真盘（异步持久化链
  * 无 fs 注入面——测试经真盘 tmp 目录同律覆盖）。
+ *
+ * options（76 轮件6 注入面）：与同步形同参数面——重试常量可选注入，缺省
+ * 恒真常量（缺省调用行为零变），测试注入短帽毫秒级走完锁忙分支。
  */
-export async function withEditLockAsync<T>(targetPath: string, body: () => Promise<T>): Promise<T> {
+export async function withEditLockAsync<T>(
+  targetPath: string,
+  body: () => Promise<T>,
+  options: EditLockOptions = {},
+): Promise<T> {
+  const {
+    retryIntervalMs = EDIT_LOCK_RETRY_DEFAULTS.retryIntervalMs,
+    maxAttempts = EDIT_LOCK_RETRY_DEFAULTS.maxAttempts,
+  } = options;
   const lockPath = `${targetPath}.lock`;
   // 锁文件同目录先在（与同步形同律——recursive 幂等）
   await mkdir(dirname(targetPath), { recursive: true });
@@ -159,8 +212,8 @@ export async function withEditLockAsync<T>(targetPath: string, body: () => Promi
       await rm(lockPath, { force: true }); // 缺席静默（竞窗里对方可能已清）
       continue;
     }
-    if (++attempts > EDIT_LOCK_RETRY_MAX_ATTEMPTS) throw new EditLockBusy(lockPath);
-    await sleepAsync(EDIT_LOCK_RETRY_INTERVAL_MS);
+    if (++attempts > maxAttempts) throw new EditLockBusy(lockPath);
+    await sleepAsync(retryIntervalMs);
   }
   try {
     return await body();

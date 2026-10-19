@@ -12,6 +12,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  EDIT_LOCK_RETRY_DEFAULTS,
+  EDIT_LOCK_RETRY_INTERVAL_MS,
   EDIT_LOCK_RETRY_MAX_ATTEMPTS,
   EditLockBusy,
   editLockBusyText,
@@ -133,7 +135,11 @@ describe('编辑锁共享原语·异步形 withEditLockAsync（同律镜像—�
     cleanups.push(dir);
     const target = join(dir, 'children.json');
     await writeFile(`${target}.lock`, `${process.pid}\n`, 'utf8'); // 本进程必活
-    await expect(withEditLockAsync(target, async () => 'unreachable')).rejects.toBeInstanceOf(EditLockBusy);
+    // 76 轮件6 短帽注入：锁忙分支毫秒级走完（缺省 100ms × 20 真等约 2.1s——
+    // 缺省帽行为锁由同步形真等待用例承担，本用例断言面不含时延）
+    await expect(
+      withEditLockAsync(target, async () => 'unreachable', { retryIntervalMs: 1, maxAttempts: 2 }),
+    ).rejects.toBeInstanceOf(EditLockBusy);
     expect(await readFile(`${target}.lock`, 'utf8')).toBe(`${process.pid}\n`); // 他人锁不破
     // 释放腿：取锁后 body 抛错 → finally unlink
     await rm(`${target}.lock`, { force: true });
@@ -151,5 +157,53 @@ describe('编辑锁共享原语·异步形 withEditLockAsync（同律镜像—�
     await mkdir(dir, { recursive: true }); // 已在场
     const out = await withEditLockAsync(join(dir, 'children.json'), async () => 'ok');
     expect(out).toBe('ok');
+  });
+});
+
+describe('重试常量注入面（76 轮件6——74 轮「常量注入面收短帽远期」拍板升格）', () => {
+  it('短帽注入·同步形：活 pid 锁在场毫秒级折 EditLockBusy（宽松上界防 flake）', () => {
+    const fs = memFs({ '/data/enabled.yaml.lock': `${process.pid}\n` }); // 本进程必活
+    const t0 = Date.now();
+    expect(() =>
+      // 注入短帽 1ms × 2——锁忙分支毫秒级走完（缺省 100ms × 20 真等约 2.1s）
+      withEditLock(fs, '/data/enabled.yaml', () => 'unreachable', { retryIntervalMs: 1, maxAttempts: 2 }),
+    ).toThrow(EditLockBusy);
+    // 上界宽松（500ms）防 CI 抖动 flake；短帽常态 3 探 × 1ms 量级
+    expect(Date.now() - t0).toBeLessThan(500);
+    // 他人活锁不被破坏（短帽只缩等待时长，不破锁语义）
+    expect(fs.files.get('/data/enabled.yaml.lock')).toBe(`${process.pid}\n`);
+  });
+
+  it('短帽注入·异步形（两形同参数面）：活 pid 锁在场毫秒级折 EditLockBusy', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'berry-editlock-shortcap-'));
+    cleanups.push(dir);
+    const target = join(dir, 'children.json');
+    await writeFile(`${target}.lock`, `${process.pid}\n`, 'utf8'); // 本进程必活
+    const t0 = Date.now();
+    await expect(
+      withEditLockAsync(target, async () => 'unreachable', { retryIntervalMs: 1, maxAttempts: 2 }),
+    ).rejects.toBeInstanceOf(EditLockBusy);
+    expect(Date.now() - t0).toBeLessThan(500); // 宽松上界防 flake（常态毫秒级）
+    expect(await readFile(`${target}.lock`, 'utf8')).toBe(`${process.pid}\n`); // 他人锁不破
+  });
+
+  it('缺省恒真常量：注入面缺席两形回落真常量（defaults 恒等断言——行为锁 = 同步形真等待用例 elapsed ≥ 1500ms）', () => {
+    // 导出 defaults 恒等断言：注入面回落值与真常量单源同值（缺省行为零变的参数面锚）
+    expect(EDIT_LOCK_RETRY_DEFAULTS.retryIntervalMs).toBe(EDIT_LOCK_RETRY_INTERVAL_MS);
+    expect(EDIT_LOCK_RETRY_DEFAULTS.maxAttempts).toBe(EDIT_LOCK_RETRY_MAX_ATTEMPTS);
+    // 数值钉扎（100ms × 20 ≈ 2s 等待上限——线协议既值，随变即红）
+    expect(EDIT_LOCK_RETRY_DEFAULTS).toEqual({ retryIntervalMs: 100, maxAttempts: 20 });
+  });
+
+  it('拒文注入值诚实化：带注入参写实际重试值；缺省调用串逐字节不变（四写者族词面基线）', () => {
+    // 缺省调用逐字节不变（四写者族共用词面的字节基线——缺省形零漂移）
+    expect(editLockBusyText('启用清单', '/data/enabled.yaml.lock')).toBe(
+      '启用清单正被另一进程编辑（锁 /data/enabled.yaml.lock，等待重试 20 次 × 100ms 超限）' +
+        '——已拒写以防丢更新；确认无其他进程在编辑时，可删除该锁文件后重试',
+    );
+    // 注入形诚实化：拒文写实际用的重试值（短帽 2 次 × 1ms，非缺省 20 次 × 100ms）
+    const text = editLockBusyText('启用清单', '/data/enabled.yaml.lock', { retryIntervalMs: 1, maxAttempts: 2 });
+    expect(text).toContain('等待重试 2 次 × 1ms');
+    expect(text).not.toContain('20 次');
   });
 });
