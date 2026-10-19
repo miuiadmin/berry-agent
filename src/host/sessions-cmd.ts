@@ -56,6 +56,7 @@ import {
   Persistence,
   clampTitleText,
   resolveDataDir,
+  resolveDatabasePathIn,
   sanitizeTitleText,
   sessionDisplayTitleOf,
 } from '../persist/index.js';
@@ -77,8 +78,8 @@ export interface SessionsEntryOptions {
   readonly version: string;
   /** 数据目录（缺省 resolveDataDir()——secret.key 归属地；fork·resume 装配透传） */
   readonly dataDir?: string;
-  /** 库文件路径（缺省 resolveDatabasePath() 三级梯子——与一切入口同源；
-   * 注意 dataDir 不重定位库文件〔路径梯子律 05 §6.6〕；测试隔离注入位） */
+  /** 库文件路径（缺省三级梯子；显式 dataDir 在场时锚定该目录——唯
+   * BERRY_AGENT_DB_PATH tier-2 env 恒赢〔参数级锚定律 05 §6.7〕；测试隔离注入位） */
   readonly dbPath?: string;
   /** env 面（缺省 process.env——装配路径透传） */
   readonly env?: Record<string, string | undefined>;
@@ -130,13 +131,19 @@ export async function runSessionsEntry(sub: SessionsCommand, options: SessionsEn
 /* ---------------- 读腿基建（零装配直开库） ---------------- */
 
 /**
- * 读腿/维护动词开库（宿主迁移链尾单源；库文件路径走三级梯子缺省——与一切
- * 入口同库同律；warn 走错误面——毒丸/撕裂尾告警直达人面）。
+ * 读腿/维护动词开库（宿主迁移链尾单源；warn 走错误面——毒丸/撕裂尾告警直达人面）。
+ * 库路径锚定（76 轮件3 收口）：显式 dataDir 在场时 dbPath 锚定该目录
+ * （resolveDatabasePathIn 单源——tier-2 BERRY_AGENT_DB_PATH 恒赢）；收口的
+ * 是注入位契约——生产 main.ts 分派恒不传 dataDir，单条路径不变。
  */
 function openReadSide(options: SessionsEntryOptions, err: (text: string) => void): Persistence {
   return Persistence.open({
     ...(options.dbPath !== undefined ? { dbPath: options.dbPath } : {}),
-    ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
+    // 显式 dataDir 在场 → 库路径同拍锚定（修前省键：Persistence 层 dbPath
+    // 缺省走 env 梯子，显式目录被吞、库与 secret.key 分家〔1e3a299 同病〕）
+    ...(options.dataDir !== undefined
+      ? { dataDir: options.dataDir, dbPath: options.dbPath ?? resolveDatabasePathIn(options.dataDir) }
+      : {}),
     migrations: HOST_MIGRATION_TAIL,
     warn: (message) => err(`warn：${message}`),
   });

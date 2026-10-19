@@ -303,6 +303,36 @@ describe('sessions list（读腿零装配）', () => {
     expect(text).toContain('干净标题');
     expect(text).toContain('san-zero');
   });
+
+  it('dataDir 锚定库路径：显式 dataDir 在场库必开该目录（76 轮件3——修前红：条件展开省 dbPath、库走 env 梯子与 secret.key 分家）', async () => {
+    const dataDirA = rigDir('sess-anchor-a-'); // 显式 dataDir（库应锚定在此）
+    const envDirB = rigDir('sess-anchor-b-'); // env 梯子位（修前库错开在此）
+    // paths.ts 直读 process.env——测试须真改 env（finally 还原）：tier-2
+    // DB_PATH 清场；DATA_DIR 指向 B（隔离 env 梯子位——清 undefined 会落
+    // 真 ~/.berry-agent，钉 B 位既证「梯子吞显式目录」又不触真家目录）
+    const prevDataDir = process.env.BERRY_AGENT_DATA_DIR;
+    const prevDbPath = process.env.BERRY_AGENT_DB_PATH;
+    delete process.env.BERRY_AGENT_DB_PATH;
+    process.env.BERRY_AGENT_DATA_DIR = envDirB;
+    try {
+      const cap = capture();
+      const code = await runSessionsEntry(
+        { sub: 'list' },
+        { version: 'test', dataDir: dataDirA, writeOut: cap.writeOut, writeErr: cap.writeErr },
+      );
+      expect(code).toBe(0);
+      // 修前红：openReadSide 只传 dataDir 不传 dbPath → Persistence 层 dbPath
+      // 缺省走 env 梯子开在 B，A 下无库文件（显式目录被无视）
+      expect(existsSync(join(dataDirA, 'sessions.db'))).toBe(true);
+      // 修后同步证锚：env 梯子位未被开库（锚定 = 不再两头都开）
+      expect(existsSync(join(envDirB, 'sessions.db'))).toBe(false);
+    } finally {
+      if (prevDbPath === undefined) delete process.env.BERRY_AGENT_DB_PATH;
+      else process.env.BERRY_AGENT_DB_PATH = prevDbPath;
+      if (prevDataDir === undefined) delete process.env.BERRY_AGENT_DATA_DIR;
+      else process.env.BERRY_AGENT_DATA_DIR = prevDataDir;
+    }
+  });
 });
 
 /* ---------------- search（跨会话 FTS） ---------------- */

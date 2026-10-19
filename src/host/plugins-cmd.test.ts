@@ -334,6 +334,53 @@ describe('plugins check——三色体检面真身（03 §8.9 ag 批：绿/红 +
     expect(text).toContain('用废弃 1'); // 汇总计数
   });
 
+  it('黄腿 tier-2 恒赢：BERRY_AGENT_DB_PATH 在场 → 直查该权威库非 dataDir 拼接位（76 轮件3——修前红：裸 join 盲读缺席位、黄行静默吞）', async () => {
+    const dataDir = tmpDir('plug-check-tier2-'); // 数据目录（账本在场、sessions.db 缺席）
+    const green = checkFixturePlugin('tier2-pkg', { minApiVersion: '1.0' });
+    writeLedger(dataDir, [entryOf('tier2-pkg', green)]);
+    // 权威库在别处（tier-2 单文件级覆盖位）：真落一笔 plugin/deprecation-used
+    // 遥测（writeEvents 原始面——同黄腿在场测试的遥测仿真形）
+    const dbHome = tmpDir('plug-check-tier2-db-');
+    const tmpDb = join(dbHome, 'sessions.db');
+    const seed = Persistence.open({ dbPath: tmpDb, migrations: HOST_MIGRATION_TAIL, warn: () => undefined });
+    const now = Date.now();
+    try {
+      seed.store.writeEvents([
+        {
+          sessionId: 'seed-session',
+          event: { type: 'plugin/deprecation-used', seq: 0, time: now, data: { pluginId: 'tier2-pkg' } },
+          registration: {
+            origin: 'conversation' as const,
+            parentId: undefined,
+            seedLength: 0,
+            title: undefined,
+            workspaceRoot: undefined,
+          },
+        },
+      ]);
+    } finally {
+      await seed.close();
+    }
+    // env tier-2 指到权威库（paths.ts 直读 process.env——真改 env，finally 还原）
+    const prevDbPath = process.env.BERRY_AGENT_DB_PATH;
+    process.env.BERRY_AGENT_DB_PATH = tmpDb;
+    const io = capture();
+    try {
+      const code = await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir, ...io });
+      expect(code).toBe(0); // 黄腿不改退出码
+      const text = io.out.join('\n');
+      // 修前红：collectDeprecationUsed 裸 join(dataDir, 'sessions.db') 缺席 →
+      // 诚实空形掩盖（零黄行）；修后 resolveDatabasePathIn 让 tier-2 恒赢直查真库
+      expect(text).toContain('用废弃（遥测 plugin/deprecation-used，1）：');
+      expect(text).toContain('tier2-pkg  1 笔');
+    } finally {
+      if (prevDbPath === undefined) delete process.env.BERRY_AGENT_DB_PATH;
+      else process.env.BERRY_AGENT_DB_PATH = prevDbPath;
+    }
+    // dataDir 拼接位未被造库（tier-2 分家形——check 纯只读不造文件）
+    expect(existsSync(join(dataDir, 'sessions.db'))).toBe(false);
+  });
+
   it('悬空装机记录：installPath 无 package.json → 断裂行（fail-closed 拒猜）+ exit 1；坏账本（键映射形值坏形）→ 拒体检 exit 1', async () => {
     const dir = tmpDir('plug-check-dangling-');
     writeLedger(dir, [entryOf('ghost-pkg', join(dir, 'no-such-dir'))]);

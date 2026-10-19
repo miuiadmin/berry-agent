@@ -16,7 +16,7 @@
  */
 import { stdout as processStdout, stderr as processStderr } from 'node:process';
 
-import { Persistence } from '../persist/index.js';
+import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
 import { runCredentialsCommand } from '../../plugins/credentials/index.js';
 import type { CredentialsSub } from '../../plugins/credentials/index.js';
 
@@ -26,8 +26,8 @@ import { HOST_MIGRATION_TAIL } from './runtime.js';
 export interface CredentialsEntryOptions {
   /** 数据目录（缺省 resolveDataDir()——secret.key 归属地） */
   readonly dataDir?: string;
-  /** 库文件路径（缺省 resolveDatabasePath() 三级梯子——与一切入口同源；
-   * 注意 dataDir 不重定位库文件〔路径梯子律 05 §6.6〕；测试隔离注入位） */
+  /** 库文件路径（缺省三级梯子；显式 dataDir 在场时锚定该目录——唯
+   * BERRY_AGENT_DB_PATH tier-2 env 恒赢〔参数级锚定律 05 §6.7〕；测试隔离注入位） */
   readonly dbPath?: string;
   /** 输出面（缺省 process.stdout——测试注入） */
   readonly writeOut?: (text: string) => void;
@@ -39,10 +39,17 @@ export interface CredentialsEntryOptions {
 export async function runCredentialsEntry(sub: CredentialsSub, options: CredentialsEntryOptions): Promise<number> {
   const out = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
   const err = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
-  // 开库（迁移链尾单源；warn 走错误面——毒丸/撕裂尾告警直达人面）
+  // 开库（迁移链尾单源；warn 走错误面——毒丸/撕裂尾告警直达人面）。库路径
+  // 锚定（76 轮件3 收口）：显式 dataDir 在场时 dbPath 锚定该目录
+  // （resolveDatabasePathIn 单源——tier-2 BERRY_AGENT_DB_PATH 恒赢）；收口的
+  // 是注入位契约——生产 main.ts 分派恒不传 dataDir，单条路径不变
   const persistence = Persistence.open({
     ...(options.dbPath !== undefined ? { dbPath: options.dbPath } : {}),
-    ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
+    // 修前省键：Persistence 层 dbPath 缺省走 env 梯子，显式目录被吞、库与
+    // secret.key 分家（1e3a299 同病）
+    ...(options.dataDir !== undefined
+      ? { dataDir: options.dataDir, dbPath: options.dbPath ?? resolveDatabasePathIn(options.dataDir) }
+      : {}),
     migrations: HOST_MIGRATION_TAIL,
     warn: (message) => err(`warn：${message}`),
   });

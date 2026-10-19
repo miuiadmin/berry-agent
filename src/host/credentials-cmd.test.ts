@@ -9,11 +9,12 @@
  * 退出码三态锁：0 成功（含空清单——诚实空非失败）/ 1 执行失败（名缺席、
  * namespace 坏形）/ 用法错归解析层（cli.test.ts 域——本件不重测）。
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { resolveDatabasePathIn } from '../persist/index.js';
 import { runCredentialsEntry } from './credentials-cmd.js';
 
 let dir: string;
@@ -75,6 +76,39 @@ describe('credentials CLI 入口全环', () => {
     expect(out[out.length - 1]).toContain('CREDENTIALS_NOT_FOUND');
     // stderr 只容 persist 迁移/权限自检 warn（新库首开 v1→v7 链）——无失败行
     expect(errLines.filter((line) => !line.startsWith('warn：'))).toEqual([]);
+  });
+
+  it('dataDir 锚定库路径契约：显式 dataDir 在场库必开 resolveDatabasePathIn(dataDir) 位（76 轮件3——修前红：条件展开省 dbPath、库走 env 梯子与 secret.key 分家）', async () => {
+    const anchorDir = mkdtempSync(join(tmpdir(), 'berry-agent-cred-anchor-')); // 显式 dataDir（库应锚定在此）
+    const envDir = mkdtempSync(join(tmpdir(), 'berry-agent-cred-env-')); // env 梯子位（修前库错开在此）
+    // paths.ts 直读 process.env——真改 env（finally 还原）：tier-2 清场 +
+    // DATA_DIR 钉 envDir（隔离梯子位——清 undefined 会落真 ~/.berry-agent）
+    const prevDataDir = process.env.BERRY_AGENT_DATA_DIR;
+    const prevDbPath = process.env.BERRY_AGENT_DB_PATH;
+    delete process.env.BERRY_AGENT_DB_PATH;
+    process.env.BERRY_AGENT_DATA_DIR = envDir;
+    try {
+      const out: string[] = [];
+      const errLines: string[] = [];
+      // 只传 dataDir 不传 dbPath——锁注入位契约：入口收口后 Persistence 收到
+      // 的 dbPath 必为 resolveDatabasePathIn(anchorDir)（开库落盘证明形）
+      const code = await runCredentialsEntry(
+        { sub: 'list' },
+        { dataDir: anchorDir, writeOut: (text) => out.push(text), writeErr: (text) => errLines.push(text) },
+      );
+      expect(code).toBe(0);
+      // 修前红：dbPath 缺省走 env 梯子开在 envDir，anchorDir 下无库文件
+      expect(existsSync(resolveDatabasePathIn(anchorDir))).toBe(true);
+      // 修后同步证锚：env 梯子位未被开库
+      expect(existsSync(join(envDir, 'sessions.db'))).toBe(false);
+    } finally {
+      if (prevDbPath === undefined) delete process.env.BERRY_AGENT_DB_PATH;
+      else process.env.BERRY_AGENT_DB_PATH = prevDbPath;
+      if (prevDataDir === undefined) delete process.env.BERRY_AGENT_DATA_DIR;
+      else process.env.BERRY_AGENT_DATA_DIR = prevDataDir;
+      rmSync(anchorDir, { recursive: true, force: true });
+      rmSync(envDir, { recursive: true, force: true });
+    }
   });
 
   it('坏形 namespace 退 1（值域执法归命令件单源——同码分流）', async () => {

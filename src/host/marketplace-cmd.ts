@@ -30,7 +30,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stdout as processStdout, stderr as processStderr } from 'node:process';
 
-import { Persistence, createAuditFace, resolveDataDir } from '../persist/index.js';
+import { Persistence, createAuditFace, resolveDataDir, resolveDatabasePathIn } from '../persist/index.js';
 
 import type { MarketplaceCommand } from './cli.js';
 import {
@@ -337,12 +337,12 @@ function marketAuditOf(
     sink: (type, data) => {
       try {
         if (persistence === undefined) {
-          // dbPath 显式随 dataDir（同 plugins-cmd lifecycleAuditOf——Persistence
-          // 的 dbPath/dataDir 分立解析，缺省 dbPath 走 env 梯子不随 dataDir
-          // 选项；CLI 语义 = --data-dir 指到哪库就在哪）
+          // 库路径单源解析（76 轮件3 收口——同 plugins-cmd lifecycleAuditOf）：
+          // 显式 dataDir 锚定 + tier-2 BERRY_AGENT_DB_PATH 恒赢（修前裸 join
+          // 吞掉 tier-2；收口的是注入位契约——生产 main.ts 分派恒不传 dataDir）
           persistence = Persistence.open({
             ...(options.dataDir !== undefined
-              ? { dataDir: options.dataDir, dbPath: join(options.dataDir, 'sessions.db') }
+              ? { dataDir: options.dataDir, dbPath: resolveDatabasePathIn(options.dataDir) }
               : {}),
             migrations: HOST_MIGRATION_TAIL,
             warn: (message) => writeErr(`warn：${message}`),
@@ -435,10 +435,13 @@ async function runUninstall(
     writeErr(resolved.message);
     return 1;
   }
-  // Persistence 直开（dbPath 显式随 dataDir——plugins uninstall 同律）
+  // Persistence 直开（库路径单源解析——76 轮件3 同病第七位同步收口：显式
+  // dataDir 锚定 + tier-2 BERRY_AGENT_DB_PATH 恒赢；修前裸 join 同
+  // plugins uninstall 腿旧形）；生产 main 分派恒不传
+  // dataDir——单条路径不变（收口的是注入位契约）
   const persistence = Persistence.open({
     ...(options.dataDir !== undefined
-      ? { dataDir: options.dataDir, dbPath: join(options.dataDir, 'sessions.db') }
+      ? { dataDir: options.dataDir, dbPath: resolveDatabasePathIn(options.dataDir) }
       : {}),
     migrations: HOST_MIGRATION_TAIL,
     warn: (message) => writeErr(`warn：${message}`),

@@ -29,7 +29,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stdout as processStdout, stderr as processStderr } from 'node:process';
 
-import { Persistence, createAuditFace, resolveDataDir } from '../persist/index.js';
+import { Persistence, createAuditFace, resolveDataDir, resolveDatabasePathIn } from '../persist/index.js';
 import { adjudicateApiGate, compareApiVersions } from '../contracts/api.js';
 
 import type { PluginsCommand } from './cli.js';
@@ -194,11 +194,16 @@ async function collectDeprecationUsed(
   dataDir: string,
   warn: (message: string) => void,
 ): Promise<Map<string, number> | null> {
-  const dbPath = join(dataDir, 'sessions.db');
+  // 库路径单源解析（76 轮件3 收口）：显式 dataDir 锚定 + tier-2
+  // BERRY_AGENT_DB_PATH 恒赢（修前裸 join 吞掉 tier-2——tier-2 配置下静默
+  // 盲读缺席位、黄行被诚实空形掩盖）；缺席 = 零 durable 事件零开库（纯只读
+  // 不造文件纪律不变）；生产 main 分派恒不传 dataDir——单条路径不变
+  // （收口的是注入位契约）
+  const dbPath = resolveDatabasePathIn(dataDir);
   if (!existsSync(dbPath)) return new Map(); // 库缺席 = 零事件——零开库（check 纯只读不造库）
   let persistence: Persistence;
   try {
-    // dbPath 显式随 dataDir（CLI 语义同 uninstall/审计腿——库随 --data-dir 走）
+    // dbPath 经单源解析随 dataDir（库随 --data-dir 走；tier-2 在场恒赢）
     persistence = Persistence.open({
       dataDir,
       dbPath,
@@ -414,12 +419,12 @@ function lifecycleAuditOf(
     sink: (type, data) => {
       try {
         if (persistence === undefined) {
-          // dbPath 显式随 dataDir（Persistence 的 dbPath/dataDir 分立解析——
-          // 缺省 dbPath 走 env 梯子不随 dataDir 选项；CLI 语义 = --data-dir
-          // 指到哪库就在哪〔三级梯子第二级本意〕）
+          // 库路径单源解析（76 轮件3 收口）：显式 dataDir 锚定 + tier-2
+          // BERRY_AGENT_DB_PATH 恒赢（修前裸 join 吞掉 tier-2；收口的是注入位
+          // 契约——生产 main.ts 分派恒不传 dataDir，单条路径不变）
           persistence = Persistence.open({
             ...(options.dataDir !== undefined
-              ? { dataDir: options.dataDir, dbPath: join(options.dataDir, 'sessions.db') }
+              ? { dataDir: options.dataDir, dbPath: resolveDatabasePathIn(options.dataDir) }
               : {}),
             migrations: HOST_MIGRATION_TAIL,
             warn: (message) => writeErr(`warn：${message}`),
@@ -521,13 +526,13 @@ async function runUninstall(
     return 1;
   }
   const dataDir = options.dataDir ?? resolveDataDir();
-  // dbPath 显式随 dataDir（同 lifecycleAuditOf——Persistence 的 dbPath/dataDir
-  // 分立解析，缺省 dbPath 走 env 梯子不随 dataDir 选项；CLI 语义 = --data-dir
-  // 指到哪库就在哪。装机面落码批遗留真 bug——审计落账批写测试抓获，修前
-  // 库恒开 env 梯子位、--data-dir 旗标形同虚设）
+  // 库路径单源解析（76 轮件3 清偿）：显式 dataDir 锚定 + tier-2
+  // BERRY_AGENT_DB_PATH 恒赢。此处注释旧文自认「装机面遗留真 bug」——本笔
+  // 与六位收口同形清偿（resolveDatabasePathIn 单源，裸 join 退役）；
+  // 生产 main 分派恒不传 dataDir——单条路径不变（收口的是注入位契约）
   const persistence = Persistence.open({
     ...(options.dataDir !== undefined
-      ? { dataDir: options.dataDir, dbPath: join(options.dataDir, 'sessions.db') }
+      ? { dataDir: options.dataDir, dbPath: resolveDatabasePathIn(options.dataDir) }
       : {}),
     migrations: HOST_MIGRATION_TAIL,
     warn: (message) => writeErr(`warn：${message}`),

@@ -300,11 +300,13 @@ function seedHistoryRow(dataDir: string, workspaceRoot: string, id: string, titl
   const seeded = spawnSync(process.execPath, [TSX_CLI, scriptPath, repoRoot, dataDir, id, workspaceRoot, title], {
     encoding: 'utf8',
     timeout: 60_000,
-    // 库路径梯子律（05 §6.6）：options.dataDir 不重定位库文件——
-    // resolveDatabasePath() 读 env。子进程 env 注入 BERRY_AGENT_DATA_DIR
-    // 与 TUI 进程同一梯子（首跑曾因缺此键把行误写测试钉扎库——真缺陷实证；
-    // 另 vitest setup 钉扎 DATA_DIR 到 berry-agent-test-* 临时根，不覆盖
-    // 会继承钉扎值写错库）
+    // 库路径梯子（05 §6.7——76 轮批注勘正：原引 §6.6 系伪引，梯子与锚定律
+    // 在 §6.7、§6.6 是单活跃机/L2 条款）：seed 脚本裸 Persistence.open 不传
+    // dbPath——该面 dataDir 不锚定库路径（锚定位在宿主装配根/CLI 入口的
+    // resolveDatabasePathIn），库文件走 env 梯子（resolveDatabasePath 读
+    // env）。子进程 env 注入 BERRY_AGENT_DATA_DIR 与 TUI 进程同一梯子
+    // （首跑曾因缺此键把行误写测试钉扎库——真缺陷实证；另 vitest setup 钉扎
+    // DATA_DIR 到 berry-agent-test-* 临时根，不覆盖会继承钉扎值写错库）
     env: { ...process.env, BERRY_AGENT_DATA_DIR: dataDir },
   });
   expect(seeded.status, `历史行预置失败：${seeded.stderr ?? ''}`).toBe(0);
@@ -339,7 +341,7 @@ function seedRewindManifest(dataDir: string, wsDir: string, id: string, trigger:
   const seeded = spawnSync(process.execPath, [TSX_CLI, scriptPath, repoRoot, dataDir, wsDir, id, trigger], {
     encoding: 'utf8',
     timeout: 60_000,
-    // 库路径梯子律同 seedHistoryRow（env 注入 BERRY_AGENT_DATA_DIR 与 TUI 同梯）
+    // 库路径梯子同 seedHistoryRow（05 §6.7——env 注入 BERRY_AGENT_DATA_DIR 与 TUI 同梯）
     env: { ...process.env, BERRY_AGENT_DATA_DIR: dataDir },
   });
   expect(seeded.status, `回退点预置失败：${seeded.stderr ?? ''}`).toBe(0);
