@@ -575,6 +575,16 @@ describe('runOne 编舞（其余结局）', () => {
     expect(f.fback.comments[0]!.body).toContain('阻塞转人审');
     expect(f.fj.settled[0]!.terminal.detail).not.toContain('push 已执行'); // 不 push——词面自证
   });
+
+  it('危险闸缺席枝收尾闭包两用（76 轮件4）：转人审终态 worktree clean 恰一次——修前红（裸 return 跳过收尾段零 clean）', async () => {
+    // 终态收口律执法补位：转人审枝不豁免收尾——同语义四条兄弟路径（escalation
+    // 降级/危险闸拒/过闸外写失败/验证未过）全落收尾段执行 clean，独此枝漏
+    //（「return 跳过新增收尾」经典形——残留 worktree 只被 orphanScan 标注不清扫）
+    const { f } = await runWithOutcome({ status: 'completed', messagesUsed: 9, summary: 'ok' }, { mode: 'auto' });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fwd.cleaned).toEqual(['issue-7']); // 修前红锚：[]——收尾段被裸 return 跳过
+    expect(f.fwd.released).toEqual(['headless-1']); // finally 照跑不缺——缺的只是收尾段
+  });
   it('failed 结局 → 评论贴原因 + settle failed + clean', async () => {
     const { f } = await runWithOutcome({
       status: 'failed',
@@ -992,6 +1002,9 @@ describe('⑪ escalation 收口消费（issue_escalate 登记面——runOne 闭
     expect(body).toContain('不自动交付');
     expect(body).toContain('**上报 1**');
     expect(body).toContain('本地未 push'); // 分支状态如实陈述
+    // 对照组（76 轮件4）：降级转人审枝落收尾段执行 clean——既有行为现绿仍绿，
+    // 与危险闸缺席枝（修前零 clean）同批两例即证不对称收口
+    expect(f.fwd.cleaned).toEqual(['issue-7']);
   });
 });
 

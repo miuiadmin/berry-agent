@@ -24,7 +24,8 @@
  * - auto+completed → 危险闸交付腿（04 §13——deliver = 闸包裹的 push/PR
  *   执行）：push 分支 → 开 PR → 回执贴 PR 链接 → settle completed；闸拒
  *   （DANGER_ 族）= 评论转人审 + 指路修复动作 + settle failed 需人审；
- *   闸缺席（装配未注入 face）= 03 §10.7 原语义保持——阻塞转人审；
+ *   闸缺席（装配未注入 face）= 03 §10.7 原语义保持——阻塞转人审
+ *   （76 轮件4：早退前同拍收尾 clean——转人审枝不豁免收尾）；
  * - failed → 评论贴原因 → settle failed；
  * - needs-human → 评论转人审 → settle failed（需人审）；
  * - ⑪ 遗漏修复批：failed / needs-human / verifyBlocked 一切非 completed
@@ -629,6 +630,25 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
         }
       }
 
+      // ── 收尾 clean 单源闭包（76 轮件4——终态收口律执法补位）──
+      //    收尾段与危险闸缺席枝（转人审早退形）两用同一拆除逻辑：转人审枝
+      //    同为 Job 终态，worktree 拆除/DIRTY 保留判定不得因分支早退跳过
+      //    （残留目录 orphanScan 只标注不清扫 + 同 issue 重入撞名让位 -rN
+      //    ——「return 跳过新增收尾」经典形）。闭包语义与原收尾段逐句等价
+      //    （FS_WORKTREE_DIRTY 保留判定原样）。
+      const finishedWt = created; // 收尾量 const 化捕获（此位已非空——候选穷尽即 throw；let 闭包内不保窄化）
+      const finalizeWorktree = async (): Promise<void> => {
+        try {
+          await deps.worktree.clean({ name: finishedWt.name });
+        } catch (err) {
+          if (err instanceof BaseError && err.code === 'FS_WORKTREE_DIRTY') {
+            warn(`issue worktree 未提交变更保留不拆（${finishedWt.name}）——分支 ${finishedWt.branch} 留存`);
+          } else {
+            warn(`issue worktree 清理失败（${finishedWt.name}）：${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      };
+
       // ── 交付映射（04 §10 issue 消费注·终态三因；⑪ 编排定序：verify 门 →
       //    escalation 检查 → 档位映射——验证未过更根本，先于一切交付分叉） ──
       if (outcome.status === 'completed' && !verifyBlocked) {
@@ -691,6 +711,10 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
               status: 'failed',
               detail: '需人审：不可逆外部写闸缺席（auto 模式成果已备，push/PR 需人工）',
             });
+            // 终态收口律执法补位（76 轮件4）：转人审早退前同拍收尾——return
+            // 不得删（控制流会坠入下方交付段，danger 缺席下必 TypeError），
+            // 缺的只是收尾段拆除，闭包在此同拍调用后 return。
+            await finalizeWorktree();
             return;
           }
           // 交付序：先 push 分支（PR 依赖远端分支在场）→ 再开 PR → 回执贴链接。
@@ -789,16 +813,9 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
         handle.settle({ status: 'failed', detail: appendEscalationDetail(`需人审：${outcome.reason}`, escalations) });
       }
 
-      // ── 收尾：拆 worktree（dirty 保留——未提交变更可能是交付物残余） ──
-      try {
-        await deps.worktree.clean({ name: created.name });
-      } catch (err) {
-        if (err instanceof BaseError && err.code === 'FS_WORKTREE_DIRTY') {
-          warn(`issue worktree 未提交变更保留不拆（${created.name}）——分支 ${created.branch} 留存`);
-        } else {
-          warn(`issue worktree 清理失败（${created.name}）：${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
+      // ── 收尾：拆 worktree（dirty 保留——未提交变更可能是交付物残余）──
+      //    finalizeWorktree 单源闭包（危险闸缺席枝同拍两用——见定义处注释）
+      await finalizeWorktree();
     } catch (err) {
       // 兜底：编舞自身异常——终态必落（注册表不悬挂）
       const detail = err instanceof Error ? err.message : String(err);
