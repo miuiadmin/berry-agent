@@ -21,9 +21,9 @@ import { Persistence } from '../persist/index.js';
 import { createAuditFace, createLoadHistoryFace } from '../persist/index.js';
 
 import { executeUninstall, inspectUninstall } from './plugin-uninstall.js';
-import type { UninstallDeps } from './plugin-uninstall.js';
+import type { UninstallDeps, UninstallOutcome, UninstallReport } from './plugin-uninstall.js';
 import { createPluginStoreFs, mountRow, readLedger, upsertLedgerEntry } from './plugin-store.js';
-import type { PluginLedgerEntry } from './plugin-store.js';
+import type { PluginLedgerEntry, PluginStoreFs } from './plugin-store.js';
 import { HOST_MIGRATION_TAIL } from './runtime.js';
 
 /** 测试根 tmp（vitest 每文件钉数据目录纪律——自管 tmp 收尾自清） */
@@ -639,4 +639,85 @@ describe('段② npm 锚依赖记录剥除（已卸包不得经锚记录被后�
       await stage.close();
     }
   });
+});
+
+/* ---------------- 段② 锚剥除编辑锁（03 §5.3 75 轮件3——npm 锚对 RMW 跨进程互斥，修前红区）
+ * 修前形：剥除段「读锚 → 删键 → 整文件写回」无锁——CLI uninstall 直开
+ * Persistence 不经 createHostRuntime 不取单活跃标记，CLI×CLI 并存交错时后写者
+ * 以陈旧读整覆写先写者的剥除 → 锚记录复活 → 下次任意 npm 源装机按锚全树
+ * 和解静默重装已卸插件；且双方各报成功（静默丢更新）。
+ * 修后形：剥除整段（锚对两文件）入编辑锁（锁锚 = plugins/package.json，
+ * lockPath = <plugins>/package.json.lock）+ 锁内重读剥单键 + tmp pid 后缀；
+ * 锁忙折 CLI 失败形 fail-loud（拒文词面随族）。 */
+describe('段② npm 锚剥除编辑锁（75 轮件3：锚对 RMW 整段互斥）', () => {
+  it('并发卸载交错：A 锚写回窗内 B 嵌入完整卸载 → B 被锁拒（诚实拒不静默吞账）；B 重跑锁内重读再剥——修前红：B 无锁成功且其剥除被 A 覆写吞没（other 键复活）', async () => {
+    const stage = UninstallStage.open('exec-npm-anchor-interleave');
+    try {
+      seedFullStage(stage); // demo（A 卸）+ other（B 卸）双 npm 插件现场
+      seedNpmAnchorTree(stage.dataDir);
+      // 交错注入：A 的 writeAnchorJson rename 位（tmp→package.json）钩入 B 的
+      // 完整卸载（uninstall 全同步——嵌套调用即真实交错序；同进程嵌套无自持
+      // 锁豁免，B 必超限拒——两真进程并存时 B 等 A 释放后进锁重读）
+      let armed = true;
+      let nested: UninstallOutcome<UninstallReport> | null = null;
+      const racingFs: PluginStoreFs = {
+        ...stage.deps.fs,
+        rename: (from, to) => {
+          if (armed && to === join(stage.dataDir, 'plugins', 'package.json')) {
+            armed = false;
+            nested = executeUninstall({ ...stage.deps, fs: racingFs }, 'other');
+          }
+          return stage.deps.fs.rename(from, to);
+        },
+      };
+      const a = executeUninstall({ ...stage.deps, fs: racingFs }, 'demo');
+      expect(a.ok).toBe(true); // A 全链成功（B 被锁拒不搅局 A 的临界段）
+      expect(nested).not.toBeNull();
+      // 修后：B 诚实锁拒；修前红：true——B 无锁写入「成功」，其 other 剥除却
+      // 被 A 的 rename 覆写吞没（丢更新——锚复活 → 下次 npm 装机静默重装）
+      const b = nested!;
+      expect(b.ok).toBe(false);
+      if (!b.ok) {
+        expect(b.message).toContain('PLUGIN_UNINSTALL_REFUSED');
+        expect(b.message).toContain('正被另一进程编辑');
+        expect(b.message).toContain(join(stage.dataDir, 'plugins', 'package.json.lock'));
+      }
+      // 终态锚：A 的剥除不被吞（demo 不复活）；other 因 B 被拒不剥（幂等重跑收敛）
+      expect(anchorDependencyKeys(stage.dataDir)).not.toContain('demo');
+      expect(anchorDependencyKeys(stage.dataDir)).toContain('other');
+      // B 重跑（A 已释放锁）：锁内重读 A 版锚 → 剥 other → 两剥俱在零复活
+      const bRetry = executeUninstall(stage.deps, 'other');
+      expect(bRetry.ok).toBe(true);
+      expect(anchorDependencyKeys(stage.dataDir)).not.toContain('other');
+      expect(anchorDependencyKeys(stage.dataDir)).not.toContain('demo');
+      expect(anchorLockPackageKeys(stage.dataDir)).not.toContain('node_modules/other');
+    } finally {
+      await stage.close();
+    }
+  }, 15_000);
+
+  it('锁忙拒形：锚编辑锁在场（活 pid）→ 剥除位拒写折 CLI 失败形（带锁路径指路），锚字节不动、装机物未删——修前红：无锁直写成功', async () => {
+    const stage = UninstallStage.open('exec-npm-anchor-lockbusy');
+    try {
+      stage.seedEntry({ id: 'demo' });
+      const dir = stage.seedInstallDir('demo');
+      seedNpmAnchorTree(stage.dataDir);
+      const anchorBefore = readFileSync(join(stage.dataDir, 'plugins', 'package.json'), 'utf8');
+      // 活 pid 锁在场（模拟他进程持锁编辑锚对——CLI×CLI 并存）
+      writeFileSync(join(stage.dataDir, 'plugins', 'package.json.lock'), `${process.pid}\n`);
+      const outcome = executeUninstall(stage.deps, 'demo');
+      expect(outcome.ok).toBe(false); // 修前红：true——无锁概念直写
+      if (!outcome.ok) {
+        expect(outcome.message).toContain('PLUGIN_UNINSTALL_REFUSED');
+        expect(outcome.message).toContain('正被另一进程编辑');
+        expect(outcome.message).toContain(join(stage.dataDir, 'plugins', 'package.json.lock'));
+      }
+      // 拒写不无锁写（宁拒服务不丢数据）：锚字节原样 + 剥侧先行于删物（物/账原样）
+      expect(readFileSync(join(stage.dataDir, 'plugins', 'package.json'), 'utf8')).toBe(anchorBefore);
+      expect(existsSync(dir)).toBe(true);
+      expect(stage.ledgerIds()).toContain('demo');
+    } finally {
+      await stage.close();
+    }
+  }, 15_000);
 });

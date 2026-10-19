@@ -51,6 +51,10 @@ import { promisify } from 'node:util';
 import { createJiti } from 'jiti';
 
 import { BaseError } from '../contracts/index.js';
+// 编辑锁原语单源消费（74 轮批注——plugins/exec edit-lock 同步形；75 轮件3
+// npm 锚缺锚写段入互斥律，与 uninstall 剥锚段同锁）：PluginStoreFs 结构满足
+// EditLockFs 最小面直传
+import { EditLockBusy, editLockBusyText, withEditLock } from '../../plugins/exec/index.js';
 import {
   assertInsideInstallSubtree,
   installPathForGit,
@@ -527,8 +531,9 @@ export function rollbackInstall(deps: InstallExecutorDeps, installPath: string):
 
 /**
  * npm 源执行（§5.4 四件套执法）。锚 package.json 缺席即写最小锚（防 npm
- * 向上爬父目录污染用户文件）；`--prefix` 装进装机树；integrity/version 从
- * `.package-lock.json` 收割（tarball 凭证真源）。
+ * 向上爬父目录污染用户文件）——缺锚写段与 uninstall 剥锚段同锁（03 §5.3
+ * 75 轮件3 互斥律第五员，见函数体内注）；`--prefix` 装进装机树；
+ * integrity/version 从 `.package-lock.json` 收割（tarball 凭证真源）。
  */
 async function runNpmInstall(
   deps: InstallExecutorDeps,
@@ -536,12 +541,27 @@ async function runNpmInstall(
 ): Promise<InstallProduct> {
   const pluginsDir = join(deps.dataDir, 'plugins');
   deps.fs.mkdir(pluginsDir, { recursive: true });
-  // 锚 package.json（缺席才写——在场保用户/前次装机产物，不覆盖）
-  if (deps.fs.read(join(pluginsDir, 'package.json')) === null) {
-    deps.fs.write(
-      join(pluginsDir, 'package.json'),
-      `${JSON.stringify({ name: 'berry-agent-plugin-tree', private: true }, null, 2)}\n`,
-    );
+  // 锚 package.json（缺席才写——在场保用户/前次装机产物，不覆盖）：与
+  // uninstall 剥锚段同锁（03 §5.3 75 轮件3 互斥律第五员——锁锚 =
+  // plugins/package.json，lockPath = `<plugins>/package.json.lock` 原语派生
+  // 形），「探测缺席→写最小锚」整段入临界段；缺席即写形幂等。npm spawn 是
+  // 外部写者不进锁（见 plugin-uninstall stripNpmAnchorRecords 头注——
+  // uninstall×npm-install 并存窗规范裁量容忍并记）。锁超限折装机失败档
+  // fail-loud（拒文词面随族 editLockBusyText）。
+  try {
+    withEditLock(deps.fs, join(pluginsDir, 'package.json'), () => {
+      if (deps.fs.read(join(pluginsDir, 'package.json')) === null) {
+        deps.fs.write(
+          join(pluginsDir, 'package.json'),
+          `${JSON.stringify({ name: 'berry-agent-plugin-tree', private: true }, null, 2)}\n`,
+        );
+      }
+    });
+  } catch (err) {
+    if (err instanceof EditLockBusy) {
+      throw new BaseError('PLUGIN_INSTALL_FAILED', editLockBusyText('npm 装机锚', err.lockPath));
+    }
+    throw err;
   }
   const argv = [
     'install',

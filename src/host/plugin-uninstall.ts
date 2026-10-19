@@ -12,7 +12,8 @@
  *    installPath 表示形：相对 = 子树内必删〔含 market 拷贝腿布局〕/ 绝对 =
  *    直引不删——03 §9.6 mp-3 B2 定形注）+ npm 布局连带剥锚
  *    package.json/.package-lock.json 依赖记录（已卸包不得经锚记录被后续
- *    npm 装机全树和解复活回 node_modules——host-plugins#4）；
+ *    npm 装机全树和解复活回 node_modules——host-plugins#4；剥除整段入编辑
+ *    锁——03 §5.3 75 轮件3 互斥律第五员，详见 stripNpmAnchorRecords 头注）；
  *    **连带** DROP 该插件域前缀
  *  ③ 数据域处置 `dataAction: keep|purge` 缺省 keep（Docker 卷律）——purge 恒
  *    只删 `data/<id>/` 单插件子目录（`assertInsidePluginData` 防线）+ store_state
@@ -31,6 +32,9 @@ import { BaseError } from '../contracts/index.js';
 import { isAbsolute, join } from 'node:path';
 import type { SqliteDatabase } from '../persist/index.js';
 import { createAuditFace, createLoadHistoryFace } from '../persist/index.js';
+// 编辑锁原语单源消费（74 轮批注——plugins/exec edit-lock 同步形；75 轮件3
+// 锚对剥除段入互斥律）：PluginStoreFs 结构满足 EditLockFs 最小面直传
+import { EditLockBusy, editLockBusyText, withEditLock } from '../../plugins/exec/index.js';
 
 import {
   assertInsideInstallSubtree,
@@ -224,9 +228,9 @@ function parseAnchorJson(text: string, path: string): Record<string, unknown> {
   return parsed;
 }
 
-/** 锚 JSON 原子写回（tmp+rename 同目录同卷——半写 JSON 会断后续一切 npm 源装机） */
+/** 锚 JSON 原子写回（tmp+rename 同目录同卷——半写 JSON 会断后续一切 npm 源装机；tmp 带 pid 后缀——并行写者 tmp 互不踩，75 轮件3） */
 function writeAnchorJson(fs: PluginStoreFs, path: string, value: unknown): void {
-  const tmp = `${path}.tmp-uninstall`;
+  const tmp = `${path}.tmp-${process.pid}`;
   fs.write(tmp, `${JSON.stringify(value, null, 2)}\n`);
   fs.rename(tmp, path);
 }
@@ -248,47 +252,72 @@ function writeAnchorJson(fs: PluginStoreFs, path: string, value: unknown): void 
  *    下次全树和解自判，多剥会迫使兄弟插件传递依赖重新解析）；
  *  - 锚文件缺席或记录已不在 = 无作（幂等残迹收尾式）；锚文件在场则坏
  *    JSON/坏形 fail-loud 拒。
+ *
+ * 编辑面跨进程互斥（03 §5.3 75 轮件3——互斥律文件域第五员）：剥除整段
+ * （锚对两文件）「读→删键→整文件写回」入编辑锁——锁锚 = plugins/
+ * package.json（lockPath = `<plugins>/package.json.lock`，规范钉定形），
+ * 锚对两文件同一临界段；锁内重读剥单键（增量形——勿持锁外旧读，CLI×CLI
+ * 并存交错时后写者以陈旧读整覆写先写者的剥除 = 锚记录复活 → 下次 npm 装机
+ * 静默重装已卸插件）。npm spawn 是**外部写者**不进锁（install 腿 600s 网络
+ * 长动作远超锁重试帽、npm 不识我方 lockfile）——uninstall×uninstall 互斥由
+ * 锁闭合；uninstall×npm-install 并存窗为外部写者窗（规范裁量容忍并记——
+ * 锚记录多留不损装载正确性，下次装机 npm 和解自愈）。锁超限折
+ * `PLUGIN_UNINSTALL_REFUSED` CLI 失败形 fail-loud（拒文词面随族
+ * editLockBusyText——宁拒服务不丢数据）。
  */
 function stripNpmAnchorRecords(deps: UninstallDeps, installPath: string): void {
   const pkg = npmPackageNameOf(installPath);
   if (pkg === null) return; // 非 npm 布局零锚记录无作
   const pluginsDir = join(deps.dataDir, 'plugins');
-
-  // ① 锚 package.json——dependencies[<pkg>] 剥除（--save-exact 的记录位）
+  // 锚路径兼锁锚（lockPath 派生形 `<目标文件>.lock`——edit-lock 原语单源）
   const anchorPath = join(pluginsDir, 'package.json');
-  const anchorText = deps.fs.read(anchorPath);
-  if (anchorText !== null) {
-    const anchor = parseAnchorJson(anchorText, anchorPath);
-    const dependencies = anchor['dependencies'];
-    if (isRecord(dependencies) && Object.hasOwn(dependencies, pkg)) {
-      delete dependencies[pkg];
-      writeAnchorJson(deps.fs, anchorPath, anchor);
-    }
-  }
-
-  // ② 锚 .package-lock.json——packages 段包自身键与私有嵌套键 + 旧版 dependencies 段父键
-  const lockPath = join(pluginsDir, '.package-lock.json');
-  const lockText = deps.fs.read(lockPath);
-  if (lockText !== null) {
-    const lock = parseAnchorJson(lockText, lockPath);
-    let changed = false;
-    const packages = lock['packages'];
-    if (isRecord(packages)) {
-      const rootKey = `node_modules/${pkg}`;
-      for (const key of Object.keys(packages)) {
-        // 精确前缀界：同头异名包（demo-extra）不误伤；私有嵌套子树随剥
-        if (key === rootKey || key.startsWith(`${rootKey}/node_modules/`)) {
-          delete packages[key];
-          changed = true;
+  try {
+    withEditLock(deps.fs, anchorPath, () => {
+      // ① 锚 package.json——dependencies[<pkg>] 剥除（--save-exact 的记录位）；
+      // 锁内重读（锁外旧读即丢更新面）
+      const anchorText = deps.fs.read(anchorPath);
+      if (anchorText !== null) {
+        const anchor = parseAnchorJson(anchorText, anchorPath);
+        const dependencies = anchor['dependencies'];
+        if (isRecord(dependencies) && Object.hasOwn(dependencies, pkg)) {
+          delete dependencies[pkg];
+          writeAnchorJson(deps.fs, anchorPath, anchor);
         }
       }
+
+      // ② 锚 .package-lock.json——packages 段包自身键与私有嵌套键 + 旧版
+      // dependencies 段父键（同一临界段——锚对一体互斥）
+      const lockPath = join(pluginsDir, '.package-lock.json');
+      const lockText = deps.fs.read(lockPath);
+      if (lockText !== null) {
+        const lock = parseAnchorJson(lockText, lockPath);
+        let changed = false;
+        const packages = lock['packages'];
+        if (isRecord(packages)) {
+          const rootKey = `node_modules/${pkg}`;
+          for (const key of Object.keys(packages)) {
+            // 精确前缀界：同头异名包（demo-extra）不误伤；私有嵌套子树随剥
+            if (key === rootKey || key.startsWith(`${rootKey}/node_modules/`)) {
+              delete packages[key];
+              changed = true;
+            }
+          }
+        }
+        const legacyDependencies = lock['dependencies'];
+        if (isRecord(legacyDependencies) && Object.hasOwn(legacyDependencies, pkg)) {
+          delete legacyDependencies[pkg];
+          changed = true;
+        }
+        if (changed) writeAnchorJson(deps.fs, lockPath, lock);
+      }
+    });
+  } catch (err) {
+    // 锁超限折卸载拒绝档（与坏锚 JSON 同码同收口——executeUninstall catch 呈
+    // CLI 退 1，fail-loud 拒绝不静默吞账）
+    if (err instanceof EditLockBusy) {
+      throw new BaseError('PLUGIN_UNINSTALL_REFUSED', editLockBusyText('npm 装机锚', err.lockPath));
     }
-    const legacyDependencies = lock['dependencies'];
-    if (isRecord(legacyDependencies) && Object.hasOwn(legacyDependencies, pkg)) {
-      delete legacyDependencies[pkg];
-      changed = true;
-    }
-    if (changed) writeAnchorJson(deps.fs, lockPath, lock);
+    throw err;
   }
 }
 

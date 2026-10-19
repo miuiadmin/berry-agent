@@ -346,6 +346,23 @@ describe('npm 执行器编舞（假 spawn——argv 与落账可测，零真网�
     expect(Array.isArray(onDisk)).toBe(true);
   });
 
+  it('npm 腿缺锚写段同锁（75 轮件3）：锚编辑锁在场（活 pid）→ install 拒（PLUGIN_INSTALL_FAILED 收口带锁路径指路），不无锁写锚、spawn 零发起——修前红：无锁直写锚并继续装机成功', async () => {
+    const dataDir = dataDirOf('data-anchor-lockbusy');
+    const rec = npmFakeSpawn(dataDir);
+    // 活 pid 锁在场（uninstall 剥锚腿与本腿互斥——同锁路径 <plugins>/package.json.lock）
+    mkdirSync(join(dataDir, 'plugins'), { recursive: true });
+    writeFileSync(join(dataDir, 'plugins', 'package.json.lock'), `${process.pid}\n`);
+    const outcome = await installPlugin(depsOf(dataDir, rec.spawn), 'npm:demo-pkg');
+    expect(outcome.ok).toBe(false); // 修前红：true——缺锚写段无锁直写并继续装机
+    if (!outcome.ok) {
+      expect(outcome.message).toContain('正被另一进程编辑');
+      expect(outcome.message).toContain(join(dataDir, 'plugins', 'package.json.lock'));
+    }
+    // 锁拒先于 npm spawn（外部写者不进锁——spawn 位在其后）；锚不无锁写
+    expect(rec.argvLog).toHaveLength(0);
+    expect(existsSync(join(dataDir, 'plugins', 'package.json'))).toBe(false);
+  }, 15_000);
+
   it('npm 腿坏 .package-lock.json：分类收口 + 装机回滚不留残影（头注回滚律——收割失败 = rm 装机物再拒；修前红：裸 SyntaxError 折 message + 装机树残留）', async () => {
     const dataDir = dataDirOf('data-bad-lock');
     const rec = npmFakeSpawn(dataDir, { lockText: '{oops-not-json' });
