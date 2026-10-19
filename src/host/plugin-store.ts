@@ -20,6 +20,9 @@
  *    目标必须落 `plugins/` 装机子树内）/ assertInsidePluginData（purge 目标
  *    必须解析落在 `data/<id>/` 该插件子目录内）——逃逸即拒，防账本/参数
  *    手编坏形的越界删除。
+ *  - **编辑面跨进程互斥**（§5.3 73 轮批注——RMW 丢更新防护）：enabled.yaml
+ *    与 ledger.json 全部写者的「读 → 改 → 写回」整段同目录 lockfile 互斥
+ *    （O_EXCL 探测 + 有界重试 + 崩溃残锁 pid 判死破锁；超限 fail-loud 拒写）。
  *
  * CLI 短命进程形态（零装配直开库同款纪律）：本件不开运行时、不装配装载器
  * ——写侧动作的生效时点是下次启动装载（「下次启动生效」诚实回执归
@@ -32,6 +35,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { BaseError } from '../contracts/index.js';
 import { DOORS_SEGMENT_V1_DOMAIN } from '../contracts/api.js';
 import { canonicalPath } from '../safety/index.js';
+import { isPidAlive } from '../../plugins/exec/index.js';
 import { enabledYamlPath, checkPluginId, parseEnabledRows } from './manifest.js';
 import type { EnabledRow } from './manifest.js';
 
@@ -60,6 +64,20 @@ export interface PluginStoreFs {
   readonly readdir: (path: string) => readonly string[] | null;
   /** 路径递归字节量（缺席 = null） */
   readonly size: (path: string) => number | null;
+  /**
+   * O_EXCL 独占建文件（编辑面跨进程互斥原语——03 §5.3 73 轮批注 lockfile 腿）：
+   * true = 建成即持锁（text = 持锁 pid 载荷）；false = 目标已在场（EEXIST
+   * 探测语义，不抛——「在场等待 / stale 破锁 / 有界重试超限拒写」编舞单源
+   * 在 withEditLock，注入面只供单发探测）。其余错误照抛（真盘 writeFileSync
+   * flag 'wx' 缺省实现——与 single-instance 活跃标记独占写同律）。
+   */
+  readonly openExclusive: (path: string, text: string) => boolean;
+  /**
+   * 删单文件（锁释放/破锁位）：缺席静默不炸（force 语义——破锁竞窗里对方
+   * 可能已先行删除同一残锁，静默容错后由随后的 O_EXCL 重探终判胜负）；
+   * 其余错误（EACCES 等）照抛（fail-loud——锁清不掉不该被伪装成已清）。
+   */
+  readonly unlink: (path: string) => void;
 }
 
 /**
@@ -117,6 +135,17 @@ function defaultStoreFs(): PluginStoreFs {
       }
     },
     size: sizeOf,
+    // O_EXCL 探测：EEXIST 折 false（在场探测非异常档）；其余照抛
+    openExclusive: (path, text) => {
+      try {
+        writeFileSync(path, text, { flag: 'wx' });
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+        throw err;
+      }
+    },
+    unlink: (path) => rmSync(path, { force: true }),
   };
 }
 
@@ -130,6 +159,104 @@ function atomicWrite(fs: PluginStoreFs, path: string, text: string): void {
   // 辖建时点，在场旧文件不追溯。
   fs.write(tmp, text, { mode: 0o600 });
   fs.rename(tmp, path);
+}
+
+/* ---------------- 编辑面跨进程互斥（03 §5.3 73 轮批注——RMW 丢更新防护） ---------------- */
+
+/** 锁重试间隔（有界等待帽的粒度——CLI 短命进程与宿主回合内写动词共用） */
+const EDIT_LOCK_RETRY_INTERVAL_MS = 100;
+/** 锁重试次数帽（100ms × 20 ≈ 2s 等待上限——超限 fail-loud 拒写不静默） */
+const EDIT_LOCK_RETRY_MAX_ATTEMPTS = 20;
+
+/**
+ * 同步睡眠（Atomics.wait——本件锁重试等待专用；与 persist/store.ts syncSleep
+ * 同形私有：该处未导出、persist 边不经本件拉依赖，两处各自内聚）。
+ */
+function lockSleep(ms: number): void {
+  const cell = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(cell, 0, 0, ms);
+}
+
+/**
+ * 编辑锁超限拒绝（withEditLock 取锁失败档的内部载体——各写腿 catch 后折
+ * 本腿失败形：行动词折 `{ ok:false, message }` 拒文、账本腿折 BaseError
+ * 拒抛；不外泄类形——「宁拒服务不丢数据」的 message 才是呈现面）。
+ */
+class EditLockBusy extends Error {
+  constructor(readonly lockPath: string) {
+    super(`编辑锁重试超限：${lockPath}`);
+  }
+}
+
+/**
+ * 编辑面跨进程互斥原语（模块私有——03 §5.3 73 轮批注行为律的执法位）：
+ * 包住「读 → 改 → 写回」**整段** RMW（只罩 atomicWrite 不够——A 读 → B 读
+ * → B 写 → A 写的交错丢更新发生在读位与写位之间）。形态 = 同目录 lockfile
+ * （`<目标>.lock`）：
+ *  - 取锁 = O_EXCL 独占建文件（fs.openExclusive 单发探测），载荷 = 持锁
+ *    pid（stale 判定用）；
+ *  - 在场 = 读持锁 pid 判活（isPidAlive——exec 件公开面单源，信号 0 探测
+ *    ESRCH 折死）：活 = 有界等待重试（100ms × 20 帽）；死 = 崩溃残锁破锁
+ *    重试；内容不可解析 = 按活计（保守——无法证明 stale 即不破，超限拒写
+ *    兜底）；
+ *  - 破锁-重取竞窗自愈：unlink 后 O_EXCL 重试，失败（对方先取得）则重读
+ *    重判（unlink 缺席静默语义由 fs 面承载）；
+ *  - 互斥不可得（重试超限）= throw EditLockBusy——调用腿折 fail-loud 拒写，
+ *    绝不退化为无锁写（丢更新面比暂拒服务更坏）；
+ *  - 释放 = finally unlink（缺席静默——外扰清场后的幂等收口）。
+ *
+ * 同进程重入（嵌套写者）无自持锁豁免：自身 pid 判活走等待支，超限即拒——
+ * 现无嵌套写者（各写腿互不调用），该形是防御位非工作流。
+ */
+function withEditLock<T>(fs: PluginStoreFs, targetPath: string, body: () => T): T {
+  const lockPath = `${targetPath}.lock`;
+  // 锁文件同目录先在（首启零文件形：ledger 的 plugins/ 子目录由本笔前置建，
+  // enabled.yaml 的数据目录同律——recursive 幂等）
+  fs.mkdir(dirname(targetPath), { recursive: true });
+  let attempts = 0;
+  for (;;) {
+    if (fs.openExclusive(lockPath, `${process.pid}\n`)) break; // 取得——进临界段
+    const held = fs.read(lockPath);
+    const pid = held === null ? Number.NaN : Number(held.trim());
+    // stale 判定（pid 判死 = 崩溃残锁）：破锁立即重试（不睡——残锁不是竞争）
+    if (Number.isInteger(pid) && pid > 0 && !isPidAlive(pid)) {
+      fs.unlink(lockPath);
+      continue;
+    }
+    if (++attempts > EDIT_LOCK_RETRY_MAX_ATTEMPTS) throw new EditLockBusy(lockPath);
+    lockSleep(EDIT_LOCK_RETRY_INTERVAL_MS);
+  }
+  try {
+    return body();
+  } finally {
+    fs.unlink(lockPath);
+  }
+}
+
+/** 锁超限拒文（带锁路径与重试帽——两载体（启用清单/装机账本）名位各异） */
+function editLockBusyText(name: string, lockPath: string): string {
+  return (
+    `${name}正被另一进程编辑（锁 ${lockPath}，等待重试 ${EDIT_LOCK_RETRY_MAX_ATTEMPTS} 次 × ` +
+    `${EDIT_LOCK_RETRY_INTERVAL_MS}ms 超限）——已拒写以防丢更新；确认无其他进程在编辑时，可删除该锁文件后重试`
+  );
+}
+
+/**
+ * 行编辑腿的锁包装（enabled.yaml 写动词共用收口）：body = 原「读-改-写回」
+ * 段；EditLockBusy 折本腿失败形（RowEditResult message——CLI 退 1 / 工具面
+ * ok:false 呈现，fail-loud 拒写不静默）。
+ */
+function rowEditUnderLock<T extends { readonly ok: true } | { readonly ok: false; readonly message: string }>(
+  dataDir: string,
+  fs: PluginStoreFs,
+  body: () => T,
+): T | { readonly ok: false; readonly message: string } {
+  try {
+    return withEditLock(fs, enabledYamlPath(dataDir), body);
+  } catch (err) {
+    if (err instanceof EditLockBusy) return { ok: false, message: editLockBusyText('启用清单', err.lockPath) };
+    throw err;
+  }
 }
 
 /* ---------------- 装机账本（§5.4） ---------------- */
@@ -284,23 +411,43 @@ export function writeLedger(dataDir: string, entries: readonly PluginLedgerEntry
 
 /** upsert（同 id 后见胜出——install/update 共用；保序：新条目尾追加） */
 export function upsertLedgerEntry(dataDir: string, entry: PluginLedgerEntry, fs: PluginStoreFs): void {
-  const read = readLedger(dataDir, fs);
-  // 写前置读已由调用方核过 ok（install/update 编舞先查撞名/查在场）——此处
-  // fail-loud 防双检竞速残影（坏账本拒写不覆盖）
-  if (!read.ok) throw new BaseError('PLUGIN_INSTALL_FAILED', `安装记录损坏，拒写防覆盖：${read.reason}`);
-  const rest = read.entries.filter((e) => e.id !== entry.id);
-  writeLedger(dataDir, [...rest, entry], fs);
+  // 账本追加腿同「读-改-写回」形（03 §5.3 73 轮批注：ledger 追加腿同律同治）
+  // ——互斥包 read→filter→write 整段；锁超限折装机失败档 fail-loud 拒写
+  try {
+    withEditLock(fs, ledgerPath(dataDir), () => {
+      const read = readLedger(dataDir, fs);
+      // 写前置读已由调用方核过 ok（install/update 编舞先查撞名/查在场）——此处
+      // fail-loud 防双检竞速残影（坏账本拒写不覆盖）
+      if (!read.ok) throw new BaseError('PLUGIN_INSTALL_FAILED', `安装记录损坏，拒写防覆盖：${read.reason}`);
+      const rest = read.entries.filter((e) => e.id !== entry.id);
+      writeLedger(dataDir, [...rest, entry], fs);
+    });
+  } catch (err) {
+    if (err instanceof EditLockBusy)
+      throw new BaseError('PLUGIN_INSTALL_FAILED', editLockBusyText('装机账本', err.lockPath));
+    throw err;
+  }
 }
 
 /** 删条目（uninstall 段②后账面收口；id 查无 = no-op 幂等） */
 export function removeLedgerEntry(dataDir: string, id: string, fs: PluginStoreFs): void {
-  const read = readLedger(dataDir, fs);
-  if (!read.ok) throw new BaseError('PLUGIN_UNINSTALL_REFUSED', `安装记录损坏，拒写防覆盖：${read.reason}`);
-  writeLedger(
-    dataDir,
-    read.entries.filter((e) => e.id !== id),
-    fs,
-  );
+  // 撤账腿同律（读-改-写整段互斥）；锁超限折卸载拒绝档（与坏账本拒写同码）
+  try {
+    withEditLock(fs, ledgerPath(dataDir), () => {
+      const read = readLedger(dataDir, fs);
+      if (!read.ok) throw new BaseError('PLUGIN_UNINSTALL_REFUSED', `安装记录损坏，拒写防覆盖：${read.reason}`);
+      writeLedger(
+        dataDir,
+        read.entries.filter((e) => e.id !== id),
+        fs,
+      );
+    });
+  } catch (err) {
+    if (err instanceof EditLockBusy) {
+      throw new BaseError('PLUGIN_UNINSTALL_REFUSED', editLockBusyText('装机账本', err.lockPath));
+    }
+    throw err;
+  }
 }
 
 /* ---------------- enabled.yaml 行编辑（§5.3） ---------------- */
@@ -380,15 +527,18 @@ export function mountRow(
   fs: PluginStoreFs,
   onLifecycleAudit?: LifecycleAuditSink,
 ): RowEditResult {
-  const read = readEnabledRowsForEdit(dataDir, fs);
-  if (!read.ok) return read;
-  if (read.rows.some((row) => row.id === id)) {
-    return { ok: false, message: `插件 ${id} 的启用行已存在——mount 拒绝重名（改配置 = 先 unmount 再 mount）` };
-  }
-  const row: EnabledRow = { id, ...(config !== undefined ? { config } : {}) };
-  writeEnabledRows(dataDir, [...read.rows, row], read.doors, fs);
-  onLifecycleAudit?.('plugin/mounted', { id });
-  return { ok: true };
+  // 读-改-写整段互斥（03 §5.3 73 轮批注——CLI/宿主并存竞窗的丢更新防护）
+  return rowEditUnderLock(dataDir, fs, () => {
+    const read = readEnabledRowsForEdit(dataDir, fs);
+    if (!read.ok) return read;
+    if (read.rows.some((row) => row.id === id)) {
+      return { ok: false, message: `插件 ${id} 的启用行已存在——mount 拒绝重名（改配置 = 先 unmount 再 mount）` };
+    }
+    const row: EnabledRow = { id, ...(config !== undefined ? { config } : {}) };
+    writeEnabledRows(dataDir, [...read.rows, row], read.doors, fs);
+    onLifecycleAudit?.('plugin/mounted', { id });
+    return { ok: true };
+  });
 }
 
 /**
@@ -403,22 +553,25 @@ export function unmountRow(
   fs: PluginStoreFs,
   onLifecycleAudit?: LifecycleAuditSink,
 ): RowEditResult {
-  const read = readEnabledRowsForEdit(dataDir, fs);
-  if (!read.ok) return read;
-  if (!read.rows.some((row) => row.id === id)) {
-    if (id.startsWith('core:')) {
-      return { ok: false, message: `官方插件 ${id} 内置全启、无启用行可删——临时停用请用 toggle` };
+  // 读-改-写整段互斥（幂等跳过腿在锁内判——行不在场即无写回，锁只占瞬时不写盘）
+  return rowEditUnderLock(dataDir, fs, () => {
+    const read = readEnabledRowsForEdit(dataDir, fs);
+    if (!read.ok) return read;
+    if (!read.rows.some((row) => row.id === id)) {
+      if (id.startsWith('core:')) {
+        return { ok: false, message: `官方插件 ${id} 内置全启、无启用行可删——临时停用请用 toggle` };
+      }
+      return { ok: true }; // 幂等（已不在启用面）
     }
-    return { ok: true }; // 幂等（已不在启用面）
-  }
-  writeEnabledRows(
-    dataDir,
-    read.rows.filter((row) => row.id !== id),
-    read.doors,
-    fs,
-  );
-  onLifecycleAudit?.('plugin/unmounted', { id });
-  return { ok: true };
+    writeEnabledRows(
+      dataDir,
+      read.rows.filter((row) => row.id !== id),
+      read.doors,
+      fs,
+    );
+    onLifecycleAudit?.('plugin/unmounted', { id });
+    return { ok: true };
+  });
 }
 
 /**
@@ -442,21 +595,25 @@ export type MigrateRowResult =
   { readonly ok: true; readonly carried: boolean } | { readonly ok: false; readonly message: string };
 
 export function migrateEnabledRow(dataDir: string, fromId: string, toId: string, fs: PluginStoreFs): MigrateRowResult {
-  const read = readEnabledRowsForEdit(dataDir, fs);
-  if (!read.ok) return read;
-  const from = read.rows.find((row) => row.id === fromId);
-  if (from === undefined) {
-    return { ok: true, carried: false }; // 幂等——旧 id 无启用行（从未启用），无迁移动作
-  }
-  const rest = read.rows.filter((row) => row.id !== fromId);
-  if (rest.some((row) => row.id === toId)) {
-    // 新 id 行已在场——只清旧行（不覆写既有意图），doors 段照原样往返
-    writeEnabledRows(dataDir, rest, read.doors, fs);
+  // 读-改-写整段互斥（随迁腿同 enabled.yaml 写者家族——幂等无迁移动作腿在
+  // 锁内判，无写回即零更新面）
+  return rowEditUnderLock(dataDir, fs, () => {
+    const read = readEnabledRowsForEdit(dataDir, fs);
+    if (!read.ok) return read;
+    const from = read.rows.find((row) => row.id === fromId);
+    if (from === undefined) {
+      return { ok: true, carried: false }; // 幂等——旧 id 无启用行（从未启用），无迁移动作
+    }
+    const rest = read.rows.filter((row) => row.id !== fromId);
+    if (rest.some((row) => row.id === toId)) {
+      // 新 id 行已在场——只清旧行（不覆写既有意图），doors 段照原样往返
+      writeEnabledRows(dataDir, rest, read.doors, fs);
+      return { ok: true, carried: true };
+    }
+    // 随迁：全字段保形、只改行 id（行位序保持——其余行原序）
+    writeEnabledRows(dataDir, [...rest, { ...from, id: toId }], read.doors, fs);
     return { ok: true, carried: true };
-  }
-  // 随迁：全字段保形、只改行 id（行位序保持——其余行原序）
-  writeEnabledRows(dataDir, [...rest, { ...from, id: toId }], read.doors, fs);
-  return { ok: true, carried: true };
+  });
 }
 
 /**
@@ -476,39 +633,42 @@ export function toggleRow(
   fs: PluginStoreFs,
   onLifecycleAudit?: LifecycleAuditSink,
 ): RowEditResult {
-  const read = readEnabledRowsForEdit(dataDir, fs);
-  if (!read.ok) return read;
-  const rows = [...read.rows];
-  const index = rows.findIndex((row) => row.id === id);
-  let disabled: boolean;
-  if (index === -1) {
-    // 造新行前 id 词法闸（防写死行 brick 下次 boot 读侧）：行不在场 = 本动词
-    // 即将把该 id 首次落盘，坏词法（大写/下划线 typo 等）诚实拒——不写盘
-    // 不落账；行在场分支无需重复校验（读侧 parseEnabledRows 已逐行把关）。
-    if (!checkPluginId(id, { official: true })) {
-      return {
-        ok: false,
-        message: `插件 id 格式不对（${id}——小写字母/数字/连字符，首字符非连字符；官方插件 core:<name> 后段同规则）——拒绝写入：格式不对的行落盘会使下次启动读侧拒启`,
-      };
-    }
-    rows.push({ id, disabled: true });
-    disabled = true;
-  } else {
-    const current = rows[index]!;
-    if (current.disabled === true) {
-      // 已禁用 → 回启用（行保场、旗标撤——config/opens 等字段原样保留）
-      const { disabled: _drop, ...rest } = current;
-      rows[index] = rest;
-      disabled = false;
-    } else {
-      // 启用中 → 禁用（字段原样保留，只翻旗标）
-      rows[index] = { ...current, disabled: true };
+  // 读-改-写整段互斥（造新行词法闸在锁内——拒路径无写回，锁只占瞬时）
+  return rowEditUnderLock(dataDir, fs, () => {
+    const read = readEnabledRowsForEdit(dataDir, fs);
+    if (!read.ok) return read;
+    const rows = [...read.rows];
+    const index = rows.findIndex((row) => row.id === id);
+    let disabled: boolean;
+    if (index === -1) {
+      // 造新行前 id 词法闸（防写死行 brick 下次 boot 读侧）：行不在场 = 本动词
+      // 即将把该 id 首次落盘，坏词法（大写/下划线 typo 等）诚实拒——不写盘
+      // 不落账；行在场分支无需重复校验（读侧 parseEnabledRows 已逐行把关）。
+      if (!checkPluginId(id, { official: true })) {
+        return {
+          ok: false,
+          message: `插件 id 格式不对（${id}——小写字母/数字/连字符，首字符非连字符；官方插件 core:<name> 后段同规则）——拒绝写入：格式不对的行落盘会使下次启动读侧拒启`,
+        };
+      }
+      rows.push({ id, disabled: true });
       disabled = true;
+    } else {
+      const current = rows[index]!;
+      if (current.disabled === true) {
+        // 已禁用 → 回启用（行保场、旗标撤——config/opens 等字段原样保留）
+        const { disabled: _drop, ...rest } = current;
+        rows[index] = rest;
+        disabled = false;
+      } else {
+        // 启用中 → 禁用（字段原样保留，只翻旗标）
+        rows[index] = { ...current, disabled: true };
+        disabled = true;
+      }
     }
-  }
-  writeEnabledRows(dataDir, rows, read.doors, fs);
-  onLifecycleAudit?.('plugin/toggled', { id, disabled });
-  return { ok: true };
+    writeEnabledRows(dataDir, rows, read.doors, fs);
+    onLifecycleAudit?.('plugin/toggled', { id, disabled });
+    return { ok: true };
+  });
 }
 
 /**
@@ -523,32 +683,35 @@ export function toggleRow(
  * 有自有审计道（credentials/changed seam——表单腿装配位接线）。
  */
 export function setRowConfig(dataDir: string, id: string, config: unknown, fs: PluginStoreFs): RowEditResult {
-  const read = readEnabledRowsForEdit(dataDir, fs);
-  if (!read.ok) return read;
-  if (typeof config !== 'object' || config === null || Array.isArray(config)) {
-    return { ok: false, message: 'config 须为对象（整值替换非合并）——表单腿产物恒对象，此处为防御位' };
-  }
-  const rows = [...read.rows];
-  const index = rows.findIndex((row) => row.id === id);
-  if (index === -1) {
-    if (!id.startsWith('core:')) {
-      return { ok: false, message: `插件 ${id} 不在启用面——config 编辑先走 /plugins mount（不凭空造行）` };
+  // 读-改-写整段互斥（config 非对象防御位与造行词法闸在锁内——拒路径无写回）
+  return rowEditUnderLock(dataDir, fs, () => {
+    const read = readEnabledRowsForEdit(dataDir, fs);
+    if (!read.ok) return read;
+    if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+      return { ok: false, message: 'config 须为对象（整值替换非合并）——表单腿产物恒对象，此处为防御位' };
     }
-    // 造新行前 id 词法闸（toggleRow 同判据——写侧造行通律）：core: 后段坏
-    // 词法（大写/下划线 typo 等）诚实拒不写盘——坏行落盘 = 下次 boot 读侧
-    // PLUGIN_ROW_INVALID 全入口拒启，与行编辑面同判据 fail-loud 同锁死。
-    if (!checkPluginId(id, { official: true })) {
-      return {
-        ok: false,
-        message: `插件 id 格式不对（${id}——小写字母/数字/连字符，首字符非连字符；官方插件 core:<name> 后段同规则）——拒绝写入：格式不对的行落盘会使下次启动读侧拒启`,
-      };
+    const rows = [...read.rows];
+    const index = rows.findIndex((row) => row.id === id);
+    if (index === -1) {
+      if (!id.startsWith('core:')) {
+        return { ok: false, message: `插件 ${id} 不在启用面——config 编辑先走 /plugins mount（不凭空造行）` };
+      }
+      // 造新行前 id 词法闸（toggleRow 同判据——写侧造行通律）：core: 后段坏
+      // 词法（大写/下划线 typo 等）诚实拒不写盘——坏行落盘 = 下次 boot 读侧
+      // PLUGIN_ROW_INVALID 全入口拒启，与行编辑面同判据 fail-loud 同锁死。
+      if (!checkPluginId(id, { official: true })) {
+        return {
+          ok: false,
+          message: `插件 id 格式不对（${id}——小写字母/数字/连字符，首字符非连字符；官方插件 core:<name> 后段同规则）——拒绝写入：格式不对的行落盘会使下次启动读侧拒启`,
+        };
+      }
+      rows.push({ id, config });
+    } else {
+      rows[index] = { ...rows[index]!, config };
     }
-    rows.push({ id, config });
-  } else {
-    rows[index] = { ...rows[index]!, config };
-  }
-  writeEnabledRows(dataDir, rows, read.doors, fs);
-  return { ok: true };
+    writeEnabledRows(dataDir, rows, read.doors, fs);
+    return { ok: true };
+  });
 }
 
 /**
@@ -605,26 +768,38 @@ export function editDoorsSegment(
   fs: PluginStoreFs,
   onDoorsUpdated?: DoorsAuditSink,
 ): RowEditResult {
-  // 值域执法（DOORS_SEGMENT_V1_DOMAIN 单源——与 manifest 段校验同源两执法位）
+  // 值域执法（DOORS_SEGMENT_V1_DOMAIN 单源——与 manifest 段校验同源两执法位）；
+  // 纯词法拒零 IO 零锁
   if (!DOORS_SEGMENT_V1_DOMAIN.includes(action.door)) {
     return {
       ok: false,
       message: `doors 段值域外能力位 "${action.door}"——值域 v1 = 两门枚举（现役：${DOORS_SEGMENT_V1_DOMAIN.join('、')}；§8.2 七枚高危面名单系上界，行 opens 位承载插件道五枚）`,
     };
   }
-  const read = readEnabledRowsForEdit(dataDir, fs);
-  if (!read.ok) return read;
-  const current = new Set(read.doors ?? []); // 段缺席 = 空集（§5.3 缺席语义）
-  const contains = current.has(action.door);
-  if (action.verb === 'open' ? contains : !contains) {
+  // 幂等前置判（无锁读——先判幂等再取锁）：no-op 腿不写文件即无丢更新面，
+  // 不占编辑锁（不与并行写者抢互斥位）；判有变更才进锁，锁内重读终判（无锁
+  // 读与取锁间的竞窗以锁内快照为准——对方先改了段，本动词按新段复判幂等）
+  const pre = readEnabledRowsForEdit(dataDir, fs);
+  if (!pre.ok) return pre;
+  const preContains = new Set(pre.doors ?? []).has(action.door); // 段缺席 = 空集（§5.3 缺席语义）
+  if (action.verb === 'open' ? preContains : !preContains) {
     return { ok: true }; // 幂等 no-op——不写文件不落账（无变更不造账）
   }
-  if (action.verb === 'open') current.add(action.door);
-  else current.delete(action.door);
-  const doors = [...current].sort(); // 去重排序稳态形（Set 天然去重）
-  writeEnabledRows(dataDir, read.rows, doors, fs);
-  onDoorsUpdated?.(doors);
-  return { ok: true };
+  return rowEditUnderLock(dataDir, fs, () => {
+    const read = readEnabledRowsForEdit(dataDir, fs);
+    if (!read.ok) return read;
+    const current = new Set(read.doors ?? []); // 段缺席 = 空集（§5.3 缺席语义）
+    const contains = current.has(action.door);
+    if (action.verb === 'open' ? contains : !contains) {
+      return { ok: true }; // 锁内幂等复判（竞窗下终判以锁内快照为准）
+    }
+    if (action.verb === 'open') current.add(action.door);
+    else current.delete(action.door);
+    const doors = [...current].sort(); // 去重排序稳态形（Set 天然去重）
+    writeEnabledRows(dataDir, read.rows, doors, fs);
+    onDoorsUpdated?.(doors);
+    return { ok: true };
+  });
 }
 
 /* ---------------- installPath 推导（§5.4 归一路径载体——写侧执法） ---------------- */

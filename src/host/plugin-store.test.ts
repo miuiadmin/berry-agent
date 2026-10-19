@@ -76,6 +76,13 @@ function memFs(initial: Record<string, string> = {}): PluginStoreFs {
       }
       return hit ? total : null;
     },
+    // O_EXCL 探测内存形（Map has/set——在场折 false 建成折 true）
+    openExclusive: (path, text) => {
+      if (files.has(path)) return false;
+      files.set(path, text);
+      return true;
+    },
+    unlink: (path) => void files.delete(path),
   };
 }
 
@@ -660,5 +667,99 @@ describe('敏感产物落盘 0600 纵深档（05 §6.6——60 轮 L2 批扩列�
     } finally {
       process.umask(prevUmask);
     }
+  });
+});
+
+describe('编辑面跨进程互斥（03 §5.3 73 轮批注——RMW 丢更新防护：lockfile 包住读-改-写全程）', () => {
+  /** 启用清单锁路径速记（与实现位 `${enabledYamlPath}.lock` 同名段） */
+  const YAML_LOCK = '/data/enabled.yaml.lock';
+  /** 账本锁路径速记 */
+  const LEDGER_LOCK = '/data/plugins/ledger.json.lock';
+  /**
+   * 判死必真 pid（超出任何 OS pid 空间上界——Linux pid_max 帽 2^22、macOS
+   * 更小；process.kill 信号 0 探测恒 ESRCH 折死，无「碰巧活着」竞态）
+   */
+  const DEAD_PID = 999_999_999;
+
+  /** 探测计数 fs（包一层 openExclusive 计数——断言「取没取锁/等了几轮」） */
+  function probingFs(base: PluginStoreFs): PluginStoreFs & { readonly probes: () => number } {
+    let probes = 0;
+    return {
+      ...base,
+      probes: () => probes,
+      openExclusive: (path, text) => {
+        probes += 1;
+        return base.openExclusive(path, text);
+      },
+    };
+  }
+
+  it('修前红锚：锁在场（活 pid 持锁）→ mount 应有界等待，对方释放后续行——不等待立即写盘即丢更新面', () => {
+    const fs = probingFs(memFs({ [YAML_LOCK]: `${process.pid}\n` })); // 持锁者 = 本进程 pid（判活真）
+    // 持锁-后释放形：首探在场折 false（memFs 锁文件在场自然 EEXIST）；等待一轮
+    // 后对方释放（探测前删锁），再探建成——模拟「A 持锁写入中 → A 完成退出」
+    const heldThenReleased: PluginStoreFs = {
+      ...fs,
+      openExclusive: (path, text) => {
+        if (path === YAML_LOCK && fs.probes() === 1) fs.unlink(YAML_LOCK); // 首探已过 → 释放窗内对方清锁
+        return fs.openExclusive(path, text);
+      },
+    };
+    const result = mountRow('/data', 'user-x', undefined, heldThenReleased);
+    expect(result.ok).toBe(true); // 等待后取得锁、写入成功
+    expect(heldThenReleased.read('/data/enabled.yaml')).toContain('user-x'); // 行已落盘
+    expect(heldThenReleased.read(YAML_LOCK)).toBeNull(); // 用后清场（释放无残锁）
+    expect(fs.probes()).toBe(2); // 修前红：0——修前 mount 不取锁不等待，首探即写
+  });
+
+  it('死 pid 残锁 stale 破锁：崩溃残锁（pid 判死）自动清障后写入——互斥不可被残锁永久堵死', () => {
+    const fs = probingFs(memFs({ [YAML_LOCK]: `${DEAD_PID}\n` })); // 崩溃残锁（持锁者已死）
+    const result = mountRow('/data', 'user-x', undefined, fs);
+    expect(result.ok).toBe(true); // 破锁后续行
+    expect(fs.read('/data/enabled.yaml')).toContain('user-x');
+    expect(fs.read(YAML_LOCK)).toBeNull(); // 修前红：残锁原封在场（'999999999\n'）
+    expect(fs.probes()).toBeGreaterThanOrEqual(2); // 修前红：0——修前不探测不清障
+  });
+
+  it('超限 fail-loud 拒写：活 pid 持锁不放 → 重试超限拒写不静默（宁拒服务不丢数据）', () => {
+    const fs = probingFs(memFs({ [YAML_LOCK]: `${process.pid}\n` }));
+    const foreverHeld: PluginStoreFs = { ...fs, openExclusive: () => false }; // 恒在场不释放
+    const result = mountRow('/data', 'user-x', undefined, foreverHeld);
+    expect(result.ok).toBe(false); // 修前红：true——修前无锁立即写盘成功
+    if (!result.ok) {
+      expect(result.message).toContain(YAML_LOCK); // 拒文带锁路径（定位面）
+      expect(result.message).toContain('超限');
+    }
+    expect(fs.read('/data/enabled.yaml')).toBeNull(); // 拒路径零写入（数据面原封）
+  });
+
+  it('正常路径：编辑动词取锁恰一笔、用后清场零残锁（enabled.yaml 与 ledger 两载体同律）', () => {
+    const yamlFs = probingFs(memFs());
+    expect(mountRow('/data', 'user-x', undefined, yamlFs).ok).toBe(true);
+    expect(yamlFs.probes()).toBe(1); // 修前红：0
+    expect(yamlFs.read(YAML_LOCK)).toBeNull();
+    const ledgerFs = probingFs(memFs());
+    upsertLedgerEntry('/data', entry({ id: 'a' }), ledgerFs);
+    expect(ledgerFs.probes()).toBe(1); // 修前红：0——账本追加腿同律同治
+    expect(ledgerFs.read(LEDGER_LOCK)).toBeNull();
+    // 账本腿死 pid 残锁同判：破锁后撤账可写
+    const stale = probingFs(memFs({ [LEDGER_LOCK]: `${DEAD_PID}\n` }));
+    expect(() => removeLedgerEntry('/data', 'a', stale)).not.toThrow();
+    expect(stale.read(LEDGER_LOCK)).toBeNull();
+  });
+
+  it('doors 段编辑：值域拒与幂等 no-op 不取锁（先判幂等再取锁——无变更无丢更新面）；真变更取锁', () => {
+    const fs = probingFs(memFs({ '/data/enabled.yaml': 'plugins: []\ndoors:\n  - sessions.observe-cross\n' }));
+    // 值域拒：零 IO 零锁
+    expect(editDoorsSegment('/data', { verb: 'open', door: 'bogus' }, fs).ok).toBe(false);
+    expect(fs.probes()).toBe(0);
+    // 幂等 no-op（open 已开位）：不写文件即无丢更新面——不占编辑锁
+    expect(editDoorsSegment('/data', { verb: 'open', door: 'sessions.observe-cross' }, fs).ok).toBe(true);
+    expect(fs.probes()).toBe(0);
+    // 真变更（close 已开位）：取锁
+    expect(editDoorsSegment('/data', { verb: 'close', door: 'sessions.observe-cross' }, fs).ok).toBe(true);
+    expect(fs.probes()).toBe(1); // 修前红：0
+    expect(fs.read(YAML_LOCK)).toBeNull();
+    expect(fs.read('/data/enabled.yaml')).toContain('doors: []');
   });
 });

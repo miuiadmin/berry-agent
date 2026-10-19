@@ -262,6 +262,17 @@ export function realStoreFs(): PluginStoreFs {
         return null;
       }
     },
+    // O_EXCL 探测真盘形（defaultStoreFs 同律——掉位则 testkit 编辑动词零互斥与产码分叉）
+    openExclusive: (path, text) => {
+      try {
+        writeFileSync(path, text, { flag: 'wx' });
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+        throw err;
+      }
+    },
+    unlink: (path) => rmSync(path, { force: true }),
   };
 }
 

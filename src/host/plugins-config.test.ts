@@ -57,6 +57,13 @@ function memFs(initial: Record<string, string> = {}): PluginStoreFs {
       }
       return hit ? total : null;
     },
+    // O_EXCL 探测内存形（plugin-store.test.ts memFs 同形——编辑面互斥律随批扩面）
+    openExclusive: (path, text) => {
+      if (files.has(path)) return false;
+      files.set(path, text);
+      return true;
+    },
+    unlink: (path) => void files.delete(path),
   };
 }
 
