@@ -418,8 +418,12 @@ export function openStore(options: OpenStoreOptions = {}): Store {
     // 库父目录须在场（better-sqlite3 不代建目录）；0700 治理只打数据目录——
     // tier-2（DB_PATH 指库文件到别处）时库父目录不是数据目录，不越权改权限
     mkdirSync(dirname(dbPath), { recursive: true });
+    // 数据目录自建仅文件库形态（75 轮件2 写侧门控清单位——run --ephemeral
+    // 「零落盘单发——不建数据目录」批注）：:memory: 同构诊断形主库零落盘、
+    // 凭证密钥走临时密钥（下方 :447——库亡密亡），数据目录无须自建——目录
+    // 已在则读侧照常（enabled.yaml/settings 等缺席语义读），不在则不代建
+    ensureDataDir(dataDir, warn);
   }
-  ensureDataDir(dataDir, warn);
 
   const db = new Database(dbPath);
   prepareWal(db, warn);

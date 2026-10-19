@@ -901,6 +901,24 @@ describe('失败三档归一（不抛——呈报面归调用方）', () => {
 });
 
 describe('同构诊断形写侧门控（75 轮件2/件5——memory+dataDir 组合形零落盘）', () => {
+  it('boot-failures 不留痕（75 轮件2 回归锁）：合成失败行不落 boot-failures.json（修前 dataDir 在场即记账必红）', async () => {
+    // 「零落盘单发——会话不落库不留痕」写侧清单位：同构诊断形（memory +
+    // dataDir）dataDir 在场使记账位新可达——若不门控，合成失败行会落真数据
+    // 目录 boot-failures.json 并在下次真宿主 boot 以横幅误报。core: 未注册名
+    // 行 = 档②合成失败（非致命——装配照成）
+    const dir = tmpDir('host-asm-eph-bf-');
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins:\n  - id: core:ghost\n');
+    const assembly = await assembleHostStack({
+      runtime: { memory: true, dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+    });
+    expect(assembly.ok).toBe(true);
+    if (assembly.ok) await assembly.runtime.shutdown();
+    expect(existsSync(join(dir, 'boot-failures.json'))).toBe(false); // memory 位门控——修前必红
+  });
+
   it('core:obs 零装载（75 轮件5 回归锁——诊断装配水位零推进）：服务缺席 + rollup.db 不建（修前装载且首拍推共享水位必红）', async () => {
     // 修前竞害：memory 同构形事件源 = 本进程 :memory: 库（零事件），core:obs
     // 装载首拍却对共享 rollup.db 推进水位 max(旧, now)——宿主刷新腿滞后超重叠

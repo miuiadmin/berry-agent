@@ -682,8 +682,15 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     plan.push(resolveQuickTestRow(options.pluginFile, plan, fs));
   }
 
-  // ⑧ 记账路径（memory 形无数据目录——诊断面整跳）
-  const bookkeepingPath = options.runtime.dataDir === null ? null : join(options.runtime.dataDir, 'boot-failures.json');
+  // ⑧ 记账路径（memory 形整跳——75 轮件2「零落盘单发不留痕」批注：memory
+  // 同构诊断形〔run --ephemeral 等〕即使携 dataDir 也不落 boot-failures——
+  // 诊断进程的失败行会以横幅误报污染用户下次真宿主 boot；纯 memory 形无
+  // 数据目录同跳。判定信号 = 既有 memory 形位（:1076 required-secret 豁免
+  // 同源——勿新造第二信号源）；真宿主形（非 memory）记账照常）
+  const bookkeepingPath =
+    options.runtime.dataDir === null || options.runtime.memory
+      ? null
+      : join(options.runtime.dataDir, 'boot-failures.json');
   const bookkeepingFs = toBootFailuresFs(fs);
   // 合成失败行：档②语义记账（装载未达——warn 横幅与 boot-failures 皆见；
   // obs-a——failure 细节随账落 lastError/lastFailedAt）

@@ -623,11 +623,16 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       // 冻结类段消费〕）
       pluginSections: (sessionId: string) => boot?.promptSections.materialize(sessionId) ?? '',
       // 审批 always 回写透传（04 §9 定形块写侧律——闭包 dataDir 接 store
-      // 文件写；坏形期拒写在 store 内执法，healthy 载入才接线）
+      // 文件写；坏形期拒写在 store 内执法，healthy 载入才接线）。写侧门控
+      // （75 轮件2——run --ephemeral「零落盘单发」批注）：memory 同构诊断形
+      // 下跳过——读侧修真后 dataDir 在场使本写位新可达，若不门控则 ephemeral
+      // 单发的审批 always 会落真数据目录 tool-policy.json（违「会话不落库不
+      // 留痕」）；判定信号 = 既有 memory 形位（HostRuntime.memory——勿新造
+      // 第二信号源）
       ...(toolPolicyLoad !== null
         ? {
             toolPolicy: toolPolicyLoad.entries,
-            ...(dataDir !== null && toolPolicyLoad.healthy
+            ...(dataDir !== null && !runtime.memory && toolPolicyLoad.healthy
               ? { persistToolPolicy: (draft: ToolPolicyDraft) => void appendToolPolicyEntry(dataDir, draft) }
               : {}),
           }
@@ -1204,6 +1209,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             options.corePlugins ??
             createCorePlugins({
               dataDir: rt.dataDir,
+              // :memory: 形态位（75 轮件2——单源 HostRuntime.memory 透传：
+              // exec 件 children.json 写位门控，同构诊断形零落盘承诺）
+              memory: rt.memory,
               // crash-loop 守卫判定冻结值（定谳②——boot 判一次全程不变：
               // /reload 换代 runBoot 重跑，两扫描腿读同一冻结布尔）
               bootRecoveryGuard: bootGuard.active,

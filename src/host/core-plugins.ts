@@ -244,8 +244,10 @@ function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // fail-loud（CREDENTIALS_NOT_FOUND——拒以字面值注入，席位缺席律）
       // 登记簿持久化位（挖掘 21 轮件6 装配接线）：dataDir 真目录形持
       // children.json（跨宿主代际的子进程账本——崩溃/被杀后下代可清扫）；
-      // dataDir null（:memory: 诊断形）= 纯内存账不落盘
-      const childrenFile = deps.dataDir !== null ? join(deps.dataDir, 'children.json') : undefined;
+      // dataDir null（纯诊断形）或 memory 同构诊断形 = 纯内存账不落盘
+      // （75 轮件2 零落盘第五写位：环境探针 git status 经管道 spawn 即落
+      // children.json、编辑锁 mkdir 亦代建数据目录——两违诺一并门控）
+      const childrenFile = deps.dataDir !== null && !deps.memory ? join(deps.dataDir, 'children.json') : undefined;
       const pipeline = createSpawnPipeline({
         resolveEnvRef: context.tryGet<(name: string) => string>('credentials-env-ref'),
         ...(childrenFile !== undefined ? { filePath: childrenFile } : {}),
@@ -368,6 +370,14 @@ export interface CorePluginHostDeps
 interface SharedPluginHostDeps {
   /** 数据目录（null = :memory: 诊断形——skills user 层跳过等件内分支判据） */
   readonly dataDir: string | null;
+  /**
+   * :memory: 形态位（75 轮件2——同构诊断形判据；单源 = HostRuntime.memory，
+   * 勿在件内另造第二信号源）。true + dataDir 非 null = 同构诊断形（真数据
+   * 目录读侧 + 主库 :memory: 零落盘）：消费件 exec——spawn 登记簿 children.json
+   * 写位门控（环境探针 git status 经管道 spawn 即触发登记簿落盘 + 编辑锁
+   * mkdir 代建数据目录，均违「零落盘」承诺——纯内存账不落盘）。
+   */
+  readonly memory?: boolean;
   /**
    * 工作目录（缺省 process.cwd——skills project 层锚；测试注入隔离形）。
    * 注意此处传原始 cwd：project 层锚定用 canonicalWorkspaceRoot（.git 上溯）

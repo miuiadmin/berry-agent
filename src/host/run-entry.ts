@@ -50,6 +50,7 @@ import { diagnoseProviderFailure } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
 import { FIRE_WALL_TIMEOUT_MS, nextFireAt, realIsPidAlive } from '../../plugins/scheduler/index.js';
 import type { JobRow, RunOutcome } from '../../plugins/scheduler/index.js';
+import { resolveDataDir } from '../persist/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import { approvalPresetOf } from '../safety/index.js';
 
@@ -127,7 +128,17 @@ export async function runRunEntry(options: RunEntryOptions): Promise<number> {
   // --read-only 在解析层互斥；来源标注随旋钮注入供 /approval status 呈现）——
   const assembly = await assembleHostStack({
     runtime: {
-      ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
+      // dataDir 缺省显式解析（75 轮件2——读侧修真，dump-config 74 轮件4 同形）：
+      // `?? resolveDataDir()` 恒在场（env 梯子 BERRY_AGENT_DATA_DIR 由此接通）。
+      // 修前条件展开形在 main 分派不传 dataDir 时整键省略 + ephemeral 置
+      // memory:true → runtime memory 形 dataDir 折 null → enabled.yaml/装机
+      // 账本/settings/toolPolicy 读侧整跳——ephemeral 单发以出厂配置执行
+      // （用户显式禁用的插件照跑），接口注记自述「缺省 resolveDataDir()」与
+      // 实现 divergence（同病三件套：plugins list obs-c / dump-config 74 轮
+      // 件4 / 本位）。ephemeral 形 = memory + 真数据目录读侧同构诊断形（主库
+      // :memory: 零落盘不占标记；写侧零落盘门控见 assembly/plugin-boot/
+      // persist 各跳过位注释——「零落盘单发——会话不落库不留痕」07 §5 旗标块）
+      dataDir: options.dataDir ?? resolveDataDir(),
       ...(options.flags.ephemeral ? { memory: true } : {}),
     },
     noPlugins: options.flags.noPlugins,

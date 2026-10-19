@@ -19,7 +19,7 @@
  * 断言只对行为与结构位（禁断言 AI 生成文本——'ok'/'例行巡检' 等均为测试
  * 自造常量经 faux 脚本原样透传）。
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -153,18 +153,35 @@ async function rigRun(opts: {
   const err = new LineRig();
   const dataDir = opts.dataDir ?? tmpDir('run-data-');
   const cwd = opts.cwd ?? tmpDir('run-ws-');
+  // ephemeral 形 env 锚定（75 轮件2）：dataDir 缺省修真（resolveDataDir() 显式
+  // 传入）后，不传 options.dataDir 的真形（main 分派同形）经 env 梯子
+  // BERRY_AGENT_DATA_DIR 解析数据目录——hermetic 纪律禁触真 ~/.berry-agent，
+  // 一律注入 tmp 位；entry 收口即恢复（防跨用例 env 泄漏）
+  let restoreDataDirEnv: (() => void) | undefined;
+  if (opts.flags?.ephemeral) {
+    const prev = process.env.BERRY_AGENT_DATA_DIR;
+    process.env.BERRY_AGENT_DATA_DIR = dataDir;
+    restoreDataDirEnv =
+      prev === undefined
+        ? () => delete process.env.BERRY_AGENT_DATA_DIR
+        : () => {
+            process.env.BERRY_AGENT_DATA_DIR = prev;
+          };
+  }
   const entry = runRunEntry({
     message: opts.message ?? '跑一下',
     flags: runFlags(opts.flags),
     cwd,
-    ...(opts.flags?.ephemeral ? {} : { dataDir }), // ephemeral 形零落盘——不建数据目录
+    // ephemeral 形不传 options.dataDir（保 main 分派真形——数据目录经 env 梯子
+    // 接通即 75 轮件2 修真路径；上方 env 已锚 tmp）
+    ...(opts.flags?.ephemeral ? {} : { dataDir }),
     providers: [faux.provider],
     model: opts.model ?? 'faux-run/m1',
     env: opts.env ?? {},
     stdout: out.stream,
     stderr: err.stream,
     ...(opts.wallMs !== undefined ? { tickWallTimeoutMs: opts.wallMs } : {}),
-  });
+  }).finally(() => restoreDataDirEnv?.());
   return { entry, out, err, dataDir, cwd, faux };
 }
 
@@ -308,6 +325,49 @@ describe('runRunEntry 输出三档（07 §5）', () => {
     const { entry, out } = await rigRun({ flags: { ephemeral: true } });
     await expect(entry).resolves.toBe(0);
     expect(out.lines).toEqual(['ok']);
+  });
+
+  it('--ephemeral dataDir 缺省走 env 梯子（75 轮件2 回归锁）：env 位坏形 enabled.yaml fail-loud 启动失败退 1（修前条件展开省键 ⇒ 恒出厂假态退 0）', async () => {
+    // 同病第三位（plugins list obs-c / dump-config 74 轮件4 之后）：main 分派
+    // 不传 dataDir + ephemeral 置 memory ⇒ 修前 runtime memory 形 dataDir 折
+    // null ⇒ enabled.yaml/settings/装机账本读侧整跳——ephemeral 单发以出厂
+    // 配置执行。本锁不传 options.dataDir、只锚 env：坏形启用清单必须 fail-loud
+    // （读侧真达的确定性证据）；修前 dataDir=null 整跳 ⇒ 退 0 必红
+    const dir = tmpDir('run-eph-read-');
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins: [ Oops'); // yaml 坏形 fail-loud
+    const { entry, err } = await rigRun({ flags: { ephemeral: true }, dataDir: dir });
+    await expect(entry).resolves.toBe(1);
+    expect(err.text).toContain('启动失败');
+    expect(err.text).toContain('修复或删除');
+  });
+
+  it('--ephemeral 零落盘写侧门控（75 轮件2）：env 位真目录装配后文件集零新增（tool-policy/boot-failures/主库/rollup 全不落）', async () => {
+    // 读侧修真后 dataDir 在场使各写位新可达——「零落盘单发——会话不落库不
+    // 留痕」承诺的写侧回归锁：读侧真行（禁用行进 skipped）+ 目录文件集前后
+    // 全等 + 四类落盘足迹显式缺席
+    const dir = tmpDir('run-eph-zero-');
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins:\n  - id: core:credentials\n    disabled: true\n');
+    const before = readdirSync(dir).sort();
+    const { entry, out } = await rigRun({ flags: { ephemeral: true }, dataDir: dir });
+    await expect(entry).resolves.toBe(0);
+    expect(out.lines).toEqual(['ok']);
+    expect(readdirSync(dir).sort()).toEqual(before); // 文件集零新增（含子目录零新建）
+    expect(existsSync(join(dir, 'sessions.db'))).toBe(false); // 主库 :memory: 零落盘
+    expect(existsSync(join(dir, 'tool-policy.json'))).toBe(false); // 审批回写门控
+    expect(existsSync(join(dir, 'boot-failures.json'))).toBe(false); // 记账不留痕门控
+    expect(existsSync(join(dir, 'data'))).toBe(false); // rollup 自管库不建（件5 同笔——obs 零装载）
+  });
+
+  it('--ephemeral 不建数据目录（75 轮件2 回归锁）：env 位目录缺席 → 装配后仍缺席（修前 openStore ensureDataDir 代建必红）', async () => {
+    // 「不建数据目录」注记本意的文件面证据：ephemeral 单发不得替用户创建
+    // 数据目录（读侧缺席语义 = 出厂缺省照跑）；修前持久层 :memory: 开库仍
+    // 无条件 ensureDataDir（env 梯子位）——本断言必红
+    const parent = tmpDir('run-eph-mkdir-');
+    const absent = join(parent, 'sub-data-dir'); // 缺席目录位（env 锚点）
+    const { entry, out } = await rigRun({ flags: { ephemeral: true }, dataDir: absent });
+    await expect(entry).resolves.toBe(0);
+    expect(out.lines).toEqual(['ok']); // 目录缺席 = 出厂缺省照跑
+    expect(existsSync(absent)).toBe(false); // 不代建（修前必红——ensureDataDir 建 0700 目录）
   });
 });
 
