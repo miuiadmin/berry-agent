@@ -8,7 +8,7 @@
  * MIME 不一致/超 8192 各一腿 + 全绿腿 + 拒路径零副作用腿 + 再水化三腿 +
  * 预算刀 image-ref 腿 + 压缩素材占位腿 + 装配桥四腿）。
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -593,6 +593,39 @@ describe('webui 装配桥 submitPrompt images 接线（03 §10.4 ②→⑤ 全�
           .session.events()
           .some((e) => e.type === 'user/message'),
       ).toBe(false);
+    } finally {
+      mount.detach();
+      await rt.shutdown();
+    }
+  });
+
+  it('内存同构诊断形腿（memory:true + dataDir 真值——77 轮件1）：贴图受理收「无法接收图片」拒（REJECT_NO_STORE 拒径恢复）+ 零附件落盘', async () => {
+    // 修前红锚：75 轮 ephemeral 修真后该形态 dataDir 恒真值——栈侧 dataDir
+    // 代理判据误自铸 store，本拒径不可达且贴图 durable 落盘破「零落盘单发」
+    const dataDir = rigDir('wire-mem-');
+    const rt = createHostRuntime({ memory: true, dataDir });
+    const { stack } = rigStack(rt); // 缺省 input 声明——能力门不拦，拒径落存储面
+    const mount = mountWebuiOnFace({ stack, face: stubFace() });
+    try {
+      const sessionId = mount.deps.sessions.createSession();
+      const rej = rejectionOf(() =>
+        mount.deps.sessions.submitPrompt({
+          sessionId,
+          content: '看这张图',
+          messageId: undefined,
+          images: [imageOf(MINIMAL_PNG)],
+        }),
+      );
+      expect(rej.message).toContain('无法接收图片'); // 拒因关键词位（REJECT_NO_STORE 语义）
+      // 拒路径零副作用辖 durable 会话面：无 user/message 落账
+      expect(
+        stack
+          .driverOf(sessionId)!
+          .session.events()
+          .some((e) => e.type === 'user/message'),
+      ).toBe(false);
+      // 零落盘单发（07 §5）：数据目录下无 attachments 旁路目录建就
+      expect(existsSync(join(dataDir, 'attachments'))).toBe(false);
     } finally {
       mount.detach();
       await rt.shutdown();

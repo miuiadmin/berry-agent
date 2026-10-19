@@ -176,6 +176,37 @@ describe('createConversationStack 装配序', () => {
     expect(bare.model).toBe('anthropic/claude-sonnet-5'); // 缺省档
   });
 
+  it('附件库自铸判据双条件（77 轮件1——03 §10.4 ③ 批注/07 §5 第八写位）：memory 同构诊断形 = undefined / 非 memory 真目录自铸 / 纯 memory 形 dataDir 缺席 = undefined', async () => {
+    // 红锚位：75 轮 ephemeral 修真后 memory:true + dataDir 真值（同构诊断形
+    // ——run --ephemeral 面可达）下，修前判据单看 dataDir !== null 代理——
+    // 附件库误自铸真 store，受理链 REJECT_NO_STORE 拒径不可达且贴图
+    // durable 落 <dataDir>/attachments/ 破 07 §5「零落盘单发」
+    const isoDir = mkdtempSync(join(tmpdir(), 'stack-attach-iso-'));
+    dirs.push(isoDir);
+    const isoRt = createHostRuntime({ memory: true, dataDir: isoDir }); // 同构诊断形
+    // options.attachments 不注入——走自铸判据位（?? 链右枝）
+    const isoStack = createConversationStack({ runtime: isoRt, env: {} });
+    expect(isoStack.attachments).toBeUndefined(); // 修前红：实际得 store 实例
+
+    // 对照组一：非 memory 形真数据目录 → 自铸真 store（读写两方法窄面在场）
+    const realDir = mkdtempSync(join(tmpdir(), 'stack-attach-real-'));
+    dirs.push(realDir);
+    const realRt = createHostRuntime({ dataDir: realDir });
+    const realStack = createConversationStack({ runtime: realRt, env: {} });
+    expect(realStack.attachments).toBeDefined();
+    expect(typeof realStack.attachments!.write).toBe('function');
+    expect(typeof realStack.attachments!.read).toBe('function');
+
+    // 对照组二：纯 memory 诊断形（dataDir null）→ undefined（修前修后同绿——恰判）
+    const pureRt = createHostRuntime({ memory: true });
+    const pureStack = createConversationStack({ runtime: pureRt, env: {} });
+    expect(pureStack.attachments).toBeUndefined();
+
+    await isoRt.shutdown();
+    await realRt.shutdown();
+    await pureRt.shutdown();
+  });
+
   it('启动会话策略：无 cwd 会话新建（resumed=false）+ 提交流转 + 信封回流', async () => {
     const { rt } = rigRuntime();
     const { faux, stack } = rigStack(rt);

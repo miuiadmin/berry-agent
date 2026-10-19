@@ -240,10 +240,12 @@ export interface ConversationStackOptions {
   readonly compaction?: CompactionService;
   /**
    * 附件库注入位（03 §10.4 ③ 2026-10-08 剪贴板附件批）：缺省 = 数据目录
-   * 在场时自铸（`<dataDir>/attachments` 内容寻址旁路）；内存模式（dataDir
-   * null）= undefined 诚实缺席——受理链在桥侧拒（400 数据目录族）、再水化
-   * 降「[图片已不可用]」占位。显式注入 = 测试形/装配覆盖（与 providers/model
-   * 同形）。受理（桥）与再水化（convertToLlm）共享同一实例。
+   * 在场且非 memory 形时自铸（`<dataDir>/attachments` 内容寻址旁路）；
+   * 缺席判据 = 双条件（memory 形〔含携 dataDir 真值的同构诊断形〕或
+   * dataDir 缺席皆 undefined 诚实缺席——77 轮批注，07 §5 第八写位）——
+   * 受理链在桥侧拒（400 数据目录族）、再水化降「[图片已不可用]」占位。
+   * 显式注入 = 测试形/装配覆盖（与 providers/model 同形）。受理（桥）与
+   * 再水化（convertToLlm）共享同一实例。
    */
   readonly attachments?: AttachmentStore;
   /**
@@ -321,8 +323,9 @@ export interface ConversationStack {
   readonly model: string;
   /**
    * 附件库读面（03 §10.4 ③ 剪贴板附件批）：受理链（装配桥 submitPrompt
-   * images 位）与再水化（convertToLlm）共享的同一实例；内存模式 =
-   * undefined 诚实缺席（受理拒 400 数据目录族/再水化降占位）。
+   * images 位）与再水化（convertToLlm）共享的同一实例；缺席判据 = 双条件
+   * （memory 形或 dataDir 缺席皆 undefined 诚实缺席——77 轮批注；受理拒
+   * 400 数据目录族/再水化降占位）。
    */
   readonly attachments: AttachmentStore | undefined;
   /**
@@ -677,11 +680,18 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // 现算净差注入 mid-convo 瞬态通告。后笔覆盖前笔天然成立（槽只保最新代）
   // ——换代窗内多笔 reload 中间代免逐笔通告。
   let toolFaceGeneration = 0;
-  // 附件库单持有（03 §10.4 ③）：options 显式注入 ?? 数据目录在场自铸；内存
-  // 模式 = undefined 诚实缺席（受理链拒/再水化降占位两消费位同判）
+  // 附件库单持有（03 §10.4 ③〔2026-10-19 挖掘 77 轮批注〕+ 07 §5 第八写位）：
+  // options 显式注入 ?? 自铸判据双条件——数据目录在场且非 memory 形才自铸
+  // （判定信号单源 HostRuntime.memory——与 76 轮 checkpoint/browser/obs/exec
+  // 四修位同律；75 轮 ephemeral 修真后 memory 同构诊断形 dataDir 恒真值，
+  // 单看 dataDir 代理会让贴图 durable 落盘破「零落盘单发」）。缺席判据 =
+  // 双条件：memory 形（含携 dataDir 真值的同构诊断形）或 dataDir 缺席皆
+  // undefined 诚实缺席（受理链拒/再水化降占位两消费位同判）
   const attachments =
     options.attachments ??
-    (options.runtime.dataDir !== null ? createAttachmentStore(options.runtime.dataDir) : undefined);
+    (options.runtime.dataDir !== null && !options.runtime.memory
+      ? createAttachmentStore(options.runtime.dataDir)
+      : undefined);
   // per-session 模型覆盖登记（03 §10.4 ② 能力门读面供源）：驱动工厂每次
   // 起会镜像最新构造——create 携覆盖则记、open/resume/fork 不携则摘（与
   // 驱动装配「sessionModel ?? 栈基线」同语义的只读投影面）
