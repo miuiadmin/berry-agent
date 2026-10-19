@@ -270,8 +270,22 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
     } else {
       dao.settleFire(row.name, firedAt, outcome, next, nowIso);
     }
-    // claim 清账（settle 对偶——settleFire/settleGated 不动 active_pid 列，本侧补清）
-    dao.setActive(row.name, null, null, nowIso);
+    // claim 清账（settle 对偶——settleFire/settleGated 不动 active_pid 列，本侧补清）。
+    // 条件清账（68 轮批注丙 + 69 轮补笔——清账对偶律·收场位）：期望值 = 本 CLI
+    // 判占 pid（--tick 腿记账恒本 pid——claim 与起跑覆写同值）；changes=0 即占用
+    // 已易主（run 期他实例对死/超钟残账条件判占接管落新 pid）——留新占用不抹
+    //（被抹后该实例真在飞而行面 idle → 第三进程再判占同名双跑）。
+    // 清账吞错（21 轮件10——与 rollbackTickClaim 同律）：清账瞬态错不翻退出码
+    //（不吞已结算结局），残留账由跨进程「死/超钟不拦」+ 引擎侧僵行清扫自愈
+    try {
+      if (!dao.clearActiveIf(row.name, pid, nowIso)) {
+        err.write(`--tick 收场清账让位（任务 ${row.name}——占用已易主，留新占用不抹）\n`);
+      }
+    } catch (clearError) {
+      err.write(
+        `--tick 收场清账失败（任务 ${row.name}——残留占用由引擎僵行清扫自愈）：${clearError instanceof Error ? clearError.message : String(clearError)}\n`,
+      );
+    }
   };
   /** tick 行早退收账（claim 后 run 未起跑形——spawn 形落账诚实记「没起来」） */
   const abortTick = (error: string): void => {
@@ -456,14 +470,22 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       message = row.prompt;
       if (row.cwd !== null) cwdAnchor = row.cwd;
     }
-    // 起跑记账覆写（律 3 乙案侧——2026-09-13 修复批 + 67 轮批注乙）：判占已
-    // 于上方 claimActive 原子落账（本 pid 在册），此处覆写自占位为幂等自覆
-    // 写——承重面在 activeStartedAt 刷新为 run 起跑时刻（判占时刻先于 goal
-    // wake 判定窗，自杀钟/他实例让位律的超钟判据须锚 run 起跑而非判占）。
-    // 此后本 run 期引擎侧跨进程在飞判定见他实例让位、kill -9 残账由僵行
-    // 清扫回收（让位律由单向变双向真值）。收场对偶在 ⑨ settleTick。
+    // 起跑记账覆写（律 3 乙案侧——2026-09-13 修复批 + 67 轮批注乙 + 69 轮补笔）：
+    // 判占已于上方 claimActive 原子落账（本 pid 在册），此处覆写自占位——承重
+    // 面在 activeStartedAt 刷新为 run 起跑时刻（判占时刻先于 goal wake 判定窗，
+    // 自杀钟/他实例让位律的超钟判据须锚 run 起跑而非判占）。条件自覆写（69
+    // 轮补笔——清账对偶律·自覆写写位）：claim→此处窗内他实例可对死/超钟残账
+    // 条件判占接管落新 pid，修前无条件 setActive 会抹其新 claim——覆写走
+    // claimActive(expect=己 pid) 条件形（WHERE active_pid = pid 与 setActive
+    // 同写同参）；changes=0 即易主——记账缺席留痕后照跑（run 语义不变：本腿
+    // 记账是观察面非判占面，判占已由上方落定），收场清账对偶 clearActiveIf(
+    // pid) 同失配弃清（双弃清——新占用保住不抹）。此后本 run 期引擎侧跨进程
+    // 在飞判定见他实例让位、kill -9 残账由僵行清扫回收（让位律由单向变双向
+    // 真值）。收场对偶在 ⑨ settleTick。
     const firedAtIso = new Date().toISOString();
-    schedFace.dao.setActive(row.name, pid, firedAtIso, firedAtIso);
+    if (!schedFace.dao.claimActive(row.name, pid, firedAtIso, firedAtIso, pid)) {
+      err.write(`--tick 起跑记账让位（任务 ${row.name}——占用已易主，记账缺席；收场清账将失配弃清）\n`);
+    }
     tickJob = { dao: schedFace.dao, row, firedAt: firedAtIso };
     // 自杀钟挂钟（claim 同拍——与 activeStartedAt 同钟同帽源：他实例让位律/
     // 残账检查以起跑钟 + FIRE_WALL_TIMEOUT_MS 判超帽清占用照跑，本实例必须

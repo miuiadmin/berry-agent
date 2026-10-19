@@ -425,21 +425,38 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       // finally 已清 activePid），行快照 row 系 doSweep/fireNow 读面——占用
       // 判据与判占期望值须取当下库面（陈旧快照会误让位/误期望致 claim 恒败）
       const current = dao.get(name) ?? row;
-      // 跨进程在飞判定（定形注③乙案并存窗的引擎侧对偶——u-2）：行 activePid
-      // 非空非己且活体未超墙钟 = 乙案子进程（或他宿主）真在飞 → 本轮让位
-      // （gated 记结局 + 推进，不 kill 不双跑——跨进程 kill 有 pid 复用误杀
-      // 险，「执行前抢占」条款对跨进程实例不越权；子进程侧对偶 = run-entry
-      // --tick 让位律，双向对称）。死/超钟残账不拦——经下方条件判占接管
-      // （接管失败 = 他实例竞速先占，同走让位收口）。
-      if (current.activePid !== null && current.activePid !== ownPid) {
+      // 跨进程在飞判定（定形注③乙案并存窗的引擎侧对偶——u-2）+ 换代残窗
+      // 扩形（69 轮批注丁——claim 面代际盲区）：占用判据 = activePid 非空且
+      //（异 pid 或〔同 pid 而本代在飞注册表不知该名〕）。同 pid 形 = /reload
+      // 换代后旧代引擎在飞占用（claim/清账以 pid 值为期不辨代际——修前让位
+      // 判对旧代占用同值短路、claimActive(expect=ownPid) 同值直通 → 新旧两
+      // 代并发双跑）。「本代注册表不知该名」的证词只认 active（在飞注册表
+      // ——占用判据要回答的是「这笔在册占用是否本代所写」）：reserved/
+      // nameChains 描述的是本次尝试自身（fireRow 入口同步占位——判定时恒在
+      // 场），计入即令扩形对恰好要收口的跨引擎形永不触发；本实例 claim→注册
+      // 窗不受误伤——判定在本段先于 claimActive 且同名关键段经 nameChains
+      // 互斥（段内无第二判读位），自身 claim 值不会被本段读到。跨进程不
+      // kill（pid 复用误杀险——「执行前抢占」条款对跨进程实例不越权）；
+      // 死/超钟残账不拦——经下方条件判占接管（接管失败 = 他实例竞速先占，
+      // 同走让位收口）。
+      if (current.activePid !== null && (current.activePid !== ownPid || !active.has(name))) {
         const startedAtMs = current.activeStartedAt !== null ? Date.parse(current.activeStartedAt) : 0;
         const expired = Date.parse(now()) - startedAtMs > wallTimeoutMs;
-        if (isPidAlive(current.activePid) && !expired) {
+        // 同 pid 形恒活（本进程在跑即该 pid 的活体证明——换代新旧两代同
+        // process.pid，探活无信息量直接恒活）；异 pid 形照探活（乙案并存窗
+        // 真值）
+        const occupiedAlive = current.activePid === ownPid || isPidAlive(current.activePid);
+        if (occupiedAlive && !expired) {
           const next = nextFireAt(row.schedule, new Date(firedAt));
           const outcome: RunOutcome = {
             trigger,
             reason: 'gated',
-            error: `另一进程实例正在运行（activePid ${current.activePid}）——本轮让位不双跑`,
+            // 同 pid 形注明前代语义（批注丁——让位留痕可诊断）；异 pid 形维持
+            // 既有文案（67 轮批注乙锁形）
+            error:
+              current.activePid === ownPid
+                ? `前代实例正在运行（activePid ${current.activePid} 与本实例同 pid——换代残窗，本代注册表不知该名）——本轮让位不双跑`
+                : `另一进程实例正在运行（activePid ${current.activePid}）——本轮让位不双跑`,
             finishedAt: firedAt,
           };
           dao.settleGated(name, outcome, next, now());
@@ -462,6 +479,13 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
         dao.settleGated(name, outcome, next, now());
         return { kind: 'done', outcome };
       }
+      // durable 占用 pid 的末次成功写入值追踪（69 轮补笔——期望值口径 = 本
+      // fire 末次**成功**写入值）：claim 落 ownPid 为基线；记账号成功写句柄
+      // pid 后升值；瞬态失败/句柄 pid 缺席留原值与库面一致（残账留 claim 值，
+      // 清账期望随库面真值走）。修前静态取句柄 pid：记账号瞬态失败时库面仍
+      // ownPid → 尾段 clearActiveIf(句柄 pid) 失配残 ownPid 己账无家清 + 误报
+      // 易主（实为己方残账非他进程接管）
+      let durablePid = ownPid;
       // spawn 拒绝回卷（67 轮批注乙——claim 先行对偶）：修前裸 await 拒绝穿
       // 透 fireRow 由 doSweep catch-warn 兜——行零结算永 due 每拍重试；claim
       // 已落则占用滞留死账。折 spawn 结局（types 词域真源——「子进程没起来」
@@ -474,7 +498,15 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         try {
-          dao.setActive(name, null, null, now()); // 回卷清账（claim 对偶）
+          // 条件回卷清账（68 轮批注丙 + 69 轮补笔——清账对偶律·防御性对偶位）：
+          // 期望值 = 本引擎 claim 落账的 ownPid（生产形 claim→spawn 窗内
+          // activePid 恒 = ownPid，条件形幂等不换语义；exotic 拓扑窗内他实例
+          // 对死/超钟残账条件判占接管时弃清不抹新 claim——旧注释自称「claim
+          // 对偶」实为无条件清账，本笔勘正为真对偶）。changes=0 即易主——
+          // warn 让位留痕
+          if (!dao.clearActiveIf(name, ownPid, now())) {
+            warn(`[scheduler] activePid 回卷清账让位（任务 ${name}——占用已易主，留新占用不抹）`);
+          }
         } catch (clearErr) {
           warn(
             `[scheduler] activePid 回卷清账失败（任务 ${name}，降 warn——残留账由僵行清扫自愈）：${clearErr instanceof Error ? clearErr.message : String(clearErr)}`,
@@ -500,7 +532,10 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       // 泄漏 + 行被 sweep 的 active.has 判据恒 skip（饿死）。记账是观察面
       // （跨进程在飞判定有「死/超钟不拦」自愈兜底），降 warn 不杀 fire 流
       try {
-        if (handle.pid !== null) dao.setActive(name, handle.pid, now(), now());
+        if (handle.pid !== null) {
+          dao.setActive(name, handle.pid, now(), now());
+          durablePid = handle.pid; // 写成功才升值（69 轮补笔——末次成功写入值口径；瞬态失败留 claim 值）
+        }
       } catch (err) {
         warn(
           `[scheduler] activePid 起跑记账失败（任务 ${name}，降 warn 继续——durable 账由 settle 段清账/僵行清扫自愈）：${err instanceof Error ? err.message : String(err)}`,
@@ -510,10 +545,11 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       // 随注册同步挂（段体内——不落 fireRowTail 的链返回 await 后一跳）：守卫
       // 面更宽（盖住段收场到尾段接管间的链跳窗），同步可见面与旧 fireRow 齐
       const wallHandle = timers.set(wallTimeoutMs, () => handle.kill('timeout'));
-      // 本 fire 落账的占用 pid（claim 写 ownPid、记账号覆写为句柄 pid——取最后
-      // 写入值；乙案 spawn 形句柄 pid 缺席 null 时留在 ownPid）——尾段条件清账
-      // 的期望值（68 轮批注丙：清账腿只清己账，易主即弃清不抹新 claim）
-      const claimedPid = handle.pid !== null ? handle.pid : ownPid;
+      // 本 fire 落账的 durable 占用 pid（末次成功写入值——claim 的 ownPid 或
+      // 记账号成功后的句柄 pid；记账号瞬态失败/句柄 pid 缺席留 ownPid）——
+      // 尾段条件清账的期望值（68 轮批注丙：清账腿只清己账，易主即弃清不抹
+      // 新 claim）
+      const claimedPid = durablePid;
       return { kind: 'spawned', handle, firedAt, wallHandle, claimedPid };
     } finally {
       // 段体收场同步出册（仍是在飞段则让位后继自理——见 enqueueName 注释）

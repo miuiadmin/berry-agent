@@ -878,6 +878,109 @@ describe('runRunEntry --tick 判占回卷清账对偶（68 轮批注丙——判
   });
 });
 
+/**
+ * --tick 收场清账/起跑覆写条件化（04 §12 律 3 69 轮补笔——清账对偶律枚举
+ * 非穷尽）：一切己方清账写位（settleTick 收场清账）与自覆写写位（起跑记账
+ * 覆写）同律——清账走 clearActiveIf(己 pid) 条件形（吞错律 21 轮件10 同辖：
+ * 清账瞬态错不翻退出码）、覆写走 claimActive(expect=己 pid) 条件形；changes=0
+ * 即占用已易主——留新占用不抹。
+ */
+describe('runRunEntry --tick 收场清账/起跑覆写条件化（69 轮补笔——清账对偶律枚举位）', () => {
+  it('红锁C1：settleTick 收场清账条件对偶——收场窗内他进程接管（active_pid 易主 999）后弃清不抹 + stderr 让位留痕（修前红：无条件清账抹成 null）', async () => {
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({
+      name: 'c1-job',
+      prompt: '例行巡检',
+      cwd: jobWs,
+      schedule: 'every:30m',
+      enabled: true,
+    });
+    const nextBefore = seed.scheduler.service.getJob('c1-job')?.nextFireAt;
+    await seed.shutdown();
+    // AFTER UPDATE 触发器（红锁C 同手法）：claim 落本 CLI pid 即改 999——
+    // 「claim→收场窗内他进程对死/超钟残账条件判占接管」的确定性压缩形。
+    // 收场清账写 NULL 不中 WHEN 子句（NEW.active_pid 非 pid）：修前
+    // setActive(null) 直接抹 null；修后 clearActiveIf(己 pid) 失配弃清——999 保住
+    const db = new Database(join(dataDir, 'sessions.db'));
+    try {
+      db.exec(
+        `CREATE TRIGGER takeover_after_claim AFTER UPDATE OF active_pid ON jobs
+         WHEN NEW.active_pid = ${process.pid} AND NEW.active_pid IS NOT NULL
+         BEGIN UPDATE jobs SET active_pid = 999 WHERE name = NEW.name; END`,
+      );
+    } finally {
+      db.close();
+    }
+
+    const run = await rigRun({ message: '', flags: { tick: 'c1-job' }, dataDir, cwd: jobWs });
+    await expect(run.entry).resolves.toBe(0); // run 正常跑完（清账让位不翻退出码）
+    expect(run.err.text).toContain('收场清账让位'); // 修后让位留痕（修前无此句）
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob('c1-job');
+      expect(row?.activePid).toBe(999); // 修前红锚：无条件清账抹成 null
+      expect(row?.lastOutcome?.reason).toBe('exit_code'); // 结算照走
+      expect(row?.lastFireAt).not.toBeNull(); // last_fire_at 正常推进
+      expect(Date.parse(row?.nextFireAt ?? '')).toBeGreaterThan(Date.parse(nextBefore ?? '')); // next 正常
+    } finally {
+      await audit.shutdown();
+    }
+  });
+
+  it('红锁C3：起跑记账覆写条件自覆写——claim 后窗内接管（999）覆写失配弃抹 + 收场清账同失配双弃清（修前红：覆写写回 pid、收场又抹 null）', async () => {
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({
+      name: 'c3-job',
+      prompt: '例行巡检',
+      cwd: jobWs,
+      schedule: 'every:30m',
+      enabled: true,
+    });
+    await seed.shutdown();
+    // 一次性接管触发器（计数表闸首写）：claim 首落本 CLI pid 即改 999 仅一次
+    // ——「claim→起跑记账窗内他进程条件判占接管」的确定性压缩形。单发形保
+    // 窗内真值：修前 :466 无条件覆写把 999 抹回 pid、收场又抹 null；修后
+    // 覆写与收场清账双双失配弃清——999 保住
+    const db = new Database(join(dataDir, 'sessions.db'));
+    try {
+      db.exec(
+        `CREATE TABLE takeover_once (id INTEGER PRIMARY KEY CHECK (id = 1), done INTEGER NOT NULL DEFAULT 0);
+         INSERT INTO takeover_once (id, done) VALUES (1, 0);
+         CREATE TRIGGER takeover_once_after_claim AFTER UPDATE OF active_pid ON jobs
+         WHEN NEW.active_pid = ${process.pid} AND NEW.active_pid IS NOT NULL
+              AND (SELECT done FROM takeover_once WHERE id = 1) = 0
+         BEGIN
+           UPDATE jobs SET active_pid = 999 WHERE name = NEW.name;
+           UPDATE takeover_once SET done = 1 WHERE id = 1;
+         END`,
+      );
+    } finally {
+      db.close();
+    }
+
+    const run = await rigRun({ message: '', flags: { tick: 'c3-job' }, dataDir, cwd: jobWs });
+    await expect(run.entry).resolves.toBe(0); // 让位只影响记账面——run 语义不变照跑
+    expect(run.err.text).toContain('起跑记账让位'); // 覆写失配留痕
+    expect(run.err.text).toContain('收场清账让位'); // 收场清账同失配弃清
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob('c3-job');
+      expect(row?.activePid).toBe(999); // 修前红锚：覆写写回 pid、收场又抹 null——终值 null
+      expect(row?.lastOutcome?.reason).toBe('exit_code'); // 结算照走
+      expect(row?.lastFireAt).not.toBeNull();
+      expect(row?.nextFireAt).not.toBeNull();
+    } finally {
+      await audit.shutdown();
+    }
+  });
+});
+
 describe('runRunEntry --tick 乙案双收口（65 轮件B：wake 兜错 + claim 后自杀钟）', () => {
   it('wake reject（goals 行漂移）：诚实 gated 记账 + 退 0（修前红：裸 await 抛穿崩溃档退 1 零结算——行永 due cron 每轮照炸）', async () => {
     const dataDir = tmpDir('run-data-');

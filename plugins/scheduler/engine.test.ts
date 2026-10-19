@@ -115,6 +115,8 @@ function assemble(
     spawnOverride?: RunnerFactory['spawn'];
     /** dao 包装位（挖掘 20 轮轮询裸奔回归锁——Proxy 覆写单方法抛错模拟 SQLITE 瞬态错） */
     daoWrap?: (dao: JobsDao) => JobsDao;
+    /** 引擎 pid 注缝（SchedulerEngineDeps.pid——69 轮批注丁换代残窗/丙清账对偶注入位） */
+    pid?: number;
   } = {},
 ): {
   service: SchedulerService;
@@ -148,6 +150,7 @@ function assemble(
     maxConcurrent: options.maxConcurrent,
     wallTimeoutMs: options.wallTimeoutMs,
     isPidAlive: options.isPidAlive,
+    ...(options.pid !== undefined ? { pid: options.pid } : {}),
   });
   return { service, dao, engine, timers, runner };
 }
@@ -1086,5 +1089,181 @@ describe('清账对偶律（68 轮批注丙——判占者方清己账）', () =
     expect(dao.get('j')?.activePid).toBe(222); // 修前红锚：A 尾段无条件清账抹成 null
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('清账让位'));
     void pb; // B 悬挂在飞不收场（悬挂 promise 同 assembleDualEngine 形——进程收尾自理）
+  });
+});
+
+/**
+ * 清账对偶律枚举位收口（04 §12 律 3 69 轮补笔——枚举非穷尽）：一切己方清账
+ * 写位（引擎 spawn 拒绝回卷）与自覆写写位同律——清账走 clearActiveIf(己 pid)
+ * 条件形；期望值口径 = 本 fire 末次**成功**写入值（记账号瞬态失败不计——残账
+ * 留 claim 值，清账期望随库面真值走）。
+ */
+describe('清账对偶律枚举位（69 轮补笔——spawn 回卷条件对偶 + claimedPid 末次成功写入值口径）', () => {
+  it('红锁C2：spawn 拒绝回卷条件对偶——claim→spawn 窗内他实例接管（777）后回卷弃清不抹（修前红：无条件清账抹成 null）', async () => {
+    let tookOver = false;
+    const { service, dao, engine } = assemble({
+      pid: 111, // 注缝异 pid——claim 落 111 后窗内注入他实例接管
+      spawnOverride: () => Promise.reject(new Error('spawn-boom')),
+      daoWrap: (raw) =>
+        new Proxy(raw, {
+          get(target, prop) {
+            if (prop === 'claimActive') {
+              return (name: string, claimPid: number, startedAt: string, updatedAt: string, expect: number | null) => {
+                const won = target.claimActive(name, claimPid, startedAt, updatedAt, expect);
+                // 窗内接管注入：本引擎 claim 落 ownPid（111）后立即以 expect=111
+                // 条件判占落 777——「claim→spawn 窗内他实例对死/超钟残账接管」的
+                // 确定性压缩形（真身窗 = claim 返回到 spawn 拒绝回卷之间）
+                if (won && expect === null && claimPid === 111) {
+                  tookOver = target.claimActive(name, 777, startedAt, updatedAt, 111);
+                }
+                return won;
+              };
+            }
+            return Reflect.get(target, prop) as unknown;
+          },
+        }),
+    });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const outcome = await engine.fireNow('j', 'manual');
+    expect(tookOver).toBe(true); // 窗内接管确落（expect=111 胜）
+    expect(outcome.reason).toBe('spawn'); // spawn 结局照结算（既有行为不变）
+    expect(dao.get('j')?.activePid).toBe(777); // 修前红锚：无条件回卷清账抹成 null
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('回卷清账让位')); // 让位留痕
+  });
+
+  it('红锁C4：claimedPid 口径 = 末次成功写入值——记账号瞬态失败后尾段按 claim 值清账（修前红：clearActiveIf(句柄 pid) 失配残 ownPid 账 + 误报易主）', async () => {
+    // 独立装配（local warn——「无易主措辞」负断言不受共享 warn 他测试遗留调用干扰）
+    store = openStore({
+      dbPath: join(dir, 'c4-claim.db'),
+      dataDir: join(dir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SCHEDULER_MIGRATION],
+    });
+    const localWarn = vi.fn();
+    const { service, dao: rawDao } = createSchedulerService({
+      db: store.sqlite(),
+      now: () => new Date(nowMs).toISOString(),
+      warn: localWarn,
+      pathExists: () => true,
+    });
+    // daoWrap 注入位：记账号 setActive（写句柄 pid 900001 时）恒抛——瞬态失败
+    // 形（claim 值 ownPid 在库、记账号未覆写——期望值口径的真值面）
+    const dao = new Proxy(rawDao, {
+      get(target, prop) {
+        if (prop === 'setActive') {
+          return (name: string, actPid: number | null, startedAt: string | null, updatedAt: string) => {
+            if (actPid === 900001) throw new Error('SQLITE_BUSY: 测试注入记账号写锁');
+            return target.setActive(name, actPid, startedAt, updatedAt);
+          };
+        }
+        return Reflect.get(target, prop) as unknown;
+      },
+    });
+    const runner = fakeRunner();
+    const engine = createSchedulerEngine({
+      dao,
+      runner,
+      now: () => new Date(nowMs).toISOString(),
+      warn: localWarn,
+      timers: new FakeTimers(),
+    });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const p = engine.fireNow('j', 'manual');
+    await vi.waitFor(() => expect(runner.requests).toHaveLength(1));
+    // claim 值（本进程 pid）在库——记账号瞬态失败未覆写为句柄 pid
+    expect(dao.get('j')?.activePid).toBe(processPid);
+    expect(localWarn).toHaveBeenCalledWith(expect.stringContaining('起跑记账失败')); // 瞬态失败降 warn 续 fire 流（既有行为）
+    runner.resolve(0);
+    const outcome = await p;
+    expect(outcome.reason).toBe('exit_code');
+    expect(dao.get('j')?.activePid).toBeNull(); // 修前红锚：clearActiveIf(900001) 失配残 ownPid 账
+    // 修前误报「已易主」（实为己方 claim 值残账非易主）——修后无此措辞
+    expect(localWarn).not.toHaveBeenCalledWith(expect.stringContaining('已易主'));
+  });
+});
+
+/**
+ * claim 面代际盲区（04 §12 律 3 69 轮批注丁——同 pid 换代形）：/reload 换代
+ * 后新代引擎同 process.pid——修前让位判（activePid ≠ ownPid 才入判）对旧代
+ * 在飞占用同值短路、claimActive(expect=ownPid) 同值直通 → 新旧两代并发双跑。
+ * 扩形：activePid === ownPid 而本代在飞注册表不知该名 → 视同他占入恒活/超钟
+ * 判定（同 pid 恒活：未超钟让位 gated、超钟接管）。
+ */
+describe('换代残窗（69 轮批注丁——claim 面代际盲区）', () => {
+  it('双引擎同 pid（111）：A 悬挂在飞、B 同名 fire → B 让位 gated（前代语义）零 spawn；A 收场按己账清（修前红：同值直通 claim 双跑 spawn）', async () => {
+    store = openStore({
+      dbPath: join(dir, 'gen-window.db'),
+      dataDir: join(dir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SCHEDULER_MIGRATION],
+    });
+    const { service, dao } = createSchedulerService({
+      db: store.sqlite(),
+      now: () => new Date(nowMs).toISOString(),
+      warn,
+      pathExists: () => true,
+    });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const clock = () => new Date(nowMs).toISOString();
+    let countA = 0;
+    let countB = 0;
+    let resolveA!: (o: RunOutcome) => void;
+    // A（旧代）runner：句柄 pid = 引擎 pid（甲案同值形——记账覆写幂等不换主）
+    const runnerA: RunnerFactory = {
+      async spawn() {
+        countA += 1;
+        return {
+          pid: 111,
+          kill: () => undefined,
+          settled: new Promise<RunOutcome>((r) => {
+            resolveA = r;
+          }),
+        };
+      },
+    };
+    const runnerB: RunnerFactory = {
+      async spawn() {
+        countB += 1;
+        return { pid: 111, kill: () => undefined, settled: new Promise<RunOutcome>(() => {}) };
+      },
+    };
+    const engineA = createSchedulerEngine({
+      dao,
+      runner: runnerA,
+      now: clock,
+      warn,
+      timers: new FakeTimers(),
+      pid: 111,
+    });
+    const engineB = createSchedulerEngine({
+      dao,
+      runner: runnerB,
+      now: clock,
+      warn,
+      timers: new FakeTimers(),
+      pid: 111,
+    });
+    // A（旧代）起跑悬挂：claim 落 111、记账号覆写 111（幂等）——占用面在场
+    const pa = engineA.fireNow('j', 'manual');
+    await vi.waitFor(() => {
+      expect(countA).toBe(1);
+      expect(dao.get('j')?.activePid).toBe(111);
+    });
+    // B（新代）同名 fire：activePid=111 同值——修前让位判同值短路直通
+    // claimActive(expect=111) 双跑；修后本代注册表不知该名视同他占 → 同 pid
+    // 恒活未超钟 → 让位 gated（前代语义）
+    const pb = engineB.fireNow('j', 'manual');
+    await drainMicrotasks();
+    expect(countB).toBe(0); // 修前红锚：同值直通 spawn（双跑）
+    const outcomeB = await pb;
+    expect(outcomeB.reason).toBe('gated');
+    expect(outcomeB.error).toContain('前代'); // 前代实例在飞语义（批注丁文案锚）
+    expect(dao.get('j')?.lastOutcome?.reason).toBe('gated'); // 让位照记结局
+    expect(dao.get('j')?.activePid).toBe(111); // 让位不覆写占用面
+    // 放行 A 收场：尾段按末次成功写入值（111）清己账——行面终清 null
+    resolveA({ trigger: 'manual', reason: 'exit_code', exitCode: 0, finishedAt: clock() });
+    const outcomeA = await pa;
+    expect(outcomeA.reason).toBe('exit_code');
+    expect(dao.get('j')?.activePid).toBeNull();
   });
 });
