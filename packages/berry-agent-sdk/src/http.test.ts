@@ -14,10 +14,20 @@
  * - 收向静默看门狗——注入短界值、静默超界判流死（warn + 销毁 + ended）；
  * - handle.close 主动退订同触发 ended——流已终非错误（零终局诊断）；
  * - 终局恰 settle 一次——end 后续 close 事件/再退订不重复诊断、身份不变。
+ *
+ * SDK 建流期死判主窗补位回归锁两件 + s-rst 终局路补锁（挖掘 75 轮件1）：
+ * - 头前窗——net 黑洞面收连永不写任何字节，看门狗（武装位在请求发起位）
+ *   触发即 reject SDK_TRANSPORT_OPEN_SILENCE（修前武装在应答回调 200 路内
+ *   ——回调永不进入即零死判，openLive 悬挂红）；
+ * - 非 200 错误体读毕前窗——502 头后持线静默同法 reject（修前非 200 分支
+ *   return 前零武装——悬挂红）；
+ * - s-rst 终局路——74 轮 rig 四档中唯一零 it 消费档补锁（已建立活体斩
+ *   socket → res error 路：warn 诊断 + ended settle）。
  */
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { createServer as createNetServer } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { createSdkClient } from './client.js';
@@ -653,6 +663,22 @@ describe('SDK 活体终局信号面（挖掘 74 轮件3——修前：ended 缺�
     }
   });
 
+  it('error 终局（s-rst）：已建立活体斩 socket → 流错误只诊断 warn + ended settle（74 轮 rig 四档唯一零 it 消费档——75 轮件1 补锁）', async () => {
+    const rig = await startLiveFace();
+    try {
+      const handle = await rig.transport.openLive({ sessionId: 's-rst' }, () => {});
+      expect(handle.ended).toBeInstanceOf(Promise);
+      // 已建立后的流中断只诊断不打回（res 'error' 路——RST 形）：四终局路
+      //（end/close/error/看门狗）中 74 轮零 it 消费者——本件纯测试笔补锁
+      await withDeadline(handle.ended, 2000);
+      expect(rig.warns.join('\n')).toContain('SSE 流错误');
+      // 服务侧斩线的回声面（连接收线）
+      await waitFor(() => rig.serverClosed.includes('s-rst'));
+    } finally {
+      await rig.close();
+    }
+  });
+
   it('终局恰 settle 一次：end 后续发 close 事件/再主动退订不重复诊断、ended 身份不变（幂等守卫）', async () => {
     const rig = await startLiveFace();
     try {
@@ -669,6 +695,82 @@ describe('SDK 活体终局信号面（挖掘 74 轮件3——修前：ended 缺�
       await expect(handle.ended).resolves.toBeUndefined();
     } finally {
       await rig.close();
+    }
+  });
+});
+
+/**
+ * 建流期死判主窗补位专用 rig（75 轮件1）：两主窗零武装对拍——头前窗用
+ * net 黑洞面（收连永不写任何字节——sock 形 daemon 建连黑洞/代理单向分区
+ * 形：连接建连成功故 req 无 error、应答回调永不进入）；非 200 持线窗用
+ * http 面写 502 头后永不写体（代理回错误头后持线静默）。同款手法 = 74 轮
+ * 件3 看门狗测试同款：注入短界值 liveIdleWatchdogMs 推进看门狗 + withDeadline
+ * 限期锚（修前零 timer 武装 → 推进无效果 → openLive 悬挂 → 裸超时错红出）。
+ */
+describe('SDK 建流期死判主窗补位（挖掘 75 轮件1——修前：头前/非 200 错误体两窗零武装，openLive 悬挂零事件零超时）', () => {
+  it('头前窗：收连永不写头的黑洞面 → 建流看门狗触发 reject SDK_TRANSPORT_OPEN_SILENCE（修前武装在应答回调内——回调永不进入即红）', async () => {
+    // net 服务端收连、永不写任何字节：修前看门狗只在应答回调 200 路武装
+    //（kickWatchdog 在 (res) => 体内、200 判定之后），本窗回调永不进入 →
+    // 零死判：openLive 悬挂（node 无缺省超时，修前实测收连不应答零事件），
+    // 限期锚以裸超时错落定 → 不匹配 SdkError 断言即红。
+    const sockets = new Set<Socket>();
+    const server = createNetServer((sock) => {
+      sockets.add(sock);
+      sock.on('close', () => sockets.delete(sock));
+      /* 收连永不写任何字节（建连黑洞形——单向分区同族） */
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const transport = httpSdkTransport({ host: '127.0.0.1', port, token: TOKEN, liveIdleWatchdogMs: 80 });
+    try {
+      await expect(
+        withDeadline(
+          transport.openLive({ sessionId: 's-1' }, () => {}),
+          2000,
+        ),
+      ).rejects.toMatchObject({
+        name: 'SdkError',
+        code: 'SDK_TRANSPORT_OPEN_SILENCE',
+        message: expect.stringContaining('建流响应超界静默') as unknown,
+      });
+    } finally {
+      // 红跑卫生锚：修前形 openLive 悬挂在飞——close 收口销毁在飞句柄 + 斩尽
+      // 服务侧连接，防 server.close 回调悬挂拖死测程
+      await transport.close();
+      for (const sock of sockets) sock.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('非 200 错误体读毕前窗：502 头后持线静默（代理形）→ 建流看门狗触发 reject SDK_TRANSPORT_OPEN_SILENCE（修前非 200 路 return 前零武装——红）', async () => {
+    // 代理回 502 头后持线静默（永不写体、永不收线）：应答回调已进入（应答头
+    // 本身 = 活性证据 kick 一次）但错误体读毕前零字节——修前非 200 分支只挂
+    // close/error、return 前零武装：'end' 永不至即 reject 永不发生（悬挂），
+    // 限期锚以裸超时错落定 → 不匹配 SdkError 断言即红（对照 s-gateway-cut
+    // 斩线形：本形连接活而零字节——两形都不得悬挂）。
+    const server = createServer((_req, res) => {
+      // 502 头后持线静默——永不写体、永不收线
+      res.writeHead(502, { 'content-type': 'text/html; charset=utf-8' });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const transport = httpSdkTransport({ host: '127.0.0.1', port, token: TOKEN, liveIdleWatchdogMs: 80 });
+    try {
+      await expect(
+        withDeadline(
+          transport.openLive({ sessionId: 's-1' }, () => {}),
+          2000,
+        ),
+      ).rejects.toMatchObject({
+        name: 'SdkError',
+        code: 'SDK_TRANSPORT_OPEN_SILENCE',
+        message: expect.stringContaining('建流响应超界静默') as unknown,
+      });
+    } finally {
+      // 红跑卫生锚：同款先收口传输再斩尽服务侧连接
+      await transport.close();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
 });

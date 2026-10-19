@@ -294,6 +294,12 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
       '传输终局：stdio 子进程 exit/error/close 时在飞事务 fail-loud 拒绝（串行链续走不挂死）、订阅建立期（replay-end 界标前）断流/流错误 reject 建流 Promise——已建立后的直播期流错误维持诊断 warn 不打回（03 §10.6 遗漏扫描四役定形补笔钉名；抛出位在 packages/berry-agent-sdk 传输两实装 14 处而注册表漏登——2026-09-28 E1 双件套补登，SDK 包码对拍锁同批入锁）',
   },
   {
+    code: 'SDK_TRANSPORT_OPEN_SILENCE',
+    module: 'sdk',
+    description:
+      'SDK HTTP 建流期收向静默死判（03 §10.6 挖掘 75 轮件1——看门狗武装位前移到请求发起位随族子码）：请求已发、建流未落定（响应头前/非 2xx 错误体读毕前/replay-end 前三窗任一）超界值无任何字节到达即 reject 建流 Promise 并销毁请求——「建流 Promise 不得悬挂」律的响应静默兜底（74 轮件3 只兑现建流后静默窗）；已建立后的静默维持只诊断 warn + ended settle 不打回',
+  },
+  {
     code: 'STRUCTURED_OUTPUT_PARSE_FAILED',
     module: 'host',
     description:

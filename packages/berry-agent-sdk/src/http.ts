@@ -39,6 +39,18 @@
  * 字节到达即判流死（warn + 销毁流 → ended settle）——「慢不得被误读为死」
  * 与「死不得被误读为慢」两向界值 = ping 间隔 3 倍。消费方义务不变：终局信号
  * 是触发点非数据源——重对账走既有 durable seq/getEntries 路。
+ *
+ * 建流期死判主窗补位（挖掘 75 轮件1）：74 轮看门狗武装在应答回调 200 路内
+ * ——应答头**前**窗（连接建连成功、对端永不写头：req 无 error、回调永不进入
+ * ——sock 形 daemon 建连黑洞/代理单向分区）与**非 200 错误体读毕前**窗（代理
+ * 回错误头后持线静默）两主窗零武装零死判，「建流 Promise 不得悬挂」律结构性
+ * 失守（修前实测收连不应答零事件零超时）。修形武装位前移到请求发起位（在飞
+ * 档登记后即武装）——单计时器覆盖「头前 → 错误体读毕前 → 建流后静默」三窗；
+ * 应答回调进入即 kick（应答头本身 = 活性证据——任何状态码含非 200）、res
+ * data 再 kick（错误体字节同证）；触发按阶段分后果——建流期 reject
+ * SDK_TRANSPORT_OPEN_SILENCE + 销毁请求，建流后维持 74 轮只诊断 settle 终局
+ * 不动；openLive resolve/reject 全终局路 + terminate/close 收口统一清 timer
+ * 零悬挂（74 轮闸 P4 挂账「建流期 error 路显式清不对称」同笔收）。
  */
 import { request as httpRequest } from 'node:http';
 import type { ClientRequest, IncomingMessage } from 'node:http';
@@ -69,18 +81,21 @@ export interface HttpSdkOptions {
   /** 坏行/SSE 诊断面（缺省静默） */
   readonly onWarn?: (message: string) => void;
   /**
-   * 收向静默看门狗界值（74 轮件3——分区形兜底）：活体流超界值无任何字节到达
-   * 即判流死（warn + 销毁流 → ended settle）。缺省 3× SSE ping 间隔——服务端
-   * 两活性源（wire-core 心跳 5s / SSE 注释行 ping 30s）最慢 30s 一拍，3 倍即
-   * 死判：「慢不得被误读为死」（活流必在界内拍）与「死不得被误读为慢」（上界
-   * 界值内判死）两向都得过；测试注短值。
+   * 收向静默看门狗界值（74 轮件3——分区形兜底；75 轮件1 武装位前移到请求
+   * 发起位后覆盖建流三窗）：超界值无任何字节到达即判死——建流期（应答头前/
+   * 非 200 错误体读毕前/replay-end 前）reject 建流 Promise 并销毁请求；建流
+   * 后（已建立活体流）warn + 销毁流 → ended settle。缺省 3× SSE ping 间隔
+   * ——服务端两活性源（wire-core 心跳 5s / SSE 注释行 ping 30s）最慢 30s 一
+   * 拍，3 倍即死判：「慢不得被误读为死」（活流必在界内拍）与「死不得被误读
+   * 为慢」（上界界值内判死）两向都得过；测试注短值。
    */
   readonly liveIdleWatchdogMs?: number;
 }
 
 /**
  * 收向静默看门狗缺省界值 = 3× SSE ping 间隔（单源自面侧常量——缺省 90s）。
- * 依据与注入位见 {@link HttpSdkOptions.liveIdleWatchdogMs} 注。
+ * 覆盖面（75 轮件1 起）= 建流三窗（头前 → 错误体读毕前 → 建流后静默）单计时
+ * 器。依据与注入位见 {@link HttpSdkOptions.liveIdleWatchdogMs} 注。
  */
 const LIVE_IDLE_WATCHDOG_MS = 3 * SDK_SSE_PING_INTERVAL_MS;
 
@@ -269,12 +284,80 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
         const settleRemove = (): void => {
           if (entry !== undefined) inflightRequests.delete(entry);
         };
+        /**
+         * 建立界标（replay-end 落定位——75 轮件1 外提自 200 分支）：看门狗
+         * 触发后果按此位分相——建流期 reject 销毁、建流后只诊断 settle 终局。
+         */
+        let settled = false;
+        // —— 活体终局信号面（74 轮件3）+ 建流三窗看门狗（75 轮件1 外提） ——
+        // endedSettled 与 settled 分立：settled 是 replay-end 建立界标（界标前
+        // 终局走建流失败 reject），endedSettled 是流终局界标（界标后终局走
+        // ended settle + 诊断 warn）——两词不同物。
+        let endedSettled = false; // 终局幂等守卫：恰 settle 一次（迟到终局事件零重复 warn）
+        let endedResolve!: () => void;
+        /** 终局面（幂等 settle——语义 = 流已终非错误〔含主动退订/整连接收口〕） */
+        const endedPromise = new Promise<void>((resolve) => {
+          endedResolve = resolve;
+        });
+        /** 开流应答锚（200 开流位落锚——外提的终局清账位用；非 200/头前窗恒缺席） */
+        let liveRes: IncomingMessage | undefined;
+        const idleWatchdogMs = options.liveIdleWatchdogMs ?? LIVE_IDLE_WATCHDOG_MS;
+        let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+        const stopWatchdog = (): void => {
+          if (watchdogTimer !== undefined) {
+            clearTimeout(watchdogTimer);
+            watchdogTimer = undefined;
+          }
+        };
+        /** 终局落定（幂等恰一次）：清看门狗计时器 + 摘流账 + settle ended */
+        const settleEnded = (): void => {
+          if (endedSettled) return;
+          endedSettled = true;
+          stopWatchdog();
+          if (liveRes !== undefined) liveStreams.delete(liveRes);
+          endedResolve();
+        };
+        const onWatchdogFire = (): void => {
+          watchdogTimer = undefined; // 已触发（stopWatchdog 双清防护）
+          if (!settled) {
+            // 建流期三窗任一（头前/错误体读毕前/replay-end 前——75 轮件1）：
+            // reject 新子码 + 销毁请求——「建流 Promise 不得悬挂」律的应答
+            // 静默兜底（销毁引发的 req error/res close 落在已落定 Promise 上
+            // 即 no-op，不抢词面）。文面「建流响应超界静默」= 批注「建流应答
+            // 超界静默」意涵（产码串禁替词应答→响应——07 §4.4 查四）
+            reject(
+              new SdkError(
+                'SDK_TRANSPORT_OPEN_SILENCE',
+                `SSE 建流响应超界静默（${idleWatchdogMs}ms 无任何字节到达）——判建流死销毁请求`,
+              ),
+            );
+            req.destroy();
+            return;
+          }
+          warn(
+            `SSE 流静默超界（${idleWatchdogMs}ms 无任何字节）——判流死销毁` +
+              '（服务端 ping/心跳为协议义务，活流必在界内拍——分区形兜底）',
+          );
+          // 先落终局再销毁：destroy 引发的 close 事件路经 endedSettled 守卫零重复诊断
+          settleEnded();
+          liveRes?.destroy();
+        };
+        /** 每字节活性证据重置计时（应答头/任一字节到达即证据——含注释行 ping） */
+        const kickWatchdog = (): void => {
+          stopWatchdog();
+          watchdogTimer = setTimeout(onWatchdogFire, idleWatchdogMs);
+        };
+        // resolve 不清 timer（看门狗续覆盖建流后静默窗——74 轮件3 行为不动）；
+        // reject 加看门狗收口：openLive 任一 reject 路 = 事务终局即清 timer——
+        // 单 timer 生命期统一管理零悬挂（74 轮闸 P4 挂账「建流期 error 路显式
+        // 清不对称」本笔收：修前只在 terminate 一路显式清）
         const resolve = (handle: SdkLiveHandle): void => {
           settleRemove();
           resolve0(handle);
         };
         const reject = (err: SdkError): void => {
           settleRemove();
+          stopWatchdog();
           reject0(err);
         };
         const query = new URLSearchParams({ sessionId: params.sessionId });
@@ -295,12 +378,18 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
             },
           },
           (res) => {
+            // 应答头本身 = 活性证据（任何状态码含非 200——75 轮件1 kick 点：
+            // 头前窗到此关闭，计时器转覆错误体读毕前窗/建流后静默窗）
+            kickWatchdog();
             if ((res.statusCode ?? 0) !== 200) {
               // 建流失败：错误体还原错误帧投形拒绝（订阅失败即整档失败）；非帧形
               // 错误体经 errorFrameOf 同款回退 SDK_TRANSPORT（携错误体前 200 字符
               // 截段——与 request/send 档并源，修前回退文案只有状态码）
               const chunks: Buffer[] = [];
-              res.on('data', (chunk: Buffer) => chunks.push(chunk));
+              res.on('data', (chunk: Buffer) => {
+                chunks.push(chunk);
+                kickWatchdog(); // 错误体字节 = 活性证据（读毕前窗重置——读毕走 end reject）
+              });
               res.on('end', () => {
                 try {
                   const frame = errorFrameOf(res.statusCode ?? 0, Buffer.concat(chunks).toString('utf8'), 'SSE 建流');
@@ -329,53 +418,14 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
               return;
             }
             liveStreams.add(res);
-            let settled = false; // 建立界标守卫：replay-end resolve 置位——界标前终局一律建流失败
+            liveRes = res; // 开流应答锚（外提终局清账位用——settleEnded 摘流账）
             let failed = false; // 建流失败界标：界标前 error 帧已保码拒绝——残帧不再入监听面
             let highWaterSeq = -1;
             let buffer = '';
-            // —— 活体终局信号面（74 轮件3）：终局面 ended + 收向静默看门狗 ——
-            // endedSettled 与 settled 分立：settled 是 replay-end 建立界标（界标前
-            // 终局走建流失败 reject），endedSettled 是流终局界标（界标后终局走
-            // ended settle + 诊断 warn）——两词不同物。
-            let endedSettled = false; // 终局幂等守卫：恰 settle 一次（迟到终局事件零重复 warn）
-            let endedResolve!: () => void;
-            /** 终局面（幂等 settle——语义 = 流已终非错误〔含主动退订/整连接收口〕） */
-            const endedPromise = new Promise<void>((resolve) => {
-              endedResolve = resolve;
-            });
-            const idleWatchdogMs = options.liveIdleWatchdogMs ?? LIVE_IDLE_WATCHDOG_MS;
-            let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
-            const stopWatchdog = (): void => {
-              if (watchdogTimer !== undefined) {
-                clearTimeout(watchdogTimer);
-                watchdogTimer = undefined;
-              }
-            };
-            /** 终局落定（幂等恰一次）：清看门狗计时器 + 摘流账 + settle ended */
-            const settleEnded = (): void => {
-              if (endedSettled) return;
-              endedSettled = true;
-              stopWatchdog();
-              liveStreams.delete(res);
-              endedResolve();
-            };
-            const onWatchdogFire = (): void => {
-              watchdogTimer = undefined; // 已触发（stopWatchdog 双清防护）
-              warn(
-                `SSE 流静默超界（${idleWatchdogMs}ms 无任何字节）——判流死销毁` +
-                  '（服务端 ping/心跳为协议义务，活流必在界内拍——分区形兜底）',
-              );
-              // 先落终局再销毁：destroy 引发的 close 事件路经 endedSettled 守卫零重复诊断
-              settleEnded();
-              res.destroy();
-            };
-            /** 每字节活性证据重置计时（res 'data' 到达即证据——含注释行 ping） */
-            const kickWatchdog = (): void => {
-              stopWatchdog();
-              watchdogTimer = setTimeout(onWatchdogFire, idleWatchdogMs);
-            };
-            // 开流即武装（建立期悬死形同兜底：界内无任何帧 → 判流死 → 走建流失败 reject）
-            kickWatchdog();
+            // 看门狗机件（settled/endedSettled 守卫 + endedPromise + stop/kick/
+            // fire）已外提到建流 Promise 体（75 轮件1）——武装位在请求发起位、
+            // kick 点在应答头（回调进入）与每字节；旧「开流即武装」位由回调
+            // 进入位 kick 同拍覆盖，不再重复武装。
             res.setEncoding('utf8');
             res.on('data', (chunk: string) => {
               kickWatchdog(); // 任一字节 = 活性证据——重置看门狗
@@ -438,7 +488,9 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
             const terminate = (why: string): void => {
               liveStreams.delete(res);
               if (!settled) {
-                stopWatchdog(); // 建立期终局同样清计时器（不留悬挂 timer）
+                // 建立期终局的 timer 清理在 reject 包一层内统一收口（75 轮件1
+                // 单点管理——修前仅本路显式清、req/res error 路不对称即 74 轮
+                // 闸 P4 挂账位）
                 reject(new SdkError('SDK_TRANSPORT', `SSE 流在 replay-end 前终止（${why}）`));
                 return;
               }
@@ -464,6 +516,12 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
         );
         entry = { req, reject };
         inflightRequests.add(entry);
+        // 看门狗武装位（75 轮件1）：请求发起位（在飞档登记后即武装）——单计时
+        // 器覆盖「头前 → 错误体读毕前 → 建流后静默」三窗。修前武装在应答回调
+        // 200 路内（74 轮件3 只兑现第三窗）：头前窗回调永不进入（连接建连成
+        // 功故 req 无 error——黑洞/单向分区形零事件零超时）、非 200 路 return
+        // 前零武装（错误头后持线静默）——两主窗零死判即本件主缝。
+        kickWatchdog();
         req.on('error', (err: Error) => reject(new SdkError('SDK_TRANSPORT', `SSE 建流传输失败：${err.message}`)));
         req.end();
       }),
