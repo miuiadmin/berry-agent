@@ -280,7 +280,6 @@ export class ModelPicker implements OverlayContent {
     const left = `${prefix}${mark}${entry.spec}`;
     const fit = fitRowSegments(left, entry.model, width);
     // 在选行整行 accent bold（R-9——codex 全 spans 律：右段辅助段随光标行覆写）
-    // 在选行整行 accent bold（R-9——codex 全 spans 律：右段辅助段随光标行覆写）
     const active = isCursor ? this.activeRowStyle : undefined;
     buffer.writeText(row, col, fit.left, active);
     if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, active ?? HINT_STYLE);
