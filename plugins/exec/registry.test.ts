@@ -268,4 +268,51 @@ describe('sweepOrphans 孤儿清扫', () => {
     const report = await sweepOrphans(registry, { hostPid: 2 }, stubDeps());
     expect(report).toEqual({ killed: 0, skipped: 0, removed: 0 });
   });
+
+  // ── 清扫收尾投影（04 §11 73 轮批注「清扫回执呈现链兑现」）──────────────
+  // 修前红：killed/removed 两档零呈现——SweepReport 唯一调用位被 void 吞、
+  // 树杀成功路径零日志，「上代遗留孤儿被本代树杀 N 个」与「无孤儿」启动后
+  // 同形不可区分（无人值守产品对进程组 SIGKILL 零痕迹可审计）。修后：收尾
+  // 投影 warn 恰一笔汇总行（标签 [EXEC_ORPHAN_SWEEP]——日志标签形）。
+  it('树杀非零 → 收尾投影恰一笔汇总行：三计数 + 被杀条目 pid/命令行随行', async () => {
+    const logger = testLogger();
+    const deps = stubDeps({
+      // pid 100 = 活孤儿（命令行相符树杀）；pid 101 = 活孤儿但命令行不符（跳过档）
+      isAlive: (pid) => pid === 100 || pid === 101,
+      readCmdline: (pid) => (pid === 100 ? '/bin/sleep 30' : '/usr/sbin/httpd -DFOREGROUND'),
+    });
+    const registry = createProcessRegistry({ hostPid: 2, logger });
+    registry.add(entry({ pid: 100, hostPid: 1, argv: ['/bin/sleep', '30'] }));
+    registry.add(entry({ pid: 101, hostPid: 1, argv: ['/bin/sleep', '60'] }));
+    await sweepOrphans(registry, { hostPid: 2, logger }, deps);
+    // 恰一笔：标签行全 warn 流恰一条（skipped 档逐条 warn 不带标签——不并笔）
+    const summaries = logger.warns.filter((w) => w.includes('[EXEC_ORPHAN_SWEEP]'));
+    expect(summaries).toHaveLength(1);
+    // 三计数随行（killed/skipped/removed——SweepReport 汇总面）
+    expect(summaries[0]).toContain('树杀 1');
+    expect(summaries[0]).toContain('跳过 1');
+    expect(summaries[0]).toContain('出册 1');
+    // 被杀条目 pid + 命令行随行（审计载荷——登记簿快照覆写后前态不可考）
+    expect(summaries[0]).toContain('pid=100');
+    expect(summaries[0]).toContain('/bin/sleep 30');
+  });
+
+  it('killed=0 且 removed>0（孤儿本身已死纯出册）→ 汇总行仍恰一笔、无被杀条目尾段', async () => {
+    const logger = testLogger();
+    const deps = stubDeps({ isAlive: () => false, readCmdline: () => null });
+    const registry = createProcessRegistry({ hostPid: 2, logger });
+    registry.add(entry({ pid: 100, hostPid: 1 }));
+    await sweepOrphans(registry, { hostPid: 2, logger }, deps);
+    const summaries = logger.warns.filter((w) => w.includes('[EXEC_ORPHAN_SWEEP]'));
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toContain('出册 1');
+    expect(summaries[0]).not.toContain('被杀条目'); // 零杀纯出册——无条目尾段
+  });
+
+  it('全零（无孤儿常态）→ 零投影零噪声', async () => {
+    const logger = testLogger();
+    const registry = createProcessRegistry({ hostPid: 2, logger });
+    await sweepOrphans(registry, { hostPid: 2, logger }, stubDeps());
+    expect(logger.warns).toHaveLength(0);
+  });
 });

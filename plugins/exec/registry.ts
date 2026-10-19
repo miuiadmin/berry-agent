@@ -7,7 +7,8 @@
  *   文件不进正身）。
  * - **孤儿清扫**（启动期一次）：读残留册，上代宿主已死（entry.hostPid 判
  *   活）→ 验命令行（pid 复用防线——命令行与登记 argv 不符即跳过，杀错无
- *  辜进程比漏杀孤儿更糟）→ 树杀 → 出册。
+ *  辜进程比漏杀孤儿更糟）→ 树杀 → 出册 → 收尾投影恰一笔汇总行
+ *  （[EXEC_ORPHAN_SWEEP] 标签——04 §11 73 轮批注「清扫回执呈现链兑现」）。
  * - **stale 判定**：清扫只认「宿主已死」的条目；宿主仍活的条目是并发实例
  *   的活账，不动。
  */
@@ -127,6 +128,9 @@ export async function sweepOrphans(
   let killed = 0;
   let skipped = 0;
   let removed = 0;
+  // 被杀条目随行账（pid + 命令行——收尾汇总行的审计载荷）：children.json
+  // 快照覆写后前态不可考，进程日志是树杀动作唯一可审计面（04 §11 73 轮批注）
+  const killedEntries: { pid: number; cmdline: string }[] = [];
   // 裁剪对象 = 回填后的整本账（内存既有 + 文件残留——启动期内存通常为空，
   // 但纯内存腿调用〔无 filePath〕同样可扫）
   for (const entry of registry.list()) {
@@ -146,9 +150,23 @@ export async function sweepOrphans(
       }
       deps.killTree(entry.pid);
       killed += 1;
+      killedEntries.push({ pid: entry.pid, cmdline: expected });
     }
     registry.remove(entry.pid);
     removed += 1;
+  }
+  // 清扫收尾投影（04 §11 73 轮批注「清扫回执呈现链兑现」）：killed/removed
+  // 任一非零 → 恰一笔汇总行（计数 + 被杀条目 pid/命令行随行）——「上代崩溃
+  // 遗留孤儿被本代树杀 N 个」与「无孤儿」由此在进程日志可分辨（无人值守
+  // 产品对进程组 SIGKILL 须有痕迹可审计）。行首标签 [EXEC_ORPHAN_SWEEP]
+  // 是日志标签形（承 [MEMORY_CYCLE_REVIEW]/[SCHEDULER_POLL_ERRORS] 先例
+  // ——非 durable 事件词不入词汇表）；全零 = 无孤儿常态零投影零噪声。
+  if (killed > 0 || removed > 0) {
+    const tail =
+      killedEntries.length > 0
+        ? `——被杀条目 ${killedEntries.map((e) => `pid=${e.pid} cmd="${e.cmdline}"`).join('；')}`
+        : '';
+    logger.warn(`[EXEC_ORPHAN_SWEEP] 上代遗留孤儿清扫收尾：树杀 ${killed}、跳过 ${skipped}、出册 ${removed}${tail}`);
   }
   return { killed, skipped, removed };
 }
