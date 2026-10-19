@@ -67,15 +67,23 @@ function mkIssue(number: number, updatedAt: string, state: 'open' | 'closed' = '
 /**
  * backend 假件（注入位 = IssuePollerDeps.backend）：listIssues 行为注入
  * （script 收 (req, callIndex)——恒返满页的护栏形需 callIndex 派生递增
- * number/updatedAt）；其余面桩空（轮询域不触达）。
+ * number/updatedAt）；其余面桩空（轮询域不触达）。script 返回双形：数组 =
+ * 无 PR 混列便捷形（自动包 `{issues, rawCount: 长度}`）；对象形 = 原始行数
+ * 注入位（71 轮件2 PR 混列判据锁——rawCount ≠ issues 长度）。
  */
-function makeBackend(script: (req: { repo: string; since?: string; page?: number }, callIndex: number) => IssueRef[]) {
+function makeBackend(
+  script: (
+    req: { repo: string; since?: string; page?: number },
+    callIndex: number,
+  ) => IssueRef[] | { issues: IssueRef[]; rawCount: number },
+) {
   const calls: ListCall[] = [];
   const backend: GithubBackend = {
     listIssues: async (req) => {
       const callIndex = calls.length; // 本调用的页序号源（0 起——script 派生数据用）
       calls.push({ repo: req.repo, since: req.since, page: req.page });
-      return script(req, callIndex);
+      const out = script(req, callIndex);
+      return Array.isArray(out) ? { issues: out, rawCount: out.length } : out;
     },
     listComments: async () => [],
     postComment: async () => ({ id: 1 }),
@@ -235,5 +243,56 @@ describe('回归锁：单页常规短窗（<100）零行为变（请求形/水�
     expect(calls).toHaveLength(2);
     expect(calls[1]).toEqual({ repo: 'o/r', since: ts(5) });
     expect(state.getStoreState(watermarkKey('o/r'))?.value).toBe(ts(5));
+  });
+});
+
+/* ---------------- 71 轮件2：页满判据真源 = rawCount（PR 混列不架空翻页） ---------------- */
+
+describe('红锁三：页满判据 = rawCount——原始满页混 PR 不早停（71 轮件2·修前红）', () => {
+  it('原始页 100 行（40 PR 混列 → 滤后 60）+ 第 2 页短页：续翻第 2 页、水位收全页 max（修前红：以滤后长度判满 → 首页即 break）', async () => {
+    // 首页原始 100 行：40 行 PR（backend 滤除）+ 60 行 issue——归一返回形
+    // {issues: 60 行, rawCount: 100}（判据真源 = 原始行数、过滤后清单只作内容）
+    const page1Issues = Array.from({ length: 60 }, (_, i) => mkIssue(i + 1, ts(i + 1)));
+    const page2 = [mkIssue(101, ts(600)), mkIssue(102, ts(10))];
+    const { calls, state, enqueued, poller } = rig((req) =>
+      req.page === 2 ? { issues: page2, rawCount: page2.length } : { issues: page1Issues, rawCount: 100 },
+    );
+
+    const report = await poller.pollOnce();
+
+    // 翻页驱动不被滤后长度架空（修前红：滤后 60 < 100 → 首页即 break 恰 1 调）
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.page).toBe(2);
+    // 第 2 页数据收账（修前红：更深层页不取——水位缺第 2 页数据即穿透面）
+    expect(report.seen).toBe(62);
+    expect(report.enqueued).toBe(62);
+    expect(report.errors).toEqual([]); // 修前红：新返回形非数组，整仓让位落 errors
+    expect(report.overflow).toEqual([]); // 第 2 页短页——护栏未触
+    // 水位 = 全页 max：ts(600) 在第 2 页（修前红：水位只推首页 max → 第 2 页
+    // issue 永久穿透——sort=created desc 下被弃页 updatedAt 可 > 已收 max）
+    expect(state.getStoreState(watermarkKey('o/r'))?.value).toBe(ts(600));
+    expect(enqueued).toContain(101);
+  });
+
+  it('原始页连续 30 页满且混 PR（各页 rawCount 100 / 滤后 60）：护栏耗尽 overflow 置真（修前红：滤后判满恒 false → 溢出永不可置真）', async () => {
+    // 恒返原始满页（PR 混列被滤不影响判据）：滤后 60/页 × 30 页、updatedAt 递增
+    const mixedPage = (callIndex: number) => ({
+      issues: Array.from({ length: 60 }, (_, i) => mkIssue(callIndex * 100 + i + 1, ts(callIndex * 100 + i + 1))),
+      rawCount: 100,
+    });
+    const { calls, state, poller } = rig((_req, callIndex) => mixedPage(callIndex));
+
+    const report = await poller.pollOnce();
+
+    // 恰护栏 30 页后停（修前红：首页即停恰 1 调——滤后 60 < 100 恒判短页）
+    expect(calls).toHaveLength(30);
+    expect(calls[29]?.page).toBe(30);
+    // fail-loud 兑现（修前红：overflow 恒空——fail-loud 降级 fail-silent）
+    expect(report.overflow).toEqual(['o/r']);
+    // 已收账页照常：60 × 30 收账、水位推进至已收账页 max（末页末条 number 2960）
+    expect(report.seen).toBe(1800);
+    expect(report.enqueued).toBe(1800);
+    expect(report.errors).toEqual([]);
+    expect(state.getStoreState(watermarkKey('o/r'))?.value).toBe(ts(2960));
   });
 });

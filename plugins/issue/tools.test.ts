@@ -10,24 +10,27 @@ import type { GithubBackend } from './github.js';
 import { createIssueTools } from './tools.js';
 import type { IssueCommentRef, IssueEscalation, IssueRef } from './types.js';
 
-/** backend 假件（评论/PR 投递记录——escalate 零外部写的证伪面） */
+/** backend 假件（评论/PR 投递记录——escalate 零外部写的证伪面；listIssues 返回形 71 轮件2 迁移 {issues, rawCount}） */
 function fakeBackend() {
   const comments: { repo: string; number: number; body: string }[] = [];
   const prs: { repo: string; title: string }[] = [];
   const backend: GithubBackend = {
-    listIssues: async () => [
-      {
-        repo: 'o/r',
-        number: 7,
-        title: 'bug found',
-        body: 'steps',
-        labels: ['p1'],
-        assignees: [],
-        state: 'open',
-        updatedAt: '2026-09-06T00:00:00Z',
-        htmlUrl: 'https://github.com/o/r/issues/7',
-      },
-    ],
+    listIssues: async () => ({
+      rawCount: 1,
+      issues: [
+        {
+          repo: 'o/r',
+          number: 7,
+          title: 'bug found',
+          body: 'steps',
+          labels: ['p1'],
+          assignees: [],
+          state: 'open',
+          updatedAt: '2026-09-06T00:00:00Z',
+          htmlUrl: 'https://github.com/o/r/issues/7',
+        },
+      ],
+    }),
     listComments: async () => [{ id: 1, author: 'alice', body: '复现了', createdAt: '2026-09-06T01:00:00Z' }],
     postComment: async (req) => {
       comments.push(req);
@@ -71,12 +74,19 @@ const fullCommentPage = (): IssueCommentRef[] => Array.from({ length: 100 }, (_,
 /**
  * 页感知假 backend（G4/G5 回归锁）：listIssues/listComments 按 req.page 回
  * 对应页（缺页 = 首页——与修前调用形兼容）；反查未配时首页即含绑定 issue。
+ * 页项双形（71 轮件2）：数组 = 无 PR 混列便捷形（rawCount = 长度）；对象形
+ * `{issues, rawCount}` = 原始行数注入位（PR 混列页满判据锁）。
  */
-function pagedBackend(opts: { issuePages?: IssueRef[][]; commentPages?: IssueCommentRef[][] }): GithubBackend {
+function pagedBackend(opts: {
+  issuePages?: (IssueRef[] | { issues: IssueRef[]; rawCount: number })[];
+  commentPages?: IssueCommentRef[][];
+}): GithubBackend {
   return {
     listIssues: async (req) => {
-      const pages = opts.issuePages ?? [[refOf(7)]];
-      return pages[(req.page ?? 1) - 1] ?? [];
+      const entry = (opts.issuePages ?? [[refOf(7)]])[(req.page ?? 1) - 1] ?? [];
+      const issues = Array.isArray(entry) ? entry : entry.issues;
+      const rawCount = Array.isArray(entry) ? entry.length : entry.rawCount;
+      return { issues, rawCount };
     },
     listComments: async (req) => {
       const pages = opts.commentPages ?? [[]];
@@ -210,6 +220,18 @@ describe('issue_get 反查翻页（G4 回归锁——单页 newest-100 假缺席
     // 修前红锚：话术是「不在源返回集内」——恒满页时该话术是假列尽（还有
     // 更深页只是不翻了），须诚实区分翻页帽射程
     expect(textOf(r)).toContain('不在最新 500 条');
+  });
+
+  // 71 轮件2（03 §10.7 批注②判据同源同步——修前红）：反查列尽判据修前用
+  // 过滤后长度，原始满页恰混 PR（滤后 <100）时提前假列尽——绑定 issue 在
+  // 更深页而单页报「不在源返回集内」。
+  it('反查判据同源 rawCount（71 轮件2——修前红）：原始满页混 PR（滤后 60）不判列尽——续翻第 2 页命中', async () => {
+    // 首页原始 100 行（40 PR 滤除 → 60 issue、rawCount 100）；绑定号 7 在第 2 页
+    const page1Issues = Array.from({ length: 60 }, (_, i) => refOf(1000 + i));
+    const get = makeGet(pagedBackend({ issuePages: [{ issues: page1Issues, rawCount: 100 }, [refOf(7)]] }));
+    const r = await get.execute({}, { toolCallId: 'tc-71b' });
+    expect(r.isError).not.toBe(true); // 修前红：滤后 60 < 100 假列尽 → 缺席话术
+    expect(textOf(r)).toContain('# t-7（o/r#7）'); // 修后续翻命中
   });
 });
 

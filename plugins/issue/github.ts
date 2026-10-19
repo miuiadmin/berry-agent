@@ -6,7 +6,10 @@
  * 100、单页语义（每请求恰一页——翻页由调用方携 `page` 驱动：issue_get 反查
  * 翻页/评论跟尽；轮询页满即翻至短页〔poll.ts 翻页收口——70 轮件C 批注①〕，
  * 页护栏耗尽的溢出仓诚实注记于 PollReport.overflow——不静默丢）。PR 混列：
- * GitHub issues API 把 PR 计入 issues 列表，`pull_request` 字段在场即过滤。
+ * GitHub issues API 把 PR 计入 issues 列表，`pull_request` 字段在场即过滤
+ * ——过滤后清单（issues 位）只作内容，**页满判据 = rawCount（源返回原始
+ * 行数，过滤前）**：原始满页恰混 PR 时滤后恒 <100，以滤后长度判满会被
+ * 架空（71 轮批注②判据真源）。
  * getIssue 单取（issue 停靠恢复批重入判据面）：404 特判 undefined——issue
  * 已删与网络故障分立。
  *
@@ -35,10 +38,22 @@ export interface GithubPullRequestRef {
   readonly htmlUrl: string;
 }
 
+/** listIssues 返回形（71 轮批注②）：issues = PR 混列过滤后清单（内容面）；rawCount = 源返回原始行数（过滤前）——页满判据真源 */
+export interface GithubIssuePage {
+  /** PR 混列过滤后清单（内容面——消费方只取内容不判页满） */
+  readonly issues: IssueRef[];
+  /** 源返回原始行数（过滤前）——页满判据唯一真源（滤后长度判满被 PR 混列架空） */
+  readonly rawCount: number;
+}
+
 /** 源后端窄面（poll/webhook/tools/service 四消费方——service 组装注入） */
 export interface GithubBackend {
-  /** 列仓 issues（state=open；since 增量窗；单页帽 100——page 位驱动翻页〔issue_get 反查/轮询页满即翻用——70 轮件C〕） */
-  listIssues(req: { repo: string; since?: string; page?: number }): Promise<IssueRef[]>;
+  /**
+   * 列仓 issues（state=open；since 增量窗；单页帽 100——page 位驱动翻页
+   * 〔issue_get 反查/轮询页满即翻用——70 轮件C〕）。返回形 `{issues, rawCount}`
+   * ——页满判据 = rawCount（71 轮批注②），issues 只作内容。
+   */
+  listIssues(req: { repo: string; since?: string; page?: number }): Promise<GithubIssuePage>;
   /** 列 issue 评论（升序——issue_get 数据源；单页帽 100——page 位驱动翻页〔issue_get 跟尽用〕） */
   listComments(req: { repo: string; number: number; page?: number }): Promise<IssueCommentRef[]>;
   /**
@@ -165,8 +180,9 @@ export function createGithubBackend(opts: GithubBackendOptions): GithubBackend {
       // page 位透传（调用方驱动翻页——缺省单页〔轮询语义〕）
       if (req.page !== undefined) params.set('page', String(req.page));
       const rows = await requestJson<GhIssueRow[]>(`/repos/${req.repo}/issues?${params.toString()}`);
-      // PR 混列过滤（pull_request 字段在场即 PR——issues API 语义）
-      return rows
+      // PR 混列过滤（pull_request 字段在场即 PR——issues API 语义）；rawCount =
+      // 过滤前原始行数（71 轮批注②判据真源——过滤后清单只作内容不判页满）
+      const issues = rows
         .filter((r) => r.pull_request === undefined)
         .map((r) => ({
           repo: req.repo,
@@ -179,6 +195,7 @@ export function createGithubBackend(opts: GithubBackendOptions): GithubBackend {
           updatedAt: r.updated_at,
           htmlUrl: r.html_url,
         }));
+      return { issues, rawCount: rows.length };
     },
 
     async getIssue(req) {

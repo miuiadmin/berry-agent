@@ -24,6 +24,7 @@ import type {
   IssueConfig,
   IssueDangerFace,
   IssueJobsFace,
+  IssueRef,
   IssueRunOutcome,
   IssueSchedulerFace,
   IssueSessionFace,
@@ -261,7 +262,7 @@ function fakeBackend(postFail?: boolean, getIssueImpl?: GithubBackend['getIssue'
   const prs: { repo: string; title: string; body: string; head: string; base: string }[] = [];
   const getIssueCalls: { repo: string; number: number }[] = [];
   const backend: GithubBackend = {
-    listIssues: async () => [],
+    listIssues: issuePage([]),
     listComments: async () => [],
     postComment: async (req) => {
       if (postFail) throw new BaseError('ISSUE_SOURCE_UNREACHABLE', '[ISSUE_SOURCE_UNREACHABLE] 投递失败');
@@ -286,6 +287,12 @@ function fakeBackend(postFail?: boolean, getIssueImpl?: GithubBackend['getIssue'
 const prStub = async (): Promise<{ number: number; htmlUrl: string }> => ({
   number: 1,
   htmlUrl: 'https://github.com/o/r/pull/1',
+});
+
+/** listIssues 假件快捷（71 轮件2 返回形迁移 {issues, rawCount}——无 PR 混列形 rawCount = 长度） */
+const issuePage = (issues: IssueRef[]) => async (): Promise<{ issues: IssueRef[]; rawCount: number }> => ({
+  issues,
+  rawCount: issues.length,
 });
 
 /** danger 假件（两腿行为可注——记录调用面；auto 档交付腿与 ⑪ escalation 降级共件） */
@@ -414,7 +421,7 @@ describe('入队纪律（同步四闸）', () => {
   it('capabilities 缺席拒（goal/exec/checkpoint 任一缺席——经 pollOnce 通路）', async () => {
     const f = makeService();
     const backend: GithubBackend = {
-      listIssues: async () => [ISSUE],
+      listIssues: issuePage([ISSUE]),
       listComments: async () => [],
       postComment: async () => ({ id: 1 }),
       createPullRequest: prStub,
@@ -441,7 +448,7 @@ describe('入队纪律（同步四闸）', () => {
     // listIssues 假件返回三个 issue：一 closed、一 open、一 open
     const f = makeService({ budgetOk: false, budgetReason: '日池尽' });
     const backend: GithubBackend = {
-      listIssues: async () => [ISSUE, { ...ISSUE, number: 8, state: 'closed' }],
+      listIssues: issuePage([ISSUE, { ...ISSUE, number: 8, state: 'closed' }]),
       listComments: async () => [],
       postComment: async () => ({ id: 1 }),
       createPullRequest: prStub,
@@ -485,7 +492,7 @@ describe('runOne 编舞（draft 档 happy path）', () => {
     const f = makeService();
     // 直接入队经 pollOnce 通路（backend 返 issue——enqueue 内墙面）
     const backend: GithubBackend = {
-      listIssues: async () => [ISSUE],
+      listIssues: issuePage([ISSUE]),
       listComments: async () => [],
       postComment: async (req) => {
         f.fback.comments.push(req);
@@ -536,7 +543,7 @@ describe('runOne 编舞（其余结局）', () => {
       worktreeBehavior: { dirtyOnClean: over?.dirtyOnClean, existsFirst: over?.existsFirst },
     });
     const backend: GithubBackend = {
-      listIssues: async () => [ISSUE],
+      listIssues: issuePage([ISSUE]),
       listComments: async () => [],
       postComment: async (req) => {
         f.fback.comments.push(req);
@@ -630,7 +637,7 @@ describe('runOne 编舞（其余结局）', () => {
   it('评论投递失败不阻塞终态（回执后补语义）', async () => {
     const f = makeService({ postFail: true });
     const backend: GithubBackend = {
-      listIssues: async () => [ISSUE],
+      listIssues: issuePage([ISSUE]),
       listComments: async () => [],
       postComment: async () => {
         throw new BaseError('ISSUE_SOURCE_UNREACHABLE', '[ISSUE_SOURCE_UNREACHABLE] down');
@@ -664,7 +671,7 @@ describe('编舞异常兜底', () => {
       },
     };
     const backend: GithubBackend = {
-      listIssues: async () => [ISSUE],
+      listIssues: issuePage([ISSUE]),
       listComments: async () => [],
       postComment: async () => ({ id: 1 }),
       createPullRequest: prStub,

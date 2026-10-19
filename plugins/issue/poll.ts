@@ -3,7 +3,9 @@
  *
  * 单轮纪律（pollOnce，RunnerFactory 程序化分派零 token）：
  * 1. 精确 repo 逐仓 listIssues(since=水位)——**页满即翻**（GitHub issues
- *    API 单页帽 100：返回恰 100 即携 page 续取至短页，水位取全页 max——
+ *    API 单页帽 100：**页满判据 = 源返回原始行数 rawCount**〔PR 混列过滤
+ *    前——71 轮批注②判据真源：原始满页恰混 PR 时滤后恒 <100，以滤后长度
+ *    判满会被架空〕；rawCount 满页即携 page 续取至短页，水位取全页 max——
  *    收敛不分新旧建序；翻页护栏缺省 30 页〔= 3000 件/窗〕fail-loud：耗尽
  *    即停、溢出仓入 PollReport.overflow 诚实注记不静默，水位仍推进至已收
  *    账页 max〔重扫同窗重入已完 Job 有害——dedupeKey 系在飞互斥非永久幂
@@ -98,17 +100,20 @@ export function createIssuePoller(deps: IssuePollerDeps): { pollOnce(): Promise<
         const stored = state.getStoreState(watermarkKey(repo));
         const since = typeof stored?.value === 'string' ? stored.value : undefined;
 
-        // —— 翻页收口（70 轮件C 批注①②）：页满（= 单页帽 100）即携 page 续
-        //    取至短页；续取至多护栏 30 页、末页仍满即耗尽停——overflow 诚实
-        //    注记不静默。单页短窗（<100）首请求即短页：零翻页零行为变 ——
+        // —— 翻页收口（70 轮件C 批注①②）：页满即携 page 续取至短页；判据
+        //    = rawCount（源返回原始行数——71 轮批注②判据真源：PR 混列过滤
+        //    后清单恒 ≤ 原始行数，原始满页恰混 PR 时滤后恒 <100，以滤后长
+        //    度判满即首页早停）；续取至多护栏 30 页、末页仍满即耗尽停——
+        //    overflow 诚实注记不静默。单页短窗（<100）首请求即短页：零翻页
+        //    零行为变 ——
         const issues: IssueRef[] = [];
         let overflowed = false;
         try {
           for (let page = 1; page <= POLL_PAGE_GUARD_PAGES; page += 1) {
             // 首请求不携 page（与修前形逐位同——缺省即第 1 页）；第 2 页起显式携带
             const batch = await backend.listIssues(page === 1 ? { repo, since } : { repo, since, page });
-            issues.push(...batch);
-            if (batch.length < ISSUES_API_PAGE_SIZE) break; // 短页 = 窗收尽（含空页）
+            issues.push(...batch.issues); // 过滤后清单只作内容
+            if (batch.rawCount < ISSUES_API_PAGE_SIZE) break; // 短页 = 窗收尽（含空页）——原始行数判满
             // 护栏末页仍满 = 耗尽：停拉注记（水位仍推进至已收账页 max——见 PollReport.overflow）
             if (page === POLL_PAGE_GUARD_PAGES) overflowed = true;
           }

@@ -52,7 +52,8 @@ describe('listIssues 归一与过滤', () => {
       '/repos/o/r/issues': json([ghRow({ body: null, labels: [{}, { name: '' }, { name: 'x' }] })]),
     });
     const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
-    const [issue] = await backend.listIssues({ repo: 'o/r' });
+    const { issues } = await backend.listIssues({ repo: 'o/r' });
+    const [issue] = issues;
     expect(issue).toMatchObject({
       repo: 'o/r',
       number: 7,
@@ -63,13 +64,24 @@ describe('listIssues 归一与过滤', () => {
     });
   });
 
-  it('PR 混列过滤（pull_request 字段在场即弃）', async () => {
+  it('PR 混列过滤（pull_request 字段在场即弃）+ rawCount = 过滤前原始行数（71 轮件2——页满判据真源）', async () => {
     const ff = fakeFetch({
       '/repos/o/r/issues': json([ghRow({ number: 1 }), ghRow({ number: 2, pull_request: { url: 'x' } })]),
     });
     const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
-    const issues = await backend.listIssues({ repo: 'o/r' });
-    expect(issues.map((i) => i.number)).toEqual([1]);
+    const page = await backend.listIssues({ repo: 'o/r' });
+    expect(page.issues.map((i) => i.number)).toEqual([1]); // 过滤后清单只作内容
+    expect(page.rawCount).toBe(2); // 原始行数（过滤前）——修前红锚：返回形无此位
+  });
+
+  it('全 PR 页：issues 空清单 + rawCount 仍 = 原始行数（判据位不因过滤归零）', async () => {
+    const ff = fakeFetch({
+      '/repos/o/r/issues': json([ghRow({ number: 1, pull_request: {} }), ghRow({ number: 2, pull_request: {} })]),
+    });
+    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
+    const page = await backend.listIssues({ repo: 'o/r' });
+    expect(page.issues).toEqual([]);
+    expect(page.rawCount).toBe(2);
   });
 
   it('since 透传 query + per_page=100 + 认证头携带', async () => {

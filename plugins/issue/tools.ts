@@ -47,16 +47,16 @@ export interface IssueToolsDeps {
 export function createIssueTools(deps: IssueToolsDeps): ToolDefinition[] {
   /**
    * 反查绑定 issue：单页起查，未命中且满页（= 可能还有更旧 open issue）续翻
-   * 至列尽（短页）或帽（5 页）。已知窄化边界：后端 listIssues 会滤掉 PR 混
-   * 列（100 原始行滤后 < 100 时提前判列尽）——残界极窄（须首页恰混 PR 且
-   * 目标在更深处），达帽话术的射程注记兜底诚实性。
+   * 至列尽（短页）或帽（5 页）。列尽判据 = rawCount（源返回原始行数——71 轮
+   * 批注②判据同源：PR 混列滤后清单恒 ≤ 原始行数，原始满页恰混 PR 时以滤后
+   * 长度判列尽会提前假列尽——「目标在更深处却报已关闭或删除」的窄界已闭）。
    */
   const findBoundIssue = async (): Promise<{ issue: IssueRef | undefined; hitCap: boolean }> => {
     for (let page = 1; page <= ISSUE_LOOKUP_PAGE_CAP; page++) {
-      const issues = await deps.backend.listIssues({ repo: deps.repo, page });
-      const mine = issues.find((i) => i.number === deps.number);
+      const batch = await deps.backend.listIssues({ repo: deps.repo, page });
+      const mine = batch.issues.find((i) => i.number === deps.number);
       if (mine !== undefined) return { issue: mine, hitCap: false };
-      if (issues.length < LIST_PAGE_SIZE) return { issue: undefined, hitCap: false }; // 短页 = 列尽
+      if (batch.rawCount < LIST_PAGE_SIZE) return { issue: undefined, hitCap: false }; // 短页 = 列尽（原始行数判据）
     }
     return { issue: undefined, hitCap: true }; // 恒满页达帽——缺席话术区分射程
   };
