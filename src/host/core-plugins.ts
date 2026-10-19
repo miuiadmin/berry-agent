@@ -1164,7 +1164,11 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
           runCommand(() =>
             runMemoryExportCommand(args.argv, {
               dao,
-              writableRoots: () => (deps.dataDir !== null ? [deps.dataDir, workspaceRoot()] : [workspaceRoot()]),
+              // 可写根 dataDir 双条件（77 轮件3——stale-proxy 潜伏位随谱同修）：
+              // memory 同构形（dataDir 真值 + memory:true）真数据目录不入可写根
+              // ——回落 [workspaceRoot()] 单根（与 children.json 第五写位同律）
+              writableRoots: () =>
+                deps.dataDir !== null && !deps.memory ? [deps.dataDir, workspaceRoot()] : [workspaceRoot()],
               ownerRoots: () => ({ [projectKey]: workspaceRoot() }),
               now,
             }),
@@ -1187,7 +1191,10 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
         runExport: (argv: readonly string[]) =>
           runMemoryExportCommand(argv, {
             dao,
-            writableRoots: () => (deps.dataDir !== null ? [deps.dataDir, workspaceRoot()] : [workspaceRoot()]),
+            // 可写根 dataDir 双条件（77 轮件3——与上方命令位同一表达式第二位：
+            // memory 形回落 [workspaceRoot()] 单根，真数据目录不入可写根）
+            writableRoots: () =>
+              deps.dataDir !== null && !deps.memory ? [deps.dataDir, workspaceRoot()] : [workspaceRoot()],
             ownerRoots: () => ({ [projectKey]: workspaceRoot() }),
             now,
           }),
@@ -2678,12 +2685,14 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
       const webhookSecret = deps.issueWebhookSecret ?? '';
       // 后端单真身（服务取数面与危险闸 create-pr 执行腿共用——同 token 同折叠律）
       const backend = createGithubBackend({ token });
-      // 危险闸（04 §13——auto 档交付腿的预授权执法）：dataDir 在场即组机制件
-      // （memory 诊断形 null 零闸——service auto 档维持「闸缺席转人审」原语
+      // 危险闸（04 §13——auto 档交付腿的预授权执法）：dataDir 双条件在场即组
+      // 机制件（memory 诊断形 null 零闸 + memory 同构形〔77 轮件3——stale-proxy
+      // 潜伏位随谱同修〕dataDir 真值也折 null——consent/HALT/latch 三哨兵与
+      // hash-chain 账本零落盘；service auto 档维持「闸缺席转人审」原语
       // 义，fail-closed）。mandate 原料全部来自 normalize 后的用户配置层
       // （repos 原样 + maxDeliveriesPerDay）——装配期冻结只读注入，闸侧取
       // 规范化哈希作 consent 绑定面。
-      const dangerDataDir = deps.dataDir;
+      const dangerDataDir = deps.dataDir !== null && !deps.memory ? deps.dataDir : null;
       let danger: IssueDangerFace | undefined;
       let disposeDangerCmd: (() => void) | undefined;
       if (dangerDataDir !== null) {

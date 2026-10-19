@@ -1080,6 +1080,74 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(boot.promptSections.materialize()).not.toContain('<!-- memory:core -->'); // 零简报段
   });
 
+  // 77 轮件3（stale-proxy 潜伏位随谱同修——07 §5 批注）：memory-export
+  // writableRoots 双位（命令 handler + 'memory' 服务面 runExport 同一装配闭包
+  // 表达式）修前判据只查 dataDir !== null——memory 同构形（dataDir 真值 +
+  // memory:true）真数据目录入可写根，/memory-export 落 <dataDir>/ 即违「零落盘
+  // 单发」承诺（生产消费位仅 TUI 命令面、run 形不可达——潜伏位，随谱双条件化
+  // 防未来写路接入）。
+  it('memory-export 可写根 memory 形回落单工作区根（77 轮件3）：dataDir 不入可写根（命令面+runExport 双拒）；workspace 照常；对照组 memory:false dataDir 照常可写', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-mexpm-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-mexpm-ws-'));
+    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-mexpm-home-'));
+    dirs.push(dataDir, workspace, home);
+    const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
+    const notified: string[] = [];
+    const { scope, commandSpecs } = await bootCore(
+      dataDir,
+      memoryFs(),
+      { cwd: workspace, homeDir: home },
+      {
+        sqlite: () => persistence.store.sqlite(),
+        notify: (_source, message) => notified.push(message),
+        memory: true, // memory 同构诊断形（dataDir 真值 + memory 位——75 轮起在册形态）
+      },
+    );
+    // 位①命令面：/memory-export 落 dataDir 内 → 越界拒（修前真数据目录在可写
+    // 根内 → 「已导出」+ 文件落盘，两断言必红）
+    const exportCmd = commandSpecs.find((c) => c.name === 'memory-export');
+    expect(exportCmd).toBeDefined();
+    const inDataDir = join(dataDir, 'memory-export.jsonl');
+    await exportCmd!.handler({ raw: `/memory-export ${inDataDir}`, argv: [inDataDir] });
+    expect(notified.at(-1)).toContain('MEMORY_EXPORT_ROOT_DENIED');
+    expect(existsSync(inDataDir)).toBe(false); // dataDir 零落盘（修前文件已写必红）
+    // 位②服务面：'memory' 服务面 runExport（同一表达式第二位）同拒
+    const service = scope.tryGet<{ runExport: (argv: readonly string[]) => Promise<string> }>('memory');
+    expect(service).toBeDefined();
+    const serviceOut = await service!.runExport([join(dataDir, 'via-runExport.jsonl')]);
+    expect(serviceOut).toContain('MEMORY_EXPORT_ROOT_DENIED');
+    expect(existsSync(join(dataDir, 'via-runExport.jsonl'))).toBe(false);
+    // 回落单根语义：memory 形回落 [workspaceRoot()]——工作区根内照常可写（命令
+    // 面可用性不因诊断形归零）
+    const inWorkspace = join(workspace, 'memory-export.jsonl');
+    await exportCmd!.handler({ raw: `/memory-export ${inWorkspace}`, argv: [inWorkspace] });
+    expect(notified.at(-1)).toContain('已导出');
+    expect(existsSync(inWorkspace)).toBe(true);
+    await persistence.close();
+    // 对照组：memory:false（真宿主形）dataDir 照常入可写根（备份/迁移运维动词
+    // 落数据目录是既有语义——修真不波及）
+    const controlDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-mexpc-'));
+    const controlWs = mkdtempSync(join(tmpdir(), 'berry-coreplug-mexpc-ws-'));
+    dirs.push(controlDir, controlWs);
+    const controlPersistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
+    const control = await bootCore(
+      controlDir,
+      memoryFs(),
+      { cwd: controlWs },
+      {
+        sqlite: () => controlPersistence.store.sqlite(),
+        notify: (_source, message) => notified.push(message),
+      },
+    );
+    const controlCmd = control.commandSpecs.find((c) => c.name === 'memory-export');
+    expect(controlCmd).toBeDefined();
+    const controlTarget = join(controlDir, 'memory-export.jsonl');
+    await controlCmd!.handler({ raw: `/memory-export ${controlTarget}`, argv: [controlTarget] });
+    expect(notified.at(-1)).toContain('已导出');
+    expect(existsSync(controlTarget)).toBe(true);
+    await controlPersistence.close();
+  });
+
   // —— TUI 第四役 finding A（major）：memory 周期路 warn 走 console.error 裸文本
   // 直落 TUI 屏（与渲染共端子同 tty——光标账漂移腐蚀 durable 块）。修复 = 件内
   // warn 出口改 leveled logger（BERRY_AGENT_LOG_LEVEL 辖内）+ 通道 notify 双发
@@ -4146,7 +4214,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
         notify: (source, message) => notifyLog.push({ source, message }),
       },
     );
-    // /danger 注册在场（危险闸人面——dataDir 在场即组机制件）
+    // /danger 注册在场（危险闸人面——dataDir 双条件在场即组机制件）
     expect(booted.commands).toContain('danger');
     const dangerCmd = booted.commandSpecs.find((c) => c.name === 'danger');
     expect(dangerCmd).toBeDefined();
@@ -4176,6 +4244,63 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(notifyLog.at(-1)!.message).toContain('未知动词');
 
     // dispose 收口：件卸载后命令摘除（disposer 进 apply 返回值——bootCore 桩不验，此处结构已证）
+  });
+
+  // 77 轮件3（stale-proxy 潜伏位随谱同修——07 §5 批注）：issue 件 dangerDataDir
+  // 修前无 memory 判——memory 同构形（dataDir 真值 + memory:true）危险闸机制件
+  // 照组：consent/HALT/latch 三哨兵 + hash-chain 账本全落 <dataDir>/，auto 档
+  // 交付腿经 /danger approve 即对真数据目录落盘违「零落盘单发」承诺（issue 引
+  // 擎随 TUI/serve 形、run 形零起动——潜伏位，随谱双条件化防未来写路接入；
+  // memory 形回落 null = 既有缺席语义〔闸缺席转人审 fail-closed——04 §13〕）。
+  it('issue 危险闸 memory 形缺席（77 轮件3）：memory:true + dataDir 真值 → /danger 不注册（闸缺席转人审）；对照组 memory:false 照常注册', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-dngm-'));
+    dirs.push(dataDir);
+    const session: IssueSessionFace = {
+      startHeadless: async () => ({
+        sessionId: 's-dngm-1',
+        outcome: Promise.resolve({ status: 'completed', messagesUsed: 1, summary: 'ok' }),
+      }),
+    };
+    const state: IssueStoreStateFace = {
+      getStoreState: () => undefined,
+      setStoreState: () => undefined,
+      deleteStoreState: () => false,
+    };
+    const budget: IssueBudgetFace = { canAffordIssue: () => ({ ok: true }) };
+    const issueYaml =
+      'plugins:\n  - id: core:issue\n    config:\n      repos:\n        - owner/repo\n      mode: auto\n      maxDeliveriesPerDay: 3\n';
+    const rig = (memory: boolean) => {
+      // 每 boot 独立 :memory: 座（jobs 表 builtin 行名 issue-poll——两 boot 共座
+      // 会撞「任务名已被占用」warn，独立座保对照两组互不串扰）
+      const bootPersistence = Persistence.open({
+        dbPath: MEMORY_DB_PATH,
+        migrations: [SCHEDULER_MIGRATION, ...MEMORY_MIGRATIONS],
+      });
+      return bootCore(
+        dataDir,
+        memoryFs({ [join(dataDir, 'enabled.yaml')]: issueYaml }),
+        {},
+        {
+          sqlite: () => bootPersistence.store.sqlite(),
+          issueGithubToken: 'gh-token',
+          issueState: state,
+          issueBudget: budget,
+          issueSession: session,
+          memory, // 77 轮件3 测试位：memory 同构形判据（dataDir 真值 + memory:true）
+        },
+      );
+    };
+    // memory 形：危险闸 dataDir 位缺席——/danger 不注册（修前 dataDir 真值即组
+    // 机制件 → 注册在场，断言必红）；danger 三哨兵零落盘
+    const memForm = await rig(true);
+    expect(memForm.scope.tryGet('issue')).toBeDefined(); // 件装载不受波及（danger 位独立闸）
+    expect(memForm.commands).not.toContain('danger');
+    expect(memForm.commandSpecs.find((c) => c.name === 'danger')).toBeUndefined();
+    expect(existsSync(join(dataDir, 'danger-consent.json'))).toBe(false);
+    expect(existsSync(join(dataDir, 'danger-ledger.jsonl'))).toBe(false);
+    // 对照组：memory:false（真宿主形）危险闸照常组装——/danger 注册在场
+    const hostForm = await rig(false);
+    expect(hostForm.commands).toContain('danger');
   });
 
   it('danger push 腿帽锁：execFile options 带 timeout+SIGKILL 击杀通道（修前红：无 timeout/killSignal——token 在 env 的网络推送腿悬挂即 token 载程永悬）', async () => {
