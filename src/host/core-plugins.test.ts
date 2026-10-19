@@ -1951,6 +1951,20 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     dao?.advanceNextFire;
   });
 
+  it('scheduler dao 窄面动词收窄类型锁（71 轮批注）：裸 setActive 除名——回穿即编译红', () => {
+    // 类型级锁（04 §12 律 3 71 轮批注——窄面动词面收窄）：生产调用位已归零
+    //（起跑/覆写全走 claimActive 条件形、清账全走 clearActiveIf——69 轮补笔
+    // 条件形全辖后裸 setActive 无合法消费位），窄面保留即邀未来无条件覆写回穿
+    //（清账对偶律 bypass 面）。修前该动词在场 → 引用合法无错、@ts-expect-error
+    // 悬空 TS2578 红（tsc 门禁执法——修复前必红锚）；修后窄面无该动词 → 真错
+    // 误被指令消费绿。DAO 层动词保留不删（plugins/scheduler 内部/诊断位非
+    // 消费面）——运行时真身仍结构满足窄面，本例类型面独占（dao 恒 undefined，
+    // ?. 零解引用）。
+    const dao = undefined as unknown as SchedulerFace['dao'];
+    // @ts-expect-error 窄面无 setActive（裸覆写动词已除名——四动词面不回漂）
+    dao?.setActive;
+  });
+
   it('/tick handler 真调（批 19c-2）：add → 行在场（缺省停用）+ list → 输出面归因 tick 的结算文本', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-tick-'));
     dirs.push(dataDir);

@@ -738,14 +738,16 @@ describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿�
       enabled: true,
     });
     // 预置他实例占用：ppid = vitest 主进程（活体且必 ≠ 本 worker pid——
-    // realIsPidAlive 真身零 mock，探活面同生产）；起跑钟 = 当前（未超钟）
+    // realIsPidAlive 真身零 mock，探活面同生产）；起跑钟 = 当前（未超钟）。
+    // 种子经 claimActive 首登条件形（expect=null——WHERE active_pid IS NULL，
+    // 新建行空面必胜；71 轮批注窄面动词收窄后裸 setActive 已除名，种子同迁）
     const t0 = new Date().toISOString();
-    seed.scheduler.dao.setActive('yield-job', process.ppid, t0, t0);
+    seed.scheduler.dao.claimActive('yield-job', process.ppid, t0, t0, null);
     // 行 next 预置 past-due（已过到点值）：胜者结算竞速窗的陈旧快照形——
     // 修前让位 settleGated 携行快照 next 原样回写，会回退胜者（占用方）刚
     // 推进的新 next（67 轮批注乙 S3 病灶：next 回退 + 行立即再 due 双跑窗）
     const pastDue = new Date(Date.now() - 60_000).toISOString();
-    // dao 窄面（SchedulerTickSettleFace 五动词——68 轮批注丙扩 clearActiveIf）无 next 单列写——直写库列
+    // dao 窄面（SchedulerTickSettleFace 四动词——68 轮批注丙扩 clearActiveIf、71 轮批注除名裸 setActive）无 next 单列写——直写库列
     const seedDb = new Database(join(dataDir, 'sessions.db'));
     try {
       seedDb.prepare('UPDATE jobs SET next_fire_at = ? WHERE name = ?').run(pastDue, 'yield-job');
@@ -782,9 +784,9 @@ describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿�
     const seed = await seedAssembly(dataDir);
     seed.scheduler.service.addJob({ name: 'stale-job', prompt: '例行巡检', cwd: jobWs, schedule: 'every:30m' });
     // 活体（ppid）但起跑时刻 = 40min 前（超 FIRE_WALL_TIMEOUT_MS 30min）——
-    // pid 复用误判险形不 yield，残账清后照跑
+    // pid 复用误判险形不 yield，残账清后照跑（种子同迁 claimActive 首登条件形）
     const stale = new Date(Date.now() - 40 * 60_000).toISOString();
-    seed.scheduler.dao.setActive('stale-job', process.ppid, stale, stale);
+    seed.scheduler.dao.claimActive('stale-job', process.ppid, stale, stale, null);
     await seed.shutdown();
 
     const run = await rigRun({ message: '', flags: { tick: 'stale-job' }, dataDir, cwd: jobWs });
