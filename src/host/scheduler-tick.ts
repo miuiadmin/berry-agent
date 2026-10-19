@@ -282,8 +282,9 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
       }
       try {
         const report = await poller.pollOnce();
-        // 摘要行分段呈现（71 轮批注①）：常态零增段——五值原形逐字不变；
-        // errors/overflow 非空才增段（运维信号在摘要行可一览，常态行零噪声）
+        // 摘要行分段呈现（71 轮批注① + 73 轮批注 globSkipped 收口）：常态零
+        // 增段——五值原形逐字不变；errors/overflow/globSkipped 非零才增段
+        //（运维/配置信号在摘要行可一览，常态行零噪声）
         const segments = [
           `候选 ${report.candidates}`,
           `入队 ${report.enqueued}`,
@@ -292,6 +293,12 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
         ];
         if (report.errors.length > 0) segments.push(`失败 ${report.errors.length} 仓`);
         if (report.overflow.length > 0) segments.push(`护栏溢出 ${report.overflow.length} 仓`);
+        // glob 跳段（73 轮批注）：非零才增段（常态行零噪声律与 errors/overflow
+        // 分段同形同位）；**不 warn**——glob 跳过是设计内分工（03 §10.7 触发
+        // 面①：glob 形匹配面归 webhook 路）非失败信号，warn 会把设计常态降格
+        // 为告警噪音；glob 系配置静态量（每轮恒同值），段持续在场恰是「glob
+        // 仓不轮询」的持续可见提醒——所见即配置语义
+        if (report.globSkipped > 0) segments.push(`glob 跳 ${report.globSkipped} 仓`);
         const preview = `轮询 ${report.repos.length} 仓：${segments.join('、')}`;
         // warn 分级呈现（批注①「源失败是运维信号非日志噪音」）：每轮每类恰
         // 一笔汇总行、repo 清单同行携带——「一笔不逐刷账」纪律（不逐仓刷屏）

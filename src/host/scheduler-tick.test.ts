@@ -517,6 +517,38 @@ describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
     expect(rig.warns).toHaveLength(2); // 恰两类各一笔——无逐仓刷屏残行
   });
 
+  // 73 轮件2（03 §10.7 批注 globSkipped 呈现段兑现——修前红）：71 轮批注①
+  // face 拓宽三字段而摘要分段只兑 errors/overflow 两段——globSkipped 入面后
+  // 全域零活体读位，「配置 N glob 仓每轮被跳过」与「配置本就只有精确仓」每
+  // 120s 回执同形不可区分（仓配错形恒零信号）。兑现 = 非零增摘要段「glob 跳
+  // N 仓」；不 warn——glob 跳过是设计内分工（匹配面归 webhook 路）非失败
+  // 信号，warn 会把设计常态降格为告警噪音。
+  it('issue-poll globSkipped 呈现段（73 轮件2——修前红）：非零增段「glob 跳 N 仓」+ 零 warn（设计常态不降格告警）', async () => {
+    const issue: IssuePollFace = {
+      pollOnce: async () => ({
+        repos: ['a/b'],
+        seen: 10,
+        candidates: 4,
+        enqueued: 2,
+        duplicates: 1,
+        rejected: 1,
+        globSkipped: 3,
+        overflow: [],
+        errors: [],
+      }),
+    };
+    const rig = unitRig({ issue });
+    const handle = await rig.spawn(jobRow('issue-poll', { builtin: true }));
+    const outcome = await handle.settled;
+    expect(outcome.exitCode).toBe(0); // 轮询成功——glob 跳过非失败非退出码信号面
+    // 摘要增段（修前红：globSkipped>0 而摘要零 glob 段——字段在场而无人读）
+    expect(outcome.finalTextPreview).toBe('轮询 1 仓：候选 4、入队 2、互斥 1、拒 1、glob 跳 3 仓');
+    // 不 warn：设计常态可见即足——零告警噪音（errors/overflow 才走 warn 分级）
+    expect(rig.warns).toHaveLength(0);
+    // 零提交——builtin 分派零模型
+    expect(rig.fake.submits).toHaveLength(0);
+  });
+
   it('issue-poll 处理器缺席 + memory-review 前瞻位 + 未知 builtin 名：三形全 gated 诚实拒', async () => {
     const rig = unitRig(); // 分派处理器全缺席
     const poll = await rig.spawn(jobRow('issue-poll', { builtin: true }));
