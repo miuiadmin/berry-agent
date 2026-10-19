@@ -1705,3 +1705,167 @@ describe('迁移执行中失败（升级日现场）', () => {
     expect(repaired.loadEvents('s-pre')).toHaveLength(4);
   });
 });
+
+describe('多进程迁移竞窗收口（两段形——锁外首读 fast-path + 写锁内复读；05 §6.4 2026-10-19 挖掘 70 轮件B 批注闸 P2 帽修勘正）', () => {
+  /**
+   * 子进程持写锁脚本（承「真库双连接竞争」describe 的 LOCK_HOLDER_SCRIPT
+   * 同形）：stdout 打 LOCKED 后持写锁 holdMs 毫秒再 COMMIT 退出——父进程
+   * 据此在「写锁确已被他实例持有」的窗口内发起开库（模拟他实例门禁/迁移
+   * 在途/普通写事务的零装配 CLI 动词与常驻宿主并发形）。
+   */
+  const GATE_HOLDER_SCRIPT = `
+    const Database = require('better-sqlite3');
+    const db = new Database(process.argv[1]);
+    db.pragma('busy_timeout = 5000');
+    db.exec('BEGIN IMMEDIATE');
+    console.log('LOCKED');
+    setTimeout(() => { db.exec('COMMIT'); db.close(); }, Number(process.argv[2]));
+  `;
+
+  /** 等子进程 stdout 出现 LOCKED（持锁确认后才发起开库——否则测的是无锁直过） */
+  function waitLocked(child: ChildProcess): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let seen = false;
+      child.stdout!.setEncoding('utf8');
+      child.stdout!.on('data', (chunk: string) => {
+        if (chunk.includes('LOCKED')) {
+          seen = true;
+          resolve();
+        }
+      });
+      child.on('error', reject);
+      child.on('exit', (code) => {
+        if (!seen) reject(new Error(`持锁子进程未打标先退（code=${code}）`));
+      });
+    });
+  }
+
+  /** 等子进程真退出（kill 后锁才归还 OS——退出前重开会再吃 busy 窗） */
+  async function waitExit(child: ChildProcess): Promise<void> {
+    if (child.exitCode !== null) return;
+    await new Promise<void>((resolve) => child.once('exit', () => resolve()));
+  }
+
+  it('他实例持写锁跨过 busy_timeout → PERSIST_MIGRATION_BUSY（非裸 SqliteError）+ 备份位不可达（互删窗闭）+ 锁释后重开即升 head（可重试语义）', async () => {
+    const path = join(dir, 'mig-gate-busy.db');
+    const base = open({ dbPath: path, migrations: [] }); // v1 基线旧版库形
+    seedLegacyRows(base, 's-pre');
+    base.close();
+    const chain: readonly MigrationSpec[] = [
+      { version: 2, name: 'test-mig-gate', sql: 'CREATE TABLE mig_gate_marker (id INTEGER PRIMARY KEY) STRICT' },
+    ];
+    // 他实例持写锁 12s（跨过 busy_timeout 5000ms——开库在锁上真等满一窗后才折档）
+    const child = spawn(process.execPath, ['-e', GATE_HOLDER_SCRIPT, path, '12000'], {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    try {
+      await waitLocked(child);
+      let thrown: unknown;
+      try {
+        open({ dbPath: path, migrations: chain });
+      } catch (err) {
+        thrown = err;
+      }
+      // 修前红锚：裸 SqliteError（SQLITE_BUSY——版本读/备份/迁移步全在锁外，
+      // 迁移步写撞他实例写锁裸抛非 BaseError，误导性崩溃重试即愈）；修后绿：
+      // 折可重试 BaseError PERSIST_MIGRATION_BUSY（「他实例正在迁移，稍候重试」）
+      expect(thrown).toBeInstanceOf(BaseError);
+      expect((thrown as BaseError).code).toBe('PERSIST_MIGRATION_BUSY');
+      // 备份位不可达（互删窗闭）：修前备份腿在锁外先行（.bak-v1 已建——胜者
+      // 在飞备份目标可被他实例 rmSync 摘除）；修后唯写锁持有者达备份位——
+      // BUSY 折档下零残留
+      expect(existsSync(`${path}.bak-v1`)).toBe(false);
+    } finally {
+      child.kill();
+      await waitExit(child);
+    }
+    // 「稍候重试」兑现：锁释后同库同链再开直通迁移到 head，升级前数据不丢
+    //（BUSY 整体回滚不半提交——s-pre 全量在）
+    const retry = open({ dbPath: path, migrations: chain });
+    expect(retry.headVersion).toBe(2);
+    expect(retry.connection.pragma('user_version', { simple: true })).toBe(2);
+    expect(retry.loadEvents('s-pre')).toHaveLength(4);
+  }, 20_000);
+
+  it('锁外首读愈合（更浅——连锁都不开）：胜者已升 head 后，他实例持写锁窗内开库直通（零 DDL 零备份零裸撞）', async () => {
+    const path = join(dir, 'mig-gate-heal.db');
+    const chain: readonly MigrationSpec[] = [
+      { version: 2, name: 'test-mig-heal', sql: 'CREATE TABLE mig_heal_marker (id INTEGER PRIMARY KEY) STRICT' },
+    ];
+    const base = open({ dbPath: path, migrations: [] }); // v1 基线旧版库形
+    base.close();
+    // 胜者先行全链开库升 head（备份腿正常走——.bak-v1 在场是胜者成果）
+    const winner = open({ dbPath: path, migrations: chain });
+    expect(winner.headVersion).toBe(2);
+    winner.close();
+    expect(existsSync(`${path}.bak-v1`)).toBe(true);
+    // 败者形：他实例持写锁短窗（600ms < busy_timeout 5000ms），败者开库经
+    // 锁外首读 fast-path 已见 head=2 → 直通返回（闸 P2 帽修勘正后愈合位更浅
+    // ——连锁都不开，无等锁窗；直通零 DDL 零备份零裸撞断言面不变）
+    const holder = spawn(process.execPath, ['-e', GATE_HOLDER_SCRIPT, path, '600'], {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    try {
+      await waitLocked(holder);
+      const warns: string[] = [];
+      const loser = open({ dbPath: path, migrations: chain, warn: (m) => warns.push(m) });
+      expect(loser.headVersion).toBe(2);
+      expect(loser.connection.pragma('user_version', { simple: true })).toBe(2);
+      // 胜者 DDL 成果在场可查（败者直通零再迁移——重跑即撞 duplicate table）
+      expect(loser.connection.prepare(`SELECT count(*) AS c FROM mig_heal_marker`).get()).toEqual({ c: 0 });
+      // 直通零备份（warn 面无「迁移前备份」——败者不复跑备份腿）
+      expect(warns.some((m) => m.includes('迁移前备份'))).toBe(false);
+    } finally {
+      holder.kill();
+      await waitExit(holder);
+    }
+  });
+
+  it('锁外首读 fast-path：head 常态库 + 他实例持普通写事务锁跨过 busy_timeout → 直通开库零等待（05 §6.4 70 轮件B 批注闸 P2 帽修勘正·两段形）', async () => {
+    const path = join(dir, 'mig-fastpath.db');
+    const chain: readonly MigrationSpec[] = [
+      { version: 2, name: 'test-mig-fast', sql: 'CREATE TABLE mig_fast_marker (id INTEGER PRIMARY KEY) STRICT' },
+    ];
+    // head 常态库：先行全链开库升 head（版本面已 === head——后续开库即常驻
+    // 宿主/零装配 CLI 的常态开库形）
+    const winner = open({ dbPath: path, migrations: chain });
+    expect(winner.headVersion).toBe(2);
+    winner.close();
+    // 他实例持普通写事务锁 12s（跨过 busy_timeout 5000ms——注意他实例只是在
+    // 写数据、并非迁移）：head 库开库若仍无条件 BEGIN IMMEDIATE 抢写锁，将
+    // busy 等满一窗后折 PERSIST_MIGRATION_BUSY「他实例正在迁移」误导错
+    const child = spawn(process.execPath, ['-e', GATE_HOLDER_SCRIPT, path, '12000'], {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    try {
+      await waitLocked(child);
+      const t0 = Date.now();
+      // 修前红锚：PERSIST_MIGRATION_BUSY（head 库开库被拉进他实例写事务的
+      // busy 等待）；修后绿：锁外首读见 head 直通返回——不开写锁零等待
+      let reopened: Store | undefined;
+      let thrown: unknown;
+      const warns: string[] = [];
+      try {
+        reopened = open({ dbPath: path, migrations: chain, warn: (m) => warns.push(m) });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeUndefined();
+      // 零等待直通（≪ busy_timeout 5000ms——非等满折档形、也非锁释续接形）
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(reopened).toBeDefined();
+      expect(reopened!.headVersion).toBe(2);
+      expect(reopened!.connection.pragma('user_version', { simple: true })).toBe(2);
+      // 胜者 DDL 成果在场可查（直通零再迁移——重跑即撞 duplicate table）
+      expect(reopened!.connection.prepare(`SELECT count(*) AS c FROM mig_fast_marker`).get()).toEqual({ c: 0 });
+      // 直通零备份（warn 面无「迁移前备份」——fast-path 段不触任何迁移腿）
+      expect(warns.some((m) => m.includes('迁移前备份'))).toBe(false);
+    } finally {
+      child.kill();
+      await waitExit(child);
+    }
+  }, 20_000);
+});

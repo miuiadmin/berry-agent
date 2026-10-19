@@ -33,4 +33,10 @@ registerErrorCodes([
     module: 'persist',
     description: '凭证密文不可解读：密钥丢失/不匹配（AES-256-GCM 解密失败）——重录凭证即恢复',
   },
+  {
+    code: 'PERSIST_MIGRATION_BUSY',
+    module: 'persist',
+    description:
+      '版本门禁写锁等待超时：他实例正在迁移同一库（busy_timeout 耗尽，05 §6.4 挖掘 70 轮件B）——可重试，稍候重开',
+  },
 ]);

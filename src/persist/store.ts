@@ -437,76 +437,235 @@ export function openStore(options: OpenStoreOptions = {}): Store {
     repairFileMode(`${dbPath}-shm`, '库 SHM 侧车', warn);
   }
 
-  // 版本门禁（先读后判；全新库单事务 = 建链原子性，05 §6.5）
-  let version = readUserVersion(db);
-  // 全新库标记（十六役补扫 N10）：bootstrap 分支置位——备份腿据此豁免（见下）
-  let bootstrapped = false;
-  if (version > headVersion) {
-    db.close();
-    throw new BaseError(
-      'PERSIST_SCHEMA_TOO_NEW',
-      `库 ${dbPath} 的 user_version=${version} 高于宿主迁移链 head=${headVersion}（降级运行拒开——先升级宿主再开此库）`,
-    );
-  }
-  if (version === 0) {
-    if (!databaseIsEmpty(db)) {
-      db.close();
-      throw new BaseError(
-        'PERSIST_SCHEMA_UNRECOGNIZED',
-        `库 ${dbPath} 非空但 user_version=0（外来 SQLite 文件或损坏残卷）——宁拒绝不误读`,
-      );
-    }
-    const bootstrap = db.transaction(() => {
-      db.exec(CANONICAL_DDL);
-      db.pragma(`application_id = ${APPLICATION_ID}`);
-      db.pragma(`user_version = ${SCHEMA_VERSION}`);
-    });
-    bootstrap();
-    version = SCHEMA_VERSION;
-    bootstrapped = true;
-  }
-  if (version < headVersion) {
-    // 低于 head：迁移前备份库文件（用户数据主权，05 §6.4）——内存库无从备份；
-    // 全新库豁免（十六役补扫 N10，05 §6.4 定形注）：bootstrap 刚建链置 v1，
-    // 库内无用户数据、备份对象只是空库（.bak-v1 残留纯噪音），「从 v1 升到
-    // head」warn 实为首次建库非升版（误导）。豁免仅及备份与 warn，迁移链
-    // 照跑——新库同路获得迁移项（正典 DDL 有意不折列，见链尾 v13 注）
-    if (!inMemory && !bootstrapped) {
-      // 迁移前备份 = VACUUM INTO 单文件一致快照（05 §6.4 挖掘 18 轮 W-2
-      // 定形注）。旧形 wal_checkpoint(TRUNCATE)+copyFileSync(主库) 在并发
-      // 旧快照读者在场时静默缺帧：TRUNCATE 检查点遇旧读者返回 busy=1 不抛
-      // （返回行被弃、catch 对本形是死码），WAL 尾帧未收卷进主库——
-      // copyFileSync 产缺帧件（手工回滚兑现时静默已提交数据丢失乃至坏库）。
-      // VACUUM INTO 走 SQLite 在线备份机制产单文件完整一致快照（无 -wal
-      // 伴随——手工回滚前置条件不破），不受并发读者影响。前置 rm 保重跑
-      // 覆盖语义：VACUUM INTO 拒已存在目标（升级失败修码重跑不得卡备份位）；
-      // 路径单引号翻倍转义防注入；失败 fail-loud 抛出（磁盘满等——
-      // copyFileSync 同语义）。旧前置 checkpointTruncate 调用随撤（其目的 =
-      // 使 copyFile 快照一致，本腿后无消费；Store.close 退出收卷位不动）
-      const backupPath = `${dbPath}.bak-v${version}`;
-      rmSync(backupPath, { force: true });
-      db.exec(`VACUUM INTO '${backupPath.replaceAll("'", "''")}'`);
-      // 备份承载全量操作者数据——权限面与主库一致（05 §6.6）：VACUUM INTO 走
-      // SQLite open(2) 以 0644 & ~umask 建新文件，宽 umask 下裸落他户可读
-      // （「原件上锁、副本敞开」倒挂且备份长期留存）。repair 紧随写后——与
-      // rmSync+VACUUM 同序，重跑覆盖重建仍被修复（与主库/派生库/密钥三处同式）
-      repairFileMode(backupPath, '迁移前备份文件', warn);
-      warn(`[persist] 迁移前备份：${dbPath} → ${backupPath}（从 v${version} 升到 v${headVersion}）`);
-    }
-    for (const migration of chain) {
-      if (migration.version <= version) continue;
-      const step = db.transaction(() => {
-        db.exec(migration.sql);
-        db.pragma(`user_version = ${migration.version}`);
-      });
-      step();
-    }
-  }
+  // 版本门禁 + 迁移链（两段形——锁外首读 fast-path + 写锁内复读：05 §6.4
+  // 2026-10-19 挖掘 70 轮件B 批注〔闸 P2 帽修勘正——初笔「全序收进」过宽〕；
+  // 编舞与判据全注见 migrateUnderWriteLock 头注）
+  migrateUnderWriteLock(db, dbPath, headVersion, chain, inMemory, warn);
 
   // 凭证密钥：注入位 > 数据目录自举（文件库）/ 临时密钥（内存库——库亡密亡，
   // 不在盘上留无主密钥文件）
   const secretKey = options.secretKey ?? (inMemory ? ephemeralSecretKey() : loadOrCreateSecretKey(dataDir, warn));
   return new Store(db, dbPath, headVersion, secretKey, warn, options.clock ?? (() => Date.now()), options.scanProbe);
+}
+
+/** SQLITE_BUSY 判别（结构化判据是 code 字符串——@types 的 SqliteError
+ *  instanceof 收窄面失真，与 prepareWal 同式） */
+function isSqliteBusyError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && (err as { code: unknown }).code === 'SQLITE_BUSY';
+}
+
+/** busy_timeout 耗尽折档（05 §6.4 70 轮件B——可重试语义不裸抛 SqliteError） */
+function migrationBusyError(dbPath: string, cause: unknown): BaseError {
+  return new BaseError(
+    'PERSIST_MIGRATION_BUSY',
+    `库 ${dbPath} 写锁等待超时（busy_timeout 5000ms）——他实例正在迁移，稍候重试`,
+    { cause },
+  );
+}
+
+/**
+ * PERSIST_SCHEMA_TOO_NEW 同源构造（两段形两拒位共用——闸 P2 帽修勘正后
+ * 锁外 fast-path 拒位与锁内防御位两处同文案同码，单源防漂移）。
+ */
+function schemaTooNewError(dbPath: string, version: number, headVersion: number): BaseError {
+  return new BaseError(
+    'PERSIST_SCHEMA_TOO_NEW',
+    `库 ${dbPath} 的 user_version=${version} 高于宿主迁移链 head=${headVersion}（降级运行拒开——先升级宿主再开此库）`,
+  );
+}
+
+/**
+ * 版本门禁与迁移链的两段形编舞（05 §6.4 版本门禁 bullet 尾 2026-10-19 挖掘
+ * 70 轮件B 批注——多进程迁移竞窗收口；闸 P2 帽修勘正：初笔「全序收进」过宽，
+ * 定形为「锁外首读 fast-path + 锁内全序」两段）。
+ *
+ * 修前竞窗（版本读/备份/迁移链三段全在一切锁外）：零装配 CLI 动词族
+ * （sessions/credentials 等直 Persistence.open 携全迁移链、不经单活跃标记）
+ * 与常驻宿主（或互相）并发开旧库即双迁移者——
+ *  - 败者裸撞胜者已提交 DDL 抛非 BaseError 的 SqliteError（误导性崩溃、
+ *    重试即愈）；
+ *  - 备份腿 rmSync 可摘胜者在飞 VACUUM INTO 目标（已宣告备份静默消失）；
+ *  - 全新库变体败者 databaseIsEmpty 见表非空而陈旧 version 仍 0 → 健康新库
+ *    误诊 PERSIST_SCHEMA_UNRECOGNIZED。
+ *
+ * 本编舞两段形（闸 P2 帽修勘正——批注定形句）：
+ *  - **fast-path 段（锁外首读）**：BEGIN IMMEDIATE 之前先锁外读 user_version
+ *    ——head 系末步迁移事务内 pragma、COMMIT 后方可见，锁外读到 head 即迁移
+ *    彻底完成无中间态，直通返回不开写锁（head 常态库每次开库抢写锁，会把
+ *    零装配 CLI 只读开库拉进他实例任意写事务的 busy 等待、可折「他实例正在
+ *    迁移」误导错——他实例只是在写数据）；> head 锁外即拒 TOO_NEW（版本只升
+ *    不降——> head 不可能是迁移中残影）；唯 === 0 或 < head 才进锁内段；
+ *  - **锁内段（BEGIN IMMEDIATE 全序收进）**：「bootstrap 判 + 备份 + 迁移链」：
+ *  1. 锁内复读 user_version——判据以锁内真值为准（fast-path 读与进锁间他
+ *     实例可已推版）：已 head 即 COMMIT 直通（败者愈合位，不再裸撞已提交
+ *     DDL；锁内 TOO_NEW 判保留为防御位——fast-path 先拒后进锁者锁外读已
+ *     ≤ head 且同链唯一写者，锁内复读值域 ≤ head 常态不可达）；仍需迁移者
+ *     唯我独占（备份腿互删窗随闭——唯锁持有者达备份位，他实例 rmSync 摘
+ *     不掉本连接在飞备份目标）；
+ *  2. busy_timeout 耗尽形（他实例持写锁超时——缺省 5000ms，prepareWal 拍①）
+ *     折可重试 BaseError PERSIST_MIGRATION_BUSY（「他实例正在迁移，稍候重试」）
+ *     不裸抛 SqliteError；
+ *  3. VACUUM INTO 不得在事务内跑（SQLite 禁）——备份腿经第二只读连接执行：
+ *     本库 journal_mode 已 WAL（prepareWal 拍②，降级腿 warn 续跑不受影响），
+ *     只读连接经 WAL 快照隔离见最后已提交面 = 迁移前态（本连接锁内未提交
+ *     DDL 对其不可见——备份即手工回滚对象，不含任何迁移产物）；内存库/
+ *     全新库豁免腿语义不变（十六役 N10）；
+ *  4. 逐版步原子性不破：步事务（db.transaction）在写锁内嵌套跑——亲验
+ *     better-sqlite3 连接已 inTransaction 时 transaction() 走 SAVEPOINT：败步
+ *     回滚自身不殃及成步，成步随终 COMMIT 落定，败链保「已落成步 + 败步
+ *     回滚」既有粒度（「v2 已落 v3 回滚」谱/修复宿主后重开续升谱不破）。
+ *
+ * @param db 已过 WAL 编舞与权限自检的库连接（本函数接管其事务态并负责收尾）
+ * @param dbPath 库文件路径（诊断文案 + 备份路径基）
+ * @param headVersion 迁移链 head（归一化后）
+ * @param chain 归一化迁移链（严格递增）
+ * @param inMemory 内存库判（备份腿豁免位）
+ * @param warn 告警面
+ */
+function migrateUnderWriteLock(
+  db: Database.Database,
+  dbPath: string,
+  headVersion: number,
+  chain: readonly MigrationSpec[],
+  inMemory: boolean,
+  warn: (message: string) => void,
+): void {
+  // —— fast-path 段（头注两段形·闸 P2 帽修勘正）：锁外首读 user_version——
+  // head 系末步迁移事务内 pragma、COMMIT 后方可见，锁外读到 head 即迁移彻底
+  // 完成无中间态：直通返回不开写锁不关库（head 常态库开库不再抢写锁——零
+  // 装配 CLI 只读开库不被拉进他实例任意写事务的 busy 等待、不折「他实例正在
+  // 迁移」误导错）；> head 锁外即拒 TOO_NEW（版本只升不降——> head 不可能是
+  // 迁移中残影，与锁内防御位同源构造同文案）；唯 === 0 或 < head 才进锁内段
+  const initialVersion = readUserVersion(db);
+  if (initialVersion === headVersion) return; // 直通：不开锁不关库——正常继续构造 Store
+  if (initialVersion > headVersion) {
+    db.close();
+    throw schemaTooNewError(dbPath, initialVersion, headVersion);
+  }
+  // 写锁获取位：BEGIN IMMEDIATE 立即取写锁——他实例持锁时在 busy_timeout 窗内
+  // 同步等待，耗尽 SQLITE_BUSY 折 PERSIST_MIGRATION_BUSY（头注 2）
+  try {
+    db.exec('BEGIN IMMEDIATE');
+  } catch (err) {
+    db.close();
+    if (isSqliteBusyError(err)) throw migrationBusyError(dbPath, err);
+    throw err;
+  }
+  try {
+    // —— 锁内复读 user_version（头注 1：判据以锁内真值为准——fast-path 锁外
+    //    读与进锁间他实例可已推版；胜者已升 head 的败者在此愈合）——
+    let version = readUserVersion(db);
+    // 全新库标记（十六役补扫 N10）：bootstrap 分支置位——备份腿据此豁免（见下）
+    let bootstrapped = false;
+    if (version > headVersion) {
+      // 防御位（常态不可达——头注 1）：fast-path 已在锁外拒 > head，进锁者
+      // 锁外读已 ≤ head 且本链此刻唯一写者（写锁独占），锁内复读值域 ≤ head；
+      // 保留同判防未来形漂移裸抛 SqliteError（文案与锁外拒位同源）
+      throw schemaTooNewError(dbPath, version, headVersion);
+    }
+    if (version === 0) {
+      // 空判与复读同锁（70 轮件B）：胜者 bootstrap 已提交后败者不再见「表在场
+      // 而陈旧 version 仍 0」的竞窗残影——健康新库误诊 UNRECOGNIZED 随闭；
+      // 真外来文件（锁内复判仍非空）照旧拒（两门语义不变）
+      if (!databaseIsEmpty(db)) {
+        throw new BaseError(
+          'PERSIST_SCHEMA_UNRECOGNIZED',
+          `库 ${dbPath} 非空但 user_version=0（外来 SQLite 文件或损坏残卷）——宁拒绝不误读`,
+        );
+      }
+      const bootstrap = db.transaction(() => {
+        db.exec(CANONICAL_DDL);
+        db.pragma(`application_id = ${APPLICATION_ID}`);
+        db.pragma(`user_version = ${SCHEMA_VERSION}`);
+      });
+      bootstrap();
+      version = SCHEMA_VERSION;
+      bootstrapped = true;
+    }
+    if (version < headVersion) {
+      // 低于 head：迁移前备份库文件（用户数据主权，05 §6.4）——内存库无从备份；
+      // 全新库豁免（十六役补扫 N10 定形注，语义不变）：bootstrap 刚建链置 v1，
+      // 库内无用户数据、备份对象只是空库（.bak-v1 残留纯噪音），「从 v1 升到
+      // head」warn 实为首次建库非升版（误导）。豁免仅及备份与 warn，迁移链
+      // 照跑——新库同路获得迁移项（正典 DDL 有意不折列，见链尾 v13 注）
+      if (!inMemory && !bootstrapped) {
+        // 迁移前备份 = VACUUM INTO 单文件一致快照（05 §6.4 挖掘 18 轮 W-2
+        // 定形注——不受并发读者影响、无 -wal 伴随〔手工回滚前置条件不破〕、
+        // 失败 fail-loud 抛出〔磁盘满等〕）。70 轮件B（头注 3）：VACUUM INTO
+        // 不得在事务内跑（SQLite 禁）——改经第二只读连接执行；备份承载全量
+        // 操作者数据，权限面与主库一致（05 §6.6）：VACUUM INTO 走 SQLite
+        // open(2) 以 0644 & ~umask 建新文件，宽 umask 下裸落他户可读（「原件
+        // 上锁、副本敞开」倒挂且备份长期留存）——repair 紧随写后，重跑覆盖
+        // 重建仍被修复（与主库/派生库/密钥同式）。前置 rm 保重跑覆盖语义：
+        // VACUUM INTO 拒已存在目标（升级失败修码重跑不得卡备份位）；路径
+        // 单引号翻倍转义防注入
+        const backupPath = `${dbPath}.bak-v${version}`;
+        rmSync(backupPath, { force: true });
+        const backupConn = new Database(dbPath, { readonly: true });
+        // 只读连接同设 busy_timeout（闸 P4 顺手——与 prepareWal 拍①同值 5000
+        // 显式钉扎，不依赖驱动缺省）：WAL 常态下快照读不撞锁无感；prepareWal
+        // 降级腿（库滞留 delete 日志模式）或第三方 EXCLUSIVE 锁极端窗下，
+        // VACUUM INTO 的读面撞锁在 busy_timeout 窗内等待重试免裸抛 SqliteError
+        //（readonly 连接设此 pragma 合法——连接级配置非库写）
+        backupConn.pragma('busy_timeout = 5000');
+        try {
+          backupConn.exec(`VACUUM INTO '${backupPath.replaceAll("'", "''")}'`);
+        } finally {
+          backupConn.close();
+        }
+        repairFileMode(backupPath, '迁移前备份文件', warn);
+        warn(`[persist] 迁移前备份：${dbPath} → ${backupPath}（从 v${version} 升到 v${headVersion}）`);
+      }
+      for (const migration of chain) {
+        if (migration.version <= version) continue;
+        // 步事务在写锁内嵌套跑（头注 4——SAVEPOINT）：坏 SQL 原样上抛
+        // （fail-loud 非 BaseError 包装非吞），败步回滚自身
+        const step = db.transaction(() => {
+          db.exec(migration.sql);
+          db.pragma(`user_version = ${migration.version}`);
+        });
+        step();
+      }
+    }
+    // 已 head 直通位（头注 1 败者愈合）与迁移完成位同收口：终 COMMIT
+    db.exec('COMMIT');
+  } catch (err) {
+    if (isSqliteBusyError(err)) {
+      // BUSY（锁内段撞他实例持锁——降级日志模式下 COMMIT 位可遇）：整体回滚
+      // 不半提交（重开者自原版本续升、备份面仍 = 已提交迁移前态）后折档关库
+      rollbackQuietly(db);
+      db.close();
+      throw migrationBusyError(dbPath, err);
+    }
+    if (err instanceof BaseError) {
+      // 门禁拒绝形（TOO_NEW/UNRECOGNIZED——零写入门，回滚即空转）：拒不受理
+      rollbackQuietly(db);
+      db.close();
+      throw err;
+    }
+    // 其余（步 SQL 失败/备份 IO 失败等）原样上抛前保住成步成果：败步已被自身
+    // savepoint 回滚（步原子性不破），成步保持「逐版落定」既有粒度 COMMIT；
+    // 终 COMMIT 自身失败（SQLITE_FULL 等）则退回滚后原样上抛（不吞不改写）
+    if (db.inTransaction) {
+      try {
+        db.exec('COMMIT');
+      } catch {
+        rollbackQuietly(db);
+      }
+    }
+    db.close();
+    throw err;
+  }
+}
+
+/** 尽力回滚（连接已不在事务态则 no-op——catch 面兜底腿，不遮蔽原始异常） */
+function rollbackQuietly(db: Database.Database): void {
+  if (!db.inTransaction) return;
+  try {
+    db.exec('ROLLBACK');
+  } catch {
+    // 连接残态（底层已断等）——close 兜底收卷，此处不越权抛出
+  }
 }
 
 /** 读 user_version（PRAGMA 读 simple 形态直回数值） */
