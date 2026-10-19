@@ -14,7 +14,11 @@ registerErrorCodes([
   {
     code: 'CHECKPOINT_CAPTURE_FAILED',
     module: 'checkpoint',
-    description: 'pre-mutation 捕获失败——守门段 fail-closed block 位（拍不了就放行变异 = 伪承诺；含 walk 超文件帽）',
+    // 帽语义双维入文（70 轮件D 勘正）：65 轮件D 起捕获面配额双维执法——
+    // 计数帽（fileCap）之外补字节双帽（单文件帽 + 单快照总量帽，walk 枚举面
+    // stat 先行拒）；修前 description 只提「walk 超文件帽」滞后执法面
+    description:
+      'pre-mutation 捕获失败——守门段 fail-closed block 位（拍不了就放行变异 = 伪承诺；含 walk 超文件帽与字节双帽）',
   },
   {
     code: 'CHECKPOINT_NOT_FOUND',
