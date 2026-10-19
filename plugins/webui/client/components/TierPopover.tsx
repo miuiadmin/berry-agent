@@ -10,7 +10,8 @@
  * 501 未装配 / 404 已闭 / 400 坏词 / 500 fold 坏词全折同呈现位），浮层
  * 不自动收仍可关；401 失效凭证例外——onAuthLost 路由回换桥位（重试恒不
  * 可能自愈，机器码串不进通知条——webui-face#3 调用面统一律）。
- * esc 与遮罩点击收层；v1 不求焦点陷阱（document 级
+ * esc 与遮罩点击收层（IME 组合期 esc 让位组合面不收层——Composer 守卫
+ * 同律）；v1 不求焦点陷阱（document 级
  * esc 监听——浮层卸载即解绑）。
  */
 import { useEffect, useRef, useState } from 'react';
@@ -87,6 +88,10 @@ export function TierPopover({
   // esc 收层（document 级监听——v1 不求焦点陷阱；卸载即解绑）
   useEffect(() => {
     const onKey = (ev: KeyboardEvent): void => {
+      // IME 组合态前置守卫（Composer.tsx onKeyDown 的守卫形邻位同构——
+      // 组合期键盘全让浏览器组合面自理）：组合进行中按 esc 是「取消候选」
+      // 归组合面——此处不收层（无守卫则中文输入途中的取消键直接关浮层）
+      if (ev.isComposing) return;
       if (ev.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKey);

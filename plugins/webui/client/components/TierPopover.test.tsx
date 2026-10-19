@@ -12,6 +12,9 @@
  * 死 cookie 重试恒不可能自愈——onAuthLost 路由回换桥位，机器码串
  * （`API 401 HTTP_401`——路由级 401 回纯文本非 JSON，foldError 折不出
  * message 位）不进通知条。修前红：401 与 501/404 同折 onError。
+ * ③esc 收层 IME 守卫（Composer onKeyDown 前置守卫同律邻位）：组合期
+ * isComposing=true 的 esc 是取消候选归浏览器组合面——不收层；普通 esc
+ * 照收层。修前红：无守卫组合取消键直接关浮层。
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -120,5 +123,41 @@ describe('TierPopover 401 失效路由（webui-face#3 调用面统一律——�
       expect(onAuthLost).toHaveBeenCalledTimes(1);
     });
     expect(onError).not.toHaveBeenCalled();
+  });
+});
+
+describe('TierPopover esc 收层 IME 守卫（Composer onKeyDown 同律邻位——组合期键盘让位浏览器组合面）', () => {
+  it('IME 组合期 Escape 不收层（修前红）：isComposing=true → onClose 不被调（组合取消 esc 归组合面）', async () => {
+    const onClose = vi.fn();
+    render(
+      <TierPopover
+        kind="thinking"
+        sessionId="s-1"
+        onClose={onClose}
+        onReceipt={() => undefined}
+        onError={() => undefined}
+        onAuthLost={() => undefined}
+      />,
+    );
+    await screen.findByText('最大思考'); // 读档落定——层在场，document 级监听已挂
+    fireEvent.keyDown(document, { key: 'Escape', isComposing: true });
+    expect(onClose).not.toHaveBeenCalled(); // 修前红：无守卫——组合取消键直接关浮层
+  });
+
+  it('普通 Escape 照收层（正锁）：无 isComposing 不误伤既有收层律', async () => {
+    const onClose = vi.fn();
+    render(
+      <TierPopover
+        kind="thinking"
+        sessionId="s-1"
+        onClose={onClose}
+        onReceipt={() => undefined}
+        onError={() => undefined}
+        onAuthLost={() => undefined}
+      />,
+    );
+    await screen.findByText('最大思考');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
