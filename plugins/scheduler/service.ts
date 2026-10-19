@@ -531,14 +531,28 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
   const goalJobs: GoalJobsFace = {
     async register(req) {
       const name = `goal-${req.goalId}`;
+      // 行确已落标记（04 §12 挖掘 70 轮件A 批注——register 不半态律）：insertRow
+      // 自身守卫拒形（名冲突/词法/payload）行未落，回卷不得误删既有同名行——
+      // 唯 insertRow 成功返回后置位，catch 只按此标记回卷。
+      let inserted = false;
       try {
         const row = insertRow(
           { name, prompt: req.promptSnapshot, schedule: req.schedule, enabled: true, builtin: true },
           true,
         );
+        inserted = true; // insertRow 成功返回 = jobs 行确已落——此后任一失败皆可安全回卷
         registerOsBestEffort(row); // 挂钟行启用即挂 OS（乙案形态；不可表达形 warn 跳过——行实活则回执须诚实 ok）
         return { ok: true, message: `定时已设置：${name}（${formatSchedule(row.schedule)}）` };
       } catch (err) {
+        // 挂钟行回卷（04 §12 挖掘 70 轮件A 批注）：非 UNSUPPORTED 族 OS 失败
+        // （SCHEDULER_CRON_WRITE_FAILED/UNAUTHORIZED）折 {ok:false} 时 jobs 行
+        // 必须回卷——与 goal 侧 activate 回卷 goals 行同笔同死；不回卷即孤儿行
+        // 三害：goal 行已删而挂钟行 enabled → due() 每拍 spawnGoalRow → wake
+        // GOAL_NOT_FOUND → 兜折 gated 按 schedule 间隔永久重演，且 /tick rm 对
+        // builtin goal- 行拒删、abandon 撞 GOAL_NOT_FOUND——无用户道可删此行。
+        // 迟到冲洗（goal 件 attachGoalJobsFace 补登记）经本单漏斗——同律辖其
+        // OS 失败形。回卷只按 inserted 标记：守卫拒形行未落，勿误删既有行。
+        if (inserted) dao.remove(name);
         // 响亮拒不炸装配——message 载码与原因（goal 件消费方落诊断面）
         const message = err instanceof BaseError ? `${err.code}: ${err.message}` : String(err);
         return { ok: false, message };

@@ -343,6 +343,59 @@ describe('cron 联动「不半态」', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toContain('goal-g10');
   });
+
+  // ── register 不半态律·挂钟行回卷（04 §12 挖掘 70 轮件A 批注）──────────────
+  // 修前洞：insertRow 落行（enabled=true）后 registerOsBestEffort 挂 OS 失败
+  // 折 {ok:false} 而 jobs 行残留——goal 侧 activate 已回卷 goals 行（同笔生死
+  // 的对偶面缺位）→ 孤儿 enabled 行 due() 每拍 spawnGoalRow → wake
+  // GOAL_NOT_FOUND → 兜折 gated 按 schedule 间隔永久重演，且 /tick rm 对
+  // builtin goal- 行拒删、abandon 撞 GOAL_NOT_FOUND——无用户道可删此行。
+  it('goalJobs.register OS 写失败折 {ok:false} 且挂钟行回卷不残留（修前红——70 轮件A：行在场 enabled=true 成孤儿）', async () => {
+    const reg = fakeRegistrar(true); // register 抛 SCHEDULER_CRON_WRITE_FAILED
+    const { goalJobs, getRow } = openService({ cronRegistrar: reg });
+    const r = await goalJobs.register({ goalId: 'x', sessionId: 's', schedule: 'daily@09:30', promptSnapshot: 'p' });
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('SCHEDULER_CRON_WRITE_FAILED');
+    expect(getRow('goal-x')).toBeUndefined(); // 行已回卷——不半态（修前红：enabled=true 残留）
+  });
+
+  it('goalJobs.register 名冲突守卫拒在先——既有同名行零误删（inserted 未置不回卷）', async () => {
+    const reg = fakeRegistrar(true);
+    const { service, goalJobs, getRow } = openService({ cronRegistrar: reg });
+    // 预置同名既有行（名冲突守卫只按名判——占名即可，builtin 位不入判据）
+    service.addJob({ name: 'goal-g11', schedule: 'every:1h', prompt: 'old' });
+    const r = await goalJobs.register({ goalId: 'g11', sessionId: 's', schedule: 'daily@09:30', promptSnapshot: 'p' });
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('SCHEDULER_NAME_EXISTS'); // 守卫拒形（行未落）
+    expect(getRow('goal-g11')?.prompt).toBe('old'); // 既有行原样在场——零误删
+    expect(reg.calls).toEqual([]); // 守卫拒在先——OS 面根本未触
+  });
+
+  it('goalJobs.register UNSUPPORTED 族 warn 跳过不触发回卷——{ok:true} 行在场（回归锁：70 轮件A 回卷只辖外抛形）', async () => {
+    const reg = fakeRegistrar();
+    // 真身对 once 形抛 UNSUPPORTED——假件同形复刻（可表达性判语义）
+    const originalRegister = reg.register.bind(reg);
+    reg.register = (row) => {
+      if (row.schedule.kind === 'once') {
+        throw new BaseError(
+          'SCHEDULER_CRON_UNSUPPORTED',
+          'cron 表达不了 once 单发形（单发归进程内定时独辖——行停机错过即跳过）',
+        );
+      }
+      originalRegister(row);
+    };
+    const { goalJobs, getRow } = openService({ cronRegistrar: reg });
+    warn.mockClear();
+    const r = await goalJobs.register({
+      goalId: 'g12',
+      sessionId: 's',
+      schedule: 'once@2099-01-01T00:00:00Z', // 不可表达形
+      promptSnapshot: 'p',
+    });
+    expect(r.ok).toBe(true); // 不可表达形 warn 跳过（N9 同律）——行实活回执诚实 ok
+    expect(getRow('goal-g12')?.enabled).toBe(true); // 行在场——回卷零触发（UNSUPPORTED 不外抛）
+    expect(warn).toHaveBeenCalledTimes(1); // warn 留痕（进程内挂钟照辖披露）
+  });
 });
 
 describe('fromDb 坏值降级 warn（第十一轮深扫 L4-1——docstring 承诺兑现）', () => {
