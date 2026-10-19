@@ -615,26 +615,64 @@ describe('通道缺席', () => {
   });
 });
 
-/* ---------------- 空闲逐出帽（256——防长开进程无界累积） ---------------- */
+/* ---------------- 空闲逐出帽（256——防长开进程无界累积；冷却锚逐出豁免） ---------------- */
 
-describe('空闲逐出帽', () => {
-  it('超帽后空闲态被逐出：被逐会话的冷却锚随态丢失（重触发即重压——帽执法可观测）', async () => {
-    const rig = makeRig(['第一次', '第二次'], { config: { cooldownMs: 600_000 } });
+describe('空闲逐出帽（77 轮批注——冷却锚存续位条款）', () => {
+  it('冷却窗内锚持态逐出豁免：灌帽逐出扫后窗内再触发被冷却门挡（修前锚随态被逐——假钟未过窗也重压落第二条 threshold start）', async () => {
+    // 注入小帽（idleStatesCap 8）加速逐出路径——机制与缺省 256 同源单取
+    const rig = makeRig(['首压摘要'], { config: { cooldownMs: 600_000 }, idleStatesCap: 8 });
     const logA = sixTurnLog('s-anchor');
+    // ① 首压：超阈 usage 走 handleRunSettled → end completed 落账（锚推到 T0 = 假钟 1000）
     rig.service.handleRunSettled({ log: logA, usage: FIRE_USAGE });
     await rig.service.drain();
+    expect(logA.eventsOfType('compaction/end').at(-1)!.data).toMatchObject({ reason: 'completed' });
     expect(rig.calls).toHaveLength(1);
-
-    // 灌满帽：260 个哑会话各触发一次（空日志 → 判阈过、规划 null——只建分账态）
-    for (let i = 0; i < 260; i++) {
+    // 预留第二次合法段（修前锚被逐后放行重压即在此落第二条 start——红锚素材）
+    for (let i = 7; i <= 9; i++) {
+      logA.append('turn/start', {});
+      logA.append('user/message', { content: `续 ${i}`, source: 'user' });
+      logA.append('assistant/message', { content: [{ type: 'text', text: `答 ${i}` }] });
+      logA.append('turn/end', { reason: 'completed' });
+    }
+    // ② 灌帽：互异薄会话各调 compactNow（nothing 形即建态——入口 stateOf 恒建；
+    // 帽满触发逐出扫，被逐者含 A〔修前形〕）
+    for (let i = 0; i < 10; i++) {
       const dummy = new SessionLog({ sessionId: `s-dummy-${i}` });
-      rig.service.handleRunSettled({ log: dummy, usage: FIRE_USAGE });
+      dummy.append('turn/start', {});
+      dummy.append('user/message', { content: `薄 ${i}`, source: 'user' });
+      dummy.append('turn/end', { reason: 'completed' });
+      expect(await rig.service.compactNow(dummy)).toBe('nothing');
     }
     await rig.service.drain();
-    // logA 的冷却锚随空闲态被逐出 → 假钟未拨也重压（冷却失效 = 逐出的行为证据）
+    // ③ 窗内再触发（now = T0+ε，ε = 1s << cooldownMs 600s）：锚存活 → 冷却门挡
+    rig.advance(1_000);
     rig.service.handleRunSettled({ log: logA, usage: FIRE_USAGE });
     await rig.service.drain();
-    expect(rig.calls).toHaveLength(2);
+    expect(rig.calls).toHaveLength(1); // 修前 2——锚被逐、冷却门放行重压
+    const starts = logA.eventsOfType('compaction/start');
+    expect(starts).toHaveLength(1); // 修前 2——不得出现第二条 threshold start
+    expect(starts.map((e) => (e.data as { reason: string }).reason)).toEqual(['threshold']);
+    const skips = logA.eventsOfType('compaction/skip');
+    expect(skips).toHaveLength(1); // 修前 0——无冷却门挡即无 skip 词
+    expect(skips[0]!.data).toMatchObject({ gate: 'cooldown' });
+    expect((skips[0]!.data as { remainMs: number }).remainMs).toBeGreaterThan(0);
+  });
+
+  it('极端形：全体候选都在冷却窗内 → 允许超帽驻留（帽是防空闲无界账的可用性防线非硬墙——近期压缩态有界）；窗过恢复可逐', async () => {
+    const rig = makeRig([], { config: { cooldownMs: 600_000 }, idleStatesCap: 4 });
+    // 四会话全部真压（锚均在窗内）——帽满且逐出扫零可逐候选
+    for (let i = 0; i < 4; i++) {
+      expect(await rig.service.compactNow(sixTurnLog(`s-win-${i}`))).toBe('compacted');
+    }
+    // 第 5 会话进压缩路：无候选可逐 → 超帽驻留不拒服务（照常压缩完成）
+    const logE = sixTurnLog('s-fifth');
+    rig.service.handleRunSettled({ log: logE, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(logE.eventsOfType('compaction/end').at(-1)!.data).toMatchObject({ reason: 'completed' });
+    expect(rig.calls).toHaveLength(5);
+    // 窗过（拨过 cooldownMs）即恢复可逐：锚持态回到可逐集（逐出扫照常收帽——不炸不拒服务）
+    rig.advance(600_000);
+    expect(await rig.service.compactNow(sixTurnLog('s-sixth'))).toBe('compacted');
   });
 });
 

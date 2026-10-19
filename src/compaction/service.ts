@@ -11,7 +11,9 @@
  * ⊇ per-session 互斥；溢出路与手动路入同一链（「先排空已排队压缩再执行」由
  * FIFO 天然达成）。per-session 防抖状态（冷却锚/进行中标志/手动排队位）内存态、
  * 重启清零——丢一次压缩无正确性损失（下轮触发补上）；空闲态逐出帽 256（04 篇
- * Job 注册表同款帽值纪律——防长开进程无界累积）。
+ * Job 注册表同款帽值纪律——防长开进程无界累积；冷却窗内锚持态逐出豁免〔05 §2.1
+ * 2026-10-19 挖掘 77 轮批注——冷却锚存续位条款〕：锚不得因帽逐出在同进程内
+ * 静默丢失）。
  *
  * U4 槽位化（2026-09-09 落码）：三 seam 晚绑定——getConfig（配置槽·阈值/溢出/
  * 手动三路数值同生效）、getProvider（摘要 provider 槽·只作用阈值路）、
@@ -65,7 +67,7 @@ interface SessionCompactionState {
   manualQueued: { instructions?: string } | null;
 }
 
-/** 空闲态逐出帽（在飞/排队态不逐——只逐空闲） */
+/** 空闲态逐出帽（在飞/排队态不逐——只逐空闲；冷却窗内锚持态豁免——77 轮批注） */
 const IDLE_STATES_CAP = 256;
 
 /** 三振阈值（05 §2.1 回落三律第 3 律——同一 pluginId 进程级连续 3 次失败停用） */
@@ -123,6 +125,11 @@ export interface CompactionServiceOptions {
   readonly onManualQueuedSettled?: (event: ManualQueuedSettledEvent) => void;
   /** 算法执行段预算毫秒（U4 两帽分立之算法段——缺省 60s；provider 槽同帽） */
   readonly algoTimeoutMs?: number;
+  /**
+   * 空闲态逐出帽（缺省 IDLE_STATES_CAP 256——04 篇 Job 注册表同款帽值纪律）：
+   * 注入小帽加速测试逐出路径（机制参数同源单取——测试勿硬编码复制帽值）。
+   */
+  readonly idleStatesCap?: number;
   /** 时钟注入（缺省 Date.now——测试假钟面） */
   readonly now?: () => number;
   /** 失败可观测面（缺省 stderr 直写；装配根接 logger.warn） */
@@ -178,6 +185,8 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
   const onBeforeCompact = options.onBeforeCompact;
   const onManualQueuedSettled = options.onManualQueuedSettled;
   const algoTimeoutMs = options.algoTimeoutMs ?? 60_000;
+  /** 空闲态逐出帽（缺省 IDLE_STATES_CAP；注入缝——测试小帽加速逐出路径） */
+  const idleStatesCap = options.idleStatesCap ?? IDLE_STATES_CAP;
   const now = options.now ?? Date.now;
   const warn = options.warn ?? ((message: string) => process.stderr.write(`${message}\n`));
 
@@ -210,11 +219,23 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
     let state = states.get(sessionId);
     if (state === undefined) {
       // 帽前逐出：只逐空闲态（在飞/手动排队中的删了会破防重入与排队兑现账）；
-      // 全在飞时暂超帽可接受——帽执法不破在飞正确性
-      if (states.size >= IDLE_STATES_CAP) {
+      // 全在飞时暂超帽可接受——帽执法不破在飞正确性。
+      // 冷却锚逐出豁免（05 §2.1〔2026-10-19 挖掘 77 轮批注——冷却锚存续位条款〕）：
+      // lastCompactAt 仍在冷却窗内（now - lastCompactAt < cooldownMs，判据与门③
+      // 同式）的态不逐——不变式「冷却锚不得因帽逐出在同进程内静默丢失」。锚唯一
+      // 存续位是本 Map（对照：溢出防重入锚 lastEndSeq 是 durable 派生、逐出不失
+      // ——两类锚存续位不对称即缝位）。窗内态全豁免的极端形允许超帽驻留（帽是
+      // 防空闲态无界账的可用性防线，近期压缩态有界——会话数本身有限；窗过即
+      // 恢复可逐）。
+      if (states.size >= idleStatesCap) {
+        const nowMs = now();
+        const cooldownMs = getConfig().cooldownMs; // 配置槽晚绑定现取（与门③同源）
         for (const [key, value] of states) {
-          if (states.size < IDLE_STATES_CAP) break;
-          if (!value.pending && value.manualQueued === null) states.delete(key);
+          if (states.size < idleStatesCap) break;
+          if (value.pending || value.manualQueued !== null) continue; // 在飞/排队态不逐
+          // 冷却窗内锚持态不逐（锚存续位保护——77 轮批注）
+          if (value.lastCompactAt !== null && nowMs - value.lastCompactAt < cooldownMs) continue;
+          states.delete(key);
         }
       }
       state = { lastCompactAt: null, pending: false, manualQueued: null };
