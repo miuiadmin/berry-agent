@@ -5,7 +5,9 @@
  * 分工线（04 §12「同一 jobs 表两视角」）：本面管 **jobs 表行**（挂钟行的注册
  * 管理面）；运行中实例的 in-flight 记账归引擎内存表（§10 ctx.jobs 系另册，
  * 语义不在此）。enable/disable **直打 jobs 表行**（幽灵名零行守卫——
- * SCHEDULER_NOT_FOUND 响亮拒，2026-09-04 berry 侧同款守卫）；add **名冲突守卫**
+ * SCHEDULER_NOT_FOUND 响亮拒，2026-09-04 berry 侧同款守卫；builtin goal-
+ * 挂钟行拒启停守卫——76 轮件5 单漏斗执法，启停共核拆 applySetEnabled 内核
+ * 供 GoalJobsFace 特权位共用）；add **名冲突守卫**
  * （SCHEDULER_NAME_EXISTS）。cron 可选后端在场时启停/rm 与 OS 注册面联动
  * （联动细则 = 本件落码面裁决：行翻转与 crontab 同步两段——OS 段失败亮拒
  * 不半态）。
@@ -323,7 +325,12 @@ export interface SchedulerService {
    * cron 后端在场先注销 OS 注册（失败亮拒不半态）再删行。
    */
   removeJob(name: string): void;
-  /** enable/disable 直打行：幽灵名守卫；cron 后端在场同步 OS 注册（失败亮拒、行不翻转） */
+  /**
+   * enable/disable 直打行：幽灵名守卫；内置 goal 挂钟行拒启停
+   * （SCHEDULER_JOB_INVALID——文案指路启停随目标状态机自动翻，76 轮件5
+   * 挂钟行启停单漏斗执法；goal 状态机启停走 GoalJobsFace 内核特权位非本门）；
+   * cron 后端在场同步 OS 注册（失败亮拒、行不翻转）
+   */
   setJobEnabled(name: string, enabled: boolean): void;
   /** 行内 schedule 人读串（/tick list 渲染面） */
   describeSchedule(name: string): string;
@@ -338,9 +345,9 @@ export interface GoalJobsFace {
     schedule: string;
     promptSnapshot: string;
   }): Promise<{ ok: boolean; message: string }>;
-  /** 终态/降级同笔停摆（行留史、enable 可复活；无行 = 静默 no-op） */
+  /** 终态/降级同笔停摆（行留史、enable 可复活；无行 = 静默 no-op；76 轮件5 起经 applySetEnabled 内核特权位——service 面守卫不辖状态机） */
   disable(goalId: string): Promise<void>;
-  /** resume/重挂复活（无行 = 静默 no-op） */
+  /** resume/重挂复活（无行 = 静默 no-op；同 disable 经内核特权位） */
   enable(goalId: string): Promise<void>;
   /** 摘钟（删行；cron 可选后端启用形态下同步注销 OS 注册态；无行 = 静默 no-op） */
   remove(goalId: string): Promise<void>;
@@ -440,6 +447,42 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
     return row;
   }
 
+  /**
+   * 启停共核内核（76 轮件5——applySetEnabled）：现行翻/OS 注册/排刻逻辑
+   * 原样单源搬入（零行为变），两消费位——
+   * - service.setJobEnabled 公开面（用户/外部位——前置 builtin goal- 行拒守卫，
+   *   挂钟行启停单漏斗执法：/tick enable|disable 直翻可复活预算停靠/停滞硬停
+   *   行，绕开 goal 状态机编舞且三相帧缓存不随直翻 bust）；
+   * - GoalJobsFace.enable/disable（goal 状态机特权位——goalJobs.remove 直 dao
+   *   绕 service.removeJob 的既有不对称同族：service 面 = 守卫位，goal 件内 =
+   *   状态机特权位；朴素只在公开面加守卫会堵死 goal 状态机自身）。
+   */
+  function applySetEnabled(name: string, enabled: boolean, row: JobRow): void {
+    if (deps.cronRegistrar) {
+      if (enabled) {
+        // 不可表达形 warn 跳过、行照常翻转（N9——此前致命拒把进程内挂钟
+        // 一并封死，行停 disabled 永不再 due）；写失败/未授权亮拒不半态
+        registerOsBestEffort(row);
+      } else {
+        deps.cronRegistrar.unregister(name);
+      }
+    }
+    dao.setEnabled(name, enabled, now());
+    // 启用即刻排 next_fire（禁用期未排；once 相对形建行已锚定、every/daily/weekly 从现在取下一刻）
+    if (enabled) {
+      const fresh = dao.get(name);
+      if (fresh) {
+        dao.advanceNextFire(
+          name,
+          nextFireAt(fresh.schedule, new Date(now()), fresh.lastFireAt ? new Date(fresh.lastFireAt) : undefined),
+          now(),
+        );
+      }
+    } else {
+      dao.advanceNextFire(name, null, now()); // 停用即摘排（行留史）
+    }
+  }
+
   const service: SchedulerService = {
     addJob(req) {
       return insertRow(req, false, true);
@@ -497,29 +540,21 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
           `任务「${name}」不存在（${enabled ? 'enable' : 'disable'} 幽灵名零行守卫）`,
         );
       }
-      if (deps.cronRegistrar) {
-        if (enabled) {
-          // 不可表达形 warn 跳过、行照常翻转（N9——此前致命拒把进程内挂钟
-          // 一并封死，行停 disabled 永不再 due）；写失败/未授权亮拒不半态
-          registerOsBestEffort(row);
-        } else {
-          deps.cronRegistrar.unregister(name);
-        }
+      // 内置 goal 挂钟行拒启停（76 轮件5——挂钟行启停单漏斗执法）：/tick
+      // enable|disable 直调本面可复活预算停靠/停滞硬停行——绕开 goal 状态机
+      // 单漏斗编舞（goal 三相帧缓存不随直翻 bust、TUI goalStatus 供旧帧），
+      // 与 rm 动词拒删守卫（上方 removeJob）守卫面就此对称。守卫必须双条件
+      // （builtin 位 × goal- 前缀两判）并见此注释：dao 层 insertRow 不保留
+      // goal- 前缀独占——用户可自建 goal- 名行，单条件会误伤；issue-poll
+      // builtin 行不在此列（issue 件 stop()/start() 经本正门启停、幂等可恢复
+      // ——不可恢复性是 goal 独有，守卫面按两判收紧）。
+      if (row.builtin && name.startsWith('goal-')) {
+        throw new BaseError(
+          'SCHEDULER_JOB_INVALID',
+          `任务「${name}」由 goal（目标）自动管理——/tick ${enabled ? 'enable' : 'disable'} 不受理；启停随目标状态机（终态/降级停摆、resume 复活）自动翻`,
+        );
       }
-      dao.setEnabled(name, enabled, now());
-      // 启用即刻排 next_fire（禁用期未排；once 相对形建行已锚定、every/daily/weekly 从现在取下一刻）
-      if (enabled) {
-        const fresh = dao.get(name);
-        if (fresh) {
-          dao.advanceNextFire(
-            name,
-            nextFireAt(fresh.schedule, new Date(now()), fresh.lastFireAt ? new Date(fresh.lastFireAt) : undefined),
-            now(),
-          );
-        }
-      } else {
-        dao.advanceNextFire(name, null, now()); // 停用即摘排（行留史）
-      }
+      applySetEnabled(name, enabled, row);
     },
     describeSchedule(name) {
       const row = dao.get(name);
@@ -560,13 +595,18 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
     },
     async disable(goalId) {
       const name = `goal-${goalId}`;
-      if (!dao.get(name)) return; // 无行 = 静默 no-op
-      service.setJobEnabled(name, false); // 行留史（enable 可复活）
+      const row = dao.get(name);
+      if (!row) return; // 无行 = 静默 no-op
+      // 状态机特权位（76 轮件5）：经 applySetEnabled 内核行翻——不经
+      // service.setJobEnabled 守卫面（公开面守卫拒 builtin goal- 行启停后，
+      // 绕守卫走内核即单漏斗特权；goalJobs.remove 直 dao 同族不对称）
+      applySetEnabled(name, false, row); // 行留史（enable 可复活）
     },
     async enable(goalId) {
       const name = `goal-${goalId}`;
-      if (!dao.get(name)) return; // 无行 = 静默 no-op
-      service.setJobEnabled(name, true);
+      const row = dao.get(name);
+      if (!row) return; // 无行 = 静默 no-op
+      applySetEnabled(name, true, row); // resume 复活——同内核特权位（同上）
     },
     async remove(goalId) {
       const name = `goal-${goalId}`;

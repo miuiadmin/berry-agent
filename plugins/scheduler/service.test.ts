@@ -209,6 +209,40 @@ describe('GoalJobsFace 五法（第五槽窄面——四写法 + L4-1 enabled �
   });
 });
 
+describe('76 轮件5——挂钟行启停单漏斗执法（setJobEnabled builtin goal- 拒守卫）', () => {
+  it('builtin goal 行 enable/disable 拒 SCHEDULER_JOB_INVALID + 行不翻（修前红：直翻成功——复活预算停靠/停滞硬停行）', () => {
+    const { service, getRow } = openService();
+    service.addBuiltinJob({ name: 'goal-g5', schedule: 'every:10m', prompt: 'p', enabled: true });
+    expectCode(() => service.setJobEnabled('goal-g5', false), 'SCHEDULER_JOB_INVALID');
+    expect(getRow('goal-g5')?.enabled).toBe(true); // 行不翻——停摆行不被用户直翻
+    expectCode(() => service.setJobEnabled('goal-g5', true), 'SCHEDULER_JOB_INVALID');
+    expect(getRow('goal-g5')?.enabled).toBe(true);
+  });
+
+  it('守卫面双条件（builtin 位 × goal- 前缀两判）：用户自建 goal- 名行可启停、issue-poll builtin 行可启停', () => {
+    const { service, getRow } = openService();
+    // 用户行恰名 goal-mine（dao insertRow 不保 goal- 前缀独占——NAME_RE 合法
+    // 可自建）——非 builtin 不落守卫面（单条件会误伤）
+    service.addJob({ name: 'goal-mine', schedule: 'every:10m', prompt: 'p' });
+    service.setJobEnabled('goal-mine', true);
+    expect(getRow('goal-mine')?.enabled).toBe(true);
+    // issue-poll builtin 行：issue 件 stop()/start() 经 service 正门启停可恢复
+    //（不可恢复性是 goal 独有——守卫面按 builtin 位 × 前缀两判收紧）
+    service.addBuiltinJob({ name: 'issue-poll', schedule: 'every:120s', prompt: '(builtin) 占位', enabled: true });
+    service.setJobEnabled('issue-poll', false);
+    expect(getRow('issue-poll')?.enabled).toBe(false);
+  });
+
+  it('goal 状态机特权不破：goalJobs.disable/enable 经内核仍翻行（启停单漏斗——守卫外特权位）', async () => {
+    const { goalJobs, getRow } = openService();
+    await goalJobs.register({ goalId: 'g6', sessionId: 's1', schedule: 'daily@09:30', promptSnapshot: 'p' });
+    await goalJobs.disable('g6');
+    expect(getRow('goal-g6')?.enabled).toBe(false); // 行留史（enable 可复活）
+    await goalJobs.enable('g6');
+    expect(getRow('goal-g6')?.enabled).toBe(true); // resume 复原
+  });
+});
+
 describe('cron 联动「不半态」', () => {
   /** 假 registrar——可编排失败 */
   function fakeRegistrar(failRegister = false): CronRegistrar & { calls: string[] } {

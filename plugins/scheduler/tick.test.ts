@@ -10,7 +10,7 @@ import { BaseError } from '../../src/contracts/index.js';
 import { ephemeralSecretKey, openStore, type Store } from '../../src/persist/index.js';
 import { SCHEDULER_MIGRATION } from './migration.js';
 import { runTickCommand, TICK_USAGE, type TickCommandDeps } from './tick.js';
-import { createSchedulerService, type SchedulerService } from './service.js';
+import { createSchedulerService, type GoalJobsFace, type SchedulerService } from './service.js';
 import type { SchedulerEngine } from './engine.js';
 import type { JobRow, RunOutcome } from './types.js';
 
@@ -312,20 +312,24 @@ describe('rm 内置 goal 挂钟行守卫（真 service——H2）', () => {
   });
 
   /** 真 service 装配（service.test 同形——临时目录库跑 scheduler 迁移） */
-  function openService(): { service: SchedulerService; getRow: (name: string) => JobRow | undefined } {
+  function openService(): {
+    service: SchedulerService;
+    goalJobs: GoalJobsFace;
+    getRow: (name: string) => JobRow | undefined;
+  } {
     store = openStore({
       dbPath: join(dir, 'test.db'),
       dataDir: join(dir, 'data'),
       secretKey: ephemeralSecretKey(),
       migrations: [SCHEDULER_MIGRATION],
     });
-    const { service, dao } = createSchedulerService({
+    const { service, dao, goalJobs } = createSchedulerService({
       db: store.sqlite(),
       now: () => '2026-09-07T08:00:00.000Z',
       warn: () => undefined,
       pathExists: () => true,
     });
-    return { service, getRow: (name) => dao.get(name) };
+    return { service, goalJobs, getRow: (name) => dao.get(name) };
   }
 
   it('builtin goal 行 removeJob 拒删 SCHEDULER_JOB_INVALID + 行不删（修前红：删成功零拒绝）', () => {
@@ -347,9 +351,9 @@ describe('rm 内置 goal 挂钟行守卫（真 service——H2）', () => {
   });
 
   it('/tick rm builtin goal 行折指路文本 + 行仍在 + enable 仍可复活（可恢复性锁）', async () => {
-    const { service, getRow } = openService();
+    const { service, goalJobs, getRow } = openService();
     service.addBuiltinJob({ name: 'goal-g2', schedule: 'every:10m', prompt: 'p', enabled: true });
-    service.setJobEnabled('goal-g2', false); // 终态停摆形（行留史——resume 复活前常态）
+    await goalJobs.disable('g2'); // 终态停摆形（行留史——resume 复活前常态；启停走状态机单漏斗——76 轮件5 守卫后 service 面不受理）
     const out = await runTickCommand(['rm', 'goal-g2'], deps(service, fakeEngine()));
     // BaseError 折文本（命令道不抛）。指路文案翻档（03 §10.5 第十一轮收官
     // 呈拍批定形①③——/goal abandon 用户动词开面）：旧锚「在目标会话中让
@@ -362,8 +366,24 @@ describe('rm 内置 goal 挂钟行守卫（真 service——H2）', () => {
     expect(out).not.toContain('停止或删除该目标');
     expect(getRow('goal-g2')).toBeDefined(); // rm 不受理——行不删
     // 修前损害形锁 absent：删行后 enable 对无行静默 no-op 全瘫；治本后照常复活
-    service.setJobEnabled('goal-g2', true);
+    //（经 goal 状态机单漏斗——GoalJobsFace.enable 内核特权位）
+    await goalJobs.enable('g2');
     expect(getRow('goal-g2')?.enabled).toBe(true);
+  });
+
+  it('/tick enable|disable builtin goal 行折指路文本 + 行不翻（76 轮件5——修前红：直翻成功绕状态机）', async () => {
+    const { service, getRow } = openService();
+    service.addBuiltinJob({ name: 'goal-g3', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const out = await runTickCommand(['disable', 'goal-g3'], deps(service, fakeEngine()));
+    // BaseError 折文本（命令道不抛——错误呈现路径与 rm 动词同族）；变更
+    // 证据形——只断指路关键词（由 goal 自动管理 / 启停随状态机），勿断整句
+    expect(out).toContain('SCHEDULER_JOB_INVALID');
+    expect(out).toContain('自动管理');
+    expect(out).toContain('goal');
+    expect(getRow('goal-g3')?.enabled).toBe(true); // 行不翻——停摆行不被直翻
+    const out2 = await runTickCommand(['enable', 'goal-g3'], deps(service, fakeEngine()));
+    expect(out2).toContain('SCHEDULER_JOB_INVALID');
+    expect(getRow('goal-g3')?.enabled).toBe(true);
   });
 
   it('守卫面精准（builtin 位 × goal- 前缀两判）：同名非 builtin 用户行可删、issue-poll builtin 行可删（issue stop() 正门）', () => {
