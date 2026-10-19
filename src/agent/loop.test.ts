@@ -451,6 +451,36 @@ describe('工具批语义', () => {
     expect(seen).toHaveLength(2); // 二轮流调用在场（terminate 未停）
   });
 
+  it('空批同辖空真律：toolUse 零 toolCall 块（网关失形）→ 空批空真恒 terminate 停跑（真 bug 修前必红）', async () => {
+    // 缺口背景（04 §2 terminate 空真律 + 69 轮件 A 补笔）：stopReason='toolUse'
+    // 而零 toolCall 块（网关 finish_reason="tool_calls" + 空 tool_calls 数组的
+    // 协议翻译失形——任意兼容网关均可产此形）进批得零元素批。修前「空批不
+    // 终止」门（calls.length > 0 &&）使空批恒续跑：每轮计费请求旋转烧 token
+    // 直至上下文涨满——与重放循环卡死同病理，停跑即兜底。剧本两响应：首轮
+    // 真执行腿（terminate:false 一票续跑——证明续跑通道未被误伤）+ 次轮零块
+    // 空批；修后第二轮空批空真恒 terminate 即 break（计数止于 2、终态
+    // completed）；修前第三轮起脚本耗尽 reject（faux 计数帽捕获无限续轮）。
+    const seen: StreamFnOptions[] = [];
+    const { context, config } = rig({
+      streamFn: scriptedStreamFn(
+        [
+          assistant({ stopReason: 'toolUse', content: [call('t1', 'probe')] }),
+          assistant({ stopReason: 'toolUse', content: [] }), // 零 toolCall 块——网关失形空批
+        ],
+        seen,
+      ),
+    });
+    context.tools = [makeTool('probe')];
+    const result = await startRun(context, config, [user('q')]);
+    // 空批停跑的终态承载：toolUse 停跑形 → completed（非 failed——工具面语义是数据面）
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'toolUse' });
+    // 计数帽：模型请求恰两发——第二轮空批即 break，无第三轮旋转请求（修前红锚）
+    expect(seen).toHaveLength(2);
+    // 消息轨迹：种子 + 两终值 + 首轮唯一配对（零元素批零 toolResult——无孤儿形）
+    expect(context.messages).toHaveLength(4);
+    expect(context.messages.filter((m) => m.role === 'toolResult')).toHaveLength(1);
+  });
+
   it('串行批中止余量配对：signal 已 abort → 未执行 calls 逐件 isError', async () => {
     const ctl = new AbortController();
     ctl.abort();

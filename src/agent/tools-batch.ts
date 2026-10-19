@@ -12,8 +12,8 @@
  * 的 read 段已 Promise.all 排干、write 后的 read 段待其结算才起跑）；③beforeToolCall
  * block → immediate isError 结果；④terminate 批内一致裁决（批内全
  * terminate 才 terminate——单件否决不放大；回执腿/中止配对腿/丢尾腿非执行
- * 腿不否决——空真通过与批内任何真实执行腿的 false 一票即续跑，纯非执行
- * 批恒 terminate 停跑——重放循环卡死的兜底）；⑤abort 余量配对（落批中
+ * 腿不否决——空真通过与批内任何真实执行腿的 false 一票即续跑，纯非执行批
+ * （含零元素空批）恒 terminate 停跑——重放循环卡死与空批旋转的兜底）；⑤abort 余量配对（落批中
  * 间时未执行 calls 逐个配对 isError toolResult，防下一轮孤儿 toolUse）。
  */
 
@@ -28,7 +28,7 @@ export const DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE = 32;
 /** 批执行结算：结果消息（与 calls 恒配对——含 block/isError/中止配对/回执/丢尾腿）+ 批内一致 terminate */
 export interface ToolBatchOutcome {
   results: ToolResultMessage[];
-  /** 批内全 terminate 才 true（04 §2 批内一致裁决；非执行腿〔回执/中止配对/丢尾〕不否决——空真通过：纯非执行批恒 true 停跑〔重放循环兜底〕、批内任一真实执行腿 false 即续跑） */
+  /** 批内全 terminate 才 true（04 §2 批内一致裁决；非执行腿〔回执/中止配对/丢尾〕不否决——空真通过：纯非执行批/零元素空批恒 true 停跑〔重放循环与空批旋转兜底〕、批内任一真实执行腿 false 即续跑） */
   terminate: boolean;
   /** 闸②丢尾计数（04 §2——被超帽丢弃的条数，非静默暴露；被丢 legs 已在 results 内逐条 isError 配对） */
   droppedCount: number;
@@ -173,7 +173,9 @@ export async function executeToolBatch(
       for (const call of calls.slice(index)) {
         outcome.results.push(buildResult(call, '工具批已被打断（run 中止——余量配对收口）', true, { aborted: true }));
       }
-      outcome.terminate = calls.length > 0 && allTerminate;
+      // 空真律同辖（69 轮件 A）：本分支仅批内有 calls 时可达（while 体不进空批），
+      // 此处恒 calls.length ≥ 1——与 settle 尾同式无门
+      outcome.terminate = allTerminate;
       return outcome;
     }
     // 非执行腿排干（保序内联，切段）：回执腿 = 账本既有结果直接回执（拷贝重铸
@@ -225,11 +227,14 @@ export async function executeToolBatch(
     ledger.set(writeCall.id, settled.message); // 执行后入账（后续重放回执）
     allTerminate = allTerminate && settled.terminate;
   }
-  // 空批不终止；回执腿/丢尾腿不否决（空真通过与中止配对腿同律）——纯非执行
-  // 批（全回执/全丢尾）恒 terminate：停跑正是重放循环卡死的兜底（strix 病理
-  // 下继续跑 = 模型每轮空转重放烧 token；批内只要有一条真实执行腿投 false
-  // 即续跑）
-  outcome.terminate = calls.length > 0 && allTerminate;
+  // 空批同辖空真律（04 §2 terminate 空真律 + 69 轮件 A 补笔）：terminate =
+  // allTerminate——零元素批（stopReason='toolUse' 而零 toolCall 块：网关
+  // finish_reason="tool_calls" + 空 tool_calls 数组的协议翻译失形——任意兼容
+  // 网关均可产此形）空真恒真即停跑（继续旋转 = 每轮计费请求烧 token 直至
+  // 上下文涨满——与重放循环卡死同病理，停跑即兜底）；回执腿/丢尾腿不否决
+  // （空真通过与中止配对腿同律）——纯非执行批（全回执/全丢尾/零元素）恒
+  // terminate；批内只要有一条真实执行腿投 false 即续跑
+  outcome.terminate = allTerminate;
   return outcome;
 }
 
