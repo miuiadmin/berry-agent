@@ -164,7 +164,7 @@ function atomicWrite(fs: PluginStoreFs, path: string, text: string): void {
 /* ---------------- 编辑面跨进程互斥（03 §5.3 73 轮批注——RMW 丢更新防护） ----------------
  *
  * 锁原语已单源共享至 exec 件（74 轮批注——plugins/exec/edit-lock.ts 同步形
- * withEditLock：四写者族同协议同常量，线协议兼容）：本件为消费位——
+ * withEditLock：写者族同协议同常量，线协议兼容）：本件为消费位——
  * PluginStoreFs 结构满足锁原语 EditLockFs 最小面（read/openExclusive/unlink
  * /mkdir），直传注入即可，行为与 73 轮私有实现零变化（plugin-store.test
  * 五锁测试即冻结锚）。协议全律（O_EXCL 取锁 / 持锁 pid 判活破锁 / 有界重试

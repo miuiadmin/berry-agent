@@ -1,7 +1,9 @@
 /**
  * 编辑面跨进程互斥共享原语（03 §5.3 编辑面跨进程互斥律——挖掘 74 轮批注
  * 单源共享）：enabled.yaml / ledger.json / 源清单 marketplaces.json / 子进程
- * 登记簿 children.json 四写者族同协议同款 lockfile。
+ * 登记簿 children.json / 安装锚 package.json / 启动失败簿 boot-failures.json
+ * 六写者族同协议同款 lockfile（77 轮 lane B 勘正：四写者为 74 轮前旧数——
+ * npm 锚对与 boot-failures 相继入族）。
  *
  * 协议（同步/异步两形同律——线协议兼容：同 lockfile 路径约定
  * `<目标文件>.lock`、同 pid 载荷形 `${process.pid}\n`、同常量）：
@@ -77,11 +79,11 @@ export class EditLockBusy extends Error {
 
 /**
  * 锁超限拒文单源（带锁路径与重试帽——消费载体经 name 位传名：启用清单 /
- * 装机账本 / 市场源清单）。词面模板四写者族共用，漂移即测试红；「宁拒服务
+ * 装机账本 / 市场源清单）。词面模板写者族共用，漂移即测试红；「宁拒服务
  * 不丢数据」与锁文件定位/清锁指路是拒文的承载面。
  *
  * 注入值诚实化（76 轮件6）：可选第三参把**实际用的**重试值写进拒文（调用
- * 方注入短帽时拒文不虚报缺省帽）——缺省调用串逐字节不变（四写者族词面
+ * 方注入短帽时拒文不虚报缺省帽）——缺省调用串逐字节不变（写者族词面
  * 基线零漂移）。
  */
 export function editLockBusyText(name: string, lockPath: string, options: EditLockOptions = {}): string {

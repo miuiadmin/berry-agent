@@ -469,7 +469,9 @@ describe('锁内增量持久化（跨进程丢更新防护——74 轮件1）', 
     const registry = createProcessRegistry({ filePath: file, logger });
     expect(() => registry.add(entry({ pid: 44 }))).not.toThrow(); // 写面容错——锁忙不抛
     expect(registry.list().map((e) => e.pid)).toEqual([44]); // 内存账仍准
-    // 锁重试帽 21 轮 × 100ms ≈ 2.1s 后 warn 才落——until 预算须高于重试帽
+    // 锁忙形经文件级 vi.mock 注入短帽（1ms × 2——76 轮件6 注入面），warn 落地
+    // 毫秒级；until 预算 5000 留 CI 慢机宽余（77 轮 lane B 勘正：旧注「须高于
+    // 缺省重试帽 2.1s」理由随短帽注入失效——勿回读为必要条件）
     await until(() => logger.warns.some((w) => w.includes('跳过')), 5000); // 修前红：无锁零 warn
     expect(existsSync(file)).toBe(false); // 拒写不退化为无锁写——修前红：true
   });

@@ -89,7 +89,7 @@ describe('编辑锁共享原语·同步形 withEditLock（03 §5.3 74 轮单源�
     expect(fs.files.has('/data/enabled.yaml.lock')).toBe(false); // finally 释放
   });
 
-  it('拒文 editLockBusyText：载体名 + 锁路径 + 重试帽指路（单源词面四写者族共用）', () => {
+  it('拒文 editLockBusyText：载体名 + 锁路径 + 重试帽指路（单源词面写者族共用）', () => {
     const text = editLockBusyText('启用清单', '/data/enabled.yaml.lock');
     expect(text).toContain('启用清单正被另一进程编辑');
     expect(text).toContain('/data/enabled.yaml.lock');
@@ -195,8 +195,8 @@ describe('重试常量注入面（76 轮件6——74 轮「常量注入面收短
     expect(EDIT_LOCK_RETRY_DEFAULTS).toEqual({ retryIntervalMs: 100, maxAttempts: 20 });
   });
 
-  it('拒文注入值诚实化：带注入参写实际重试值；缺省调用串逐字节不变（四写者族词面基线）', () => {
-    // 缺省调用逐字节不变（四写者族共用词面的字节基线——缺省形零漂移）
+  it('拒文注入值诚实化：带注入参写实际重试值；缺省调用串逐字节不变（写者族词面基线）', () => {
+    // 缺省调用逐字节不变（写者族共用词面的字节基线——缺省形零漂移）
     expect(editLockBusyText('启用清单', '/data/enabled.yaml.lock')).toBe(
       '启用清单正被另一进程编辑（锁 /data/enabled.yaml.lock，等待重试 20 次 × 100ms 超限）' +
         '——已拒写以防丢更新；确认无其他进程在编辑时，可删除该锁文件后重试',
