@@ -185,6 +185,11 @@ export function createMemoryCycle(deps: MemoryCycleDeps): MemoryCycle {
         counters.delete(sessionId);
         due.delete(sessionId);
 
+        // —— 回执分级投影（06 篇 72 轮批注——呈现链兑现）：成功收尾按 outcome
+        //    分级 warn 每类恰一笔；常态档零投影（详注见 projectCycleReport）。
+        //    放 return 前——装配位 void 吞回执，进程日志是唯一呈现面
+        projectCycleReport(warn, { review, consolidation });
+
         return {
           outcome: pollutedNow ? 'skipped-polluted' : 'reviewed',
           sweptExpired,
@@ -205,4 +210,64 @@ export function createMemoryCycle(deps: MemoryCycleDeps): MemoryCycle {
 /** catch 面资格回查（review 未跑——按现行资格态归类） */
 function pollutedNowRef(pollution: PollutionTracker, sessionId: string): CycleFireResult['outcome'] {
   return pollution.isPolluted(sessionId) ? 'skipped-polluted' : 'reviewed';
+}
+
+/* ---------------- fire 回执分级投影（06 篇 72 轮批注） ---------------- */
+
+/**
+ * fire 成功收尾的回执分级投影（06 篇 72 轮批注「fire 回执呈现链兑现」——装配位
+ * void 吞回执下进程日志是唯一呈现面）：**每类恰一笔**（review / consolidation
+ * 各至多一行——承 71 轮 scheduler 摘要分段先例）；行首标签
+ * [MEMORY_CYCLE_REVIEW] / [MEMORY_CYCLE_CONSOLIDATE]（日志标签形——非 durable
+ * 事件词不入词汇表）。
+ *
+ * 入线档：① skipped-parse（两拍各计——LLM 持续坏 JSON 轮轮零候选，库面与
+ * ran-真拍-0-提取同形不可区分，持续形是模型/提示词回归信号不可静默）；
+ * ② 非零运维计数（review.discarded 按条丢弃 / consolidation.rejectedGroups
+ * 理由护栏驳回 / ignoredSuggestions 集外忽略——自进化管线取舍信号，零 durable
+ * 对应物不落版本链）。
+ *
+ * 零投影档（常态）：ran（含 0 提取——真拍了）/skipped-empty/skipped-budget/
+ * skipped-inflight/skipped-polluted/skipped-anchor/skipped-watermark + 全零计数
+ * （budget 拒是常事、水位/anchor 时间库面可直查）；skipped-error 由 review/
+ * consolidate 的 complete 抛错位既有 warn 承担（同事件一笔律——收尾不重复投影，
+ * 该档计数构造上恒零不会再触线）；sweptExpired 常态计数零投影（TTL 物化 =
+ * status='expired' 库面可直查）。
+ */
+function projectCycleReport(
+  warn: (message: string) => void,
+  report: { readonly review?: ReviewRunResult; readonly consolidation?: ConsolidateRunResult },
+): void {
+  const review = report.review;
+  // review 类恰一笔：skipped-parse 与 discarded>0 并入同一汇总行（现行构造互斥——防御并形）
+  if (review !== undefined && (review.outcome === 'skipped-parse' || review.discarded > 0)) {
+    const parts: string[] = [];
+    if (review.outcome === 'skipped-parse') {
+      parts.push('解析全败 skipped-parse（回复整体非 JSON——持续形是模型/提示词回归信号）');
+    }
+    if (review.discarded > 0) {
+      parts.push(`按条丢弃 ${review.discarded} 条（schema 败/入库拒取舍信号）`);
+    }
+    warn(`[MEMORY_CYCLE_REVIEW] review 拍异常信号：${parts.join('；')}`);
+  }
+  const consolidation = report.consolidation;
+  // consolidation 类恰一笔：skipped-parse 与 rejectedGroups/ignoredSuggestions 并入同一汇总行
+  if (
+    consolidation !== undefined &&
+    (consolidation.outcome === 'skipped-parse' ||
+      consolidation.rejectedGroups > 0 ||
+      consolidation.ignoredSuggestions > 0)
+  ) {
+    const parts: string[] = [];
+    if (consolidation.outcome === 'skipped-parse') {
+      parts.push('计划解析全败 skipped-parse（计划整体非 JSON——持续形是模型/提示词回归信号）');
+    }
+    if (consolidation.rejectedGroups > 0) {
+      parts.push(`理由护栏驳回 ${consolidation.rejectedGroups} 组`);
+    }
+    if (consolidation.ignoredSuggestions > 0) {
+      parts.push(`集外/执行拒忽略 ${consolidation.ignoredSuggestions} 条`);
+    }
+    warn(`[MEMORY_CYCLE_CONSOLIDATE] consolidation 拍异常信号：${parts.join('；')}`);
+  }
 }
