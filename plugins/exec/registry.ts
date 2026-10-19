@@ -221,10 +221,18 @@ export async function sweepOrphans(
   // 是日志标签形（承 [MEMORY_CYCLE_REVIEW]/[SCHEDULER_POLL_ERRORS] 先例
   // ——非 durable 事件词不入词汇表）；全零 = 无孤儿常态零投影零噪声。
   if (killed > 0 || removed > 0) {
-    const tail =
-      killedEntries.length > 0
-        ? `——被杀条目 ${killedEntries.map((e) => `pid=${e.pid} cmd="${e.cmdline}"`).join('；')}`
-        : '';
+    // 尾段留样帽 5（04 §11 75 轮批注「清扫汇总行尾段帽」）：上代崩溃遗留
+    // 大量孤儿时 cmdline 全长 KB 级/条——全量 map·join 单行 warn 数十 KB 起，
+    // 进程日志（树杀动作唯一可审计面）可读性与采集面双损；slice(0,5) 留样保
+    // 代表性 + 超量段计数保全，句首 killed 计数恒全量（RunOutcome.error 200
+    // 帽先例同族——帽只辖呈现不辖账）。
+    const TAIL_SAMPLE_CAP = 5;
+    const shown = killedEntries
+      .slice(0, TAIL_SAMPLE_CAP)
+      .map((e) => `pid=${e.pid} cmd="${e.cmdline}"`)
+      .join('；');
+    const overflow = killedEntries.length - TAIL_SAMPLE_CAP;
+    const tail = killedEntries.length > 0 ? `——被杀条目 ${shown}${overflow > 0 ? `……另 ${overflow} 条未列` : ''}` : '';
     logger.warn(`[EXEC_ORPHAN_SWEEP] 上代遗留孤儿清扫收尾：树杀 ${killed}、跳过 ${skipped}、出册 ${removed}${tail}`);
   }
   return { killed, skipped, removed };

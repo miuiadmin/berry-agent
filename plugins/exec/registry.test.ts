@@ -341,6 +341,39 @@ describe('sweepOrphans 孤儿清扫', () => {
     expect(summaries[0]).not.toContain('被杀条目'); // 零杀纯出册——无条目尾段
   });
 
+  // ── 清扫汇总行尾段帽（04 §11 75 轮批注——尾段留样帽 5）──────────────────
+  // 修前红：被杀条目全量 map·join 无帽——上代崩溃遗留大量孤儿时单行 warn 数十
+  // KB 起（cmdline 全长 KB 级/条），进程日志（树杀动作唯一可审计面）可读性双损。
+  it('尾段留样帽 5：清扫 7 孤儿 → 汇总行恰含前 5 条 + 「另 2 条未列」，句首 killed 计数恒全量 7（修前红：全量列出无帽语）', async () => {
+    const logger = testLogger();
+    const pids = [100, 101, 102, 103, 104, 105, 106];
+    // 宿主 pid 1 已死、孤儿 pid 全活且命令行相符（stub 桩——注入位 mock 合规）
+    const deps = stubDeps({ isAlive: (pid) => pid >= 100, readCmdline: () => '/bin/sleep 30' });
+    const registry = createProcessRegistry({ hostPid: 2, logger });
+    for (const pid of pids) registry.add(entry({ pid, hostPid: 1, argv: ['/bin/sleep', '30'] }));
+    await sweepOrphans(registry, { hostPid: 2, logger }, deps);
+    const summaries = logger.warns.filter((w) => w.includes('[EXEC_ORPHAN_SWEEP]'));
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toContain('树杀 7'); // 句首计数恒全量（计数保全）
+    expect(deps.killed).toHaveLength(7); // 树杀动作本身不受帽影响（帽只辖呈现）
+    for (const pid of pids.slice(0, 5)) expect(summaries[0]).toContain(`pid=${pid}`); // 前 5 留样
+    for (const pid of pids.slice(5)) expect(summaries[0]).not.toContain(`pid=${pid}`); // 超量不列
+    expect(summaries[0]).toContain('另 2 条未列'); // 超量段（N = 7 - 5）
+  });
+
+  it('恰 5 条边界：5 条全列、无「另 N」段（帽 = 计数——零省略零帽语）', async () => {
+    const logger = testLogger();
+    const deps = stubDeps({ isAlive: (pid) => pid >= 100, readCmdline: () => '/bin/sleep 30' });
+    const registry = createProcessRegistry({ hostPid: 2, logger });
+    for (let pid = 100; pid < 105; pid += 1) registry.add(entry({ pid, hostPid: 1, argv: ['/bin/sleep', '30'] }));
+    await sweepOrphans(registry, { hostPid: 2, logger }, deps);
+    const summaries = logger.warns.filter((w) => w.includes('[EXEC_ORPHAN_SWEEP]'));
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toContain('树杀 5');
+    for (let pid = 100; pid < 105; pid += 1) expect(summaries[0]).toContain(`pid=${pid}`); // 5 条全列
+    expect(summaries[0]).not.toContain('未列'); // 恰帽——无超量段
+  });
+
   it('全零（无孤儿常态）→ 零投影零噪声', async () => {
     const logger = testLogger();
     const registry = createProcessRegistry({ hostPid: 2, logger });
