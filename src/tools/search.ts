@@ -429,7 +429,12 @@ export function createSearchTools(opts: SearchToolsOptions = {}): SearchTools {
       let skippedOversize = 0;
       let scanned = 0;
 
-      /** 单文件扫描 + 计数入账（达限返回 true 供早停） */
+      /**
+       * 单文件扫描 + 计数入账。返回值 true = **已达帽又遇新命中**（该命中未入
+       * 账——「先查后推」形，04 §7 截断注记形律）：命中到来先判已满才返回
+       * true（不 push）；push 后不判（return false）——恰满帽（全树恰
+       * maxResults 条命中）时循环自然扫尽返回 false，不误报截断。
+       */
       const consumeFile = async (rel: string, abs: string): Promise<boolean> => {
         scanned++;
         const result = await scanFile(abs, re, maxScanBytes, protectedReadFiles);
@@ -444,15 +449,17 @@ export function createSearchTools(opts: SearchToolsOptions = {}): SearchTools {
         if (result.truncated) skippedOversize++;
         if (result.lines.length === 0) return false;
         if (mode === 'files_with_matches') {
+          // 先查后推：已满才截（本文件是未入账的新命中）；push 后不判——恰满帽自然扫尽
           if (files.length >= maxResults) return true;
           files.push(rel);
-          return files.length >= maxResults;
+          return false;
         }
         for (const line of result.lines) {
+          // 先查后推（行级同律）：已满才截（本行未入账）；恰满帽循环自然落尾
           if (contentLines.length >= maxResults) return true;
           contentLines.push(`${rel}:${line.no}:${line.text}`);
         }
-        return contentLines.length >= maxResults;
+        return false;
       };
 
       // 目标形态分派：单文件显式指定 = 用户意图（不做 ignore/glob 过滤）；

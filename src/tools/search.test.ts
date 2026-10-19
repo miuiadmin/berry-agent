@@ -366,6 +366,24 @@ describe('grep 工具', () => {
     }
   });
 
+  it('files 模式恰满帽不误报截断：全树恰 maxResults 个命中文件自然扫尽（修前红：push 后判 length >= maxResults——恰满帽与超帽不可区分恒 truncated=true + 谎称已达上限）', async () => {
+    const local = makeRig({ maxResults: 3 });
+    await mkdir(local.root, { recursive: true }); // local rig 根先建
+    try {
+      for (const name of ['aa.txt', 'bb.txt', 'cc.txt']) {
+        await writeFile(join(local.root, name), 'needle\n');
+      }
+      const res = await local.grep.execute({ pattern: 'needle' }, { toolCallId: 'test' });
+      const text = (res.content[0] as { text: string }).text;
+      // 恰满帽 = 清单已列尽零丢失，非截断（04 §7「截断注记先查后推形律」）
+      expect(res.details).toMatchObject({ matched: 3, truncated: false });
+      expect(text).not.toContain('上限'); // 无截断尾注——不向模型谎报信息不全
+      expect(text.split('\n')).toEqual(['aa.txt', 'bb.txt', 'cc.txt']);
+    } finally {
+      await rm(local.root, { recursive: true, force: true });
+    }
+  });
+
   it('glob 文件名过滤：只搜匹配文件', async () => {
     await writeFile(join(rig.root, 'src/c.txt'), 'alpha in txt\n');
     const res = await rig.grep.execute({ pattern: 'alpha', glob: '**/*.txt' }, { toolCallId: 'test' });
@@ -419,6 +437,22 @@ describe('grep 工具', () => {
       // 修前注记永不出现（truncated 无人置位）——修后达限必带注记
       expect(text).toContain('上限');
       expect(res.details).toMatchObject({ matched: 2, truncated: true });
+    } finally {
+      await rm(local.root, { recursive: true, force: true });
+    }
+  });
+
+  it('content 模式恰满帽不误报截断：全树恰 maxResults 条命中行自然扫尽（修前红：push 后判致恰满帽恒 truncated=true）', async () => {
+    const local = makeRig({ maxResults: 3 });
+    await mkdir(local.root, { recursive: true }); // local rig 根先建
+    try {
+      await writeFile(join(local.root, 'three.txt'), 'alpha 1\nalpha 2\nalpha 3\n');
+      const res = await local.grep.execute({ pattern: 'alpha', output_mode: 'content' }, { toolCallId: 'test' });
+      const text = (res.content[0] as { text: string }).text;
+      // 恰满帽 = 命中行已列尽零丢失，非截断（与 files 模式同律——先查后推形）
+      expect(res.details).toMatchObject({ matched: 3, truncated: false });
+      expect(text).not.toContain('上限');
+      expect(text.split('\n')).toEqual(['three.txt:1:alpha 1', 'three.txt:2:alpha 2', 'three.txt:3:alpha 3']);
     } finally {
       await rm(local.root, { recursive: true, force: true });
     }
