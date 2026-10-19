@@ -182,4 +182,62 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
     expect(doc.plugins).toEqual({ activated: [], failed: [], skipped: [] }); // 整跳（磁盘行不读不停）
     expect(doc.counts).toEqual({ total: 0, enabled: 0, failed: 0 });
   });
+
+  it('dataDir 缺省走 env 梯子：BERRY_AGENT_DATA_DIR 直通输出 dataDir（74 轮回归锁——修前主路不传 dataDir ⇒ 条件展开省键 ⇒ 输出恒 null）', async () => {
+    // 74 轮 obs-c 同病未同步位：plugins list 已修（?? resolveDataDir()）而本
+    // 入口仍是条件展开形——main.ts dumpConfig 载体不传 dataDir ⇒ 纯 memory
+    // 空配形（dataDir=null）⇒「真数据目录读侧」整跳。本锁：不传
+    // options.dataDir、只设 env，输出 dataDir 必须直通 env 位（修前必红——null）
+    const dir = tmpDir('dump-cfg-envdir-');
+    const io = capture();
+    const prev = process.env.BERRY_AGENT_DATA_DIR;
+    process.env.BERRY_AGENT_DATA_DIR = dir;
+    try {
+      const code = await runDumpConfigEntry({ flags: FLAGS, version: 'x', ...io });
+      expect(code).toBe(0);
+      const doc = JSON.parse(io.out.join('\n')) as { dataDir: string | null };
+      expect(doc.dataDir).toBe(dir); // env 梯子由此接通（读侧归属地如实报告）
+    } finally {
+      if (prev === undefined) delete process.env.BERRY_AGENT_DATA_DIR;
+      else process.env.BERRY_AGENT_DATA_DIR = prev;
+    }
+  });
+
+  it('env 梯子同构真读（74 轮回归锁）：BERRY_AGENT_DATA_DIR 下 enabled.yaml disabled 行进 skipped 不在 activated（修前恒出厂全启）', async () => {
+    // 与上锁同病灶的读侧证据：env 位磁盘启用清单禁用一个 core 行 ⇒ 该行
+    // 必须进 skipped（disabled 禁用位——loader 真源 reason）、不进 activated、
+    // counts 同口径折数。修前 dataDir=null 整跳 enabled.yaml ⇒ 16 件全启零
+    // skipped——本断言必红
+    const dir = tmpDir('dump-cfg-envread-');
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins:\n  - id: core:credentials\n    disabled: true\n');
+    const io = capture();
+    const prev = process.env.BERRY_AGENT_DATA_DIR;
+    process.env.BERRY_AGENT_DATA_DIR = dir;
+    try {
+      const code = await runDumpConfigEntry({ flags: FLAGS, version: 'x', ...io });
+      expect(code).toBe(0);
+      const doc = JSON.parse(io.out.join('\n')) as {
+        dataDir: string | null;
+        plugins: {
+          activated: Array<{ id: string }>;
+          failed: unknown[];
+          skipped: Array<{ id: string; reason: string }>;
+        };
+        counts: { total: number; enabled: number; failed: number };
+      };
+      expect(doc.dataDir).toBe(dir);
+      // 禁用行读侧真达：单行 skipped + reason 字面量（loader 真源）
+      expect(doc.plugins.skipped.map((s) => s.id)).toEqual(['core:credentials']);
+      expect(doc.plugins.skipped[0]?.reason).toBe('disabled（启用行禁用位）');
+      // 出厂缺省形打破：activated 无该行、其余 15 件照装
+      expect(doc.plugins.activated.map((a) => a.id)).not.toContain('core:credentials');
+      expect(doc.plugins.activated.length).toBe(15);
+      expect(doc.plugins.failed).toEqual([]);
+      // counts 口径：skipped 行只入 total 不入 enabled/failed（plugin-boot 真源）
+      expect(doc.counts).toEqual({ total: 16, enabled: 15, failed: 0 });
+    } finally {
+      if (prev === undefined) delete process.env.BERRY_AGENT_DATA_DIR;
+      else process.env.BERRY_AGENT_DATA_DIR = prev;
+    }
+  });
 });

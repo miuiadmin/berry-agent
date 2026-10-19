@@ -12,11 +12,17 @@
  * `--port` 收下不起监听（07 §5 旗标块）——flags 段如实注记。失败档：装配
  * 干净退出（启动失败/启用清单损坏）= stderr message + 退 1（不写
  * crash.log——诊断命令半途即止，无运行期崩溃可言）。
+ *
+ * dataDir 缺省律（74 轮批注——与 plugins list obs-c 修同形）：缺省解析走
+ * `resolveDataDir()` 恒在场（env 梯子 BERRY_AGENT_DATA_DIR 接通）；修前主路恒
+ * :memory: 空配形（dataDir=null ⇒ 真数据目录读侧整跳）。副作用边界如实：
+ * 修真后与 plugins list 同形——apply 期孤儿清扫/fire-and-forget 同样触达。
  */
 import type { DumpConfigFlags } from './cli.js';
 import { assembleHostStack } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import type { HostRuntime } from './runtime.js';
+import { resolveDataDir } from '../persist/index.js';
 
 /** 入口选项（main 分派接线 + 测试注入面） */
 export interface DumpConfigEntryOptions {
@@ -41,11 +47,17 @@ export interface DumpConfigEntryOptions {
 export async function runDumpConfigEntry(options: DumpConfigEntryOptions): Promise<number> {
   const writeOut = options.writeOut ?? ((text) => process.stdout.write(`${text}\n`));
   const writeErr = options.writeErr ?? ((text) => process.stderr.write(`${text}\n`));
-  // dataDir 缺省 resolveDataDir()——同构诊断形（memory + 真数据目录读侧）
+  // dataDir 解析与 plugins list 同律（?? resolveDataDir()——env 梯子
+  // BERRY_AGENT_DATA_DIR 由此接通；74 轮 obs-c 同病未同步位修：修前条件展开
+  // 在 undefined 时省略 dataDir ⇒ memory 诊断形 dataDir=null ⇒ 主路〔main.ts
+  // dumpConfig 载体不传 dataDir〕恒纯 memory 空配形——enabled.yaml/装机账本/
+  // settings 读侧整跳、输出 dataDir 呈 null、插件装载态呈出厂缺省而非用户
+  // 实配）
+  const dataDir = options.dataDir ?? resolveDataDir();
   const assembly = await assembleHostStack({
     runtime: {
-      ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
-      memory: true,
+      dataDir,
+      memory: true, // 同构诊断形（memory + 真数据目录读侧——dataDir 恒在场）
     },
     noPlugins: options.flags.noPlugins === true,
     debug: options.flags.debug === true,
