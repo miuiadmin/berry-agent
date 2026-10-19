@@ -12,7 +12,7 @@
  * persist 测试）。spawn 假件零真网络（npm 腿只走失败/词法档，成功腿用
  * local 源零网络）。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -26,7 +26,7 @@ import type { LoadReport } from './loader.js';
 import { createPluginLifecycleTools } from './plugin-tools.js';
 import type { PluginLifecycleToolsDeps } from './plugin-tools.js';
 import type { SpawnRunner } from './plugin-install.js';
-import { upsertLedgerEntry } from './plugin-store.js';
+import { upsertLedgerEntry, ledgerPath } from './plugin-store.js';
 import { createPluginStoreFs, readEnabledRowsForEdit } from './plugin-store.js';
 import type { LifecycleAuditSink, PluginLedgerEntry } from './plugin-store.js';
 import { HOST_MIGRATION_TAIL } from './runtime.js';
@@ -563,6 +563,92 @@ describe('纯 memory 诊断形（dataDir null）诚实拒', () => {
         expect(result.isError, name).toBe(true);
         expect(textOf(result), name).toContain('纯 memory');
       }
+    } finally {
+      rig_.close();
+    }
+  });
+});
+
+describe('memory 同构诊断形执行面门（dataDir 在场 + memory true——77 轮件2双条件化）', () => {
+  // 75 轮读侧修真后 memory 同构诊断形（run --ephemeral）dataDir 真值在场且
+  // 会话工具块并入本族——写类五件对模型可达（npm spawn 装机 + 行/账本真盘
+  // 写，--port 面审批可放行）；执行面门双条件化（dataDir null || memory 即
+  // 拒——03 §5.6 2026-10-19 批注 + 07 §5 第九写位）。修前五判据只认
+  // dataDir===null，本形下永不触发 = 门失效——以下用例修前红（工具真执行
+  // 写），修后收「纯 memory 诊断形无数据目录」拒文原句（文案不动）。
+
+  it('plugin_install：memory 形拒文 + 装机零写（账本/安装树零落）；对照组 memory:false 照常装', async () => {
+    const dir = tmpDir('mem-install-');
+    const src = localFixture('mem-inst-demo');
+    const rig_ = rig({ dir, memory: true });
+    try {
+      const result = await run(toolOf(rig_.tools, 'plugin_install'), { ref: `local:${src}` });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain('纯 memory 诊断形无数据目录'); // 拒文原句关键词位
+      expect(textOf(result)).toContain('安装动词不可用');
+      expect(existsSync(ledgerPath(dir))).toBe(false); // 装机账零落
+      expect(existsSync(join(dir, 'plugins', 'node_modules'))).toBe(false); // 安装树零落
+      expect(rig_.audits).toEqual([]); // 拒在执行面门前——零生命周期审计
+    } finally {
+      rig_.close();
+    }
+    // 对照组：memory:false（显式）——local 源照常真装（账本真落）
+    const ctlDir = tmpDir('mem-install-ctl-');
+    const ctl = rig({ dir: ctlDir, memory: false });
+    try {
+      const result = await run(toolOf(ctl.tools, 'plugin_install'), { ref: `local:${src}` });
+      expect(result.isError).not.toBe(true);
+      expect(textOf(result)).toContain('已安装');
+      expect(existsSync(ledgerPath(ctlDir))).toBe(true);
+    } finally {
+      ctl.close();
+    }
+  });
+
+  it('plugin_toggle：memory 形拒文 + enabled.yaml 零写；对照组 memory:false 照常翻旗真写', async () => {
+    const dir = tmpDir('mem-toggle-');
+    const rig_ = rig({ dir, memory: true });
+    try {
+      const result = await run(toolOf(rig_.tools, 'plugin_toggle'), { id: 'core:demo' });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain('纯 memory 诊断形无数据目录');
+      expect(existsSync(join(dir, 'enabled.yaml'))).toBe(false); // 行零落点
+      expect(rig_.audits).toEqual([]); // 翻旗审计零落
+    } finally {
+      rig_.close();
+    }
+    // 对照组：memory:false——翻旗真写启用行
+    const ctlDir = tmpDir('mem-toggle-ctl-');
+    const ctl = rig({ dir: ctlDir, memory: false });
+    try {
+      const result = await run(toolOf(ctl.tools, 'plugin_toggle'), { id: 'core:demo' });
+      expect(result.isError).not.toBe(true);
+      expect(existsSync(join(ctlDir, 'enabled.yaml'))).toBe(true);
+    } finally {
+      ctl.close();
+    }
+  });
+
+  it('mount/unmount/update 执行面判据位同形拒（修前各腿真执行——红锚）', async () => {
+    const dir = tmpDir('mem-rowedit-');
+    const src = localFixture('mem-upd-demo');
+    // update 红锚前提：local 源已装机条目在场（修前 local no-op 成功腿被
+    // 真执行而非门拒）；mount 用 core:demo（豁免装机查——修前直写行）
+    seedEntry(dir, 'mem-upd-demo-pkg', { source: 'local', ref: `local:${src}`, installPath: src });
+    const rig_ = rig({ dir, memory: true });
+    try {
+      const mount = await run(toolOf(rig_.tools, 'plugin_mount'), { id: 'core:demo' });
+      expect(mount.isError).toBe(true);
+      expect(textOf(mount)).toContain('纯 memory 诊断形无数据目录');
+      const unmount = await run(toolOf(rig_.tools, 'plugin_unmount'), { id: 'core:demo' });
+      expect(unmount.isError).toBe(true);
+      expect(textOf(unmount)).toContain('纯 memory 诊断形无数据目录');
+      const update = await run(toolOf(rig_.tools, 'plugin_update'), { id: 'mem-upd-demo-pkg' });
+      expect(update.isError).toBe(true);
+      expect(textOf(update)).toContain('纯 memory 诊断形无数据目录');
+      // 三件全拒——enabled.yaml 全程零落（seed 只建账本不建行）
+      expect(existsSync(join(dir, 'enabled.yaml'))).toBe(false);
+      expect(rig_.audits).toEqual([]);
     } finally {
       rig_.close();
     }

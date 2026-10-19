@@ -52,6 +52,11 @@ const DATA_SUMMARY_LIMIT = 300;
 export interface PluginLifecycleToolsDeps {
   /** 数据目录（null = 纯 memory 诊断形——装机/行编辑/预检动词诚实拒） */
   readonly dataDir: string | null;
+  /** :memory: 形态位（77 轮件2——单源 HostRuntime.memory 透传）：memory 同构
+   * 诊断形（run --ephemeral）dataDir 真值在场（75 轮读侧修真后写类五件对
+   * 模型可达），写类五件执行面门双条件判据之一（dataDir null || memory 即
+   * 拒——03 §5.6 2026-10-19 批注 + 07 §5 第九写位）；缺省/假值 = 常规形照常写 */
+  readonly memory?: boolean;
   /** 行编辑/账本文件面（plugin-store 同源——与 TUI/CLI 同一 fs 词形） */
   readonly fs: PluginStoreFs;
   /** 生命周期归因账 sink（进程内 audit face 包装位——落账失败由包装方 warn） */
@@ -182,9 +187,11 @@ function renderPluginsList(deps: PluginLifecycleToolsDeps): string {
  */
 export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): readonly ToolDefinition[] {
   // 装机/更新共用执行面（auditSink 透传——install 成功尾落 plugin/installed、
-  // update 成功尾落 plugin/updated，词形归执行件单源）
+  // update 成功尾落 plugin/updated，词形归执行件单源）。门双条件化（77 轮
+  // 件2）：dataDir null（纯 memory 形）或 memory 形位真（同构诊断形——读侧
+  // 修真后 dataDir 在场但写动词仍不可用）均 undefined 拒
   const installDeps = () =>
-    deps.dataDir === null
+    deps.dataDir === null || deps.memory === true
       ? undefined
       : {
           dataDir: deps.dataDir,
@@ -323,7 +330,9 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
       effect: 'write',
       execute: async (args): Promise<AgentToolResult> =>
         guard(async () => {
-          if (deps.dataDir === null) {
+          // 行编辑腿执行面门双条件化（77 轮件2）：memory 同构诊断形 dataDir
+          // 在场也拒——行无落点（拒文原句不动）
+          if (deps.dataDir === null || deps.memory === true) {
             return textError('纯 memory 诊断形无数据目录——行编辑动词不可用（行无落点）');
           }
           const id = args.id as string;
@@ -355,7 +364,9 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
       effect: 'write',
       execute: async (args): Promise<AgentToolResult> =>
         guard(async () => {
-          if (deps.dataDir === null) {
+          // 行编辑腿执行面门双条件化（77 轮件2）：memory 同构诊断形 dataDir
+          // 在场也拒——行无落点（拒文原句不动）
+          if (deps.dataDir === null || deps.memory === true) {
             return textError('纯 memory 诊断形无数据目录——行编辑动词不可用（行无落点）');
           }
           const result = unmountRow(deps.dataDir, args.id as string, deps.fs, deps.auditSink);
@@ -374,7 +385,9 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
       repeatable: false, // 翻旗标非幂等——重试决策须回模型不静默重放（03 §2.3）
       execute: async (args): Promise<AgentToolResult> =>
         guard(async () => {
-          if (deps.dataDir === null) {
+          // 行编辑腿执行面门双条件化（77 轮件2）：memory 同构诊断形 dataDir
+          // 在场也拒——行无落点（拒文原句不动）
+          if (deps.dataDir === null || deps.memory === true) {
             return textError('纯 memory 诊断形无数据目录——行编辑动词不可用（行无落点）');
           }
           const id = args.id as string;

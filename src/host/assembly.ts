@@ -520,13 +520,21 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 不阻塞主流程，行编辑已生效不回滚）；spawn = execFile 真身（npm/git 装
     // 机走进程外——07 §5 用户显式动作族不进 exec 沙箱体系，与 CLI 同面）；
     // events_query 两窄面 = 同实例 persistence（flushFirst + queryEvents）；
-    // db = store.sqlite()（卸载预检域面查询——宿主固定件正当消费）。纯
-    // memory 形 dataDir null 时 conversation-stack 不消费 bootTools——本族
-    // 自然缺席（memory 形工具整面缺席同律）。persistence 先收 const——下方
-    // 闭包取值（let runtime 的流窄化不进闭包）
+    // db = store.sqlite()（卸载预检域面查询——宿主固定件正当消费）。memory
+    // 形写动词防线 = 本族执行面门双条件化（77 轮件2——dataDir null ||
+    // memory 即拒；03 §5.6 2026-10-19 批注 + 07 §5 第九写位）：75 轮读侧
+    // 修真后 memory 同构诊断形 dataDir 真值在场，conversation-stack 会话
+    // 工具块照常并入 bootTools——本族写类五件对模型可达（早期假设「dataDir
+    // null 时本族自然缺席」已被该修真作废；会话工具块整块运行属修真预期，
+    // 病只在块内数据目录写动词，由执行面门拦截——77 轮 lane O7 定谳）。
+    // persistence 先收 const——下方闭包取值（let runtime 的流窄化不进闭包）
     const persistence = runtime.persistence;
     const pluginLifecycleTools = createPluginLifecycleTools({
       dataDir,
+      // :memory: 形态位（77 轮件2——单源 HostRuntime.memory 透传，勿新造
+      // 第二信号源）：写类五件执行面门双条件判据之一（memory 同构诊断形
+      // dataDir 在场仍拒真盘写）
+      memory: runtime.memory,
       fs: createPluginStoreFs(),
       auditSink: (type, payload) => {
         try {
