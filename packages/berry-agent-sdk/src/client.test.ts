@@ -27,7 +27,8 @@ function fakeTransport() {
     openLive: async (params, onFrame) => {
       liveParams = params;
       liveListener = onFrame;
-      return { sessionId: params.sessionId, highWaterSeq: 7, close: async () => {} };
+      // 终局面（74 轮件3）：fake 恒已终——本件测试面不触及 ended（真实两形见 http/stdio 件）
+      return { sessionId: params.sessionId, highWaterSeq: 7, ended: Promise.resolve(), close: async () => {} };
     },
     close: async () => {
       closed += 1;

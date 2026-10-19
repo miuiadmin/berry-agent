@@ -8,6 +8,12 @@
  * - 应答阶段连接夭折 → 限期 reject（res error 接线——不悬挂，idx 20）；
  * - replay-end 界标前断连/干净收流 → openLive reject（建立期守卫，idx 21）；
  * - liveClose 流账纪律——摘账先于销毁（模块缝单测，idx 24）。
+ *
+ * SDK 活体终局信号面回归锁四件（挖掘 74 轮件3）：
+ * - end 终局——已建立后干净收流（FIN 形）补终局诊断 warn + ended settle；
+ * - 收向静默看门狗——注入短界值、静默超界判流死（warn + 销毁 + ended）；
+ * - handle.close 主动退订同触发 ended——流已终非错误（零终局诊断）；
+ * - 终局恰 settle 一次——end 后续 close 事件/再退订不重复诊断、身份不变。
  */
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -535,6 +541,134 @@ describe('httpSdkTransport 直连 HTTP 传输', () => {
       // server.close 回调悬挂拖死测程
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+/**
+ * 终局面专用 rig（74 轮件3）：事件档四形——s-fin（建立后干净收流：宿主重启
+ * FIN 形）/ s-rst（建立后斩 socket：终局第二触发源）/ s-silent（建立后静默：
+ * 看门狗判死形）/ s-open（建立后持流：主动 close 形）。warn 采集 + 服务侧
+ * 收线观测（客户端 res.destroy 的回声面——销毁判据）。
+ */
+async function startLiveFace(
+  idleWatchdogMs?: number,
+): Promise<{ transport: SdkTransport; warns: string[]; serverClosed: string[]; close: () => Promise<void> }> {
+  const warns: string[] = [];
+  const serverClosed: string[] = [];
+  const server = createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://face.test');
+    if (req.method === 'GET' && url.pathname === '/v1/events') {
+      const sessionId = url.searchParams.get('sessionId') ?? '';
+      res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+      const data = (frame: unknown): void => {
+        res.write(`data: ${JSON.stringify(frame)}\n\n`);
+      };
+      data({ kind: 'hello', protocolVersion: 1, sessionId, highWaterSeq: 9 });
+      data({ kind: 'entries', sessionId, entries: [] });
+      data({ kind: 'replay-end', sessionId, lastReplayedSeq: 8 });
+      // 服务侧收线观测：客户端 destroy socket → 本侧 res close 即回声（销毁判据）
+      res.on('close', () => serverClosed.push(sessionId));
+      if (sessionId === 's-fin') {
+        res.end(); // 建立后干净收流（FIN 形——end 事件路、无 error 事件）
+        return;
+      }
+      if (sessionId === 's-rst') {
+        setTimeout(() => res.socket?.destroy(), 20); // 建立后斩 socket（终局第二触发源）
+        return;
+      }
+      // s-silent / s-open：持流静默（s-silent 供看门狗判死；s-open 供主动 close）
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as AddressInfo).port;
+  const transport = httpSdkTransport({
+    host: '127.0.0.1',
+    port,
+    token: TOKEN,
+    onWarn: (m) => warns.push(m),
+    ...(idleWatchdogMs !== undefined ? { liveIdleWatchdogMs: idleWatchdogMs } : {}),
+  });
+  return {
+    transport,
+    warns,
+    serverClosed,
+    close: async () => {
+      // 先收口传输（清看门狗计时器 + 销毁在场流）再斩尽服务侧连接——不留悬挂 timer
+      await transport.close();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+describe('SDK 活体终局信号面（挖掘 74 轮件3——修前：ended 缺席/end-close 终局零诊断/无收向看门狗）', () => {
+  it('end 终局：建立后干净收流（FIN 形）→ ended 短窗 settle + 终局诊断 warn（修前 ended undefined / 终局零诊断——红）', async () => {
+    const rig = await startLiveFace();
+    try {
+      const handle = await rig.transport.openLive({ sessionId: 's-fin' }, () => {});
+      expect(handle.ended).toBeInstanceOf(Promise); // 修前红锚：终局面缺席
+      await withDeadline(handle.ended);
+      // 「已建立后的直播期流错误维持诊断 warn」承诺兑现到 end/close 全终局路
+      //（修前 terminate settled 形只摘账零诊断——干净 FIN 连「只诊断」都无）
+      expect(rig.warns.join('\n')).toContain('SSE 流终止');
+      expect(rig.warns.join('\n')).toContain('返回流结束');
+    } finally {
+      await rig.close();
+    }
+  });
+
+  it('收向静默看门狗：注入短界值、建流后静默超界 → 判流死（warn + 销毁流 + ended settle）（修前无看门狗——红）', async () => {
+    const rig = await startLiveFace(60);
+    try {
+      const handle = await rig.transport.openLive({ sessionId: 's-silent' }, () => {});
+      expect(handle.ended).toBeInstanceOf(Promise); // 修前红锚：终局面缺席
+      await withDeadline(handle.ended, 2000);
+      expect(rig.warns.join('\n')).toContain('静默超界'); // 判流死诊断（只诊断不打回）
+      // res.destroy 被调的回声面：客户端销毁 socket → 服务侧连接收线
+      await waitFor(() => rig.serverClosed.includes('s-silent'));
+    } finally {
+      await rig.close();
+    }
+  });
+
+  it('handle.close 主动退订同触发 ended：流已终非错误——零终局诊断 warn（裁量：主动终局先置位，后续 close 事件路不重复诊断）', async () => {
+    const rig = await startLiveFace();
+    try {
+      const handle = await rig.transport.openLive({ sessionId: 's-open' }, () => {});
+      expect(handle.ended).toBeInstanceOf(Promise); // 修前红锚：终局面缺席
+      await handle.close();
+      await withDeadline(handle.ended);
+      // 主动退订 = 流已终非错误：「只诊断」承诺的对象是被动终局（end/close/
+      // error/看门狗），主动收口不落终局诊断（否则每次正常退订都产噪声）
+      expect(rig.warns.join('\n')).not.toContain('SSE 流终止');
+      expect(rig.warns.join('\n')).not.toContain('静默超界');
+      // 退订销毁流的服务侧回声（连接收线）
+      await waitFor(() => rig.serverClosed.includes('s-open'));
+    } finally {
+      await rig.close();
+    }
+  });
+
+  it('终局恰 settle 一次：end 后续发 close 事件/再主动退订不重复诊断、ended 身份不变（幂等守卫）', async () => {
+    const rig = await startLiveFace();
+    try {
+      const handle = await rig.transport.openLive({ sessionId: 's-fin' }, () => {});
+      expect(handle.ended).toBeInstanceOf(Promise);
+      const ended0 = handle.ended;
+      await withDeadline(handle.ended);
+      // end 后 Node 必续发 res close（终局第二事件）——观测窗内到达后再数诊断笔数
+      await waitFor(() => rig.serverClosed.includes('s-fin'));
+      await new Promise((r) => setTimeout(r, 50)); // 再让一拍事件循环（迟到终局事件的观测窗）
+      await handle.close(); // 终局后再主动退订（第三触发源）——同为 no-op
+      expect(rig.warns.filter((m) => m.includes('SSE 流终止')).length).toBe(1); // 恰一笔
+      expect(handle.ended).toBe(ended0); // 同一 Promise（身份不变——非重铸）
+      await expect(handle.ended).resolves.toBeUndefined();
+    } finally {
+      await rig.close();
     }
   });
 });

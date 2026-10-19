@@ -105,6 +105,15 @@ export interface SdkLiveHandle {
   /** 订阅序首帧的快照高水位（衔接界标前的 durable 水位——对账起点参考） */
   readonly highWaterSeq: number;
   /**
+   * 终局面（挖掘 74 轮批注——两传输同面）：流已终即落定（幂等 settle 恰一次；
+   * 语义 = 流已终**非错误**——含 handle.close 主动退订与整连接收口）。HTTP 形
+   * end/close/流错误/收向静默看门狗诸路触发；stdio 形自子进程退出派生（exited
+   * 单源——handle.close 仅退客户端口径〔线内续用〕不触发）。消费方义务：终局
+   * 信号是**触发点非数据源**——据此走 getEntries(since) 重对账 + 重订阅
+   * （durable seq 路），不得以 ended 为数据源。
+   */
+  readonly ended: Promise<void>;
+  /**
    * 退订（幂等）：stdio 形仅记客户端口径〔线协议无退订动词——只摘本订阅
    * 条目（多订阅互不连坐），线级退订归 transport.close 整连接收口〕、HTTP 形
    * 关 SSE 流

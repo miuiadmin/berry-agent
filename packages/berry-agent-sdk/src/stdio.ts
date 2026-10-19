@@ -25,6 +25,9 @@
  * 终局纪律（03 §10.6 传输腿错误面定形补笔①）：子进程终局（exit/error/close）
  * → 在飞事务 fail-loud 拒绝（SDK_TRANSPORT 含退出码）并清 inflight——串行链
  * 自动续走（防前一事务不落定致整链静默挂死）；终局后的新事务同律即拒。
+ * 活体终局同面（挖掘 74 轮件3）：openLive 订阅柄的终局面 ended 自传输 exited
+ * 单源派生——子进程退出即一切活体订阅终局（消费方据此走 getEntries(since)
+ * 重对账+重订阅；终局信号是触发点非数据源）。
  */
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
@@ -377,6 +380,11 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
                     resolve({
                       sessionId: params.sessionId,
                       highWaterSeq,
+                      // 活体终局同面（74 轮件3）：自传输 exited 单源派生——子进程退出即
+                      // 一切活体订阅终局。handle.close 仅退客户端口径（线内续用——线协议
+                      // 无退订动词），不触发 ended；无收向看门狗（子进程本机有 exit 事件，
+                      // SSE 分区形不存在）
+                      ended: exitedPromise.then(() => undefined),
                       close: liveCloseOf(params.sessionId, onFrame),
                     });
                   },

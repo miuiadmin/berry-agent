@@ -27,6 +27,18 @@
  * 入口 = roundTrip 腿 + openLive 腿）入口即拒 SDK_TRANSPORT「连接已收口」
  * ——不真发请求；修前全文零 closed 位，收口后新请求照真发（无声复用已收口
  * 传输），与 stdio 形终局后新事务同律即拒的纪律漂移。
+ *
+ * SDK 活体终局信号面（挖掘 74 轮件3——HTTP 形补齐，两传输同面）：已建立
+ * （replay-end 后）的活体订阅终局三腿——①终局诊断补齐：end/close 终局在
+ * settled 形补 warn（「已建立后的流错误只诊断」承诺兑现到全终局路——修前
+ * 只在 res 'error' 路〔RST 形〕兑现，干净 end/close〔宿主重启 FIN 形〕连
+ * 「只诊断」都无）；②终局面：订阅柄增 ended: Promise<void>（幂等 settle 恰
+ * 一次——settled 是 replay-end 建立界标、endedSettled 是流终局界标，两词不
+ * 同物；handle.close 主动退订同触发，语义 = 流已终非错误）；③收向静默看门狗
+ * （分区形兜底）：服务端心跳 5s + SSE ping 30s 是既有协议义务，超界值无一
+ * 字节到达即判流死（warn + 销毁流 → ended settle）——「慢不得被误读为死」
+ * 与「死不得被误读为慢」两向界值 = ping 间隔 3 倍。消费方义务不变：终局信号
+ * 是触发点非数据源——重对账走既有 durable seq/getEntries 路。
  */
 import { request as httpRequest } from 'node:http';
 import type { ClientRequest, IncomingMessage } from 'node:http';
@@ -34,7 +46,12 @@ import type { ClientRequest, IncomingMessage } from 'node:http';
 import { decodeWireLine, isSdkRequest } from '../../../src/channels/sdk/jsonl.js';
 import { SDK_PROTOCOL_VERSION } from '../../../src/channels/sdk/protocol.js';
 import type { SdkErrorFrame, SdkRequest, SdkWireFrame } from '../../../src/channels/sdk/protocol.js';
-import { SDK_AUTH_HEADER, SDK_HTTP_ENDPOINTS, SDK_PROTOCOL_HEADER } from '../../../plugins/sdk/types.js';
+import {
+  SDK_AUTH_HEADER,
+  SDK_HTTP_ENDPOINTS,
+  SDK_PROTOCOL_HEADER,
+  SDK_SSE_PING_INTERVAL_MS,
+} from '../../../plugins/sdk/types.js';
 
 import { SdkError } from './types.js';
 import type { SdkFrameListener, SdkLiveHandle, SdkLiveParams, SdkTransport } from './types.js';
@@ -51,7 +68,21 @@ export interface HttpSdkOptions {
   readonly token: string;
   /** 坏行/SSE 诊断面（缺省静默） */
   readonly onWarn?: (message: string) => void;
+  /**
+   * 收向静默看门狗界值（74 轮件3——分区形兜底）：活体流超界值无任何字节到达
+   * 即判流死（warn + 销毁流 → ended settle）。缺省 3× SSE ping 间隔——服务端
+   * 两活性源（wire-core 心跳 5s / SSE 注释行 ping 30s）最慢 30s 一拍，3 倍即
+   * 死判：「慢不得被误读为死」（活流必在界内拍）与「死不得被误读为慢」（上界
+   * 界值内判死）两向都得过；测试注短值。
+   */
+  readonly liveIdleWatchdogMs?: number;
 }
+
+/**
+ * 收向静默看门狗缺省界值 = 3× SSE ping 间隔（单源自面侧常量——缺省 90s）。
+ * 依据与注入位见 {@link HttpSdkOptions.liveIdleWatchdogMs} 注。
+ */
+const LIVE_IDLE_WATCHDOG_MS = 3 * SDK_SSE_PING_INTERVAL_MS;
 
 /** 各请求档动词 → 端点路由（GET/POST 与体形由面定形） */
 const ROUTES: Readonly<Record<string, { method: 'GET' | 'POST'; path: string }>> = {
@@ -302,8 +333,52 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
             let failed = false; // 建流失败界标：界标前 error 帧已保码拒绝——残帧不再入监听面
             let highWaterSeq = -1;
             let buffer = '';
+            // —— 活体终局信号面（74 轮件3）：终局面 ended + 收向静默看门狗 ——
+            // endedSettled 与 settled 分立：settled 是 replay-end 建立界标（界标前
+            // 终局走建流失败 reject），endedSettled 是流终局界标（界标后终局走
+            // ended settle + 诊断 warn）——两词不同物。
+            let endedSettled = false; // 终局幂等守卫：恰 settle 一次（迟到终局事件零重复 warn）
+            let endedResolve!: () => void;
+            /** 终局面（幂等 settle——语义 = 流已终非错误〔含主动退订/整连接收口〕） */
+            const endedPromise = new Promise<void>((resolve) => {
+              endedResolve = resolve;
+            });
+            const idleWatchdogMs = options.liveIdleWatchdogMs ?? LIVE_IDLE_WATCHDOG_MS;
+            let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+            const stopWatchdog = (): void => {
+              if (watchdogTimer !== undefined) {
+                clearTimeout(watchdogTimer);
+                watchdogTimer = undefined;
+              }
+            };
+            /** 终局落定（幂等恰一次）：清看门狗计时器 + 摘流账 + settle ended */
+            const settleEnded = (): void => {
+              if (endedSettled) return;
+              endedSettled = true;
+              stopWatchdog();
+              liveStreams.delete(res);
+              endedResolve();
+            };
+            const onWatchdogFire = (): void => {
+              watchdogTimer = undefined; // 已触发（stopWatchdog 双清防护）
+              warn(
+                `SSE 流静默超界（${idleWatchdogMs}ms 无任何字节）——判流死销毁` +
+                  '（服务端 ping/心跳为协议义务，活流必在界内拍——分区形兜底）',
+              );
+              // 先落终局再销毁：destroy 引发的 close 事件路经 endedSettled 守卫零重复诊断
+              settleEnded();
+              res.destroy();
+            };
+            /** 每字节活性证据重置计时（res 'data' 到达即证据——含注释行 ping） */
+            const kickWatchdog = (): void => {
+              stopWatchdog();
+              watchdogTimer = setTimeout(onWatchdogFire, idleWatchdogMs);
+            };
+            // 开流即武装（建立期悬死形同兜底：界内无任何帧 → 判流死 → 走建流失败 reject）
+            kickWatchdog();
             res.setEncoding('utf8');
             res.on('data', (chunk: string) => {
+              kickWatchdog(); // 任一字节 = 活性证据——重置看门狗
               buffer += chunk;
               // SSE 事件块以空行分隔；注释行（: ping）跳过——与 face 写侧纪律对应
               let sep: number;
@@ -339,7 +414,17 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
                     if (frame.kind === 'replay-end') {
                       // 衔接界标即建立点——界标帧已入监听面（重放段全量承诺）
                       settled = true;
-                      resolve({ sessionId: params.sessionId, highWaterSeq, close: liveClose(res, liveStreams) });
+                      resolve({
+                        sessionId: params.sessionId,
+                        highWaterSeq,
+                        ended: endedPromise,
+                        // 主动退订 = 流已终非错误：先落终局（后续 close 事件路零重复
+                        // 诊断——「只诊断」承诺的对象是被动终局），再摘账销毁（liveClose）
+                        close: async (): Promise<void> => {
+                          settleEnded();
+                          await liveClose(res, liveStreams)();
+                        },
+                      });
                     }
                   } catch (err) {
                     warn(`SSE 坏载荷跳过：${err instanceof Error ? err.message : String(err)}`);
@@ -352,7 +437,17 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
             // 建流失败 fail-loud（调用方拿到悬空 Future 无超时兜底可依，最劣形）。
             const terminate = (why: string): void => {
               liveStreams.delete(res);
-              if (!settled) reject(new SdkError('SDK_TRANSPORT', `SSE 流在 replay-end 前终止（${why}）`));
+              if (!settled) {
+                stopWatchdog(); // 建立期终局同样清计时器（不留悬挂 timer）
+                reject(new SdkError('SDK_TRANSPORT', `SSE 流在 replay-end 前终止（${why}）`));
+                return;
+              }
+              // 已建立后的终局只诊断不打回（74 轮件3——「只诊断」承诺兑现到
+              // end/close 全终局路：修前只在 res 'error' 路〔RST 形〕兑现，干净
+              // end/close〔FIN 形〕零诊断）。主动终局（handle.close 先置位 /
+              // transport.close 的 closed 位）零诊断——流已终非错误，非被动终局
+              if (!endedSettled && !closed) warn(`SSE 流终止：${why}（已建立后只诊断不打回）`);
+              settleEnded();
             };
             res.on('end', () => terminate('返回流结束'));
             res.on('close', () => terminate('连接关闭'));
@@ -360,6 +455,7 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
               if (settled) {
                 // 已建立后的流中断只诊断不打回（收口归 handle.close / transport.close）
                 warn(`SSE 流错误：${err.message}`);
+                settleEnded();
                 return;
               }
               reject(new SdkError('SDK_TRANSPORT', `SSE 流在 replay-end 前终止（流错误：${err.message}）`));

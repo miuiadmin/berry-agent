@@ -388,6 +388,29 @@ describe('spawnServeTransport stdio 传输', () => {
     await transport.close(); // 幂等
   });
 
+  it('活体终局同面：handle.ended 自传输 exited 派生——子进程退出即 settle、身份不变、handle.close 不触发（74 轮件3；修前 undefined——红）', async () => {
+    const transport = rig();
+    try {
+      const handle = await transport.openLive({ sessionId: 's-1' }, () => {});
+      expect(handle.ended).toBeInstanceOf(Promise); // 修前红锚：终局面缺席
+      const ended0 = handle.ended;
+      await handle.close(); // 仅退客户端口径（线内续用）——非终局源，不触发 ended
+      const probe = await Promise.race([
+        handle.ended.then(() => 'settled'),
+        new Promise<string>((resolve) => {
+          const t = setTimeout(() => resolve('pending'), 80);
+          t.unref?.(); // 不持住进程句柄（观测窗计时器）
+        }),
+      ]);
+      expect(probe).toBe('pending'); // 子进程未退——终局不落（stdio 形终局唯一源 = 进程退出）
+      await transport.close(); // 收线 → 子进程退出 → exited settle → ended 随之落定
+      await expect(handle.ended).resolves.toBeUndefined();
+      expect(handle.ended).toBe(ended0); // 同一 Promise（幂等 settle——非重铸）
+    } finally {
+      await transport.close();
+    }
+  });
+
   it('子进程终局：未完成的请求 fail-loud reject（SDK_TRANSPORT 含退出码）、串行链续走后即拒不挂', async () => {
     const transport = spawnServeTransport({ args: ['-e', DIE_ON_PROMPT_SCRIPT] });
     try {
