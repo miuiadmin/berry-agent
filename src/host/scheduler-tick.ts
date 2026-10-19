@@ -45,7 +45,15 @@ export interface GoalWakeFace {
   }>;
 }
 
-/** issue 件轮询窄面（IssueService.pollOnce 投影——PollReport 摘要字段） */
+/**
+ * issue 件轮询窄面（IssueService.pollOnce 投影——与 PollReport 一一同构）。
+ *
+ * 71 轮批注①呈现链兑现：报告字段与宿主投影面一一同构是「不静默」律的
+ * 呈现链前提（报告在场 → 宿主投影 → 呈现面三环全通），窄面截流即断链
+ * ——修前只投影六字段，errors/overflow/globSkipped 在宿主面断流（「字段
+ * 在场而无人读」：单仓失败/护栏溢出每轮 120s 零可见、水位照旧推进）。
+ * 九字段恒在场。
+ */
 export interface IssuePollFace {
   pollOnce(): Promise<{
     repos: readonly string[];
@@ -54,6 +62,12 @@ export interface IssuePollFace {
     enqueued: number;
     duplicates: number;
     rejected: number;
+    /** glob 形仓数（不轮询——计数可见不静默） */
+    globSkipped: number;
+    /** 翻页护栏溢出仓清单（70 轮件C 批注②——空清单 = 无溢出） */
+    overflow: readonly string[];
+    /** 单仓失败清单（repo + message——不炸整轮） */
+    errors: readonly { repo: string; message: string }[];
   }>;
 }
 
@@ -268,7 +282,33 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
       }
       try {
         const report = await poller.pollOnce();
-        const preview = `轮询 ${report.repos.length} 仓：候选 ${report.candidates}、入队 ${report.enqueued}、互斥 ${report.duplicates}、拒 ${report.rejected}`;
+        // 摘要行分段呈现（71 轮批注①）：常态零增段——五值原形逐字不变；
+        // errors/overflow 非空才增段（运维信号在摘要行可一览，常态行零噪声）
+        const segments = [
+          `候选 ${report.candidates}`,
+          `入队 ${report.enqueued}`,
+          `互斥 ${report.duplicates}`,
+          `拒 ${report.rejected}`,
+        ];
+        if (report.errors.length > 0) segments.push(`失败 ${report.errors.length} 仓`);
+        if (report.overflow.length > 0) segments.push(`护栏溢出 ${report.overflow.length} 仓`);
+        const preview = `轮询 ${report.repos.length} 仓：${segments.join('、')}`;
+        // warn 分级呈现（批注①「源失败是运维信号非日志噪音」）：每轮每类恰
+        // 一笔汇总行、repo 清单同行携带——「一笔不逐刷账」纪律（不逐仓刷屏）
+        if (report.errors.length > 0) {
+          warn(
+            `[SCHEDULER_POLL_ERRORS] issue 轮询单仓失败 ${report.errors.length} 仓（${report.errors
+              .map((e) => e.repo)
+              .join('、')}）——不炸整轮，下轮重扫同窗`,
+          );
+        }
+        if (report.overflow.length > 0) {
+          warn(
+            `[SCHEDULER_POLL_OVERFLOW] issue 轮询翻页护栏溢出 ${report.overflow.length} 仓（${report.overflow.join(
+              '、',
+            )}）——已收账页照常入队、水位照推，人工收窗可解`,
+          );
+        }
         return {
           trigger,
           reason: 'exit_code',

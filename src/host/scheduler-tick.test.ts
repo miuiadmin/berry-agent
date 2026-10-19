@@ -452,7 +452,7 @@ describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
     expect(rig.warns.some((m) => m.includes('SCHEDULER_GOAL_WAKE_FAILED'))).toBe(true); // 亮拒留痕
   });
 
-  it('issue-poll：pollOnce 摘要入 finalTextPreview（零模型——定形注②正位）', async () => {
+  it('issue-poll：pollOnce 摘要入 finalTextPreview（零模型——定形注②正位）；常态行零增段（71 轮件1回归锁）', async () => {
     const issue: IssuePollFace = {
       pollOnce: async () => ({
         repos: ['a/b', 'c/d'],
@@ -461,6 +461,9 @@ describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
         enqueued: 2,
         duplicates: 1,
         rejected: 1,
+        globSkipped: 0,
+        overflow: [],
+        errors: [],
       }),
     };
     const rig = unitRig({ issue });
@@ -468,8 +471,50 @@ describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
     const outcome = await handle.settled;
     expect(outcome.reason).toBe('exit_code');
     expect(outcome.exitCode).toBe(0);
-    expect(outcome.finalTextPreview).toContain('入队 2'); // PollReport 摘要
+    // 常态行零增段：errors/overflow 皆空时摘要逐字同修前五值形（零噪声律）
+    expect(outcome.finalTextPreview).toBe('轮询 2 仓：候选 4、入队 2、互斥 1、拒 1');
     expect(rig.fake.submits).toHaveLength(0); // 零提交——占位串不进模型
+    // 常态零 warn（分级呈现只在失败/溢出在场时发声）
+    expect(rig.warns).toHaveLength(0);
+  });
+
+  // 71 轮件1（03 §10.7 批注①呈现链兑现——修前红）：IssuePollFace 修前只投
+  // 影六字段，errors/overflow 在宿主面断流——摘要行零失败段、warn 零发声
+  //（「字段在场而无人读」：单仓失败/护栏溢出每轮 120s 零可见）。
+  it('issue-poll 呈现链（71 轮件1——修前红）：errors/overflow 摘要增段 + warn 每类一笔汇总（不逐仓刷屏）', async () => {
+    const issue: IssuePollFace = {
+      pollOnce: async () => ({
+        repos: ['a/b', 'c/d', 'e/f'],
+        seen: 10,
+        candidates: 4,
+        enqueued: 2,
+        duplicates: 1,
+        rejected: 1,
+        globSkipped: 0,
+        errors: [
+          { repo: 'a/b', message: '[ISSUE_SOURCE_UNREACHABLE] GitHub 不可达' },
+          { repo: 'c/d', message: '[ISSUE_SOURCE_RATE_LIMITED] GitHub 限额' },
+        ],
+        overflow: ['e/f'],
+      }),
+    };
+    const rig = unitRig({ issue });
+    const handle = await rig.spawn(jobRow('issue-poll', { builtin: true }));
+    const outcome = await handle.settled;
+    expect(outcome.exitCode).toBe(0); // pollOnce 成功（单仓失败不炸整轮）——非退出码信号面
+    // 摘要行分段：失败段/溢出段在场（修前红：摘要只五值零失败段零溢出段）
+    expect(outcome.finalTextPreview).toContain('失败 2 仓');
+    expect(outcome.finalTextPreview).toContain('护栏溢出 1 仓');
+    // warn 分级呈现：每类恰一笔汇总行、repo 清单同行携带（一笔不逐刷账——
+    // 修前红：warn 零发声）
+    const errorWarns = rig.warns.filter((m) => m.includes('SCHEDULER_POLL_ERRORS'));
+    expect(errorWarns).toHaveLength(1);
+    expect(errorWarns[0]).toContain('a/b');
+    expect(errorWarns[0]).toContain('c/d');
+    const overflowWarns = rig.warns.filter((m) => m.includes('SCHEDULER_POLL_OVERFLOW'));
+    expect(overflowWarns).toHaveLength(1);
+    expect(overflowWarns[0]).toContain('e/f');
+    expect(rig.warns).toHaveLength(2); // 恰两类各一笔——无逐仓刷屏残行
   });
 
   it('issue-poll 处理器缺席 + memory-review 前瞻位 + 未知 builtin 名：三形全 gated 诚实拒', async () => {
