@@ -23,6 +23,9 @@
  * - 键盘分形：弹层开时 ArrowDown/ArrowUp 循环移选中项、Enter（无 shift）
  *   与 Tab（无 shift——TUI 双键律 SPA 形）选中代换（不让位发送/移焦）、
  *   Escape 关层；弹层闭时原样（Enter 发送）。
+ * - IME 组合态守卫：中文主输入面组合进行中（keydown 携 isComposing=true）
+ *   全键让位浏览器组合面——确认键 Enter 不被 preventDefault 吞并以半成品
+ *   组合串发出（弹层开时亦不被劫持为选项代换）；守卫置两处分形之前。
  * - 插入编舞：选中项原串代换 text[tokenStart, selectionStart) 区间
  *   （selectionStart 取选中时点输入框当下位——v1 简形，位点漂移随下次
  *   onChange 重算自愈）；光标复位走 useEffect + pendingCaretRef（不用
@@ -356,6 +359,13 @@ export function Composer({
             }}
             onPaste={handlePaste}
             onKeyDown={(ev) => {
+              // IME 组合态前置守卫：中文是主输入面，组合进行中的 keydown 按
+              // UI Events 规范携 isComposing=true（组合确认键 Enter、候选导航
+              // 方向键在该态下尚非「真实按键」）。无守卫则确认键被下方分形
+              // preventDefault 吞并以半成品组合串发出（弹层开时更被劫持为
+              // 选项代换——同害）；守卫置于弹层四键分形与发送分形之前，组合
+              // 期键盘全让浏览器组合面自理。
+              if (ev.nativeEvent.isComposing) return;
               // 弹层开时先分形补全四键（Enter 选中代换——不让位发送）
               if (items.length > 0) {
                 if (ev.key === 'ArrowDown') {

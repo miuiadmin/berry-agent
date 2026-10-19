@@ -13,6 +13,10 @@
  * 同判据移植）
  * ⑥ 触发/渲染/循环导航/Enter 区间代换/Esc 收层/token 失活/迟到应答 seq 丢弃/
  * reject 静默/prop 缺席零补全面
+ *
+ * IME 组合态守卫——
+ * ⑦ 组合期键盘全让位：isComposing=true 的 Enter 不发送不代换（半成品组合
+ * 串不被吞出）、方向键不导航；普通 Enter 照发（守卫不误伤非组合键）
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -329,5 +333,50 @@ describe('Composer 图片粘贴受理（剪贴板附件批——双源采集 + �
     expect(sendButton().disabled).toBe(false); // 图在场即构成可发送正文
     fireEvent.click(sendButton());
     expect(onSubmit).toHaveBeenCalledWith('', [{ dataUrl: 'data:image/png;base64,AQID', mimeType: 'image/png' }]);
+  });
+});
+
+/* ---------------- IME 组合态守卫（组合期键盘让位浏览器组合面） ---------------- */
+
+describe('Composer IME 组合态守卫', () => {
+  it('组合期 Enter 不发送（修前红）：isComposing=true 让位组合面——onSubmit 未被调、半成品正文不清空', () => {
+    const onSubmit = vi.fn();
+    render(<Composer onSubmit={onSubmit} onInterrupt={vi.fn()} />);
+    typeAppend('半成品组');
+    // 组合确认键 keydown 携 isComposing=true（UI Events 规范行为——组合进行中，键尚非真实落下）
+    fireEvent.keyDown(textarea(), { key: 'Enter', isComposing: true });
+    expect(onSubmit).not.toHaveBeenCalled(); // 修前红：无守卫——确认键被吞并以半成品组合串发出
+    expect(textarea().value).toBe('半成品组'); // 输入不清场
+  });
+
+  it('普通 Enter 照发（正锁）：isComposing=false 不误伤既有发送律', () => {
+    const onSubmit = vi.fn();
+    render(<Composer onSubmit={onSubmit} onInterrupt={vi.fn()} />);
+    typeAppend('完整句');
+    fireEvent.keyDown(textarea(), { key: 'Enter', isComposing: false });
+    expect(onSubmit).toHaveBeenCalledWith('完整句');
+    expect(textarea().value).toBe('');
+  });
+
+  it('组合期 Enter 弹层开时不代换（守卫先于弹层四键分形——两处 Enter 劫持同笔锁）', async () => {
+    const onSubmit = vi.fn();
+    const files = vi.fn(async () => ['@alpha.ts']);
+    render(<Composer onSubmit={onSubmit} onInterrupt={vi.fn()} fetchFileCompletions={files} />);
+    typeAppend('see @al');
+    await screen.findAllByRole('option');
+    fireEvent.keyDown(textarea(), { key: 'Enter', isComposing: true });
+    expect(screen.getByRole('listbox')).toBeTruthy(); // 弹层保持——确认键未被劫持为选项代换
+    expect(textarea().value).toBe('see @al'); // 区间代换未发生
+    expect(onSubmit).not.toHaveBeenCalled(); // 发送分形同样让位
+  });
+
+  it('组合期 ArrowDown 不导航（候选导航归组合面——选中项不动）', async () => {
+    const files = vi.fn(async () => ['@a.ts', '@b.ts']);
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} fetchFileCompletions={files} />);
+    typeAppend('@');
+    await screen.findAllByRole('option');
+    expect(activeOption()).toBe('@a.ts');
+    fireEvent.keyDown(textarea(), { key: 'ArrowDown', isComposing: true });
+    expect(activeOption()).toBe('@a.ts'); // 组合期方向键不分形弹层导航
   });
 });
