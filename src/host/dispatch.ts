@@ -43,6 +43,8 @@ export interface CommandHandlers {
   readonly serveStop?: () => Promise<number>;
   /** MCP server 包装形态（core:sdk 件承载） */
   readonly mcp?: () => Promise<number>;
+  /** ACP server 包装形态（core:sdk 件第四形态——Agent Client Protocol v1 stdio） */
+  readonly acp?: () => Promise<number>;
   /** 打印实际生效装配（:memory: 同构——12d 装载器接线后可执行） */
   readonly dumpConfig?: (flags: DumpConfigFlags) => Promise<number>;
   /** 插件生命周期命令族（12d 装载器装配批接线） */
@@ -93,6 +95,7 @@ export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
   run "<message>"         单次执行：一轮对话 → stdout 输出结果
   serve                   常驻宿主（stdio JSONL；serve status / serve stop 管理动词）
   mcp                     MCP server 包装形态
+  acp                     ACP server 包装形态（Agent Client Protocol v1，stdio）
   dump-config             打印实际生效配置
   plugins <sub>           插件生命周期（list/install/uninstall/mount/unmount/toggle/update/check）
   marketplace <sub>       插件市场（add/remove/update/list/discover/install/uninstall/upgrade——装机寻址形 <name@market>）
@@ -168,6 +171,8 @@ export async function dispatchCli(
         return requireHandler(handlers.serveStop, 'serve stop')();
       case 'mcp':
         return requireHandler(handlers.mcp, 'mcp')();
+      case 'acp':
+        return requireHandler(handlers.acp, 'acp')();
       case 'dump-config':
         return requireHandler(handlers.dumpConfig, 'dump-config')(command.flags);
       case 'plugins':

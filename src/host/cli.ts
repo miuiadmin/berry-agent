@@ -166,6 +166,7 @@ export type CliCommand =
   | { readonly kind: 'serve-status' }
   | { readonly kind: 'serve-stop' }
   | { readonly kind: 'mcp' }
+  | { readonly kind: 'acp' }
   | { readonly kind: 'dump-config'; readonly flags: DumpConfigFlags }
   | { readonly kind: 'plugins'; readonly sub: PluginsCommand }
   /** marketplace 子命令族（03 §9.6——装机编舞恒复用既有 installPlugin） */
@@ -913,6 +914,14 @@ export function parseCli(argv: readonly string[]): CliParseResult {
       const arity = expectArity(scan.literals, 0, 0, 'berry mcp');
       if ('exitCode' in arity) return arity;
       return finish(scan, { kind: 'mcp' });
+    }
+    case 'acp': {
+      // ACP server 包装形态（03 §10.6 ACP 形态批——零旗标面同 mcp 律）
+      const scan = scanFlags(rest, []);
+      if (scan.error) return usageFail(scan.error);
+      const arity = expectArity(scan.literals, 0, 0, 'berry acp');
+      if ('exitCode' in arity) return arity;
+      return finish(scan, { kind: 'acp' });
     }
     case 'dump-config': {
       const scan = scanFlags(rest, DUMP_SCHEMAS);
