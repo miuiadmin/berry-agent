@@ -61,6 +61,12 @@ export interface RunFlags {
   readonly background: boolean;
   /** --output-format：流式三档（text 缺省） */
   readonly outputFormat?: 'text' | 'json' | 'stream';
+  /**
+   * --answers <spec>：headless 审批预填答案（B3——07 §5 预填块）。解析后
+   * 保序清单（`tool=answer` 逗号表——后条胜出在消费位 build 索引时天然兑现）；
+   * tool 匹配 = 工具名全等或 `前缀*` 通配形（消费位 run-entry 执法）。
+   */
+  readonly answers?: readonly { readonly tool: string; readonly answer: 'approve' | 'always' | 'reject' }[];
   /** --no-delta：线面退订 message_update 增量（run/serve 共收） */
   readonly noDelta: boolean;
   /** --output-last-message：末条 assistant 文本原子写文件 */
@@ -310,6 +316,41 @@ function scanFlags(argv: readonly string[], schemas: readonly FlagSchema[]): Sca
 /** 用法错速记（fail 形单独成型——供 expectArity 联合收窄） */
 type UsageFail = { readonly ok: false; readonly exitCode: 2; readonly message: string };
 
+/**
+ * --answers 预填答案解析（B3——07 §5 预填块：`tool=answer` 逗号表；tool 词法
+ * = 工具名全等或 `前缀*` 通配形〔`write*` 匹配 write/write_file 族〕；answer
+ * 三值闭集 approve|always|reject；保序清单——后条胜出在消费位建索引兑现）。
+ */
+function parsePrefillAnswers(spec: string):
+  | {
+      readonly ok: true;
+      readonly list: readonly { readonly tool: string; readonly answer: 'approve' | 'always' | 'reject' }[];
+    }
+  | UsageFail {
+  const list: { tool: string; answer: 'approve' | 'always' | 'reject' }[] = [];
+  for (const part of spec.split(',')) {
+    const eq = part.indexOf('=');
+    if (eq <= 0 || eq === part.length - 1) {
+      return usageFail(
+        `--answers 条形须为 tool=answer（收到："${part}"——示例：--answers "bash=reject,write*=approve"）`,
+      );
+    }
+    const tool = part.slice(0, eq);
+    const answer = part.slice(eq + 1);
+    if (!/^[A-Za-z0-9_-]+\*?$/.test(tool)) {
+      return usageFail(`--answers 工具名格式不对："${tool}"（工具名全等或 前缀* 通配形——如 write 或 write*）`);
+    }
+    if (answer !== 'approve' && answer !== 'always' && answer !== 'reject') {
+      return usageFail(`--answers 答案值域外：${answer}（合法：approve|always|reject）`);
+    }
+    list.push({ tool, answer });
+  }
+  if (list.length === 0) {
+    return usageFail('--answers 不能为空（示例：--answers "bash=reject"）');
+  }
+  return { ok: true, list };
+}
+
 function usageFail(message: string): UsageFail {
   return { ok: false, exitCode: 2, message };
 }
@@ -344,6 +385,8 @@ const RUN_SCHEMAS: readonly FlagSchema[] = [
   { name: 'tick', kind: 'value' },
   { name: 'background', kind: 'boolean' },
   { name: 'output-format', kind: 'value', values: ['text', 'json', 'stream'] },
+  // --answers <spec>：headless 审批预填（B3——07 §5 预填块；值域执法在 parseRun）
+  { name: 'answers', kind: 'value' },
   { name: 'no-delta', kind: 'boolean' },
   { name: 'output-last-message', kind: 'value' },
   { name: 'ephemeral', kind: 'boolean' },
@@ -427,10 +470,11 @@ function parseRun(rest: readonly string[]): CliParseResult {
       has('continue') ||
       scan.values.has('fork') ||
       tickName !== undefined ||
-      has('background');
+      has('background') ||
+      scan.values.has('answers'); // B3/S-6：ephemeral 主库随进程消亡，预填审计对照「durable 可回放」结构性不成立
     if (clash) {
       return usageFail(
-        '--ephemeral 与 --session/--continue/--fork/--tick/--background 互斥（临时会话不保存，无法续接、定时或转后台）',
+        '--ephemeral 与 --session/--continue/--fork/--tick/--background/--answers 互斥（临时会话不保存，无法续接、定时、转后台或预填审批审计）',
       );
     }
   }
@@ -449,6 +493,11 @@ function parseRun(rest: readonly string[]): CliParseResult {
       '--read-only 与 --preset 互斥（--preset 已含沙箱设置：conservative=只读，balanced/open=可写工作区）',
     );
   }
+  // --answers <spec> 值域执法（B3——07 §5 预填块：tool=answer 逗号表、answer
+  // 三值闭集；坏形 = 用法错退 2——执法律③同族，预填是答案侧输入形）
+  const answersRaw = scan.values.get('answers');
+  const answersParsed = answersRaw !== undefined ? parsePrefillAnswers(answersRaw) : undefined;
+  if (answersParsed !== undefined && !answersParsed.ok) return answersParsed;
   const port = scan.values.get('port');
   const maxTurns = scan.values.get('max-turns');
   const flags: RunFlags = {
@@ -458,6 +507,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
     readOnly: has('read-only'),
     tick: tickName,
     background: has('background'),
+    ...(answersParsed?.ok === true ? { answers: answersParsed.list } : {}),
     outputFormat: scan.values.get('output-format') as RunFlags['outputFormat'],
     noDelta: has('no-delta'),
     outputLastMessage: scan.values.get('output-last-message'),

@@ -53,7 +53,7 @@ export interface RunOutcome {
    * u-2 定形注③让位律载体）/ spawn 子进程没起来
    */
   reason: 'exit_code' | 'timeout' | 'killed' | 'preempted' | 'gated' | 'yielded' | 'spawn';
-  /** 退出码（exit_code 形在场；其余形缺席） */
+  /** 退出码（exit_code 形在场；timeout/killed 形在 aborted 终止时在场〔B3/S-8——与进程退出码 130 一致，「取消 ≠ 出错」可判别〕；其余形缺席） */
   exitCode?: number;
   /** gated 形携带拦截门 id；他形缺席 */
   gate?: string;

@@ -1298,7 +1298,7 @@ describe('runRunEntry --tick 乙案双收口（65 轮件B：wake 兜错 + claim 
     await new Promise((resolve) => setTimeout(resolve, WALL_MS + 2_000));
     expect(abortHit).toBe(true); // 修前红锚：钟缺席 → 中止永不上门（run 照常挂起）
 
-    await expect(run.entry).resolves.toBe(1); // aborted → 退出码 1（failed/aborted 同档）
+    await expect(run.entry).resolves.toBe(130); // aborted → 退出码 130（B3 第四档改裁——原 1；「取消 ≠ 出错」可判别）
     expect(run.err.text).toContain('墙钟'); // stderr 诚实句
 
     const audit = await seedAssembly(dataDir);
@@ -1563,5 +1563,78 @@ describe('runRunEntry --output-schema（收场校验退 1 / 文件级坏形退 2
     } finally {
       await audit.shutdown();
     }
+  });
+});
+
+describe('runRunEntry --answers 审批预填（07 §5 B3——CLI/SDK 进化批）', () => {
+  /** 造一次 write 工具回合的响应脚本（缺席路径 create 形——观察 CAS 直过） */
+  const writeScript = (target: string, content: string): readonly PiAssistantMessage[] => [
+    toolCallOf('t-pf', 'write', { path: target, content }),
+    messageOf(),
+  ];
+
+  it('命中 approve：预填即答 → write 真执行（产物在盘 + 预填行可见）', async () => {
+    const run = await rigRun({
+      responses: writeScript('prefill-out.txt', '预填产物'),
+      flags: { answers: [{ tool: 'write', answer: 'approve' }] },
+    });
+    await expect(run.entry).resolves.toBe(0);
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync(join(run.cwd, 'prefill-out.txt'), 'utf8')).toBe('预填产物');
+    expect(run.err.text).toContain('审批预填');
+  });
+
+  it('通配命中 + 后条胜出：write* 形式命中（倒扫首中）', async () => {
+    const run = await rigRun({
+      responses: writeScript('prefill-wild.txt', 'w'),
+      flags: {
+        answers: [
+          { tool: 'write_x', answer: 'reject' },
+          { tool: 'write*', answer: 'approve' },
+        ],
+      },
+    });
+    await expect(run.entry).resolves.toBe(0);
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync(join(run.cwd, 'prefill-wild.txt'), 'utf8')).toBe('w');
+  });
+
+  it('未命中：先呈摘要再 fail-closed 拒（无产物 + stderr 可见 + run 不挂死）', async () => {
+    const run = await rigRun({
+      responses: writeScript('prefill-deny.txt', 'x'),
+      flags: { answers: [{ tool: 'bash', answer: 'reject' }] }, // 只预填 bash——write 未命中
+    });
+    await expect(run.entry).resolves.toBe(0); // 工具被拒是结果非 run 失败
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(join(run.cwd, 'prefill-deny.txt'))).toBe(false);
+    expect(run.err.text).toContain('fail-closed');
+  });
+
+  it('always 只做会话内粘性：逐 ask 命中即批 + 不落 tool-policy（B-4 修前红锚——常态 run 恒注入回写回调）', async () => {
+    const run = await rigRun({
+      responses: [
+        toolCallOf('t-pf1', 'write', { path: 'pf-a.txt', content: 'a' }), // 首轮 write ask
+        toolCallOf('t-pf2', 'write', { path: 'pf-b.txt', content: 'b' }), // 次轮再 write（粘性等效验证）
+        messageOf(), // 末轮收口
+      ],
+      flags: { answers: [{ tool: 'write', answer: 'always' }] },
+    });
+    await expect(run.entry).resolves.toBe(0);
+    const { readFileSync, existsSync } = await import('node:fs');
+    expect(readFileSync(join(run.cwd, 'pf-a.txt'), 'utf8')).toBe('a');
+    expect(readFileSync(join(run.cwd, 'pf-b.txt'), 'utf8')).toBe('b'); // 第二次同工具照样免问即批（预填表逐 ask 命中 = 粘性等效）
+    expect(existsSync(join(run.dataDir, 'tool-policy.json'))).toBe(false); // B-4：不落跨会话策略表
+    expect(run.err.text).toContain('approve'); // always 呈 approve（不虚构粘性入账）
+  });
+
+  it('命中 reject：工具被拒（无产物 + 预填行可见）', async () => {
+    const run = await rigRun({
+      responses: writeScript('pf-r.txt', 'r'),
+      flags: { answers: [{ tool: 'write', answer: 'reject' }] },
+    });
+    await expect(run.entry).resolves.toBe(0);
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(join(run.cwd, 'pf-r.txt'))).toBe(false);
+    expect(run.err.text).toContain('reject'); // 预填行可见（审计对另经 approval/asked+decided 落库——durable 面）
   });
 });

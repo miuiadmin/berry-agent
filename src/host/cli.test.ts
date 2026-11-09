@@ -806,3 +806,29 @@ describe('mcp 同词双面（07 §5 B5——CLI/SDK 进化批）', () => {
     expectUsage(['mcp', 'frobnicate'], '未知 mcp 子命令');
   });
 });
+
+describe('--answers 预填解析（07 §5 B3——CLI/SDK 进化批）', () => {
+  it('合法形受理：全等/通配/后条胜出保序', () => {
+    const r = parseCli(['run', '--answers', 'bash=reject,write*=approve,write=always', 'hi']);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.command.kind === 'run') {
+      expect(r.command.flags.answers).toEqual([
+        { tool: 'bash', answer: 'reject' },
+        { tool: 'write*', answer: 'approve' },
+        { tool: 'write', answer: 'always' },
+      ]);
+    } else {
+      expect.unreachable('--answers 合法形解析应成功');
+    }
+  });
+
+  it('坏形三族退 2：条形/工具词法/答案值域', () => {
+    expectUsage(['run', '--answers', 'bash', 'hi'], '条形');
+    expectUsage(['run', '--answers', 'bash=maybe', 'hi'], '值域外');
+    expectUsage(['run', '--answers', 'ba sh=approve', 'hi'], '格式不对');
+  });
+
+  it('--ephemeral 互斥（S-6：审计对照 durable 承诺结构性不成立）', () => {
+    expectUsage(['run', '--ephemeral', '--answers', 'bash=approve', 'hi'], '互斥');
+  });
+});

@@ -691,16 +691,28 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   // 语义——聚合器按 models 结账与按汇总位结账口径恒等，零第二口径
   const usageByModel = new Map<string, Usage>();
 
+  // —— 预填表消费基建（B3——07 §5 预填块：prefillOf 缺席 = 审批位维持旧形
+  // capability false；匹配 = 全等或 `前缀*` 通配、倒扫首中即后条胜出）——
+  const prefillOf = flags.answers !== undefined && flags.answers.length > 0 ? () => flags.answers : undefined;
+  const matchPrefill = (pattern: string, toolName: string | undefined): boolean => {
+    if (toolName === undefined) return false;
+    if (pattern.endsWith('*')) return toolName.startsWith(pattern.slice(0, -1));
+    return toolName === pattern;
+  };
+
   const backend: UiBackend<never> = {
     id: 'cli-run',
     // 阻塞原语全 false：headless 单发无人在屏——capability false 即不参与竞速
-    //（04 §9 无静默审批：waterfall 无人应答立即 unavailable，run 不挂死）
+    //（04 §9 无静默审批：waterfall 无人应答立即 unavailable，run 不挂死）。
+    // **审批位例外（B3——07 §5 预填块）**：--answers 在场时翻 true——预填表
+    // 即「应答者在场」的机器形（命中即答；无命中本后端投 unavailable 票交
+    // 棒，fail-closed 语义不破——预填不是免问是答案侧）
     capabilities: {
       notify: true,
       confirm: false,
       select: false,
       input: false,
-      approval: false,
+      approval: prefillOf !== undefined,
       setStatus: false,
       setWidget: false,
     },
@@ -710,6 +722,30 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       const prefix = nOpts?.level === 'warn' || nOpts?.level === 'error' ? `[${nOpts.level}] ` : '';
       err.write(`${prefix}${text}\n`);
     },
+    // —— 审批预填消费位（B3——07 §5 预填块：askApproval 先查预填表——命中
+    // 即答、无命中投 unavailable 票交棒〔先 notify 摘要保持可见性——后端
+    // 翻 capability 后 ui-core 不再 notify 化兜底，冷读闸 N-2 补腿〕）。匹配
+    // = 工具名全等或 `前缀*` 通配；后条胜出（解析序即优先序——倒扫首中）。
+    // **always → 'approve'**（B-4 清偿形：预填 always 只做会话内粘性——
+    // 「每次同工具都批」的粘性等效由预填表逐 ask 命中实现；策略表落写与
+    // 粘性账两跳过——「机器不替用户记永远允许」/「永不自添」正面辖，跨
+    // 会话持久授权正道 = 用户面写策略表）。审计对由 ApprovalService 经
+    // approval-wiring 照落（预填是答案侧非免问侧）——
+    askApproval:
+      prefillOf !== undefined
+        ? (_sessionId, request) => {
+            const table = prefillOf() ?? [];
+            const hit = [...table].reverse().find(({ tool }) => matchPrefill(tool, request.toolName));
+            if (hit !== undefined) {
+              err.write(`[审批预填] ${request.summary} → ${hit.answer === 'always' ? 'approve' : hit.answer}\n`);
+              return Promise.resolve(hit.answer === 'always' ? 'approve' : hit.answer);
+            }
+            // 未命中：先呈摘要（无人值守可见性）再投 unavailable 票——交棒
+            // 全链无答即 fail-closed 拒（04 §9 语义原样）
+            err.write(`[审批] ${request.summary}（无预填答案——fail-closed 拒）\n`);
+            return Promise.resolve('unavailable');
+          }
+        : undefined,
     onEnvelope: (env) => {
       if (env.sessionId !== sessionId) return; // 多会话信封——只消费本 run 的
       const event: AgentEvent = env.event;
@@ -821,11 +857,16 @@ ${schemaRaw}
   // 再记一笔即双计，故移除；userInitiated 归因由回执 seeds 窗扫承载）——
 
   // —— ⑨ settle：CLI 级收场语义（truncated 到帽位在 run 本体 aborted 之上
-  // 如实标注）+ 退出码三态映射（completed → 0；failed/aborted/truncated → 1）——
+  // 如实标注）+ 退出码档位映射（B3——07 §5 第四档改裁：completed → 0；
+  // aborted → **130**〔用户/信号协作中止——SIGINT 对齐 shell 128+2 惯例，
+  // 无人值守可判别「取消 ≠ 出错」〕；failed/truncated → 1〔截断语义位 json
+  // 档 status 已可判别不扩〕）——
   const finalStatus = truncated ? 'truncated' : result.status;
   let exitCode: number;
   if (finalStatus === 'completed') {
     exitCode = 0;
+  } else if (result.status === 'aborted' && !truncated) {
+    exitCode = 130;
   } else {
     exitCode = 1;
     if (finalStatus === 'truncated') {
@@ -893,7 +934,9 @@ ${schemaRaw}
       // →runner settle 同源同形——不另造词）；退出码仍由 ⑨ 按 run 本体终态
       // 映射（aborted→1），settle 只改 fire 级记账面
       err.write('已达单次运行墙钟上限（30 分钟）——协作中止本次运行（timeout）\n');
-      settleTick({ trigger: 'cron', reason: 'timeout', error: '被中止（墙钟超时）', finishedAt });
+      // B3/S-8：自杀钟 timeout 系 aborted 形——settle 携 exit_code 130 与进程
+      // 退出码一致（jobs 行 exit_code 位可判别「取消 ≠ 出错」）
+      settleTick({ trigger: 'cron', reason: 'timeout', exitCode: 130, error: '被中止（墙钟超时）', finishedAt });
     } else if (finalStatus === 'completed') {
       // 冷读①（2026-09-15 批）：exitCode 用计算后变量——schema 失败叠加退 1
       // 在 ⑨½ 落位，此前此处硬编码 0 即账实分离；error 位载码（200 帽同族）
@@ -919,7 +962,16 @@ ${schemaRaw}
         finishedAt,
       });
     } else {
-      settleTick({ trigger: 'cron', reason: 'killed', error: 'run 中止（协作/信号 abort）', finishedAt });
+      // B3/S-8：aborted 形（协作/信号 abort）settle 携 exit_code 130（与进程
+      // 退出码一致）；truncated 形在上面分支维持 killed 不带码（截断语义位
+      // 已有词辖）
+      settleTick({
+        trigger: 'cron',
+        reason: 'killed',
+        exitCode: 130,
+        error: 'run 中止（协作/信号 abort）',
+        finishedAt,
+      });
     }
   }
 
