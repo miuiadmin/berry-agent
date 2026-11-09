@@ -65,7 +65,9 @@ await client.close();
 ## API 面
 
 - `createSdkClient(transport)` —— `prompt` / `getEntries` / `sessions` /
-  `interrupt` / `decide` / `subscribe` / `close`；错误帧统一投形
+  `interrupt` / `decide` / `subscribe` / `close`（`decide` 可选第四参
+  decision 袋——approve 伴 `updatedInput` 改写 / always 伴 `suggestionIndex`
+  选定，reject/cancel 伴行服务端 schema 层拒）；错误帧统一投形
   `SdkError`（`code` / `message` / `sessionId?`）。
 - `spawnServeTransport({ args, … })` / `httpSdkTransport({ socketPath | host+port, token })`
   —— 两实装同 `SdkTransport` 三种抽象：请求形（单帧返回）、无返回形
@@ -77,8 +79,13 @@ await client.close();
   `ApprovalDecideAnswer` /
   `SdkRequest` / `SdkWireFrame` / `SdkAckFrame` / `SdkEntriesFrame` /
   `SdkSessionsFrame` / `SdkSessionSummary` / `SdkDurableEntry` / `SdkEventFrame` /
-  `SdkHelloFrame` / `SdkErrorFrame` / `SdkHeartbeatStage` / `SdkHeartbeatFrame` /
-  `SdkReplayEndFrame` / `SdkDecideResultFrame` / `SdkAskFrame`；传输选项面
+  `SdkHelloFrame` / `SdkCapabilities`（B2——hello 能力公告载荷：models/tools/
+  features 三键，每 hello 现取断线重连即重取）/ `SdkErrorFrame` /
+  `SdkHeartbeatStage` / `SdkHeartbeatFrame` /
+  `SdkReplayEndFrame` / `SdkDecideResultFrame` / `SdkAskFrame`（B1 扩
+  `toolCall?`/`suggestions?` 两可选字段）/ `ApprovalDecisionPayload`（B1——
+  decide 决策袋：approve 伴 `updatedInput` 整值改写 / always 伴
+  `suggestionIndex` 选定索引）；传输选项面
   `SpawnServeOptions` / `SdkStdioTransport` / `HttpSdkOptions`；值常量
   `SDK_FRAME_KINDS` / `SDK_PROTOCOL_VERSION`。
 

@@ -131,6 +131,35 @@ describe('审批 ask 编舞（03 §10.6 第三腿——独立帧族 + 幂等 dec
     expect(h.frames[1]).toEqual({ kind: 'ask', sessionId: 's1', approvalId: 'sdk-2', summary: '二' });
   });
 
+  it('B5 收口锁：ask 帧投影 B1 新载荷 toolCall/suggestions 逐键透传（后续重构丢字段即红）', () => {
+    const h = createHarness();
+    subscribeS1(h);
+    void h.handle.backend.askApproval!('s1', {
+      summary: '写入 /ws/a.txt',
+      toolCall: { callId: 'c-1', toolName: 'write', arguments: { path: '/ws/a.txt', content: 'REDACTED' } },
+      suggestions: ['write /ws/a.txt'],
+    });
+    const frame = h.frames[0] as {
+      toolCall?: { callId: string; toolName: string; arguments: Record<string, unknown> };
+      suggestions?: string[];
+    };
+    expect(frame.toolCall).toEqual({
+      callId: 'c-1',
+      toolName: 'write',
+      arguments: { path: '/ws/a.txt', content: 'REDACTED' },
+    });
+    expect(frame.suggestions).toEqual(['write /ws/a.txt']);
+  });
+
+  it('B5 收口锁：decide 伴行袋经 handleRequest 折线（updatedInput/suggestionIndex 线形直出）', async () => {
+    const h = createHarness();
+    subscribeS1(h);
+    const p = h.handle.backend.askApproval!('s1', { summary: '写' });
+    const approvalId = (h.frames[0] as { approvalId: string }).approvalId;
+    h.handle.core.handleRequest({ verb: 'decide', approvalId, answer: 'approve', updatedInput: { path: '/改写.txt' } });
+    await expect(p).resolves.toEqual({ answer: 'approve', decision: { updatedInput: { path: '/改写.txt' } } });
+  });
+
   it('decide applied：promise resolve 应答值 + decide-result applied 回执', async () => {
     const h = createHarness();
     subscribeS1(h);

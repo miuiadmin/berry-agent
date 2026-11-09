@@ -1879,6 +1879,32 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     }
   });
 
+  it('B5 收口锁：decide 体两键受理（approve+updatedInput 200）与 reject 伴行 400（schema 层拒 webui 位）', async () => {
+    const asked1 = webui!.backend.askApproval!('s-1', { summary: '锁例一' });
+    let id1 = '';
+    {
+      const l = await get('/api/approvals');
+      id1 = (l.json as { approvals: Array<{ approvalId: string }> }).approvals[0]!.approvalId;
+    }
+    const ok = await post(`/api/approvals/${id1}/decide`, {
+      answer: 'approve',
+      updatedInput: { path: '/改写.txt' },
+    });
+    expect(ok.status).toBe(200);
+    await expect(asked1).resolves.toEqual({ answer: 'approve', decision: { updatedInput: { path: '/改写.txt' } } });
+    // reject 伴行 = 400（值形互斥——validateDecideBody 手判）
+    const asked2 = webui!.backend.askApproval!('s-1', { summary: '锁例二' });
+    let id2 = '';
+    {
+      const l = await get('/api/approvals');
+      id2 = (l.json as { approvals: Array<{ approvalId: string }> }).approvals[0]!.approvalId;
+    }
+    const bad = await post(`/api/approvals/${id2}/decide`, { answer: 'reject', updatedInput: {} });
+    expect(bad.status).toBe(400);
+    await post(`/api/approvals/${id2}/decide`, { answer: 'cancel' });
+    await expect(asked2).resolves.toBe('cancel');
+  });
+
   it('审批撤销：signal abort → ask 落 cancel + 清单出清；已决后迟到 abort 是 no-op', async () => {
     const reader = await openSse(port, 's-1', token);
     try {

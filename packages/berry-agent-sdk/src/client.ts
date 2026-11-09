@@ -6,7 +6,7 @@
  * 全部走线协议词面（verb 判别 + 缺省填充——messageId 计数器形/since -1 哨兵），
  * 零第二套载荷形。
  */
-import type { ApprovalDecideAnswer } from '../../../src/contracts/approval.js';
+import type { ApprovalDecideAnswer, ApprovalDecisionPayload } from '../../../src/contracts/approval.js';
 import type { SdkErrorFrame, SdkWireFrame } from '../../../src/channels/sdk/protocol.js';
 
 import { SdkError } from './types.js';
@@ -85,13 +85,23 @@ export function createSdkClient(transport: SdkTransport): SdkClient {
     interrupt: (sessionId: string) => transport.send({ verb: 'interrupt', sessionId }),
 
     // answer 四值闭集（ApprovalDecideAnswer——第十一轮深扫 L6-2 与 SdkDecideRequest.answer
-    // 单源同形；'unavailable' 编译期即拒，运行时线 schema 四值校验同拒）
-    decide: async (approvalId: string, answer: ApprovalDecideAnswer, note?: string) => {
+    // 单源同形；'unavailable' 编译期即拒，运行时线 schema 四值校验同拒）。
+    // B1 决策袋（第四参可选——04 §9 ③）：approve 伴 updatedInput（整值改写
+    // 后参数）/ always 伴 suggestionIndex（候选集选定索引）；reject/cancel
+    // 伴行服务端 schema 层拒（值形互斥）；缺席即省略——旧三参调用零漂移
+    decide: async (
+      approvalId: string,
+      answer: ApprovalDecideAnswer,
+      note?: string,
+      decision?: ApprovalDecisionPayload,
+    ) => {
       const frame = await transport.request({
         verb: 'decide',
         approvalId,
         answer,
         ...(note !== undefined ? { note } : {}),
+        ...(decision?.updatedInput !== undefined ? { updatedInput: decision.updatedInput } : {}),
+        ...(decision?.suggestionIndex !== undefined ? { suggestionIndex: decision.suggestionIndex } : {}),
       });
       ensureNotError(frame);
       return (frame as { outcome: 'applied' | 'superseded' }).outcome; // 应答闭集 {decide-result, error}

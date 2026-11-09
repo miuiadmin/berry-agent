@@ -57,6 +57,9 @@ export type SdkIndexTypeSurface = [
   // —— types.ts 第二块（线协议/契约面）——
   apiTypes.AgentEvent,
   apiTypes.ApprovalAskAnswer,
+  // B1 决策袋（A-7 收口）：client.decide 第四参类型面——桶面缺席时消费侧
+  // `ApprovalDecisionPayload` 导入 TS2305，名册同为缺名红出位
+  apiTypes.ApprovalDecisionPayload,
   // decide 可传应答闭集（61 轮件D-1）：types.ts:31 已策展 re-export 而桶面缺席
   // ——消费面 `import { ApprovalDecideAnswer } from 'berry-agent-sdk'` TS2305，
   // 本名册同为缺名红出位（类型面存在性锁执法腿 = tsc sdk 测试配置）
@@ -71,6 +74,8 @@ export type SdkIndexTypeSurface = [
   apiTypes.SdkDurableEntry,
   apiTypes.SdkEventFrame,
   apiTypes.SdkHelloFrame,
+  // B2——hello 能力公告载荷（A-7 收口：存在性锁名册补位——防后续误删不红）
+  apiTypes.SdkCapabilities,
   apiTypes.SdkErrorFrame,
   // —— 协议件已有名纯扩出口（挖掘 37 轮件 6——「点不了名」体操形消解：
   // 心跳/重放界标/审批双帧四族此前在联合内不可单独点名）——

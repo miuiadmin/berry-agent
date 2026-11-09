@@ -34,6 +34,7 @@ export type {
   // decide 可传应答四值闭集（61 轮件D-1）：types.ts 已策展 re-export 而桶面
   // 缺席——消费面点不了名；随族补位（序随 types.ts 声名序）
   ApprovalDecideAnswer,
+  ApprovalDecisionPayload,
   SdkRequest,
   SdkWireFrame,
   SdkAckFrame,

@@ -172,6 +172,26 @@ describe('createSdkClient 方法面', () => {
     expect(fake.requests[1]).toEqual({ verb: 'decide', approvalId: 'a-1', answer: 'reject', note: '不需要' });
   });
 
+  it('decide B1 决策袋（第四参）：updatedInput/suggestionIndex 条件落线、缺席省略零漂移', async () => {
+    const fake = fakeTransport();
+    fake.setResponder(() => ({ kind: 'decide-result', approvalId: 'a-2', outcome: 'applied' }));
+    const client = createSdkClient(fake.transport);
+    // approve 伴改写值
+    await client.decide('a-2', 'approve', undefined, { updatedInput: { path: '/ws/x.txt' } });
+    expect(fake.requests[0]).toEqual({
+      verb: 'decide',
+      approvalId: 'a-2',
+      answer: 'approve',
+      updatedInput: { path: '/ws/x.txt' },
+    });
+    // always 伴选定索引
+    await client.decide('a-2', 'always', undefined, { suggestionIndex: 0 });
+    expect(fake.requests[1]).toEqual({ verb: 'decide', approvalId: 'a-2', answer: 'always', suggestionIndex: 0 });
+    // 空袋对象 = 两键皆省（与缺席同线形）
+    await client.decide('a-2', 'approve', undefined, {});
+    expect(fake.requests[2]).toEqual({ verb: 'decide', approvalId: 'a-2', answer: 'approve' });
+  });
+
   it('decide 应答值域锚（L6-2）：unavailable 编译期即拒——与运行时四值闭集校验同值域', async () => {
     // 修前：decide 签名仍绑五值 ApprovalAskAnswer——该行无类型错误可抑制，tsc
     // 报「Unused '@ts-expect-error' directive」红（红锚）；修后：收窄为
