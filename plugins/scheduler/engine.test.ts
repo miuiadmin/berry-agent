@@ -1068,6 +1068,12 @@ describe('清账对偶律（68 轮批注丙——判占者方清己账）', () =
       warn,
       timers: new FakeTimers(),
       pid: 111,
+      // 死残账真值钉死（engine.ts isPidAlive 测试驱动面——生产恒缺省）：
+      // 本用例意图 = A 账未超钟但 pid 已死（残账判定过 → B 条件判占接管）。
+      // 修前裸真探活依赖 pid 111 真死——macOS 低 pid 恒空成立、CI Linux
+      // runner 上 pid 111 常系系统进程（occupiedAlive 翻真 → B 让位 gated
+      // 永不接管，waitFor 超时；随镜像 pid 分配漂移呈跨 run「偶发」）。
+      isPidAlive: () => false,
     });
     const engineB = createSchedulerEngine({
       dao,
@@ -1076,6 +1082,7 @@ describe('清账对偶律（68 轮批注丙——判占者方清己账）', () =
       warn,
       timers: new FakeTimers(),
       pid: 222,
+      isPidAlive: () => false,
     });
     // A 起跑（manual 直通）：claim 落 111 → 悬挂在 handle.settled
     const pa = engineA.fireNow('j', 'manual');
