@@ -453,7 +453,16 @@ export const HOST_FLAG_WORDS: readonly string[] = [
 function parseRun(rest: readonly string[], declared?: DeclaredPluginFlags): CliParseResult {
   const runExtra = declaredSchemas(declared);
   const scan = scanFlags(rest, [...RUN_SCHEMAS, ...runExtra]);
-  if (scan.error) return usageFail(scan.error);
+  if (scan.error) {
+    // B-15：--plugin-file 试件形旗标结构性不在受理集（S-14）——报文增第二句
+    // 指路（分辨「词不存在」与「插件未装机/试件形不受理」）
+    if (scan.values.has('plugin-file')) {
+      return usageFail(
+        `${scan.error}；若该旗标属 --plugin-file 试件插件声明：v1 不受理试件形旗标，先 install/mount 装机后可用`,
+      );
+    }
+    return usageFail(scan.error);
+  }
   // --tick <名> 取值形（批 20a）：与 message 位置参数互斥——到点形态提示词在行内不在
   // argv（07 §5 定名）；arity 随形态分档（--tick 在场零位置参数、缺席恰一）
   const tickName = scan.values.get('tick');

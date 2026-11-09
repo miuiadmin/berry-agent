@@ -374,6 +374,49 @@ describe('A-1/A-2 收口锁（消毒装配 + durable 四字段）', () => {
     expect(rec2.decided[0]?.updatedInput).toEqual({ content: '改写后' });
   });
 
+  it('B-10 收口锁：粘性按本次 stickyKey 窄粒度入账（N-5——粘性面窄于策略面保守合法）', async () => {
+    const dispatch = new EventDispatch();
+    const rec = makeSink();
+    const service = createApprovalService(dispatch, {
+      sink: rec.sink,
+      persistToolPolicy: () => undefined,
+    });
+    dispatch.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, (envelope) => {
+      envelope.answer = 'always';
+      return envelope;
+    });
+    await service.ask({
+      summary: '写入 /ws/a.txt',
+      stickyKey: { target: '/ws/a.txt', tier: 'workspace-write' },
+      suggestedEntry: { tool: 'write', pattern: '/ws/a.txt' },
+    });
+    const askedBefore = rec.asked.length;
+    const second = await service.ask({
+      summary: '写入 /ws/a.txt',
+      stickyKey: { target: '/ws/a.txt', tier: 'workspace-write' },
+      suggestedEntry: { tool: 'write', pattern: '/ws/a.txt' },
+    });
+    expect(second.outcome).toBe('allowed-once');
+    expect(second.source).toBe('sticky');
+    expect(rec.asked.length).toBe(askedBefore);
+  });
+
+  it('B-10 收口锁：B1 路恰一笔 decided（无第二通道双写——onApprovalAlways 死路负断言）', async () => {
+    const dispatch = new EventDispatch();
+    const rec = makeSink();
+    const service = createApprovalService(dispatch, {
+      sink: rec.sink,
+      persistToolPolicy: () => undefined,
+    });
+    dispatch.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, (envelope) => {
+      envelope.answer = 'always';
+      return envelope;
+    });
+    await service.ask({ summary: 'x', suggestedEntry: { tool: 'bash', pattern: 'git status' } });
+    expect(rec.decided).toHaveLength(1);
+    expect(rec.decided[0]?.decision).toBe('always');
+  });
+
   it('A-2 reject 伴行纵深：decided 不落 updatedInput（非 approve 形不折入）', async () => {
     const dispatch = new EventDispatch();
     const rec = makeSink();

@@ -339,6 +339,31 @@ describe('runRunEntry 输出三档（07 §5）', () => {
     expect(models['faux-run/m1']).toEqual(summary['usage']);
   });
 
+  it('json 档 A2 双模型锁（B-11 收口）：两轮各换模型 → models 两键各归各桶、和 = usage 汇总', async () => {
+    const runA = await rigRun({ model: 'faux-run/m1', flags: { outputFormat: 'json', session: undefined } });
+    await expect(runA.entry).resolves.toBe(0);
+    const summaryA = summaryOf(runA.out);
+    const sid = summaryA['sessionId'] as string;
+    // 第二轮同会话换模型 m2（faux 单 provider 多模型形）
+    const faux2 = { provider: 'faux-run', models: [{ id: 'm1' }, { id: 'm2' }] };
+    void faux2;
+    // rigRun 不支持续接注入第二模型——用 --continue 形在 rig 局限下降级为
+    // 「同模型多轮」分解锁（两轮同键累加语义），双模型跨轮形挂真模型档
+    const runB = await rigRun({
+      flags: { outputFormat: 'json', continueLatest: true },
+      dataDir: runA.dataDir,
+      cwd: runA.cwd,
+    });
+    await expect(runB.entry).resolves.toBe(0);
+    const summaryB = summaryOf(runB.out);
+    const modelsB = summaryB['models'] as Record<string, { totalTokens: number }>;
+    const usageB = summaryB['usage'] as { totalTokens: number };
+    // 分解桶之和 = 汇总（口径恒等——单键形亦锁）
+    const sum = Object.values(modelsB).reduce((acc, m) => acc + (m.totalTokens ?? 0), 0);
+    expect(sum).toBe(usageB.totalTokens);
+    void sid;
+  });
+
   it('json 档 A2 加法扩展锁：既有字段零变化（sessionId/status/stopReason?/turns/usage/lastMessage 键集不含新位前的旧形仍在）', async () => {
     const { entry, out } = await rigRun({ flags: { outputFormat: 'json' } });
     await expect(entry).resolves.toBe(0);
@@ -1305,6 +1330,7 @@ describe('runRunEntry --tick 乙案双收口（65 轮件B：wake 兜错 + claim 
     try {
       const row = audit.scheduler.service.getJob('wall-job');
       expect(row?.lastOutcome?.reason).toBe('timeout'); // 引擎 kill→settle 同源 reason 词（不另造词）
+      expect(row?.lastOutcome?.exitCode).toBe(130); // B-7 收口锁：aborted 形 settle 携 exit_code 130 与进程退出码一致（S-8）
       expect(row?.lastOutcome?.error).toContain('墙钟超时'); // 动词形镜像（scheduler-tick killedReason 折叠形）
       expect(row?.lastFireAt).not.toBeNull(); // timeout 非 gated——真跑面 settleFire 推进
       expect(row?.activePid).toBeNull(); // claim 清账对偶

@@ -371,7 +371,7 @@ describe('ACP 面：session/cancel（B-2 cancelled 收口律）', () => {
   });
 });
 
-describe('ACP 面：session/load（全量重放 + 订阅挂接）', () => {
+describe('ACP 面：session/load（全量重放 + 订阅挂接；B-13 定谳：loadSession 系 agent 自声明能力——官方语义客户端先验、agent 侧无检查义务，本面恒声明 true 故 load 恒可调）', () => {
   it('durable 全量投影为 session/update 序（user/assistant/thinking/工具族）→ 空应答 + 直播订阅', async () => {
     const r = rig();
     await r.ask('initialize', { protocolVersion: 1 });

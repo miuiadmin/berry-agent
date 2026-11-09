@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { parseCli } from './cli.js';
+import { HOST_FLAG_WORDS, parseCli } from './cli.js';
 import type { CliCommand } from './cli.js';
 
 /** 用法错断言速记（exitCode 恒 2——07 §5 退出码三态之「用法错」档） */
@@ -831,6 +831,17 @@ describe('--answers 预填解析（07 §5 B3——CLI/SDK 进化批）', () => {
   it('--ephemeral 互斥（S-6：审计对照 durable 承诺结构性不成立）', () => {
     expectUsage(['run', '--ephemeral', '--answers', 'bash=approve', 'hi'], '互斥');
   });
+
+  it('--answers 与 --preset 正交（B-8 收口锁：两旗标同传各自在场——预设调策略输入、预填调答案侧）', () => {
+    const r = parseCli(['run', '--answers', 'write=approve', '--preset', 'balanced', 'hi']);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.command.kind === 'run') {
+      expect(r.command.flags.answers).toEqual([{ tool: 'write', answer: 'approve' }]);
+      expect(r.command.flags.preset).toBe('balanced');
+    } else {
+      expect.unreachable('正交组合解析应成功');
+    }
+  });
 });
 
 describe('插件旗标受理（B4——03 §1.2：注入形声明集 + 执法律① 不破）', () => {
@@ -871,5 +882,10 @@ describe('插件旗标受理（B4——03 §1.2：注入形声明集 + 执法律
 
   it('serve 入口不受理（零旗标面律——声明集不并表）', () => {
     expectUsage(['serve', '--plan'], '未识别旗标');
+  });
+
+  it('B-9 收口锁：HOST_FLAG_WORDS 全表含同批新词 --answers（防后批手并 SCHEMAS 漏词）', () => {
+    expect(HOST_FLAG_WORDS).toContain('answers');
+    expect(HOST_FLAG_WORDS).toContain('output-format'); // 既有词对照
   });
 });
