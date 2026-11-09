@@ -25,7 +25,7 @@
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import type { EventDispatch, Scope } from '../context/index.js';
 import type { AgentTool, ToolDefinition } from '../contracts/index.js';
-import { TOOL_EVENT_NAMES } from '../contracts/index.js';
+import { TOOL_EVENT_NAMES, redactArgsForPresentation } from '../contracts/index.js';
 import type { SessionLog } from '../session/index.js';
 import { createRootsProvider, installSafetyGate, sensitiveReadFiles } from '../safety/index.js';
 import type {
@@ -175,6 +175,23 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
     workspace: workspaceRoot,
     mode: opts.mode,
     dataDir: opts.dataDir,
+    // A-1 收口（04 §9 B1 呈现消毒律）：toolCall.arguments 进 ask 载荷前过
+    // 值基+模式两腿消毒——与管道 update/result 出口同一 sensitiveValues
+    // 源（出口治理③ 单源；缺席 = gate 内恒等回落〔消毒降级档——装配位
+    // 应恒注入，此处条件展开保测试替身零扰动〕）
+    ...(opts.sensitiveValues !== undefined
+      ? {
+          scrubForPresentation: (args: Record<string, unknown>) => {
+            let values: readonly string[] = [];
+            try {
+              values = opts.sensitiveValues!();
+            } catch {
+              /* provider 读取故障 → 空值表 = 纯模式腿（消毒诚实律——同管道出口） */
+            }
+            return redactArgsForPresentation(args, values);
+          },
+        }
+      : {}),
     // 守门行与 fence 同根集（六役 A1——SafetyGateOptions.writableRoots 注）
     writableRoots,
     // 授予根 live 透传（wt 挂账批——授予根 .git 同律遮蔽）：守门行按授予根

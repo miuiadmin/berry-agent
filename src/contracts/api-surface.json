@@ -1267,6 +1267,15 @@
       "sig": "5a4f58922cd93033"
     },
     {
+      "symbol": "redactArgsForPresentation",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "审批呈现面参数消毒（B1——04 §9 呈现消毒律 / A-1 装配收口）：toolCall .arguments 进 ask 载荷前的值基+模式两腿消毒",
+      "kind": "function",
+      "sig": "4b01726b40413fb1"
+    },
+    {
       "symbol": "redactKnownSecretValues",
       "module": "berry-agent",
       "tier": "stable",

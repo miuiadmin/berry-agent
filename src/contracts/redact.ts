@@ -266,3 +266,29 @@ export function redactUpdatePayload(update: unknown, sensitiveValues: readonly s
   }
   return update;
 }
+
+/**
+ * 审批呈现面参数消毒（B1——04 §9 呈现消毒律 / A-1 装配收口）：toolCall
+ * .arguments 进 ask 载荷前的值基+模式两腿消毒。串值经 redactAll（模式腿 +
+ * 值基腿——与管道 update/result 出口同源单源）；非串值递归同律（对象/数组
+ * 深走——呈现面参数明细可嵌结构）；敏感值表读取故障降级纯模式腿（消毒诚实
+ * 律——provider 坏不炸审批链）。
+ */
+export function redactArgsForPresentation(
+  args: Record<string, unknown>,
+  sensitiveValues: readonly string[],
+): Record<string, unknown> {
+  const scrub = (value: unknown): unknown => {
+    if (typeof value === 'string') return redactAll(value, sensitiveValues);
+    if (Array.isArray(value)) return value.map(scrub);
+    if (value !== null && typeof value === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value)) out[k] = scrub(v);
+      return out;
+    }
+    return value;
+  };
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args)) out[k] = scrub(v);
+  return out;
+}

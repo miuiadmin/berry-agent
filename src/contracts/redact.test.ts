@@ -3,7 +3,13 @@
  * 模式集三段幂等性 + 值基腿下限/排序 + 结果出口 walk 结构保形）。
  */
 import { describe, it, expect } from 'vitest';
-import { redactKnownSecretValues, redactSensitiveText, redactToolResultExit, redactUpdatePayload } from './redact.js';
+import {
+  redactArgsForPresentation,
+  redactKnownSecretValues,
+  redactSensitiveText,
+  redactToolResultExit,
+  redactUpdatePayload,
+} from './redact.js';
 import type { AgentToolResult } from './tools.js';
 
 describe('模式腿：URL userinfo 剥离', () => {
@@ -227,5 +233,27 @@ describe('update 载荷出口：redactUpdatePayload（出口治理③射界扩�
     expect(redactUpdatePayload(noText, [])).toBe(noText); // 零文本块零拷贝
     const odd = { content: 'not-array' };
     expect(redactUpdatePayload(odd, [])).toBe(odd);
+  });
+});
+
+describe('redactArgsForPresentation（B1 呈现消毒——A-1 装配收口的单源函数）', () => {
+  it('串值过值基+模式两腿：已知敏感值替换 + URL userinfo 剥离；嵌套结构深走', () => {
+    const args = {
+      path: '/ws/a.txt',
+      content: 'token=sk-secret-1234567890 tail',
+      nested: { url: 'https://user:pass12345678@example.com/x', list: ['sk-another-987654321'] },
+      count: 42,
+    };
+    const scrubbed = redactArgsForPresentation(args, ['sk-secret-1234567890', 'sk-another-987654321']);
+    expect(scrubbed['content']).not.toContain('sk-secret-1234567890');
+    expect(String(scrubbed['nested'])).not.toContain('pass12345678');
+    expect(String(scrubbed['nested'])).not.toContain('sk-another-987654321');
+    expect(scrubbed['count']).toBe(42); // 非串值原样
+    expect(scrubbed['path']).toBe('/ws/a.txt'); // 无敏感值不受影响
+  });
+
+  it('空敏感值表 = 纯模式腿（降级诚实律）', () => {
+    const scrubbed = redactArgsForPresentation({ content: 'plain' }, []);
+    expect(scrubbed['content']).toBe('plain');
   });
 });

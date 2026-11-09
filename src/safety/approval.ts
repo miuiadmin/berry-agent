@@ -75,17 +75,35 @@ export function bridgeApprovalSignal(req: ApprovalRequest, controller: AbortCont
  * 一一对应；装配层接线 session.append）。
  */
 export interface ApprovalDecisionSink {
-  /** approval/asked 载荷（落日志时机 = 请求发出时；粘性命中免问不落本腿） */
-  asked(payload: { readonly approvalId: string; readonly summary: string }): void;
+  /**
+   * approval/asked 载荷（落日志时机 = 请求发出时；粘性命中免问不落本腿）。
+   * B1 扩（05 §1.1 对端笔 / A-2 收口）：toolCall = tool 级裁决请求〔呈现
+   * 消毒后形——gate 组装位消毒后透传〕；suggestions = 持久规则候选集
+   * （空格呈现形）。审计位字段——不进投影白名单。
+   */
+  asked(payload: {
+    readonly approvalId: string;
+    readonly summary: string;
+    readonly toolCall?: {
+      readonly callId: string;
+      readonly toolName: string;
+      readonly arguments: Record<string, unknown>;
+    };
+    readonly suggestions?: readonly string[];
+  }): void;
   /**
    * approval/decided 载荷（落日志时机 = 决议产生时）。decision = durable
    * 决议五值；source = 决策理由来源闭集五值（04 §9 粘性段定形②——审计面
-   * 可分辨「谁放的行」）。
+   * 可分辨「谁放的行」）。B1 扩（05 §1.1 / A-2 收口）：updatedInput =
+   * approve 伴行改写后参数（执行面同值——审计对账腿）；suggestionIndex =
+   * always 伴行选定规则索引。审计位字段——不进投影白名单。
    */
   decided(payload: {
     readonly approvalId: string;
     readonly decision: ApprovalDecisionValue;
     readonly source: DecisionSource;
+    readonly updatedInput?: Record<string, unknown>;
+    readonly suggestionIndex?: number;
   }): void;
 }
 
@@ -204,10 +222,6 @@ export function createApprovalService(dispatch: EventDispatch, opts: ApprovalSer
       }
 
       const approvalId = randomUUID();
-      // 审批对第一腿：请求落日志（问询真实发生的开头；never 档不问不落）
-      if (policy !== 'never') {
-        sink.asked({ approvalId, summary: req.summary });
-      }
 
       // 归属织入（恰一键 {sessionId}）+ approvalId——answerer 的消费面载荷
       const enriched: ApprovalRequest = {
@@ -215,6 +229,20 @@ export function createApprovalService(dispatch: EventDispatch, opts: ApprovalSer
         approvalId,
         ...(opts.ownership !== undefined ? { ownership: opts.ownership } : {}),
       };
+
+      // 审批对第一腿：请求落日志（问询真实发生的开头；never 档不问不落）；
+      // B1 四字段透传（A-2 收口——toolCall 系 gate 组装位的消毒后形；
+      // suggestions 单条空格呈现形与 approval-wiring 投影同源）
+      if (policy !== 'never') {
+        sink.asked({
+          approvalId,
+          summary: req.summary,
+          ...(enriched.toolCall !== undefined ? { toolCall: enriched.toolCall } : {}),
+          ...(enriched.suggestedEntry !== undefined
+            ? { suggestions: [`${enriched.suggestedEntry.tool} ${enriched.suggestedEntry.pattern}`] }
+            : {}),
+        });
+      }
 
       // B1 suggestions 结构快照入账：suggestedEntry 单条旧形 = 单元素快照
       //（索引 0 语义等价——兼容形不废）；快照 ask 结算即清（finally 位）
@@ -298,7 +326,22 @@ export function createApprovalService(dispatch: EventDispatch, opts: ApprovalSer
 
       // 审批对第二腿：决议落日志（never 档 asked 未落但 decided 单腿在——
       // 审计面据 source=policy-never 分辨「问都没问」）
-      sink.decided({ approvalId, decision: outcomeToDecision(outcome, alwaysWritten), source });
+      sink.decided({
+        approvalId,
+        decision: outcomeToDecision(outcome, alwaysWritten),
+        source,
+        // B1 伴行透传（A-2 收口）：approve 改写值（执行面同值——改写事实
+        // durable 可查，回放/转录对账腿闭合）；always 选定索引（结构快照
+        // 查回真源在 service 内存——离线回放凭呈现串+生成器推回〔05 §1.1〕）；
+        // 非 approve 形伴行不落（纵深——schema 层拒在 decide 入口已拦，此处
+        // 双保险：reject/cancel 伴行到达时 decided 载荷不携）
+        ...(outcome === 'allowed-once' && decision?.updatedInput !== undefined
+          ? { updatedInput: decision.updatedInput }
+          : {}),
+        ...(decision?.suggestionIndex !== undefined && alwaysWritten
+          ? { suggestionIndex: decision.suggestionIndex }
+          : {}),
+      });
       // B1：结构快照结算即清（悬置 ask 不留残影——生命周期与审批对对齐）
       suggestionSnapshots.delete(approvalId);
       return {

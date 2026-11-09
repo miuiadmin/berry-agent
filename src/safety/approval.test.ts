@@ -18,11 +18,23 @@ import type { ApprovalAnswer, ApprovalRequest } from './types.js';
 
 /** 审批对双腿记录器（durable sink 的测试注入形） */
 function makeSink() {
-  const asked: { approvalId: string; summary: string }[] = [];
-  const decided: { approvalId: string; decision: string; source: string }[] = [];
+  // B1 扩字段形（A-2 收口——asked/decided 审计位可选字段随载荷透传）
+  const asked: Array<{
+    approvalId: string;
+    summary: string;
+    toolCall?: { callId: string; toolName: string; arguments: Record<string, unknown> };
+    suggestions?: string[];
+  }> = [];
+  const decided: Array<{
+    approvalId: string;
+    decision: string;
+    source: string;
+    updatedInput?: Record<string, unknown>;
+    suggestionIndex?: number;
+  }> = [];
   const sink: ApprovalDecisionSink = {
-    asked: (p) => asked.push({ ...p }),
-    decided: (p) => decided.push({ ...p }),
+    asked: (p) => asked.push({ ...p } as (typeof asked)[number]),
+    decided: (p) => decided.push({ ...p } as (typeof decided)[number]),
   };
   return { asked, decided, sink };
 }
@@ -306,5 +318,73 @@ describe('B1 工具级审批双向协议（04 §9 重裁形——decision 袋消
     const result = await service.ask({ summary: 'x' });
     expect(result.outcome).toBe('rejected');
     expect(result.updatedInput).toBeUndefined(); // 非 approve 形伴行不折入返回值
+  });
+});
+
+describe('A-1/A-2 收口锁（消毒装配 + durable 四字段）', () => {
+  it('A-2 asked 落账携 toolCall 消毒后形与 suggestions 单条呈现形', async () => {
+    const dispatch = new EventDispatch();
+    const rec = makeSink();
+    const service = createApprovalService(dispatch, { sink: rec.sink });
+    dispatch.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, (envelope) => {
+      envelope.answer = 'approve';
+      return envelope;
+    });
+    await service.ask({
+      summary: '写入 /ws/a.txt',
+      suggestedEntry: { tool: 'write', pattern: '/ws/a.txt' },
+      toolCall: { callId: 'c-1', toolName: 'write', arguments: { path: '/ws/a.txt', content: 'x' } },
+    });
+    expect(rec.asked[0]?.toolCall).toEqual({
+      callId: 'c-1',
+      toolName: 'write',
+      arguments: { path: '/ws/a.txt', content: 'x' },
+    });
+    expect(rec.asked[0]?.suggestions).toEqual(['write /ws/a.txt']);
+  });
+
+  it('A-2 decided 落账携 updatedInput 与 suggestionIndex（改写事实 durable 可查——审计对账腿闭合）', async () => {
+    const dispatch = new EventDispatch();
+    const rec = makeSink();
+    const service = createApprovalService(dispatch, {
+      sink: rec.sink,
+      persistToolPolicy: () => undefined,
+    });
+    dispatch.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, (envelope) => {
+      envelope.answer = 'always';
+      envelope.decision = { suggestionIndex: 0 };
+      return envelope;
+    });
+    await service.ask({
+      summary: '执行命令 git status',
+      suggestedEntry: { tool: 'bash', pattern: 'git status' },
+    });
+    expect(rec.decided[0]?.decision).toBe('always');
+    expect(rec.decided[0]?.suggestionIndex).toBe(0);
+    // 改写值例（approve 伴行——另一形）
+    const dispatch2 = new EventDispatch();
+    const rec2 = makeSink();
+    const service2 = createApprovalService(dispatch2, { sink: rec2.sink });
+    dispatch2.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, (envelope) => {
+      envelope.answer = 'approve';
+      envelope.decision = { updatedInput: { content: '改写后' } };
+      return envelope;
+    });
+    await service2.ask({ summary: 'x' });
+    expect(rec2.decided[0]?.updatedInput).toEqual({ content: '改写后' });
+  });
+
+  it('A-2 reject 伴行纵深：decided 不落 updatedInput（非 approve 形不折入）', async () => {
+    const dispatch = new EventDispatch();
+    const rec = makeSink();
+    const service = createApprovalService(dispatch, { sink: rec.sink });
+    dispatch.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, (envelope) => {
+      envelope.answer = 'reject';
+      envelope.decision = { updatedInput: {} };
+      return envelope;
+    });
+    await service.ask({ summary: 'x' });
+    expect(rec.decided[0]?.decision).toBe('reject');
+    expect(rec.decided[0]?.updatedInput).toBeUndefined();
   });
 });
