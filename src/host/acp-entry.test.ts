@@ -7,12 +7,15 @@
  * ask → session/request_permission 外推 → 应答后工具真执行 + 第二轮收口）/
  * session:resume 未知 id 注册码折 -32602 / set_model 落账与 fail-loud /
  * 凭证就绪过滤宇宙（models 块第四消费位 + 设置位就绪闸——07 ux-4 批注）/
- * session:list 首问快照投影 / EOF 优雅退 0。断言只对协议面与事件类型位。
+ * session:list 首问快照投影 / EOF 优雅退 0 / 多连接复用（socket 第二连接
+ * 独立 face + 信封路由与审批双亲和 + 全连接退场才收进程——2026-11-09 ACP
+ * 多连接复用批）。断言只对协议面与事件类型位。
  */
 import { existsSync } from 'node:fs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import net from 'node:net';
 import { PassThrough } from 'node:stream';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
@@ -21,6 +24,7 @@ import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
 
 import { runAcpEntry } from './acp-entry.js';
+import { acpSocketPath } from './acp-share.js';
 
 /* ---------------- 测试基建 ---------------- */
 
@@ -59,10 +63,11 @@ interface WireFrame {
   error?: { code: number; message: string };
 }
 
-/** ACP 传输 rig（id 关联请求等待 + 通知/入站请求账 + 入站请求应答器） */
+/** ACP 传输 rig（id 关联请求等待 + 通知/入站请求账 + 入站请求应答器）——
+ * 流对可注入（缺省 PassThrough 对；多连接复用测试注入真 net.Socket 双面） */
 class AcpRig {
-  readonly input = new PassThrough();
-  readonly output = new PassThrough();
+  readonly input: PassThrough | net.Socket;
+  readonly output: PassThrough | net.Socket;
   private seq = 0;
   private buf = '';
   readonly frames: WireFrame[] = [];
@@ -70,7 +75,12 @@ class AcpRig {
   readonly serverRequests: WireFrame[] = [];
   private readonly waiters = new Map<number, (frame: WireFrame) => void>();
 
-  constructor() {
+  constructor(
+    input: PassThrough | net.Socket = new PassThrough(),
+    output: PassThrough | net.Socket = new PassThrough(),
+  ) {
+    this.input = input;
+    this.output = output;
     this.output.setEncoding('utf8');
     this.output.on('data', (chunk: string) => {
       this.buf += chunk;
@@ -161,7 +171,25 @@ function rigAcp(responses: Array<() => PiAssistantMessage>, opts: RigAcpOpts = {
     env: opts.env ?? { FAUX_ACP_API_KEY: 'k' },
     version: 'v-test',
   });
-  return { rig, entry, ws };
+  return { rig, entry, ws, dataDir };
+}
+
+/** socket 客户端接入（holder 听就绪竞窗——轮询重试 4s 帽；多连接复用测试） */
+async function connectRig(path: string): Promise<AcpRig> {
+  const t0 = Date.now();
+  for (;;) {
+    try {
+      const socket = await new Promise<net.Socket>((resolve, reject) => {
+        const socket = net.connect(path);
+        socket.once('connect', () => resolve(socket));
+        socket.once('error', reject);
+      });
+      return new AcpRig(socket, socket);
+    } catch {
+      if (Date.now() - t0 > 4_000) throw new Error('socket 接入超时（holder 未就绪）');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
 }
 
 /** session/update 通知投影速记 */
@@ -359,6 +387,138 @@ describe('runAcpEntry 组合根', () => {
     } finally {
       rig.end();
       await entry.catch(() => 1);
+    }
+  });
+
+  it('多连接复用：socket 第二连接独立 face；信封路由与审批双亲和；全连接退场才收进程', async () => {
+    // 2026-11-09 ACP 多连接复用批——03 §10.6 撞锁代理形：holder 顺带听
+    // dataDir/acp.sock，每 socket 连接 spawn 独立 face（后端 id 唯一档）。
+    const { rig, entry, ws, dataDir } = rigAcp([
+      () => messageOf('answer-a'), // 会话 A（stdio 连接）文本轮
+      () => toolCallOf('mux-write', 'write', { path: 'mux-b.txt', content: 'B' }), // 会话 B（socket 连接）write 轮
+      () => messageOf('done'), // B 工具批准后收尾轮
+    ]);
+    // socket 第二客户端（真 unix socket——等 holder 听就绪后接入）
+    const sockRig = await connectRig(acpSocketPath(dataDir));
+    try {
+      const init = await sockRig.ask('initialize', {
+        protocolVersion: 1,
+        clientInfo: { name: 'sock-client', version: '1' },
+      });
+      expect((init.result as { agentInfo: { name: string } }).agentInfo.name).toBe('berry-agent');
+      const createdB = await sockRig.ask('session/new', { cwd: ws, mcpServers: [] });
+      const sessionB = (createdB.result as { sessionId: string }).sessionId;
+
+      const createdA = await rig.ask('session/new', { cwd: ws, mcpServers: [] });
+      const sessionA = (createdA.result as { sessionId: string }).sessionId;
+      expect(sessionA).not.toBe(sessionB);
+
+      // 信封路由亲和：A 的直播只在 stdio 连接出现——socket 连接零外泄。
+      const promptA = await rig.ask('session/prompt', {
+        sessionId: sessionA,
+        prompt: [{ type: 'text', text: '问A' }],
+      });
+      expect((promptA.result as { stopReason: string }).stopReason).toBe('end_turn');
+      await rig.until(() =>
+        updatesOf(rig).some(
+          (entry_) => entry_.sessionId === sessionA && entry_.update.sessionUpdate === 'agent_message_chunk',
+        ),
+      );
+      expect(updatesOf(sockRig).some((entry_) => entry_.sessionId === sessionA)).toBe(false);
+
+      // 审批亲和：B 的 write 审批只达 socket 客户端——stdio 客户端零请求（未
+      // 知名单会话投 unavailable 弃权票，不越权外推他人窗口）。
+      const promptBPromise = sockRig.ask('session/prompt', {
+        sessionId: sessionB,
+        prompt: [{ type: 'text', text: '写文件' }],
+      });
+      await sockRig.until(() => sockRig.serverRequests.some((frame) => frame.method === 'session/request_permission'));
+      expect(rig.serverRequests.some((frame) => frame.method === 'session/request_permission')).toBe(false);
+      const request = sockRig.serverRequests.find((frame) => frame.method === 'session/request_permission')!;
+      const params = request.params as { sessionId: string; options: Array<{ optionId: string }> };
+      expect(params.sessionId).toBe(sessionB);
+      expect(params.options.map((option) => option.optionId)).toContain('allow_once');
+      sockRig.respondServerRequest(request, { outcome: { outcome: 'selected', optionId: 'allow_once' } });
+      const promptB = await promptBPromise;
+      expect((promptB.result as { stopReason: string }).stopReason).toBe('end_turn');
+      expect(existsSync(join(ws, 'mux-b.txt'))).toBe(true); // 物理写达成（B 会话工作区）
+
+      // 退场条件 = 全部连接退场：stdio EOF 后进程仍活（socket face 在场——
+      // 修前单 face 形 EOF 即退）。早期退场 bug 的显影窗（250ms）。
+      rig.end();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const settledEarly = await Promise.race([
+        entry.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 0)),
+      ]);
+      expect(settledEarly).toBe(false);
+
+      // 末连接退场 → 进程收场退 0。
+      sockRig.end();
+      await expect(entry).resolves.toBe(0);
+    } finally {
+      rig.end();
+      sockRig.end();
+      await entry.catch(() => 1);
+    }
+  });
+
+  it('busy 撞锁代理整链：第二入口撞 HOST_DATA_DIR_BUSY → socket 透明代理承载全会话', async () => {
+    // 组合根级 busy 分支覆盖（冷读闸补强）：同 dataDir 第二 runAcpEntry 在
+    // 同进程内撞锁（同 pid 活判成立）→ 装配失败面携带注册码 → proxyAcpShare
+    // 接管注入 io ↔ holder socket——协议帧全链透传，代理退场不杀 holder。
+    const { rig, entry, ws, dataDir } = rigAcp([() => messageOf('answer-via-proxy')]);
+    const rig2 = new AcpRig();
+    const entry2 = runAcpEntry({
+      io: { input: rig2.input, output: rig2.output },
+      dataDir, // 同数据目录——锁冲突面（holder 在场）
+      version: 'v-test',
+    });
+    try {
+      // initialize 经代理透传到 holder 新 face——字节链即证。
+      const init = await rig2.ask('initialize', {
+        protocolVersion: 1,
+        clientInfo: { name: 'busy-proxy-client', version: '1' },
+      });
+      expect((init.result as { agentInfo: { name: string } }).agentInfo.name).toBe('berry-agent');
+
+      const created = await rig2.ask('session/new', { cwd: ws, mcpServers: [] });
+      const sessionB = (created.result as { sessionId: string }).sessionId;
+
+      // 代理路承载真对话轮（holder 侧第二 face 的 knownSessions 在账）。
+      const prompt = await rig2.ask('session/prompt', {
+        sessionId: sessionB,
+        prompt: [{ type: 'text', text: '经代理问' }],
+      });
+      expect((prompt.result as { stopReason: string }).stopReason).toBe('end_turn');
+      await rig2.until(() =>
+        updatesOf(rig2).some(
+          (entry_) => entry_.sessionId === sessionB && entry_.update.sessionUpdate === 'agent_message_chunk',
+        ),
+      );
+      expect(
+        updatesOf(rig2)
+          .filter((entry_) => entry_.sessionId === sessionB && entry_.update.sessionUpdate === 'agent_message_chunk')
+          .map((entry_) => (entry_.update.content as { text?: string }).text)
+          .join(''),
+      ).toBe('answer-via-proxy');
+
+      // 代理退场（注入 io EOF → 半关写向 → holder face 收口）→ 第二入口退 0；
+      // holder 不受涉（entry 仍活）。
+      rig2.end();
+      await expect(entry2).resolves.toBe(0);
+      const holderSettled = await Promise.race([
+        entry.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 0)),
+      ]);
+      expect(holderSettled).toBe(false);
+
+      rig.end();
+      await expect(entry).resolves.toBe(0);
+    } finally {
+      rig2.end();
+      rig.end();
+      await Promise.allSettled([entry, entry2]);
     }
   });
 });
