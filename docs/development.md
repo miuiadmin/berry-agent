@@ -118,7 +118,7 @@ src/
   compaction/   上下文压缩
   channels/     呈现通道核（信封路由 + TUI 引擎件族全套）
   conversation/ 对话组合域（driver、三通道路由、todo）
-  host/         装配根（CLI、运行时、插件装载、五入口）
+  host/         装配根（CLI、运行时、插件装载、六入口）
   <16 个 core: 插件域>  exec skills web scheduler goal subagent checkpoint
                         memory mcp lsp browser webui sdk obs issue credentials
 packages/

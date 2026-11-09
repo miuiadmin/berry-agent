@@ -351,6 +351,7 @@ berry serve stop               # 停守护
 
 - **npm SDK**：`berry-agent-sdk`（类型化客户端，spawn stdio / 直连 HTTP 两传输）**已上 npm**（alpha 版，`npm install berry-agent-sdk` 可装，随主仓演进）——SDK 源码在仓内 `packages/berry-agent-sdk`，开发态仍可 `file:` 链本地消费；
 - **MCP 包装**：`berry mcp` 以 MCP server 形态暴露 `berry-agent` / `berry-agent-reply` 两工具，供任意 MCP 客户端接入；
+- **ACP 包装**：`berry acp` 以 ACP（Agent Client Protocol v1）agent 形态供 ACP 客户端（hapi、Zed 等聚合器/编辑器）spawn 直连——stdio 行帧 JSON-RPC，方法基线集 `initialize` / `session/new` / `session/prompt`（挂 run 终态回执 + 直播 `session/update` 通知）/ `session/cancel` / `session/load`，审批经 `session/request_permission` 外推、由客户端决定放行与否；首个实例持数据目录锁，后到 spawn 经数据目录内 socket 透明复用同进程（聚合端每会话一 spawn 的拓扑直收）；
 - **`--port` 统一 HTTP 面**：SPA Web 界面 + `/api/*`（Web 界面族）+ `/v1/*`（程序调用族）三族同面，恒回环，token 鉴权（令牌仅启动 stderr 一次性显示）。Web 界面输入框 `@` 同样触发文件路径补全——同 TUI 判据（工作区根锚定、引号感知、`@"带空格 路径"` 引号形、子序列模糊过滤），候选弹层 `↑`/`↓` 循环、`Enter` 整 token 代换、`Esc` 关层。会话侧栏行悬停呈删除键（`✕`）——浏览器确认框明示「含审批记录在内的全部会话史将被删除，且不可恢复。」（与 TUI `/sessions` 面板 `d` 键、CLI `berry sessions delete` 三载体同句）；运行中会话拒删（409 提示等待或先打断），删除当前打开的会话即回到无选择态。该键走 `DELETE /api/sessions/:id` 端点（`/api/*` 同面 token-or-cookie 鉴权——登录 cookie 或 Bearer 令牌皆可；三态：删除成功 200 / 运行中 409 / 会话不存在 404）。
 
 **图片粘贴与程序携图**（2026-10-08 起支持）：Web 界面输入框可直接粘贴截图（输入框下方出现缩略图附件栏，可逐张删除，最多 4 张）。程序调用方同样可以带图——`POST /v1/prompt` 载荷可选带 `images` 数组，每件形如 `{"data": "<图片原文的 base64>", "mimeType": "image/png"}`：

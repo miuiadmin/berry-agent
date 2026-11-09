@@ -58,11 +58,12 @@
 bin (berry) → host/main
   ├─ 崩溃/信号编舞（crash.log 取证、SIGINT②/SIGTERM 优雅序）
   ├─ parseCli + dispatchCli（用法错退 2 / help·version 短路 / 非 TTY 卫兵退 2）
-  └─ 五入口
+  └─ 六入口
       ├─ TUI（无参）──┐
       ├─ run 单次执行 ├─ assembleHostStack 公共段：
       ├─ serve 常驻    │   单活跃机标记 → 开库迁移 → 披露段 → 根作用域
       ├─ mcp 包装     │   → conversation 栈 → 插件装载（Kahn 轮次）
+      ├─ acp 包装     │
       └─ 诊断命令 ────┘     （dump-config / plugins list / sessions fork 同构）
 ```
 
@@ -87,7 +88,7 @@ bin (berry) → host/main
 
 - **TUI（主界面）**：`channels` 内自研栈——渲染引擎（diff 帧管线、xterm oracle 互证）、输入解码（kitty 推栈、bracketed paste、鼠标 SGR 1006 + X10 降级链）、编辑器（fish 式 undo、IME）、Markdown 件、十九个内建面板（明细见[使用指南](./usage.md#tui-面板)；面板滚轮滚动 + 线性选区 OSC 52 复制；主对话面 v1 不消费鼠标）；
 - **Web 界面（`--port` 开启）**：`core:webui` SPA + REST/SSE，经 `core:sdk` HTTP 面的路由扩展位挂载——恒回环、token 鉴权、三防线（Host/Origin/回环判定）；预算停靠态（`session/paused`）v1 不进 Web 呈现面——停靠/唤醒的可见位 = TUI 命令族与模型工具 `session_list`；
-- **SDK**：类型化 TypeScript 客户端（spawn stdio / 直连 HTTP 两传输）+ MCP 包装形态——自动化通道的完整契约面；SDK 源码在仓内 `packages/berry-agent-sdk`，`berry-agent-sdk` npm 包 alpha 版已上 npm（`npm install berry-agent-sdk` 即装）、随主仓演进；
+- **SDK**：类型化 TypeScript 客户端（spawn stdio / 直连 HTTP 两传输）+ MCP 包装形态 + ACP 包装形态（`berry acp`——Agent Client Protocol v1 stdio server，hapi 等 ACP 客户端 spawn 直连）——自动化通道的完整契约面；SDK 源码在仓内 `packages/berry-agent-sdk`，`berry-agent-sdk` npm 包 alpha 版已上 npm（`npm install berry-agent-sdk` 即装）、随主仓演进；
 - **信封路由**：多 backend 并存（TUI + Web 同时在场），按 sessionId 各投各；审批（ask/decide）跨入口裁决，先 settle 者胜。
 
 ## 安全模型
