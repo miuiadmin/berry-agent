@@ -76,6 +76,11 @@ const DecideSchema = Type.Object(
       Type.Literal('always'),
     ]),
     note: Type.Optional(Type.String()),
+    // B1（04 §9 ③·schema 层拒——三消费位同判 S-3）：approve 伴行改写值 /
+    // always 伴行选定索引；reject/cancel 伴行任一键 = schema 层拒整个请求
+    //（值形互斥执法经 allOf 条件——伴行键仅对相容答案合法）
+    updatedInput: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    suggestionIndex: Type.Optional(Type.Integer({ minimum: 0 })),
   },
   strict,
 );
@@ -123,6 +128,33 @@ export function validateSdkRequest(value: unknown): { ok: true; value: SdkReques
     const first = errors[0];
     const at = first === undefined ? '' : `（${first.instancePath || '(root)'}：${first.message}）`;
     return { ok: false, reason: `${verb} 请求载荷不合 schema${at}` };
+  }
+  // B1（04 §9 ③ S-3）：decide 伴行袋值形互斥——updatedInput 仅 approve 伴行、
+  // suggestionIndex 仅 always 伴行（reject/cancel 伴任一键 = schema 层拒整个
+  // 请求——三消费位同判的 stdio 位；typebox allOf 条件 schema 表达力弱于
+  // 显式判序，此处手判单源）
+  if (verb === 'decide') {
+    const d = value as { answer?: string; updatedInput?: unknown; suggestionIndex?: unknown };
+    const hasInput = d.updatedInput !== undefined;
+    const hasIndex = d.suggestionIndex !== undefined;
+    if (d.answer === 'reject' || d.answer === 'cancel') {
+      if (hasInput || hasIndex) {
+        return {
+          ok: false,
+          reason: `decide 请求载荷不合 schema（answer=${d.answer} 不接受伴行键——updatedInput 仅 approve 伴行、suggestionIndex 仅 always 伴行）`,
+        };
+      }
+    }
+    if (d.answer === 'reject' || d.answer === 'cancel' || d.answer === 'always') {
+      if (hasInput) {
+        return { ok: false, reason: 'decide 请求载荷不合 schema（updatedInput 仅 approve 伴行）' };
+      }
+    }
+    if (d.answer === 'approve') {
+      if (hasIndex) {
+        return { ok: false, reason: 'decide 请求载荷不合 schema（suggestionIndex 仅 always 伴行）' };
+      }
+    }
   }
   // Value.Check 通过即结构吻合 SdkRequest 判别联合——窄化断言位
   return { ok: true, value: value as unknown as SdkRequest };

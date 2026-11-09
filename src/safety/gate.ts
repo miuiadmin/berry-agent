@@ -64,6 +64,13 @@ export interface SafetyGateOptions {
   /** 审批服务（fs 写审批与升权审批共用，summary 区分） */
   readonly approval: ApprovalService;
   /**
+   * B1 呈现消毒器（04 §9 ①呈现消毒律——04 §7 出口治理③ 值基腿同蒙）：
+   * toolCall.arguments 组装进 ask 载荷前过本消毒器（敏感值遮蔽）。缺席 =
+   * 原值透传（**消毒降级**——值基面不可及的单会话测试形；装配位应注入与
+   * 工具管道 update 出口同源的值基腿，消毒诚实律同款）。
+   */
+  readonly scrubForPresentation?: (args: Record<string, unknown>) => Record<string, unknown>;
+  /**
    * 本行执法归属会话（批 19c-1 会话归属过滤）：守门行是 per-session 装配
    * （assembleOpenTools 每会话各装一行，经共享 dispatch 全局订阅本词）——
    * 归属位在场时，他会话的工具调用本行让棒（调 next 交棒，不执法不产生
@@ -186,6 +193,8 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
   ];
   const carveTable = buildCarveOutTable(workspace, entries);
   const approval = opts.approval;
+  // B1 呈现消毒器（seam 缺席 = 原值透传——消毒降级档，见 SafetyGateOptions 注）
+  const scrubForPresentation = opts.scrubForPresentation ?? ((args: Record<string, unknown>) => args);
 
   const handler = async (input: GateInput, next: (value: GateInput) => Promise<GateInput>): Promise<GateInput> => {
     // 会话归属过滤（批 19c-1）：归属位与调用位双在场且相异 = 他会话的工具
@@ -399,18 +408,35 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
           ? `${tool.name} 执行动作`
           : `${tool.name} 写动作`;
 
-    const { outcome } = await approval.ask({
+    const { outcome, updatedInput } = await approval.ask({
       summary,
       toolName: tool.name,
       toolCallId: input.toolCallId,
       // 粘性指纹（tier = 当前档——子集偏序维度：更严档的重复请求被既有宽批包含）
       stickyKey: { target: targets.join('\n'), tier: mode },
       ...(draft !== undefined ? { suggestedEntry: draft } : {}),
+      // B1 tool 级裁决请求（04 §9 ①）：参数明细呈现位——**呈现消毒后形**
+      //（出口治理③同律——本行不透传原始执行值进呈现面；消毒 = 敏感值遮蔽
+      // 值基位〔sensitiveValueScrubber seam——装配注入，缺席 = 原值透传〕）
+      toolCall: {
+        callId: input.toolCallId,
+        toolName: tool.name,
+        arguments: scrubForPresentation(input.args),
+      },
       // run 取消信号随 ask 载荷透传（interrupt 链——answerer 桥接撤销；
       // undefined = 无 run 语境不携带）
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
     });
-    if (outcome === 'allowed-once') return next(input); // 放行交棒（仅本次调用）
+    if (outcome === 'allowed-once') {
+      // B1 approve 伴行改写（04 §9 ③）：改写后参数**整值替换** + mutated 旗
+      //（GateInput mutate 语义既有承载——守门改参的判据位；执行面与审计面
+      // 同值：管道以改写后 args 执行且 gate/decision 落账即此值）
+      if (updatedInput !== undefined) {
+        input.args = updatedInput;
+        input.mutated = true;
+      }
+      return next(input); // 放行交棒（仅本次调用——改写值随 input 沿链传播）
+    }
     // 拒绝族 block：cancelled 是打断非拒绝（run 已 abort 时模型看不见——
     // loop break 在先，收的是 durable 审计面与 resume 回放语境的诚实）；
     // rejected/unavailable 不带升权 hint（fs 写审批无升权出路——用户已当面

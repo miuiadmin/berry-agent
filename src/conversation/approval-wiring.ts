@@ -24,7 +24,7 @@
  * fail-loud）——dispatch 与服务同生命周期（per-session dispatch），dispose
  * 只摘 answerer 不撤销词汇注册。
  */
-import type { ApprovalAskAnswer, ApprovalAskRequest, SessionEvent } from '../contracts/index.js';
+import type { ApprovalAnswer, ApprovalAskAnswer, ApprovalAskRequest, SessionEvent } from '../contracts/index.js';
 import type { EventDispatch } from '../context/index.js';
 import type { SessionLog } from '../session/index.js';
 import { occludedSeqs } from '../session/index.js';
@@ -68,7 +68,7 @@ export interface SessionApprovalOptions {
    * 审批 ask 呈现面（channels UiBackend.askApproval 同构经装配注入；缺席 =
    * 无应答者 fail-closed——headless 无人挂同归 unavailable）。
    */
-  readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+  readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAnswer>;
   /** 策略档（缺省 'ask'；never = 无人值守确定性拒绝） */
   readonly policy?: ApprovalPolicyMode;
   /** 「始终允许」条目写入回调（04 §9 粘性段定形③织入位；缺省 always 面关闭） */
@@ -147,15 +147,15 @@ export function wireSessionApproval(opts: SessionApprovalOptions): SessionApprov
     const unbridge = bridgeApprovalSignal(input.req, controller);
 
     // 挂起簿记 + 收口竞速：settlePending 先胜 = 无答案（迟到答案被弃）
-    let settleAsk!: (answer: ApprovalAskAnswer | undefined) => void;
-    const settled = new Promise<ApprovalAskAnswer | undefined>((resolve) => {
+    let settleAsk!: (answer: ApprovalAnswer | undefined) => void;
+    const settled = new Promise<ApprovalAnswer | undefined>((resolve) => {
       settleAsk = resolve;
     });
     const entry: PendingAsk = { settle: settleAsk };
     pending.add(entry);
-    let answer: ApprovalAskAnswer | undefined;
+    let resolution: ApprovalAnswer | undefined;
     try {
-      answer = await Promise.race([
+      resolution = await Promise.race([
         // 呈现面异常 = 无答案（不答交棒——fail-closed 由 service 全链无答承担）
         opts.askApproval(toAskRequest(input.req), { signal: controller.signal }).catch(() => undefined),
         settled,
@@ -164,9 +164,16 @@ export function wireSessionApproval(opts: SessionApprovalOptions): SessionApprov
       pending.delete(entry);
       unbridge();
     }
-    if (answer !== undefined) {
-      input.answer = answer; // 能答短路（不调 next——本链应答位；可变载荷就地写）
-      return input;
+    if (resolution !== undefined) {
+      // B1（04 §9 管道位）：解析联合折信封——裸答案旧形直写 answer 位；
+      // 结构形拆 answer + decision 伴行袋（service 消费——改写值与选定回写）
+      if (typeof resolution === 'string') {
+        input.answer = resolution;
+      } else {
+        input.answer = resolution.answer;
+        if (resolution.decision !== undefined) input.decision = resolution.decision;
+      }
+      return input; // 能答短路（不调 next——本链应答位；可变载荷就地写）
     }
     return next(input);
   });
@@ -196,6 +203,14 @@ function toAskRequest(req: ApprovalRequest): ApprovalAskRequest {
     ...(req.approvalId !== undefined ? { approvalId: req.approvalId } : {}),
     ...(req.suggestedEntry !== undefined
       ? { suggestedEntry: `${req.suggestedEntry.tool} ${req.suggestedEntry.pattern}` }
+      : {}),
+    // B1（04 §9 ①/S-1）：toolCall 在场透传（呈现面以其为准——arguments 已
+    // 是守门组装位的消毒后形）；旧键兼容填法维持（双载过渡期）
+    ...(req.toolCall !== undefined ? { toolCall: req.toolCall } : {}),
+    // B1（04 §9 ②）：suggestions = suggestedEntry 单条的空格呈现形同源单档
+    //（v1 每族恰一档——多档扩容随 entryMatches 修订另批）
+    ...(req.suggestedEntry !== undefined
+      ? { suggestions: [`${req.suggestedEntry.tool} ${req.suggestedEntry.pattern}`] }
       : {}),
   };
 }

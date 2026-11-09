@@ -75,6 +75,15 @@
       "sig": "eae60cd3d5ce7dce"
     },
     {
+      "symbol": "ApprovalAnswer",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "askApproval 应答解析形（B1——04 §9 管道位：信封可变载荷 answer 位维持 ApprovalAskAnswer 闭集，decision 伴行袋经 answerer 就地写；本形 = channels UiBackend.askApproval 与 conversation approval-wiring 的解析联合——裸答案形（旧消费方）与结构形并存，decision 缺席 = 无伴行）",
+      "kind": "type",
+      "sig": "188b68f09a224428"
+    },
+    {
       "symbol": "ApprovalAskAnswer",
       "module": "berry-agent",
       "tier": "stable",
@@ -90,7 +99,7 @@
       "since": "1.0",
       "desc": "审批 ask 呈现载荷（07 §4.3——通道侧形）：channels 与 safety 边表互无边（02 §4.1），safety 侧 ApprovalRequest 经装配根映射注入本形；`suggestedEntry` = 「始终允许」草案条目（04 §9 ③ 策略表 allow 条目回写目标；无草案 = always 选项语义上不呈现、防御收口视同 approve）",
       "kind": "interface",
-      "sig": "e894ee1d2ec6808b"
+      "sig": "bd193c83cea45eac"
     },
     {
       "symbol": "ApprovalDecideAnswer",
@@ -100,6 +109,15 @@
       "desc": "decide 消费面应答闭集（ApprovalAskAnswer 减 'unavailable'——第十一轮深扫 L6-2 定谳）：'unavailable' 只属于 answerer 产出面（全部后端无 approval capability 的结构性自报值——ApprovalService 侧落 outcome 用，见上注），不是 decide 调用方可传的应答",
       "kind": "type",
       "sig": "1ab121d91cba4e65"
+    },
+    {
+      "symbol": "ApprovalDecisionPayload",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "审批应答伴行载荷（B1——04 §9：decision 袋——answer 位维持闭集不动，伴行键统一收本袋单源〔二轮快冷读新-2〕）",
+      "kind": "interface",
+      "sig": "33da7d802b761260"
     },
     {
       "symbol": "AssistantMessage",
@@ -841,7 +859,7 @@
       "since": "1.0",
       "desc": "通道后端接口（通道核的呈现消费面）",
       "kind": "interface",
-      "sig": "88842cd7b2b6cc4f"
+      "sig": "f7a97e3cc5345cce"
     },
     {
       "symbol": "UiCallLedger",

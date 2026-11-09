@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 import { createChannels, foldErrorText } from './service.js';
 import type {
+  ApprovalAnswer,
   ApprovalAskAnswer,
   SessionEnvelope,
   UiBackend,
@@ -644,7 +645,7 @@ describe('审批 ask（askApproval——07 §4.3 提问队列条款，批 10e-2 
     const s = createChannels();
     const b = fakeBackend('tui');
     s.addBackend(b.backend);
-    const answers: ApprovalAskAnswer[] = [];
+    const answers: ApprovalAnswer[] = [];
     for (const value of ['approve', 'reject', 'cancel', 'always'] as const) {
       const p = s.askApproval('s1', req('Q', '/tmp/x.txt')); // 带草案——always 不防御收口
       b.approvalAsks.at(-1)?.resolve(value);

@@ -14,7 +14,7 @@
  */
 
 import type { AgentEvent } from './agent-events.js';
-import type { ApprovalAskAnswer, ApprovalAskRequest } from './approval.js';
+import type { ApprovalAnswer, ApprovalAskRequest } from './approval.js';
 
 /**
  * 多会话信封（07 §4.1 channels 纵切批定形三则②）：AgentEvent 不带会话归属
@@ -103,7 +103,7 @@ export interface UiBackend<TProjection> {
    * 必携会话归属；核心面 07 §4.3 `askApproval(sessionId, request)` 本含会话位，
    * 后端面同携）。
    */
-  askApproval?(sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer>;
+  askApproval?(sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAnswer>;
   /** 状态行更新（last-writer-wins——多写者自然覆盖） */
   setStatus?(sessionId: string, status: string): void;
   /** 自定义渲染槽呈现（会话级单槽值由核维护——见 UiCore.setWidget） */

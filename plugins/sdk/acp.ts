@@ -263,17 +263,24 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
     // options 映射（ApprovalDecideAnswer 四值闭集的 UI 形）：「始终允许」仅在
     // suggestedEntry 在场（always 应答的策略表回写目标缺席 = always 视同
     // approve——不虚设档）；reject_always 无对应 answer 不设档
+    // B1（04 §9 ② 投影）：suggestions 在场优先（候选集空格呈现形逐条生成
+    // allow_always 档——optionId 携索引后缀供 suggestionIndex 映射）；
+    // 缺席回落 suggestedEntry 单条（索引 0 语义等价——兼容形不废）
+    const alwaysOptions: unknown[] =
+      frame.suggestions !== undefined && frame.suggestions.length > 0
+        ? frame.suggestions.map((label, index) => ({
+            optionId: `allow-always-${index}`,
+            name: `始终允许（${label}）`,
+            kind: 'allow_always',
+          }))
+        : frame.suggestedEntry !== undefined
+          ? [{ optionId: 'allow-always-0', name: `始终允许（${frame.suggestedEntry}）`, kind: 'allow_always' }]
+          : [];
     const acpOptions: unknown[] = [
+      ...alwaysOptions,
       { optionId: 'allow-once', name: '允许本次', kind: 'allow_once' },
       { optionId: 'reject-once', name: '拒绝', kind: 'reject_once' },
     ];
-    if (frame.suggestedEntry !== undefined) {
-      acpOptions.unshift({
-        optionId: 'allow-always',
-        name: `始终允许（${frame.suggestedEntry}）`,
-        kind: 'allow_always',
-      });
-    }
     pendingPermissions.set(requestId, { approvalId: frame.approvalId, sessionId: frame.sessionId });
     writeMessage({
       jsonrpc: '2.0',
@@ -367,17 +374,27 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
     pendingPermissions.delete(id);
     const outcome = (result as { outcome?: { outcome?: string; optionId?: string } } | undefined)?.outcome;
     let answer: ApprovalDecideAnswer;
+    let suggestionIndex: number | undefined;
     const optionId = outcome?.outcome === 'selected' ? outcome.optionId : undefined;
     if (optionId === 'allow-once') answer = 'approve';
-    else if (optionId === 'allow-always') answer = 'always';
-    else if (optionId === 'reject-once') answer = 'reject';
+    else if (optionId !== undefined && optionId.startsWith('allow-always-')) {
+      answer = 'always';
+      // B1：索引后缀 → suggestionIndex（N-1？否——后缀即原索引，allow-always-0 = 索引 0）
+      const parsed = Number(optionId.slice('allow-always-'.length));
+      if (Number.isInteger(parsed) && parsed >= 0) suggestionIndex = parsed;
+    } else if (optionId === 'reject-once') answer = 'reject';
     else if (outcome?.outcome === 'cancelled') answer = 'cancel';
     else {
       // 未识选项不视为批准（官方安全条款）——保守拒；cancelled 显式映射
       log(`request_permission 未识回复 ${JSON.stringify(outcome) ?? '缺席'}——保守拒`);
       answer = 'reject';
     }
-    backend.core.handleRequest({ verb: 'decide', approvalId: pending.approvalId, answer });
+    backend.core.handleRequest({
+      verb: 'decide',
+      approvalId: pending.approvalId,
+      answer,
+      ...(suggestionIndex !== undefined ? { suggestionIndex } : {}),
+    });
   };
 
   /** prompt 内容块解析（text 拼接 / image 直传 SdkPromptImage / resource_link 内联文本行） */

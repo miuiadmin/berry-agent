@@ -11,7 +11,7 @@
  */
 
 import type {
-  ApprovalAskAnswer,
+  ApprovalAnswer,
   ApprovalAskRequest,
   AskKind,
   ChannelsOptions,
@@ -97,7 +97,7 @@ export interface ChannelsService<TProjection> {
   select(sessionId: string, message: string, choices: readonly UiSelectChoice[], opts?: UiAskOptions): Promise<string>;
   input(sessionId: string, message: string, opts?: UiInputOptions): Promise<string>;
   /** 审批 ask（07 §4.3 提问队列条款——与阻塞三件同队；safety 侧经装配桥接） */
-  askApproval(sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer>;
+  askApproval(sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAnswer>;
   setStatus(sessionId: string, status: string): void;
   setWidget(sessionId: string, node: unknown | null): void;
   hasAudience(): boolean;

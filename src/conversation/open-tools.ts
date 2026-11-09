@@ -45,7 +45,7 @@ import {
 } from '../tools/index.js';
 import type { ToolRegistry, WorktreeService } from '../tools/index.js';
 import type { ExecToolService } from './types.js';
-import type { ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
+import type { ApprovalAnswer, ApprovalAskRequest } from '../contracts/index.js';
 import { wireSessionApproval } from './approval-wiring.js';
 import { createTodoTool } from './todo.js';
 
@@ -63,7 +63,7 @@ export interface OpenToolsOptions {
   /** 工作区锚点取值器（缺省 canonical 工作区根——context 单源） */
   readonly workspace?: () => string;
   /** 审批 ask 呈现面（透传审批装配；缺席 = 无应答者 fail-closed） */
-  readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+  readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAnswer>;
   /** 审批策略档（缺省 'ask'） */
   readonly policy?: ApprovalPolicyMode;
   /** 「始终允许」条目写入回调（04 §9 粘性段定形③；缺省 always 面关闭） */

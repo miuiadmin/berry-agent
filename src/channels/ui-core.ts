@@ -17,6 +17,7 @@
  */
 
 import type {
+  ApprovalAnswer,
   ApprovalAskAnswer,
   ApprovalAskRequest,
   AskKind,
@@ -248,7 +249,7 @@ export class UiCore {
    * onApprovalAlways 回写；无草案 always 防御收口视同 approve（零草案
    * 零副作用）。
    */
-  askApproval(sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer> {
+  askApproval(sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAnswer> {
     return this.ask(
       sessionId,
       'approval',
@@ -273,24 +274,32 @@ export class UiCore {
           // 腿与收口后迟到腿的 always 回写照发，策略表被污染；04 §9 ③：
           // always 回写只属用户显式按键的在场 ask）。微任务 FIFO 下同拍双
           // 真裁决的先后语义 = 注册序先到胜。
-          return new Promise<ApprovalAskAnswer>((resolve, reject) => {
+          // B1（04 §9 管道位）：answerer 解析形 = ApprovalAnswer 联合（裸答案
+          // 旧形 / {answer, decision?} 结构形）——真裁决判定与 always 收口取
+          // 结构 .answer 位，decision 伴行袋随 resolve 透传（service 消费）；
+          // 'unavailable' 票面语义不变（无人可答证词不计胜负）
+          return new Promise<ApprovalAnswer>((resolve, reject) => {
             let noAudienceVotes = 0;
             let decided = false;
             for (const b of direct) {
               b.askApproval!(sessionId, request, { signal }).then(
-                (answer) => {
+                (resolution) => {
                   // 双门头部：signal.aborted=整体收口门（finish 置 done 即同步
                   // abort——abort/会话收口后迟到腿全静默，防迟到 always 腿照跑
                   // settleApprovalAlways 污染策略表）；decided=多腿竞速胜负门
                   //（真裁决首到置位——后到腿静默丢弃）。
                   if (signal.aborted || decided) return;
+                  const answer = typeof resolution === 'string' ? resolution : resolution.answer;
+                  const decision = typeof resolution === 'string' ? undefined : resolution.decision;
                   if (answer === 'unavailable') {
                     noAudienceVotes += 1;
                     if (noAudienceVotes === direct.length) resolve('unavailable');
                     return;
                   }
                   decided = true; // 真裁决首到置位——后到腿全静默
-                  resolve(this.settleApprovalAlways(answer, request));
+                  const settled = this.settleApprovalAlways(answer, request);
+                  // 伴行袋透传（真裁决结构形）；裸裁决旧形维持裸答案（零漂移）
+                  resolve(decision !== undefined ? { answer: settled, decision } : settled);
                 },
                 // 迟到 reject 对已 settle 外层是 no-op 且零副作用（不经
                 // settleApprovalAlways——对称核，无需同门）

@@ -74,7 +74,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Type } from 'typebox';
 import { Value } from 'typebox/value';
 
-import { BaseError, type ApprovalAskAnswer } from '../../src/contracts/index.js';
+import { BaseError, type ApprovalAnswer, type ApprovalAskAnswer } from '../../src/contracts/index.js';
 import type { NotifyLevel, SessionEnvelope, UiBackend } from '../../src/channels/index.js';
 import {
   WEBUI_BODY_LIMIT_BYTES,
@@ -125,7 +125,7 @@ const SubmitSchema = Type.Object(
   strict,
 );
 
-/** decide 体（answer 四值闭集 = ApprovalAskAnswer；note 选填） */
+/** decide 体（answer 四值闭集 = ApprovalAskAnswer；note 选填；B1 伴行袋——值形互斥手判单源在 validateDecideBody〔04 §9 ③ 三消费位同判的 webui 位〕） */
 const DecideSchema = Type.Object(
   {
     answer: Type.Union([
@@ -135,9 +135,36 @@ const DecideSchema = Type.Object(
       Type.Literal('always'),
     ]),
     note: Type.Optional(Type.String()),
+    // B1：approve 伴 updatedInput / always 伴 suggestionIndex（reject/cancel
+    // 伴行任一键拒——手判在 validateDecideBody，与 stdio schema 同判词面）
+    updatedInput: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    suggestionIndex: Type.Optional(Type.Integer({ minimum: 0 })),
   },
   strict,
 );
+
+/**
+ * decide 伴行袋值形互斥手判（B1——04 §9 ③ S-3：schema 层拒三消费位同判的
+ * webui 位；typebox allOf 条件表达力弱于显式判序，与 stdio 位同款手判单源）。
+ */
+function validateDecideBody(
+  body: unknown,
+): { ok: true; value: Record<string, unknown> } | { ok: false; reason: string } {
+  const verdict = validate(DecideSchema, body, 'decide 体');
+  if (!verdict.ok) return verdict;
+  const b = body as { answer: string; updatedInput?: unknown; suggestionIndex?: unknown };
+  const hasInput = b.updatedInput !== undefined;
+  const hasIndex = b.suggestionIndex !== undefined;
+  if ((b.answer === 'reject' || b.answer === 'cancel') && (hasInput || hasIndex)) {
+    return {
+      ok: false,
+      reason: `answer=${b.answer} 不接受伴行键——updatedInput 仅 approve 伴行、suggestionIndex 仅 always 伴行`,
+    };
+  }
+  if (b.answer !== 'approve' && hasInput) return { ok: false, reason: 'updatedInput 仅 approve 伴行' };
+  if (b.answer !== 'always' && hasIndex) return { ok: false, reason: 'suggestionIndex 仅 always 伴行' };
+  return { ok: true, value: b };
+}
 
 /** thinking-level 体（档位面单字符串体——SubmitSchema 先例形；词法校验归
  *  注入面 fail-loud〔THINKING_LEVEL_INVALID〕，schema 只锁体形） */
@@ -214,7 +241,7 @@ interface PendingApproval {
   readonly suggestedEntry?: string;
   /** 已决标记（先答先得后迟到 decide/abort 皆 no-op） */
   settled: boolean;
-  readonly resolve: (answer: ApprovalAskAnswer) => void;
+  readonly resolve: (answer: ApprovalAnswer) => void;
 }
 
 /** 件侧活体流账项（全局帽计数 + 按会话扇出索引的成员——流本体是面级 openSse 产物） */
@@ -363,7 +390,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       });
     },
     askApproval: (sessionId: string, request, opts) =>
-      new Promise<ApprovalAskAnswer>((resolve) => {
+      new Promise<ApprovalAnswer>((resolve) => {
         // 进程作用域语义（定形注④）：不采无连接即时落值（cancel/unavailable
         // 皆不采）——开面在场即持应答能力，浏览器迟到也可应答；纯 webui 无
         // 浏览器时 ask 挂起至 run 打断/会话收口（核保守值兜底）。
@@ -404,13 +431,14 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
 
   /** decide 应答（跨入口竞速回执——只 resolve pending resolver，绝不直接写
    *  durable：decided durable 写唯一保留在 ask() 汇流点；unknown/已决 →
-   *  superseded 幂等回执） */
-  const decideApproval = (approvalId: string, answer: ApprovalAskAnswer): 'applied' | 'superseded' => {
+   *  superseded 幂等回执）。B1：ApprovalAnswer 联合（裸答案/结构形含 decision
+   *  伴行袋）——伴行随 resolve 透传 answerer 链 */
+  const decideApproval = (approvalId: string, resolution: ApprovalAnswer): 'applied' | 'superseded' => {
     const entry = pending.get(approvalId);
     if (entry === undefined || entry.settled) return 'superseded';
     entry.settled = true;
     pending.delete(approvalId);
-    entry.resolve(answer);
+    entry.resolve(resolution);
     return 'applied';
   };
 
@@ -989,11 +1017,23 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       if (!body.ok) return sendError(res, body.status, 'too_large', body.message);
       const parsed = parseJson(body.body);
       if (!parsed.ok) return sendError(res, 400, 'bad_request', parsed.reason);
-      const decide = validate<{ answer: ApprovalAskAnswer; note?: string }>(DecideSchema, parsed.value, 'decide 体');
+      const decide = validateDecideBody(parsed.value);
       if (!decide.ok) return sendError(res, 400, 'bad_request', decide.reason);
       // 只 resolve pending resolver（绝不直接写 durable——decided durable 写
-      // 唯一保留在 ask() 汇流点；后到/未知 = superseded 幂等回执）
-      const outcome = decideApproval(ctx.params.approvalId!, decide.value.answer);
+      // 唯一保留在 ask() 汇流点；后到/未知 = superseded 幂等回执）。
+      // B1：伴行袋（updatedInput/suggestionIndex）随答案折结构形 resolve——
+      // ApprovalAnswer 联合进 answerer 链
+      const answer = decide.value.answer as ApprovalAskAnswer;
+      const updatedInput = decide.value.updatedInput as Record<string, unknown> | undefined;
+      const suggestionIndex = decide.value.suggestionIndex as number | undefined;
+      const decision =
+        updatedInput !== undefined || suggestionIndex !== undefined
+          ? {
+              ...(updatedInput !== undefined ? { updatedInput } : {}),
+              ...(suggestionIndex !== undefined ? { suggestionIndex } : {}),
+            }
+          : undefined;
+      const outcome = decideApproval(ctx.params.approvalId!, decision !== undefined ? { answer, decision } : answer);
       sendJson(res, 200, { outcome });
     },
   });

@@ -28,7 +28,7 @@ import { BaseError } from '../contracts/index.js';
 import type { EventDispatch } from '../context/index.js';
 import type {
   AgentTool,
-  ApprovalAskAnswer,
+  ApprovalAnswer,
   ApprovalAskRequest,
   SessionOrigin,
   ToolDefinition,
@@ -105,7 +105,7 @@ export type DriverFactory = (input: {
    * 审批呈现路由覆盖（批 19c-1——委派边界①审批升父面）：缺省 = 本会话
    * 通道队列；在场时胜出（子代理形 = 父会话队列 + 挂起通知注入）。
    */
-  readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+  readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAnswer>;
   /**
    * 会话维追加工具面（成熟度缺口 #5——issue 起会腿消费位）：ToolDefinition
    * 清单经会话装配并入 open 域管道注册位（真三段管道——守门/审计/消毒与
@@ -326,7 +326,7 @@ export class SessionManager {
       model?: string;
       systemPrompt?: string;
       shapeTools?: (tools: readonly AgentTool[]) => readonly AgentTool[];
-      askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+      askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAnswer>;
       extraTools?: () => readonly ToolDefinition[];
       onEvent?: AgentEventSink;
     } = {},
@@ -650,7 +650,7 @@ export class SessionManager {
       model?: string;
       systemPrompt?: string;
       shapeTools?: (tools: readonly AgentTool[]) => readonly AgentTool[];
-      askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+      askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAnswer>;
       extraTools?: () => readonly ToolDefinition[];
       onEvent?: AgentEventSink;
     } = {},

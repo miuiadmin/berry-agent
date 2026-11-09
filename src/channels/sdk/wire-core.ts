@@ -19,7 +19,7 @@
  * 本件订阅相位机不改协议词汇。
  */
 import type { AgentEvent } from '../../agent/index.js';
-import type { ApprovalAskAnswer, RetryProbe } from '../../contracts/index.js';
+import type { ApprovalAskAnswer, ApprovalDecisionPayload, RetryProbe } from '../../contracts/index.js';
 import { admitContentKey, admitMessage } from './admit.js';
 import { validateAfterCursor } from './cursor.js';
 import {
@@ -105,8 +105,18 @@ export interface SdkWireDeps {
   sessionStateOf(sessionId: string): SdkSessionState;
   /** 驱动重试只读小面（心跳 retry 阶段唯一线面出口——04 §2 零新事件型） */
   retryProbeOf(sessionId: string): RetryProbe | null;
-  /** 审批应答（跨入口竞速回执——unknown 归 superseded，由 13b-3 后端实装） */
-  decideApproval(approvalId: string, answer: ApprovalAskAnswer, note?: string): 'applied' | 'superseded';
+  /**
+   * 审批应答（跨入口竞速回执——unknown 归 superseded，由 13b-3 后端实装）。
+   * B1（04 §9）：decision 伴行袋（approve 伴 updatedInput / always 伴
+   * suggestionIndex）随答案透传 answerer 链；reject/cancel 伴行 = schema
+   * 层拒整个 decide 请求（schema.ts 三消费位同判——本面不重复执法）。
+   */
+  decideApproval(
+    approvalId: string,
+    answer: ApprovalAskAnswer,
+    note?: string,
+    decision?: ApprovalDecisionPayload,
+  ): 'applied' | 'superseded';
   /** 订阅受理钩（未决 ask 全量重推位——13b-3 挂；重连补推语义） */
   onSubscribed?(sessionId: string): void;
   /** 过载断连钩（SDK_OVERLOADED 已尽力直写后调用——宿主关传输） */
@@ -314,7 +324,20 @@ export class SdkWireCore {
         this.handleInterrupt(req.sessionId);
         break;
       case 'decide':
-        this.handleDecide(req.approvalId, req.answer, req.note);
+        // B1：伴行袋透传（schema 层值形互斥已拒 reject/cancel 伴行——纵深
+        // 此不重复执法）；条件展开形与请求可选位同构
+        // 伴行袋条件折形（请求两可选位 → decision 袋单载荷）
+        this.handleDecide(
+          req.approvalId,
+          req.answer,
+          req.note,
+          req.updatedInput !== undefined || req.suggestionIndex !== undefined
+            ? {
+                ...(req.updatedInput !== undefined ? { updatedInput: req.updatedInput } : {}),
+                ...(req.suggestionIndex !== undefined ? { suggestionIndex: req.suggestionIndex } : {}),
+              }
+            : undefined,
+        );
         break;
       case 'getEntries':
         this.handleGetEntries(req.sessionId, req.since, req.cursor);
@@ -582,8 +605,13 @@ export class SdkWireCore {
   }
 
   /** decide：跨入口审批竞速应答——applied/superseded 回执（03 §10.6 第三腿） */
-  private handleDecide(approvalId: string, answer: ApprovalAskAnswer, note?: string): void {
-    const outcome = this.deps.decideApproval(approvalId, answer, note);
+  private handleDecide(
+    approvalId: string,
+    answer: ApprovalAskAnswer,
+    note?: string,
+    decision?: ApprovalDecisionPayload,
+  ): void {
+    const outcome = this.deps.decideApproval(approvalId, answer, note, decision);
     this.emit({ kind: 'decide-result', approvalId, outcome });
   }
 

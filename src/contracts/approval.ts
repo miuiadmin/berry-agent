@@ -49,4 +49,46 @@ export interface ApprovalAskRequest {
   readonly approvalId?: string;
   /** 「始终允许」草案条目（策略表 allow 条目回写目标；缺席 = always 防御收口视同 approve） */
   readonly suggestedEntry?: string;
+  /**
+   * tool 级裁决请求（B1——04 §9 工具级审批双向协议）：呈现面可显参数明细。
+   * arguments 系**呈现消毒后形**（04 §7 出口治理③——sensitiveValues 值基腿
+   * 同蒙、值基缺席降模式腿；消毒在守门组装位执行，本契约只见消毒后值）。
+   */
+  readonly toolCall?: {
+    readonly callId: string;
+    readonly toolName: string;
+    /** 消毒后参数（呈现面投影形——非执行真值） */
+    readonly arguments: Record<string, unknown>;
+  };
+  /**
+   * 持久规则候选集（B1——04 §9：v1 每族恰一档〔窄→宽不设——entryMatches
+   * 结构性辖〕；空格呈现形 `${tool} ${pattern}` 与 suggestedEntry 同源；
+   * danger 高位恒不携带）。呈现串仅显示层——结构真源在 ApprovalService
+   * 的 approvalId → 候选集快照映射（应答 suggestionIndex 查回用）。
+   */
+  readonly suggestions?: readonly string[];
 }
+
+/**
+ * 审批应答伴行载荷（B1——04 §9：decision 袋——answer 位维持闭集不动，伴行
+ * 键统一收本袋单源〔二轮快冷读 新-2〕）。approve 伴 updatedInput（参数改写
+ * ——整值替换执行、同蒙呈现消毒）；always 伴 suggestionIndex（规则选定索引
+ * ——ApprovalService 结构快照查回，选定条目经 persistToolPolicy 唯一正门
+ * 回写）。reject/cancel 伴行任一键 = schema 层拒整个 decide 请求（三消费位
+ * 同判——04 §9 B1 ③）。
+ */
+export interface ApprovalDecisionPayload {
+  /** approve 伴行：改写后工具参数（整值替换——执行面与审计面同值） */
+  readonly updatedInput?: Record<string, unknown>;
+  /** always 伴行：suggestions 序号（结构快照查回真源；单条旧形 = 索引 0 语义等价） */
+  readonly suggestionIndex?: number;
+}
+
+/**
+ * askApproval 应答解析形（B1——04 §9 管道位：信封可变载荷 answer 位维持
+ * ApprovalAskAnswer 闭集，decision 伴行袋经 answerer 就地写；本形 =
+ * channels UiBackend.askApproval 与 conversation approval-wiring 的解析
+ * 联合——裸答案形（旧消费方）与结构形并存，decision 缺席 = 无伴行）。
+ */
+export type ApprovalAnswer =
+  ApprovalAskAnswer | { readonly answer: ApprovalAskAnswer; readonly decision?: ApprovalDecisionPayload };

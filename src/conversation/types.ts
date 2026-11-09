@@ -15,7 +15,7 @@ import type { EventDispatch, Scope } from '../context/index.js';
 import type { SessionLog } from '../session/index.js';
 import type {
   AgentTool,
-  ApprovalAskAnswer,
+  ApprovalAnswer,
   ApprovalAskRequest,
   AssistantMessage,
   ErrorBucket,
@@ -237,7 +237,7 @@ export interface ConversationDriverOptions {
    * 审批 ask 呈现面（07 §4.3 提问队列条款）：channels UiBackend.askApproval
    * 同构经装配注入；缺席 = 无应答者 fail-closed（审批不可静默通过）。
    */
-  readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+  readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAnswer>;
 
   /**
    * 审批挂起收口面（04 §9 审批对条款 + 04 §3 终态=结算边界）：runTurns 结算

@@ -248,6 +248,17 @@ export interface SdkAskFrame {
   toolName?: string;
   /** 「始终允许」草案条目（always 应答的策略表回写目标——缺席 = always 视同 approve） */
   suggestedEntry?: string;
+  /**
+   * tool 级裁决请求（B1——04 §9 ①：callId/toolName/arguments〔呈现消毒后
+   * 形〕——守门组装位消毒、帧投影透传；呈现面以其为准〔S-1〕）。
+   */
+  toolCall?: { readonly callId: string; readonly toolName: string; readonly arguments: Record<string, unknown> };
+  /**
+   * 持久规则候选集（B1——04 §9 ②：v1 每族恰一档、空格呈现形与
+   * suggestedEntry 同源；danger 高位恒不携带）。呈现串仅显示层——应答侧
+   * 选定走 suggestionIndex 索引（ApprovalService 结构快照查回）。
+   */
+  suggestions?: readonly string[];
 }
 
 /** 服务端 → 调用方线帧全族（判别字段 `kind`；闭集见 {@link SDK_FRAME_KINDS}） */
@@ -361,6 +372,14 @@ export interface SdkDecideRequest {
   answer: ApprovalDecideAnswer;
   /** 应答附注（进审批审计面，可选） */
   note?: string;
+  /**
+   * B1（04 §9 ③·schema 层拒三消费位同判 S-3）：approve 伴行改写值——
+   * 改写后工具参数整值替换执行（守门行改实参 + mutated 旗）；reject/cancel
+   * 伴行任一键 = schema 层拒整个请求。
+   */
+  updatedInput?: Record<string, unknown>;
+  /** B1：always 伴行选定规则索引（ApprovalService 结构快照查回真源） */
+  suggestionIndex?: number;
 }
 
 /** getEntries 请求（断线对账——since 语义同 hello.after：窗口 (since, 高水位]） */

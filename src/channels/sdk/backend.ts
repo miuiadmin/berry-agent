@@ -21,7 +21,7 @@
  * deps（除 decideApproval/onSubscribed 两面由本件自持），dispose 归连接
  * 生命周期收口。
  */
-import type { ApprovalAskAnswer } from '../../contracts/index.js';
+import type { ApprovalAnswer } from '../../contracts/index.js';
 import type { SessionEnvelope, UiBackend } from '../types.js';
 import type { SdkAskFrame } from './protocol.js';
 import { SdkWireCore, type SdkWireDeps, type SdkWireOptions } from './wire-core.js';
@@ -32,7 +32,8 @@ interface PendingAsk {
   readonly frame: SdkAskFrame;
   /** 已决标记（先答先得后迟到 decide/abort 皆 no-op） */
   settled: boolean;
-  readonly resolve: (answer: ApprovalAskAnswer) => void;
+  /** B1：解析联合（裸答案旧形 / {answer, decision?}——decide 伴行袋透传 answerer 链） */
+  readonly resolve: (answer: ApprovalAnswer) => void;
 }
 
 /** createSdkBackend 产物（后端 + 线核 + 收口三位——装配面 13c/13e 消费） */
@@ -66,12 +67,14 @@ export function createSdkBackend(
       ...deps,
       // decide 应答：未决账项在册且未决 → 落定回执 applied；unknown/已决 →
       // superseded（跨入口竞速败者——03 §10.6 第三腿幂等语义）
-      decideApproval: (approvalId, answer) => {
+      decideApproval: (approvalId, answer, _note, decision) => {
         const entry = pending.get(approvalId);
         if (entry === undefined || entry.settled) return 'superseded';
         entry.settled = true;
         pending.delete(approvalId);
-        entry.resolve(answer);
+        // B1：decide 伴行袋（updatedInput/suggestionIndex）随答案透传——
+        // approve 伴改写 / always 伴选定；note 位维持既有（审计面）
+        entry.resolve(decision !== undefined ? { answer, decision } : answer);
         return 'applied';
       },
       // 订阅受理钩：该会话未决 ask 全量重推（重连后凭 hello 重收 ask 面；
@@ -104,7 +107,7 @@ export function createSdkBackend(
     // 活体信封直推直播腿（focused 无 SDK 语义——订阅即全量，无聚焦降档）
     onEnvelope: (env: SessionEnvelope) => core.pushEvent(env.sessionId, env.event),
     askApproval: (sessionId, request, opts) =>
-      new Promise<ApprovalAskAnswer>((resolve) => {
+      new Promise<ApprovalAnswer>((resolve) => {
         // fail-closed：该会话无订阅者即结构性无人可答——立即 unavailable
         //（帧不出站；04 §9 无应答者语义，非用户主动取消——与 abort 路分立）
         if (!core.isSubscribed(sessionId)) {
@@ -120,6 +123,10 @@ export function createSdkBackend(
           ...(request.reason !== undefined ? { reason: request.reason } : {}),
           ...(request.toolName !== undefined ? { toolName: request.toolName } : {}),
           ...(request.suggestedEntry !== undefined ? { suggestedEntry: request.suggestedEntry } : {}),
+          // B1（04 §9 ①②）：tool 级裁决请求（消毒后参数明细）与 suggestions
+          // 候选集投影（呈现串空格形——sdkask 帧消费方 = SDK 客户端/webui）
+          ...(request.toolCall !== undefined ? { toolCall: request.toolCall } : {}),
+          ...(request.suggestions !== undefined ? { suggestions: request.suggestions } : {}),
         };
         const entry: PendingAsk = { frame, settled: false, resolve };
         pending.set(approvalId, entry);

@@ -232,3 +232,79 @@ describe('词汇执法与信号桥接', () => {
     expect(bridgeApprovalSignal({ summary: 'x' }, new AbortController())).toBeTypeOf('function');
   });
 });
+
+describe('B1 工具级审批双向协议（04 §9 重裁形——decision 袋消费四路）', () => {
+  it('approve 伴 updatedInput：折进 ask 返回值（守门改写实参供源）', async () => {
+    const dispatch = new EventDispatch();
+    const rec = makeSink();
+    const service = createApprovalService(dispatch, { sink: rec.sink });
+    dispatch.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, (envelope) => {
+      envelope.answer = 'approve';
+      // B1 结构形伴行：approve 伴改写值
+      envelope.decision = { updatedInput: { path: '/ws/改写后.txt', content: '改写内容' } };
+      return envelope;
+    });
+    const result = await service.ask({ summary: '写入', stickyKey: { target: '/ws/a', tier: 'workspace-write' } });
+    expect(result.outcome).toBe('allowed-once');
+    expect(result.updatedInput).toEqual({ path: '/ws/改写后.txt', content: '改写内容' });
+  });
+
+  it('approve 无伴行 = 返回值无 updatedInput（旧路零漂移）', async () => {
+    const { service } = makeRig('approve');
+    const result = await service.ask({ summary: 'x' });
+    expect(result.updatedInput).toBeUndefined();
+  });
+
+  it('always 伴 suggestionIndex：结构快照查回选定条目经 persistToolPolicy 回写（B-2 链）', async () => {
+    const dispatch = new EventDispatch();
+    const rec = makeSink();
+    const written: { tool: string; pattern: string }[] = [];
+    const service = createApprovalService(dispatch, {
+      sink: rec.sink,
+      persistToolPolicy: (draft) => written.push(draft as { tool: string; pattern: string }),
+    });
+    dispatch.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, (envelope) => {
+      envelope.answer = 'always';
+      envelope.decision = { suggestionIndex: 0 };
+      return envelope;
+    });
+    const result = await service.ask({
+      summary: '执行命令 git status',
+      suggestedEntry: { tool: 'bash', pattern: 'git status' },
+    });
+    expect(result.outcome).toBe('allowed-once');
+    expect(written).toEqual([{ tool: 'bash', pattern: 'git status' }]); // 快照查回 = 草案同条
+    expect(rec.decided[0]?.decision).toBe('always'); // 真实写入才落 always（既有律维持）
+  });
+
+  it('always 越界 suggestionIndex = 防御回落单条草案（不炸不静默丢）', async () => {
+    const dispatch = new EventDispatch();
+    const rec = makeSink();
+    const written: unknown[] = [];
+    const service = createApprovalService(dispatch, {
+      sink: rec.sink,
+      persistToolPolicy: (draft) => written.push(draft),
+    });
+    dispatch.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, (envelope) => {
+      envelope.answer = 'always';
+      envelope.decision = { suggestionIndex: 99 }; // 越界
+      return envelope;
+    });
+    await service.ask({ summary: 'x', suggestedEntry: { tool: 'write', pattern: '/ws/a.txt' } });
+    expect(written).toEqual([{ tool: 'write', pattern: '/ws/a.txt' }]); // 回落单条
+  });
+
+  it('reject 伴行袋：service 侧照常结算（schema 层拒在 decide 入口——纵深位不重复执法）', async () => {
+    const dispatch = new EventDispatch();
+    const rec = makeSink();
+    const service = createApprovalService(dispatch, { sink: rec.sink });
+    dispatch.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, (envelope) => {
+      envelope.answer = 'reject';
+      envelope.decision = { updatedInput: {} }; // 纵深假设已破形到达
+      return envelope;
+    });
+    const result = await service.ask({ summary: 'x' });
+    expect(result.outcome).toBe('rejected');
+    expect(result.updatedInput).toBeUndefined(); // 非 approve 形伴行不折入返回值
+  });
+});

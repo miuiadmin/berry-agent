@@ -20,6 +20,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { EventDispatch } from '../context/events.js';
+import type { ApprovalDecisionPayload } from '../contracts/index.js';
 import type {
   ToolPolicyDraft,
   ApprovalAnswer,
@@ -43,6 +44,13 @@ export interface ApprovalAnswerEnvelope {
   readonly req: ApprovalRequest;
   /** 答案（能答的 answerer 置；undefined = 无人应答） */
   answer?: ApprovalAnswer;
+  /**
+   * 伴行决策袋（B1——04 §9：approve 伴 updatedInput 参数改写 / always 伴
+   * suggestionIndex 规则选定；answer 位闭集不动——decision 是伴行载荷非第
+   * 二答案）。answerer 就地写；service 消费后折进 ask 返回值（守门改写实参
+   * 与选定条目回写）。
+   */
+  decision?: ApprovalDecisionPayload;
 }
 
 /**
@@ -92,6 +100,12 @@ export type ApprovalDecisionValue = 'approve' | 'reject' | 'cancel' | 'unavailab
 export interface ApprovalAskResult {
   readonly outcome: ApprovalOutcome;
   readonly source: DecisionSource;
+  /**
+   * approve 伴行改写值（B1——04 §9 S-2：信封 decision.updatedInput 折进
+   * 返回值——守门行据此改工具实参 + mutated 旗〔GateInput mutate 语义既有
+   * 承载〕）。undefined = 无改写（旧路零漂移）。
+   */
+  readonly updatedInput?: Record<string, unknown>;
 }
 
 /** ctx 审批服务面（消费方：守门行 / bash 升权 / host 装配） */
@@ -163,6 +177,13 @@ export function createApprovalService(dispatch: EventDispatch, opts: ApprovalSer
   }
   /** 会话粘性表（粘性第 1/2 款内存面——随服务生命周期即会话生命周期） */
   const stickyGrants = new Map<string, StickyGrant>(); // 键 = target
+  /**
+   * suggestions 结构快照映射（B1——04 §9 B-2：approvalId → 候选集结构快照，
+   * ask 生命周期内单源查回——信封/decide 只传 suggestionIndex 索引、呈现串
+   * 不参与还原〔结构真源在进程内存——离线回放凭呈现串+生成器推回，05 §1.1
+   * 注记〕。ask 结算即清（悬置 ask 不留残影）。
+   */
+  const suggestionSnapshots = new Map<string, readonly ToolPolicyDraft[]>();
 
   const service: ApprovalService = {
     policyMode: policy,
@@ -195,8 +216,17 @@ export function createApprovalService(dispatch: EventDispatch, opts: ApprovalSer
         ...(opts.ownership !== undefined ? { ownership: opts.ownership } : {}),
       };
 
+      // B1 suggestions 结构快照入账：suggestedEntry 单条旧形 = 单元素快照
+      //（索引 0 语义等价——兼容形不废）；快照 ask 结算即清（finally 位）
+      if (enriched.suggestedEntry !== undefined) {
+        suggestionSnapshots.set(approvalId, [enriched.suggestedEntry]);
+      }
+
       let outcome: ApprovalOutcome;
       let source: DecisionSource;
+      // B1 decision 袋（answerer 伴行载荷——approve 伴 updatedInput / always
+      // 伴 suggestionIndex；声明位在 try 外供返回段消费）
+      let decision: ApprovalDecisionPayload | undefined;
       // always 是否真实写入条目（决议落账值分流：真写入才落 'always'）
       let alwaysWritten = false;
       if (policy === 'never') {
@@ -210,15 +240,32 @@ export function createApprovalService(dispatch: EventDispatch, opts: ApprovalSer
           // （不调 next 即已答）；全链无人写 = answer 字段 undefined
           const envelope = await dispatch.waterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, { req: enriched });
           const answer = envelope.answer;
+          // B1 decision 袋消费：updatedInput 透传返回值（守门改写实参）；
+          // suggestionIndex 在 always 分支查快照回写选定条目
+          decision = envelope.decision;
           if (answer === 'always') {
             // 「始终允许」：批准本次 + 授权写跨会话条目 + 会话粘性表入账。
             // 载荷无草案或写入回调未装配 = answerer 面本不该呈现该选项，防御
             // 收口视同 approve（零草案零副作用——含粘性表：一次性批准不产生
-            // 会话免问面，与「decided 落 approve 而非 always」同口径）
+            // 会话免问面，与「decided 落 approve 而非 always」同口径）。
+            // B1：suggestionIndex 在场时以**结构快照查回的选定条目**替代单条
+            // suggestedEntry 直用（多档形真源；越界索引 = 防御回落单条——
+            // 快照缺席形同旧路）
             if (enriched.suggestedEntry !== undefined && opts.persistToolPolicy !== undefined) {
-              opts.persistToolPolicy(enriched.suggestedEntry);
+              const snapshot = suggestionSnapshots.get(approvalId);
+              const selectedIndex = decision?.suggestionIndex;
+              const selected =
+                snapshot !== undefined &&
+                selectedIndex !== undefined &&
+                selectedIndex >= 0 &&
+                selectedIndex < snapshot.length
+                  ? (snapshot[selectedIndex] as ToolPolicyDraft)
+                  : enriched.suggestedEntry;
+              opts.persistToolPolicy(selected);
               alwaysWritten = true;
               // 粘性表入账（stickyKey 在场时）——会话内同指纹/子集后续免问
+              //（粒度差注记 N-5：选定宽档时粘性仍按本次 stickyKey 窄粒度入账
+              //——粘性面窄于策略面系保守方向合法）
               if (key !== undefined) {
                 stickyGrants.set(key.target, { target: key.target, grantedTier: key.tier });
               }
@@ -252,7 +299,17 @@ export function createApprovalService(dispatch: EventDispatch, opts: ApprovalSer
       // 审批对第二腿：决议落日志（never 档 asked 未落但 decided 单腿在——
       // 审计面据 source=policy-never 分辨「问都没问」）
       sink.decided({ approvalId, decision: outcomeToDecision(outcome, alwaysWritten), source });
-      return { outcome, source };
+      // B1：结构快照结算即清（悬置 ask 不留残影——生命周期与审批对对齐）
+      suggestionSnapshots.delete(approvalId);
+      return {
+        outcome,
+        source,
+        // approve 伴行改写值折入返回值（S-2——守门行据此改实参 + mutated 旗；
+        // 非 approve 形伴行无效〔schema 层拒在 decide 入口——纵深防御此归零〕）
+        ...(outcome === 'allowed-once' && decision?.updatedInput !== undefined
+          ? { updatedInput: decision.updatedInput }
+          : {}),
+      };
     },
   };
 

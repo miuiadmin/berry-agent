@@ -41,7 +41,7 @@ export type {
 
 // 审批 ask 词汇归位 contracts（批 11b——conversation 消费同形而边表不可达
 // channels）；本面 re-export 维持通道侧公开面不变
-export type { ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
+export type { ApprovalAnswer, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
 
 // 本面内用的契约类型（R7 批 10k——ChannelsOptions 两注入位的载荷形；re-export
 // 块不进本文件作用域，值用须显式 import）

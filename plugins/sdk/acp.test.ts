@@ -456,9 +456,11 @@ describe('ACP 面：session/request_permission（审批双向）', () => {
     expect(req?.params?.toolCall?.title).toBe('写入 /tmp/ws/out.txt');
     const options = req?.params?.options ?? [];
     expect(options.map((o) => o.kind)).toEqual(['allow_always', 'allow_once', 'reject_once']); // 官方 kind 词面
-    // 应答 allow-always → ApprovalDecideAnswer 'always'
-    r.respond(req!.id as string, { outcome: { outcome: 'selected', optionId: 'allow-always' } });
-    await expect(askPromise).resolves.toBe('always');
+    // B1：optionId 携索引后缀（allow-always-0 = suggestions 索引 0——决定性映射供 suggestionIndex）
+    expect((options[0] as { optionId: string }).optionId).toBe('allow-always-0');
+    // 应答 allow-always-0 → ApprovalAnswer 结构形（B1：always + suggestionIndex 0 伴行）
+    r.respond(req!.id as string, { outcome: { outcome: 'selected', optionId: 'allow-always-0' } });
+    await expect(askPromise).resolves.toEqual({ answer: 'always', decision: { suggestionIndex: 0 } });
   });
 
   it('reject-once 拒 / cancelled 撤 / 未识选项保守拒（三应答映射）', async () => {

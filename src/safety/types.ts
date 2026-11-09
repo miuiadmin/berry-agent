@@ -106,6 +106,16 @@ export interface ApprovalRequest {
    */
   readonly suggestedEntry?: ToolPolicyDraft;
   /**
+   * tool 级裁决请求（B1——04 §9 ①：callId/toolName/arguments〔呈现消毒后
+   * 形〕——守门行组装、呈现面投影消费；04 §9 S-1：在场时呈现面以本块为
+   * 准、toolName/toolCallId 既有键维持守门行兼容填法〔双载过渡期〕）。
+   */
+  readonly toolCall?: {
+    readonly callId: string;
+    readonly toolName: string;
+    readonly arguments: Record<string, unknown>;
+  };
+  /**
    * 发起 run 的取消信号（04 §9 run 信号透传条款）：调用方语境字段——
    * answerer 桥接消费（run abort 即撤销在身提问，保守收场落 cancelled——
    * 打断非拒绝的诚实落账），守门/执行机制不按它分支。

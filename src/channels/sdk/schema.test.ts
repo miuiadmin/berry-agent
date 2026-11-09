@@ -132,3 +132,44 @@ describe('decodeWireLine 深校验集成（结构层过后接管）', () => {
     expect(frame).toEqual({ kind: 'sessions', sessions: [] });
   });
 });
+
+describe('B1 decide schema 伴行袋（S-3：schema 层拒三消费位同判）', () => {
+  it('approve 伴 updatedInput / always 伴 suggestionIndex 受理', () => {
+    const okApprove = validateSdkRequest({
+      verb: 'decide',
+      approvalId: 'a-1',
+      answer: 'approve',
+      updatedInput: { path: '/x' },
+    });
+    expect(okApprove.ok).toBe(true);
+    const okAlways = validateSdkRequest({
+      verb: 'decide',
+      approvalId: 'a-1',
+      answer: 'always',
+      suggestionIndex: 0,
+    });
+    expect(okAlways.ok).toBe(true);
+  });
+
+  it('reject/cancel 伴行任一键 = schema 层拒整个请求（值形互斥）', () => {
+    const rejectWithInput = validateSdkRequest({
+      verb: 'decide',
+      approvalId: 'a-1',
+      answer: 'reject',
+      updatedInput: {},
+    });
+    expect(rejectWithInput.ok).toBe(false);
+    const cancelWithIndex = validateSdkRequest({
+      verb: 'decide',
+      approvalId: 'a-1',
+      answer: 'cancel',
+      suggestionIndex: 0,
+    });
+    expect(cancelWithIndex.ok).toBe(false);
+  });
+
+  it('suggestionIndex 负值拒（minimum 0）', () => {
+    const bad = validateSdkRequest({ verb: 'decide', approvalId: 'a', answer: 'always', suggestionIndex: -1 });
+    expect(bad.ok).toBe(false);
+  });
+});
