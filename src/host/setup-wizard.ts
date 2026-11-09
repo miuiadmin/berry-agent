@@ -137,6 +137,12 @@ const ENTRY_DELETE = '__entry_delete__';
 /** 模型清单步二选哨兵 */
 const MODELS_FETCH = '__models_fetch__';
 const MODELS_MANUAL = '__models_manual__';
+/**
+ * 模型清单步过滤闸值（2026-11-09 过滤闸批——07 §8.4 尾注细则批注）：拉取
+ * 成功且条数 > 此值时 multiselect 前先入过滤步；≤ 此值零变化直进。只作用
+ * 呈现层（拉取腿本体零涉）。
+ */
+const MODELS_FILTER_GATE = 30;
 
 /** 协议人面标签（选单/回执呈现——枚举真源在 llm 域工厂） */
 function protocolLabel(protocol: CustomProviderProtocol): string {
@@ -654,21 +660,66 @@ async function modelsStep(
       clearBusy();
     }
     if (result.kind === 'ok' && result.models.length > 0) {
-      const chosen = await p.multiselect({
-        title: `拉到 ${result.models.length} 个模型——勾选要用的`,
-        items: result.models.map((model) => ({ id: model, label: model })),
-        note: '空格勾选 · 全不选 + enter = 改手填',
-        // R-3 preselect 接线：重入默认勾当前清单（在拉取结果内的条目）
-        ...(existingModels !== undefined && existingModels.length > 0
-          ? { preselect: existingModels.filter((model) => result.models.includes(model)) }
-          : {}),
-      });
-      if (chosen === undefined) {
-        await abortOut(p);
-        return undefined;
+      // 过滤闸（2026-11-09 模型清单步过滤闸批——07 §8.4 尾注细则批注）：
+      // 聚合端网关常回全量数千条，直进 multiselect 即呈现洪水（HAPI 接入
+      // 挂账销）。> 闸值先入过滤步（大小写不敏感子串）；**空录入 = 全量直进
+      // multiselect**（原行为）；零匹配不折手填——带因重问过滤步（换词或清
+      // 空看全量）；过滤态全不选 + enter = 回过滤步重筛，未过滤态全不选 +
+      // enter = 手填（手填语义不变）。preselect 判据随过滤视图收窄（既有
+      // 清单 ∩ 当前视图）。
+      let filtered: readonly string[] | undefined; // undefined = 未过滤（全量直进）
+      let lastKeyword = ''; // 零匹配带因重问的提示语载体（空 = 首问提示）
+      for (;;) {
+        if (filtered === undefined && result.models.length > MODELS_FILTER_GATE) {
+          const keyword = await p.text({
+            title: `拉到 ${result.models.length} 个模型——先筛后选`,
+            hint:
+              lastKeyword === ''
+                ? '输入关键字过滤（如 glm）——空录入 = 全量清单'
+                : `「${lastKeyword}」无匹配——换个关键字，或清空看全部`,
+          });
+          if (keyword === undefined) {
+            await abortOut(p);
+            return undefined;
+          }
+          const kw = keyword.trim().toLowerCase();
+          if (kw !== '') {
+            lastKeyword = kw;
+            const matches = result.models.filter((model) => model.toLowerCase().includes(kw));
+            if (matches.length === 0) continue; // 零匹配不折手填——带因重问
+            filtered = matches;
+          }
+        }
+        const view = filtered ?? result.models;
+        const chosen = await p.multiselect({
+          title:
+            filtered !== undefined
+              ? `匹配 ${filtered.length}/${result.models.length} 个——勾选要用的`
+              : `拉到 ${result.models.length} 个模型——勾选要用的`,
+          items: view.map((model) => ({ id: model, label: model })),
+          note:
+            filtered !== undefined
+              ? '关键字已过滤 · 空格勾选 · 全不选 + enter = 重筛'
+              : '空格勾选 · 全不选 + enter = 改手填',
+          // R-3 preselect 接线：重入默认勾当前清单——判据随过滤视图收窄
+          //（在当前视图内的条目）
+          ...(existingModels !== undefined && existingModels.length > 0
+            ? { preselect: existingModels.filter((model) => view.includes(model)) }
+            : {}),
+        });
+        if (chosen === undefined) {
+          await abortOut(p);
+          return undefined;
+        }
+        if (chosen.length > 0) return chosen;
+        if (filtered !== undefined) {
+          filtered = undefined; // 过滤态空选 = 回过滤步
+          lastKeyword = ''; // 重筛是新一次筛——零匹配提示语复位
+          continue;
+        }
+        fetchNote = ''; // 未过滤空选 = 手填（原语义不变）
+        break;
       }
-      if (chosen.length > 0) return chosen;
-      fetchNote = ''; // 空选落手填
     } else if (result.kind === 'failed') {
       fetchNote = `拉取失败：${result.message}——改手填`;
     } else {

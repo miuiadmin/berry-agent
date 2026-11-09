@@ -10,22 +10,32 @@
  * CLI 零旗标面（mcp 形同律）：stdout = 协议线（一行一 JSON-RPC），诊断走
  * stderr。审批有应答通道（session/request_permission——ACP 形与 mcp 形的
  * 分立点）；prompt 挂 run 终态回执（直播档——翻译与回执单源在件）。
+ *
+ * 多连接复用（2026-11-09 ACP 多连接复用批——03 §10.6 撞锁代理形）：首进程
+ * 持锁后顺带听数据目录内 acp.sock（每 socket 连接 spawn 独立 face——后端 id
+ * `acp-sock-<n>` 唯一档）；后到 spawn 撞 HOST_DATA_DIR_BUSY 自动代理
+ * stdio↔socket（零装配纯字节搬运）；进程退场条件 = 全部连接退场（非仅
+ * stdio EOF）——单活跃不变式不动（多连接入同一进程内多 face 承载）。
  */
 import type { Readable, Writable } from 'node:stream';
+import type { Socket } from 'node:net';
 import { stdin, stdout, stderr } from 'node:process';
 
-import { runAcpFace, type AcpFaceDeps } from '../../plugins/sdk/index.js';
+import { runAcpFace, type AcpFaceDeps, type AcpFaceHandle } from '../../plugins/sdk/index.js';
 import type { AcpSubmitOutcome } from '../../plugins/sdk/index.js';
-import type { Provider } from '../llm/index.js';
+import { parseModelSpec, type Provider } from '../llm/index.js';
+import { BaseError } from '../contracts/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { setSessionMode, setSessionModel } from '../conversation/index.js';
 import type { SubmitResult } from '../conversation/index.js';
+import { resolveDataDir } from '../persist/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
 import type { ConversationStack } from './conversation-stack.js';
 import type { HostRuntime } from './runtime.js';
+import { listenAcpShare, proxyAcpShare, type AcpShareServer } from './acp-share.js';
 
 /** acp 入口选项（main 分派接线 + 测试注入面——承 McpEntryOptions 同族，零旗标） */
 export interface AcpEntryOptions {
@@ -59,7 +69,9 @@ export interface AcpEntryOptions {
  *   （serve 桥的让位一拍〔订阅竞态〕在 ACP 形不需要——信封经 addBackend
  *   恒达，无订阅时点竞态；SubmitResult 三分收窄为 AcpSubmitOutcome）；
  * - 档位/模型腿：durable 事件面直写（setSessionMode/setSessionModel——
- *   append 即切换、重放即恢复；模型 spec 语法校验 fail-loud 抛注册码）。
+ *   append 即切换、重放即恢复；模型 spec 语法校验 fail-loud 抛注册码）；
+ *   模型面挂凭证就绪律（07 ux-4 批注 2026-11-09 第四消费位）——modelCatalog
+ *   只出就绪模型、setModelSpec 无凭证 spec 抛 LLM_CREDENTIAL_UNCONFIGURED。
  */
 function buildAcpDeps(stack: ConversationStack, anchors: { cwd: string }): AcpFaceDeps {
   const driverOf = (sessionId: string) => stack.driverOf(sessionId) ?? stack.manager.open(sessionId).driver;
@@ -107,9 +119,29 @@ function buildAcpDeps(stack: ConversationStack, anchors: { cwd: string }): AcpFa
       setSessionMode(driverOf(sessionId).session, mode);
     },
     setModelSpec: (sessionId, spec) => {
-      setSessionModel(driverOf(sessionId).session, spec);
+      // 校验序（07 ux-4 批注 2026-11-09）：会话解析 → 语法段（parseModelSpec
+      // 同源执法——与 setSessionModel 内联判据同律）→ 凭证就绪闸 → 落账。
+      // 闸只在 ACP 客户端面：无凭证 spec 抛注册码（折 -32602 连接存活）；
+      // 逃生口律不受涉（BERRY_AGENT_MODEL/settings 直达与 TUI 面零改）。
+      const session = driverOf(sessionId).session;
+      parseModelSpec(spec);
+      if (stack.modelCredentialStatus(spec) !== 'ready') {
+        throw new BaseError(
+          'LLM_CREDENTIAL_UNCONFIGURED',
+          `模型 ${spec} 凭证未就绪（env 键与凭证绑定行均缺席）——ACP 模型列表只含已就绪模型；先配置该渠道凭证（TUI /setup 向导或 berry credentials add --model-provider <渠道>）再切换`,
+        );
+      }
+      setSessionModel(session, spec);
     },
-    modelCatalog: () => stack.llm.listModels().map((model) => ({ id: model.id, name: model.name })),
+    // 凭证就绪过滤宇宙第四消费位（07 ux-4 批注 2026-11-09）：与 /model 面板、
+    // ctrl+p 循环、/status 计数同判据单源（env 键 ∨ 绑定行命中——自定义渠道
+    // 天然走绑定行）。currentModelId 不在此过滤（modelOf 照实回显——当前档
+    // 缺席于 availableModels 合法，缺省档无凭证即此形）。
+    modelCatalog: () =>
+      stack.llm
+        .listModels()
+        .filter((model) => stack.modelCredentialStatus(model.id) === 'ready')
+        .map((model) => ({ id: model.id, name: model.name })),
     modelOf: (sessionId) => stack.sessionModelOf(sessionId),
   };
 }
@@ -136,6 +168,19 @@ export async function runAcpEntry(options: AcpEntryOptions): Promise<number> {
     ...(options.onRuntime !== undefined ? { onRuntime: options.onRuntime } : {}),
   });
   if (!assembly.ok) {
+    // 撞锁代理路（2026-11-09 多连接复用批）：HOST_DATA_DIR_BUSY 且非 memory
+    // 形时先探测数据目录内复用 socket——通即纯字节代理接管本进程剩余生命
+    // （零装配零锁触碰）；不通回落既有 fail-loud 呈报（锁持有者非 ACP 形态
+    // 〔TUI 等〕即此形——诚实拒入非隐式降级）。memory 形无锁无忙恒不代理。
+    if (assembly.code === 'HOST_DATA_DIR_BUSY' && options.memory !== true) {
+      const proxied = await proxyAcpShare({
+        dataDir: options.dataDir ?? resolveDataDir(),
+        input: options.io?.input ?? stdin,
+        output: options.io?.output ?? stdout,
+        warn: (message) => stderr.write(`${message}\n`),
+      });
+      if (proxied !== null) return proxied;
+    }
     stderr.write(`${assembly.crashed ? `acp 运行失败：${assembly.message}` : assembly.message}\n`);
     return assembly.exitCode;
   }
@@ -144,18 +189,75 @@ export async function runAcpEntry(options: AcpEntryOptions): Promise<number> {
   let exitCode = 0;
   try {
     const deps = buildAcpDeps(stack, { cwd: options.cwd ?? process.cwd() });
-    const face = runAcpFace({
-      io: options.io ?? { input: stdin, output: stdout },
-      deps,
-      serverInfo: { name: 'berry-agent', version: options.version ?? '0.0.0-unknown' }, // 对外声明值位
-      log: (message) => logger.warn(message),
+    const log = (message: string) => logger.warn(message);
+    const serverInfo = { name: 'berry-agent', version: options.version ?? '0.0.0-unknown' }; // 对外声明值位
+
+    // —— faces 集（多连接复用编排——stdio + socket 各一 face，后端 id 唯一档）——
+    // 退场条件 = 集空（全部连接退场）；任一 face 非零终值感染退出码 1。
+    interface LiveFace {
+      readonly handle: AcpFaceHandle;
+      readonly socket?: Socket; // socket 形独有——face 收口即 end 连接（代理侧见 end 收场）
+    }
+    const liveFaces = new Map<string, LiveFace>(); // key = 后端 id（唯一档——净除义务）
+    let draining = false; // 集空瞬间置位：拒新连接（迟到连接显式销毁——收尾竞窗收口）
+    let nextSocketSeq = 0;
+    let worstExit = 0;
+    let settleDrained!: () => void;
+    const allDrained = new Promise<void>((resolve) => {
+      settleDrained = resolve;
     });
-    stack.channels.addBackend(face.backend); // 信封回流自动馈送（conversation-stack onEvent → emit）
 
-    // 信号路优雅档：六步退出序经 closer 收口 face（幂等）；EOF 路径 face 自决
-    runtime.registerCloser({ label: 'acp-face', fn: () => Promise.resolve(face.dispose()) });
+    const spawnFace = (
+      io: { readonly input: Readable; readonly output: Writable },
+      backendId: string,
+      socket?: Socket,
+    ): void => {
+      const handle = runAcpFace({ io, deps, serverInfo, log, backendId });
+      stack.channels.addBackend(handle.backend); // 信封回流自动馈送（conversation-stack onEvent → emit）
+      liveFaces.set(backendId, { handle, socket });
+      void handle.done.then((code) => {
+        worstExit = Math.max(worstExit, code);
+        liveFaces.delete(backendId);
+        stack.channels.removeBackend(backendId); // id 唯一档净除（removeBackend 按 id 首匹配）
+        socket?.end();
+        if (liveFaces.size === 0 && !draining) {
+          draining = true;
+          shareServer?.close();
+          settleDrained();
+        }
+      });
+    };
 
-    exitCode = await face.done; // EOF 0 / 传输面坏死 1
+    spawnFace(options.io ?? { input: stdin, output: stdout }, 'acp');
+
+    // holder 听域内 socket（memory 形无真数据目录不挂；listen 失败降级单连接）
+    let shareServer: AcpShareServer | null = null;
+    if (options.memory !== true) {
+      shareServer = await listenAcpShare({
+        dataDir: options.dataDir ?? resolveDataDir(),
+        onConnection: (socket) => {
+          if (draining) {
+            socket.destroy(); // 收尾竞窗：迟到连接显式销毁（聚合端见「进程退出」重试自愈）
+            return;
+          }
+          spawnFace({ input: socket, output: socket }, `acp-sock-${++nextSocketSeq}`, socket);
+        },
+        warn: log,
+      });
+      if (draining) shareServer?.close(); // stdio face 在 listen 途中已退场的补收口
+    }
+
+    // 信号路优雅档：六步退出序经 closer 收口全部 face（幂等）；EOF 路径各 face 自决
+    runtime.registerCloser({
+      label: 'acp-faces',
+      fn: () => {
+        for (const { handle } of liveFaces.values()) handle.dispose();
+        return Promise.resolve();
+      },
+    });
+
+    await allDrained; // 全部连接退场（EOF 0 / 传输面坏死 1——感染位取 max）
+    exitCode = worstExit;
     await runtime.shutdown().catch(() => {}); // 六步退出序（closer 内已 dispose——幂等双保险）
   } catch (err) {
     runtime.writeCrashLog(err); // 崩溃取证先行（memory 形跳过——件内语义）

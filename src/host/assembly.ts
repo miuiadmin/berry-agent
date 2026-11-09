@@ -198,12 +198,18 @@ export interface AssembleHostOptions {
   readonly onPluginLoadStart?: (pluginId: string, index: number, total: number) => void;
 }
 
-/** 装配失败档（crashed = 意外异常——crash.log 已写，调用方只呈报不取证） */
+/**
+ * 装配失败档（crashed = 意外异常——crash.log 已写，调用方只呈报不取证）。
+ * 可选 code = 干净退出档携带的注册码（HOST_DATA_DIR_BUSY/PLUGIN_ROW_INVALID
+ * 等——2026-11-09 ACP 多连接复用批：调用方按码分派，busy 撞锁者走 socket
+ * 代理路而非直接呈报）。
+ */
 export interface AssemblyFailure {
   readonly ok: false;
   readonly exitCode: number;
   readonly message: string;
   readonly crashed: boolean;
+  readonly code?: string;
 }
 
 /** 装配产物（六柄一匣——TUI 段与诊断命令各取所需） */
@@ -404,6 +410,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         exitCode: 1,
         message: `启动失败：${err instanceof Error ? err.message : String(err)}`,
         crashed: false,
+        // 注册码判别位（BaseError 携码透出——HOST_DATA_DIR_BUSY 等）
+        ...(err instanceof BaseError ? { code: err.code } : {}),
       };
     }
     options.onRuntime?.(runtime);
@@ -610,6 +618,13 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         : {}),
       ...(options.providers !== undefined ? { providers: options.providers } : {}),
       ...(options.model !== undefined ? { model: options.model } : {}),
+      // 持久缺省穿线（2026-11-09 持久化批）：settings 第八键独立传位——不得
+      // 折进 model 位（折进会令持久缺省越权压过 env BERRY_AGENT_MODEL，层序
+      // 真源在 resolveDefaultModelSpec 单点，model 位只承逐次显式）。条件注入
+      // 形与上/下行同族（缺席 = 零变化）
+      ...(settingsLoad?.settings.defaultModel !== undefined
+        ? { durableDefaultModel: settingsLoad.settings.defaultModel }
+        : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),
       ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
       // 第四层 gaps 填充（ap-3）：CLI 显式位缺席时 settings.json 持久缺省
@@ -737,6 +752,29 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         if (!registration.ok) {
           logger.warn(`自定义渠道 ${id} 注册被拒：${registration.reason}——忽略该条；手编 settings.json 删该条即清`);
         }
+      }
+    }
+
+    // —— 持久缺省就绪 boot warn（2026-11-09 持久化批——04 §5 同批注）：持久
+    // 位指向未注册/未就绪渠道时提前指路（fail-loud 本体在首问解析位，此处只
+    // 是维护性预警）。三处时序/判据约束：①须在上方渠道注册腿之后——settings
+    // 自定义渠道在 stack 建后才注册，过早判就绪会假阳；②只在持久位**实际生效**
+    // 时发——逐次显式 model 或 env BERRY_AGENT_MODEL 在场即解析不走持久位，
+    // 照报「首问将失败」即失真；③双形判据（冷读闸 minor 清偿）——「未就绪」
+    // 腿走 modelCredentialStatus（/model 面板同源单点，只查凭证绑定），「未注册」
+    // 腿走 llm 目录在册查（撞保留字被拒注但凭证行已录 key 的形，单查凭证恒
+    // 'ready' 会漏报——拒注 warn 另有点名在場，此腿补齐预警面）。
+    const durableModelSpec = settingsLoad?.settings.defaultModel;
+    if (durableModelSpec !== undefined && options.model === undefined && !env.BERRY_AGENT_MODEL) {
+      // 读侧已滤语法形（首斜杠必在）——provider 段直取
+      const durableProviderId = durableModelSpec.slice(0, durableModelSpec.indexOf('/'));
+      const unready =
+        stack.llmRuntime.models.getProvider(durableProviderId) === undefined ||
+        stack.modelCredentialStatus(durableModelSpec) !== 'ready';
+      if (unready) {
+        logger.warn(
+          `缺省模型 ${durableModelSpec} 的渠道未就绪或已不存在——新会话首问将失败；/model 重选或 /setup 检查渠道`,
+        );
       }
     }
 
@@ -1515,6 +1553,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           exitCode: 1,
           message: `启动失败：${err.message}`,
           crashed: false,
+          code: err.code,
         };
       }
       throw err; // 余异常走下方崩溃取证档

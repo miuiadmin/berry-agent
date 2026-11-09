@@ -84,6 +84,13 @@ export interface AcpFaceOptions {
   readonly deps: AcpFaceDeps;
   /** serverInfo 自报家门（agentInfo.name/version——name 属对外声明值位） */
   readonly serverInfo: { readonly name: string; readonly version: string };
+  /**
+   * 通道后端 id（缺省 'acp'——stdio 连接恒用缺省；多连接复用形下 socket
+   * 连接由宿主赋 `acp-sock-<n>` 唯一档〔2026-11-09 ACP 多连接复用批〕：
+   * channels removeBackend 按 id 首匹配摘除，重复 id 会错摘他人——唯一化
+   * 是净除义务非装饰）
+   */
+  readonly backendId?: string;
   /** 诊断回调（宿主接 stderr——stdout 只出协议帧） */
   readonly log?: (message: string) => void;
 }
@@ -397,7 +404,7 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
   /* ---------------- UiBackend 实装（approval capable——有应答通道形态本体） ---------------- */
 
   const backend: UiBackend<never> = {
-    id: 'acp',
+    id: options.backendId ?? 'acp',
     capabilities: {
       notify: false,
       confirm: false,
@@ -410,6 +417,8 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
     hasAudience: () => !closed,
     notify: () => {},
     onEnvelope: (env: SessionEnvelope) => {
+      // 已收线 face 零外推（连接退场后信封继续到达——dead 面不写死流）。
+      if (closed) return;
       try {
         translateStreamEvent(env.sessionId, env.event);
       } catch (error) {
@@ -420,6 +429,14 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
     askApproval: (sessionId: string, request: ApprovalAskRequest) =>
       new Promise<ApprovalAskAnswer>((resolve) => {
         if (closed) {
+          resolve('unavailable');
+          return;
+        }
+        // 会话亲和闸（2026-11-09 ACP 多连接复用批——04 §9 通道消失语义的一腿
+        // 无票形）：本 face 未知名单的会话即本客户端不认得——投 unavailable
+        // 弃权票（不外推：多连接下审批只达认得该会话的客户端，他人窗口不
+        // 越权应答；全腿 unavailable 由 ui-core ask 多腿竞速 fail-closed 收口）。
+        if (!knownSessions.has(sessionId)) {
           resolve('unavailable');
           return;
         }

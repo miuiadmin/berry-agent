@@ -1142,3 +1142,136 @@ describe('评审修复役 Lane A：补锁面（#7/#8/#10——既有行为零锁
     expect(noProbe.recorded.confirms.some((c) => c.title.includes('顺手探'))).toBe(false); // probe 缺席不问
   });
 });
+
+describe('模型清单步过滤闸（2026-11-09 模型清单步过滤闸批——07 §8.4 尾注细则批注）', () => {
+  /** 洪水清单（37 条 > 闸值 30——聚合端网关全量形）：glm-01..35 + 两干扰条 */
+  const FLOOD = [...Array.from({ length: 35 }, (_, i) => `glm-${String(i + 1).padStart(2, '0')}`), 'gpt-x', 'claude-y'];
+  const floodDeps = (prompter: WizardPrompter, overrides: Partial<SetupWizardDeps> = {}) =>
+    makeDeps(prompter, {
+      fetchModels: () => Promise.resolve({ kind: 'ok', models: FLOOD } satisfies ChannelModelsResult),
+      ...overrides,
+    });
+  /** 新建腿前三 text（id/baseUrl/apiKey） */
+  const SETUP_TEXTS = ['my-relay', 'https://gw.test/v1', 'sk-gw-key'];
+
+  it('> 闸值先入过滤步：大小写不敏感子串过滤 → multiselect 只收匹配', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__'],
+      text: [...SETUP_TEXTS, 'GLM-1'], // 大写录入——大小写不敏感
+      multiselect: [['glm-10'] as readonly string[]],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = floodDeps(prompter);
+    await runSetupWizard(deps);
+    // 过滤步先行（拉取成功 37 > 30）：text 面第 4 问即过滤步
+    expect(recorded.texts[3]?.title.includes('先筛后选')).toBe(true);
+    expect(recorded.texts[3]?.hint?.includes('空录入 = 全量清单')).toBe(true);
+    // multiselect 只收匹配（glm-1 → glm-10..19 十条，glm-01..09 零段不中）
+    expect(recorded.multiselects[0]?.items.map((item) => item.id)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `glm-${i + 10}`),
+    );
+    expect(recorded.multiselects[0]?.title.includes('匹配 10/37')).toBe(true);
+    expect(log.savedChannels[0]?.def.models).toEqual(['glm-10']);
+  });
+
+  it('空录入 = 全量直进 multiselect（原行为保留——闸只拦不折）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__'],
+      text: [...SETUP_TEXTS, ''],
+      multiselect: [['gpt-x'] as readonly string[]],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = floodDeps(prompter);
+    await runSetupWizard(deps);
+    expect(recorded.multiselects).toHaveLength(1); // 空录入不重问——直进
+    expect(recorded.multiselects[0]?.items).toHaveLength(37); // 全量清单
+    expect(recorded.multiselects[0]?.title.includes('拉到 37 个模型')).toBe(true);
+    expect(log.savedChannels[0]?.def.models).toEqual(['gpt-x']);
+  });
+
+  it('零匹配不折手填——带因重问过滤步（换词即出）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__'],
+      text: [...SETUP_TEXTS, 'zzz-nope', 'glm-2'],
+      multiselect: [['glm-20'] as readonly string[]],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = floodDeps(prompter);
+    await runSetupWizard(deps);
+    expect(recorded.texts).toHaveLength(5); // 零匹配后重问（第 5 问仍是过滤步）
+    expect(recorded.texts[4]?.title.includes('先筛后选')).toBe(true);
+    expect(recorded.texts[4]?.hint?.includes('「zzz-nope」无匹配')).toBe(true); // 带因
+    expect(recorded.multiselects).toHaveLength(1); // 重问不出 multiselect
+    expect(recorded.multiselects[0]?.items.map((item) => item.id)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `glm-${i + 20}`),
+    );
+    expect(log.savedChannels[0]?.def.models).toEqual(['glm-20']);
+  });
+
+  it('过滤态全不选 + enter = 回过滤步重筛（不落手填）；重筛零匹配提示语复位', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__'],
+      text: [...SETUP_TEXTS, 'glm-1', 'glm-2'],
+      multiselect: [[] as readonly string[], ['glm-20'] as readonly string[]],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = floodDeps(prompter);
+    await runSetupWizard(deps);
+    expect(recorded.multiselects).toHaveLength(2); // 空选回过滤步后再进
+    expect(recorded.texts).toHaveLength(5); // 第 5 问 = 重筛过滤步
+    expect(recorded.texts[4]?.title.includes('先筛后选')).toBe(true);
+    expect(recorded.texts[4]?.hint?.includes('空录入 = 全量清单')).toBe(true); // 复位（非零匹配带因形）
+    expect(recorded.multiselects[1]?.items.map((item) => item.id)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `glm-${i + 20}`),
+    );
+    expect(log.savedChannels[0]?.def.models).toEqual(['glm-20']);
+  });
+
+  it('≤ 闸值零变化：不过滤步直进 multiselect（32 之 2 条原路）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__', 'gw-a'],
+      text: SETUP_TEXTS,
+      multiselect: [['gw-a'] as readonly string[]],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = makeDeps(prompter); // 缺省 fetch = gw-a/gw-b（2 条）
+    await runSetupWizard(deps);
+    expect(recorded.texts.every((t) => !t.title.includes('先筛后选'))).toBe(true); // 无过滤步
+    expect(recorded.multiselects).toHaveLength(1);
+    expect(recorded.multiselects[0]?.title).toBe('拉到 2 个模型——勾选要用的');
+    expect(log.savedChannels[0]?.def.models).toEqual(['gw-a']);
+  });
+
+  it('未过滤态全不选 + enter = 改手填（手填语义不变——闸只拦过滤态）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__'],
+      text: [...SETUP_TEXTS, 'hand-a, hand-b'],
+      multiselect: [[] as readonly string[]],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = makeDeps(prompter); // 2 条 ≤ 闸值 = 未过滤态
+    await runSetupWizard(deps);
+    expect(recorded.texts.at(-1)?.title.includes('模型 id')).toBe(true); // 落手填
+    expect(log.savedChannels[0]?.def.models).toEqual(['hand-a', 'hand-b']);
+  });
+
+  it('preselect 判据随过滤视图收窄：既有清单 ∩ 过滤结果（视图外既有条目出局）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['custom:my-gw', '__entry_edit__', 'openai-completions', '__models_fetch__'],
+      text: ['', '', 'glm-1'], // baseUrl/key 空录入全沿用 + 过滤关键字
+      multiselect: [['glm-10'] as readonly string[]],
+      confirm: [false, true, false],
+    });
+    const { deps } = floodDeps(prompter, {
+      customChannels: {
+        'my-gw': { protocol: 'openai-completions', baseUrl: 'https://gw.test/v1', models: ['glm-10', 'gw-x'] },
+      },
+      currentApiKeyOf: () => 'sk-current',
+    });
+    await runSetupWizard(deps);
+    expect(recorded.multiselects[0]?.items.map((item) => item.id)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `glm-${i + 10}`),
+    );
+    expect(recorded.multiselects[0]?.preselect).toEqual(['glm-10']); // gw-x 不在过滤视图——出局（#7 交集律随视图收窄）
+  });
+});

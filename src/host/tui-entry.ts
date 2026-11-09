@@ -813,6 +813,16 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // 块随落账入 transcript（transcript 恒显聚焦会话——切焦经 onRepaint
     // 同步，选择期 sid 即屏上会话）；footer 行1 模型槽（V-4 注⑪②
     // ——setFooterModel 回迁）：切换即活写短名（id 尾段）
+    // 持久缺省落键单点（2026-11-09 持久化批——写径两位共脚）：/model 面板
+    // （含 ctrl+p 循环委派）与 /setup 向导切模型两入口一动作族，落键同走本
+    // 闭包（settings 第八键单键增量——writeHostSettings 只动携带键、不触键
+    // 清除）。dataDir 缺席（无数据目录运行形）= 无持久位可落，回 'absent'
+    // 静默（theme 律同形）；'rejected' = 文件坏形拒写，调用方指路不阻断切换。
+    const persistDefaultModel = (spec: string): 'written' | 'rejected' | 'absent' => {
+      if (runtime.dataDir === null) return 'absent';
+      return writeHostSettings(runtime.dataDir, { defaultModel: spec });
+    };
+
     const selectModel = (spec: string): void => {
       const sid = stack.channels.focusedId ?? session.sessionId;
       const driver = stack.driverOf(sid);
@@ -825,7 +835,13 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 即数组尾推，length-1 尾锚单源）
       backend.appendModelChangeLine({ seq: driver.session.events().length - 1, model: spec });
       backend.setFooterModel(spec);
-      backend.notify(`模型已切换：${spec}（下一轮对话起生效）`, { level: 'info' });
+      // 写径两位之一（2026-11-09 持久化批——用户显式选定即记缺省）：notify
+      // 附落键回执——已记点名、拒写指路、dataDir 缺席静默（三态单句不叠报）。
+      // 词面遵 07 §4.4 禁替表：用户面「缺省」替「默认」
+      const persist = persistDefaultModel(spec);
+      const suffix =
+        persist === 'written' ? '，已记为默认' : persist === 'rejected' ? '；默认未记——settings.json 写入失败' : '';
+      backend.notify(`模型已切换：${spec}（下一轮对话起生效${suffix}）`, { level: 'info' });
     };
     // 已配置渠道模型清单单源（2026-10-16 ux-4 翻档落码——凭证就绪过滤宇宙）：
     // 判据 = modelCredentialStatus === 'ready'（向导 credentialReadyOf 同锚——
@@ -1470,6 +1486,15 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         },
         switchModel: (spec) => {
           stack.setModel(spec);
+          // 写径两位之二（2026-11-09 持久化批——04 §5 同批注）：向导切模型即
+          // 记缺省，与 /model 面板同律（用户显式选定即记）；拒写 warn 指路
+          // 不阻断向导收尾（'absent' 静默——面板位同律）。词面遵 07 §4.4
+          // 禁替表：用户面「缺省」替「默认」
+          if (persistDefaultModel(spec) === 'rejected') {
+            backend.notify('默认模型未记——settings.json 写入失败（文件格式有误？修好后可再保存）', {
+              level: 'warn',
+            });
+          }
         },
       }).catch((err: unknown) => {
         // fire-and-forget 零 unhandled（openMarketplacePanel 同律防御位）：兜

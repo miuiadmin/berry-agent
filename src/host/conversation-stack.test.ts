@@ -176,6 +176,35 @@ describe('createConversationStack 装配序', () => {
     expect(bare.model).toBe('anthropic/claude-sonnet-5'); // 缺省档
   });
 
+  it('模型缺省链三层序（2026-11-09 持久化批）：显式 model > env > durableDefaultModel > 随包常量', () => {
+    const { rt } = rigRuntime(true);
+    // durable 在场且 env/显式缺席 → durable 胜
+    const durable = createConversationStack({ runtime: rt, env: {}, durableDefaultModel: 'faux-stack/m1' });
+    expect(durable.model).toBe('faux-stack/m1');
+    // env 恒胜 durable（「覆盖缺省」语义不变）
+    const envWins = createConversationStack({
+      runtime: rt,
+      env: { BERRY_AGENT_MODEL: 'anthropic/x' },
+      durableDefaultModel: 'faux-stack/m1',
+    });
+    expect(envWins.model).toBe('anthropic/x');
+    // 逐次显式 model 位恒胜（缺省解析不涉）
+    const explicit = createConversationStack({
+      runtime: rt,
+      providers: [fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] }).provider],
+      model: 'faux-stack/m1',
+      env: { BERRY_AGENT_MODEL: 'anthropic/x' },
+      durableDefaultModel: 'anthropic/y',
+    });
+    expect(explicit.model).toBe('faux-stack/m1');
+    // durable 缺席 = 零变化（回落随包常量）
+    const bare = createConversationStack({ runtime: rt, env: {} });
+    expect(bare.model).toBe('anthropic/claude-sonnet-5');
+    // durable 形外值照落 fail-loud（04 §5 同批注——不静默回落，首问解析位报错）
+    const dead = createConversationStack({ runtime: rt, env: {}, durableDefaultModel: 'nope/m9' });
+    expect(dead.model).toBe('nope/m9');
+  });
+
   it('附件库自铸判据双条件（77 轮件1——03 §10.4 ③ 批注/07 §5 第八写位）：memory 同构诊断形 = undefined / 非 memory 真目录自铸 / 纯 memory 形 dataDir 缺席 = undefined', async () => {
     // 红锚位：75 轮 ephemeral 修真后 memory:true + dataDir 真值（同构诊断形
     // ——run --ephemeral 面可达）下，修前判据单看 dataDir !== null 代理——

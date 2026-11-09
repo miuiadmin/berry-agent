@@ -48,13 +48,25 @@ describe('parseModelSpec / formatModelId（纯语法层）', () => {
   });
 });
 
-describe('resolveDefaultModelSpec（env 覆盖）', () => {
+describe('resolveDefaultModelSpec（env 覆盖 + 持久层）', () => {
   it('未设 / 空串回落缺省；非空值透传（值本身合法性留给 resolveModel fail-loud）', () => {
     expect(resolveDefaultModelSpec({})).toBe(DEFAULT_MODEL_SPEC);
     expect(resolveDefaultModelSpec({ BERRY_AGENT_MODEL: '' })).toBe(DEFAULT_MODEL_SPEC);
     expect(resolveDefaultModelSpec({ BERRY_AGENT_MODEL: 'x/y' })).toBe('x/y');
     // 非法值不在本层拦截——resolveModel 层统一 fail-loud（单一拒绝面）
     expect(resolveDefaultModelSpec({ BERRY_AGENT_MODEL: 'no-slash' })).toBe('no-slash');
+  });
+  it('持久化批三层序（2026-11-09）：env 恒胜 > durable > 随包常量；durable 空串/缺席回落常量', () => {
+    // durable 在场且 env 缺席 → durable 胜
+    expect(resolveDefaultModelSpec({}, 'glm/glm-4.7')).toBe('glm/glm-4.7');
+    // env 恒胜（「覆盖缺省」语义不变——持久键即缺省承载位，env 覆盖的是缺省）
+    expect(resolveDefaultModelSpec({ BERRY_AGENT_MODEL: 'x/y' }, 'glm/glm-4.7')).toBe('x/y');
+    expect(resolveDefaultModelSpec({ BERRY_AGENT_MODEL: '' }, 'glm/glm-4.7')).toBe('glm/glm-4.7'); // env 空串视同缺席
+    // durable 空串/缺席 → 回落随包常量
+    expect(resolveDefaultModelSpec({}, '')).toBe(DEFAULT_MODEL_SPEC);
+    expect(resolveDefaultModelSpec({})).toBe(DEFAULT_MODEL_SPEC);
+    // durable 形外值透传——语法拦截不在本层（读侧 settings-store 已滤、解析位 fail-loud 单一拒绝面）
+    expect(resolveDefaultModelSpec({}, 'no-slash')).toBe('no-slash');
   });
 });
 
