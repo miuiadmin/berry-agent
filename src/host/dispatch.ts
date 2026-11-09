@@ -33,8 +33,8 @@ import type {
 export interface CommandHandlers {
   /** TUI 主入口（12e 装配：起运行时 + 通道栈 + 会话选取） */
   readonly tui?: (flags: TuiFlags) => Promise<number>;
-  /** 单次执行（conversation 装配批：一轮对话 → stdout） */
-  readonly run?: (message: string, flags: RunFlags) => Promise<number>;
+  /** 单次执行（conversation 装配批：一轮对话 → stdout）——stdinMessage = `-` 哨兵形（07 §5 A1：message 体自 stdin 读入，run-entry 解析位） */
+  readonly run?: (message: string, flags: RunFlags, stdinMessage?: boolean) => Promise<number>;
   /** 常驻宿主（SDK 批：stdio JSONL 线协议） */
   readonly serve?: (flags: ServeFlags) => Promise<number>;
   /** serve 探活报告（0 = 在跑 / 1 = 未跑） */
@@ -90,7 +90,7 @@ export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
 
 命令：
   （无参）                TUI 主入口：直进对话
-  run "<message>"         单次执行：一轮对话 → stdout 输出结果
+  run "<message>"         单次执行：一轮对话 → stdout 输出结果（"-" = 从 stdin 读全文作消息体：berry run - < file；字面 "-" 用 berry run -- -）
   serve                   常驻宿主（stdio JSONL；serve status / serve stop 管理动词）
   mcp                     MCP server 包装形态
   dump-config             打印实际生效配置
@@ -159,7 +159,7 @@ export async function dispatchCli(
       case 'tui':
         return requireHandler(handlers.tui, 'TUI 主入口')(command.flags);
       case 'run':
-        return requireHandler(handlers.run, 'run')(command.message, command.flags);
+        return requireHandler(handlers.run, 'run')(command.message, command.flags, command.stdinMessage === true);
       case 'serve':
         return requireHandler(handlers.serve, 'serve')(command.flags);
       case 'serve-status':

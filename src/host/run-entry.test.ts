@@ -165,6 +165,10 @@ async function rigRun(opts: {
   wallMs?: number;
   /** env 面（缺省 {} 隔离——预算旋钮等 BERRY_AGENT_* 测试注入位） */
   env?: Record<string, string | undefined>;
+  /** stdin 哨兵形注入族（07 §5 A1——三 seam 透传，零真管道依赖） */
+  stdinMessage?: boolean;
+  readStdin?: () => Promise<string>;
+  stdinIsTty?: boolean;
 }) {
   const faux = fauxProvider({ provider: 'faux-run', models: [{ id: 'm1' }] });
   faux.setResponses((opts.responses ?? [messageOf()]).map((msg) => () => msg));
@@ -200,6 +204,9 @@ async function rigRun(opts: {
     stdout: out.stream,
     stderr: err.stream,
     ...(opts.wallMs !== undefined ? { tickWallTimeoutMs: opts.wallMs } : {}),
+    ...(opts.stdinMessage !== undefined ? { stdinMessage: opts.stdinMessage } : {}),
+    ...(opts.readStdin !== undefined ? { readStdin: opts.readStdin } : {}),
+    ...(opts.stdinIsTty !== undefined ? { stdinIsTty: opts.stdinIsTty } : {}),
   }).finally(() => restoreDataDirEnv?.());
   return { entry, out, err, dataDir, cwd, faux };
 }
@@ -419,6 +426,100 @@ describe('runRunEntry 输出三档（07 §5）', () => {
 });
 
 /* ---------------- --max-turns 到帽收场 ---------------- */
+
+describe('runRunEntry `-` stdin 哨兵（07 §5 A1——CLI/SDK 进化批）', () => {
+  it('stdin 为 TTY（无管道对端）= 用法错退 2 + 指路', async () => {
+    const rig = await rigRun({ message: '-', stdinMessage: true, stdinIsTty: true });
+    const code = await rig.entry;
+    expect(code).toBe(2);
+    expect(rig.err.text).toContain('管道');
+  });
+
+  it('读入空串（EOF 即空）= 用法错退 2——与 argv 空串拒律同蒙', async () => {
+    const rig = await rigRun({
+      message: '-',
+      stdinMessage: true,
+      stdinIsTty: false,
+      readStdin: () => Promise.resolve(''),
+    });
+    const code = await rig.entry;
+    expect(code).toBe(2);
+    expect(rig.err.text).toContain('stdin 读入为空');
+  });
+
+  it('读入超 10 MiB 帽（UTF-8 字节计）= 用法错退 2', async () => {
+    const over = 'a'.repeat(10 * 1024 * 1024 + 1);
+    const rig = await rigRun({
+      message: '-',
+      stdinMessage: true,
+      stdinIsTty: false,
+      readStdin: () => Promise.resolve(over),
+    });
+    const code = await rig.entry;
+    expect(code).toBe(2);
+    expect(rig.err.text).toContain('10 MiB');
+  });
+
+  it('读入失败（管道断裂）= 用法错退 2 fail-loud', async () => {
+    const rig = await rigRun({
+      message: '-',
+      stdinMessage: true,
+      stdinIsTty: false,
+      readStdin: () => Promise.reject(new Error('EPIPE: 管道断裂')),
+    });
+    const code = await rig.entry;
+    expect(code).toBe(2);
+    expect(rig.err.text).toContain('stdin 读入失败');
+  });
+
+  it('读入文本作 message 体直送引擎（durable user 消息 = 管道全文）', async () => {
+    const piped = '来自管道的长提示词：解释 stdin 哨兵形';
+    const rig = await rigRun({
+      message: '-',
+      flags: { outputFormat: 'json' },
+      stdinMessage: true,
+      stdinIsTty: false,
+      readStdin: () => Promise.resolve(piped),
+    });
+    const code = await rig.entry;
+    expect(code).toBe(0);
+    const summary = summaryOf(rig.out);
+    const durable = await readDurable(rig.dataDir, summary['sessionId'] as string);
+    // 用户消息投影 = 管道全文（哨兵 `-` 占位不得残留；run 路 source 归因
+    // channel:cli 同蒙）——durable 词形 = user/message（data.content string 形）
+    const userTexts = durable.events
+      .filter((event) => event.type === 'user/message')
+      .map((event) => (event as unknown as { data: { content?: unknown } }).data.content);
+    expect(userTexts).toContain(piped);
+  });
+
+  it('负断言：非哨兵形绝不读 stdin（readStdin seam 零调用）', async () => {
+    const rig = await rigRun({
+      message: '普通 argv 消息',
+      readStdin: () => Promise.reject(new Error('不应触达——非哨兵形零 stdin 读')),
+    });
+    const code = await rig.entry;
+    expect(code).toBe(0);
+  });
+
+  it('执行序：--output-schema 文件级坏形预检先行（拒路径零 stdin 读副作用——冷读闸 N-1）', async () => {
+    let readCalled = false;
+    const rig = await rigRun({
+      message: '-',
+      flags: { outputSchema: '/nonexistent/schema.json' },
+      stdinMessage: true,
+      stdinIsTty: false,
+      readStdin: () => {
+        readCalled = true;
+        return Promise.resolve('不该被读到');
+      },
+    });
+    const code = await rig.entry;
+    expect(code).toBe(2);
+    expect(rig.err.text).toContain('--output-schema 文件不可读');
+    expect(readCalled).toBe(false);
+  });
+});
 
 describe('runRunEntry --max-turns', () => {
   it('到帽收场：truncated 如实标注 + 退 1（turn_start 门控 interrupt——确定性无竞态）', async () => {

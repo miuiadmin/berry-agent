@@ -161,7 +161,7 @@ export type SessionsCommand =
 /** 命令 tagged union（07 §5 命令族全量） */
 export type CliCommand =
   | { readonly kind: 'tui'; readonly flags: TuiFlags }
-  | { readonly kind: 'run'; readonly message: string; readonly flags: RunFlags }
+  | { readonly kind: 'run'; readonly message: string; readonly stdinMessage?: true; readonly flags: RunFlags }
   | { readonly kind: 'serve'; readonly flags: ServeFlags }
   | { readonly kind: 'serve-status' }
   | { readonly kind: 'serve-stop' }
@@ -393,6 +393,17 @@ function parseRun(rest: readonly string[]): CliParseResult {
   }
   const msg = tickName !== undefined ? ([] as string[]) : expectArity(scan.literals, 1, 1, 'berry run "<message>"');
   if ('exitCode' in msg) return msg;
+  // `-` stdin 哨兵（07 §5 A1——CLI/SDK 进化批 2026-11-09）：message 位置参数取
+  // `-` = 自 stdin 读全文作 message 体。哨兵仅在 `--` 终结符**之前**的位置参数
+  // 位生效——`--` 之后的 `-` 恒字面（解析面执法律②优先：字面 `-` 的正道 =
+  // `berry run -- -`，stdin 形不得击穿保真承诺）；判法 = 首个 `-` 词位于首个
+  // 裸 `--` 之前（scanFlags 两形同推 literals，终结符前后须在此分辨）。读入
+  // 与三拒（TTY/空串/超帽 10MiB）执法位在 run 层（07 §5 A1 笔——parse 纯函数
+  // 性不破，本层只认哨兵不读流）
+  const termIdx = rest.indexOf('--');
+  const dashIdx = rest.indexOf('-');
+  const stdinMessage =
+    tickName === undefined && msg[0] === '-' && (termIdx === -1 || dashIdx < termIdx) ? true : undefined;
   // 非 tick 形空串消息拒（本笔修形）：expectArity 只数词数——shell 变量展开为
   // 空（run "$msg" 而 msg 未赋值/空）恰落一词空串照过闸，空提示词直送引擎
   // 无意义且难排查；用法错退 2（同 --sdk-port 前台拒族档）
@@ -453,8 +464,15 @@ function parseRun(rest: readonly string[]): CliParseResult {
     pluginFile: scan.values.get('plugin-file'),
   };
   // tick 形 message 置空串（CliCommand 契约 string 必填保持——run-entry 按
-  // flags.tick 判到点形态，不消费 message 位；非 tick 形空串已在上方单判拒）
-  const command: CliCommand = { kind: 'run', message: msg[0] ?? '', flags };
+  // flags.tick 判到点形态，不消费 message 位；非 tick 形空串已在上方单判拒）；
+  // stdin 哨兵形 message 位保持 `-` 占位（run-entry 按 stdinMessage 位读入覆写，
+  // message 位值不消费——诊断面可见「曾以哨兵起跑」）
+  const command: CliCommand = {
+    kind: 'run',
+    message: msg[0] ?? '',
+    ...(stdinMessage !== undefined ? { stdinMessage } : {}),
+    flags,
+  };
   return finish(scan, command);
 }
 

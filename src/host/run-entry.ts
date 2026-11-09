@@ -15,6 +15,8 @@
  * - stream：AgentEvent NDJSON 直出（每事件一行）——与 serve 线协议同源的
  *   事件流面；心跳即事件流一员（工具/turn 族事件自带节拍）不另设 keepalive。
  * --no-delta：三档共用的线面退订（message_update 增量滤除；整消息事件仍在）。
+ * `-` stdin 哨兵（07 §5 A1——CLI/SDK 进化批）：message 位置参数取 `-` = 自
+ * stdin 读全文作消息体（⓪'' 段解析——TTY/空串/超帽 10MiB 三拒均用法错退 2）。
  *
  * 退出码三态（07 §5）：0 成功收场；1 执行失败（failed·aborted·truncated
  * 同档）；2 用法错。2 档除解析层 argv 执法外，本层再收运行期才能判定的
@@ -95,6 +97,16 @@ export interface RunEntryOptions {
   readonly tickWallTimeoutMs?: number;
   /** webui 开面回执（`--port` 在场时开面后回调——测试拿实配端口与 token） */
   readonly onWebuiOpen?: (info: WebuiOpenInfo) => void;
+  /**
+   * `-` stdin 哨兵形（07 §5 A1——CLI/SDK 进化批）：true = message 体自 stdin
+   * 读入（EOF 止）覆写 message 位。三拒执法位在本层（读入后才能判的形态：
+   * TTY / 空串 / 超帽 10 MiB）——用法错退 2 档。
+   */
+  readonly stdinMessage?: boolean;
+  /** stdin 读入 seam（缺省真 process.stdin 读至 EOF；测试注入替身零真管道依赖） */
+  readonly readStdin?: () => Promise<string>;
+  /** stdin TTY 判注入面（缺省 process.stdin.isTTY——TTY 拒的测试隔离位） */
+  readonly stdinIsTty?: boolean;
 }
 
 /** 执行体入参（装配成功后的全流程——闭包减参） */
@@ -189,6 +201,19 @@ export async function runRunEntry(options: RunEntryOptions): Promise<number> {
 /** --output-schema 根 type 值域（JSON Schema 基本类型七值——07 §5 定形注⑥值域笔） */
 const SCHEMA_ROOT_TYPE_VALUES = new Set(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']);
 
+/** `-` stdin 哨兵形的输入帽（07 §5 A1——10 MiB 按 UTF-8 字节计；claude/gemini 管道帽对齐） */
+const STDIN_MESSAGE_CAP_BYTES = 10 * 1024 * 1024;
+
+/** 真形态 stdin 全文读入（EOF 止——缺省 readStdin seam 的真身；TTY 形在调用前已拒） */
+function readAllStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    process.stdin.on('data', (chunk: Buffer) => chunks.push(chunk));
+    process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    process.stdin.on('error', reject);
+  });
+}
+
 async function executeRun(ctx: ExecuteContext): Promise<number> {
   const { options, outputFormat, out, err, runtime, stack, scope } = ctx;
   const flags = options.flags;
@@ -237,6 +262,44 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       return 2;
     }
     schemaDoc = parsed as TSchema;
+  }
+
+  // —— ⓪'' stdin 哨兵解析（07 §5 A1——CLI/SDK 进化批 2026-11-09）：`-` 位参
+  //（`--` 终结符之前的位置参数位——parse 层已裁）→ 读 stdin 全文（EOF 止）作
+  // message 体。执行序 = --output-schema 文件级预检先行（⓪' 段在上）、stdin
+  // 读入后置——拒路径零 stdin 读副作用（管道已吞的输入由上游重发，本进程不
+  // 抽走）。三拒执法位在本段（读入后才能判的形态，用法错退 2 档——
+  // --output-schema 文件级坏形同款）：① stdin 为 TTY（无管道对端——形态误用，
+  // --sdk-port 前台拒族同族）；② 读入空串（EOF 即空 = 管道上游缺输出形——
+  // 与 argv 空串拒律同蒙）；③ 超 10 MiB 帽（UTF-8 字节计——claude/gemini 管道
+  // 帽对齐）。tick 形结构性不到本段（parse 层 --tick × 位参互斥已拦），
+  // flags.tick 防御位保持。读入失败（管道断裂 EPIPE 等）= 用法错同档退 2
+  //（输入形不完整——fail-loud 不静默降级空串）——
+  let runMessage = options.message;
+  if (options.stdinMessage === true && flags.tick === undefined) {
+    const isTty = options.stdinIsTty ?? process.stdin.isTTY === true;
+    if (isTty) {
+      err.write(
+        '`-` 需要管道输入（当前 stdin 是终端，没有可读内容）——用法：berry run - < file.md 或 cat file.md | berry run -\n',
+      );
+      return 2;
+    }
+    let text: string;
+    try {
+      text = await (options.readStdin ?? readAllStdin)();
+    } catch (error) {
+      err.write(`stdin 读入失败：${error instanceof Error ? error.message : String(error)}\n`);
+      return 2;
+    }
+    if (text === '') {
+      err.write('stdin 读入为空（管道上游无输出——空提示词不可执行；检查上游命令是否产出了内容）\n');
+      return 2;
+    }
+    if (Buffer.byteLength(text, 'utf8') > STDIN_MESSAGE_CAP_BYTES) {
+      err.write(`stdin 输入超过 10 MiB 上限（按 UTF-8 字节计）——超长内容请分段提交，或落盘后在消息中以路径引用\n`);
+      return 2;
+    }
+    runMessage = text;
   }
 
   // —— ⓪ tick settle 记账位（04 §12 无人值守执行链定形注律 3 乙案侧——
@@ -309,8 +372,9 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   };
 
   // —— ① tick 形预解析（jobs 行读取 + goal 挂钟行 wake 判定先行——提示词与
-  // 会话归属都可能来自行内，须在会话选取前定形）——
-  let message = options.message;
+  // 会话归属都可能来自行内，须在会话选取前定形）；message 初值 = stdin 哨兵
+  // 解析产物（⓪'' 段——非哨兵形即 options.message 原文）——
+  let message = runMessage;
   let cwdAnchor = options.cwd ?? processCwd();
   let goalSessionId: string | undefined; // goal 挂钟行：提交目标 = goal 绑定会话
   if (flags.tick !== undefined) {

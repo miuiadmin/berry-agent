@@ -114,11 +114,13 @@ const handlers: CommandHandlers = {
     }),
   serve: (flags) => dispatchServe(flags),
   // run 单次执行（20b 接线——07 §5 run 旗标族全量消费位；tick 形 message 为
-  // 空串占位——提示词在 jobs 行内，由 run-entry 经行读取）
-  run: (message, flags) =>
+  // 空串占位——提示词在 jobs 行内，由 run-entry 经行读取；stdinMessage = `-`
+  // 哨兵形透传〔07 §5 A1——CLI/SDK 进化批〕）
+  run: (message, flags, stdinMessage) =>
     runRunEntry({
       message,
       flags,
+      ...(stdinMessage ? { stdinMessage: true } : {}),
       version: readVersion(),
       onRuntime: attachRuntime, // 信号/崩溃编舞切运行时本体
     }),

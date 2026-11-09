@@ -278,6 +278,62 @@ describe('run 命令族', () => {
     }
   });
 
+  it('- stdin 哨兵（07 §5 A1——CLI/SDK 进化批）：`--` 之前的位置参数位 `-` 受理为哨兵', () => {
+    // 哨兵受理：message 位保持 `-` 占位 + stdinMessage 位在场（读入与三拒在 run 层）
+    const r = parseCli(['run', '-']);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.command.kind === 'run') {
+      expect(r.command.message).toBe('-');
+      expect(r.command.stdinMessage).toBe(true);
+    } else {
+      expect.unreachable('run - 解析应成功');
+    }
+    // 旗标之后照常受理（哨兵与旗标位次正交）
+    const r2 = parseCli(['run', '--debug', '-', '--ephemeral']);
+    expect(r2.ok).toBe(true);
+    if (r2.ok && r2.command.kind === 'run') {
+      expect(r2.command.stdinMessage).toBe(true);
+      expect(r2.command.flags.ephemeral).toBe(true);
+    } else {
+      expect.unreachable('run --debug - --ephemeral 解析应成功');
+    }
+  });
+
+  it('- stdin 哨兵：`--` 终结符之后的 `-` 恒字面（执法②优先——冷读闸 B-1 裁定）', () => {
+    const r = parseCli(['run', '--', '-']);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.command.kind === 'run') {
+      // 字面 `-` 的正道即本形——message 值 `-` 但绝不触发 stdin 读入
+      expect(r.command.message).toBe('-');
+      expect(r.command.stdinMessage).toBeUndefined();
+    } else {
+      expect.unreachable('run -- - 解析应成功');
+    }
+    // `--` 之前有旗标、之后 `-`：同为字面（dashIdx > termIdx）
+    const r2 = parseCli(['run', '--read-only', '--', '-']);
+    expect(r2.ok).toBe(true);
+    if (r2.ok && r2.command.kind === 'run') {
+      expect(r2.command.stdinMessage).toBeUndefined();
+    } else {
+      expect.unreachable('run --read-only -- - 解析应成功');
+    }
+  });
+
+  it('- stdin 哨兵：--tick 互斥律同蒙（tick 形零位参——`-` 亦位参）', () => {
+    expectUsage(['run', '--tick', 'myjob', '-'], '互斥');
+  });
+
+  it('- stdin 哨兵：非恰 `-` 词不误判（`-a` 系字面消息）', () => {
+    const r = parseCli(['run', '-a']);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.command.kind === 'run') {
+      expect(r.command.message).toBe('-a');
+      expect(r.command.stdinMessage).toBeUndefined();
+    } else {
+      expect.unreachable('run -a 解析应成功');
+    }
+  });
+
   it('--fork 不带值 = 取 cwd 最新分叉', () => {
     const r = parseCli(['run', 'hi', '--fork']);
     expect(r.ok).toBe(true);
