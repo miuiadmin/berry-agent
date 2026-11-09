@@ -1553,6 +1553,13 @@
       "desc": "入口文件（相对包根）；缺席走入口解析序三步"
     },
     {
+      "symbol": "flags",
+      "module": "manifest-keys",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "CLI 旗标声明面（03 §1.2 B4——声明式唯一形态：[{name,type,description?}]；受理面 run/TUI 两入口，值送达 ctx.flags.of；宿主词保留与跨插件撞名装载期执法）"
+    },
+    {
       "symbol": "grants",
       "module": "manifest-keys",
       "tier": "stable",

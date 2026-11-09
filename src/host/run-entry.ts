@@ -157,6 +157,7 @@ export async function runRunEntry(options: RunEntryOptions): Promise<number> {
     noPlugins: options.flags.noPlugins,
     // 快速试件透传（--plugin-file——03 §7 生态启动批 eco-3a；缺席形省键）
     ...(options.flags.pluginFile !== undefined ? { pluginFile: options.flags.pluginFile } : {}),
+    ...(options.flags.pluginFlags !== undefined ? { pluginFlags: options.flags.pluginFlags } : {}), // B4 旗标值穿线
     debug: options.flags.debug,
     version: options.version ?? '0.0.0-unknown',
     ...(options.providers !== undefined ? { providers: options.providers } : {}),

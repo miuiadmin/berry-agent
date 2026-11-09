@@ -166,6 +166,8 @@ export interface AssembleHostOptions {
   readonly approvalPolicySource?: string;
   /** 运行时组装后回调（信号/崩溃编舞切运行时本体——main attachRuntime） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
+  /** CLI 插件旗标解析值（B4——03 §1.2：入口 parseCli 产物穿线至 bootPlugins → ctx.flags.of） */
+  readonly pluginFlags?: ReadonlyMap<string, string | boolean>;
   /** core: 官方件注册表（缺省 CORE_PLUGINS 单源——批 19a 起逐纵切笔入册；测试注入面/诊断覆盖经本位） */
   readonly corePlugins?: readonly CorePluginReference[];
   /**
@@ -1152,6 +1154,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           // listActive()（入册序单源——records Map 迭代序）；装载收口对在册
           // 既存会话补发 replay:true（boot 时点近零属常态、/reload 换代全册补）
           sessionStartReplay: () => stack.manager.listActive(),
+          // B4 旗标值穿线（入口 parseCli 产物 → ctx.flags.of 只读值位）
+          ...(options.pluginFlags !== undefined ? { pluginFlags: options.pluginFlags } : {}),
           // 压缩席位容器（U4-3——ctx.get("compaction") fork 绑定位）：真身 =
           // conversation-stack 装配的 createCompactionSlots 单真身（服务三 seam
           // 中 getConfig/getProvider 两容器位已在 stack 内接线；此处逐插件

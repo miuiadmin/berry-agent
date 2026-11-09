@@ -212,6 +212,14 @@ export interface PluginContext {
   readonly prompts: {
     registerSection(slot: string, builder: PromptSectionBuilder, options?: PromptSectionRegisterOptions): Disposer;
   };
+  /**
+   * CLI 旗标只读值位（B4——03 §1.2 flags 条款）：manifest 声明 + run/TUI
+   * 解析产物的运行期消费面。三态：string（string 型传值）| true（boolean
+   * 型在场）| undefined（在场未传值——与「未声明」同形〔插件缺席装载时其
+   * 旗标在 parse 层即拒，结构性不到本面〕）。非注册动词族——「静态声明归
+   * 清单」律的自然延伸（§3.2 对端注记）。
+   */
+  readonly flags: { of(name: string): string | boolean | undefined };
   /** 触发器注册（拒绝式——门检/撞名/格式三闸执法在 TriggerRegistry，C 批 C-2） */
   readonly triggers: { register(def: TriggerDef): Disposer };
   /**
@@ -314,6 +322,8 @@ export interface PluginContextOptions {
    * ——诚实缺席律）。
    */
   readonly toolLedger?: PluginToolLedger;
+  /** CLI 旗标解析值注入面（B4——缺席 = 每值 undefined〔诊断/测试替身形〕） */
+  readonly pluginFlags?: ReadonlyMap<string, string | boolean>;
   /** 命令注册表（缺席同上） */
   readonly commands?: CommandRegistryLike;
   /**
@@ -1178,6 +1188,10 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
           registerOptions,
         );
       },
+    },
+    // 旗标只读值位（B4——非动词族无窗口闸：声明值在装载前已定，读取零副作用）
+    flags: {
+      of: (name: string): string | boolean | undefined => options.pluginFlags?.get(name),
     },
     triggers: {
       register(def: TriggerDef): Disposer {

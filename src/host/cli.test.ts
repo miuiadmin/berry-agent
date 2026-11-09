@@ -832,3 +832,44 @@ describe('--answers 预填解析（07 §5 B3——CLI/SDK 进化批）', () => {
     expectUsage(['run', '--ephemeral', '--answers', 'bash=approve', 'hi'], '互斥');
   });
 });
+
+describe('插件旗标受理（B4——03 §1.2：注入形声明集 + 执法律① 不破）', () => {
+  const declared = {
+    types: new Map<string, 'boolean' | 'string'>([
+      ['plan', 'boolean'],
+      ['target-dir', 'string'],
+    ]),
+  };
+
+  it('TUI 与 run 两入口受理声明旗标（boolean/string 两型值抽出）', () => {
+    const tui = parseCli(['--plan', '--target-dir', '/tmp/x'], declared);
+    expect(tui.ok).toBe(true);
+    if (tui.ok && tui.command.kind === 'tui') {
+      expect(tui.command.flags.pluginFlags).toEqual(
+        new Map<string, string | boolean>([
+          ['plan', true],
+          ['target-dir', '/tmp/x'],
+        ]),
+      );
+    } else {
+      expect.unreachable('TUI 插件旗标解析应成功');
+    }
+    const run = parseCli(['run', '--plan', 'hi'], declared);
+    expect(run.ok).toBe(true);
+    if (run.ok && run.command.kind === 'run') {
+      expect(run.command.flags.pluginFlags).toEqual(new Map<string, string | boolean>([['plan', true]]));
+    } else {
+      expect.unreachable('run 插件旗标解析应成功');
+    }
+  });
+
+  it('未声明照拒退 2（执法律① 不破）+ 在场未传值 = 缺席键（三态分明）', () => {
+    expectUsage(['run', '--mystery', 'hi'], '未识别旗标');
+    const run = parseCli(['run', 'hi'], declared);
+    expect(run.ok && run.command.kind === 'run' && run.command.flags.pluginFlags).toBeUndefined();
+  });
+
+  it('serve 入口不受理（零旗标面律——声明集不并表）', () => {
+    expectUsage(['serve', '--plan'], '未识别旗标');
+  });
+});

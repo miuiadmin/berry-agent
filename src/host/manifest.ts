@@ -67,6 +67,12 @@ export interface PluginManifest {
    * 能力子集）。与 entry/skills/agents 互斥（单形状禁双载体）。
    */
   readonly server?: McpServerConfig;
+  /**
+   * CLI 旗标声明面（B4——03 §1.2 flags 条款：声明式唯一形态——运行时注册
+   * 结构性不可行〔parse 先于装载〕；执法四钉与受理面见规范。值送达 =
+   * 装载根 ctx.flags.of(name) 只读值位）。
+   */
+  readonly flags?: readonly PluginFlagDecl[];
   /** 入口解析序判定产物（§1.2 定死） */
   readonly entryPlan: PluginEntryPlan;
 }
@@ -122,6 +128,11 @@ export const MANIFEST_KEY_CATALOG: readonly {
     tier: 'stable',
     desc: 'MCP-server 形插件装载位声明块（03 §10.1 R2——一插件一服务器，字段集与 config servers 单源；在场 = 零码装载只供工具，与 entry/skills/agents 互斥）',
   },
+  {
+    key: 'flags',
+    tier: 'stable',
+    desc: 'CLI 旗标声明面（03 §1.2 B4——声明式唯一形态：[{name,type,description?}]；受理面 run/TUI 两入口，值送达 ctx.flags.of；宿主词保留与跨插件撞名装载期执法）',
+  },
 ];
 
 /** 清单块已知键闭集（未知键拒载——拒绝式而非忽略式；自目录派生单源） */
@@ -129,6 +140,54 @@ const MANIFEST_KEYS = new Set(MANIFEST_KEY_CATALOG.map((k) => k.key));
 
 /** 插件 id 字符集：小写字母/数字/连字符，首字符非连字符（03 §1.2） */
 const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** 插件 CLI 旗标名词法（03 §1.2 B4——configSchema key 同形） */
+const PLUGIN_FLAG_NAME_RE = /^[a-z][a-z0-9-]*$/;
+
+/** 插件 CLI 旗标声明形（03 §1.2 flags 条款——name/type/description 三位） */
+export interface PluginFlagDecl {
+  readonly name: string;
+  readonly type: 'boolean' | 'string';
+  readonly description?: string;
+}
+
+/**
+ * manifest.flags 归一（B4——03 §1.2 执法①：name 词法 / type 二值闭集 /
+ * description 可选字符串；违例 PLUGIN_SHAPE_INVALID）。宿主词保留与跨插件
+ * 撞名两执法在装载序（词表聚合时点可判——本纯函数只辖单清单内形状）。
+ */
+export function normalizePluginFlags(raw: unknown, pluginId: string): readonly PluginFlagDecl[] | string {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return `berryAgent.flags 须为数组（插件 ${pluginId}）`;
+  const out: PluginFlagDecl[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      return `berryAgent.flags 条目须为对象（插件 ${pluginId}）`;
+    }
+    const record = item as Record<string, unknown>;
+    const unknown = Object.keys(record).find((key) => key !== 'name' && key !== 'type' && key !== 'description');
+    if (unknown !== undefined) {
+      return `berryAgent.flags 条目未知键 "${unknown}"（插件 ${pluginId}——合法：name/type/description）`;
+    }
+    const name = record['name'];
+    if (typeof name !== 'string' || !PLUGIN_FLAG_NAME_RE.test(name)) {
+      return `berryAgent.flags.name 词法违例："${String(name)}"（插件 ${pluginId}——^[a-z][a-z0-9-]*$，configSchema key 同形）`;
+    }
+    if (seen.has(name)) return `berryAgent.flags.name 重复："${name}"（插件 ${pluginId}）`;
+    seen.add(name);
+    const type = record['type'];
+    if (type !== 'boolean' && type !== 'string') {
+      return `berryAgent.flags.type 须为 boolean|string（插件 ${pluginId} 条目 ${name}）`;
+    }
+    const description = record['description'];
+    if (description !== undefined && typeof description !== 'string') {
+      return `berryAgent.flags.description 须为字符串（插件 ${pluginId} 条目 ${name}）`;
+    }
+    out.push({ name, type, ...(description !== undefined ? { description } : {}) });
+  }
+  return out;
+}
 
 /** 官方前缀（core: 为官方插件保留——冒号仅许官方前缀位） */
 const CORE_PREFIX = 'core:';
@@ -413,6 +472,12 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
           ? { kind: 'declared-payload' }
           : { kind: 'default-export' };
 
+  // flags 归一（B4——03 §1.2：单清单内形状执法；宿主词保留/跨插件撞名在
+  // 装载序聚合时点判）
+  const flagsResult = normalizePluginFlags(manifest['flags'], id);
+  if (typeof flagsResult === 'string') return shapeFail(flagsResult);
+  const flags = flagsResult;
+
   return {
     ok: true,
     manifest: {
@@ -427,6 +492,7 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
       skills,
       agents,
       server,
+      flags,
       entryPlan,
     },
   };

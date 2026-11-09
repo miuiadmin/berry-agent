@@ -25,6 +25,7 @@ import { resolveDataDir } from '../persist/index.js';
 
 import { parseCli } from './cli.js';
 import type { ServeFlags } from './cli.js';
+import { defaultFs, readDeclaredPluginFlags } from './plugin-boot.js';
 import { dispatchCli } from './dispatch.js';
 import type { CommandHandlers } from './dispatch.js';
 import { appendCrashLog } from './runtime.js';
@@ -219,13 +220,23 @@ async function main(): Promise<number> {
     mainSettled: cliSettled,
   });
 
-  const code = await dispatchCli(parseCli(argv.slice(2)), handlers, {
-    stdinIsTTY: stdin.isTTY === true,
-    stdoutIsTTY: stdout.isTTY === true,
-    writeOut: (text) => stdout.write(`${text}\n`),
-    writeErr: (text) => stderr.write(`${text}\n`),
-    version: readVersion(),
-  });
+  // B4 插件旗标声明集：main 分派层零 boot 同步读（装载计划读侧纯函数复用）
+  // 喂 parseCli 受理集参数——parse 纯函数性不破（S-11）；坏形静默（执法在装载期）
+  const declaredTypes = readDeclaredPluginFlags(resolveDataDir(), defaultFs());
+
+  const code = await dispatchCli(
+    parseCli(argv.slice(2), declaredTypes.size > 0 ? { types: declaredTypes } : undefined),
+    handlers,
+    {
+      stdinIsTTY: stdin.isTTY === true,
+      stdoutIsTTY: stdout.isTTY === true,
+      writeOut: (text) => stdout.write(`${text}\n`),
+      writeErr: (text) => stderr.write(`${text}\n`),
+      version: readVersion(),
+      // help 插件旗标段（B4——pi printHelp 先例：动态段由 main 组装注入）
+      pluginFlagLines: [...declaredTypes.keys()].map((name) => `--${name}`),
+    },
+  );
   resolveCliSettled?.(code);
   return code;
 }

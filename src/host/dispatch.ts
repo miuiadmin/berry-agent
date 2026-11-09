@@ -76,6 +76,8 @@ export interface DispatchEnv {
   readonly writeErr: (text: string) => void;
   /** 版本串（裸 semver——0.x 期不带代号，07 §5 版本代号条） */
   readonly version: string;
+  /** 插件旗标行（B4——help 尾段动态注入：main 分派层零 boot 读侧组装；缺席 = 无段） */
+  readonly pluginFlagLines?: readonly string[];
 }
 
 /**
@@ -144,6 +146,12 @@ export async function dispatchCli(
       env.writeErr(`提示：${command.overreach} 之后的词不会当作消息内容`);
     }
     env.writeOut(HELP_TEXT);
+    // B4：插件旗标段（pi printHelp 先例——动态段尾拼；零旗标无段）
+    if (env.pluginFlagLines !== undefined && env.pluginFlagLines.length > 0) {
+      env.writeOut(
+        `\n插件旗标（已启用插件声明——run 与无参 TUI 入口受理）：\n${env.pluginFlagLines.map((line) => `  ${line}`).join('\n')}\n`,
+      );
+    }
     return 0;
   }
   if (command.kind === 'version') {

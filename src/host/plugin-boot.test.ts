@@ -36,6 +36,7 @@ import { readBootFailures } from './boot-failures.js';
 import type { CorePluginReference } from './loader.js';
 import {
   bootPlugins,
+  readDeclaredPluginFlags,
   createPluginToolLedger,
   defaultFs,
   QUICK_TEST_ROW_ID,
@@ -2207,5 +2208,57 @@ describe('宿主项目上下文段接线（03 §2.5 A4——CLI/SDK 进化批 20
     const { options } = rigBoot('/data', {});
     const boot = await bootPlugins(options);
     expect(boot.promptSections.slotList()).not.toContain('project');
+  });
+});
+
+describe('插件旗标装载执法与读侧（B4——03 §1.2 执法②③ + 零 boot 读侧）', () => {
+  it('宿主词撞名拒载（PLUGIN_SHAPE_INVALID——防插件劫持宿主词位）', async () => {
+    const ref: CorePluginReference = { name: 'demo', apply: async () => undefined };
+    const fs = memoryFs();
+    // 造磁盘插件：账本 + enabled 行 + manifest 声明宿主词 port
+    fs.mkdir?.('/data/plugins/holder', { recursive: true });
+    fs.write(
+      '/data/plugins/holder/package.json',
+      JSON.stringify({
+        name: 'holder',
+        version: '1.0.0',
+        berryAgent: { id: 'holder', flags: [{ name: 'port', type: 'boolean' }] },
+      }),
+    );
+    fs.write(
+      '/data/plugins/ledger.json',
+      JSON.stringify([{ id: 'holder', installPath: 'plugins/holder', installedAt: '2026-01-01' }]),
+    );
+    fs.write('/data/enabled.yaml', 'plugins:\n  - id: holder\n');
+    void ref;
+    const { options } = rigBoot('/data', { corePlugins: [ref], fs });
+    const boot = await bootPlugins(options);
+    const failedRow = boot.report.failed.find((f) => f.id === 'holder');
+    expect(failedRow?.code).toBe('PLUGIN_SHAPE_INVALID');
+    expect(failedRow?.message).toContain('宿主');
+  });
+
+  it('readDeclaredPluginFlags：启用行声明集读取（禁用行排除 + 坏行静默 + first-wins）', async () => {
+    const fs = memoryFs();
+    fs.mkdir?.('/data/plugins/a', { recursive: true });
+    fs.mkdir?.('/data/plugins/b', { recursive: true });
+    fs.write(
+      '/data/plugins/a/package.json',
+      JSON.stringify({ name: 'a', berryAgent: { id: 'a', flags: [{ name: 'plan', type: 'boolean' }] } }),
+    );
+    fs.write(
+      '/data/plugins/b/package.json',
+      JSON.stringify({ name: 'b', berryAgent: { id: 'b', flags: [{ name: 'out-dir', type: 'string' }] } }),
+    );
+    fs.write(
+      '/data/plugins/ledger.json',
+      JSON.stringify([
+        { id: 'a', installPath: 'plugins/a' },
+        { id: 'b', installPath: 'plugins/b' },
+      ]),
+    );
+    fs.write('/data/enabled.yaml', 'plugins:\n  - id: a\n  - id: b\n    disabled: true\n');
+    const types = readDeclaredPluginFlags('/data', fs);
+    expect([...types.entries()]).toEqual([['plan', 'boolean']]); // 禁用行 b 的 out-dir 不在
   });
 });

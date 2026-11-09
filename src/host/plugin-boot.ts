@@ -116,6 +116,7 @@ import type {
 import { loadPlugins } from './loader.js';
 import type { DiskPluginSpec } from './loader.js';
 import { enabledYamlPath, parseEnabledRows, parseManifest } from './manifest.js';
+import { HOST_FLAG_WORDS } from './cli.js';
 import type { EnabledRow, PluginManifest } from './manifest.js';
 import { PLUGIN_HOOK_VOCABULARY, createPluginContext } from './plugin-context.js';
 import type { ChannelsUiFace, ToolRendererRegistryLike } from './plugin-context.js';
@@ -309,6 +310,11 @@ export interface PluginBootOptions {
    * ?? 库行）；缺席 = 段不注册（诊断/测试替身形——诚实缺位律）。
    */
   readonly projectInstructions?: { readonly workspaceRootOf: (sessionId: string) => string | undefined };
+  /**
+   * CLI 旗标解析值注入（B4——03 §1.2）：main 分派层 parseCli 产物经入口
+   * →assembly 穿线至此（键全命名空间）；缺席 = ctx.flags.of 恒 undefined。
+   */
+  readonly pluginFlags?: ReadonlyMap<string, string | boolean>;
   /**
    * Job 收口面（受局面注入——Job 消费面批桥二：04 §10 归属围栏 owner =
    * 插件 id 的卸载收口腿）。卸载 closer 序对 activated 逐插件 closeOwner
@@ -956,6 +962,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       scope: fork,
       dispatch: options.dispatch,
       tools,
+      // B4 旗标值注入（缺席 = 每值 undefined——诊断/测试替身形诚实缺位律）
+      ...(options.pluginFlags !== undefined ? { pluginFlags: options.pluginFlags } : {}),
       // 工具名账透传（h-3——register 包壳层记账；缺席（本面不存在缺位）只
       // 发生在 createPluginContext 直测形，bootPlugins 恒注）
       toolLedger,
@@ -1901,6 +1909,8 @@ function synthesizePlan(input: {
   }
 
   // 用户行：core: 未注册名拒；磁盘行走账本解析
+  // B4：磁盘行旗标撞名账（装载序单册——跨插件执法位）
+  const diskFlagOwners = new Map<string, string>();
   for (const row of input.rows) {
     if (overlaid.has(row.id)) continue; // 已并入 core overlay 腿
     if (row.id.startsWith('core:')) {
@@ -1911,7 +1921,8 @@ function synthesizePlan(input: {
       });
       continue;
     }
-    const resolved = resolveDiskRow(row, input.dataDir, input.ledger, input.fs);
+    // B4：磁盘行旗标撞名账共享单册（装载序聚合——先装者占位、后装者拒）
+    const resolved = resolveDiskRow(row, input.dataDir, input.ledger, input.fs, diskFlagOwners);
     if ('failure' in resolved) synthesisFailures.push(resolved.failure);
     else plan.push(resolved.spec);
   }
@@ -2009,6 +2020,8 @@ function resolveDiskRow(
   dataDir: string | null,
   ledger: Readonly<Record<string, LedgerEntryLike>>,
   fs: PluginBootFs,
+  /** B4 旗标撞名账（跨插件聚合位——装载序单册；core 引用无 flags 不入账） */
+  flagOwners: Map<string, string> = new Map(),
 ): DiskResolution {
   if (dataDir === null) {
     return {
@@ -2095,6 +2108,34 @@ function resolveDiskRow(
       },
     };
   }
+  // —— B4 旗标执法①②（03 §1.2 执法四钉的装载期半边）：宿主词保留 +
+  // 跨插件撞名（后装载者拒 + 报文点名既有者〔N-4〕；执法位在装载序而非
+  // parseManifest——单清单形状归 manifest 纯函数、跨件聚合归此处）
+  if (manifestResult.manifest.flags !== undefined) {
+    const hostWords = new Set(HOST_FLAG_WORDS);
+    for (const flag of manifestResult.manifest.flags) {
+      if (hostWords.has(flag.name)) {
+        return {
+          failure: {
+            id: row.id,
+            code: 'PLUGIN_SHAPE_INVALID',
+            message: `清单校验失败（${pluginDir}）：旗标 --${flag.name} 与宿主旗标重名（宿主词保留——防插件劫持宿主词位）`,
+          },
+        };
+      }
+      const existingOwner = flagOwners.get(flag.name);
+      if (existingOwner !== undefined) {
+        return {
+          failure: {
+            id: row.id,
+            code: 'PLUGIN_SHAPE_INVALID',
+            message: `清单校验失败（${pluginDir}）：旗标 --${flag.name} 与插件 ${existingOwner} 声明重名（命名律族——后装载者拒，改名或协调）`,
+          },
+        };
+      }
+      flagOwners.set(flag.name, row.id);
+    }
+  }
   const spec: DiskPluginSpec = {
     kind: 'disk',
     id: row.id,
@@ -2128,4 +2169,46 @@ function toBootFailuresFs(fs: PluginBootFs): BootFailuresFs {
     mkdir: fs.mkdir ?? disk.mkdir,
     rename: fs.rename ?? disk.rename,
   };
+}
+
+/**
+ * 插件旗标声明集零 boot 读侧（B4——03 §1.2「注入形」：main 分派层在
+ * parseCli 前同步读取，喂受理集参数〔S-11：parseCli 纯函数性不破〕）。
+ *
+ * 判定源（S-12）：装机账本 manifest（installPath → package.json
+ * berryAgent.flags）× 启用清单行未禁用——core: 件 v1 无清单声明位结构性
+ * 无 flags（不在此面；装载计划同源语义）。撞名/宿主词保留的**装载期执法**
+ * 在 bootPlugins（本读侧 first-wins 不拒——CLI 受理集只取先到者，装载期
+ * 才是 fail-loud 正口）。坏形行静默跳过（装载期自会响亮拒——此处是受理
+ * 面非执法面）。
+ */
+export function readDeclaredPluginFlags(
+  dataDir: string | null,
+  fs: PluginBootFs,
+): ReadonlyMap<string, 'boolean' | 'string'> {
+  const types = new Map<string, 'boolean' | 'string'>();
+  if (dataDir === null) return types;
+  const { rows } = readEnabledRows(dataDir, fs);
+  const ledger = readLedger(dataDir, fs, () => undefined); // 受理面静默——执法在装载期
+  for (const row of rows) {
+    if (row.disabled === true) continue; // 禁用行旗标不在受理集（S-12 判定源）
+    const entry = ledger[row.id];
+    const rawPath = entry?.installPath;
+    if (typeof rawPath !== 'string' || rawPath.length === 0) continue;
+    const pluginDir = isAbsolute(rawPath) ? rawPath : join(dataDir, rawPath);
+    const pkgText = fs.read(join(pluginDir, 'package.json'));
+    if (pkgText === null) continue;
+    let pkg: unknown;
+    try {
+      pkg = JSON.parse(pkgText);
+    } catch {
+      continue; // 坏形——装载期响亮拒，受理面跳过
+    }
+    const parsed = parseManifest(pkg, { official: false });
+    if (!parsed.ok) continue;
+    for (const flag of parsed.manifest.flags ?? []) {
+      if (!types.has(flag.name)) types.set(flag.name, flag.type); // first-wins
+    }
+  }
+  return types;
 }

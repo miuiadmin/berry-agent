@@ -599,3 +599,49 @@ describe('parseEnabledRows doors 段（03 §4.6 双源并集律第二源——�
     expect(both.ok).toBe(false);
   });
 });
+
+describe('parseManifest flags 键（B4——03 §1.2 声明面：单清单形状执法）', () => {
+  it('合法形受理：name/type/description 三位 + 缺席 = 空数组', () => {
+    const pkg = basePkg();
+    (pkg.berryAgent as Record<string, unknown>)['flags'] = [
+      { name: 'plan', type: 'boolean', description: '规划模式' },
+      { name: 'target-dir', type: 'string' },
+    ];
+    const result = parseManifest(pkg);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.manifest.flags).toEqual([
+        { name: 'plan', type: 'boolean', description: '规划模式' },
+        { name: 'target-dir', type: 'string' },
+      ]);
+    }
+    const bare = parseManifest(basePkg());
+    expect(bare.ok && bare.manifest.flags).toEqual([]);
+  });
+
+  it('词法/型域/未知键/重复四拒（PLUGIN_SHAPE_INVALID）', () => {
+    const cases: Array<[string, unknown, string]> = [
+      ['name 大写', [{ name: 'Plan', type: 'boolean' }], '词法'],
+      ['型域外', [{ name: 'plan', type: 'number' }], 'boolean|string'],
+      ['条目未知键', [{ name: 'plan', type: 'boolean', default: true }], '未知键'],
+      [
+        '单清单重复',
+        [
+          { name: 'plan', type: 'boolean' },
+          { name: 'plan', type: 'string' },
+        ],
+        '重复',
+      ],
+    ];
+    for (const [label, flags, keyword] of cases) {
+      const pkg = basePkg();
+      (pkg.berryAgent as Record<string, unknown>)['flags'] = flags;
+      const result = parseManifest(pkg);
+      expect(!result.ok, label).toBe(true);
+      if (!result.ok) {
+        expect(result.code).toBe('PLUGIN_SHAPE_INVALID');
+        expect(result.message).toContain(keyword);
+      }
+    }
+  });
+});

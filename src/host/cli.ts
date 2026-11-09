@@ -46,6 +46,8 @@ export interface TuiFlags {
    * 失。与 --no-plugins 同给 = 安全模式优先；dump-config 互斥（诊断保真差）。
    */
   readonly pluginFile?: string;
+  /** 插件旗标解析值（B4——03 §1.2：声明集内旗标的值〔受理面 = TUI 入口〕；键全命名空间、缺席未传 = 不含键） */
+  readonly pluginFlags?: ReadonlyMap<string, string | boolean>;
 }
 
 /** run 旗标族（07 §5「run 旗标族扩展」全量——批 13 SDK 通道消费） */
@@ -87,6 +89,8 @@ export interface RunFlags {
   readonly preset?: 'conservative' | 'balanced' | 'open';
   /** --plugin-file <path>：快速试件（TuiFlags 同位同语义——03 §7） */
   readonly pluginFile?: string;
+  /** 插件旗标解析值（B4——03 §1.2：受理面 = run 入口；TuiFlags 同位同语义） */
+  readonly pluginFlags?: ReadonlyMap<string, string | boolean>;
 }
 
 /** serve 旗标（--no-plugins 不透传——自动化入口；--no-delta run/serve 共收） */
@@ -429,11 +433,26 @@ const INSTALL_SCHEMAS: readonly FlagSchema[] = [
   { name: 'min-release-age', kind: 'value', nonNegativeInt: { upTo: 10_000_000 } },
 ];
 
+/**
+ * 宿主全入口旗标词聚合表（B4——03 §1.2 执法②：装载期「宿主词保留」比对源。
+ * 各入口 `*_SCHEMAS` 聚合派生单源——加宿主旗标即自动入册〔S-13：含同批
+ * 新词 --answers 由 RUN_SCHEMAS 自动并入〕；全局位 help/version 系 scanFlags
+ * 内建越位词不占 schema 位，单独并入）。
+ */
+export const HOST_FLAG_WORDS: readonly string[] = [
+  'help',
+  'version',
+  ...[TUI_SCHEMAS, RUN_SCHEMAS, SERVE_SCHEMAS, DUMP_SCHEMAS, INSTALL_SCHEMAS, UNINSTALL_SCHEMAS].flatMap((schemas) =>
+    schemas.map((schema) => schema.name),
+  ),
+];
+
 /* ---------------- 命令解析器 ---------------- */
 
-/** 解析 run 命令段（子命令位已消费） */
-function parseRun(rest: readonly string[]): CliParseResult {
-  const scan = scanFlags(rest, RUN_SCHEMAS);
+/** 解析 run 命令段（子命令位已消费；declared = 插件旗标声明集——B4 受理面） */
+function parseRun(rest: readonly string[], declared?: DeclaredPluginFlags): CliParseResult {
+  const runExtra = declaredSchemas(declared);
+  const scan = scanFlags(rest, [...RUN_SCHEMAS, ...runExtra]);
   if (scan.error) return usageFail(scan.error);
   // --tick <名> 取值形（批 20a）：与 message 位置参数互斥——到点形态提示词在行内不在
   // argv（07 §5 定名）；arity 随形态分档（--tick 在场零位置参数、缺席恰一）
@@ -519,6 +538,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
     fork: scan.values.has('fork') ? { id: scan.values.get('fork') || undefined } : undefined,
     preset,
     pluginFile: scan.values.get('plugin-file'),
+    ...(pluginFlagsOf(scan, runExtra) !== undefined ? { pluginFlags: pluginFlagsOf(scan, runExtra)! } : {}),
   };
   // tick 形 message 置空串（CliCommand 契约 string 必填保持——run-entry 按
   // flags.tick 判到点形态，不消费 message 位；非 tick 形空串已在上方单判拒）；
@@ -947,11 +967,49 @@ function finish(scan: ScanOutcome, command: CliCommand): CliParseResult {
  * （位置参数非空即退 2——无参 TUI 不收位置参数）；其余非旗标首词 → 未知子命令
  * 退 2。
  */
-export function parseCli(argv: readonly string[]): CliParseResult {
+/**
+ * 插件旗标声明集（B4——03 §1.2：main 分派层零 boot 同步读〔装载计划读侧
+ * 纯函数复用〕注入本参数——parseCli 纯函数性不破〔S-11：单测零 I/O〕；
+ * 受理面 = TUI/run 两入口，其它入口收到声明集也不并表〔serve/mcp/acp 零
+ * 旗标面律〕）。
+ */
+export interface DeclaredPluginFlags {
+  /** 旗标名 → 型（scanFlags 造 schema 用） */
+  readonly types: ReadonlyMap<string, 'boolean' | 'string'>;
+}
+
+/** 声明集 → scanFlags schema 追加段（boolean/string 两型直映） */
+function declaredSchemas(declared: DeclaredPluginFlags | undefined): readonly FlagSchema[] {
+  if (declared === undefined) return [];
+  const schemas: FlagSchema[] = [];
+  for (const [name, type] of declared.types) {
+    schemas.push(type === 'boolean' ? { name, kind: 'boolean' } : { name, kind: 'value' });
+  }
+  return schemas;
+}
+
+/** 声明集解析值抽取（scan 后从 booleans/values 两账并出——键全命名空间） */
+function pluginFlagsOf(
+  scan: { readonly booleans: ReadonlySet<string>; readonly values: ReadonlyMap<string, string> },
+  schemas: readonly FlagSchema[],
+): ReadonlyMap<string, string | boolean> | undefined {
+  const out = new Map<string, string | boolean>();
+  for (const schema of schemas) {
+    if (schema.name === 'help' || schema.name === 'version') continue;
+    if (schema.kind === 'boolean' && scan.booleans.has(schema.name)) out.set(schema.name, true);
+    if (schema.kind !== 'boolean' && scan.values.has(schema.name)) out.set(schema.name, scan.values.get(schema.name)!);
+  }
+  return out.size > 0 ? out : undefined;
+}
+
+export function parseCli(argv: readonly string[], declared?: DeclaredPluginFlags): CliParseResult {
   const [head, ...rest] = argv as string[];
   if (head === undefined || head.startsWith('--')) {
     const leading: string[] = head === undefined ? [] : [head];
-    const scan = scanFlags([...leading, ...rest], TUI_SCHEMAS);
+    // B4：TUI 受理面——声明集并表（未声明照拒——执法律① 不破）
+    const tuiSchemas = [...TUI_SCHEMAS, ...declaredSchemas(declared)];
+    const scan = scanFlags([...leading, ...rest], tuiSchemas);
+    const tuiPluginFlags = pluginFlagsOf(scan, declaredSchemas(declared));
     if (scan.error) return usageFail(scan.error);
     const arity = expectArity(scan.literals, 0, 0, 'berry（无参 = TUI 主入口；脚本化用 run/serve）');
     if ('exitCode' in arity) return arity;
@@ -963,13 +1021,14 @@ export function parseCli(argv: readonly string[]): CliParseResult {
         noPlugins: scan.booleans.has('no-plugins'),
         debug: scan.booleans.has('debug'),
         pluginFile: scan.values.get('plugin-file'),
+        ...(tuiPluginFlags !== undefined ? { pluginFlags: tuiPluginFlags } : {}),
       },
     };
     return finish(scan, command);
   }
   switch (head) {
     case 'run':
-      return parseRun(rest);
+      return parseRun(rest, declared);
     case 'serve': {
       // serve status / serve stop 管理动词（零旗标面——单活跃机只读豁免）
       const [sub, ...tail] = rest as string[];
