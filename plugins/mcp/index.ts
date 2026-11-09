@@ -44,5 +44,5 @@ export { MCP_DIRECTORY_TOOL_NAME, mcpToolKey, splitMcpToolKey, filterServerTools
 export type { McpToolSource, McpToolSurface, McpBuildDef } from './tools.js';
 
 // 服务编排
-export { createMcpService } from './service.js';
+export { createMcpService, MCP_RESERVED_SERVER_NAME } from './service.js';
 export type { McpService, McpServiceDeps, McpLiveServer, McpServerAttachFace } from './service.js';

@@ -22,6 +22,7 @@ import type {
   DoorsSub,
   DumpConfigFlags,
   MarketplaceCommand,
+  McpManageSub,
   PluginsCommand,
   RunFlags,
   ServeFlags,
@@ -43,6 +44,8 @@ export interface CommandHandlers {
   readonly serveStop?: () => Promise<number>;
   /** MCP server 包装形态（core:sdk 件承载） */
   readonly mcp?: () => Promise<number>;
+  /** MCP 客户端管理族（07 §5 B5——list/add/remove 零装配直读写侧） */
+  readonly mcpManage?: (sub: McpManageSub) => Promise<number>;
   /** ACP server 包装形态（core:sdk 件承载第四形态——CLI/SDK 进化批 A3） */
   readonly acp?: () => Promise<number>;
   /** 打印实际生效装配（:memory: 同构——12d 装载器接线后可执行） */
@@ -94,7 +97,7 @@ export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
   （无参）                TUI 主入口：直进对话
   run "<message>"         单次执行：一轮对话 → stdout 输出结果（"-" = 从 stdin 读全文作消息体：berry run - < file；字面 "-" 用 berry run -- -）
   serve                   常驻宿主（stdio JSONL；serve status / serve stop 管理动词）
-  mcp                     MCP server 包装形态
+  mcp                     MCP server 包装形态（bare）；mcp list/add/remove = MCP 客户端管理族
   acp                     ACP v1 server 包装形态（编辑器/聚合器接入位——Zed/paseo/hapi/t3 型客户端经 ACP 连驱）
   dump-config             打印实际生效配置
   plugins <sub>           插件生命周期（list/install/uninstall/mount/unmount/toggle/update/check）
@@ -171,6 +174,8 @@ export async function dispatchCli(
         return requireHandler(handlers.serveStop, 'serve stop')();
       case 'mcp':
         return requireHandler(handlers.mcp, 'mcp')();
+      case 'mcp-manage':
+        return requireHandler(handlers.mcpManage, 'mcp 管理族')(command.manage);
       case 'acp':
         return requireHandler(handlers.acp, 'acp')();
       case 'dump-config':

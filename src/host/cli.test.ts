@@ -777,3 +777,32 @@ describe('doors 子命令族（g-2——03 §4.6 / 07 §5 定名：CLI 面 list 
     });
   });
 });
+
+describe('mcp 同词双面（07 §5 B5——CLI/SDK 进化批）', () => {
+  it('bare 形 = server 包装维持；子命令族分派受理', () => {
+    const bare = parseCli(['mcp']);
+    expect(bare.ok && bare.command.kind).toBe('mcp');
+    const list = parseCli(['mcp', 'list']);
+    expect(list.ok && list.command.kind === 'mcp-manage').toBe(true);
+    const add = parseCli(['mcp', 'add', 'fs', '/bin/tool', '--stdio']);
+    // server 自带旗标须裸 -- 终结符（执法②保真）——直传即未识别旗标拒
+    expectUsage(['mcp', 'add', 'fs', '/bin/tool', '--stdio'], '未识别旗标');
+    const addOk = parseCli(['mcp', 'add', 'fs', '/bin/tool', '--', '--stdio', '-v']);
+    if (addOk.ok && addOk.command.kind === 'mcp-manage' && addOk.command.manage.sub === 'add') {
+      expect(addOk.command.manage.name).toBe('fs');
+      expect(addOk.command.manage.command).toBe('/bin/tool');
+      expect(addOk.command.manage.args).toEqual(['--stdio', '-v']);
+    } else {
+      expect.unreachable('mcp add -- 形解析应成功');
+    }
+    void add;
+    const remove = parseCli(['mcp', 'remove', 'fs']);
+    expect(remove.ok && remove.command.kind === 'mcp-manage').toBe(true);
+  });
+
+  it('位参数执法：add 至少两参 / remove 恰一参 / 未知 sub 指路', () => {
+    expectUsage(['mcp', 'add', 'only-one'], '位置参数数目不符');
+    expectUsage(['mcp', 'remove'], '位置参数数目不符');
+    expectUsage(['mcp', 'frobnicate'], '未知 mcp 子命令');
+  });
+});

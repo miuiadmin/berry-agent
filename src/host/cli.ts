@@ -23,6 +23,9 @@ import type { CredentialsSub } from '../../plugins/credentials/index.js';
 // dispatch/dispatch 表与 CredentialsCommand 族从此处取型，与 SessionsCommand 同位）
 export type { CredentialsSub };
 import type { DoorsSub } from './doors-cmd.js';
+import type { McpManageSub } from './mcp-cmd.js';
+
+export type { McpManageSub };
 // 同上单源再导出（doors-cmd.ts 立形——CLI 解析与 TUI argv 解析/命令语义共用）
 export type { DoorsSub };
 import { scanSessionExportFlags, type SessionExportFormat } from './session-export.js';
@@ -166,6 +169,8 @@ export type CliCommand =
   | { readonly kind: 'serve-status' }
   | { readonly kind: 'serve-stop' }
   | { readonly kind: 'mcp' }
+  /** MCP 客户端管理族（07 §5 B5——list/add/remove；零装配直读写侧） */
+  | { readonly kind: 'mcp-manage'; readonly manage: McpManageSub }
   /** ACP server 包装形态（07 §5 命令族·CLI/SDK 进化批 A3——零旗标面同 mcp 形） */
   | { readonly kind: 'acp' }
   | { readonly kind: 'dump-config'; readonly flags: DumpConfigFlags }
@@ -928,11 +933,40 @@ export function parseCli(argv: readonly string[]): CliParseResult {
       return parseServe(rest);
     }
     case 'mcp': {
-      const scan = scanFlags(rest, []);
-      if (scan.error) return usageFail(scan.error);
-      const arity = expectArity(scan.literals, 0, 0, 'berry mcp');
-      if ('exitCode' in arity) return arity;
-      return finish(scan, { kind: 'mcp' });
+      // 同词双面（07 §5 B5 增笔）：首位置参数分派——缺席或旗标首词 = server
+      // 包装形态（零旗标零位参维持——旗标首词走 bare 扫描即执法①「未识别旗标」
+      // 文案不漂移）；list/add/remove = MCP 客户端管理族（03 §10.1）
+      const [sub, ...tail] = rest as string[];
+      if (sub === undefined || sub.startsWith('--')) {
+        const scan = scanFlags(rest, []);
+        if (scan.error) return usageFail(scan.error);
+        return finish(scan, { kind: 'mcp' });
+      }
+      if (sub === 'list') {
+        const scan = scanFlags(tail, []);
+        if (scan.error) return usageFail(scan.error);
+        const arity = expectArity(scan.literals, 0, 0, 'berry mcp list');
+        if ('exitCode' in arity) return arity;
+        return finish(scan, { kind: 'mcp-manage', manage: { sub: 'list' } });
+      }
+      if (sub === 'add') {
+        // <name> <command> [args…]——server 自带旗标形经裸 `--` 终结符保真
+        //（执法②：终结符后全字面——`berry mcp add fs /path/tool -- --stdio`）
+        const scan = scanFlags(tail, []);
+        if (scan.error) return usageFail(scan.error);
+        const arity = expectArity(scan.literals, 2, Number.MAX_SAFE_INTEGER, 'berry mcp add <name> <command> [args…]');
+        if ('exitCode' in arity) return arity;
+        const [name, command, ...args] = arity;
+        return finish(scan, { kind: 'mcp-manage', manage: { sub: 'add', name: name!, command: command!, args } });
+      }
+      if (sub === 'remove') {
+        const scan = scanFlags(tail, []);
+        if (scan.error) return usageFail(scan.error);
+        const arity = expectArity(scan.literals, 1, 1, 'berry mcp remove <name>');
+        if ('exitCode' in arity) return arity;
+        return finish(scan, { kind: 'mcp-manage', manage: { sub: 'remove', name: arity[0]! } });
+      }
+      return usageFail(`未知 mcp 子命令：${sub}（合法：list/add/remove；bare berry mcp = MCP server 包装形态）`);
     }
     case 'acp': {
       // ACP server 包装形态（07 §5 命令族·CLI/SDK 进化批 A3——零旗标面同

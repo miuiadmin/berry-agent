@@ -34,6 +34,7 @@ import { DAEMON_CHILD_ENV, runDaemonServe, runServeStatus, runServeStop, spawnDa
 import { runServeEntry } from './serve-entry.js';
 import { runMcpEntry } from './mcp-entry.js';
 import { runAcpEntry } from './acp-entry.js';
+import { runMcpManageEntry } from './mcp-cmd.js';
 import { runTuiEntry } from './tui-entry.js';
 import { runRunEntry } from './run-entry.js';
 import { runDumpConfigEntry } from './dump-config.js';
@@ -132,6 +133,11 @@ const handlers: CommandHandlers = {
     runMcpEntry({
       version: readVersion(),
       onRuntime: attachRuntime, // 信号/崩溃编舞切运行时本体
+    }),
+  // MCP 客户端管理族（B5——零装配直读写侧；bare server 形在 mcp 位）
+  mcpManage: (sub) =>
+    runMcpManageEntry(sub, {
+      dataDir: resolveDataDir(),
     }),
   // ACP server 包装形态（CLI/SDK 进化批 A3——零旗标面同 mcp 形；面亡执法
   // 与 createSession 注入见 acp-entry 头注）

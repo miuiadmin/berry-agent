@@ -68,7 +68,7 @@ berry mcp                            # stdio MCP server（行帧 JSON-RPC）
 
 - 工具面收窄两件（异步档）：`berry-agent`（会话发起/续接，受理即回执 sessionId）+ `berry-agent-reply`（durable 投影轮询，`lastSeq` 续读位）。
 - **MCP 形无审批通道、无直播线**：只消费 durable 投影（审批 fail-closed 不经此面）。需要审批转发 / 实时流的聚合器走第三节 serve 面。
-- 定位一句话：**MCP = 能力出口（工具被任意 host 消费）；会话出口 = serve/SDK 面**。berry 自身作为 MCP 客户端的消费经插件面配置（`plugins` 命令族装载对应插件）。
+- 定位一句话：**MCP = 能力出口（工具被任意 host 消费）；会话出口 = serve/SDK 面**（ACP = 会话出口的协议兼容形）。berry 自身作为 MCP 客户端的消费经插件面配置——`berry mcp list / add <name> <command> [args…] / remove <name>` 客户端管理族直接编辑 core:mcp 行配置（零装配、`/reload` 生效；`add` 收绝对路径命令、词法拒绝用法错退 2、重名与缺席退 1 指路）。
 
 ## 五、聚合器公约对照（ berry 侧承诺 ）
 
