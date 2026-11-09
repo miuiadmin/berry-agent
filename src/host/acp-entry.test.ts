@@ -6,6 +6,7 @@
  * prompt 挂终态回执 + 直播 agent_message_chunk 外达 / 审批全链（write 工具
  * ask → session/request_permission 外推 → 应答后工具真执行 + 第二轮收口）/
  * session:resume 未知 id 注册码折 -32602 / set_model 落账与 fail-loud /
+ * 凭证就绪过滤宇宙（models 块第四消费位 + 设置位就绪闸——07 ux-4 批注）/
  * session:list 首问快照投影 / EOF 优雅退 0。断言只对协议面与事件类型位。
  */
 import { existsSync } from 'node:fs';
@@ -129,8 +130,16 @@ afterAll(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
 
+/** rig 选项（凭证就绪族注入面——缺省 faux-acp 键在场 = 全目录就绪） */
+interface RigAcpOpts {
+  /** env 面（缺省注入 FAUX_ACP_API_KEY 使 faux-acp 就绪；显式 {} = 全渠道未就绪——空集态形） */
+  readonly env?: Record<string, string>;
+  /** 追加 provider（凭证缺席对照位——目录在册但零凭证） */
+  readonly extraProviders?: readonly Provider[];
+}
+
 /** acp 速记（faux provider 预脚本 + PassThrough 传输对；cwd 锚临时目录） */
-function rigAcp(responses: Array<() => PiAssistantMessage>) {
+function rigAcp(responses: Array<() => PiAssistantMessage>, opts: RigAcpOpts = {}) {
   // 目录注册双模型（m1 起跑 / m2 切换目标——目录内 spec 才不触发悬空回落）。
   const faux = fauxProvider({ provider: 'faux-acp', models: [{ id: 'm1' }, { id: 'm2' }] });
   faux.setResponses(responses);
@@ -139,14 +148,17 @@ function rigAcp(responses: Array<() => PiAssistantMessage>) {
   const ws = mkdtempSync(join(tmpdir(), 'acp-ws-'));
   dirs.push(ws);
   const rig = new AcpRig();
-  const providers: readonly Provider[] = [faux.provider];
+  const providers: readonly Provider[] = [faux.provider, ...(opts.extraProviders ?? [])];
   const entry = runAcpEntry({
     io: { input: rig.input, output: rig.output },
     dataDir,
     cwd: ws,
     providers,
     model: 'faux-acp/m1',
-    env: {},
+    // 凭证就绪律（tui-entry FAUX_KEY3_API_KEY 先例形）：FAUX_ACP_API_KEY 在场
+    // = faux-acp 渠道就绪（一般律键名合成 providerApiKeyEnvNames）；缺省注入
+    // 保全既有用例绿，显式 {} 造全渠道未就绪形。
+    env: opts.env ?? { FAUX_ACP_API_KEY: 'k' },
     version: 'v-test',
   });
   return { rig, entry, ws };
@@ -277,6 +289,70 @@ describe('runAcpEntry 组合根', () => {
       const badModel = await rig.ask('session/set_model', { sessionId, modelId: 'no-slash' });
       expect(badModel.error?.code).toBe(-32602);
       expect(badModel.error?.message).toContain('LLM_MODEL_SPEC_INVALID');
+
+      rig.end();
+      await expect(entry).resolves.toBe(0);
+    } finally {
+      rig.end();
+      await entry.catch(() => 1);
+    }
+  });
+
+  it('凭证就绪宇宙：models 块只含就绪渠道；无凭证 spec 拒收且连接存活', async () => {
+    // 对照位：faux-bare 渠道目录在册但零凭证（env 键缺席且无绑定行——全滤除）。
+    const bare = fauxProvider({ provider: 'faux-bare', models: [{ id: 'x1' }] });
+    const { rig, entry, ws } = rigAcp([() => messageOf()], { extraProviders: [bare.provider] });
+    try {
+      const created = await rig.ask('session/new', { cwd: ws, mcpServers: [] });
+      const newResult = created.result as {
+        sessionId: string;
+        models: { currentModelId: string; availableModels: Array<{ modelId: string }> };
+      };
+      const sessionId = newResult.sessionId;
+      // 就绪过滤第四消费位：faux-acp 两模型在列、faux-bare 全滤除。
+      const ids = newResult.models.availableModels.map((row) => row.modelId);
+      expect(ids).toContain('faux-acp/m1');
+      expect(ids).toContain('faux-acp/m2');
+      expect(ids.some((id) => id.startsWith('faux-bare/'))).toBe(false);
+      // currentModelId 不过滤照实回显（就绪档恰在列——与下条空集态形互补）。
+      expect(newResult.models.currentModelId).toBe('faux-acp/m1');
+
+      // 无凭证 spec（语法良形、渠道目录在册）：LLM_CREDENTIAL_UNCONFIGURED 折 -32602。
+      const rejected = await rig.ask('session/set_model', { sessionId, modelId: 'faux-bare/x1' });
+      expect(rejected.error?.code).toBe(-32602);
+      expect(rejected.error?.message).toContain('LLM_CREDENTIAL_UNCONFIGURED');
+
+      // 拒收即不落账：resume 读口回读 models.currentModelId 仍为原档（throw 先于 setSessionModel）。
+      const reread = await rig.ask('session/resume', { sessionId, cwd: ws, mcpServers: [] });
+      expect((reread.result as { models: { currentModelId: string } }).models.currentModelId).toBe('faux-acp/m1');
+
+      // 连接存活证：拒收后同连接继续设置就绪模型（回显换档成功）。
+      const switched = await rig.ask('session/set_config_option', {
+        sessionId,
+        configId: 'model',
+        value: 'faux-acp/m2',
+      });
+      const switchResult = switched.result as { configOptions: Array<{ currentValue: string }> };
+      expect(switchResult.configOptions[0]?.currentValue).toBe('faux-acp/m2');
+
+      rig.end();
+      await expect(entry).resolves.toBe(0);
+    } finally {
+      rig.end();
+      await entry.catch(() => 1);
+    }
+  });
+
+  it('空集态：全渠道未就绪时 availableModels 照实为空、currentModelId 照实回显', async () => {
+    const { rig, entry, ws } = rigAcp([() => messageOf()], { env: {} });
+    try {
+      const created = await rig.ask('session/new', { cwd: ws, mcpServers: [] });
+      const newResult = created.result as {
+        models: { currentModelId: string; availableModels: unknown[] };
+      };
+      // 空集态照实（不做兜底注入）：列表空 + 当前档仍诚实呈现（缺席于列合法）。
+      expect(newResult.models.availableModels).toEqual([]);
+      expect(newResult.models.currentModelId).toBe('faux-acp/m1');
 
       rig.end();
       await expect(entry).resolves.toBe(0);
