@@ -136,6 +136,13 @@ export interface ConversationStackOptions {
   readonly providers?: readonly Provider[];
   /** 模型标识（缺省 resolveDefaultModelSpec——BERRY_AGENT_MODEL 覆盖律） */
   readonly model?: string;
+  /**
+   * 持久缺省模型位（2026-11-09 持久化批——settings `defaultModel` 穿线）：
+   * 只参与缺省解析第三层（env 恒胜、逐次显式 model 位恒胜）；持久位指向
+   * 未注册/未就绪渠道时解析照落 fail-loud（04 §5 同批注——不静默回落
+   * 随包常量）。装配位条件注入（缺席不传 = 零变化）。
+   */
+  readonly durableDefaultModel?: string;
   /** env 面（缺省 process.env；测试注入隔离 BERRY_AGENT_MODEL） */
   readonly env?: Record<string, string | undefined>;
   /**
@@ -669,7 +676,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   if (!dispatch.isRegistered(ASK_SETTLED_EVENT)) {
     dispatch.registerEventNames([ASK_SETTLED_EVENT]);
   }
-  const model = options.model ?? resolveDefaultModelSpec(options.env ?? process.env);
+  // 缺省解析三层（2026-11-09 持久化批）：逐次显式 model > env BERRY_AGENT_MODEL
+  // > settings defaultModel（durableDefaultModel 穿线）> 随包常量——层序真源
+  // resolveDefaultModelSpec 单点，本行不自行判层
+  const model = options.model ?? resolveDefaultModelSpec(options.env ?? process.env, options.durableDefaultModel);
   // 模型旋钮基座（07 §4.1 R5 挂账解挂批——ctrl+p 模型循环）：可变持有与
   // const 基线同源单变量族——读面/defaultModel 闭包/驱动装配取值器三消费位
   // 活读同一持有（setModel 换档三面齐动，零第二事实源）。

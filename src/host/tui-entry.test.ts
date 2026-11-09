@@ -1628,6 +1628,43 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     io.send('\x04');
     expect(await entry).toBe(0);
   });
+
+  it('/model 选定即记缺省（2026-11-09 持久化批——写径两位之一）：回执附落键回执 + settings.json 落第八键 + 次启基线走持久位', async () => {
+    const dataDir = rigDir('entry-dmodel-');
+    // 第一次 boot：显式 model m1 → 面板切 m2（用户显式选定即记缺省）
+    const first = await rigTwoModelEntry(dataDir, rigDir('entry-ws-dmodel-'));
+    await until(() => first.io.output.includes('工作区写 · '));
+    first.io.send('/model\r');
+    await until(() => first.io.output.includes('切换模型 · 2 个'));
+    first.io.send('\x1b[B\r'); // ↓ enter 选定 m2
+    await until(() => first.io.output.includes('模型已切换：faux-key3/m2'));
+    // 回执附落键回执（persist='written' 三态单句——已记点名；词面遵 07 §4.4
+    // 禁替表「缺省→默认」）
+    await until(() => stripAnsi(first.io.output).includes('已记为默认'));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+    // 落盘实证：settings.json 第八键 = 全形 spec（单键增量——无他键夹带）
+    const doc = JSON.parse(readFileSync(join(dataDir, 'settings.json'), 'utf8')) as Record<string, unknown>;
+    expect(doc.defaultModel).toBe('faux-key3/m2');
+    // 第二次 boot：同 dataDir、零显式 model、零 env 覆盖 → 基线走持久位
+    //（footer 行1 短名判别——m1 显式位缺席不复活）
+    const faux2 = fauxProvider({ provider: 'faux-key3', models: [{ id: 'm1' }, { id: 'm2' }] });
+    const io2 = new FakeTerminalIO();
+    const entry2 = runTuiEntry({
+      flags: { noPlugins: false, debug: false },
+      io: io2,
+      cwd: rigDir('entry-ws-dmodel2-'),
+      version: 'test',
+      dataDir,
+      providers: [faux2.provider],
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1', FAUX_KEY3_API_KEY: 'k' },
+    });
+    await io2.ready();
+    await until(() => io2.output.includes('工作区写 · '));
+    await until(() => io2.output.includes(' · m2')); // 持久位基线（非 m1）
+    io2.send('\x04');
+    expect(await entry2).toBe(0);
+  });
 });
 
 describe('/model 条目宇宙翻档（ux-4 凭证就绪过滤——2026-10-16 用户三反馈件 A）', () => {
@@ -2435,6 +2472,16 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     expect(source.split('stack.unregisterCustomProvider(').length - 1).toBe(1);
     // settings 写侧拒撞名（纵深——防 settings 落撞名死条）
     expect(source.split('与内置渠道重名').length - 1).toBe(1);
+  });
+
+  // 2026-11-09 持久化批（04 §5 同批注）：写径两位不变式——用户显式选定即记
+  // 缺省恰两入口（/model 面板族〔含 ctrl+p 委派〕+ /setup 向导切模型问句），
+  // 机器腿不写。全链 e2e 锁面板位（上方 '/model 选定即记缺省' 测）；向导位
+  // 交互链长（六步表单后切模型问句），词法锁接线不变式（R-1 先例同形）。
+  it('持久化批写径两位词法锁：persistDefaultModel 单点定义 + 面板/向导恰两调用位', () => {
+    const source = readFileSync(new URL('./tui-entry.ts', import.meta.url), 'utf8');
+    expect(source.split('const persistDefaultModel =').length - 1).toBe(1); // 落键单点
+    expect(source.split('persistDefaultModel(spec)').length - 1).toBe(2); // 写径恰两位
   });
 
   // #14（minor）：deps.builtinProviderIds 第三形态（运行时表现算）与保留字执法

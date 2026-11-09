@@ -72,6 +72,31 @@ describe('readHostSettings（读侧——缺席零负担 + 坏形降级）', () 
     writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark' }));
     expect(readHostSettings(dir).settings.notifyTriggers).toBeUndefined(); // 缺席 undefined
   });
+  it('第八键 defaultModel（2026-11-09 持久化批）：好形读入 + 语法坏值忽略点名（keybindings 律同形）+ 非字符串忽略 + 缺席 undefined', () => {
+    const dir = tmpDir('settings-dmodel-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ defaultModel: 'glm/glm-4.7', theme: 'dark' }));
+    const load = readHostSettings(dir);
+    expect(load.settings.defaultModel).toBe('glm/glm-4.7'); // 好形读入（好键照常）
+    expect(load.settings.theme).toBe('dark');
+    // 语法坏值（判据与 parseModelSpec 同源：首斜杠分割两段非空）忽略点名
+    for (const bad of ['gpt4', '/model', 'provider/', '/']) {
+      writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ defaultModel: bad, theme: 'dark' }));
+      const { warnings, warn } = captureWarn();
+      const badLoad = readHostSettings(dir, { warn });
+      expect(badLoad.settings.defaultModel).toBeUndefined();
+      expect(badLoad.settings.theme).toBe('dark'); // 坏键不殃及好键
+      expect(warnings.some((w) => w.includes('defaultModel') && w.includes('provider/model'))).toBe(true); // 点名
+    }
+    // 非字符串忽略整键（形校验第一档）
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ defaultModel: 42 }));
+    const { warnings: w2, warn: warn2 } = captureWarn();
+    const notString = readHostSettings(dir, { warn: warn2 });
+    expect(notString.settings.defaultModel).toBeUndefined();
+    expect(w2.some((w) => w.includes('defaultModel') && w.includes('字符串'))).toBe(true);
+    // 缺席 undefined
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark' }));
+    expect(readHostSettings(dir).settings.defaultModel).toBeUndefined();
+  });
   it('好形两键读入', () => {
     const dir = tmpDir('settings-good-');
     writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ sandboxMode: 'read-only', approvalPolicy: 'ask' }));
@@ -220,6 +245,17 @@ describe('writeHostSettings（写侧——合并保留 + 原子 + 坏形拒）',
     writeHostSettings(dir, { sandboxMode: 'read-only' });
     doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
     expect(doc).toEqual({ theme: 'dark', notifyTriggers: ['turn-failed'], sandboxMode: 'read-only' });
+  });
+  it('defaultModel 写侧合并（2026-11-09 持久化批）：patch 落盘 + 未知键保留 + 缺席键不动现状', () => {
+    const dir = tmpDir('settings-wdmodel-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark', handEdited: 42 }));
+    expect(writeHostSettings(dir, { defaultModel: 'glm/glm-4.7' })).toBe('written');
+    let doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({ theme: 'dark', handEdited: 42, defaultModel: 'glm/glm-4.7' }); // 单键增量 + 未知键保留
+    // 他键写不动 defaultModel（缺席键不动现状律）
+    writeHostSettings(dir, { sandboxMode: 'read-only' });
+    doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({ theme: 'dark', handEdited: 42, defaultModel: 'glm/glm-4.7', sandboxMode: 'read-only' });
   });
   it('文件缺席直接造（首启落盘）', () => {
     const dir = tmpDir('settings-create-');

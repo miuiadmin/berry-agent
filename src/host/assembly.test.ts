@@ -3650,3 +3650,107 @@ describe('总线词/监听器异常契约装配兑现（挖掘 33 轮 [P3] 两�
     }
   });
 });
+
+describe('持久缺省模型装配序（2026-11-09 缺省模型持久化批——04 §5/§9 ⑥ 同批注）', () => {
+  /** stderr 观察窗速记（logger.warn 落点——observeNoConsoleError 同形收窄面） */
+  async function observeStderr<T>(drive: () => Promise<T>): Promise<{ text: string; value: T }> {
+    let text = '';
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      text += String(chunk);
+      return true;
+    });
+    try {
+      const value = await drive();
+      return { text, value };
+    } finally {
+      writeSpy.mockRestore();
+    }
+  }
+
+  it('settings 第八键注入组合根：stack 基线 = durable 值 + 渠道未就绪 boot warn 指路', async () => {
+    const dir = tmpDir('host-asm-dmodel-dead-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ defaultModel: 'nope-chan/m1' }));
+    const { text, value: assembly } = await observeStderr(() =>
+      assembleHostStack({ runtime: { dataDir: dir }, noPlugins: true, debug: false, version: 'x', env: {} }),
+    );
+    expect(assembly.ok).toBe(true);
+    if (!assembly.ok) return;
+    try {
+      expect(assembly.stack.model).toBe('nope-chan/m1'); // 注入证明——durable 胜随包常量
+      // 解析照落 fail-loud（不静默回落）+ boot warn 提前指路（时序在渠道注册腿后）
+      expect(text.includes('缺省模型 nope-chan/m1')).toBe(true);
+      expect(text.includes('/model 重选')).toBe(true);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('渠道就绪零 warn；env BERRY_AGENT_MODEL 恒胜 durable 且持久位非生效期不发失真 warn', async () => {
+    const dir = tmpDir('host-asm-dmodel-ready-');
+    const faux = fauxProvider({ provider: 'faux-asm', models: [{ id: 'm1' }] });
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ defaultModel: 'faux-asm/m1' }));
+    const ready = await observeStderr(() =>
+      assembleHostStack({
+        runtime: { dataDir: dir },
+        noPlugins: true,
+        debug: false,
+        version: 'x',
+        env: { FAUX_ASM_API_KEY: 'k' },
+        providers: [faux.provider],
+      }),
+    );
+    expect(ready.value.ok).toBe(true);
+    if (!ready.value.ok) return;
+    try {
+      expect(ready.value.stack.model).toBe('faux-asm/m1'); // durable 注入生效
+      expect(ready.text.includes('缺省模型')).toBe(false); // 就绪不发
+    } finally {
+      await ready.value.runtime.shutdown();
+    }
+    // env 恒胜（「覆盖缺省」语义不变）+ shadow 期不发「首问将失败」失真 warn
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ defaultModel: 'nope-chan/m1' }));
+    const shadow = await observeStderr(() =>
+      assembleHostStack({
+        runtime: { dataDir: dir },
+        noPlugins: true,
+        debug: false,
+        version: 'x',
+        env: { BERRY_AGENT_MODEL: 'faux-asm/m1' },
+        providers: [faux.provider],
+      }),
+    );
+    expect(shadow.value.ok).toBe(true);
+    if (!shadow.value.ok) return;
+    try {
+      expect(shadow.value.stack.model).toBe('faux-asm/m1'); // env 胜 durable
+      expect(shadow.text.includes('缺省模型')).toBe(false); // shadow 期不发
+    } finally {
+      await shadow.value.runtime.shutdown();
+    }
+  });
+
+  it('未注册但 env 键就绪形同发 warn（冷读闸 minor 清偿——在册腿补漏报角）', async () => {
+    // 形：渠道未注册但 env 键名在场（如撞保留字被拒注后手编 settings 的代理
+    // 形）——modelCredentialStatus 的 env 键合成腿不查目录恒 'ready'，修前
+    // 单判据零 warn（漏报主证）；在册腿（llm 目录 getProvider）兜发
+    const dir = tmpDir('host-asm-dmodel-ghost-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ defaultModel: 'ghost-chan/m1' }));
+    const { text, value: assembly } = await observeStderr(() =>
+      assembleHostStack({
+        runtime: { dataDir: dir },
+        noPlugins: true,
+        debug: false,
+        version: 'x',
+        env: { GHOST_CHAN_API_KEY: 'k' },
+      }),
+    );
+    expect(assembly.ok).toBe(true);
+    if (!assembly.ok) return;
+    try {
+      expect(assembly.stack.model).toBe('ghost-chan/m1'); // durable 生效（fail-loud 不回落）
+      expect(text.includes('缺省模型 ghost-chan/m1')).toBe(true); // 在册腿兜发
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});

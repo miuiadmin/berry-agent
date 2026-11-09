@@ -8,7 +8,8 @@
  *
  * 同文件承载缺省模型声明与 env 覆盖（04 §5 + 07 篇表 #4/#6）：缺省
  * `anthropic/claude-sonnet-5` 随包声明，BERRY_AGENT_MODEL 覆盖（用户级一次性
- * 换脑，不落库）。
+ * 换脑，不落库）；2026-11-09 持久化批增设 settings `defaultModel` 持久层
+ * （env 仍恒胜——覆盖的是「缺省」，持久键即缺省承载位）。
  */
 
 import { BaseError } from '../contracts/index.js';
@@ -18,14 +19,22 @@ import type { Model, Models } from '@earendil-works/pi-ai';
 export const DEFAULT_MODEL_SPEC = 'anthropic/claude-sonnet-5';
 
 /**
- * 解析缺省模型标识（04 §5：BERRY_AGENT_MODEL 覆盖缺省模型）。
+ * 解析缺省模型标识（04 §5：BERRY_AGENT_MODEL 覆盖缺省模型；2026-11-09
+ * 持久化批升三层——逐次显式位 > env > settings `defaultModel` > 随包常量）。
  * @param env 环境变量面（缺省 process.env——测试注入）
- * @returns 生效模型标识（env 未设/空串回落 DEFAULT_MODEL_SPEC；env 值本身的
- *          合法性留给 resolveModel fail-loud——此处不做二次校验）
+ * @param durableSpec settings.json 持久缺省（缺省缺席；空串/缺席回落随包
+ *        常量；值本身的合法性归解析位 fail-loud——与 env 值同律，此处不做
+ *        二次校验）
+ * @returns 生效模型标识（env 在场恒胜——「覆盖缺省」语义不变，持久键即
+ *          缺省的新承载位）
  */
-export function resolveDefaultModelSpec(env: Record<string, string | undefined> = process.env): string {
+export function resolveDefaultModelSpec(
+  env: Record<string, string | undefined> = process.env,
+  durableSpec?: string,
+): string {
   const override = env.BERRY_AGENT_MODEL;
-  return override !== undefined && override !== '' ? override : DEFAULT_MODEL_SPEC;
+  if (override !== undefined && override !== '') return override;
+  return durableSpec !== undefined && durableSpec !== '' ? durableSpec : DEFAULT_MODEL_SPEC;
 }
 
 /** 解析产物：provider 名 + 该 provider 目录内的模型 id */

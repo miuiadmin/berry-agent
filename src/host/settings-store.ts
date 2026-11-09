@@ -67,6 +67,7 @@ import {
   customSamplingParamsByThinkingLevelProblem,
   customSamplingParamsProblem,
   customThinkingBudgetsProblem,
+  parseModelSpec,
 } from '../llm/index.js';
 import type { CustomProviderDef, CustomProviderProtocol } from '../llm/index.js';
 import type { ApprovalPolicyMode, SandboxMode } from '../safety/index.js';
@@ -74,7 +75,7 @@ import type { ApprovalPolicyMode, SandboxMode } from '../safety/index.js';
 /** 配置文件名（数据目录单段——04 §9 ⑥「本批定名」） */
 export const SETTINGS_BASENAME = 'settings.json';
 
-/** 配置面形状（七键均可选——缺席走代码常量层） */
+/** 配置面形状（八键均可选——缺席走代码常量层） */
 export interface HostSettings {
   readonly sandboxMode?: SandboxMode;
   readonly approvalPolicy?: ApprovalPolicyMode;
@@ -107,6 +108,13 @@ export interface HostSettings {
    * 本面只存取与形校验（零行为耦合——档位语义真源 04 §9 ⑥ 批注）。
    */
   readonly notifyTriggers?: readonly NotifyTrigger[];
+  /**
+   * 缺省模型持久位（2026-11-09 缺省模型持久化批——第八键，键面真源 = 04
+   * §9 ⑥ 同批注）：形如 "provider/model-id" 的完整标识；解析三层序/写径
+   * 两位/fail-loud 语义的真源在 04 §5 模型层同批注（本面只存取与语法形
+   * 校验，零解析行为）。非敏感件（渠道 key 走凭证表单源）。
+   */
+  readonly defaultModel?: string;
 }
 
 /** 读侧选项 */
@@ -271,11 +279,20 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     warn(`配置坏形（${path}，顶层须为对象）——视同缺席；手改修复前回写拒`);
     return { settings: {}, healthy: false };
   }
-  // 键级校验：七键值域/形校验外忽略点名；未知键 warn 保留不动（读侧不区分
-  // 「保留在内存」与否——本面只产七键，未知键经写侧合并律存活）
+  // 键级校验：八键值域/形校验外忽略点名；未知键 warn 保留不动（读侧不区分
+  // 「保留在内存」与否——本面只产八键，未知键经写侧合并律存活）
   const record = doc as Record<string, unknown>;
-  const { sandboxMode, approvalPolicy, theme, keybindings, customProviders, animations, notifyTriggers, ...rest } =
-    record;
+  const {
+    sandboxMode,
+    approvalPolicy,
+    theme,
+    keybindings,
+    customProviders,
+    animations,
+    notifyTriggers,
+    defaultModel,
+    ...rest
+  } = record;
   const unknownKeys = Object.keys(rest);
   if (unknownKeys.length > 0) {
     warn(`配置含未知键 ${unknownKeys.join('、')}（${path}）——本面不消费、保留不动`);
@@ -288,6 +305,7 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     customProviders?: Readonly<Record<string, CustomProviderDef>>;
     animations?: boolean;
     notifyTriggers?: readonly NotifyTrigger[];
+    defaultModel?: string;
   } = {};
   if (sandboxMode !== undefined) {
     if (typeof sandboxMode === 'string' && SANDBOX_MODES.includes(sandboxMode)) {
@@ -380,6 +398,22 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
       warn('配置键 notifyTriggers 须为字符串数组——忽略该键');
     }
   }
+  // defaultModel 语法形校验（2026-11-09 持久化批——keybindings 律同形：坏值
+  // 忽略点名不殃及其余键）：判据与 llm 域 parseModelSpec 同源（首斜杠分割
+  // 两段非空）——只查形不查目录（provider 是否注册/就绪归解析位 fail-loud，
+  // 04 §5 同批注「不静默回落」律）
+  if (defaultModel !== undefined) {
+    if (typeof defaultModel === 'string') {
+      try {
+        parseModelSpec(defaultModel);
+        settings.defaultModel = defaultModel;
+      } catch {
+        warn(`配置键 defaultModel 形如 provider/model（首斜杠分割两段非空）——已忽略该键`);
+      }
+    } else {
+      warn('配置键 defaultModel 须为字符串（provider/model 形）——已忽略该键');
+    }
+  }
   return { settings, healthy: true };
 }
 
@@ -434,7 +468,7 @@ export function writeHostSettings(
   const load = readHostSettings(dataDir, options);
   if (!load.healthy) return 'rejected';
   // 合并基 = 原文件解析出的全键形（含未知键——保留律）。重读一次拿未剥离
-  // 的原始对象（readHostSettings 产物只含七键，未知键需原始面承载）
+  // 的原始对象（readHostSettings 产物只含八键，未知键需原始面承载）
   const path = join(dataDir, SETTINGS_BASENAME);
   let base: Record<string, unknown> = {};
   if (existsSync(path)) {
@@ -449,6 +483,9 @@ export function writeHostSettings(
   if (patch.customProviders !== undefined) next.customProviders = patch.customProviders;
   if (patch.animations !== undefined) next.animations = patch.animations;
   if (patch.notifyTriggers !== undefined) next.notifyTriggers = patch.notifyTriggers;
+  // defaultModel 单键增量同形（2026-11-09 持久化批——写径两位均为单键落值，
+  // 不携带其余键、不触键清除）
+  if (patch.defaultModel !== undefined) next.defaultModel = patch.defaultModel;
   mkdirSync(dataDir, { recursive: true });
   const tmp = `${path}.tmp`;
   // 敏感产物落盘 0600 纵深档（05 §6.6——2026-10-18 59 轮 L3 批扩列）：mode 落
