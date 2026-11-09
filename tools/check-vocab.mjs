@@ -349,8 +349,10 @@ for (const file of docFilesAll) {
 // ── 查四文档腿：用户面文档 USERFACE 扫描（2026-10-01 补翻批扩射程——07
 // §4.4 射界含用户直读文档）。正向清单执法：README 六语 / docs/usage /
 // docs/operations / packages README / issue 表单。工程域文档
-// （development / plugin-development / architecture / CONTRIBUTING /
-// AGENTS / SECURITY / PR 模板——机制词在工程语境是术语）与 skills/ +
+// （development / plugin-development / architecture / aggregators〔B-14
+// 裁定 2026-11-09：聚合器集成向——机制词在集成语境是术语，类比
+// plugin-development 先例〕 / CONTRIBUTING / AGENTS / SECURITY / PR
+// 模板——机制词在工程语境是术语）与 skills/ +
 // examples/（模型面指令）不在射程；锚段豁免：markdown 链接 `(#锚)` 内
 // 禁词随目标标题走——改标题必同步改锚、单改锚即断链，故锚段保留
 // verbatim（07 §4.4 既定处置，断链比旧词伤更大）──────────────────────────

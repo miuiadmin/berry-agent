@@ -73,14 +73,14 @@ export BERRY_AGENT_MODEL=anthropic/claude-opus-5   # 或覆盖任意已注册 pr
 
 ### 自定义渠道（`settings.json` `customProviders` 键）
 
-| 键 | 形 | 说明 |
-| --- | --- | --- |
-| `<渠道id>` | 小写字母开头 + 小写字母/数字/连字符 | 渠道 id（占用判据三腿：内置 provider 目录 id ∨ 运行时已注册插件渠道 id ∨ 既有 customProviders id——重名即拒注；格式不对的键读侧丢弃并 warn 点名） |
-| `name` | string（可选） | 界面显示名 |
-| `protocol` | `'anthropic-messages'` \| `'openai-completions'` | 协议两枚（与网关实现对应） |
-| `baseUrl` | string | 网关根址（openai 形含 `/v1`、anthropic 形不含——清单拉取按协议分叉拼接） |
-| `models` | string[] | 模型 id 清单（裸 id——全形 `<渠道id>/<model>` 由宿主投影） |
-| `headers` | `{ [键]: 值 }`（可选） | 附加请求头（不得含鉴权材料——鉴权走凭证行） |
+| 键         | 形                                               | 说明                                                                                                                                             |
+| ---------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `<渠道id>` | 小写字母开头 + 小写字母/数字/连字符              | 渠道 id（占用判据三腿：内置 provider 目录 id ∨ 运行时已注册插件渠道 id ∨ 既有 customProviders id——重名即拒注；格式不对的键读侧丢弃并 warn 点名） |
+| `name`     | string（可选）                                   | 界面显示名                                                                                                                                       |
+| `protocol` | `'anthropic-messages'` \| `'openai-completions'` | 协议两枚（与网关实现对应）                                                                                                                       |
+| `baseUrl`  | string                                           | 网关根址（openai 形含 `/v1`、anthropic 形不含——清单拉取按协议分叉拼接）                                                                          |
+| `models`   | string[]                                         | 模型 id 清单（裸 id——全形 `<渠道id>/<model>` 由宿主投影）                                                                                        |
+| `headers`  | `{ [键]: 值 }`（可选）                           | 附加请求头（不得含鉴权材料——鉴权走凭证行）                                                                                                       |
 
 示例：
 
@@ -104,21 +104,22 @@ API key 不入 `settings.json`——凭证行走凭证盒：`/setup` 向导录�
 berry [命令] [旗标]
 ```
 
-| 命令                | 作用                                                                                                                                                                                                                                                                                                                                                         |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| （无参）            | TUI 主入口：直进对话                                                                                                                                                                                                                                                                                                                                         |
-| `run "<message>"`   | 单次执行：一轮对话 → stdout 输出结果                                                                                                                                                                                                                                                                                                                         |
-| `serve`             | 常驻宿主（stdio JSONL；另有 `serve status` / `serve stop` 管理动词）                                                                                                                                                                                                                                                                                         |
-| `mcp`               | MCP server 包装形态                                                                                                                                                                                                                                                                                                                                          |
-| `dump-config`       | 打印实际生效配置（诊断）                                                                                                                                                                                                                                                                                                                                     |
+| 命令                | 作用                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| （无参）            | TUI 主入口：直进对话                                                                                                                                                                                                                                                                                                                                             |
+| `run "<message>"`   | 单次执行：一轮对话 → stdout 输出结果                                                                                                                                                                                                                                                                                                                             |
+| `serve`             | 常驻宿主（stdio JSONL；另有 `serve status` / `serve stop` 管理动词）                                                                                                                                                                                                                                                                                             |
+| `mcp`               | MCP server 包装形态（bare）；`mcp list/add/remove` = MCP 客户端管理族（编辑 core:mcp 服务器清单，零装配直读写侧）                                                                                                                                                                                                                                                |
+| `acp`               | ACP v1 server 包装形态——Zed / paseo / hapi 等编辑器与聚合器经 ACP 连驱的接入位（stdio 行帧 JSON-RPC；明细见下文「ACP 包装」节）                                                                                                                                                                                                                                  |
+| `dump-config`       | 打印实际生效配置（诊断）                                                                                                                                                                                                                                                                                                                                         |
 | `plugins <sub>`     | 插件生命周期八个动词全可用：`list` / `check` 只读（`check` = 安装体检三色报告：绿 = 兼容通过、红 = 版本断裂/悬空安装/坏清单/坏账本〔退出码轴——任红退 1〕、legacy = api 块未声明不计断裂、黄 = 用废弃遥测〔空集无行〕），`install` / `uninstall` / `mount` / `unmount` / `toggle` / `update` 写侧（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏） |
-| `marketplace <sub>` | 插件市场：`add` / `remove` / `update` / `list` / `discover` / `install` / `uninstall` / `upgrade`（安装寻址形 `name@市场名`；明细见下文「marketplace 市场聚合」节）                                                                                                                                                                                          |
-| `sessions <sub>`    | 会话管理：`list` / `resume <id>` / `fork <id>` / `rename <id> <title>` / `search <query>` / `export <id> [--format markdown\|jsonl]` / `import <file>` / `delete <id> [--confirm]` / `reindex`                                                                                                                                                                                                           |
-| `credentials <sub>` | 凭证管理：`add <name> <value>` / `list` / `rm <name>`（`--namespace <ns>` 指定域；oauth 授权流仅在 TUI `/credentials`）                                                                                                                                                                                                                                      |
-| `doors <sub>`       | 开门制门态只读：`list`（开/关编辑走 TUI `/doors open\|close`）                                                                                                                                                                                                                                                                                               |
-| `update`            | 升级维护动词（`upgrade` 同义别名）：npm 全局形查 registry dist-tags，有新版即代执行 `npm i -g berry-agent@<latest>` 并提示重启生效（v1 不热换）；pnpm / yarn / bun / 源码形只打对应管理器指引不代执行；远端 `latest` 非 semver 白名单形诚实拒（registry 响应不可信——不达 spawn 插值位）                                                                                            |
+| `marketplace <sub>` | 插件市场：`add` / `remove` / `update` / `list` / `discover` / `install` / `uninstall` / `upgrade`（安装寻址形 `name@市场名`；明细见下文「marketplace 市场聚合」节）                                                                                                                                                                                              |
+| `sessions <sub>`    | 会话管理：`list` / `resume <id>` / `fork <id>` / `rename <id> <title>` / `search <query>` / `export <id> [--format markdown\|jsonl]` / `import <file>` / `delete <id> [--confirm]` / `reindex`                                                                                                                                                                   |
+| `credentials <sub>` | 凭证管理：`add <name> <value>` / `list` / `rm <name>`（`--namespace <ns>` 指定域；oauth 授权流仅在 TUI `/credentials`）                                                                                                                                                                                                                                          |
+| `doors <sub>`       | 开门制门态只读：`list`（开/关编辑走 TUI `/doors open\|close`）                                                                                                                                                                                                                                                                                                   |
+| `update`            | 升级维护动词（`upgrade` 同义别名）：npm 全局形查 registry dist-tags，有新版即代执行 `npm i -g berry-agent@<latest>` 并提示重启生效（v1 不热换）；pnpm / yarn / bun / 源码形只打对应管理器指引不代执行；远端 `latest` 非 semver 白名单形诚实拒（registry 响应不可信——不达 spawn 插值位）                                                                          |
 
-退出码三态：**0** 成功（含诚实空——空清单/零命中非失败）/ **1** 执行失败 / **2** 环境态误用（用法错、TUI 在非交互环境）。
+退出码四档：**0** 成功（含诚实空——空清单/零命中非失败）/ **1** 执行失败 / **2** 环境态误用（用法错、TUI 在非交互环境）/ **130** 中止（run aborted——SIGINT 协作中止，「取消 ≠ 出错」脚本可判别）。
 
 通用旗标：`--help` / `--version` 各入口收（`--help` 短路排在子命令自身校验之后——如 `run` 缺 message 时 `--help` 先吃用法错退 2，`serve --help` 则正常打帮助退 0）；`--debug`（日志提级）主入口族收（无参 TUI / `run` / `serve` / `dump-config`）——子命令族（plugins/marketplace/sessions/credentials/doors/mcp）不设此旗标，传入即用法错退 2；例外：`upgrade` 亦收 `--debug`（三态已启用——2026-09-19 启动版本检查批）。`--port <n>` TUI / run / serve / dump-config 收（dump-config 忽略不起监听）；`--no-plugins` 安全模式不入自动化入口 serve / mcp；`--plugin-file <path>` 快速试用（插件目录或单文件入口 `.js`/`.mjs`/`.ts`——纯内存注入，退出即消失零落盘；TUI / run 收，`dump-config` 互斥拒）。
 
@@ -138,54 +139,54 @@ alias berry='node /path/to/berry-agent/dist/src/host/main.js'
 
 键位册（36 个动作按域分组——`/help` 键位册同源呈现；动作 id 用于下文「用户设置」的键位覆盖）：
 
-| 域     | 键位                                 | 动作 id                       | 说明                           |
-| ------ | ------------------------------------ | ----------------------------- | ------------------------------ |
+| 域     | 键位                                 | 动作 id                       | 说明                                                             |
+| ------ | ------------------------------------ | ----------------------------- | ---------------------------------------------------------------- |
 | 全局   | `escape` / `ctrl+c`                  | `global.interrupt`            | 中断当前 run（不可覆盖；`escape` 在浮层/弹窗在场时先归浮层收屏） |
-| 全局   | `ctrl+d`                             | `global.quit`                 | 退出（空框时）（不可覆盖）     |
-| 全局   | `ctrl+p`                             | `global.model-cycle`          | 切换模型（下一轮对话起生效）  |
-| 全局   | `shift+tab`                          | `global.mode-cycle`          | 循环切换沙箱模式（下一轮起生效）|
-| 全局   | `?`                                  | `global.help`                 | 打开快捷键帮助（输入框空且空闲时——底栏教学提示同键；不可覆盖） |
-| 全局   | `ctrl+x b`                           | `global.jobs`                | 打开后台任务清单页（不可覆盖）|
-| 全局   | `ctrl+x m`                           | `global.model-picker`        | 打开模型选择页（不可覆盖）    |
-| 全局   | `ctrl+x h`                           | `global.help`                | 打开快捷键帮助（不可覆盖）|
-| 思考块 | `ctrl+t`                             | `thinking.toggle`             | 思考块折叠/展开                |
-| 工具卡 | `ctrl+o`                             | `tools.toggle-expand`         | 工具卡展开/收起                |
-| 编辑器 | `enter`                              | `editor.submit`               | 提交输入                       |
-| 编辑器 | `alt+enter`                          | `editor.queue-followup`       | 提交并排队（当前回复结束后自动开始） |
-| 编辑器 | `shift+enter` / `ctrl+j`             | `editor.new-line`             | 换行                           |
-| 编辑器 | `ctrl+-` / `ctrl+_`                  | `editor.undo`                 | 撤销                           |
-| 编辑器 | `left` / `ctrl+b`                    | `editor.move-left`            | 光标左移                       |
-| 编辑器 | `right` / `ctrl+f`                   | `editor.move-right`           | 光标右移                       |
-| 编辑器 | `alt+left` / `ctrl+left` / `alt+b`   | `editor.move-word-left`       | 左移一词                       |
-| 编辑器 | `alt+right` / `ctrl+right` / `alt+f` | `editor.move-word-right`      | 右移一词                       |
-| 编辑器 | `home` / `ctrl+a`                    | `editor.line-start`           | 行首                           |
-| 编辑器 | `end` / `ctrl+e`                     | `editor.line-end`             | 行尾                           |
-| 编辑器 | `ctrl+]`                             | `editor.jump-forward`         | 跳至下一指定字符（按键后再输入目标字符） |
-| 编辑器 | `ctrl+alt+]`                         | `editor.jump-backward`        | 跳至上一指定字符（按键后再输入目标字符） |
-| 编辑器 | `pageup`                             | `editor.page-up`              | 编辑器上翻页                   |
-| 编辑器 | `pagedown`                           | `editor.page-down`            | 编辑器下翻页                   |
-| 编辑器 | `backspace`                          | `editor.delete-backward`      | 向前删字符                     |
-| 编辑器 | `delete` / `ctrl+d`                  | `editor.delete-forward`       | 向后删字符                     |
-| 编辑器 | `ctrl+w` / `alt+backspace`           | `editor.delete-word-backward` | 向前删一词（被删段入 kill 环） |
-| 编辑器 | `alt+d` / `alt+delete`               | `editor.delete-word-forward`  | 向后删一词                     |
-| 编辑器 | `ctrl+u`                             | `editor.delete-to-line-start` | 删至行首（被删段入 kill 环）   |
-| 编辑器 | `ctrl+k`                             | `editor.delete-to-line-end`   | 删至行尾（被删段入 kill 环）   |
-| 编辑器 | `ctrl+y`                             | `editor.yank`                 | 粘贴最近 kill 段               |
-| 编辑器 | `alt+y`                              | `editor.yank-pop`             | 环游标步进替换（kill 环）      |
-| 编辑器 | `up`                                 | `editor.history-prev`         | 上一条历史                     |
-| 编辑器 | `down`                               | `editor.history-next`         | 下一条历史                     |
-| 编辑器 | `ctrl+r`                             | `editor.history-search`       | 回搜历史（开搜兼向旧步进）     |
-| 编辑器 | `ctrl+s`                             | `editor.history-search-next`  | 回搜历史（向新步进）           |
-| 编辑器 | `ctrl+g`                             | `editor.external-edit`        | 用外部编辑器编辑草稿           |
+| 全局   | `ctrl+d`                             | `global.quit`                 | 退出（空框时）（不可覆盖）                                       |
+| 全局   | `ctrl+p`                             | `global.model-cycle`          | 切换模型（下一轮对话起生效）                                     |
+| 全局   | `shift+tab`                          | `global.mode-cycle`           | 循环切换沙箱模式（下一轮起生效）                                 |
+| 全局   | `?`                                  | `global.help`                 | 打开快捷键帮助（输入框空且空闲时——底栏教学提示同键；不可覆盖）   |
+| 全局   | `ctrl+x b`                           | `global.jobs`                 | 打开后台任务清单页（不可覆盖）                                   |
+| 全局   | `ctrl+x m`                           | `global.model-picker`         | 打开模型选择页（不可覆盖）                                       |
+| 全局   | `ctrl+x h`                           | `global.help`                 | 打开快捷键帮助（不可覆盖）                                       |
+| 思考块 | `ctrl+t`                             | `thinking.toggle`             | 思考块折叠/展开                                                  |
+| 工具卡 | `ctrl+o`                             | `tools.toggle-expand`         | 工具卡展开/收起                                                  |
+| 编辑器 | `enter`                              | `editor.submit`               | 提交输入                                                         |
+| 编辑器 | `alt+enter`                          | `editor.queue-followup`       | 提交并排队（当前回复结束后自动开始）                             |
+| 编辑器 | `shift+enter` / `ctrl+j`             | `editor.new-line`             | 换行                                                             |
+| 编辑器 | `ctrl+-` / `ctrl+_`                  | `editor.undo`                 | 撤销                                                             |
+| 编辑器 | `left` / `ctrl+b`                    | `editor.move-left`            | 光标左移                                                         |
+| 编辑器 | `right` / `ctrl+f`                   | `editor.move-right`           | 光标右移                                                         |
+| 编辑器 | `alt+left` / `ctrl+left` / `alt+b`   | `editor.move-word-left`       | 左移一词                                                         |
+| 编辑器 | `alt+right` / `ctrl+right` / `alt+f` | `editor.move-word-right`      | 右移一词                                                         |
+| 编辑器 | `home` / `ctrl+a`                    | `editor.line-start`           | 行首                                                             |
+| 编辑器 | `end` / `ctrl+e`                     | `editor.line-end`             | 行尾                                                             |
+| 编辑器 | `ctrl+]`                             | `editor.jump-forward`         | 跳至下一指定字符（按键后再输入目标字符）                         |
+| 编辑器 | `ctrl+alt+]`                         | `editor.jump-backward`        | 跳至上一指定字符（按键后再输入目标字符）                         |
+| 编辑器 | `pageup`                             | `editor.page-up`              | 编辑器上翻页                                                     |
+| 编辑器 | `pagedown`                           | `editor.page-down`            | 编辑器下翻页                                                     |
+| 编辑器 | `backspace`                          | `editor.delete-backward`      | 向前删字符                                                       |
+| 编辑器 | `delete` / `ctrl+d`                  | `editor.delete-forward`       | 向后删字符                                                       |
+| 编辑器 | `ctrl+w` / `alt+backspace`           | `editor.delete-word-backward` | 向前删一词（被删段入 kill 环）                                   |
+| 编辑器 | `alt+d` / `alt+delete`               | `editor.delete-word-forward`  | 向后删一词                                                       |
+| 编辑器 | `ctrl+u`                             | `editor.delete-to-line-start` | 删至行首（被删段入 kill 环）                                     |
+| 编辑器 | `ctrl+k`                             | `editor.delete-to-line-end`   | 删至行尾（被删段入 kill 环）                                     |
+| 编辑器 | `ctrl+y`                             | `editor.yank`                 | 粘贴最近 kill 段                                                 |
+| 编辑器 | `alt+y`                              | `editor.yank-pop`             | 环游标步进替换（kill 环）                                        |
+| 编辑器 | `up`                                 | `editor.history-prev`         | 上一条历史                                                       |
+| 编辑器 | `down`                               | `editor.history-next`         | 下一条历史                                                       |
+| 编辑器 | `ctrl+r`                             | `editor.history-search`       | 回搜历史（开搜兼向旧步进）                                       |
+| 编辑器 | `ctrl+s`                             | `editor.history-search-next`  | 回搜历史（向新步进）                                             |
+| 编辑器 | `ctrl+g`                             | `editor.external-edit`        | 用外部编辑器编辑草稿                                             |
 
 全局五条**不可覆盖**——中断/退出是会话生命线；`?` 帮助是闲态教学键、走 text 事件路由（键位册绑定永不命中——非键位绑定面；`ctrl+x h` 是同一动作的前缀键形）；`ctrl+x b` / `ctrl+x m` 两分支属前缀键族（同样不可覆盖）；其余动作均可经 `settings.json` 的 `keybindings` 键覆盖（见下文「用户设置」）。`ctrl+x` 是两步前缀键——输入框空且空闲、无浮层/弹窗时按下进入前缀态（等待期间底栏有提示），2 秒内再按分支键生效（`b` 后台任务清单 / `m` 模型选择 / `h` 帮助）；按了不认识的键即取消前缀态、该键照常起原有作用（`escape` 亦取消）。`ctrl+c` 中断运行中的 run——挂起的审批/问询随之中止（撤销说明行落正文流）。`ctrl+d` 退出——有面板先收屏再转退出；输入框非空时首击只清空输入框（回执「已清空——再按 Ctrl+D 退出」），再按一次才退出；输入框已空则直接退出（键位册双绑 `editor.delete-forward` 仅为覆盖对拍形，路由恒归退出）。`ctrl+p` 模型循环——切换即时登记、**下一轮对话起生效**（运行中的 run 不中途换模型），footer 模型段随切刷新；会话级旋钮不写盘，重启回 env/默认模型位。`alt+enter` 排队提交——运行中的 run 期间不等待不打断：显式排队，当前 run 终态后作种子新起 run（busy 期输入仍可用——两键分职：`enter` 照常发送、追加进当前回复 / `alt+enter` 排队〔当前回复结束后自动开始〕；idle 期同普通提交），主屏常驻排队清单：首行「已排队 N：首条预览」，第二条起各占一行「↳ 预览」（最多列出 3 条，更多的折叠计数；回复结束后自动开始，队列清空即收起）。词删/行删三键（`ctrl+w`、`ctrl+u`、`ctrl+k`）的被删段入 kill 环，`ctrl+y` 取回最近一段、`alt+y` 环游标步进替换。`↑`/`↓` 翻阅输入历史——按工作区分域、跨启动持久（每域最近 100 条，重启不丢）。`meta`（macOS cmd）族键不占用——键串文法不含 meta，留给终端与系统快捷键。
 
 触发前缀与鼠标（非键位册动作）：
 
-| 键   | 作用                                                                                                              |
-| ---- | ----------------------------------------------------------------------------------------------------------------- |
-| `@`  | 文件路径补全（工作区根锚定；`@"带空格 路径"` 引号形；子序列模糊过滤同律）                                         |
-| `/`  | 命令补全（注册命令表——子序列模糊过滤〔大小写不敏感、前缀命中置顶〕；五命令子动词与深位枚举随位补全）              |
+| 键   | 作用                                                                                                            |
+| ---- | --------------------------------------------------------------------------------------------------------------- |
+| `@`  | 文件路径补全（工作区根锚定；`@"带空格 路径"` 引号形；子序列模糊过滤同律）                                       |
+| `/`  | 命令补全（注册命令表——子序列模糊过滤〔大小写不敏感、前缀命中置顶〕；五命令子动词与深位枚举随位补全）            |
 | 鼠标 | 内建面板（十九个）滚轮滚动；`/history` 另有左键拖选复制（OSC 52——终端支持时直达剪贴板）；主对话面 v1 不消费鼠标 |
 
 底栏三行常驻栈（自上而下；窄屏按让位梯缩位、段缺席不虚报）：
@@ -262,6 +263,9 @@ hex 串（`#rrggbb` / `#rgb`）、数值（0-15 = 终端 16 色板位、16-255 =
 
 ```bash
 berry run "解释这段代码的作用"
+berry run - < input.txt                       # `-` 位参 = 从 stdin 读全文作消息体（上限 10 MiB；TTY/空串/超限退 2）
+cat report.md | berry run -                   # 管道形同语义（字面 "-" 用 berry run -- -）
+berry run --answers "bash=reject,write*=approve" "自动改文件"   # 无人值守审批预填（与 --ephemeral 互斥）
 berry run --continue "继续刚才的话题"          # 取当前目录最新会话续接
 berry run --session <id> "继续指定会话"         # 按 id 续接
 berry run "从这里分叉另起一路" --fork           # 边界快照分叉续跑（省 id 取当前目录最新会话）
@@ -277,10 +281,10 @@ run 旗标族：
 | `--output-format <text\|json\|stream>`          | 输出三种（默认 text）                                                                                                                                                                                                     |
 | `--output-last-message <file>`                  | 末条 assistant 文本原子写文件                                                                                                                                                                                             |
 | `--ephemeral`                                   | 零落盘单发（与续接族/`--tick`/`--background` 互斥）                                                                                                                                                                       |
-| `--max-turns <n>`                               | turn 数上限（到上限结束如实标 truncated）                                                                                                                                                                                     |
-| `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥）；`--fork` 带显式 id 时旗标可在消息前，省 id 时须置于消息之后（旗标在前会把消息文本吞作 fork id——用法错退 2）                                                        |
+| `--max-turns <n>`                               | turn 数上限（到上限结束如实标 truncated）                                                                                                                                                                                 |
+| `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥）；`--fork` 带显式 id 时旗标可在消息前，省 id 时须置于消息之后（旗标在前会把消息文本吞作 fork id——用法错退 2）                                                                                         |
 | `--read-only`                                   | read-only 沙箱单发                                                                                                                                                                                                        |
-| `--preset <conservative\|balanced\|open>`       | 权限预设逐次生效不写盘（两旋钮：sandbox 模式 + 审批 policy；与 `--read-only` 互斥；持久切换走 TUI `/approval preset`）                                                                                                      |
+| `--preset <conservative\|balanced\|open>`       | 权限预设逐次生效不写盘（两旋钮：sandbox 模式 + 审批 policy；与 `--read-only` 互斥；持久切换走 TUI `/approval preset`）                                                                                                    |
 | `--tick <名>`                                   | 到点触发载体：按名读定时任务行自跑其提示词（与 message 位置参数互斥）                                                                                                                                                     |
 | `--background`                                  | 后台道预算记账入口                                                                                                                                                                                                        |
 | `--no-delta`                                    | 关闭流式增量输出                                                                                                                                                                                                          |
@@ -393,13 +397,13 @@ TUI 内 `/tick` 六动词——用法错时 TUI 现场呈现同一份用法文�
 
 `add` 默认建行**停用**——「存在 ≠ 启用」，`enable` 显式开跑（`--enable` 建行即启用）；`--cwd` 锚定任务工作目录（绝对径）；`run` 手动起跑一轮（与 `run --tick <名>` 同载体）。`/goal create` 的 schedule 串与此同法。schedule 串形五写四形（`once` 有绝对/相对两写）：
 
-| 串形                  | 语义                                                      |
-| --------------------- | --------------------------------------------------------- |
-| `every:<n>[s\|m\|h]`  | 间隔重复（n 正整数；总秒数下限 5s）                       |
-| `once@+<n>[s\|m\|h]`  | 一次性相对延迟（自建行时刻起）                            |
+| 串形                  | 语义                                                                               |
+| --------------------- | ---------------------------------------------------------------------------------- |
+| `every:<n>[s\|m\|h]`  | 间隔重复（n 正整数；总秒数下限 5s）                                                |
+| `once@+<n>[s\|m\|h]`  | 一次性相对延迟（自建行时刻起）                                                     |
 | `once@<ISO>`          | 一次性绝对时刻（无时区后缀一律本地时区——纯日期按本地零点；带 `Z`/`±HH:MM` 按偏移） |
-| `daily@HH:MM`         | 每日（本地时区 24h 制）                                   |
-| `weekly@<days>@HH:MM` | 每周（days = 逗号分隔星期名——mon/tue/.../sun 全写或三写） |
+| `daily@HH:MM`         | 每日（本地时区 24h 制）                                                            |
+| `weekly@<days>@HH:MM` | 每周（days = 逗号分隔星期名——mon/tue/.../sun 全写或三写）                          |
 
 语义四条：`once` 触发后不再到点（行留表可见、不再 due）；错过不重放（宿主停机期错过的到点重启后直接跳下一刻）；`daily`/`weekly` 按本地时区解释（存储/比较恒 ISO UTC）；回执与列表中的到点时刻按本地时区呈现（标「（本地）」）。坏串拒 `SCHEDULER_SCHEDULE_INVALID`（message 载原因）。
 
@@ -489,30 +493,30 @@ berry marketplace remove <市场名>     # 移除源（连同缓存目录清理�
 
 前缀一律 `BERRY_AGENT_*`：
 
-| 变量                                   | 作用                                                                                                                         | 默认                        |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| `BERRY_AGENT_MODEL`                    | 覆盖默认模型                                                                                                                 | `anthropic/claude-sonnet-5` |
-| `BERRY_AGENT_DATA_DIR`                 | 数据目录                                                                                                                     | `~/.berry-agent`            |
-| `BERRY_AGENT_DB_PATH`                  | 库文件路径（独立梯子——重定向库文件而不动数据目录）                                                                           | `<数据目录>/sessions.db`    |
-| `BERRY_AGENT_LOG_LEVEL`                | 日志级别：error / warn / info / debug / silent                                                                               | `info`                      |
-| `BERRY_AGENT_SKIP_UPDATE_CHECK`        | TUI 启动版本检查关断（置值即关——关掉即零网络包；手动检查 `/update` 与 `berry update` 不受辖（别名仅 CLI 侧：`berry upgrade` 为 `berry update` 同义别名；TUI 内命令即 `/update` 本名，无 `/upgrade` 别名——未注册词走发给模型当消息路））                              | 未设（检查开）              |
-| `BERRY_AGENT_BASH_PATH`                | bash 工具可执行路径（缺失 fail-loud）                                                                                        | PATH 发现序                 |
-| `BERRY_AGENT_FD_PATH`                  | `@` 文件补全全库索引的 fd 可执行**绝对路径**（生效位——裸段全库模糊腿行走经此子进程收割；缺席 / 相对路径 / 调用失败一律降级内建行走）                              | —                           |
-| `BERRY_AGENT_BROWSER_PATH`             | 浏览器引擎可执行路径                                                                                                         | 引擎发现序                  |
-| `BERRY_AGENT_BIN`                      | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                                                                        | `berry`（PATH 名解析）      |
-| `BERRY_AGENT_CRON`                     | cron 可选后端开关/载体                                                                                                       | 进程内定时                  |
-| `BERRY_AGENT_GIT_PATH`                 | worktree 工具 git 可执行路径（保留位——启动接线未做，当前设置无效）                                                             | PATH 发现序                 |
-| `BERRY_AGENT_SDK_TOKEN`                | serve `--daemon` 线协议面 TCP 侧鉴权 token（`--sdk-host` 非回环必配）                                                        | 默认不开 TCP 侧             |
-| `BERRY_AGENT_SDK_PORT`                 | daemon SDK 面端口 env 补位（`--sdk-port` 旗标缺席时生效；`0..65535` 整数——`0` = 内核指派端口放行，越界/坏值 fail-loud 拒启） | 旗标缺席即不开              |
-| `BERRY_AGENT_SDK_HOST`                 | daemon SDK 面绑定地址 env 补位（`--sdk-host` 旗标缺席时生效；非回环值同样必配 token）                                        | `127.0.0.1`                 |
-| `BERRY_AGENT_GITHUB_TOKEN`             | core:issue 插件 GitHub 凭证（`/credentials` 录入优先，本变量为回落）                                                           | 缺席                        |
-| `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`     | core:issue 插件 webhook 签名密钥（同回落律）                                                                                   | 缺席                        |
-| `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE`   | 插件安装供应链护栏：npm 源最小发布龄分钟数（`0` = 关窗不查）                                                                 | 1440                        |
-| `BERRY_AGENT_LLM_IDLE_TIMEOUT_MS`      | LLM 流层空闲上限毫秒数（流停滞主防线——流上无产出超上限即断；`0` = 显式关只剩编排层时滞上限；非法值 fail-loud 拒启）                | 300000                      |
-| `BERRY_AGENT_SESSION_STALL_TIMEOUT_MS` | 编排层会话时滞上限毫秒数（流停滞纵深防线——run 级无进展超上限收口；`0` = 显式关；非法值 fail-loud 拒启）                          | 900000                      |
-| `BERRY_AGENT_MAX_CONCURRENT_RUNS`      | 宿主级 run 并发上限（lane 上限——正整数必需，坏值 fail-loud 拒启；steer/inject 不经闸）                                           | 16                          |
-| `BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS` | 单父并发子代理扇出上限（per-父会话内存位——正整数必需，坏值 fail-loud 拒启；满了排队非拒收，one-shot 与后台同池同上限）           | 8                           |
-| `BERRY_AGENT_BACKGROUND_BUDGET_TOKENS` | 当日后台道 token 日池限额（后台 run 记账对照面；非负整数字串，`0` = 显式关池，坏值 fail-loud 拒启；前台花销照入账不进闸门）  | 4000000                     |
+| 变量                                   | 作用                                                                                                                                                                                                                                    | 默认                        |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `BERRY_AGENT_MODEL`                    | 覆盖默认模型                                                                                                                                                                                                                            | `anthropic/claude-sonnet-5` |
+| `BERRY_AGENT_DATA_DIR`                 | 数据目录                                                                                                                                                                                                                                | `~/.berry-agent`            |
+| `BERRY_AGENT_DB_PATH`                  | 库文件路径（独立梯子——重定向库文件而不动数据目录）                                                                                                                                                                                      | `<数据目录>/sessions.db`    |
+| `BERRY_AGENT_LOG_LEVEL`                | 日志级别：error / warn / info / debug / silent                                                                                                                                                                                          | `info`                      |
+| `BERRY_AGENT_SKIP_UPDATE_CHECK`        | TUI 启动版本检查关断（置值即关——关掉即零网络包；手动检查 `/update` 与 `berry update` 不受辖（别名仅 CLI 侧：`berry upgrade` 为 `berry update` 同义别名；TUI 内命令即 `/update` 本名，无 `/upgrade` 别名——未注册词走发给模型当消息路）） | 未设（检查开）              |
+| `BERRY_AGENT_BASH_PATH`                | bash 工具可执行路径（缺失 fail-loud）                                                                                                                                                                                                   | PATH 发现序                 |
+| `BERRY_AGENT_FD_PATH`                  | `@` 文件补全全库索引的 fd 可执行**绝对路径**（生效位——裸段全库模糊腿行走经此子进程收割；缺席 / 相对路径 / 调用失败一律降级内建行走）                                                                                                    | —                           |
+| `BERRY_AGENT_BROWSER_PATH`             | 浏览器引擎可执行路径                                                                                                                                                                                                                    | 引擎发现序                  |
+| `BERRY_AGENT_BIN`                      | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                                                                                                                                                                                   | `berry`（PATH 名解析）      |
+| `BERRY_AGENT_CRON`                     | cron 可选后端开关/载体                                                                                                                                                                                                                  | 进程内定时                  |
+| `BERRY_AGENT_GIT_PATH`                 | worktree 工具 git 可执行路径（保留位——启动接线未做，当前设置无效）                                                                                                                                                                      | PATH 发现序                 |
+| `BERRY_AGENT_SDK_TOKEN`                | serve `--daemon` 线协议面 TCP 侧鉴权 token（`--sdk-host` 非回环必配）                                                                                                                                                                   | 默认不开 TCP 侧             |
+| `BERRY_AGENT_SDK_PORT`                 | daemon SDK 面端口 env 补位（`--sdk-port` 旗标缺席时生效；`0..65535` 整数——`0` = 内核指派端口放行，越界/坏值 fail-loud 拒启）                                                                                                            | 旗标缺席即不开              |
+| `BERRY_AGENT_SDK_HOST`                 | daemon SDK 面绑定地址 env 补位（`--sdk-host` 旗标缺席时生效；非回环值同样必配 token）                                                                                                                                                   | `127.0.0.1`                 |
+| `BERRY_AGENT_GITHUB_TOKEN`             | core:issue 插件 GitHub 凭证（`/credentials` 录入优先，本变量为回落）                                                                                                                                                                    | 缺席                        |
+| `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`     | core:issue 插件 webhook 签名密钥（同回落律）                                                                                                                                                                                            | 缺席                        |
+| `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE`   | 插件安装供应链护栏：npm 源最小发布龄分钟数（`0` = 关窗不查）                                                                                                                                                                            | 1440                        |
+| `BERRY_AGENT_LLM_IDLE_TIMEOUT_MS`      | LLM 流层空闲上限毫秒数（流停滞主防线——流上无产出超上限即断；`0` = 显式关只剩编排层时滞上限；非法值 fail-loud 拒启）                                                                                                                     | 300000                      |
+| `BERRY_AGENT_SESSION_STALL_TIMEOUT_MS` | 编排层会话时滞上限毫秒数（流停滞纵深防线——run 级无进展超上限收口；`0` = 显式关；非法值 fail-loud 拒启）                                                                                                                                 | 900000                      |
+| `BERRY_AGENT_MAX_CONCURRENT_RUNS`      | 宿主级 run 并发上限（lane 上限——正整数必需，坏值 fail-loud 拒启；steer/inject 不经闸）                                                                                                                                                  | 16                          |
+| `BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS` | 单父并发子代理扇出上限（per-父会话内存位——正整数必需，坏值 fail-loud 拒启；满了排队非拒收，one-shot 与后台同池同上限）                                                                                                                  | 8                           |
+| `BERRY_AGENT_BACKGROUND_BUDGET_TOKENS` | 当日后台道 token 日池限额（后台 run 记账对照面；非负整数字串，`0` = 显式关池，坏值 fail-loud 拒启；前台花销照入账不进闸门）                                                                                                             | 4000000                     |
 
 `BERRY_AGENT_LOG_LEVEL` 另支持**逗号分隔 per-module 语法**（如 `info,session:debug`）：每条目按**最右一个冒号**切分模块名与级别（模块名含冒号可表达——`core:memory:debug` 意为模块 `core:memory` 开 debug，段内冒号不是分隔符）；模块名按**前缀匹配**生效（`session` 命中 `session` 与 `session:*` 全体），多条目前缀同时命中取最长；不带模块名的条目设全局级（全局 `silent` 压倒一切 per-module 条目）；无效条目 stderr 警告后跳过（视同未设）。
 
