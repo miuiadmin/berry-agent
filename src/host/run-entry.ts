@@ -10,8 +10,9 @@
  * 输出三档（07 §5）：
  * - text（缺省）：stdout 只出末条 assistant 文本——CI 管道友好的「问一句得
  *   一句」；run 进行中的 keepalive 与一切诊断走 stderr（stdout 纯净律）。
- * - json：终值单对象（sessionId/status/turns/usage 汇总/末条 assistant 文本）
- *   一行 NDJSON——机器消费面；活体增量不出 stdout。
+ * - json：终值单对象（sessionId/status/turns/usage 汇总/durationMs/models
+ *   逐模型分解/末条 assistant 文本）一行 NDJSON——机器消费面（聚合器按帧
+ *   结账位）；活体增量不出 stdout。
  * - stream：AgentEvent NDJSON 直出（每事件一行）——与 serve 线协议同源的
  *   事件流面；心跳即事件流一员（工具/turn 族事件自带节拍）不另设 keepalive。
  * --no-delta：三档共用的线面退订（message_update 增量滤除；整消息事件仍在）。
@@ -684,6 +685,11 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   // 不能用 lastAssistantText !== undefined 简化判——07 §5 定形注④）
   let lastAssistantHadText = false;
   const usageSum: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+  // A2 逐模型 usage 分解（07 §5——CLI/SDK 进化批）：键 = `<provider>/<model>`
+  //（实录源 = assistant/message 响应实录位〔05 §1.1〕；实录缺席归
+  // `<unknown>/<unknown>` 键如实呈现不折叠）；值与 usage 汇总位同 accumulate
+  // 语义——聚合器按 models 结账与按汇总位结账口径恒等，零第二口径
+  const usageByModel = new Map<string, Usage>();
 
   const backend: UiBackend<never> = {
     id: 'cli-run',
@@ -729,6 +735,17 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
         lastAssistantHadText = textBlocks.length > 0;
         lastAssistantText = textBlocks.map((block) => block.text).join('');
         addUsageInto(usageSum, assistant.usage);
+        // A2：逐模型分解累加（与上方汇总同拍同 accumulate——两口径恒等律的落码位）
+        const modelKey = `${assistant.provider ?? '<unknown>'}/${assistant.model ?? '<unknown>'}`;
+        const modelBucket = usageByModel.get(modelKey) ?? {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+        };
+        addUsageInto(modelBucket, assistant.usage);
+        usageByModel.set(modelKey, modelBucket);
       }
       // stream 档：AgentEvent NDJSON 直出（07 §5——与 serve 线协议同源事件面）
       if (outputFormat === 'stream') out.write(`${JSON.stringify(event)}\n`);
@@ -921,6 +938,12 @@ ${schemaRaw}
       ...(schemaErrorCode !== undefined ? { errorCode: schemaErrorCode, errorMessage: schemaErrorMessage ?? '' } : {}),
       turns: turnsEnded,
       usage: usageSum,
+      // A2 统计位扩容（07 §5——CLI/SDK 进化批）：durationMs = run 本体墙钟
+      //（⑥ 提交位 startedAt 起算至 settle——含重试/工具/审批等待，非纯模型
+      // 耗时；与 llm/usage.elapsedMs 分立两读点〔05 §1.1 互指〕）；models =
+      // 逐模型 usage 分解（加法扩展——既有字段零变化，消费方可忽略不动）
+      durationMs: Date.now() - startedAt,
+      models: Object.fromEntries(usageByModel),
       ...(lastAssistantText !== undefined ? { lastMessage: lastAssistantText } : {}),
     };
     out.write(`${JSON.stringify(summary)}\n`);

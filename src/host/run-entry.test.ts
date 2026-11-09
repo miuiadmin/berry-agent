@@ -326,6 +326,29 @@ describe('runRunEntry 输出三档（07 §5）', () => {
     expect(typeof summary['sessionId']).toBe('string'); // 识别位
   });
 
+  it('json 档 A2 统计位：durationMs 在场 + models 逐模型分解与 usage 汇总口径恒等（07 §5——CLI/SDK 进化批）', async () => {
+    const { entry, out } = await rigRun({ flags: { outputFormat: 'json' } });
+    await expect(entry).resolves.toBe(0);
+    const summary = summaryOf(out);
+    // durationMs：run 级墙钟在场（非确定值——只锁类型与量级，禁精确断言）
+    expect(typeof summary['durationMs']).toBe('number');
+    expect(summary['durationMs'] as number).toBeGreaterThanOrEqual(0);
+    // models：faux 实录位回填 → 键 = provider/model；值与汇总位恒等（零第二口径）
+    const models = summary['models'] as Record<string, { input: number; output: number; totalTokens: number }>;
+    expect(Object.keys(models)).toEqual(['faux-run/m1']);
+    expect(models['faux-run/m1']).toEqual(summary['usage']);
+  });
+
+  it('json 档 A2 加法扩展锁：既有字段零变化（sessionId/status/stopReason?/turns/usage/lastMessage 键集不含新位前的旧形仍在）', async () => {
+    const { entry, out } = await rigRun({ flags: { outputFormat: 'json' } });
+    await expect(entry).resolves.toBe(0);
+    const summary = summaryOf(out);
+    // 旧消费方依赖的五键全在场（加法扩展——新位 durationMs/models 之外旧形不动）
+    for (const key of ['sessionId', 'status', 'turns', 'usage', 'lastMessage']) {
+      expect(key in summary).toBe(true);
+    }
+  });
+
   it('stream 档：AgentEvent NDJSON 直出（agent_start…agent_end 全序收口）', async () => {
     const { entry, out, err } = await rigRun({ flags: { outputFormat: 'stream' } });
     await expect(entry).resolves.toBe(0);
