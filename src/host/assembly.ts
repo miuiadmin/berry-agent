@@ -198,12 +198,18 @@ export interface AssembleHostOptions {
   readonly onPluginLoadStart?: (pluginId: string, index: number, total: number) => void;
 }
 
-/** 装配失败档（crashed = 意外异常——crash.log 已写，调用方只呈报不取证） */
+/**
+ * 装配失败档（crashed = 意外异常——crash.log 已写，调用方只呈报不取证）。
+ * 可选 code = 干净退出档携带的注册码（HOST_DATA_DIR_BUSY/PLUGIN_ROW_INVALID
+ * 等——2026-11-09 ACP 多连接复用批：调用方按码分派，busy 撞锁者走 socket
+ * 代理路而非直接呈报）。
+ */
 export interface AssemblyFailure {
   readonly ok: false;
   readonly exitCode: number;
   readonly message: string;
   readonly crashed: boolean;
+  readonly code?: string;
 }
 
 /** 装配产物（六柄一匣——TUI 段与诊断命令各取所需） */
@@ -404,6 +410,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         exitCode: 1,
         message: `启动失败：${err instanceof Error ? err.message : String(err)}`,
         crashed: false,
+        // 注册码判别位（BaseError 携码透出——HOST_DATA_DIR_BUSY 等）
+        ...(err instanceof BaseError ? { code: err.code } : {}),
       };
     }
     options.onRuntime?.(runtime);
@@ -1515,6 +1523,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           exitCode: 1,
           message: `启动失败：${err.message}`,
           crashed: false,
+          code: err.code,
         };
       }
       throw err; // 余异常走下方崩溃取证档

@@ -296,6 +296,10 @@ describe('runAcpFace 协议面', () => {
     void face.done;
     const backend = face.backend as UiBackend<never>;
 
+    // 会话先经 session/new 入本 face 名单（审批亲和闸——未知名单会话投
+    // unavailable 弃权票不外推，2026-11-09 ACP 多连接复用批）。
+    await rig.ask('session/new', { cwd: '/tmp/ws', mcpServers: [] });
+
     const askPromise = backend.askApproval!('s-1', { summary: 'run dangerous command', reason: 'bash rm' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(rig.serverRequests.length).toBe(1);
@@ -310,6 +314,26 @@ describe('runAcpFace 协议面', () => {
     face.dispose();
   });
 
+  it('审批亲和闸：未知名单会话投 unavailable 弃权票、零外推', async () => {
+    const deps = fakeDeps();
+    const rig = makeRig();
+    const face = runAcpFace({
+      io: { input: rig.input, output: rig.output },
+      deps,
+      serverInfo: { name: 'berry-agent', version: 'v-test' },
+    });
+    void face.done;
+    const backend = face.backend as UiBackend<never>;
+
+    // 's-other' 未经 session/new/resume 入名单——立即 unavailable（多连接下
+    // 他人会话的审批不越权外推本连接客户端）。
+    await expect(
+      backend.askApproval!('s-other', { summary: 'run dangerous command', reason: 'bash rm' }),
+    ).resolves.toBe('unavailable');
+    expect(rig.serverRequests.length).toBe(0);
+    face.dispose();
+  });
+
   it('连接收口时在飞 ask 全部 unavailable', async () => {
     const deps = fakeDeps();
     const rig = makeRig();
@@ -321,6 +345,8 @@ describe('runAcpFace 协议面', () => {
     void face.done;
     const backend = face.backend as UiBackend<never>;
 
+    // 先入名单（保「连接收口」语义本体——非亲和闸的 unavailable）。
+    await rig.ask('session/new', { cwd: '/tmp/ws', mcpServers: [] });
     const askPromise = backend.askApproval!('s-1', { summary: 'x' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     face.dispose();

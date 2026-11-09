@@ -82,4 +82,13 @@ registerErrorCodes([
     module: 'llm',
     description: '钩子派发段内禁模型调用（03 §3.4——起异步任务不等结果合法、await 耦合违法；non-retryable）',
   },
+  // 2026-11-09 ACP 接入修批——设置位凭证就绪码（04 §「模型标识解析细则」批注
+  // 同批入册）：spec 语法良形但 provider 凭证未就绪（env 键与绑定行双缺席）。
+  // 消费位 = ACP 设置位就绪闸（acp-entry setModelSpec 落账前）；non-retryable
+  // ——修配置即解锁，重试同 spec 必然同败
+  {
+    code: 'LLM_CREDENTIAL_UNCONFIGURED',
+    module: 'llm',
+    description: '模型凭证未配置（env 键与凭证绑定行双缺席）——先配置凭证再切换该模型（non-retryable，修配置即解锁）',
+  },
 ]);
