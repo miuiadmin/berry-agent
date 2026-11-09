@@ -334,6 +334,19 @@ describe('run 命令族', () => {
     }
   });
 
+  it('acp 子命令：零旗标零位参受理（07 §5——mcp 形同构）', () => {
+    const r = parseCli(['acp']);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.command.kind).toBe('acp');
+    } else {
+      expect.unreachable('acp 解析应成功');
+    }
+    // 零旗标面：任何旗标/位参 = 用法错退 2（stdio 线不落日志噪音）
+    expectUsage(['acp', '--debug'], '未识别旗标');
+    expectUsage(['acp', 'x'], '位置参数数目不符');
+  });
+
   it('--fork 不带值 = 取 cwd 最新分叉', () => {
     const r = parseCli(['run', 'hi', '--fork']);
     expect(r.ok).toBe(true);

@@ -2,7 +2,7 @@
 
 面向把 berry-agent 当作被驱动 agent 接入的编排器 / 工作台 / 编辑器作者（paseo、hapi、t3 code、Zed 型 ACP 宿主，或自研脚本）。自包含覆盖：发现与探活、无头执行、常驻服务面、审批转发、隔离与密钥边界。安装与日常使用见[使用指南](./usage.md)。
 
-> 状态：`0.1.x`（alpha）。CLI 与 SDK 面已可用且向后兼容承诺按「加法扩展不破坏」执行；`berry acp`（ACP v1 server 包装形态）随近期批次落地，落地前聚合器经本文的 run / serve / MCP 三面接入。
+> 状态：`0.1.x`（alpha）。CLI 与 SDK 面已可用且向后兼容承诺按「加法扩展不破坏」执行；`berry acp`（ACP v1 server 包装形态）已落地——聚合器经本文的 run / serve / MCP / ACP 四面接入。
 
 ## 一、发现与探活
 
@@ -82,9 +82,18 @@ berry mcp                            # stdio MCP server（行帧 JSON-RPC）
 | 用量上报         | json 终值 `usage`/`models`（run 形）+ 事件流 usage 位（serve 形）——聚合器不发明计量，按帧结账                                            |
 | durable 崩溃接管 | 会话事件 durable 落库 + `seq`/`after` 重放——daemon 重启后聚合器从断点补齐，无第二套恢复路径                                              |
 
-## 六、ACP 面（随近期批次落地）
+## 六、ACP 面：`berry acp`（已落地）
 
-`berry acp`（stdio、ACP v1 agent 侧基线集：`initialize`/`session/new`〔cwd 必携 → 会话工作区根；`mcpServers` v1 拒收形——经 berry 插件面配 MCP 客户端〕/`session/prompt`/`session/cancel`/`session/load`〔全量重放〕/`session/update`/`session/request_permission` 审批双向）——Zed / paseo / hapi / t3 型宿主经 ACP Registry 或显式命令位接入。落地后本节补各聚合器配置例。
+ACP（Agent Client Protocol）v1 agent 侧包装——Zed / paseo / hapi / t3 型宿主经 ACP 连驱 berry 的入口位。stdio 行帧 JSON-RPC、零旗标面：
+
+```bash
+berry acp     # stdio 直连（客户端 spawn 形态——宿主配置里填可执行名 + 参数）
+```
+
+- **方法基线集**（v1）：`initialize`（protocolVersion 整数 1 回显制；能力位诚实——`loadSession: true`、`promptCapabilities.image: true`，未承载位不虚报）/ `session/new`（`cwd` 必携绝对路径 → berry 会话工作区根〔AGENTS.md 发现锚由此而来〕；`mcpServers` 非空即 -32602 拒收——v1 有意边界，MCP 客户端配置经 berry 插件面装载）/ `session/prompt`（内容块 text·image·resource_link；晚应答——`agent_end` 终态到达才回 `stopReason`）/ `session/cancel`（→ berry interrupt，终值 `cancelled`）/ `session/load`（durable 全量重放为 `session/update` 序）/ `session/update`（`agent_message_chunk`/`agent_thought_chunk`/`tool_call`/`tool_call_update`）/ `session/request_permission`（审批双向：ask 外推为三档选项〔始终允许仅在策略表回写目标在场〕，应答汇入 berry 跨入口审批竞速漏斗——与 TUI/web/serve 同一漏斗，先答者胜）。
+- **能力位闸**：v1 可选方法族（`session/resume`·`close`·`list`、`fs/*`、`terminal/*`）不声明即不受理（-32601）——随真实客户端需求扩。
+- **core:sdk 件禁用 ⇒ ACP 面拒启退 2**（「sdk 禁 ⇒ 面亡」语义族——daemon/TCP/sock 与 MCP/ACP 两 stdio 包装入口同蒙）。
+- **宿主接入示例**：Zed（agent 列表添加自定义 ACP agent：command `berry`，args `["acp"]`）；paseo/hapi 型聚合器（ACP 适配器位同填 `berry acp`）。
 
 ---
 

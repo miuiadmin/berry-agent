@@ -166,6 +166,8 @@ export type CliCommand =
   | { readonly kind: 'serve-status' }
   | { readonly kind: 'serve-stop' }
   | { readonly kind: 'mcp' }
+  /** ACP server 包装形态（07 §5 命令族·CLI/SDK 进化批 A3——零旗标面同 mcp 形） */
+  | { readonly kind: 'acp' }
   | { readonly kind: 'dump-config'; readonly flags: DumpConfigFlags }
   | { readonly kind: 'plugins'; readonly sub: PluginsCommand }
   /** marketplace 子命令族（03 §9.6——装机编舞恒复用既有 installPlugin） */
@@ -932,6 +934,15 @@ export function parseCli(argv: readonly string[]): CliParseResult {
       if ('exitCode' in arity) return arity;
       return finish(scan, { kind: 'mcp' });
     }
+    case 'acp': {
+      // ACP server 包装形态（07 §5 命令族·CLI/SDK 进化批 A3——零旗标面同
+      // mcp 形：stdio 线不落日志噪音）
+      const scan = scanFlags(rest, []);
+      if (scan.error) return usageFail(scan.error);
+      const arity = expectArity(scan.literals, 0, 0, 'berry acp');
+      if ('exitCode' in arity) return arity;
+      return finish(scan, { kind: 'acp' });
+    }
     case 'dump-config': {
       const scan = scanFlags(rest, DUMP_SCHEMAS);
       if (scan.error) return usageFail(scan.error);
@@ -977,7 +988,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
     }
     default:
       return usageFail(
-        `未知子命令：${head}（合法：run/serve/mcp/dump-config/plugins/marketplace/sessions/credentials/doors/update/upgrade；无参 = TUI 主入口）`,
+        `未知子命令：${head}（合法：run/serve/mcp/acp/dump-config/plugins/marketplace/sessions/credentials/doors/update/upgrade；无参 = TUI 主入口）`,
       );
   }
 }

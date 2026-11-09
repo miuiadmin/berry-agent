@@ -78,6 +78,20 @@ export async function runMcpEntry(options: McpEntryOptions): Promise<number> {
   }
   const { runtime, stack, logger }: AssemblySuccess = assembly;
 
+  // —— 面亡执法补齐（「sdk 禁 ⇒ 面亡」族第五入口——03 §10.6 MCP 形 2026-11-09
+  // A3 批注：mcp-entry 先行直调恒活形就此收口，与 acp-entry 第四入口同批同
+  // 判式——两 stdio 包装入口行为一致化；core:sdk plan 行缺席/禁用即拒启退 2
+  //（daemon 形同码；boot.report.activated 判式 = plugin-boot 席位判式的 report
+  // 侧同源语义，装载失败形也在 activated 缺席中如实呈现）——
+  const sdkSeatActive = assembly.boot.report.activated.some((row) => row.id === 'core:sdk');
+  if (!sdkSeatActive) {
+    stderr.write(
+      'core:sdk 插件未装载（被禁用或装载失败）——MCP 面随件缺席（「sdk 禁 ⇒ 面亡」语义族：daemon/TCP/sock/stdio 包装入口同蒙）。恢复：从启用清单移除禁用行或排查装载失败后重试\n',
+    );
+    await runtime.shutdown().catch(() => {});
+    return 2;
+  }
+
   let exitCode = 0;
   try {
     // 登记键 canonical 化归 createServeBridge 内单源执法（CL-A2）——本位只传 raw cwd 锚

@@ -18,5 +18,6 @@ export * from './types.js';
 export * from './security.js';
 export * from './http.js';
 export * from './mcp.js';
+export * from './acp.js';
 export * from './plugin-routes.js';
 export * from './plugin-route-registry.js';

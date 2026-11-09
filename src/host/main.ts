@@ -33,6 +33,7 @@ import { installCrashChoreography, installSignalChoreography } from './signals.j
 import { DAEMON_CHILD_ENV, runDaemonServe, runServeStatus, runServeStop, spawnDaemonServe } from './serve-daemon.js';
 import { runServeEntry } from './serve-entry.js';
 import { runMcpEntry } from './mcp-entry.js';
+import { runAcpEntry } from './acp-entry.js';
 import { runTuiEntry } from './tui-entry.js';
 import { runRunEntry } from './run-entry.js';
 import { runDumpConfigEntry } from './dump-config.js';
@@ -129,6 +130,13 @@ const handlers: CommandHandlers = {
   // MCP server 包装形态（13f 接线——零旗标面；serverInfo 版本真值同 tui 路径）
   mcp: () =>
     runMcpEntry({
+      version: readVersion(),
+      onRuntime: attachRuntime, // 信号/崩溃编舞切运行时本体
+    }),
+  // ACP server 包装形态（CLI/SDK 进化批 A3——零旗标面同 mcp 形；面亡执法
+  // 与 createSession 注入见 acp-entry 头注）
+  acp: () =>
+    runAcpEntry({
       version: readVersion(),
       onRuntime: attachRuntime, // 信号/崩溃编舞切运行时本体
     }),

@@ -636,7 +636,16 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   // 地段首个实占实例，slot `project`）。注册位在 ⑩ 安全模式短路**之前**——
   // 宿主段非插件装载面，--no-plugins 照常装载注入（A4 笔边界④）；workspaceRoot
   // 解析器由 assembly 注入（manager 活体镜像 ?? 库行）；每会话懒冻结 + volatile
-  // 声明（归类基线② 两律合用——多工作区会话交替物化免锚噪声）在 builder 内
+  // 声明（归类基线② 两律合用——多工作区会话交替物化免锚噪声）在 builder 内。
+  // 词汇前置：prompts_change 观测词先登记（⑤ 全表预注册在本注册位之后
+  // ——noPlugins 短路形更在其前；registry onSectionsChange 同步 emit 撞
+  // assertRegistered 即崩溃——真装配冒烟测出的时序坑）。登记幂等在调用方
+  // 过滤（⑤ 同款——registerEventNames 双注册抛 EVENT_DUPLICATE，reapply
+  // 重跑本函数时已注册词必须滤除，否则换代必炸〔scheduler-clock 换代接钟
+  // 回归锁红锚〕）
+  if (options.projectInstructions !== undefined && !options.dispatch.isRegistered('prompts_change')) {
+    options.dispatch.registerEventNames(['prompts_change']);
+  }
   if (options.projectInstructions !== undefined) {
     promptSections.registerHost(
       'project',
