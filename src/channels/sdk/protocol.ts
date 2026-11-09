@@ -79,6 +79,18 @@ export interface SdkHelloFrame {
   sessionId: string;
   /** 会话当前 seq 高水位（约定见文件头——空会话 = 0） */
   highWaterSeq: number;
+  /** 能力公告（B2——03 §10.6：deps seam capabilitiesOf 在场即携、缺席零漂移；每 hello 携带断线重连即重取） */
+  capabilities?: SdkCapabilities;
+}
+
+/** 能力公告载荷（B2——03 §10.6 hello 能力公告位：hello 时点快照、每 hello 携带断线重连即重取） */
+export interface SdkCapabilities {
+  /** 栈内已知模型 id 清单（llm 目录面投影——`<provider>/<model>` 全形） */
+  readonly models: readonly string[];
+  /** 宿主全局面工具名（core:mcp 异步发现在途时可滞后——快照语义非终值承诺） */
+  readonly tools: readonly string[];
+  /** 能力串闭集 v1（逐值判定式单源装配位）：acp/mcp-server = 安装级恒在（安装能力非进程能力）；webui = 本进程 HTTP 面可开/已开；images = 附件能力栈恒在 */
+  readonly features: readonly string[];
 }
 
 /** 心跳帧（②——idle 超阈值即发；间隔缺省 5000ms——批 13b 落码定值，装配定时位 serve-entry） */

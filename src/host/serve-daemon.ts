@@ -645,8 +645,13 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
   // 保的形态，挂钟常驻尤其正业）：置位在 sdk 拒启检查后——拒启形不起钟；
   // 件在场即起 + 停钟挂 closer（同 TUI/serve 律）——
   startSchedulerClock(scope, runtime);
-  // 登记键 canonical 化归 createServeBridge 内单源执法（CL-A2）——本位只传 raw cwd 锚
-  const bridge = createServeBridge(stack, runtime, { cwd: options.cwd ?? process.cwd() });
+  // 登记键 canonical 化归 createServeBridge 内单源执法（CL-A2）——本位只传 raw cwd 锚；
+  // B2 能力公告：toolsOf = boot 全局面锚、webuiFace = daemon 恒开统一 HTTP 面
+  const bridge = createServeBridge(stack, runtime, {
+    cwd: options.cwd ?? process.cwd(),
+    toolsOf: () => assembly.boot.tools.definitions().map((definition) => definition.name),
+    webuiFace: true,
+  });
   // sock 目录先建（三足迹目录 serve/——face 监听与 pid 登记共同前置；
   // 修前 face.start 先跑而目录由 writeDaemonPid 后建——listen 对缺目录
   // EACCES/ENOENT，回归锁 = 全环集成例「face 起 → pid 登记」序）

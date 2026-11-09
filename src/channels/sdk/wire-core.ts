@@ -24,12 +24,29 @@ import { admitContentKey, admitMessage } from './admit.js';
 import { validateAfterCursor } from './cursor.js';
 import {
   SDK_PROTOCOL_VERSION,
+  type SdkCapabilities,
   type SdkDurableEntry,
   type SdkPromptImage,
   type SdkRequest,
   type SdkSessionSummary,
   type SdkWireFrame,
 } from './protocol.js';
+
+/**
+ * hello 帧能力位附件（B2——03 §10.6：两发射位共用的单源拼装——deps
+ * capabilitiesOf 在场即携快照；异常 fail-open 帧不携位〔公告是增强面非
+ * 正确性面〕；缺席 undefined 键不落——旧形零漂移）。
+ */
+function capabilitiesAttachmentOf(
+  source: (() => SdkCapabilities) | undefined,
+): { capabilities: SdkCapabilities } | Record<string, never> {
+  if (source === undefined) return {};
+  try {
+    return { capabilities: source() };
+  } catch {
+    return {};
+  }
+}
 
 /** 会话状态三档（prompt 受理门 + hello 订阅门共用判据——装配桥映射真源） */
 export type SdkSessionState = 'open' | 'closed' | 'missing';
@@ -94,6 +111,13 @@ export interface SdkWireDeps {
   onSubscribed?(sessionId: string): void;
   /** 过载断连钩（SDK_OVERLOADED 已尽力直写后调用——宿主关传输） */
   onOverload?(retryAfterMs: number): void;
+  /**
+   * 能力公告供源（B2——03 §10.6 hello 能力公告位）：在场 = 每个 hello 帧
+   * 携 capabilities 快照（连接级/订阅级两发射位同蒙——断线重连即重取）；
+   * 缺席 = hello 帧不携位（旧形零漂移——C-4 加法不 bump 语义的落码面）。
+   * 异常 = 帧不携位 + 队列诊断（公告是增强面非正确性面——fail-open）。
+   */
+  capabilitiesOf?: () => SdkCapabilities;
 }
 
 /** 构造选项（时钟/节拍/背压参全注入——测试确定性） */
@@ -323,7 +347,13 @@ export class SdkWireCore {
     // 构造初值（07 §5 --no-delta 宿主立场缺省；选项缺席时初值 false 语义不变）
     if (sessionId === undefined) {
       this.connectionNoDelta = noDelta ?? this.connectionNoDelta;
-      this.emit({ kind: 'hello', protocolVersion: SDK_PROTOCOL_VERSION, sessionId: '', highWaterSeq: 0 });
+      this.emit({
+        kind: 'hello',
+        protocolVersion: SDK_PROTOCOL_VERSION,
+        sessionId: '',
+        highWaterSeq: 0,
+        ...capabilitiesAttachmentOf(this.deps.capabilitiesOf),
+      });
       return;
     }
     const state = this.deps.sessionStateOf(sessionId);
@@ -334,7 +364,13 @@ export class SdkWireCore {
     // 订阅三步（同步读面下原子——文件头衔接序文注）：①快照高水位（先于挂监听，
     // 快照后事件只走直播段——零跨段重复）②重放至快照 ③replay-end 后转直播
     const highWater = this.deps.highWaterOf(sessionId) ?? 0;
-    this.emit({ kind: 'hello', protocolVersion: SDK_PROTOCOL_VERSION, sessionId, highWaterSeq: highWater });
+    this.emit({
+      kind: 'hello',
+      protocolVersion: SDK_PROTOCOL_VERSION,
+      sessionId,
+      highWaterSeq: highWater,
+      ...capabilitiesAttachmentOf(this.deps.capabilitiesOf),
+    });
     let lastReplayed = -1;
     if (after !== undefined) {
       const check = validateAfterCursor(after, highWater);

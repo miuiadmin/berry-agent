@@ -50,7 +50,7 @@ export type { SdkDurableEntry } from '../../../src/channels/sdk/protocol.js';
 /** live 事件帧（event + seq——直播段载荷） */
 export type { SdkEventFrame } from '../../../src/channels/sdk/protocol.js';
 /** hello 应答帧（订阅建立序首帧——highWaterSeq 快照位） */
-export type { SdkHelloFrame } from '../../../src/channels/sdk/protocol.js';
+export type { SdkHelloFrame, SdkCapabilities } from '../../../src/channels/sdk/protocol.js';
 /** 错误帧（code/message——线面业务错词面） */
 export type { SdkErrorFrame } from '../../../src/channels/sdk/protocol.js';
 // —— 协议件已有名纯扩出口（挖掘 37 轮件 6——「点不了名」体操形消解：四族

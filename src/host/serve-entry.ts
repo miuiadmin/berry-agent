@@ -43,6 +43,7 @@ import type { SandboxMode } from '../safety/index.js';
 import { createSdkBackend, decodeWireLine, encodeWireLine, isSdkRequest, splitWireLines } from '../channels/index.js';
 import { admitKeyFromStored } from '../channels/index.js';
 import type {
+  SdkCapabilities,
   SdkDurableEntry,
   SdkOutboundSink,
   SdkSessionState,
@@ -135,7 +136,7 @@ export type ServeBridgeDeps = Omit<SdkWireDeps, 'decideApproval' | 'onSubscribed
 export function createServeBridge(
   stack: ConversationStack,
   runtime: HostRuntime,
-  anchors: { cwd: string },
+  anchors: { cwd: string; toolsOf?: () => readonly string[]; webuiFace?: boolean },
 ): ServeBridgeDeps {
   /** 会话日志权威读（在册走内存——含 write-behind 在飞；未开走库面纯读） */
   const logOf = (sessionId: string): readonly SessionEvent[] => {
@@ -144,7 +145,18 @@ export function createServeBridge(
     return runtime.persistence.store.loadEvents(sessionId);
   };
 
+  // 能力公告供源（B2——03 §10.6 hello 能力公告位）：models 取 llm 目录面
+  // 现值、tools 取调用方 toolsOf 锚（boot 全局面——缺席诚实空〔快照语义：
+  // core:mcp 异步发现在途本就允许滞后〕）、features 逐值判定式单源
+  //（acp/mcp-server/images 安装级/栈级恒在 + webui 本进程面可开位）
+  const capabilitiesOf = (): SdkCapabilities => ({
+    models: stack.llm.listModels().map((model) => model.id),
+    tools: anchors.toolsOf?.() ?? [],
+    features: ['acp', 'mcp-server', 'images', ...(anchors.webuiFace === true ? ['webui'] : [])],
+  });
+
   return {
+    capabilitiesOf,
     submitPrompt: (input: SdkSubmitInput): SdkSubmitOutcome => {
       // —— 剪贴板附件受理链前置（03 §10.4 ② serve 线同批——webui-bridge 镜像
       // 受理序）：images 在场非空先过链逐件校验（能力门→数量帽→base64→字节帽
@@ -359,7 +371,13 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
       },
     };
 
-    const bridge = createServeBridge(stack, runtime, { cwd: options.cwd ?? process.cwd() });
+    // 桥（B2：toolsOf = boot 全局面工具名锚〔hello 能力公告快照源〕；
+    // webuiFace = --port 可开位——统一 HTTP 面本进程在场判定的 serve 形）
+    const bridge = createServeBridge(stack, runtime, {
+      cwd: options.cwd ?? process.cwd(),
+      toolsOf: () => assembly.boot.tools.definitions().map((definition) => definition.name),
+      webuiFace: options.flags.port !== undefined,
+    });
     const handle = createSdkBackend(
       { ...bridge, sink, onOverload: () => shutdown(1) }, // 过载直写后宿主关传输（错误档退 1）
       {

@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { RetryProbe } from '../../contracts/index.js';
-import type { SdkDurableEntry, SdkWireFrame } from './protocol.js';
+import type { SdkCapabilities, SdkDurableEntry, SdkWireFrame } from './protocol.js';
 import {
   SdkWireCore,
   type SdkSessionState,
@@ -944,5 +944,70 @@ describe('unsubscribe 订阅退订（批 13e-2 HTTP 传输位——流撤即退�
     h.calls.subscribed.length = 0;
     h.core.unsubscribe('s1');
     expect(h.calls.subscribed).toEqual([]);
+  });
+});
+
+describe('hello 能力公告位（B2——03 §10.6）', () => {
+  /** 造带 capabilitiesOf 桩的核（其余 deps 桩复用 createHarness 的会话宇宙不可行——独立小桩） */
+  function capabilitiesHarness(capabilitiesOf: (() => SdkCapabilities) | undefined): {
+    core: SdkWireCore;
+    frames: SdkWireFrame[];
+  } {
+    const frames: SdkWireFrame[] = [];
+    const core = new SdkWireCore({
+      sink: {
+        write: (frame) => {
+          frames.push(frame);
+          return true;
+        },
+      },
+      submitPrompt: () => ({ sessionId: 's-x' }),
+      lookupDedupeKey: () => undefined,
+      interruptSession: () => undefined,
+      queryEntries: () => ({ entries: [] }),
+      listSessions: () => [],
+      countSessions: () => 0,
+      highWaterOf: () => 0,
+      sessionStateOf: () => 'open',
+      retryProbeOf: () => null,
+      decideApproval: () => 'superseded',
+      ...(capabilitiesOf !== undefined ? { capabilitiesOf } : {}),
+    });
+    return { core, frames };
+  }
+
+  it('seam 在场：连接级与订阅级 hello 均携 capabilities 快照（每 hello 携带——重连即重取）', () => {
+    let calls = 0;
+    const { core, frames } = capabilitiesHarness(() => {
+      calls += 1;
+      return { models: ['faux-run/m1'], tools: ['write', 'read'], features: ['acp', 'images'] };
+    });
+    core.handleRequest({ verb: 'hello', protocolVersion: 1 });
+    core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's-x' });
+    const hellos = frames.filter((frame) => frame.kind === 'hello');
+    expect(hellos).toHaveLength(2);
+    for (const frame of hellos) {
+      expect((frame as { capabilities?: SdkCapabilities }).capabilities).toEqual({
+        models: ['faux-run/m1'],
+        tools: ['write', 'read'],
+        features: ['acp', 'images'],
+      });
+    }
+    expect(calls).toBe(2); // 每 hello 现取（断线重连即重取的机制面）
+  });
+
+  it('seam 缺席：hello 帧不携位（旧形零漂移——C-4 加法不 bump 的落码面）', () => {
+    const { core, frames } = capabilitiesHarness(undefined);
+    core.handleRequest({ verb: 'hello', protocolVersion: 1 });
+    const hello = frames[0] as { capabilities?: unknown };
+    expect(hello.capabilities).toBeUndefined();
+  });
+
+  it('seam 异常：fail-open 帧不携位（公告是增强面非正确性面）', () => {
+    const { core, frames } = capabilitiesHarness(() => {
+      throw new Error('目录面暂不可用');
+    });
+    core.handleRequest({ verb: 'hello', protocolVersion: 1 });
+    expect((frames[0] as { capabilities?: unknown }).capabilities).toBeUndefined();
   });
 });

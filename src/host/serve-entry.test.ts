@@ -1084,3 +1084,26 @@ describe('stdio 面请求受理异常收容（03 §10.6 66 轮件 D 批注——
     }
   });
 });
+
+describe('hello 能力公告位（B2——03 §10.6）', () => {
+  it('stdio hello 携 capabilities：models 真值（faux 在册）+ features 闭集 + 每 hello 携带', async () => {
+    const { rig, entry } = rigServe();
+    // 连接级握手即携（无会话订阅形）
+    rig.send({ verb: 'hello', protocolVersion: 1 });
+    await rig.until(() => rig.frames.some((f) => f.kind === 'hello'));
+    const hello = rig.frames.find((f) => f.kind === 'hello') as {
+      capabilities?: { models: string[]; tools: string[]; features: string[] };
+    };
+    expect(hello.capabilities).toBeDefined();
+    expect(hello.capabilities!.models.length).toBeGreaterThan(0); // llm 目录面真值（faux-run/m1 在册）
+    expect(hello.capabilities!.models).toContain('faux-serve/m1');
+    expect(hello.capabilities!.features).toEqual(expect.arrayContaining(['acp', 'mcp-server', 'images']));
+    // 第二次 hello（重连形）同携——每 hello 现取
+    rig.frames.length = 0;
+    rig.send({ verb: 'hello', protocolVersion: 1 });
+    await rig.until(() => rig.frames.some((f) => f.kind === 'hello'));
+    const second = rig.frames.find((f) => f.kind === 'hello') as { capabilities?: unknown };
+    expect(second.capabilities).toBeDefined();
+    await closeExpect0(rig, entry);
+  });
+});

@@ -120,6 +120,12 @@ export interface WebuiBridgeOptions {
    * detachFace。缺席 = 测试替身/诊断形（零插件道路由）。
    */
   readonly pluginRoutes?: PluginRouteRegistry;
+  /**
+   * 全局面工具名锚（B2——03 §10.6 hello 能力公告位）：本面 webuiFace 恒
+   * true（面即统一 HTTP 面本体）；toolsOf 缺席 = tools 诚实空（快照语义
+   * 允许滞后——调用方持 boot 者注入现值锚）。
+   */
+  readonly toolsOf?: () => readonly string[];
 }
 
 /**
@@ -164,8 +170,13 @@ export async function openWebuiFace(
   const face = createSdkHttpFace({
     config: { tcp: { host: WEBUI_DEFAULT_HOST, port: options.port ?? WEBUI_DEFAULT_PORT } },
     // cwd 锚透传（CL-A2——缺省全局态 process.cwd 不变；raw 锚直传，canonical
-    // 化归 createServeBridge 登记位单源，本面不自造第二套归一）
-    bridge: createServeBridge(options.stack, options.runtime, { cwd: options.cwd ?? process.cwd() }),
+    // 化归 createServeBridge 登记位单源，本面不自造第二套归一）；B2 能力
+    // 公告：webuiFace 恒 true（面即统一 HTTP 面本体）+ toolsOf 锚透传
+    bridge: createServeBridge(options.stack, options.runtime, {
+      cwd: options.cwd ?? process.cwd(),
+      webuiFace: true,
+      ...(options.toolsOf !== undefined ? { toolsOf: options.toolsOf } : {}),
+    }),
     // U5-2 构造期 replay：装载序已受理的插件道路由快照注入 routes 位
     // （受理与挂载两时点解耦——03 §10.6 时序缝定形）
     ...(options.pluginRoutes !== undefined ? { routes: options.pluginRoutes.snapshot() } : {}),

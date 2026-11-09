@@ -43,6 +43,8 @@ export type {
   SdkDurableEntry,
   SdkEventFrame,
   SdkHelloFrame,
+  // B2——03 §10.6 hello 能力公告位：载荷型随帧型策展出（消费方探测/门控面）
+  SdkCapabilities,
   SdkErrorFrame,
   // 协议件已有名纯扩出口（挖掘 37 轮件 6——「点不了名」体操形消解：五类型
   // 名纯类型零运行时键；真源 channels/sdk/protocol.ts，经 types.ts 策展
