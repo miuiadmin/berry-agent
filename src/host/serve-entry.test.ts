@@ -1098,6 +1098,9 @@ describe('hello 能力公告位（B2——03 §10.6）', () => {
     expect(hello.capabilities!.models.length).toBeGreaterThan(0); // llm 目录面真值（faux-run/m1 在册）
     expect(hello.capabilities!.models).toContain('faux-serve/m1');
     expect(hello.capabilities!.features).toEqual(expect.arrayContaining(['acp', 'mcp-server', 'images']));
+    // B-16 收口锁：tools 非空（B-3 装配后 stdio 桥有真锚——修前 webui 面恒空风险邻位）
+    expect(hello.capabilities!.tools.length).toBeGreaterThan(0);
+    expect(hello.capabilities!.tools).toContain('skill_manage'); // 宿主全局面真工具（清单里在场的件级工具）
     // 第二次 hello（重连形）同携——每 hello 现取
     rig.frames.length = 0;
     rig.send({ verb: 'hello', protocolVersion: 1 });

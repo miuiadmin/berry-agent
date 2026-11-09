@@ -472,6 +472,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             stack,
             runtime,
             port: options.flags.port,
+            // B-3（A-4/B2 收口）：toolsOf = boot 全局面工具名锚（hello
+            // capabilities.tools 真值——修前 webui 面恒空表）
+            toolsOf: () => boot.tools.definitions().map((definition) => definition.name),
             ...(mountKit !== undefined ? { mountKit } : {}),
             // U5-2：插件道路由受理器经 core:sdk kit 透传（snapshot/attachFace）
             ...(sdkKit.pluginRoutes !== undefined ? { pluginRoutes: sdkKit.pluginRoutes } : {}),

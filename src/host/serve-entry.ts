@@ -335,6 +335,8 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
           stack,
           runtime,
           port: options.flags.port,
+          // B-3（A-4/B2 收口）：toolsOf 同 stdio 线桥（serve-entry:378 同款锚）
+          toolsOf: () => assembly.boot.tools.definitions().map((definition) => definition.name),
           // cwd 锚与 stdio 线同源（CL-A2——同进程两面〔stdio 线/webui 桥〕
           // **会话登记键**一致；缺省 process.cwd() 维持既有全局态缺省）。
           // 本键只锚会话登记——@ 补全列举锚不随本键、恒挂载缺省全局态

@@ -666,6 +666,9 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
           stack,
           runtime,
           port: flags.port,
+          // B-3（A-4/B2 收口）：run --port 形 toolsOf 诚实缺席——executeRun
+          // 作用域无 boot 句柄（装配产物经 ctx 收窄传递）；hello capabilities
+          // .tools 此面恒空表（快照语义注记允许——聚合器主探测面 = serve/daemon）
           ...(mountKit !== undefined ? { mountKit } : {}),
           ...(options.onWebuiOpen !== undefined ? { onOpen: options.onWebuiOpen } : {}),
         });

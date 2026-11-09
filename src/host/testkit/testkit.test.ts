@@ -221,6 +221,10 @@ const HARNESS_ABSENT_WITH_REASON: Readonly<Record<string, string>> = {
   crossDoors: 'doors 段活体取值器（03 §4.6）——假宿主门检只吃行 opens',
   compaction: '压缩席位容器（U4-3）——假宿主无 conversation stack',
   sdkRoutes: '插件道路由受理器（U5-2）——假宿主无 core:sdk 件席',
+  projectInstructions:
+    '宿主项目上下文段装配位（03 §2.5 A4——2026-11-09 CLI/SDK 进化批）——假宿主无工作区根发现面（builder 需 canonicalWorkspaceRoot 语义，testkit 走 pluginDir 构造非 CLI 位）',
+  pluginFlags:
+    'CLI 旗标解析值注入（03 §1.2 B4——2026-11-09 CLI/SDK 进化批）——testkit 走 pluginDir 构造非 CLI parse 位，ctx.flags.of 恒 undefined（诚实缺席三态之一）',
   sessions: 'sessions 受理面（cs-D2）——假宿主无 driver/stack 活体',
   // —— 装配域位（宿主入口专属——testkit 构造路径不同形）——
   corePlugins: 'core: 官方引用注册表——假宿主不装载 core 件',
@@ -228,10 +232,6 @@ const HARNESS_ABSENT_WITH_REASON: Readonly<Record<string, string>> = {
   loadHistory: '装载史世代面（h-3）——假宿主数据面不落世代快照',
   noPlugins: '安全模式入口位（--no-plugins）——testkit 恒装载，非开关面',
   pluginFile: '快速试件路径位（--plugin-file）——testkit 走 pluginDir 构造非 CLI 位',
-  projectInstructions:
-    '项目上下文装载面（A4——03 §2.5 AGENTS.md 段）——假宿主无工作区根与项目指令解析面，测试不注入项目段（缺席 = 零项目上下文的诚实档）',
-  pluginFlags:
-    'CLI 旗标值袋（B4——03 §1.2 flags）——假宿主无 parse 面，测试零旗标（在场未传值 = undefined 三态分明的缺省档；示例件无 flags 声明面）',
   onPluginStart: '逐插件装载起步回调（启动动画供数——三反馈批 D 先行件2）——假宿主无动画呈现面',
   apiVersion: '装载门裁决坐标——测试注入面缺省 1.0 即本义（生产装配恒传真值）',
   fs: 'fs 注入位——harness 恒用真盘 realStoreFs（缺省即真盘）',
