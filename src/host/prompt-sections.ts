@@ -71,6 +71,21 @@ function domainOf(pluginId: string): string {
 }
 
 /**
+ * volatile 声明面私验（单源——register/registerHost 两注册面共用）：reason
+ * 强制非空字符串（空串/缺字符串值与 slot 形状违例同走 PLUGIN_PROMPT_SLOT_INVALID
+ * 码分流——强制附 reason，已声明即诚实，03 §2.5）。
+ */
+function assertVolatileReason(slot: string, options?: PromptSectionRegisterOptions): void {
+  const reason = options?.volatile?.reason;
+  if (options?.volatile !== undefined && (typeof reason !== 'string' || reason.length === 0)) {
+    throw new BaseError(
+      'PLUGIN_PROMPT_SLOT_INVALID',
+      `提示词段 ${slot} 声明 volatile 必须附非空 reason（空串/缺字符串值拒——明知伤缓存的段必须声明缘由）`,
+    );
+  }
+}
+
+/**
  * 提示词段注册表（单实例随装配根创建；插件经 ctx.prompts.registerSection 间接
  * 消费——窗口/频率护栏在 ctx 面执法，本件只管 slot 语义与物化序）。
  */
@@ -127,15 +142,9 @@ export class PromptSectionRegistry {
     }
     // volatile 逃生门声明面：reason 强制非空字符串（空串/缺字符串值与 slot
     // 形状违例同走 PLUGIN_PROMPT_SLOT_INVALID 码分流——强制附 reason，已声明
-    // 即诚实，03 §2.5）
-    const volatileReason = options?.volatile?.reason;
-    if (options?.volatile !== undefined && (typeof volatileReason !== 'string' || volatileReason.length === 0)) {
-      throw new BaseError(
-        'PLUGIN_PROMPT_SLOT_INVALID',
-        `提示词段 ${slot} 声明 volatile 必须附非空 reason（空串/缺字符串值拒——明知伤缓存的段必须声明缘由）`,
-      );
-    }
-    this.sections.set(slot, { slot, owner, builder, volatileReason });
+    // 即诚实，03 §2.5；单源私验两注册面共用——拷贝两份即漂移面）
+    assertVolatileReason(slot, options);
+    this.sections.set(slot, { slot, owner, builder, volatileReason: options?.volatile?.reason });
     // 注册集变更 = 清基线重立（下次物化重立不落 warn——装载面真变更非漂移）
     this.stableBaselines = null;
     // 注册集变更观测（03 §2.4 prompts_change——拒绝式三闸全过才到本位，拒绝零观测）
@@ -147,6 +156,42 @@ export class PromptSectionRegistry {
         this.sections.delete(slot);
         this.stableBaselines = null;
         this.onSectionsChange?.(); // 真摘除才观测（幂等腿零触发）
+      }
+    };
+  }
+
+  /**
+   * 宿主位注册（03 §2.5 A4 条——宿主自留地段，slot 单段执法）：与插件面
+   * register 互为反面——slot **恰零个 `/`**（两段形拒：插件注册面结构性
+   * 不可达的承诺面不因本位开门）；撞名拒 / volatile 声明面 / 物化两段律 /
+   * 漂移观测 / onSectionsChange 全同蒙。owner 恒 'host'。v1 唯一调用方 =
+   * plugin-boot 装配根（项目上下文段）。
+   */
+  registerHost(slot: string, builder: PromptSectionBuilder, options?: PromptSectionRegisterOptions): () => void {
+    // 宿主位词法执法：单段非空（恰零个 /——与插件面「恰含一个 /」互斥成
+    // 完备划分，两类注册面结构性不可互扰）
+    if (slot.length === 0 || slot.includes('/')) {
+      throw new BaseError(
+        'PLUGIN_PROMPT_SLOT_INVALID',
+        `宿主位 slot 须为非空单段（${slot}——恰零个 /；带 / 的两段形走插件注册面 ctx.prompts.registerSection）`,
+      );
+    }
+    if (this.sections.has(slot)) {
+      throw new BaseError(
+        'PLUGIN_PROMPT_SECTION_CONFLICT',
+        `提示词段 slot ${slot} 已由 ${this.sections.get(slot)?.owner} 注册——两段同位即装配冲突（词法身份面拒绝式，不静默覆盖）`,
+      );
+    }
+    // volatile 声明面校验与插件面同蒙（单源私验——register 行同款）
+    assertVolatileReason(slot, options);
+    this.sections.set(slot, { slot, owner: 'host', builder, volatileReason: options?.volatile?.reason });
+    this.stableBaselines = null;
+    this.onSectionsChange?.();
+    return () => {
+      if (this.sections.get(slot)?.owner === 'host') {
+        this.sections.delete(slot);
+        this.stableBaselines = null;
+        this.onSectionsChange?.();
       }
     };
   }
@@ -191,8 +236,12 @@ export class PromptSectionRegistry {
     } else {
       this.stableBaselines = null;
     }
-    // 两段律拼接：稳定段在前（缓存前缀主体）、volatile 段恒居尾（最小前缀破坏位）
-    return [...stableBuilt.map((built) => built.text), ...volatileTexts].join('\n\n');
+    // 两段律拼接：稳定段在前（缓存前缀主体）、volatile 段恒居尾（最小前缀
+    // 破坏位）；**空文本段滤除**（03 §2.5 A4 S-3——宿主项目上下文段无命中/
+    // 无会话锚时返回空串，空段进 join 即占位噪声〔头尾/夹缝空行〕——滤空
+    // = 零段诚实缺席的物化侧执法；既有段 builder 恒非空，行为面零扰动）
+    const parts = [...stableBuilt.map((built) => built.text), ...volatileTexts].filter((text) => text !== '');
+    return parts.join('\n\n');
   }
 
   /** 现行段 id 清单（`prompts_change` 观测载荷——§2.4 生命周期组） */

@@ -74,6 +74,7 @@ import type { SessionsControlFace, SessionStartInput } from '../conversation/ind
 // sessions 受理面 fork 绑定（ag 批 cs-D2——03 §4.5 定形注：共享根 provision 形态废止）
 import { bindSessionsForPlugin } from './sessions-face.js';
 import type { SessionsFace } from './sessions-face.js';
+import { createProjectSectionBuilder } from './project-instructions.js';
 // 压缩席位容器（U4-3——compaction fork 绑定；host→compaction 边在册）
 import type { CompactionSlotsHandle } from '../compaction/index.js';
 import { SDK_ROUTES_SERVICE } from '../../plugins/sdk/index.js';
@@ -301,6 +302,13 @@ export interface PluginBootOptions {
    * 装载失败（装载管线抛错）到不了写点 = 不落行不换代（05 §9 边沿定形）。
    */
   readonly loadHistory?: LoadHistoryFace;
+  /**
+   * 宿主项目上下文段装配位（03 §2.5 A4 条——CLI/SDK 进化批）：在场即在
+   * registry 宿主位注册 `project` 段（AGENTS.md/CLAUDE.md 最近者胜装载）。
+   * workspaceRootOf = 会话工作区根解析器（assembly 注入：manager 活体镜像
+   * ?? 库行）；缺席 = 段不注册（诊断/测试替身形——诚实缺位律）。
+   */
+  readonly projectInstructions?: { readonly workspaceRootOf: (sessionId: string) => string | undefined };
   /**
    * Job 收口面（受局面注入——Job 消费面批桥二：04 §10 归属围栏 owner =
    * 插件 id 的卸载收口腿）。卸载 closer 序对 activated 逐插件 closeOwner
@@ -624,6 +632,18 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       void options.dispatch.emit('prompts_change', { slots: promptSections.slotList() });
     },
   });
+  // 宿主项目上下文段（03 §2.5 A4 条——CLI/SDK 进化批 2026-11-09：宿主自留
+  // 地段首个实占实例，slot `project`）。注册位在 ⑩ 安全模式短路**之前**——
+  // 宿主段非插件装载面，--no-plugins 照常装载注入（A4 笔边界④）；workspaceRoot
+  // 解析器由 assembly 注入（manager 活体镜像 ?? 库行）；每会话懒冻结 + volatile
+  // 声明（归类基线② 两律合用——多工作区会话交替物化免锚噪声）在 builder 内
+  if (options.projectInstructions !== undefined) {
+    promptSections.registerHost(
+      'project',
+      createProjectSectionBuilder(options.projectInstructions.workspaceRootOf, (message) => warn(message)),
+      { volatile: { reason: '项目上下文按会话懒冻结——盘上文件换代（/reload）重发现重冻结' } },
+    );
+  }
   // 宿主 API 面版本单源（测试注入面缺省 '1.0'——装配根恒传真值，见 options
   // 注记）：hostFace 物化位与装载门裁决坐标位共用（原两处字面量散拷——改
   // 其一漏其一即静默漂移）

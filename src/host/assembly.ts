@@ -1139,6 +1139,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           // 进程级 doors 段活体取值器（开门制扩展批 2026-09-09——observe-cross
           // 专属分立判定位消费：订阅 all 档门检行 opens ∥ doors 并判）
           crossDoors: () => readDoorsSegmentLive(dataDir),
+          // 宿主项目上下文段（03 §2.5 A4——CLI/SDK 进化批）：workspaceRoot
+          // 解析器 = manager 活体镜像（日志登记值单源）?? 库行（重启后续接
+          // 会话在 manager 入册前的首物化形）；两源皆缺 = 段空串（materialize
+          // 滤空不占位——零段诚实缺席）
+          projectInstructions: {
+            workspaceRootOf: (sessionId) =>
+              stack.manager.workspaceRootOf(sessionId) ?? rt.persistence.store.getSessionRow(sessionId)?.workspaceRoot,
+          },
           // session_start 补播腿活体会话册取值器（03 §2.4 主表行补播腿——
           // 2026-10-16 硬伤处置第三批·②落码笔）：真身 = manager 活体投影
           // listActive()（入册序单源——records Map 迭代序）；装载收口对在册

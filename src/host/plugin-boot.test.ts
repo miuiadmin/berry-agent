@@ -2182,3 +2182,30 @@ describe('oauth 流注册表死域与换代清理（03 §10.9 oauth 死域批）
     expect(handlerCalls).toBe(1); // handler 未再执行
   });
 });
+
+describe('宿主项目上下文段接线（03 §2.5 A4——CLI/SDK 进化批 2026-11-09）', () => {
+  it('projectInstructions 在场即注册 project 段；物化不炸（锚缺席零段）', async () => {
+    const { options } = rigBoot('/data', {
+      projectInstructions: { workspaceRootOf: () => '/nonexistent-ws' },
+    });
+    const boot = await bootPlugins(options);
+    expect(boot.promptSections.slotList()).toContain('project');
+    // 无命中工作区：物化返回字符串零段（滤空不占位）——不炸不占噪声
+    expect(typeof boot.promptSections.materialize('s-1')).toBe('string');
+  });
+
+  it('noPlugins 安全模式不灭宿主段（A4 笔边界④——注册位在 ⑩ 短路之前）', async () => {
+    const { options } = rigBoot('/data', {
+      noPlugins: true,
+      projectInstructions: { workspaceRootOf: () => '/ws' },
+    });
+    const boot = await bootPlugins(options);
+    expect(boot.promptSections.slotList()).toContain('project');
+  });
+
+  it('projectInstructions 缺席 = 段不注册（诚实缺位律——诊断/替身形）', async () => {
+    const { options } = rigBoot('/data', {});
+    const boot = await bootPlugins(options);
+    expect(boot.promptSections.slotList()).not.toContain('project');
+  });
+});

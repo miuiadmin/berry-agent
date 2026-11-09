@@ -152,3 +152,56 @@ describe('prompts_change 观测面（03 §2.4 生命周期组——2026-09-17 sw
     expect(snapshots).toHaveLength(2);
   });
 });
+
+describe('宿主位注册 registerHost（03 §2.5 A4——CLI/SDK 进化批 2026-11-09）', () => {
+  it('单段 slot 受理：owner 恒 host、入册入序、onSectionsChange 触发', () => {
+    const snapshots: string[][] = [];
+    const registry = new PromptSectionRegistry({
+      onSectionsChange: () => snapshots.push([...registry.slotList()]),
+    });
+    const off = registry.registerHost('project', () => '项目指令');
+    expect(registry.slotList()).toEqual(['project']);
+    expect(snapshots).toHaveLength(1);
+    // 物化含宿主段（builder 原文直出——两段律不因 owner 分叉）
+    expect(registry.materialize('s-1')).toBe('项目指令');
+    off();
+    expect(registry.slotList()).toEqual([]);
+    expect(snapshots).toHaveLength(2);
+  });
+
+  it('两段形拒（插件注册面词形不得从宿主位混入——两类注册面完备划分）', () => {
+    const registry = new PromptSectionRegistry();
+    expectCode(() => registry.registerHost('widgets/x', () => 'X'), 'PLUGIN_PROMPT_SLOT_INVALID');
+    expectCode(() => registry.registerHost('', () => 'X'), 'PLUGIN_PROMPT_SLOT_INVALID');
+  });
+
+  it('撞名拒：宿主位同 slot 重复注册 / 与插件段不冲突（词法空间分立）', () => {
+    const registry = new PromptSectionRegistry();
+    registry.registerHost('project', () => '一');
+    expectCode(() => registry.registerHost('project', () => '二'), 'PLUGIN_PROMPT_SECTION_CONFLICT');
+    // 单段与两段词法空间天然分立：插件段不受宿主位影响，照常受理
+    registry.register('project/x', 'project', () => '插件段');
+    expect(registry.slotList()).toEqual(['project', 'project/x']);
+  });
+
+  it('volatile 声明面同蒙：空 reason 拒（单源私验——与插件面同码分流）', () => {
+    const registry = new PromptSectionRegistry();
+    expectCode(
+      () => registry.registerHost('project', () => 'X', { volatile: { reason: '' } }),
+      'PLUGIN_PROMPT_SLOT_INVALID',
+    );
+    // 合法 volatile 受理且物化位居段区尾（两段律同蒙）
+    registry.register('a/stable', 'a', () => '稳定段');
+    registry.registerHost('project', () => '宿主段', { volatile: { reason: '按会话冻结' } });
+    expect(registry.materialize()).toBe('稳定段\n\n宿主段');
+  });
+
+  it('空文本段滤除（S-3 零段诚实缺席——空段噪声禁）', () => {
+    const registry = new PromptSectionRegistry();
+    registry.register('a/one', 'a', () => '有料');
+    registry.registerHost('project', () => ''); // 无命中形（builder 空串）
+    registry.register('b/two', 'b', () => '收尾');
+    // 空段不占位：无夹缝空行，join 语义对消费方等价于段缺席
+    expect(registry.materialize()).toBe('有料\n\n收尾');
+  });
+});
