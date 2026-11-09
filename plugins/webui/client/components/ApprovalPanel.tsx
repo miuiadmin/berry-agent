@@ -37,6 +37,19 @@ export function ApprovalPanel({
               {entry.toolName !== undefined ? (
                 <p className="mt-1 text-2xs text-ink-faint">工具：{entry.toolName}</p>
               ) : null}
+              {/* A-4 收口（04 §9 B1 ①/S-1）：toolCall 在场以参数明细为准——消毒后形键值紧凑呈现（首四键） */}
+              {entry.toolCall !== undefined ? (
+                <p className="mt-1 break-all font-mono text-2xs text-ink-faint">
+                  {Object.entries(entry.toolCall.arguments)
+                    .slice(0, 4)
+                    .map(([k, v]) => `${k}=${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)}`)
+                    .join(' ')}
+                </p>
+              ) : null}
+              {/* A-4：候选集呈现（空格形与 suggestedEntry 同源——面板不设 always 键〔批 18a-2「留 CLI 形」立场维持〕） */}
+              {entry.suggestions !== undefined && entry.suggestions.length > 0 ? (
+                <p className="mt-1 text-2xs text-ink-mute">候选规则：{entry.suggestions.join('；')}</p>
+              ) : null}
               <div className="mt-2 flex gap-1.5">
                 <button
                   type="button"

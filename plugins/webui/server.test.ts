@@ -1855,6 +1855,30 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     }
   });
 
+  it('A-4 收口：ask 携 toolCall/suggestions → 清单投影同源携带两字段（B1 呈现面数据腿闭合）', async () => {
+    const asked = webui!.backend.askApproval!('s-1', {
+      summary: '写入 /ws/a.txt',
+      toolCall: { callId: 'c-9', toolName: 'write', arguments: { path: '/ws/a.txt', content: 'REDACTED' } },
+      suggestions: ['write /ws/a.txt'],
+    });
+    try {
+      const list = await get('/api/approvals');
+      const entry = (list.json as { approvals: Array<Record<string, unknown>> }).approvals[0]!;
+      expect(entry['toolCall']).toEqual({
+        callId: 'c-9',
+        toolName: 'write',
+        arguments: { path: '/ws/a.txt', content: 'REDACTED' },
+      });
+      expect(entry['suggestions']).toEqual(['write /ws/a.txt']);
+    } finally {
+      // 收口：从清单取 id 后 decide cancel 落值防悬挂
+      const l2 = await get('/api/approvals');
+      const id = (l2.json as { approvals: Array<{ approvalId: string }> }).approvals[0]!.approvalId;
+      await post(`/api/approvals/${id}/decide`, { answer: 'cancel' });
+      await expect(asked).resolves.toBe('cancel');
+    }
+  });
+
   it('审批撤销：signal abort → ask 落 cancel + 清单出清；已决后迟到 abort 是 no-op', async () => {
     const reader = await openSse(port, 's-1', token);
     try {

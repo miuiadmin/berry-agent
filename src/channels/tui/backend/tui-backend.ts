@@ -4055,17 +4055,32 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         request.toolName !== undefined
           ? `${HEAD_MARKS.tool} ${toolFaceZh(request.toolName)}：${request.summary}`
           : request.summary;
+      // A-3 收口（04 §9 B1 ①/S-1）：toolCall 在场时呈现面以其为准——参数
+      // 明细进 title 副行（消毒后形——gate 组装位已消毒；键值紧凑单行帽截断，
+      // 呈现层零审批语义）；缺席回落 toolName 旧形
+      const detail =
+        request.toolCall !== undefined
+          ? Object.entries(request.toolCall.arguments)
+              .slice(0, 4)
+              .map(
+                ([k, v]) =>
+                  `${k}=${typeof v === 'string' ? (v.length > 60 ? `${v.slice(0, 60)}…` : v) : JSON.stringify(v)}`,
+              )
+              .join(' ')
+          : undefined;
+      const titleWithDetail = detail !== undefined && detail !== '' ? `${title}\n${detail}` : title;
+      // A-3：always hint 改消费 suggestions[0]（B1 候选集空格呈现形同源）；
+      // 缺席回落 suggestedEntry 单条（兼容形不废——两形同值时零可分辨差异）
+      const alwaysHint = request.suggestions?.[0] ?? request.suggestedEntry;
       const panel = new ApprovalPanel({
-        title,
+        title: titleWithDetail,
         options: [
           { value: 'approve', label: '批准' },
           { value: 'reject', label: '拒绝' },
-          // always 条件呈现（64 轮件 F）：草案缺席不呈现该选项——恰三值面板；
-          // 在场则四值且草案经 hint 段呈现（判据 === undefined 与通道核
-          // settleApprovalAlways 防御收口同判同源——空串草案不落防御支）
-          ...(request.suggestedEntry !== undefined
-            ? [{ value: 'always', label: '总是批准', hint: request.suggestedEntry }]
-            : []),
+          // always 条件呈现（64 轮件 F）：草案/候选缺席不呈现该选项——恰三值
+          // 面板；在场则四值且候选经 hint 段呈现（判据 === undefined 与通道核
+          // settleApprovalAlways 防御收口同判同源——空串不落防御支）
+          ...(alwaysHint !== undefined ? [{ value: 'always', label: '总是批准', hint: alwaysHint }] : []),
           { value: 'cancel', label: '取消' },
         ],
         theme: this.theme, // 一次性面板构造期定值（当前主题快照）

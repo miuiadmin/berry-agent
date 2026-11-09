@@ -239,6 +239,13 @@ interface PendingApproval {
   readonly reason?: string;
   readonly toolName?: string;
   readonly suggestedEntry?: string;
+  /** A-4 收口（04 §9 B1 ①/S-1）：tool 级裁决请求〔消毒后形〕与候选集——SSE 镜像与清单投影同源携带 */
+  readonly toolCall?: {
+    readonly callId: string;
+    readonly toolName: string;
+    readonly arguments: Record<string, unknown>;
+  };
+  readonly suggestions?: readonly string[];
   /** 已决标记（先答先得后迟到 decide/abort 皆 no-op） */
   settled: boolean;
   readonly resolve: (answer: ApprovalAnswer) => void;
@@ -401,6 +408,10 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
           ...(request.reason !== undefined ? { reason: request.reason } : {}),
           ...(request.toolName !== undefined ? { toolName: request.toolName } : {}),
           ...(request.suggestedEntry !== undefined ? { suggestedEntry: request.suggestedEntry } : {}),
+          // A-4：B1 新载荷透传（SSE 镜像 `...request` 已携——清单投影与账项
+          // 同源对齐，消费面自此可达）
+          ...(request.toolCall !== undefined ? { toolCall: request.toolCall } : {}),
+          ...(request.suggestions !== undefined ? { suggestions: request.suggestions } : {}),
           settled: false,
           resolve,
         };
@@ -1002,6 +1013,8 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
           ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
           ...(entry.toolName !== undefined ? { toolName: entry.toolName } : {}),
           ...(entry.suggestedEntry !== undefined ? { suggestedEntry: entry.suggestedEntry } : {}),
+          ...(entry.toolCall !== undefined ? { toolCall: entry.toolCall } : {}),
+          ...(entry.suggestions !== undefined ? { suggestions: entry.suggestions } : {}),
         });
       }
       sendJson(res, 200, { approvals: list });

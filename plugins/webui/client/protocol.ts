@@ -179,6 +179,13 @@ export interface ClientApprovalEntry {
   readonly reason?: string;
   readonly toolName?: string;
   readonly suggestedEntry?: string;
+  /** A-4 收口（04 §9 B1 ①/S-1）：tool 级裁决请求〔消毒后形〕与候选集——面板参数明细呈现位 */
+  readonly toolCall?: {
+    readonly callId: string;
+    readonly toolName: string;
+    readonly arguments: Record<string, unknown>;
+  };
+  readonly suggestions?: readonly string[];
 }
 
 /** todo 条目（goal 计划态呈现投影的客户端消费子集） */
