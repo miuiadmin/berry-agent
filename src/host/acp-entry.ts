@@ -16,7 +16,8 @@ import { stdin, stdout, stderr } from 'node:process';
 
 import { runAcpFace, type AcpFaceDeps } from '../../plugins/sdk/index.js';
 import type { AcpSubmitOutcome } from '../../plugins/sdk/index.js';
-import type { Provider } from '../llm/index.js';
+import { parseModelSpec, type Provider } from '../llm/index.js';
+import { BaseError } from '../contracts/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { setSessionMode, setSessionModel } from '../conversation/index.js';
@@ -59,7 +60,9 @@ export interface AcpEntryOptions {
  *   （serve 桥的让位一拍〔订阅竞态〕在 ACP 形不需要——信封经 addBackend
  *   恒达，无订阅时点竞态；SubmitResult 三分收窄为 AcpSubmitOutcome）；
  * - 档位/模型腿：durable 事件面直写（setSessionMode/setSessionModel——
- *   append 即切换、重放即恢复；模型 spec 语法校验 fail-loud 抛注册码）。
+ *   append 即切换、重放即恢复；模型 spec 语法校验 fail-loud 抛注册码）；
+ *   模型面挂凭证就绪律（07 ux-4 批注 2026-11-09 第四消费位）——modelCatalog
+ *   只出就绪模型、setModelSpec 无凭证 spec 抛 LLM_CREDENTIAL_UNCONFIGURED。
  */
 function buildAcpDeps(stack: ConversationStack, anchors: { cwd: string }): AcpFaceDeps {
   const driverOf = (sessionId: string) => stack.driverOf(sessionId) ?? stack.manager.open(sessionId).driver;
@@ -107,9 +110,29 @@ function buildAcpDeps(stack: ConversationStack, anchors: { cwd: string }): AcpFa
       setSessionMode(driverOf(sessionId).session, mode);
     },
     setModelSpec: (sessionId, spec) => {
-      setSessionModel(driverOf(sessionId).session, spec);
+      // 校验序（07 ux-4 批注 2026-11-09）：会话解析 → 语法段（parseModelSpec
+      // 同源执法——与 setSessionModel 内联判据同律）→ 凭证就绪闸 → 落账。
+      // 闸只在 ACP 客户端面：无凭证 spec 抛注册码（折 -32602 连接存活）；
+      // 逃生口律不受涉（BERRY_AGENT_MODEL/settings 直达与 TUI 面零改）。
+      const session = driverOf(sessionId).session;
+      parseModelSpec(spec);
+      if (stack.modelCredentialStatus(spec) !== 'ready') {
+        throw new BaseError(
+          'LLM_CREDENTIAL_UNCONFIGURED',
+          `模型 ${spec} 凭证未就绪（env 键与凭证绑定行均缺席）——ACP 模型列表只含已就绪模型；先配置该渠道凭证（TUI /setup 向导或 berry credentials add --model-provider <渠道>）再切换`,
+        );
+      }
+      setSessionModel(session, spec);
     },
-    modelCatalog: () => stack.llm.listModels().map((model) => ({ id: model.id, name: model.name })),
+    // 凭证就绪过滤宇宙第四消费位（07 ux-4 批注 2026-11-09）：与 /model 面板、
+    // ctrl+p 循环、/status 计数同判据单源（env 键 ∨ 绑定行命中——自定义渠道
+    // 天然走绑定行）。currentModelId 不在此过滤（modelOf 照实回显——当前档
+    // 缺席于 availableModels 合法，缺省档无凭证即此形）。
+    modelCatalog: () =>
+      stack.llm
+        .listModels()
+        .filter((model) => stack.modelCredentialStatus(model.id) === 'ready')
+        .map((model) => ({ id: model.id, name: model.name })),
     modelOf: (sessionId) => stack.sessionModelOf(sessionId),
   };
 }
