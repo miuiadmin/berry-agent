@@ -1,22 +1,22 @@
 {
+  // 编译开关单源承继主仓 tsconfig（评估档挂账①：开关集零 extends 复制粘贴、
+  // 漂移无结构拦截——承 tsconfig.build / tsconfig.webui-client 同族先例，
+  // 主仓开关演进自此结构传导到 SDK，不再依赖人工同步两份拷贝）。
+  // 覆写面逐项裁定（extends 相对路径锚「声明件」——承继值会错位的面必须自持）：
+  // - outDir：父值 "dist" 锚到仓根，会与主构建产物互踩——SDK 发射物位自持
+  //   packages/berry-agent-sdk/dist；
+  // - rootDir：父配置无此键（归 tsconfig.build.json emit 专属关注）——SDK
+  //   包册 main 位（dist/packages/berry-agent-sdk/src/**）依赖 rootDir "../.."
+  //   自持，缺席则 emit 布局塌缩；
+  // - include/exclude：承继面相对仓根解析会把整个主仓源树收进 SDK 程序
+  //   （extends 数组不合并、但 include 亦锚声明件）——SDK 树自持：src 入、
+  //   测试出局。
+  // paths 承继不覆写（berry-agent → 仓根 src/contracts 源锚）：SDK 树零该
+  // 指称（全相对导入），承继纯 inert；未来若需指称即天然得源锚。
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "target": "ES2023",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "lib": ["ES2023"],
-    "types": ["node"],
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true,
-    "declaration": true,
-    "sourceMap": true,
     "outDir": "dist",
-    "rootDir": "../..",
-    "noUnusedLocals": true,
-    "noUnusedParameters": true
+    "rootDir": "../.."
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"]
