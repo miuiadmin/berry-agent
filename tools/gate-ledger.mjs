@@ -30,17 +30,24 @@
  *
  * 为什么不 spawn `npm run`：多一层 npm 进程与 shell 开销；且 npm 对链式 script
  * 的退出码有自己的包装传播层，直接调底层命令链才能拿到一手 exit code。因此
- * **命令真源 = package.json scripts**（下方 GATES 逐字复述四条命令的底层链），
- * 改 package.json 相应 script 时必须同步此处——这是人工同步义务，无自动校验。
+ * **命令真源 = package.json scripts**（下方 GATES 逐字复述四条命令的底层链）。
+ * 同步义务原是人工的（无自动校验）；2026-11-10 增量升格为机器执法——启动时
+ * findGateDrift 把四条 script 原文与 GATES 展开串逐字对拍，漂移即 exit 2 拒跑
+ * 并打印具名差集与修复指路（fail-loud：漂移状态下台账口径不可信，宁可拒跑；
+ * 单腿模式同样先过对拍；旧四门禁 npm run 命令不受影响）。
  *
  * 用法：node tools/gate-ledger.mjs [gate]
  *   无参 = 四门禁按序全跑；带门禁名（typecheck/test/lint:topology/format:check）
  *   只跑该腿（自验/调试旁门，红跑同样落账）。npm script 位建议 gates:ledger。
+ *   exit 2 有两个来源、文案可区分：启动对拍发现漂移（✗ 漂移 + 具名差集 +
+ *   修复指路）与参数错（用法行）——都不是门禁红；门禁红透传门禁自身退出码。
  *
- * 本脚本不是第五门禁：不拦截、不告警、落账失败只 warn 不改门禁退出码。
+ * 本脚本不是第五门禁：不拦截代码问题、不告警、落账失败只 warn 不改门禁退出
+ * 码。对拍拒跑的 exit 2 与 usage 的 exit 2 同类——包装器自身口径完整性检查，
+ * 不是门禁语义的红。
  * 零依赖（Node 内置）、不联网、Node≥18。台账文件 .gates-hits.jsonl 需 gitignore。
  */
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,6 +59,7 @@ const LEDGER_PATH = join(REPO_ROOT, '.gates-hits.jsonl');
 /**
  * format:check 的检查面 glob 列表——逐字转录自 package.json scripts["format:check"]
  * （引号是给 shell 的，这里直接以数组元素传给 prettier，由 prettier 自行 glob 展开）。
+ * 转录忠实度由 findGateDrift 对拍护持（2026-11-10 增量）——漂移即拒跑。
  */
 const FORMAT_GLOBS = [
   'src/**/*.{ts,tsx,css,html}',
@@ -190,11 +198,14 @@ export function parseFormatIds(stepResults) {
 }
 
 /**
- * 四门禁定义——steps 逐字复述 package.json scripts 的底层命令链（真源声明：
- * 改 package.json 这四条 script 时必须同步此处，无自动校验）。check-* 支的
- * label 即脚本名，供 lint 腿「脚本名 + 输出行」落账。
+ * 四门禁定义——steps 逐字复述 package.json scripts 的底层命令链。真源方向
+ * package.json → 本件：启动时 findGateDrift 逐字对拍执法（2026-11-10 增量，
+ * 原「人工同步义务、无自动校验」升格为机器执法）——漂移即 exit 2 拒跑。
+ * check-* 支的 label 即脚本名，供 lint 腿「脚本名 + 输出行」落账。
+ * export 供复算面（gate-ledger-report.mjs）import 派生门禁名单——单一真源，
+ * 报告侧不再各自维护一份名单（对抗审查 2026-11-10 修复：原先是两处手工同步）。
  */
-const GATES = [
+export const GATES = [
   {
     name: 'typecheck',
     steps: [
@@ -231,6 +242,54 @@ const GATES = [
 ];
 
 /**
+ * 把单个参数还原成 package.json script 里的书写形（对拍展开用的引号规则）。
+ * 为什么引号风格锚在 FORMAT_GLOBS 集上而不是按字符集推断：本仓四条 script 的
+ * 手写形是「prettier glob 检查面整体带双引号、命令名/flag/路径裸写」——
+ * `vite.config.ts` 无任何 shell 特殊字符却也带引号，按字符集推不出书写形；只有
+ * 锚定数据集（该面即 FORMAT_GLOBS 的逐字转录）展开串才能与原文逐字一致。含
+ * shell 元字符且不在 FORMAT_GLOBS 集的 token（未来新书写形态）按双引号展开，
+ * 与原文不一致即对拍红——fail-loud，同步时一并调整本规则。
+ * @param {string} token
+ * @returns {string}
+ */
+export function shellQuote(token) {
+  if (FORMAT_GLOBS.includes(token)) return `"${token}"`;
+  // POSIX shell 安全字符集（字母数字与惯用 flag/路径符号）内裸写，与手写形一致
+  return /^[\w@%+=:,./-]+$/.test(token) ? token : `"${token}"`;
+}
+
+/**
+ * 把一条 GATES 定义展开成与 package.json script 等价的命令串（支间以 ` && `
+ * 连接，复刻 package.json 手写链形）。对拍的 GATES 侧基准——结构化 steps
+ * （cmd/args 数组）与原文命令串之间就靠它桥接，逐字比对才可能成立。
+ * @param {{steps: {cmd: string, args: string[]}[]}} gate
+ * @returns {string}
+ */
+export function expandGateCommand(gate) {
+  return gate.steps.map((s) => [s.cmd, ...s.args].map(shellQuote).join(' ')).join(' && ');
+}
+
+/**
+ * 漂移对拍（fail-loud 执法面，2026-11-10 增量）：读 package.json 四门禁 script
+ * 原文，与 GATES 展开串逐字对拍。为什么逐字而非语义等价：对拍护持的是
+ * 「GATES 复述 = 真源」这一事实本身——语义等价但书写不同（空格/引号风格）同样
+ * 意味着有人改了一边没同步另一边，台账口径即不可信，一律算漂移拒跑。
+ * package.json 缺失/坏 JSON 时抛异常，由调用方按同一 fail-loud 口径处理（真源
+ * 不可读，复述无从对起，同样拒跑）。
+ * @returns {{name: string, pkg: string | undefined, expanded: string}[]} 漂移差集（空数组 = 一致）
+ */
+export function findGateDrift() {
+  const scripts = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).scripts ?? {};
+  const drifts = [];
+  for (const gate of GATES) {
+    const pkg = scripts[gate.name];
+    const expanded = expandGateCommand(gate);
+    if (pkg !== expanded) drifts.push({ name: gate.name, pkg, expanded });
+  }
+  return drifts;
+}
+
+/**
  * 红跑落账：append 一行 `{ts, gate, ids}` JSONL。为什么 try/catch：台账只是
  * 证据面不是门禁——落账失败（权限/磁盘）只 warn stderr，绝不改写门禁自身的
  * 退出码语义。ids 为空（红但解析不出规则，如 prettier >20 文件只报汇总）落
@@ -254,6 +313,36 @@ function appendLedger(gate, ids) {
  * 全绿零落账、exit 0。绿跑不创建台账文件（append 只在红跑发生）。
  */
 async function main() {
+  // 漂移对拍先于一切（usage 检查、门禁腿都在其后）：漂移状态下无论全跑/单腿，
+  // 台账口径都不可信——宁可拒跑（fail-loud）。2026-11-10 增量。
+  let drifts;
+  try {
+    drifts = findGateDrift();
+  } catch (e) {
+    process.stderr.write(
+      `[gate-ledger] ✗ 对拍真源 package.json 不可读：${e}\n` +
+        `[gate-ledger] 台账口径不可信，拒跑（exit 2）。修复指路：恢复仓根 package.json（存在且为合法 JSON）后重试。\n`,
+    );
+    process.exitCode = 2;
+    return;
+  }
+  if (drifts.length > 0) {
+    process.stderr.write(
+      `[gate-ledger] ✗ GATES/FORMAT_GLOBS 与 package.json scripts 漂移（${drifts.length} 条）——台账口径不可信，拒跑（exit 2）：\n`,
+    );
+    for (const d of drifts) {
+      process.stderr.write(`[gate-ledger]   [${d.name}]\n`);
+      process.stderr.write(`[gate-ledger]     package.json: ${d.pkg ?? '（scripts 缺该键）'}\n`);
+      process.stderr.write(`[gate-ledger]     GATES 展开  : ${d.expanded}\n`);
+    }
+    process.stderr.write(
+      `[gate-ledger] 修复指路：命令真源 = package.json scripts（本件 GATES/FORMAT_GLOBS 是复述）——以 package.json 侧为准，` +
+        `把每条漂移门禁的原文逐字同步到 tools/gate-ledger.mjs 的 GATES 常量（format:check 的检查面在 FORMAT_GLOBS 常量）；` +
+        `若是有意改命令链，先改 package.json 再同步此处。漂移未清前本脚本拒跑；旧四门禁 npm run 命令不受影响。\n`,
+    );
+    process.exitCode = 2; // 漂移拒跑码——与 usage 的 2 同值但文案具名可区分（见头注）
+    return;
+  }
   const only = process.argv[2];
   if (only !== undefined && !GATES.some((g) => g.name === only)) {
     process.stderr.write(`用法: node tools/gate-ledger.mjs [${GATES.map((g) => g.name).join(' | ')}]\n`);
