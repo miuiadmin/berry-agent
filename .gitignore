@@ -33,3 +33,6 @@ CLAUDE.md
 
 # vitest 运行期缓存目录（本地测试产物——61 轮批首见显形，ignore 行加固）
 .vitest/
+
+# 门禁命中台账——本地审计数据（tools/gate-ledger.mjs 红跑 append，绿跑零落账；不入公开史）
+.gates-hits.jsonl
