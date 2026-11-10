@@ -85,6 +85,11 @@ export default defineConfig({
           // webui-client 轨（④批量迁移 D 腿随 webui 件迁 plugins/）：
           include: ['plugins/webui/client/**/*.test.tsx'],
           environment: 'jsdom',
+          // 数据目录钉扎与 node 轨同源（tools/vitest-setup.mjs——纯 env/fs 侧，
+          // jsdom 环境下 node:* 内建与 vitest 导入照常可用）：本轨此前无钉靠
+          // 「测试不触数据目录」侥幸——任何组件链未来间接落盘（fetch/session
+          // 态）即写真 ~/.berry-agent，纪律从结构上补齐（承 berry 基建大扫 #16）。
+          setupFiles: ['tools/vitest-setup.mjs'],
           testTimeout: 15_000,
           clearMocks: true,
         },
