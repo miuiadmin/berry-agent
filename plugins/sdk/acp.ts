@@ -111,6 +111,21 @@ export interface AcpFaceOptions {
   readonly serverInfo: { readonly name: string; readonly version: string };
   /** 诊断日志位（传输面 warn——宿主注入 stderr logger；缺席静默） */
   readonly log?: (message: string) => void;
+  /**
+   * hapi 契约四腿（2026-11-10 深度适配批）——session/new|load 响应携 models
+   * 块 + configOptions（hapi ListBerryModels 数据源）、session/set_config_option·
+   * set_model 落 durable 事件、session/set_mode 走沙箱档轴。全部可选——
+   * 缺席时这些扩展面降级隐藏（models 块不发、set_* 方法 -32601），非 hapi
+   * 客户端（Zed 等官方 v1 消费者）零感知。
+   */
+  readonly modelCatalog?: () => ReadonlyArray<{ id: string; name: string }>;
+  readonly modelOf?: (sessionId: string) => string;
+  readonly setModelSpec?: (sessionId: string, spec: string) => void;
+  readonly setSandboxMode?: (sessionId: string, mode: 'read-only' | 'workspace-write' | 'danger') => void;
+  /** 会话幂等续接(行缺席抛——session/resume 扩展面消费) */
+  readonly resumeSession?: (sessionId: string) => void;
+  /** 会话清单投影(session/list 扩展面——title 空值 null 诚实缺席) */
+  readonly listSessions?: () => ReadonlyArray<{ id: string; title: string | null; lastActivityAt: number }>;
 }
 
 /** ACP 面产物（后端 + 终局 promise + 收口——serve/MCP 形同族三件） */
@@ -130,6 +145,36 @@ export interface AcpFaceHandle {
  * 请求出）。直播线常开（与 MCP 收集式 sink 分立）：event/ask 帧即达即推。
  */
 export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
+  /* —— hapi 契约面帮助（深度适配批——可选腿在场才发,缺席空对象零感知）—— */
+
+  /** models 块 + configOptions 组装 */
+  const hapiSessionBlocks = (sessionId: string): Record<string, unknown> => {
+    if (options.modelCatalog === undefined || options.modelOf === undefined) return {};
+    const catalog = options.modelCatalog();
+    const current = options.modelOf(sessionId);
+    return {
+      models: {
+        availableModels: catalog.map((model) => ({ modelId: model.id, name: model.name })),
+        currentModelId: current,
+      },
+      configOptions: [
+        {
+          id: 'model',
+          name: 'Model',
+          type: 'select',
+          category: 'model',
+          currentValue: current,
+          options: catalog.map((model) => ({ value: model.id, name: model.name })),
+        },
+      ],
+    };
+  };
+
+  /** configOptions 单源重组(set_config_option 回执用) */
+  const modelConfigOptions = (sessionId: string): Array<Record<string, unknown>> => {
+    const blocks = hapiSessionBlocks(sessionId);
+    return (blocks.configOptions as Array<Record<string, unknown>>) ?? [];
+  };
   const log = options.log ?? (() => {});
 
   // —— 连接级状态（行解码环与直播路由共用的单连接状态机位）——
@@ -565,7 +610,7 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
         }
         try {
           const sessionId = options.createSession(cwd);
-          if (hasId) writeResult(id, { sessionId });
+          if (hasId) writeResult(id, { sessionId, ...hapiSessionBlocks(sessionId) });
         } catch (err) {
           if (hasId)
             writeError(id, JSONRPC_SERVER_ERROR, `会话创建失败：${err instanceof Error ? err.message : String(err)}`);
@@ -655,7 +700,109 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
         // 直播订阅挂接（hello after=尾 seq：重放窗已手动消费——建流零重放；
         // 未决 ask 重推经直播路由转发 request_permission——重连客户端的正当补推）
         roundTrip({ verb: 'hello', protocolVersion: SDK_PROTOCOL_VERSION, sessionId, after: lastSeq });
-        if (hasId) writeResult(id, {});
+        if (hasId) writeResult(id, hapiSessionBlocks(sessionId));
+        return;
+      }
+      case 'session/resume': {
+        // hapi 扩展面（深度适配批）——berry 会话在 SQLite 库面幂等续接:
+        // 不重放历史（hapi Hub 是转录源——resume 只需恢复句柄与 blocks）。
+        // 可选腿缺席时与「不声明即不受理」同律(-32601)——非 hapi 宿主零感知
+        if (options.resumeSession === undefined) {
+          if (hasId) writeError(id, JSONRPC_METHOD_NOT_FOUND, `方法未受理：${msg.method}（v1 声明集外）`);
+          return;
+        }
+        const sessionId = params.sessionId;
+        if (typeof sessionId !== 'string' || sessionId === '') {
+          if (hasId) writeError(id, JSONRPC_INVALID_PARAMS, 'sessionId 必填');
+          return;
+        }
+        try {
+          options.resumeSession?.(sessionId);
+          if (hasId) writeResult(id, { sessionId, ...hapiSessionBlocks(sessionId) });
+        } catch (err) {
+          if (hasId)
+            writeError(id, JSONRPC_SERVER_ERROR, `会话续接失败：${err instanceof Error ? err.message : String(err)}`);
+        }
+        return;
+      }
+      case 'session/list': {
+        // hapi 扩展面——标题净化投影(title 空值诚实缺席)
+        if (options.listSessions === undefined) {
+          if (hasId) writeError(id, JSONRPC_METHOD_NOT_FOUND, `方法未受理：${msg.method}（v1 声明集外）`);
+          return;
+        }
+        const rows = options.listSessions();
+        if (hasId)
+          writeResult(id, {
+            sessions: rows.map((row) => ({
+              sessionId: row.id,
+              ...(row.title !== null ? { title: row.title } : {}),
+              updatedAt: row.lastActivityAt,
+            })),
+          });
+        return;
+      }
+      case 'session/set_mode': {
+        // hapi 扩展面——沙箱档轴(与 DSH/Hermes 家族的 set_mode 轴同形)
+        if (options.setSandboxMode === undefined) {
+          if (hasId) writeError(id, JSONRPC_METHOD_NOT_FOUND, `方法未受理：${msg.method}（v1 声明集外）`);
+          return;
+        }
+        const sessionId = params.sessionId;
+        const modeId = params.modeId;
+        if (typeof sessionId !== 'string' || sessionId === '' || typeof modeId !== 'string') {
+          if (hasId) writeError(id, JSONRPC_INVALID_PARAMS, 'sessionId 与 modeId 必填');
+          return;
+        }
+        const SANDBOX_BY_ACP_MODE: Record<string, string> = {
+          default: 'workspace-write',
+          read_only: 'read-only',
+          accept_edits: 'workspace-write',
+          dont_ask: 'danger',
+        };
+        const sandbox = SANDBOX_BY_ACP_MODE[modeId];
+        if (sandbox === undefined) {
+          if (hasId)
+            writeError(id, JSONRPC_INVALID_PARAMS, `modeId 须为 ${Object.keys(SANDBOX_BY_ACP_MODE).join('/')} 之一`);
+          return;
+        }
+        try {
+          options.setSandboxMode?.(sessionId, sandbox as 'read-only' | 'workspace-write' | 'danger');
+          if (hasId) writeResult(id, {});
+        } catch (err) {
+          if (hasId)
+            writeError(id, JSONRPC_SERVER_ERROR, `沙箱档切换失败：${err instanceof Error ? err.message : String(err)}`);
+        }
+        return;
+      }
+      case 'session/set_config_option':
+      case 'session/set_model': {
+        // hapi 扩展面——模型轴(set_config_option 须 configId='model';set_model
+        // 直收)。两形都落 durable 事件 + 回显 configOptions(set_config_option
+        // 官方回执形——schema 强制携带)
+        const sessionId = params.sessionId;
+        if (options.setModelSpec === undefined) {
+          if (hasId) writeError(id, JSONRPC_METHOD_NOT_FOUND, `方法未受理：${msg.method}（v1 声明集外）`);
+          return;
+        }
+        const isConfigOption = msg.method === 'session/set_config_option';
+        const configId = isConfigOption ? params.configId : 'model';
+        const value = isConfigOption ? params.value : params.modelId;
+        if (typeof sessionId !== 'string' || sessionId === '' || typeof value !== 'string' || value === '') {
+          if (hasId) writeError(id, JSONRPC_INVALID_PARAMS, 'sessionId 与模型标识必填');
+          return;
+        }
+        if (isConfigOption && configId !== 'model') {
+          if (hasId) writeError(id, JSONRPC_INVALID_PARAMS, `未知 configId：${String(configId)}(仅 model 可配)`);
+          return;
+        }
+        try {
+          options.setModelSpec?.(sessionId, value);
+          if (hasId) writeResult(id, isConfigOption ? { configOptions: modelConfigOptions(sessionId) } : {});
+        } catch (err) {
+          if (hasId)
+            writeError(id, JSONRPC_SERVER_ERROR, `模型切换失败：${err instanceof Error ? err.message : String(err)}`);
+        }
         return;
       }
       default:

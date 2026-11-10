@@ -24,6 +24,7 @@ import { stdin, stdout, stderr } from 'node:process';
 
 import { runAcpFace } from '../../plugins/sdk/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
+import { setSessionMode, setSessionModel } from '../conversation/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import type { Provider } from '../llm/index.js';
 
@@ -109,6 +110,31 @@ export async function runAcpEntry(options: AcpEntryOptions): Promise<number> {
       createSession: (cwd) => stack.manager.create({ workspaceRoot: canonicalWorkspaceRoot(cwd) }).sessionId,
       serverInfo: { name: 'berry-agent', version: options.version ?? '0.0.0-unknown' }, // 对外声明值位
       log: (message) => logger.warn(message),
+      // hapi 契约四腿(2026-11-10 深度适配批):模型目录(凭证瘦身)/生效模型/
+      // 会话级切模型/切沙箱——session/new 响应携 models 块 + configOptions、
+      // session/set_config_option·set_model 走 durable 事件落账、
+      // session/set_mode 走沙箱档轴(与 set_mode 轴同 DSH/Hermes 家族)
+      modelCatalog: () =>
+        stack.llm
+          .listModels()
+          .filter((model) => stack.modelCredentialStatus(model.id) === 'ready')
+          .map((model) => ({ id: model.id, name: model.name })),
+      modelOf: (sessionId) => stack.sessionModelOf(sessionId),
+      setModelSpec: (sessionId, spec) => {
+        setSessionModel((stack.driverOf(sessionId) ?? stack.manager.open(sessionId).driver).session, spec);
+      },
+      setSandboxMode: (sessionId, mode) => {
+        setSessionMode((stack.driverOf(sessionId) ?? stack.manager.open(sessionId).driver).session, mode);
+      },
+      resumeSession: (sessionId) => {
+        stack.manager.open(sessionId);
+      },
+      listSessions: () =>
+        stack.manager.list().map((row) => ({
+          id: row.id,
+          title: row.title ?? row.firstQuestionSummary ?? null,
+          lastActivityAt: row.updatedAt,
+        })),
     });
     stack.channels.addBackend(face.backend); // 信封回流自动馈送（conversation-stack onEvent → emit）
 
