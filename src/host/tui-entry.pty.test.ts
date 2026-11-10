@@ -170,6 +170,8 @@ function hasPtyRelay(): boolean {
  * - BERRY_AGENT_DATA_DIR → 新临时数据目录（防污染真数据 + 单活跃机锁免撞）；
  * - BERRY_AGENT_LOG_LEVEL=silent（日志不入终端字节流，判据面干净）；
  * - TERM=xterm-256color（色域档裁定确定性——不赌宿主环境 TERM 在场）。
+ * 另剥 BERRY_AGENT_MODEL（宿主覆盖透传会让凭证态判负——spawn 点详注）、
+ * 显式清空 BERRY_AGENT_DB_PATH（tier-2 残值劫持防御——spawn 点详注）。
  * cwd = 新临时工作区（启动会话锚点不落真目录）。
  */
 function spawnTuiEntry(): {
@@ -182,10 +184,22 @@ function spawnTuiEntry(): {
   const scriptDir = makeTmpDir('tui-pty-relay-');
   const relayPath = join(scriptDir, 'pty-relay.py');
   writeFileSync(relayPath, PTY_RELAY_PY);
+  // 宿主 env 剥 BERRY_AGENT_MODEL：宿主带无 key 的模型覆盖（如 newapi/glm-5.3）
+  // 会让凭证态按 provider 键族判负（newapi 键族是 NEWAPI_API_KEY——下方
+  // ANTHROPIC_API_KEY fixture 失效）→ 首启引导面板拦屏卡死本测试。注意不能
+  // 用「键: undefined」补丁形——该形行为无契约且随 Node 版本漂移（旧版折
+  // 字面量 "undefined" 串透传；Node v24 实测改静默剥键——两形皆不可依赖），
+  // delete 形才是唯一确定的真剥除（测试面回缺省模型，模型面自持）。
+  const hostEnv = { ...process.env };
+  delete hostEnv.BERRY_AGENT_MODEL;
   const child = spawn('python3', [relayPath, process.execPath, TSX_CLI, MAIN_TS], {
     env: {
-      ...process.env,
+      ...hostEnv,
       BERRY_AGENT_DATA_DIR: dataDir,
+      // 库文件级覆盖显式清空（tier-2 BERRY_AGENT_DB_PATH 恒赢——persist/paths
+      // 三级梯子，空串按未设论）：宿主 env 残值不得劫持子库定位（sigterm/
+      // kill-recovery 两 e2e 同防御形——对抗审查补齐）
+      BERRY_AGENT_DB_PATH: '',
       BERRY_AGENT_LOG_LEVEL: 'silent',
       // 启动版本检查关断（07 §8.5 第 6 条——pty 真身测试零网络律）
       BERRY_AGENT_SKIP_UPDATE_CHECK: '1',

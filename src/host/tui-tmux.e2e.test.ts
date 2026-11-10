@@ -306,8 +306,11 @@ function seedHistoryRow(dataDir: string, workspaceRoot: string, id: string, titl
     // resolveDatabasePathIn），库文件走 env 梯子（resolveDatabasePath 读
     // env）。子进程 env 注入 BERRY_AGENT_DATA_DIR 与 TUI 进程同一梯子
     // （首跑曾因缺此键把行误写测试钉扎库——真缺陷实证；另 vitest setup 钉扎
-    // DATA_DIR 到 berry-agent-test-* 临时根，不覆盖会继承钉扎值写错库）
-    env: { ...process.env, BERRY_AGENT_DATA_DIR: dataDir },
+    // DATA_DIR 到 berry-agent-test-* 临时根，不覆盖会继承钉扎值写错库）。
+    // BERRY_AGENT_DB_PATH 空串防御：tier-2 恒赢（persist/paths.ts——空串按
+    // 未设论），宿主残值会劫持子库定位——tui-entry.pty / sigterm-e2e /
+    // kill-recovery 三件同防御形，本件 2026-11-10 集成批对齐补齐
+    env: { ...process.env, BERRY_AGENT_DATA_DIR: dataDir, BERRY_AGENT_DB_PATH: '' },
   });
   expect(seeded.status, `历史行预置失败：${seeded.stderr ?? ''}`).toBe(0);
 }
