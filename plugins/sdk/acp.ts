@@ -23,6 +23,11 @@
  *    错误三形——B-2：session/cancel → interrupt → agent_end(aborted) →
  *    cancelled 收口，官方 MUST「停止按钮不静默失效」）。
  *
+ * 写出背压（ACP 多连接复用批）：writeMessage 写 output 返 false（对端不收）
+ * 即入队等 drain，drain 恢复按序冲刷；恒塞面逾帽（缺省 5s）drain 缺席判
+ * 传输面坏死退 1；收口清队列（死面零残留）。多连接复用形下后端 id 唯一档
+ * （stdio 缺省 'acp'、socket 连接宿主赋 'acp-sock-<n>'——净除义务）。
+ *
  * v1 基线集：initialize / session/new（cwd 受理律 + mcpServers 拒收形）/
  * session/prompt / session/cancel（通知）/ session/load（全量重放 + loadSession
  * 能力位闸）/ session/update（通知外推）/ session/request_permission（审批
@@ -58,6 +63,9 @@ const JSONRPC_NOT_INITIALIZED = -32002;
 
 /** 文本块内容帽（tool_call_update content 单块——超长工具输出截断披露） */
 const TOOL_CONTENT_CAP_CHARS = 4096;
+
+/** 写出背压 drain 超帽缺省（write 返 false 后 drain 缺席逾此值——传输面坏死） */
+const DEFAULT_WRITE_DRAIN_TIMEOUT_MS = 5_000;
 
 /** 工具名 → ACP ToolKind 粗分档（呈现提示位——前缀启发，非能力声明） */
 function toolKindOf(name: string): string {
@@ -109,6 +117,19 @@ export interface AcpFaceOptions {
   readonly createSession: (cwd: string) => string;
   /** agentInfo 披露（name/version——版本真值归宿主装配层；name 系对外声明值位） */
   readonly serverInfo: { readonly name: string; readonly version: string };
+  /**
+   * 通道后端 id（缺省 'acp'——stdio 连接恒用缺省；多连接复用形下 socket
+   * 连接由宿主赋 `acp-sock-<n>` 唯一档〔ACP 多连接复用批〕：channels
+   * removeBackend 按 id 首匹配摘除，重复 id 会错摘他人——唯一化是净除义务
+   * 非装饰）
+   */
+  readonly backendId?: string;
+  /**
+   * 写出背压 drain 超帽（毫秒——缺省 5000；测试确定性注入位，不进 CLI/env
+   * 面）。output.write 返 false 后协议行入队等 drain，逾帽未恢复即判传输面
+   * 坏死（face 终值 1）——对端恒塞 = 线已死的诚实呈现，不无限积压内存。
+   */
+  readonly writeDrainTimeoutMs?: number;
   /** 诊断日志位（传输面 warn——宿主注入 stderr logger；缺席静默） */
   readonly log?: (message: string) => void;
   /**
@@ -134,7 +155,7 @@ export interface AcpFaceHandle {
   readonly backend: ReturnType<typeof createSdkBackend>['backend'];
   /** 协议核观测面（测试/诊断单源——HTTP/MCP 形同款观测位） */
   readonly core: ReturnType<typeof createSdkBackend>['core'];
-  /** 终局（EOF 优雅 0 / 传输面坏死 1）——宿主 await 后走运行时退出序 */
+  /** 终局（EOF 优雅 0 / 传输面坏死 1——含写出背压逾帽）——宿主 await 后走运行时退出序 */
   readonly done: Promise<number>;
   /** 收口（幂等）：解挂输入监听 + 后端 dispose（在飞 ask 保守 unavailable + 核关闭） */
   dispose(): void;
@@ -195,8 +216,47 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
     doneResolve = resolve;
   });
 
+  // —— 写出背压（ACP 多连接复用批）：writeMessage 写 output 返 false（对端
+  // 不收——高水位满）即停直写、后续协议行入队；drain 事件恢复按序冲刷。恒
+  // 塞面不无限积压：入队后逾帽（缺省 5s）drain 仍缺席即判传输面坏死走
+  // shutdown(1)（与行解码环 onError 同档——「写不出去」与「读不进来」同为
+  // 传输面死亡信号）。收口清队列撤监听（死面零残留）。——
+  const drainTimeoutMs = options.writeDrainTimeoutMs ?? DEFAULT_WRITE_DRAIN_TIMEOUT_MS;
+  const outboundQueue: string[] = []; // 待写出协议行（已序列化——FIFO 保序）
+  let awaitingDrain = false; // write 返 false 位（drain 事件复位）
+  let drainWatch: ReturnType<typeof setTimeout> | undefined; // 逾帽表（drain 恢复即撤）
+  const flushOutbound = (): void => {
+    while (!awaitingDrain && outboundQueue.length > 0) {
+      const line = outboundQueue.shift()!;
+      if (!options.io.output.write(line)) {
+        awaitingDrain = true;
+        armDrainWatch();
+      }
+    }
+  };
+  const onDrain = (): void => {
+    if (!awaitingDrain) return; // 非 awaited 的 drain（迟到回声）——幂等忽略
+    awaitingDrain = false;
+    if (drainWatch !== undefined) {
+      clearTimeout(drainWatch);
+      drainWatch = undefined;
+    }
+    flushOutbound(); // 恢复写出（再拒即再等——余量留下轮）
+  };
+  options.io.output.on('drain', onDrain);
+  const armDrainWatch = (): void => {
+    if (drainWatch !== undefined) return; // 已在计时（帽锚 = 首次塞写时刻）
+    drainWatch = setTimeout(() => {
+      drainWatch = undefined;
+      log('传输面坏死：写出背压超时（drain 缺席）——收口');
+      shutdown(1);
+    }, drainTimeoutMs);
+  };
+
   const writeMessage = (msg: unknown): void => {
-    options.io.output.write(`${JSON.stringify(msg)}\n`);
+    if (closed) return; // 收口后零外推（队列已清——死面不复活）
+    outboundQueue.push(`${JSON.stringify(msg)}\n`);
+    flushOutbound();
   };
   const writeResult = (id: unknown, result: unknown): void => {
     writeMessage({ jsonrpc: '2.0', id, result });
@@ -340,7 +400,7 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
   };
 
   // —— 协议核 + 后端（直播 sink——与 MCP 收集式分立的结构位）——
-  const backend = createSdkBackend({
+  const wire = createSdkBackend({
     ...options.bridge,
     sink: {
       write: (frame) => {
@@ -365,6 +425,12 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
       },
     },
   });
+  // 后端 id 唯一档视图（多连接复用形：stdio 缺省 'acp'，socket 连接宿主赋
+  // 'acp-sock-<n>'——removeBackend 按 id 首匹配摘除，唯一化是净除义务）
+  const backend: ReturnType<typeof createSdkBackend>['backend'] = {
+    ...wire.backend,
+    id: options.backendId ?? 'acp',
+  };
 
   /**
    * roundtrip：受理一请求并同步取首枚应答帧（ack/error/entries/sessions/
@@ -393,7 +459,7 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
       },
     };
     try {
-      backend.core.handleRequest(req);
+      wire.core.handleRequest(req);
     } catch (err) {
       // 收容律（MCP 形同款）：已识故障态折 error 帧单请求不连坐；真 bug 面
       // 原样上抛维持崩溃编排 fail-loud
@@ -434,7 +500,7 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
       log(`request_permission 未识回复 ${JSON.stringify(outcome) ?? '缺席'}——保守拒`);
       answer = 'reject';
     }
-    backend.core.handleRequest({
+    wire.core.handleRequest({
       verb: 'decide',
       approvalId: pending.approvalId,
       answer,
@@ -559,7 +625,7 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
         const pending = pendingPermissions.get(String(msg.id));
         if (pending !== undefined) {
           pendingPermissions.delete(String(msg.id));
-          backend.core.handleRequest({ verb: 'decide', approvalId: pending.approvalId, answer: 'cancel' });
+          wire.core.handleRequest({ verb: 'decide', approvalId: pending.approvalId, answer: 'cancel' });
         }
         return;
       }
@@ -850,20 +916,28 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
   options.io.input.on('end', onEnd);
   options.io.input.on('error', onError);
 
-  /** 收口（幂等——closed 单闸）：直播线撤挂 + 后端 dispose（在飞 ask 保守 unavailable + 核关闭） */
+  /** 收口（幂等——closed 单闸）：直播线撤挂 + 背压队列清空 + 后端 dispose（在飞 ask 保守 unavailable + 核关闭） */
   const shutdown = (code: number): void => {
     if (closed) return;
     closed = true;
     options.io.input.off('data', onData);
     options.io.input.off('end', onEnd);
     options.io.input.off('error', onError);
-    backend.dispose(); // 在飞 ask 全部 unavailable 收场 + core.close（后续静默）
+    // 背压收口三件：撤 drain 监听 + 清待写队列 + 撤逾帽表（死面零残留——
+    // writeMessage 的 closed 守卫与之成双保险）
+    options.io.output.off('drain', onDrain);
+    outboundQueue.length = 0;
+    if (drainWatch !== undefined) {
+      clearTimeout(drainWatch);
+      drainWatch = undefined;
+    }
+    wire.dispose(); // 在飞 ask 全部 unavailable 收场 + core.close（后续静默）
     doneResolve(code);
   };
 
   return {
-    backend: backend.backend,
-    core: backend.core,
+    backend,
+    core: wire.core,
     done,
     dispose(): void {
       shutdown(0);
