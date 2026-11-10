@@ -62,6 +62,9 @@ export async function runMcpEntry(options: McpEntryOptions): Promise<number> {
     runtime: {
       ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
       ...(options.memory === true ? { memory: true } : {}),
+      // 无头多实例批：共享租约——客户端按会话 spawn 的合法共存（TUI/serve
+      // 独占世界不破：活的独占持有者仍拒共享群、活共享群亦拒新独占）
+      sharedLease: true,
     },
     noPlugins: false,
     debug: false,

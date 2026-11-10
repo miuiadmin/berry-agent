@@ -45,7 +45,7 @@ import { CREDENTIALS_MIGRATION } from '../../plugins/credentials/index.js';
 import type { MigrationSpec } from '../persist/index.js';
 
 import { collectDate, collectPlatform, renderEnvironmentDisclosure } from './disclosure.js';
-import { acquireActiveMarker } from './single-instance.js';
+import { acquireActiveMarker, acquireSharedLease } from './single-instance.js';
 import type { ActiveMarkerLease } from './single-instance.js';
 
 /**
@@ -129,6 +129,14 @@ export interface HostRuntimeOptions {
   readonly sandboxModeProvider?: (sessionId?: string) => string | undefined;
   /** 退出序时间帽注入（测试位） */
   readonly exitBudget?: ExitSequenceBudget;
+  /**
+   * 共享租约位（2026-11-09 ACP/MCP 无头多实例批）：true = 活跃标记走共享
+   * 形（`active.d/<pid>-<startedAt>.json` 逐进程一文件计数共存，与活的独占
+   * 持有者互斥）；缺省 false = 独占 legacy 形（`active.json` 恰一——TUI/
+   * serve 交互世界不变量原样）。消费面 = 无头被调用形态（`berry acp`/
+   * `berry mcp`——客户端按会话 spawn 的合法多实例）。
+   */
+  readonly sharedLease?: boolean;
 }
 
 /** 运行时柄（全宿主横切面——后续笔逐批充实 conversation/装载器/TUI 组装） */
@@ -176,10 +184,13 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
   const dataDir = memory ? (options.dataDir ?? null) : (options.dataDir ?? defaultDataDir());
   if (dataDir === null && !memory) throw new Error('不变式破坏：非 memory 形必有数据目录');
 
-  // 启动序①：单活跃机占标记（memory 形豁免——不开真库不动标记）
+  // 启动序①：单活跃机占标记（memory 形豁免——不开真库不动标记）。
+  // sharedLease 位（无头多实例批）：true = 共享租约（active.d/ 计数共存，
+  // ACP/MCP 客户端按会话 spawn 的合法多实例形）；缺省 false = 独占 legacy 形。
   let lease: ActiveMarkerLease | null = null;
   if (!memory) {
-    lease = acquireActiveMarker(dataDir as string);
+    lease =
+      options.sharedLease === true ? acquireSharedLease(dataDir as string) : acquireActiveMarker(dataDir as string);
   }
 
   // 启动序②：开库（memory 形 dbPath 哨兵直通；失败释放标记不留残）

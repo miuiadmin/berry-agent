@@ -12,7 +12,13 @@ import { describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
 
-import { acquireActiveMarker, ACTIVE_MARKER_BASENAME, defaultTryUnlink } from './single-instance.js';
+import {
+  acquireActiveMarker,
+  acquireSharedLease,
+  ACTIVE_MARKER_BASENAME,
+  SHARED_LEASE_DIR_BASENAME,
+  defaultTryUnlink,
+} from './single-instance.js';
 
 /** 内存文件系统（单用例新造——隔离） */
 function memFs(initial: Record<string, string> = {}) {
@@ -274,5 +280,79 @@ describe('defaultTryUnlink（缺省实现 fail-loud——第十五役 α4 修）
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/* ============ 共享租约（2026-11-09 ACP/MCP 无头多实例批） ============ */
+
+describe('acquireSharedLease（无头多实例共存）', () => {
+  function memFsDir(initial: Record<string, string> = {}) {
+    const files = new Map(Object.entries(initial));
+    const dirs = new Set<string>([`/data`, `/data/${SHARED_LEASE_DIR_BASENAME}`]);
+    return {
+      files,
+      dirs,
+      ensureDir: (dir: string) => dirs.add(dir),
+      writeFile: (path: string, text: string) => files.set(path, text),
+      readFile: (path: string) => {
+        const text = files.get(path);
+        if (text === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+        return text;
+      },
+      tryUnlink: (path: string) => files.delete(path),
+      listDir: (dir: string) =>
+        [...files.keys()].filter((k) => k.startsWith(`${dir}/`)).map((k) => k.slice(dir.length + 1)),
+    };
+  }
+
+  it('多实例计数共存——两个共享租约并行持有互不拒绝', () => {
+    const fs = memFsDir();
+    const opts = { now: () => 1_700_000_000_000, isAlive: () => true, ...fs };
+    const a = acquireSharedLease('/data', { ...opts, pid: 201 });
+    const b = acquireSharedLease('/data', { ...opts, pid: 202 });
+    // 两份各自条目在场
+    expect(fs.files.get(`/data/${SHARED_LEASE_DIR_BASENAME}/201-1700000000000.json`)).toBeDefined();
+    expect(fs.files.get(`/data/${SHARED_LEASE_DIR_BASENAME}/202-1700000000000.json`)).toBeDefined();
+    a.release();
+    b.release();
+    // 各删己文件
+    expect(fs.files.get(`/data/${SHARED_LEASE_DIR_BASENAME}/201-1700000000000.json`)).toBeUndefined();
+    expect(fs.files.get(`/data/${SHARED_LEASE_DIR_BASENAME}/202-1700000000000.json`)).toBeUndefined();
+  });
+
+  it('机会清扫——死 pid 条目被 acquire 顺带删除', () => {
+    const fs = memFsDir({
+      [`/data/${SHARED_LEASE_DIR_BASENAME}/999-1700000000000.json`]: '{"pid":999,"startedAt":1700000000000}\n',
+    });
+    const opts = { now: () => 1_700_000_000_100, isAlive: (pid: number) => pid !== 999, ...fs };
+    const lease = acquireSharedLease('/data', { ...opts, pid: 301 });
+    expect(fs.files.get(`/data/${SHARED_LEASE_DIR_BASENAME}/999-1700000000000.json`)).toBeUndefined();
+    lease.release();
+  });
+
+  it('对称执法①——活的独占持有者拒共享群', () => {
+    const fs = memFsDir({
+      '/data/active.json': '{"pid":501,"startedAt":1700000000000}\n',
+    });
+    const opts = { now: () => 1_700_000_000_200, isAlive: () => true, ...fs };
+    expect(() => acquireSharedLease('/data', { ...opts, pid: 601 })).toThrowError(/数据目录已有活跃进程/);
+  });
+
+  it('对称执法②——活共享持有者拒新独占（TUI 世界不变量保形）', () => {
+    const fs = memFsDir({
+      [`/data/${SHARED_LEASE_DIR_BASENAME}/701-1700000000000.json`]: '{"pid":701,"startedAt":1700000000000}\n',
+    });
+    const opts = { now: () => 1_700_000_000_300, isAlive: () => true, ...fs };
+    expect(() => acquireActiveMarker('/data', { ...opts, pid: 801 })).toThrowError(/数据目录已有活跃进程/);
+  });
+
+  it('死独占标记不拒共享（接管语义归独占侧——共享只认活持有者）', () => {
+    const fs = memFsDir({
+      '/data/active.json': '{"pid":901,"startedAt":1700000000000}\n',
+    });
+    const opts = { now: () => 1_700_000_000_400, isAlive: (pid: number) => pid !== 901, ...fs };
+    const lease = acquireSharedLease('/data', { ...opts, pid: 902 });
+    expect(lease.tookOver).toBe(false);
+    lease.release();
   });
 });

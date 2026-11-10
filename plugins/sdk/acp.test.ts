@@ -362,6 +362,37 @@ describe('runAcpFace 协议面', () => {
     face.dispose();
   });
 
+  it('失败轮次错误外显——errorMessage 随 agent_message_chunk 发出', async () => {
+    const deps = fakeDeps();
+    const rig = makeRig();
+    const face = runAcpFace({
+      io: { input: rig.input, output: rig.output },
+      deps,
+      serverInfo: { name: 'berry-agent', version: 'v-test' },
+    });
+    void face.done;
+
+    deps.resolveSubmit = () => ({
+      kind: 'run',
+      status: 'failed',
+      stopReason: 'error',
+      errorMessage: 'Provider is not configured: anthropic',
+    });
+    const resp = await rig.ask('session/prompt', { sessionId: 's-1', prompt: [{ type: 'text', text: 'q' }] });
+    expect((resp.result as { stopReason: string }).stopReason).toBe('refusal');
+    const chunks = rig.notifications
+      .filter((frame) => frame.method === 'session/update')
+      .map((frame) => frame.params as { update: Record<string, unknown> })
+      .map((params) => params.update);
+    const errChunk = chunks.find(
+      (update) =>
+        update.sessionUpdate === 'agent_message_chunk' &&
+        JSON.stringify(update.content).includes('Provider is not configured'),
+    );
+    expect(errChunk).toBeDefined();
+    face.dispose();
+  });
+
   it('stopReason 四档映射（max_tokens / cancelled / refused）', async () => {
     const deps = fakeDeps();
     const rig = makeRig();

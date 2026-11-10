@@ -35,9 +35,16 @@ import type { AgentEvent } from '../../src/contracts/index.js';
 /** ACP stopReason 闭集（schema 枚举——berry run 终态的单源映射产物业态） */
 export type AcpStopReason = 'end_turn' | 'max_tokens' | 'refusal' | 'cancelled';
 
-/** prompt 受理产物：run 终态三元组直投；ignored = 未起跑档（inject/拒收） */
+/** prompt 受理产物：run 终态三元组直投（failed 携错误摘要——面侧外显）；
+ * ignored = 未起跑档（inject/拒收） */
 export type AcpSubmitOutcome =
-  | { readonly kind: 'run'; readonly status: 'completed' | 'aborted' | 'failed'; readonly stopReason?: string }
+  | {
+      readonly kind: 'run';
+      readonly status: 'completed' | 'aborted' | 'failed';
+      readonly stopReason?: string;
+      /** failed 形的错误文本（RunResult.errorMessage——面侧发 agent_message_chunk 外显） */
+      readonly errorMessage?: string;
+    }
   | { readonly kind: 'ignored' };
 
 /** prompt 终值用量（agent_end 终值富化位直投——input/output/reasoning/cache 桶） */
@@ -200,11 +207,64 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
   /** 会话级末次 run 用量（prompt 回执富化位） */
   const lastUsage = new Map<string, AcpPromptUsage>();
 
-  /* ---------------- 出站原语（stdout 只出协议帧——行帧直写） ---------------- */
+  /* ---------------- 出站原语（stdout 只出协议帧——行帧直写 + 背压） ---------------- */
+
+  /**
+   * 写出背压（生产冒烟教训：session/new 响应可达数百 KB〔模型目录未瘦身
+   * 前实测 236KB〕——write() 返 false 后继续裸写会在慢管道上无界缓冲）。
+   * 返 false 即入「待排空」态：本帧后的写出挂起排队，'drain' 事件恢复
+   * 顺序写出；排空超帽（5s）判传输面坏死收场退 1（与 AcpTransportError
+   * 收口路径同族）。帧序保持——排空窗内新帧一律入队不插队。
+   */
+  let draining = false;
+  const drainQueue: string[] = [];
+  let drainTimer: ReturnType<typeof setTimeout> | null = null;
+  const DRAIN_TIMEOUT_MS = 5_000;
+
+  function armDrainTimeout(): void {
+    if (drainTimer !== null) return;
+    drainTimer = setTimeout(() => {
+      // 排空超帽——传输面坏死（'drain' 永不到来）：清队收场退 1
+      log('acp: output drain timeout — transport dead');
+      shutdown(1);
+    }, DRAIN_TIMEOUT_MS);
+  }
+
+  function pumpQueue(): void {
+    while (!draining && drainQueue.length > 0 && !closed) {
+      const next = drainQueue.shift() as string;
+      if (!io.output.write(next)) {
+        draining = true;
+        armDrainTimeout();
+        return;
+      }
+    }
+    if (drainQueue.length === 0 && drainTimer !== null) {
+      clearTimeout(drainTimer);
+      drainTimer = null;
+    }
+  }
+
+  io.output.on('drain', () => {
+    draining = false;
+    if (drainTimer !== null) {
+      clearTimeout(drainTimer);
+      drainTimer = null;
+    }
+    pumpQueue();
+  });
 
   function writeFrame(payload: unknown): void {
     if (closed) return;
-    io.output.write(`${JSON.stringify(payload)}\n`);
+    const frame = `${JSON.stringify(payload)}\n`;
+    if (draining || drainQueue.length > 0) {
+      drainQueue.push(frame);
+      return;
+    }
+    if (!io.output.write(frame)) {
+      draining = true;
+      armDrainTimeout();
+    }
   }
 
   function sendResult(id: number | string | null, result: unknown): void {
@@ -584,6 +644,15 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
         stopReason = 'cancelled';
       } else {
         stopReason = 'refusal';
+        // 失败外显（生产冒烟教训：Provider 未配等模型层错误若无输出，
+        // 客户端只见空回复零错因——错误文本随 agent_message_chunk 发出，
+        // stopReason='refusal' 只是分类不是诊断面）。
+        if (outcome.errorMessage !== undefined && outcome.errorMessage.length > 0) {
+          sessionUpdate(sessionId, {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `[error] ${outcome.errorMessage}` },
+          });
+        }
       }
       const usage = lastUsage.get(sessionId);
       return { stopReason, ...(usage !== undefined ? { usage } : {}) };
@@ -720,6 +789,11 @@ export function runAcpFace(options: AcpFaceOptions): AcpFaceHandle {
   function shutdown(exitCode: number): void {
     if (closed) return;
     closed = true;
+    if (drainTimer !== null) {
+      clearTimeout(drainTimer);
+      drainTimer = null;
+    }
+    drainQueue.length = 0;
     // 在飞审批全部 unavailable（通道消失语义——04 §9）。
     for (const resolve of pendingAsks.values()) resolve('unavailable');
     pendingAsks.clear();
