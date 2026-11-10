@@ -246,7 +246,12 @@ function startTuiSession(dirs?: { dataDir: string; wsDir: string }): TmuxSession
   // 壳层编舞：cd 工作区 → 起真身 → 落退出码。$? 即真身退出码（env 命令的
   // 子进程退出码透传——cd 失败形 $? 为 cd 的 1，同样非 0 可判）。
   const command =
-    `cd '${wsDir}' && env -u COLORTERM BERRY_AGENT_DATA_DIR='${dataDir}' ` +
+    // BERRY_AGENT_DB_PATH 剥除（tier-2 恒赢——paths.ts 非空即压过 DATA_DIR 锚定）：pane 壳层
+    // 血统 = vitest env → 自起 tmux 服务端 → 合并 env，本地 shell 导出残值会一路透传、TUI
+    // 开错库（轻则 /resume 两腿分家 flaky、重则对被劫持真库跑 schema 迁移）——seed 位
+    // （BERRY_AGENT_DB_PATH: ''）与 tui-entry.pty / sigterm-e2e / kill-recovery 四件同防御形，
+    // 本 pane TUI 真身位 2026-11-10 补齐批漏补、当批 workflow 对抗验证补上
+    `cd '${wsDir}' && env -u COLORTERM -u BERRY_AGENT_DB_PATH BERRY_AGENT_DATA_DIR='${dataDir}' ` +
     `BERRY_AGENT_LOG_LEVEL=silent BERRY_AGENT_MODEL='${MODEL_ID}' BERRY_AGENT_SKIP_UPDATE_CHECK=1 ` +
     // 模型凭证态 env 键 fixture（ob-2——tmux 真窗满足键源在场律，空数据目录
     // 无凭证会让启动引导面板拦住主屏卡死本 e2e；dummy provider 走一般律键）
