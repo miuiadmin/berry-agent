@@ -10,7 +10,7 @@
  * permission option kind = allow_always（非 always_allow）、stopReason 闭集
  * （end_turn/cancelled）——断言按官方词面锁，防映射层漂移。
  */
-import { PassThrough } from 'node:stream';
+import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 
 import type { SdkDurableEntry } from '../../src/channels/index.js';
@@ -45,31 +45,78 @@ interface MemEvent {
 
 let idSeq = 0;
 
+/**
+ * 背压受控 sink（写出背压测试——确定性注入面）：highWaterMark 1 + 写回调
+ * 挂起 → 每次 write 恒返 false（塞写形）；块滞 `held` 账不入 `received`；
+ * release() 冲出全部挂起块并放 drain 事件——drain 恢复冲刷的断言面。
+ */
+class GatedSink extends Writable {
+  private readonly held: Array<{ chunk: string; cb: (error?: Error | null) => void }> = [];
+  readonly received: string[] = [];
+  /** 累计达 _write 的块数（含挂起——「死面零再写」断言面） */
+  writeCount = 0;
+
+  constructor() {
+    super({ highWaterMark: 1 });
+  }
+
+  get heldCount(): number {
+    return this.held.length;
+  }
+
+  override _write(chunk: Buffer, _encoding: BufferEncoding, cb: (error?: Error | null) => void): void {
+    this.writeCount++;
+    this.held.push({ chunk: chunk.toString('utf8'), cb });
+  }
+
+  /** 冲出挂起块（回调全放——缓冲清空）+ 放 drain（手工事件——Node 自动腿之外的双保险） */
+  release(): void {
+    const held = this.held.splice(0);
+    for (const { chunk, cb } of held) {
+      this.received.push(chunk);
+      cb(null);
+    }
+    this.emit('drain');
+  }
+}
+
+/** rig 选项（背压/多连接复用注入面——缺省全 PassThrough 直通形） */
+interface RigOpts {
+  /** 出站流替换位（GatedSink 注入——背压确定性） */
+  readonly output?: Writable;
+  /** 后端 id 注入位（多连接复用形——唯一档断言面） */
+  readonly backendId?: string;
+  /** 写出背压 drain 超帽注入位（缺省 5s——测试确定性缩短） */
+  readonly writeDrainTimeoutMs?: number;
+}
+
 /** 测试速记：假桥 + 传输对 + 出站帧账（应答/通知/服务端请求三分账） */
-function rig() {
+function rig(opts: RigOpts = {}) {
   const input = new PassThrough();
-  const output = new PassThrough();
-  output.setEncoding('utf8');
+  const output = opts.output ?? new PassThrough();
   const messages: RpcMessage[] = [];
   const waiters = new Map<number | string, (m: RpcMessage) => void>();
   let buf = '';
-  output.on('data', (chunk: string) => {
-    buf += chunk;
-    const lines = buf.split('\n');
-    buf = lines.pop() ?? '';
-    for (const line of lines) {
-      if (line.length === 0) continue;
-      const msg = JSON.parse(line) as RpcMessage;
-      messages.push(msg);
-      if (msg.id !== undefined && msg.id !== null) {
-        const waiter = waiters.get(msg.id);
-        if (waiter !== undefined) {
-          waiters.delete(msg.id);
-          waiter(msg);
+  if (output instanceof PassThrough) {
+    output.setEncoding('utf8');
+    output.on('data', (chunk: string) => {
+      buf += chunk;
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (line.length === 0) continue;
+        const msg = JSON.parse(line) as RpcMessage;
+        messages.push(msg);
+        if (msg.id !== undefined && msg.id !== null) {
+          const waiter = waiters.get(msg.id);
+          if (waiter !== undefined) {
+            waiters.delete(msg.id);
+            waiter(msg);
+          }
         }
       }
-    }
-  });
+    });
+  }
 
   const sessions = new Map<string, MemEvent[]>();
   const createdCWds = new Map<string, string>();
@@ -124,6 +171,8 @@ function rig() {
       return sid;
     },
     serverInfo: { name: 'berry-agent', version: 'test' },
+    ...(opts.backendId !== undefined ? { backendId: opts.backendId } : {}),
+    ...(opts.writeDrainTimeoutMs !== undefined ? { writeDrainTimeoutMs: opts.writeDrainTimeoutMs } : {}),
   });
 
   return {
@@ -529,5 +578,74 @@ describe('ACP 面：行帧与错误面', () => {
     r.emit(r.sessionId, { type: 'agent_end', status: 'aborted' });
     expect(r.messages.filter((m) => m.id !== undefined && m.result !== undefined)).toHaveLength(2); // initialize + session/new 应答恒在、prompt 应答缺席
     void p;
+  });
+});
+
+describe('ACP 面：写出背压（write 返 false → 入队等 drain——多连接复用批）', () => {
+  it('塞写即停直写：后续帧入队；drain 恢复按序冲刷', async () => {
+    const sink = new GatedSink();
+    const r = rig({ output: sink });
+    r.sendRaw(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: 1 } }));
+    await r.tick();
+    // 首帧已塞（write 返 false——回调挂起）背压位起
+    expect(sink.heldCount).toBe(1);
+    r.sendRaw(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'session/new', params: { cwd: '/tmp/ws' } }));
+    await r.tick();
+    // 第二帧入队等 drain——未达 sink（直写停摆）
+    expect(sink.heldCount).toBe(1);
+    expect(sink.writeCount).toBe(1);
+    sink.release();
+    await r.tick();
+    // 首轮 drain 冲出队首帧——GatedSink 恒塞形下该帧再度挂起（返 false）
+    expect(sink.received.length).toBe(1);
+    sink.release();
+    await r.tick();
+    // drain 恢复：两帧按序落账（FIFO 保序）
+    expect(sink.received.length).toBe(2);
+    expect((JSON.parse(sink.received[0]!) as { id: number }).id).toBe(1);
+    expect((JSON.parse(sink.received[1]!) as { id: number }).id).toBe(2);
+    r.end();
+    await r.face.done;
+  });
+
+  it('drain 缺席逾帽：判传输面坏死退 1（死面零再写）', async () => {
+    const sink = new GatedSink();
+    const r = rig({ output: sink, writeDrainTimeoutMs: 60 });
+    r.sendRaw(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: 1 } }));
+    await r.tick();
+    expect(sink.heldCount).toBe(1); // 塞写位起——帽开始计时
+    await expect(r.face.done).resolves.toBe(1); // 逾帽收口（传输面坏死档）
+    // 收口后零再写：后续请求不再产出帧（死面不复活）
+    const before = sink.writeCount;
+    r.sendRaw(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'session/new', params: { cwd: '/tmp/ws' } }));
+    await r.tick();
+    expect(sink.writeCount).toBe(before);
+  });
+
+  it('收口清队列：dispose 后余队零冲出（drain 迟到不复活死面）', async () => {
+    const sink = new GatedSink();
+    const r = rig({ output: sink });
+    r.sendRaw(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: 1 } }));
+    await r.tick(); // 塞写背压位起（1 帧挂起）
+    r.sendRaw(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'session/new', params: { cwd: '/tmp/ws' } }));
+    await r.tick(); // 第二帧入队
+    r.face.dispose();
+    await expect(r.face.done).resolves.toBe(0);
+    sink.release(); // 迟到 drain——监听已撤、队列已清
+    await r.tick();
+    // 仅首帧（塞写时已达 sink 者）冲出；入队帧被清零冲出
+    expect(sink.received.length).toBe(1);
+    expect(sink.writeCount).toBe(1);
+  });
+});
+
+describe('ACP 面：backendId 唯一档（多连接复用形——净除义务素材）', () => {
+  it('缺省 acp；宿主赋值透传（socket 连接 acp-sock-<n> 档）', () => {
+    const r = rig();
+    expect(r.face.backend.id).toBe('acp');
+    const r2 = rig({ backendId: 'acp-sock-1' });
+    expect(r2.face.backend.id).toBe('acp-sock-1');
+    r.end();
+    r2.end();
   });
 });
