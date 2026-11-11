@@ -93,36 +93,45 @@ describe('dispatchCli 非 TTY 卫兵（TUI 入口单源谓词）', () => {
 });
 
 describe('dispatchCli HELP_TEXT 旗标归属注（括注挂靠勘正——第八轮深扫 C3）', () => {
-  it('--no-plugins 独行归属括注：仅 TUI / run / dump-config 收——serve/mcp 传入即用法错退 2', () => {
+  it('--no-plugins 独行归属括注：仅 TUI / run / dump-config 收——serve/mcp/acp 传入即用法错退 2', () => {
     // 帮助文案是用户拼命令的第一真源：照抄 `berry serve --no-plugins` 即
-    // 用法错退 2（SERVE_SCHEMAS 不收、mcp 零旗标面）。第八轮深扫勘正：修前
+    // 用法错退 2（SERVE_SCHEMAS 不收、mcp/acp 零旗标面）。第八轮深扫勘正：修前
     // 「TUI / run / dump-config 收——serve/mcp 不透传」括注误挂五旗标整行
     // （bf8989f 本意只对 --no-plugins 为真），收窄独行防 --debug/--port 误读。
     const line = HELP_TEXT.split('\n').find((l) => l.includes('--no-plugins'));
     expect(line).toBeDefined();
     expect(line).toContain('TUI / run / dump-config');
-    expect(line).toContain('serve/mcp 传入即用法错退 2');
+    expect(line).toContain('serve/mcp/acp 传入即用法错退 2');
   });
 
-  it('四旗标行归属括注：TUI / run / serve / dump-config 收；mcp 零旗标面——不再挂「不透传」', () => {
+  it('四旗标行归属括注：TUI / run / serve / dump-config 收；update 仅收 --debug；mcp/acp 零旗标面——不再挂「不透传」', () => {
     // serve 前台实收且消费 --debug/--port（07 §5 旗标表现句）——修前整行
-    // 「serve/mcp 不透传」对四旗标中两位是假话，随 C3 收窄翻新
+    // 「serve/mcp 不透传」对四旗标中两位是假话，随 C3 收窄翻新；update 主名
+    // 化跟进复核收窄：update 段 schema 单旗标 [DEBUG_FLAG] 不含 --port——
+    // 整行挂 update 即对 --port 虚文，单列「update 仅收 --debug」；acp 段
+    // 空旗标表（零旗标面）
     const line = HELP_TEXT.split('\n').find((l) => l.includes('--debug'));
     expect(line).toBeDefined();
     expect(line).toContain('TUI / run / serve / dump-config 收');
-    expect(line).toContain('mcp 零旗标面');
+    expect(line).toContain('update 仅收 --debug');
+    expect(line).toContain('mcp/acp 零旗标面');
     expect(line).not.toContain('不透传');
   });
 
-  it('归属注与解析真源对拍为真：serve / mcp 传 --no-plugins 确为用法错', () => {
-    // 注非虚文——解析面两入口确不收该旗标（未识别 → !ok → 分派层退 2）
+  it('归属注与解析真源对拍为真：serve / mcp / acp 传 --no-plugins 确为用法错', () => {
+    // 注非虚文——解析面三入口确不收该旗标（未识别 → !ok → 分派层退 2）
     expect(parseCli(['serve', '--no-plugins']).ok).toBe(false);
     expect(parseCli(['mcp', '--no-plugins']).ok).toBe(false);
+    expect(parseCli(['acp', '--no-plugins']).ok).toBe(false);
   });
 
-  it('四旗标行对拍为真：serve 前台实收 --debug/--port（07 §5 serve 同收句）', () => {
+  it('四旗标行对拍为真：serve 前台实收 --debug/--port、update 仅收 --debug（07 §5 serve 同收句）', () => {
     expect(parseCli(['serve', '--debug']).ok).toBe(true);
     expect(parseCli(['serve', '--port', '8080']).ok).toBe(true);
+    expect(parseCli(['update', '--debug']).ok).toBe(true);
+    // --port 不入 update 收面（schema 单旗标 [DEBUG_FLAG]）——行注单列
+    // 「update 仅收 --debug」的解析真源锁，防未来再整行虚挂
+    expect(parseCli(['update', '--port', '8080'])).toMatchObject({ ok: false, exitCode: 2 });
   });
 });
 

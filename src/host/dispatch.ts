@@ -90,6 +90,11 @@ export interface DispatchEnv {
  * 括注误挂五旗标整行（bf8989f 本意只对 --no-plugins 为真——serve 前台实收
  * 且消费 --debug/--port），收窄两行：四旗标行注四入口收（mcp 零旗标面）、
  * --no-plugins 独行注 TUI/RUN/DUMP 收（serve/mcp 传入即用法错退 2）。
+ * update 主名化与 acp 形跟进对拍：cli.ts update 段收 [DEBUG_FLAG] 单旗标
+ * （四旗标行注单列「update 仅收 --debug」——update 段 schema 不含 --port，
+ * 整行挂 update 对 --port 是虚文〔`berry update --port` 即退 2〕）、acp 段
+ * 空旗标表（零旗标面注与 --no-plugins 拒收注并列补 acp）——注随解析真源
+ * 翻新，注非虚文。
  */
 export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
 
@@ -107,15 +112,15 @@ export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
   sessions <sub>          会话管理（list/resume <id>/fork <id>/rename <id> <title>/search <query>/export <id> [--format markdown|jsonl]/import <file>/delete <id> [--confirm]/reindex）
   credentials <sub>       凭证管理命令（add <name> <value>/list/rm <name>；--namespace <ns> 指定域；--model-provider <id> 绑定模型渠道——add 专属）
   doors <sub>             高危权限面管理（list 只读——七枚高危面清单与当前开态两处同时显示；写动词 TUI /doors 专属）
-  upgrade                 升级维护动词
+  update（别名 upgrade）  升级维护动词
 
 常用旗标：
-  --help / --version / --debug / --port <n>（TUI / run / serve / dump-config 收；mcp 零旗标面）
-  --no-plugins  安全模式：插件装载全跳过只起宿主固定件（仅 TUI / run / dump-config 收——serve/mcp 传入即用法错退 2）
+  --help / --version / --debug / --port <n>（TUI / run / serve / dump-config 收；update 仅收 --debug；mcp/acp 零旗标面）
+  --no-plugins  安全模式：插件装载全跳过只起宿主固定件（仅 TUI / run / dump-config 收——serve/mcp/acp 传入即用法错退 2）
   --plugin-file <path>  临时加载插件（插件目录或单文件入口 .js/.mjs/.ts——纯内存注入不写入磁盘；TUI / run 收，dump-config 互斥拒）
   run 限定：--output-format <text|json|stream>  --output-last-message <file>  --ephemeral
             --max-turns <n>  --session <id>  --continue  --fork [id]  --read-only  --preset <名>  --tick <名>  --background
-            --output-schema <file>（收场校验末条回复须单一 JSON 且合 schema）
+            --answers <tool=answer[,tool=answer…]>  --output-schema <file>（收场校验末条回复须单一 JSON 且合 schema）
   run/serve 共收：--no-delta（关闭流式增量输出）
   serve 限定：--daemon  --sdk-port <n>  --sdk-host <host>（后两旗标 daemon 形专属）
 

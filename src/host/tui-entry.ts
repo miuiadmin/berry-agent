@@ -1192,6 +1192,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             lines: [
               'docs/usage.md 用法全册 · docs/architecture.md 架构',
               'docs/plugin-development.md 插件开发 · docs/operations.md 运维 · docs/development.md 参与开发',
+              // 聚合器接入册（CLI/SDK 进化批 A3 随迁——acp 形落地后编排器/编辑器
+              // 接入位入图；docs/development.md 文档面已计六册）
+              'docs/aggregators.md 聚合器接入',
             ],
           },
           {
