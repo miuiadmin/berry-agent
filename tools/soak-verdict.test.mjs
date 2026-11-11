@@ -1,7 +1,7 @@
 /**
  * tools/soak-verdict.test.mjs —— soak 判收纯函数单元锁（批 B 修前红件）。
  *
- * 研究档 C2'/C3'（设计文档/00-研究-全流程全自动全场景测试-20260916.md 簇 C）：
+ * 研究档 C2'/C3'（设计文档/.agents/research/2026-09-16-全流程全自动全场景测试.md 簇 C）：
  * soak 退出码判据原先内联在 soak.mjs 收场段（只有 okCount/drill/budget 三判据），
  * errLines 只统计不入判收、事件序完整性仅 count-based。本批把判收收成纯函数
  * 单源（tools/soak-verdict.mjs）——本测试是它的单元锁；soak.mjs 收场段接线消费。
