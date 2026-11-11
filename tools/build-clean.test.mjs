@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { SPAWN_SYNC_CAP } from './spawn-sync-cap.mjs';
 
 /**
- * build 链恒清回归锁（2026-10-18 批次 4 裁决一；立题档 00-立题-core件迁
- * plugins目录-20261016 批次 4）——④迁移批 ROUTE A rootDir 仓根化（产物
+ * build 链恒清回归锁（2026-10-18 批次 4 裁决一；立题档（已迁
+ * 设计文档/.agents/plans/2026-10-16-core件迁plugins目录.md）批次 4）——④迁移批 ROUTE A rootDir 仓根化（产物
  * dist/src/** + dist/plugins/** 双区布局）后，增量 tsc 构建会留旧布局孤儿
  * 目录静默混入发布物（本地 dist alias 用户零感知拿到混布局），根治 =
  * build 脚本前置恒清各包 dist（正确性优先、每次全量重建；dev 路径 tsc
