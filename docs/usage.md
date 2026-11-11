@@ -137,49 +137,60 @@ alias berry='node /path/to/berry-agent/dist/src/host/main.js'
 
 无参启动按当前目录取最新会话——有则续接、无则新建。新建会话的空屏呈引导文案（logo 与「输入消息开始对话——? 查看快捷键」，发出首条消息即收起）。入口旗标：`--port <n>`（开统一 HTTP 面——Web 界面与程序调用族同面）、`--no-plugins`（安全模式）、`--debug`、`--plugin-file <path>`（快速试用——插件免安装试跑，见[插件开发指南](./plugin-development.md#快速试跑--plugin-file零装机)）。
 
-键位册（36 个动作按域分组——`/help` 键位册同源呈现；动作 id 用于下文「用户设置」的键位覆盖）：
+键位册（48 个动作按域分组——`/help` 键位册同源呈现；动作 id 用于下文「用户设置」的键位覆盖）：
 
-| 域     | 键位                                 | 动作 id                       | 说明                                                             |
-| ------ | ------------------------------------ | ----------------------------- | ---------------------------------------------------------------- |
-| 全局   | `escape` / `ctrl+c`                  | `global.interrupt`            | 中断当前 run（不可覆盖；`escape` 在浮层/弹窗在场时先归浮层收屏） |
-| 全局   | `ctrl+d`                             | `global.quit`                 | 退出（空框时）（不可覆盖）                                       |
-| 全局   | `ctrl+p`                             | `global.model-cycle`          | 切换模型（下一轮对话起生效）                                     |
-| 全局   | `shift+tab`                          | `global.mode-cycle`           | 循环切换沙箱模式（下一轮起生效）                                 |
-| 全局   | `?`                                  | `global.help`                 | 打开快捷键帮助（输入框空且空闲时——底栏教学提示同键；不可覆盖）   |
-| 全局   | `ctrl+x b`                           | `global.jobs`                 | 打开后台任务清单页（不可覆盖）                                   |
-| 全局   | `ctrl+x m`                           | `global.model-picker`         | 打开模型选择页（不可覆盖）                                       |
-| 全局   | `ctrl+x h`                           | `global.help`                 | 打开快捷键帮助（不可覆盖）                                       |
-| 思考块 | `ctrl+t`                             | `thinking.toggle`             | 思考块折叠/展开                                                  |
-| 工具卡 | `ctrl+o`                             | `tools.toggle-expand`         | 工具卡展开/收起                                                  |
-| 编辑器 | `enter`                              | `editor.submit`               | 提交输入                                                         |
-| 编辑器 | `alt+enter`                          | `editor.queue-followup`       | 提交并排队（当前回复结束后自动开始）                             |
-| 编辑器 | `shift+enter` / `ctrl+j`             | `editor.new-line`             | 换行                                                             |
-| 编辑器 | `ctrl+-` / `ctrl+_`                  | `editor.undo`                 | 撤销                                                             |
-| 编辑器 | `left` / `ctrl+b`                    | `editor.move-left`            | 光标左移                                                         |
-| 编辑器 | `right` / `ctrl+f`                   | `editor.move-right`           | 光标右移                                                         |
-| 编辑器 | `alt+left` / `ctrl+left` / `alt+b`   | `editor.move-word-left`       | 左移一词                                                         |
-| 编辑器 | `alt+right` / `ctrl+right` / `alt+f` | `editor.move-word-right`      | 右移一词                                                         |
-| 编辑器 | `home` / `ctrl+a`                    | `editor.line-start`           | 行首                                                             |
-| 编辑器 | `end` / `ctrl+e`                     | `editor.line-end`             | 行尾                                                             |
-| 编辑器 | `ctrl+]`                             | `editor.jump-forward`         | 跳至下一指定字符（按键后再输入目标字符）                         |
-| 编辑器 | `ctrl+alt+]`                         | `editor.jump-backward`        | 跳至上一指定字符（按键后再输入目标字符）                         |
-| 编辑器 | `pageup`                             | `editor.page-up`              | 编辑器上翻页                                                     |
-| 编辑器 | `pagedown`                           | `editor.page-down`            | 编辑器下翻页                                                     |
-| 编辑器 | `backspace`                          | `editor.delete-backward`      | 向前删字符                                                       |
-| 编辑器 | `delete` / `ctrl+d`                  | `editor.delete-forward`       | 向后删字符                                                       |
-| 编辑器 | `ctrl+w` / `alt+backspace`           | `editor.delete-word-backward` | 向前删一词（被删段入 kill 环）                                   |
-| 编辑器 | `alt+d` / `alt+delete`               | `editor.delete-word-forward`  | 向后删一词                                                       |
-| 编辑器 | `ctrl+u`                             | `editor.delete-to-line-start` | 删至行首（被删段入 kill 环）                                     |
-| 编辑器 | `ctrl+k`                             | `editor.delete-to-line-end`   | 删至行尾（被删段入 kill 环）                                     |
-| 编辑器 | `ctrl+y`                             | `editor.yank`                 | 粘贴最近 kill 段                                                 |
-| 编辑器 | `alt+y`                              | `editor.yank-pop`             | 环游标步进替换（kill 环）                                        |
-| 编辑器 | `up`                                 | `editor.history-prev`         | 上一条历史                                                       |
-| 编辑器 | `down`                               | `editor.history-next`         | 下一条历史                                                       |
-| 编辑器 | `ctrl+r`                             | `editor.history-search`       | 回搜历史（开搜兼向旧步进）                                       |
-| 编辑器 | `ctrl+s`                             | `editor.history-search-next`  | 回搜历史（向新步进）                                             |
-| 编辑器 | `ctrl+g`                             | `editor.external-edit`        | 用外部编辑器编辑草稿                                             |
+| 域       | 键位                                          | 动作 id                       | 说明                                                                              |
+| -------- | --------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------- |
+| 全局     | `escape` / `ctrl+c`                           | `global.interrupt`            | 中断当前 run（不可覆盖；`escape` 在浮层/弹窗在场时先归浮层收屏）                  |
+| 全局     | `ctrl+d`                                      | `global.quit`                 | 退出（空框时）（不可覆盖）                                                        |
+| 全局     | `ctrl+z`                                      | `global.suspend`              | 挂起回 shell（不可覆盖；win32 不生效）                                            |
+| 全局     | `ctrl+p`                                      | `global.model-cycle`          | 切换模型（下一轮对话起生效）                                                      |
+| 全局     | `shift+tab`                                   | `global.mode-cycle`           | 循环切换沙箱模式（下一轮起生效）                                                  |
+| 全局     | `?` / `ctrl+x h`                              | `global.help`                 | 打开快捷键帮助（不可覆盖；`?` 输入框空且空闲时——底栏教学提示同键）                |
+| 全局     | `ctrl+x b`                                    | `global.jobs`                 | 打开后台任务清单页（不可覆盖）                                                    |
+| 全局     | `ctrl+x c`                                    | `global.copy-response`        | 复制最近一条回复（不可覆盖）                                                      |
+| 全局     | `ctrl+x m`                                    | `global.model-picker`         | 打开模型选择页（不可覆盖）                                                        |
+| 思考块   | `ctrl+t`                                      | `thinking.toggle`             | 思考块折叠/展开                                                                   |
+| 工具卡   | `ctrl+o`                                      | `tools.toggle-expand`         | 工具卡展开/收起                                                                   |
+| 编辑器   | `enter`                                       | `editor.submit`               | 提交输入                                                                          |
+| 编辑器   | `alt+enter`                                   | `editor.queue-followup`       | 提交并排队（当前回复结束后自动开始）                                              |
+| 编辑器   | `alt+↑`                                       | `editor.queue-edit-last`      | 弹回排队末条收回编辑（操控件/图片件跳过）                                         |
+| 编辑器   | `ctrl+v`                                      | `editor.paste-image`          | 粘贴剪贴板图片入稿占位（文本粘贴走 bracketed paste 通道，不经此键）               |
+| 编辑器   | `shift+enter` / `ctrl+j`                      | `editor.new-line`             | 换行                                                                              |
+| 编辑器   | `ctrl+-` / `ctrl+_`                           | `editor.undo`                 | 撤销                                                                              |
+| 编辑器   | `left` / `ctrl+b`                             | `editor.move-left`            | 光标左移                                                                          |
+| 编辑器   | `right` / `ctrl+f`                            | `editor.move-right`           | 光标右移                                                                          |
+| 编辑器   | `alt+left` / `ctrl+left` / `alt+b`            | `editor.move-word-left`       | 左移一词                                                                          |
+| 编辑器   | `alt+right` / `ctrl+right` / `alt+f`          | `editor.move-word-right`      | 右移一词                                                                          |
+| 编辑器   | `home` / `ctrl+a`                             | `editor.line-start`           | 行首                                                                              |
+| 编辑器   | `end` / `ctrl+e`                              | `editor.line-end`             | 行尾                                                                              |
+| 编辑器   | `ctrl+]`                                      | `editor.jump-forward`         | 跳至下一指定字符（按键后再输入目标字符）                                          |
+| 编辑器   | `ctrl+alt+]`                                  | `editor.jump-backward`        | 跳至上一指定字符（按键后再输入目标字符）                                          |
+| 编辑器   | `pageup`                                      | `editor.page-up`              | 编辑器上翻页                                                                      |
+| 编辑器   | `pagedown`                                    | `editor.page-down`            | 编辑器下翻页                                                                      |
+| 编辑器   | `backspace`                                   | `editor.delete-backward`      | 向前删字符                                                                        |
+| 编辑器   | `delete` / `ctrl+d`                           | `editor.delete-forward`       | 向后删字符                                                                        |
+| 编辑器   | `ctrl+w` / `alt+backspace`                    | `editor.delete-word-backward` | 向前删一词（被删段入 kill 环）                                                    |
+| 编辑器   | `alt+d` / `alt+delete`                        | `editor.delete-word-forward`  | 向后删一词                                                                        |
+| 编辑器   | `ctrl+u`                                      | `editor.delete-to-line-start` | 删至行首（被删段入 kill 环）                                                      |
+| 编辑器   | `ctrl+k`                                      | `editor.delete-to-line-end`   | 删至行尾（被删段入 kill 环）                                                      |
+| 编辑器   | `ctrl+y`                                      | `editor.yank`                 | 粘贴最近 kill 段                                                                  |
+| 编辑器   | `alt+y`                                       | `editor.yank-pop`             | 环游标步进替换（kill 环）                                                         |
+| 编辑器   | `up`                                          | `editor.history-prev`         | 上一条历史                                                                        |
+| 编辑器   | `down`                                        | `editor.history-next`         | 下一条历史                                                                        |
+| 编辑器   | `ctrl+r`                                      | `editor.history-search`       | 回搜历史（开搜兼向旧步进）                                                        |
+| 编辑器   | `ctrl+s`                                      | `editor.history-search-next`  | 回搜历史（向新步进）                                                              |
+| 编辑器   | `ctrl+g`                                      | `editor.external-edit`        | 用外部编辑器编辑草稿                                                              |
+| 回看器   | `e`                                           | `history.fork-edit`           | 回看页选中用户消息回溯编辑（`e` 进入回溯选择态；投影位——绑定永不命中）            |
+| 模态编辑 | `i` / `a` / `I` / `A` / `o` / `O`             | `mode.enter-insert`           | 进入插入态（i 光标处 / a 追加 / I 行首 / A 行尾 / o 下开行 / O 上开行；不可覆盖） |
+| 模态编辑 | `escape`                                      | `mode.exit-insert`            | 插入态归普通态（不可覆盖）                                                        |
+| 模态编辑 | `h` / `l` / `w` / `b` / `0` / `$` / `g` / `G` | `mode.motion`                 | 移动（h/l 字符 · w/b 词 · 0/$ 行首尾 · gg/G 首末行；不可覆盖）                    |
+| 模态编辑 | `x` / `dd` / `dw` / `db` / `d0` / `d$`        | `mode.delete`                 | 删除（x 字符 · dd 行 · dw/db 词 · d0/d$ 行段；不可覆盖）                          |
+| 模态编辑 | `yy` / `yw` / `yb` / `y0` / `y$`              | `mode.yank`                   | 复制（yy 行 · yw/yb 词 · y0/y$ 行段；不可覆盖）                                   |
+| 模态编辑 | `p` / `P`                                     | `mode.paste`                  | 贴寄存器（p 后 / P 前；不可覆盖）                                                 |
+| 模态编辑 | `u`                                           | `mode.undo`                   | 撤销（普通态；不可覆盖）                                                          |
 
-全局五条**不可覆盖**——中断/退出是会话生命线；`?` 帮助是闲态教学键、走 text 事件路由（键位册绑定永不命中——非键位绑定面；`ctrl+x h` 是同一动作的前缀键形）；`ctrl+x b` / `ctrl+x m` 两分支属前缀键族（同样不可覆盖）；其余动作均可经 `settings.json` 的 `keybindings` 键覆盖（见下文「用户设置」）。`ctrl+x` 是两步前缀键——输入框空且空闲、无浮层/弹窗时按下进入前缀态（等待期间底栏有提示），2 秒内再按分支键生效（`b` 后台任务清单 / `m` 模型选择 / `h` 帮助）；按了不认识的键即取消前缀态、该键照常起原有作用（`escape` 亦取消）。`ctrl+c` 中断运行中的 run——挂起的审批/问询随之中止（撤销说明行落正文流）。`ctrl+d` 退出——有面板先收屏再转退出；输入框非空时首击只清空输入框（回执「已清空——再按 Ctrl+D 退出」），再按一次才退出；输入框已空则直接退出（键位册双绑 `editor.delete-forward` 仅为覆盖对拍形，路由恒归退出）。`ctrl+p` 模型循环——切换即时登记、**下一轮对话起生效**（运行中的 run 不中途换模型），footer 模型段随切刷新；会话级旋钮不写盘，重启回 env/默认模型位。`alt+enter` 排队提交——运行中的 run 期间不等待不打断：显式排队，当前 run 终态后作种子新起 run（busy 期输入仍可用——两键分职：`enter` 照常发送、追加进当前回复 / `alt+enter` 排队〔当前回复结束后自动开始〕；idle 期同普通提交），主屏常驻排队清单：首行「已排队 N：首条预览」，第二条起各占一行「↳ 预览」（最多列出 3 条，更多的折叠计数；回复结束后自动开始，队列清空即收起）。词删/行删三键（`ctrl+w`、`ctrl+u`、`ctrl+k`）的被删段入 kill 环，`ctrl+y` 取回最近一段、`alt+y` 环游标步进替换。`↑`/`↓` 翻阅输入历史——按工作区分域、跨启动持久（每域最近 100 条，重启不丢）。`meta`（macOS cmd）族键不占用——键串文法不含 meta，留给终端与系统快捷键。
+**不可覆盖**十四条（全局域七条 + 模态编辑域七条）——中断/退出/挂起是会话生命线；`?` 帮助是闲态教学键、走 text 事件路由（键位册绑定永不命中——非键位绑定面；`ctrl+x h` 是同一动作的前缀键形）；`ctrl+x b` / `ctrl+x c` / `ctrl+x m` 三分支属前缀键族（同样不可覆盖）；模态编辑域七条目全为投影位（模态键面无用户改键面）；其余动作均可经 `settings.json` 的 `keybindings` 键覆盖（见下文「用户设置」）。`ctrl+x` 是两步前缀键——输入框空且空闲、无浮层/弹窗时按下进入前缀态（等待期间底栏有提示），2 秒内再按分支键生效（`b` 后台任务清单 / `c` 复制最近一条回复 / `m` 模型选择 / `h` 帮助）；按了不认识的键即取消前缀态、该键照常起原有作用（`escape` 亦取消）。`ctrl+c` 中断运行中的 run——挂起的审批/问询随之中止（撤销说明行落正文流）。`ctrl+d` 退出——有面板先收屏再转退出；输入框非空时首击只清空输入框（回执「已清空——再按 Ctrl+D 退出」），再按一次才退出；输入框已空则直接退出（键位册双绑 `editor.delete-forward` 仅为覆盖对拍形，路由恒归退出）。`ctrl+p` 模型循环——切换即时登记、**下一轮对话起生效**（运行中的 run 不中途换模型），footer 模型段随切刷新；会话级旋钮不写盘，重启回 env/默认模型位。`alt+enter` 排队提交——运行中的 run 期间不等待不打断：显式排队，当前 run 终态后作种子新起 run（busy 期输入仍可用——两键分职：`enter` 照常发送、追加进当前回复 / `alt+enter` 排队〔当前回复结束后自动开始〕；idle 期同普通提交），主屏常驻排队清单：首行「已排队 N：首条预览」，第二条起各占一行「↳ 预览」（最多列出 3 条，更多的折叠计数；回复结束后自动开始，队列清空即收起）。词删/行删三键（`ctrl+w`、`ctrl+u`、`ctrl+k`）的被删段入 kill 环，`ctrl+y` 取回最近一段、`alt+y` 环游标步进替换。`ctrl+z` 挂起回 shell（SIGTSTP 真挂起——终端 `fg` 返回续跑；win32 不生效）；排队中 `alt+↑` 弹回末条收回编辑。`ctrl+v` 直贴剪贴板图片入稿占位（文本粘贴走 bracketed paste 通道零争键）；回看页 `e` 进入用户消息回溯选择态。模态编辑域默认关——`/vim` 命令会话内开关（开 = 装模态拦截层：普通态命令面 h/l/w/b 移动、dd 删行、yy 复制、p 贴、i 进插入、escape 归普通；关 = 零呈现零拦截；不跨进程持久）。`↑`/`↓` 翻阅输入历史——按工作区分域、跨启动持久（每域最近 100 条，重启不丢）。`meta`（macOS cmd）族键不占用——键串文法不含 meta，留给终端与系统快捷键。
 
 触发前缀与鼠标（非键位册动作）：
 
@@ -216,7 +227,7 @@ TUI 内建命令（随插件安装动态扩展）：`/plugins`（插件管理 TU
 - `/diff` —— 工作区改动总览：本会话 edit 类工具的文件改动按文件分组（组头文件名 + 增删行计数、组体词级 diff；`Enter` 展开 / 收起）——数据源为会话事件投影、零 git 子进程（答「本会话改了什么」，工作树现状归 git 自查）；
 - `/skills` —— 技能列表：发现层胜者单行（标注来源层）；`Enter` 回填技能调用形入输入框并收起面板——不直接执行，技能执行走模型侧消费路；
 - `/help` —— 命令与键位帮助：命令册（会话命令 + TUI 本地命令族〔退出词与本地拦截命令〕合流）与键位册（当前生效键位按域分组——含用户覆盖生效形）双源；
-- `/guide` —— 快速上手参考：快速上手 / 模型配置 / 核心命令 / 文档地图（docs 五册路径）/ 升级与卸载五段静态快照（版本居面板首行；新机起手一屏——文案单源直出）。
+- `/guide` —— 快速上手参考：快速上手 / 模型配置 / 核心命令 / 文档地图（docs 六册路径）/ 升级与卸载五段静态快照（版本居面板首行；新机起手一屏——文案单源直出）。
 - `/rewind` —— 回退点选择器（2026-09-30 会话管理命令批批3）：manifest 成品行清单（打字过滤 + `↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End` 光标 + 滚轮）+ 两步确认（`Enter` 预览三行对照〔恢复 N/删除 M/不动 U——零改动核对 + 手动改动不回退警告行〕→ `Enter` 确认 fork 新会话并切前台；`Esc` 回列表不退屏；预览失败诚实拒 Enter 零动作）。
 - `/model` —— 模型选择：provider 分组条目全列（清单与 ctrl+p 循环同源）+ `●` 当前标记 + 打字过滤（输入即滤、`Backspace` 删尾、过滤词呈现底行；`q` 无过滤词时为退出捷键）；`↑`/`↓`/`Home`/`End` 移动、`Enter` 选定（下一轮对话起生效并回执一行，与 `ctrl+p` 快速循环同源同效）、`Esc` 退出；
 - `/marketplace` —— 插件市场：市场条目清单（`已装` 徽标分未装/已装）+ `↑`/`↓` 移动、`Enter` 安装/卸载（未装 = 安装；已装 = 双相卸载：核查清单回执 → 三选裁决〔取消/保留数据/清数据〕）、`u` 更新（未装条目指路 enter 安装）、`r` 强制刷新（恒回源重取）；busy 单槽跨开屏持久——长动作进行期间动作键锁定，收屏后动作继续、重开可见结算回执。
@@ -241,7 +252,7 @@ TUI 内建命令（随插件安装动态扩展）：`/plugins`（插件管理 TU
 ```
 
 - `theme`——TUI 主题设置：内置 `dark` / `light` / `auto` 三值（默认 `auto`）或自定义主题名（形见下）；`auto` = 启动时发 OSC 11 背景色查询按终端明暗裁定色板，并订阅明暗变化通知（支持的终端切换明暗即时跟随换板；无返回维持暗色）；显式 `dark`/`light` 不探测；`/themes` 选定同写本键；
-- `keybindings`——键位用户覆盖（动作 id → 单个键串，**整体替换**该动作的默认键集——非追加；同动作多条以末条为准）：动作 id 见上文键位册表；键串文法 = 修饰键固定序 `ctrl+alt+shift+` + 单字符或具名键（`enter` `escape` `tab` `backspace` `delete` `insert` `up` `down` `left` `right` `home` `end` `pageup` `pagedown` `space`，全小写）。坏条目逐条拒载并点名警告（TUI 启动落屏「键位覆盖未生效：<原因>」）——不炸启动、好条目照常生效、拒载动作回退默认键位。拒载四形：未知动作 / 不可覆盖动作（全局五条）/ 畸形键串 / 键冲突（覆盖后同键动作集与默认册不一致）；
+- `keybindings`——键位用户覆盖（动作 id → 单个键串，**整体替换**该动作的默认键集——非追加；同动作多条以末条为准）：动作 id 见上文键位册表；键串文法 = 修饰键固定序 `ctrl+alt+shift+` + 单字符或具名键（`enter` `escape` `tab` `backspace` `delete` `insert` `up` `down` `left` `right` `home` `end` `pageup` `pagedown` `space`，全小写）。坏条目逐条拒载并点名警告（TUI 启动落屏「键位覆盖未生效：<原因>」）——不炸启动、好条目照常生效、拒载动作回退默认键位。拒载四形：未知动作 / 不可覆盖动作（十四条——全局域七 + 模态编辑域七）/ 畸形键串 / 键冲突（覆盖后同键动作集与默认册不一致）；
 - `animations`——TUI 动效总门（boolean，默认 `true`；`false` = 忙态转轮退 dim 静态符、tick 定时器不摆）；env `BERRY_AGENT_TUI_ANIMATIONS`=`0|1` 逐次覆盖（env 胜持久键，坏值警告后走持久键）；
 - `notifyTriggers`——桌面通知触发档白名单（字符串数组）：四档 `turn-completed`（轮完成）/ `turn-aborted`（轮中止）/ `turn-failed`（轮失败——含重试耗尽）/ `approval-waiting`（等待审批）；键缺席 = 四档全发（默认）、`[]` = 显式全静默、坏元素丢该元素并警告；与载波门 env `BERRY_AGENT_TUI_NOTIFY`（`auto|osc9|bel|off`，默认 `auto`——OSC 9 优先、tmux 环境自动走 DCS 包裹、无载波退响铃）两维分立：载波关（`off` 或探测无载波）时不经白名单直接全静默。
 
@@ -280,7 +291,8 @@ run 旗标族：
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--output-format <text\|json\|stream>`          | 输出三种（默认 text）                                                                                                                                                                                                     |
 | `--output-last-message <file>`                  | 末条 assistant 文本原子写文件                                                                                                                                                                                             |
-| `--ephemeral`                                   | 零落盘单发（与续接族/`--tick`/`--background` 互斥）                                                                                                                                                                       |
+| `--ephemeral`                                   | 零落盘单发（与续接族/`--tick`/`--background`/`--answers` 互斥）                                                                                                                                                           |
+| `--answers <spec>`                              | 无人值守审批预填：`tool=answer` 逗号表（tool 全等或 `前缀*` 通配形——`write*` 匹配 write/write_file 族；answer 三值 `approve\|always\|reject`；保序后条胜出；与 `--ephemeral` 互斥）                                       |
 | `--max-turns <n>`                               | turn 数上限（到上限结束如实标 truncated）                                                                                                                                                                                 |
 | `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥）；`--fork` 带显式 id 时旗标可在消息前，省 id 时须置于消息之后（旗标在前会把消息文本吞作 fork id——用法错退 2）                                                                                         |
 | `--read-only`                                   | read-only 沙箱单发                                                                                                                                                                                                        |
@@ -499,6 +511,8 @@ berry marketplace remove <市场名>     # 移除源（连同缓存目录清理�
 | `BERRY_AGENT_DATA_DIR`                 | 数据目录                                                                                                                                                                                                                                | `~/.berry-agent`            |
 | `BERRY_AGENT_DB_PATH`                  | 库文件路径（独立梯子——重定向库文件而不动数据目录）                                                                                                                                                                                      | `<数据目录>/sessions.db`    |
 | `BERRY_AGENT_LOG_LEVEL`                | 日志级别：error / warn / info / debug / silent                                                                                                                                                                                          | `info`                      |
+| `BERRY_AGENT_TUI_ANIMATIONS`           | TUI 动效逐次开关：`0\|1`（env 胜 settings.json `animations` 键——见「用户设置」；坏值警告后走持久键）                                                                                                                                    | 未设（走 settings.json）    |
+| `BERRY_AGENT_TUI_NOTIFY`               | TUI 桌面通知载波门：`auto\|osc9\|bel\|off`（与 `notifyTriggers` 白名单两维分立——载波定「经哪条道发」、白名单定「哪些事值得发」；坏值警告后走默认）                                                                                      | `auto`                      |
 | `BERRY_AGENT_SKIP_UPDATE_CHECK`        | TUI 启动版本检查关断（置值即关——关掉即零网络包；手动检查 `/update` 与 `berry update` 不受辖（别名仅 CLI 侧：`berry upgrade` 为 `berry update` 同义别名；TUI 内命令即 `/update` 本名，无 `/upgrade` 别名——未注册词走发给模型当消息路）） | 未设（检查开）              |
 | `BERRY_AGENT_BASH_PATH`                | bash 工具可执行路径（缺失 fail-loud）                                                                                                                                                                                                   | PATH 发现序                 |
 | `BERRY_AGENT_FD_PATH`                  | `@` 文件补全全库索引的 fd 可执行**绝对路径**（生效位——裸段全库模糊腿行走经此子进程收割；缺席 / 相对路径 / 调用失败一律降级内建行走）                                                                                                    | —                           |
@@ -532,6 +546,10 @@ berry marketplace remove <市场名>     # 移除源（连同缓存目录清理�
 - **环境自省**：模型工具面含 `session_status`——当前会话状态、整形后可见工具清单与高危面门态快照三段（只读，供模型自省工作环境）；
 - **插件生命周期与压缩回归**：模型工具面含插件生命周期族八个——只读三个 `plugins_list` / `events_query` / `plugin_uninstall_inspect` + 写类五个 `plugin_install` / `plugin_mount` / `plugin_unmount` / `plugin_toggle` / `plugin_update`（写类走审批对自动执法；挂载生效回执指路 `/reload`——模型面不自动链重载）；及 `ccr_retrieve`（压缩归档原文检索——会话压缩折叠后按 hash 取回原文段，压缩可逆）；
 - **用量观测**：模型工具面含 `obs_query`——小时/日桶聚合查询（`metric=usage` 为 LLM token 用量：input/output 主计费桶与 cache 桶分列、token 原始值不折算货币；`hit_rate` = 缓存命中率派生列 `cacheRead/(input+cacheRead+cacheWrite)` 桶内聚合比值，`n/a` = 桶内无 token 流）。
+
+## 项目上下文装载
+
+berry 自动发现并整嵌项目指令：自会话工作区根**逐级向上至文件系统根**，每目录**先 `AGENTS.md` 后 `CLAUDE.md`**（规范名优先、`CLAUDE.md` 系兼容回退），**首个命中即装载（最近者胜）、只装一份**——全程无命中 = 零段诚实缺席（不注入空壳）。装载形 = 头部路径披露行 + 原文整嵌（fence 长度自适应——原文自含代码块时不破嵌；「模型可见即已记录」，指令可溯源到盘上文件）；大小上限 64 KiB（按 UTF-8 字节计），超出即截断并附截断披露行。**fail-open**：候选文件不可读/编码坏、逐级向上途中 stat 失败（EACCES 等）一律警告一行继续向上——项目指令装载是增强面非正确性面，读不到不阻塞。每会话懒冻结：首物化冻结、会话内字节恒定（盘上文件变更不热跟；空结果不冻结——防早期空冻结钉死），`/reload` 热重载换代即重新发现重冻结。
 
 ## 下一步
 
