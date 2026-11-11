@@ -131,8 +131,8 @@ Le premier lancement crée `~/.berry-agent/`. Le modèle par défaut est
 `anthropic/claude-sonnet-5` (fournissez `ANTHROPIC_API_KEY`, ou lancez `/setup`
 dans la TUI — un assistant qui configure les fournisseurs intégrés et des
 passerelles personnalisées compatibles Anthropic/OpenAI, effet immédiat) ;
-surchargez avec `BERRY_AGENT_MODEL`. La référence complète des commandes, drapeaux et variables
-d'environnement se trouve dans le [guide d'utilisation](./docs/usage.md) (en chinois).
+surchargez avec `BERRY_AGENT_MODEL`. La référence complète des commandes, drapeaux, variables
+d'environnement et raccourcis TUI se trouve dans le [guide d'utilisation](./docs/usage.md) (en chinois).
 
 ## Les 16 plugins intégrés
 
@@ -181,6 +181,9 @@ Tout dépôt doté d'un catalogue marketplace peut agréger la distribution, et 
   dépôt principal.
 - **MCP** — `berry mcp` expose l'agent comme serveur MCP, pilotable par
   n'importe quel client MCP.
+- **ACP** — `berry acp` expose l'agent comme un agent ACP v1, spawné directement par
+  les éditeurs et agrégateurs ; voir le
+  [guide d'intégration aux agrégateurs](./docs/aggregators.md) (en chinois).
 
 ## Architecture
 
@@ -210,7 +213,7 @@ graph TD
 
 ## Documentation
 
-Les cinq volumes sont actuellement rédigés en chinois :
+Les six volumes sont actuellement rédigés en chinois :
 
 | Volume                                                   | Couvre                                                        |
 | -------------------------------------------------------- | ------------------------------------------------------------- |
@@ -219,6 +222,7 @@ Les cinq volumes sont actuellement rédigés en chinois :
 | [Développement de plugins](./docs/plugin-development.md) | manifeste, capacités ctx, points d'extension, publication |
 | [Guide de développement](./docs/development.md)          | barrières, loi de topologie, discipline de test, contribution |
 | [Manuel d'exploitation](./docs/operations.md)            | répertoire de données, sauvegarde & restauration, dépannage   |
+| [Intégration aux agrégateurs](./docs/aggregators.md)     | intégrer berry : découverte, exécution headless, serve, MCP, ACP |
 
 ## Développement
 

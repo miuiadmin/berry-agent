@@ -131,8 +131,8 @@ El primer arranque crea `~/.berry-agent/`. El modelo por defecto es
 `anthropic/claude-sonnet-5` (proporciona `ANTHROPIC_API_KEY`, o ejecuta `/setup`
 en la TUI — un asistente que configura proveedores integrados y gateways
 personalizados compatibles con Anthropic/OpenAI y surte efecto al instante);
-sobrescríbelo con `BERRY_AGENT_MODEL`. La referencia completa de comandos, banderas y variables de
-entorno está en la [guía de uso](./docs/usage.md) (en chino).
+sobrescríbelo con `BERRY_AGENT_MODEL`. La referencia completa de comandos, banderas, variables de
+entorno y atajos de TUI está en la [guía de uso](./docs/usage.md) (en chino).
 
 ## Los 16 plugins integrados
 
@@ -181,6 +181,9 @@ el `examples/` de este repositorio incluye uno que puedes probar con
   repositorio principal.
 - **MCP** — `berry mcp` expone el agente como servidor MCP, para que
   cualquier cliente MCP pueda conducirlo.
+- **ACP** — `berry acp` expone el agente como un agente ACP v1, que editores y
+  agregadores spawnean y conectan directamente; consulta la
+  [guía de integración con agregadores](./docs/aggregators.md) (en chino).
 
 ## Arquitectura
 
@@ -209,7 +212,7 @@ graph TD
 
 ## Documentación
 
-Los cinco volúmenes están escritos actualmente en chino:
+Los seis volúmenes están escritos actualmente en chino:
 
 | Volumen                                               | Cubre                                                              |
 | ----------------------------------------------------- | ------------------------------------------------------------------ |
@@ -218,6 +221,7 @@ Los cinco volúmenes están escritos actualmente en chino:
 | [Desarrollo de plugins](./docs/plugin-development.md) | manifiesto, capacidades ctx, puntos de extensión, publicación |
 | [Guía de desarrollo](./docs/development.md)           | barreras, ley de topología, disciplina de tests, contribución      |
 | [Manual de operaciones](./docs/operations.md)         | directorio de datos, copia y restauración, resolución de problemas |
+| [Integración con agregadores](./docs/aggregators.md)  | embeber berry: descubrimiento, ejecución headless, serve, MCP, ACP |
 
 ## Desarrollo
 

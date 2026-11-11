@@ -131,7 +131,7 @@ The first run creates `~/.berry-agent/`. The default model is `anthropic/claude-
 (supply `ANTHROPIC_API_KEY`, or run `/setup` in the TUI — a wizard that configures
 built-in providers and custom Anthropic/OpenAI-compatible gateways, and takes effect
 immediately); override with `BERRY_AGENT_MODEL`. The full command,
-flag and environment-variable reference lives in the [usage guide](./docs/usage.md) (Chinese).
+flag, environment-variable and TUI-keybinding reference lives in the [usage guide](./docs/usage.md) (Chinese).
 
 ## The 16 built-in plugins
 
@@ -179,6 +179,9 @@ marketplace catalog can aggregate distribution, and this repository's own
   repository.
 - **MCP** — `berry mcp` exposes the agent as an MCP server, so any MCP
   client can drive it.
+- **ACP** — `berry acp` exposes the agent as an ACP v1 agent that editors and
+  aggregators spawn and connect to directly; see the
+  [aggregator integration guide](./docs/aggregators.md) (Chinese).
 
 ## Architecture
 
@@ -207,7 +210,7 @@ graph TD
 
 ## Documentation
 
-All five volumes are currently written in Chinese:
+All six volumes are currently written in Chinese:
 
 | Volume                                             | Covers                                             |
 | -------------------------------------------------- | -------------------------------------------------- |
@@ -216,6 +219,7 @@ All five volumes are currently written in Chinese:
 | [Plugin development](./docs/plugin-development.md) | manifest, ctx capabilities, extension points, publishing |
 | [Development guide](./docs/development.md)         | gates, topology law, test discipline, contributing |
 | [Operations manual](./docs/operations.md)          | data directory, backup & restore, troubleshooting  |
+| [Aggregator integration](./docs/aggregators.md)    | embedding berry: discovery, headless run, serve, MCP, ACP |
 
 ## Development
 

@@ -152,6 +152,8 @@ provider 生态变量供给，如 `ANTHROPIC_API_KEY`；或 TUI 内 `/setup` 向
 - **SDK**——类型化 TypeScript 客户端（stdio spawn / 直连 HTTP 两传输）随仓库同源；
   `berry-agent-sdk` npm 包 alpha 版已上 npm（`npm install berry-agent-sdk` 即装）、随主仓演进。
 - **MCP**——`berry mcp` 以 MCP server 形态暴露 Agent，任意 MCP 客户端可接入。
+- **ACP**——`berry acp` 以 ACP v1 agent 形态暴露 Agent，编辑器/聚合器 spawn 直连
+  （详见[聚合工具适配指南](./docs/aggregators.md)）。
 
 ## 架构
 
@@ -186,6 +188,7 @@ graph TD
 | [插件开发指南](./docs/plugin-development.md) | manifest、ctx 能力面、扩展点、发布   |
 | [开发指南](./docs/development.md)            | 门禁、拓扑律、测试纪律、贡献流程     |
 | [运维手册](./docs/operations.md)             | 数据目录、备份恢复、故障排查         |
+| [聚合工具适配指南](./docs/aggregators.md)    | 嵌入 berry：发现、无头执行、serve、MCP、ACP |
 
 ## 开发
 
@@ -193,7 +196,7 @@ graph TD
 npm install
 npm run typecheck       # 门禁一：tsc --noEmit
 npm test                # 门禁二：vitest run
-npm run lint:topology   # 门禁三：模块 DAG + API 治理面 + 词汇查项门禁
+npm run lint:topology   # 门禁三：模块 DAG + API 快照 + 词汇查项门禁
 npm run format:check    # 门禁四：prettier 检查
 npm run build           # 构建链（webui → tsc → API 声明快照）
 ```
