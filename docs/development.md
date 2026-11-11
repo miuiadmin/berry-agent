@@ -22,7 +22,11 @@
 
 **平台支持**：CI 实测面 = Linux + macOS 双 OS。Windows 未测——`better-sqlite3` 原生模块在 Windows 侧的编译链未验证过，不承诺可装可跑；欢迎带诊断信息的 Windows issue，但修复不排优先级。
 
+**Linux 测试前提**：本地跑全量测试须 bubblewrap 真装（沙箱腿真跑不 mock）——Ubuntu 24.04 起 AppArmor 默认限制非特权 userns，bwrap 建命名空间会被拒，须放行 `kernel.apparmor_restrict_unprivileged_userns`（与 CI Linux 腿同款前提）；macOS 不需此步（seatbelt 内建）。容器内复现的完整命令与注记见[CI 红归因对轨的 Linux-only 复现谱](#ci-红归因对轨本地复现哪个-job-红了)。
+
 **测试规模预期**：全量测试约 370 个测试文件、7,000+ 用例（数字随批漂移——以 CI 实测为准）——普通开发机（近几年主流配置的笔记本）本地全量数分钟；CI 在双 OS 上各完整跑一遍。
+
+**可选测试依赖**：python3（pty 腿中继）/ tmux / screen / macOS `hdiutil`——缺席即 `skipIf` 静默跳过不红；CI 侧全装真跑（实测面以 CI 为准），本地 skip 数偏大属预期、不是失真。
 
 ```bash
 git clone https://github.com/miuiadmin/berry-agent.git
@@ -46,6 +50,8 @@ npm run build:sdk       # SDK 包独立构建（packages/berry-agent-sdk）
 ```
 
 注意构建链序制：**禁止单独倒跑 `build:webui`**（vite `emptyOutDir` 会抹掉 tsc 产物——必须整链 `npm run build`）。
+
+**门禁命中台账（可选道——不是第五门禁）**：`npm run gates:ledger` 包装四门禁、只记 error 级红跑至 `.gates-hits.jsonl`（gitignored——绿跑零落账零建文件）；`npm run gates:ledger:report` 复算分布表（窗口 `--since`）。旁路观测道：不动任何既有 script、门禁判定不因它改变。
 
 ## CI 红归因对轨（本地复现哪个 job 红了）
 
@@ -124,7 +130,7 @@ src/
 packages/
   berry-agent-sdk/      类型化 SDK 客户端包（stdio/HTTP 两传输）
 tools/                  门禁检查器族（check-topology / check-api / emit-api-decls）
-docs/                   公开文档面（本五册）
+docs/                   公开文档面（本六册，含 aggregators）
 ```
 
 ## 工程约定
