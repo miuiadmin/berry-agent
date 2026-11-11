@@ -58,7 +58,7 @@ berry serve status / serve stop      # 探活（0 在跑/1 未跑）与优雅停
 - **心跳是协议义务**：idle 超阈（缺省 5000ms）即发 `heartbeat` 帧（载 sessionId/run 态/当前阶段 thinking·tool·retry/累计 elapsedMs）——「慢」不会被误读为「死」，聚合器状态机（idle/working/blocked）可直接消费。
 - **能力公告**（hello capabilities）：每个 `hello` 帧携带可选 `capabilities` 载荷——`models`（栈内模型清单）/ `tools`（工具名快照）/ `features`（能力串：`acp`·`mcp-server` = 安装级恒在、`webui` = 本进程面可开、`images` = 附件栈）。**每 hello 现取**（断线重连即重取）；快照语义——core:mcp 异步发现在途时 `tools` 可滞后，勿据单次快照判「永不」。与 §六 ACP initialize 能力位分立不合并（ACP 词面系官方 schema）。
 - **审批外推**：run 遇审批即推 `ask` 帧（会话流上），聚合器人审后 `/v1/decide` 应答——这是**应答能力不是自动批准**；无订阅者时 fail-closed（不会挂着等）。
-- **单活跃机**：一数据目录一 daemon（第二实例 `HOST_DATA_DIR_BUSY` 拒启）。聚合器「拉起-接入」编舞：先 `serve status` 探活，未跑再 `--daemon` 拉起，然后连 sock/TCP——不发明自动接管。
+- **单活跃机**：一数据目录一 daemon（第二实例 `HOST_DATA_DIR_BUSY` 拒启）。ACP 形差异：`berry acp` 第二实例**不拒启**——自动纯字节代理入首实例（多连接复用，见[§六](#六acp-面berry-acp已落地)）。聚合器「拉起-接入」编舞：先 `serve status` 探活，未跑再 `--daemon` 拉起，然后连 sock/TCP——不发明自动接管。
 - **npm SDK**：[`berry-agent-sdk`](https://www.npmjs.com/package/berry-agent-sdk)（零配置类型化客户端）——`spawnServeTransport`（托管 spawn `berry serve` stdio 子进程，一条 NDJSON 线）与 `httpSdkTransport`（sock/TCP + SSE 直连）两传输同一方法面：`prompt`/`subscribe`/`sessions`/`getEntries`/`decide`/`interrupt`。**推荐聚合器直接消费 SDK 包**，线协议词汇与主仓单源同编译、类型零漂移。
 
 ## 四、MCP 面：`berry mcp`（能力出口——被别家 agent 当工具调）
@@ -91,7 +91,8 @@ ACP（Agent Client Protocol）v1 agent 侧包装——Zed / paseo / hapi / t3 �
 berry acp     # stdio 直连（客户端 spawn 形态——宿主配置里填可执行名 + 参数）
 ```
 
-- **方法基线集**（v1）：`initialize`（protocolVersion 整数 1 回显制；能力位诚实——`loadSession: true`、`promptCapabilities.image: true`，未承载位不虚报）/ `session/new`（`cwd` 必携绝对路径 → berry 会话工作区根〔AGENTS.md 发现锚由此而来〕；`mcpServers` 非空即 -32602 拒收——v1 有意边界，MCP 客户端配置经 berry 插件面装载）/ `session/prompt`（内容块 text·image·resource_link；晚应答——`agent_end` 终态到达才回 `stopReason`）/ `session/cancel`（→ berry interrupt，终值 `cancelled`）/ `session/load`（durable 全量重放为 `session/update` 序）/ `session/update`（直播：`agent_message_chunk`/`agent_thought_chunk`/`tool_call`/`tool_call_update`；session/load 重放另含 `user_message_chunk`）/ `session/request_permission`（审批双向：ask 外推为 2..N+2 档选项——建议候选集在场时逐条「始终允许」+ 允许本次 + 拒绝（缺席 = 两档；optionId 携索引后缀 `allow-always-N` 供选定索引映射），应答汇入 berry 跨入口审批竞速漏斗；宿主接入示例：Zed（agent 列表自定义 ACP agent：command `berry`，args `["acp"]`）；paseo/hapi 型聚合器（ACP 适配器位同填 `berry acp`）。
+- **方法基线集**（v1）：`initialize`（protocolVersion 整数 1 回显制；能力位诚实——`loadSession: true`、`promptCapabilities.image: true`，未承载位不虚报）/ `session/new`（`cwd` 必携绝对路径 → berry 会话工作区根〔AGENTS.md 发现锚由此而来〕；`mcpServers` 非空即 -32602 拒收——v1 有意边界，MCP 客户端配置经 berry 插件面装载——manifest `server` 键声明形见[插件开发指南](./plugin-development.md#manifest)）/ `session/prompt`（内容块 text·image·resource_link；晚应答——`agent_end` 终态到达才回 `stopReason`）/ `session/cancel`（→ berry interrupt，终值 `cancelled`）/ `session/load`（durable 全量重放为 `session/update` 序）/ `session/update`（直播：`agent_message_chunk`/`agent_thought_chunk`/`tool_call`/`tool_call_update`；session/load 重放另含 `user_message_chunk`）/ `session/request_permission`（审批双向：ask 外推为 2..N+2 档选项——建议候选集在场时逐条「始终允许」+ 允许本次 + 拒绝（缺席 = 两档；optionId 携索引后缀 `allow-always-N` 供选定索引映射），应答汇入 berry 跨入口审批竞速漏斗；宿主接入示例：Zed（agent 列表自定义 ACP agent：command `berry`，args `["acp"]`）；paseo/hapi 型聚合器（ACP 适配器位同填 `berry acp`）。
+- **多连接复用**：首 `berry acp` 持数据目录锁后顺带监听 `<数据目录>/acp.sock`——每 socket 连接独立 face（多连接入同一进程内多 face 承载）；后到 spawn 撞 `HOST_DATA_DIR_BUSY` 时自动纯字节代理 stdio↔socket（零装配零协议解析——聚合端「每会话一 spawn」拓扑免改）；进程退场条件 = **全部连接退场**（非仅 stdio EOF）——单活跃不变式不动，不放宽单活跃律。锁持有者非 ACP 形态（TUI/serve 等）时无 socket 可接，后到 `berry acp` 回落既有 fail-loud 拒启（诚实拒入不静默）。
 
 ---
 

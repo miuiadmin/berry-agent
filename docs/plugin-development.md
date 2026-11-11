@@ -12,27 +12,30 @@
 - **apply 函数**（入口——接收 `ctx` 注册能力，可返回清理函数随卸载回卷）；
 - 可选的**技能目录**（纯声明载荷——零码装载）。
 
-三种入口形态（解析序）：
+四种入口形态（解析序）：
 
 1. **entry-file**：manifest 声明 `entry` 键 → 执行该文件；
-2. **纯声明包**：`entry` 缺席且 `skills` 非空 → **零码装载**（包主入口不执行——技能清单是唯一载荷）；
-3. **default-export**：默认 → 执行包主入口的 default export。
+2. **server-declared**（server 声明块形）：`entry` 缺席且 `server` 块在场 → **零码装载只供工具**（零 jiti、零 apply——装载 = server 块交 core:mcp 桥受理）；
+3. **纯声明包**：`entry` 缺席且声明载荷（`skills`/`agents`）非空 → **零码装载**（包主入口不执行——技能/子代理清单是唯一载荷）；
+4. **default-export**：默认 → 执行包主入口的 default export。
 
 ## manifest
 
 manifest 是包内声明面（键闭集，未知键**拒载**——拒绝式而非忽略式）：
 
-| 键             | 形            | 说明                                                                                                                             |
-| -------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `id`           | string        | 插件 id；默认取 package.json `name`。字符集：小写字母/数字/连字符，首字符非连字符；`core:` 前缀为官方件保留                      |
-| `label`        | string        | 展示名；默认取 id                                                                                                                |
-| `entry`        | string        | 入口文件（相对包根）；缺席走解析序                                                                                               |
-| `grants`       | object        | 授权申请面；单维 `writableRoots: string[]`                                                                                       |
-| `config`       | object        | 宿主侧默认配置值（启用行 `config` 缺席时整值回落——**整值替换非合并**；secret 型键明文值拒载）                                    |
-| `configSchema` | ConfigField[] | 配置字段声明面（四型字段描述数组——装载期字段级校验与 `/plugins config` 表单渲染双消费源；见下「配置声明」节）                    |
-| `api`          | object        | API 治理块（`minApiVersion` / `targetApiVersion` / `experimental`——装载门版本裁决，见下[API 治理块](#api-治理块manifest-api)节） |
-| `skills`       | string[]      | 技能目录清单；非空即在场的唯一声明载荷                                                                                           |
-| `agents`       | string[]      | 声明式子代理目录清单（`agents/*.md` frontmatter def——装载即物化，见下[声明式子代理节](#声明式子代理agents-目录)）                |
+| 键             | 形                         | 说明                                                                                                                                                                                                                                                                                                                                          |
+| -------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | string                     | 插件 id；默认取 package.json `name`。字符集：小写字母/数字/连字符，首字符非连字符；`core:` 前缀为官方件保留                                                                                                                                                                                                                                   |
+| `label`        | string                     | 展示名；默认取 id                                                                                                                                                                                                                                                                                                                             |
+| `entry`        | string                     | 入口文件（相对包根）；缺席走解析序                                                                                                                                                                                                                                                                                                            |
+| `grants`       | object                     | 授权申请面；两维 `writableRoots` / `nodeBuiltins` 各 string[]                                                                                                                                                                                                                                                                                 |
+| `config`       | object                     | 宿主侧默认配置值（启用行 `config` 缺席时整值回落——**整值替换非合并**；secret 型键明文值拒载）                                                                                                                                                                                                                                                 |
+| `configSchema` | ConfigField[]              | 配置字段声明面（四型字段描述数组——装载期字段级校验与 `/plugins config` 表单渲染双消费源；见下「配置声明」节）                                                                                                                                                                                                                                 |
+| `api`          | object                     | API 治理块（`minApiVersion` / `targetApiVersion` / `experimental`——装载门版本裁决，见下[API 治理块](#api-治理块manifest-api)节）                                                                                                                                                                                                              |
+| `skills`       | string[]                   | 技能目录清单；非空即在场的唯一声明载荷                                                                                                                                                                                                                                                                                                        |
+| `agents`       | string[]                   | 声明式子代理目录清单（`agents/*.md` frontmatter def——装载即物化，见下[声明式子代理节](#声明式子代理agents-目录)）                                                                                                                                                                                                                             |
+| `server`       | object                     | MCP-server 形插件装载位声明块——一插件一服务器、字段集与 core:mcp 行 config `servers` 单源；在场 = **零码装载只供工具**（装载 = server 块交 core:mcp 桥受理），与 `entry`/`skills`/`agents` 互斥（同给即拒载——单形状禁双载体）；用户侧 `berry mcp` 管理族见[聚合工具适配指南](./aggregators.md#四mcp-面berry-mcp能力出口被别家-agent-当工具调) |
+| `flags`        | {name,type,description?}[] | CLI 旗标声明面（声明式唯一形态）——`name` 词法 `^[a-z][a-z0-9-]*$`（与 configSchema key 同形）、`type` 二值闭集 `boolean`\|`string`、`description` 可选；受理面 run/TUI 两入口；宿主旗标词保留 + 跨插件撞名装载期拒；值经 `ctx.flags.of(name)` 送达                                                                                            |
 
 ### API 治理块（manifest `api`）
 
